@@ -69,7 +69,9 @@
       if (actual !== manifest.sha256.toLowerCase()) {
         return { status: "rejected", reason: "hash-mismatch" };
       }
-      return { status: "verified", bytes, sha256: actual, channel: manifest.channel, version };
+      return { status: "verified", bytes, sha256: actual, channel: manifest.channel, version,
+        migrationRequired: manifest.migrationRequired === true,
+        minimumCompatibleVersion: manifest.minimumCompatibleVersion };
     } catch (_) {
       return { status: "unavailable" };
     }
