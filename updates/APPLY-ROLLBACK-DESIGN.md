@@ -1,6 +1,6 @@
 # Browser-only apply and rollback design
 
-This contract has a browser-only `install.js` transaction and a prepared Settings control in `settings-ui.js`. Production integration is pending browser validation. `apply-design-model.js` remains an in-memory reference model. The public manifest still contains no installable package.
+This contract has a browser-only `install.js` transaction and a Settings control in `settings-ui.js`. The control is installed in the local MoonDog Settings page. `apply-design-model.js` remains an in-memory reference model. The public manifest still contains no installable package.
 The future end-user flow uses only Edge/Chrome browser APIs and HTML/CSS/JavaScript/JSON; Node runs repository tests only, never on an end-user PC.
 
 ## Browser access and reconnection
@@ -23,4 +23,4 @@ Protected paths include `data/`, `history/`, `backup/`, `backups/`, `reports/`, 
 4. If any apply or verification step fails, restore every original target from the backup, and remove only approved targets that were absent beforehand. Read back every restored file and confirm original path presence and byte hashes. Protected paths are outside this rollback set. A successful apply or rollback retains the backup and journal for recovery review.
 5. If permission, storage, browser, or machine failure prevents completed rollback, keep the backup and journal intact, block further updates, and require the user to reconnect the folders and finish recovery. Do not claim that the original state is restored until its bytes and file presence are verified.
 
-The intended exact-state guarantee covers application-file bytes and whether each target file existed. Browser file APIs cannot promise preservation of every filesystem timestamp or ACL, and no browser can guarantee automatic rollback after lost access or hardware failure. A retained, read-back-verified backup is the recovery path in those cases. The prepared Settings control offers explicit recovery from an interrupted update's backup journal. No production integration, migration, or release package is published.
+The intended exact-state guarantee covers application-file bytes and whether each target file existed. Browser file APIs cannot promise preservation of every filesystem timestamp or ACL, and no browser can guarantee automatic rollback after lost access or hardware failure. A retained, read-back-verified backup is the recovery path in those cases. Settings offers explicit recovery from an interrupted update's backup journal. No migration or release package is published.
