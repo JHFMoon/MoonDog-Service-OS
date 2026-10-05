@@ -1,0 +1,50 @@
+# Operational data and local application state: never commit.
+**/[Dd]ata/
+**/[Hh]istory/
+**/[Bb]ackup/
+**/[Bb]ackups/
+**/[Rr]eports/
+**/[Ee]xports/
+**/[Ll]ogs/
+**/[Tt]emp/
+**/[Tt]mp/
+**/*[Dd][Rr][Oo][Pp] [Rr][Ee][Pp][Oo][Rr][Tt][Ss] [Hh][Ee][Rr][Ee]*/
+**/*[Ff][Ii][Ll][Ee][Ss] [Tt][Oo] [Ll][Ee][Aa][Rr][Nn]*/
+
+# Source reports, generated output, and archives.
+*.[xX][lL][sS][xX]
+*.[xX][lL][sS]
+*.[cC][sS][vV]
+*.[pP][dD][fF]
+*.[zZ][iI][pP]
+*.[7][zZ]
+*.[rR][aA][rR]
+*.[lL][oO][gG]
+*.[tT][mM][pP]
+*.[bB][aA][kK]
+
+# Known local-state files, at any depth.
+**/current-state.json
+**/settings.json
+**/appointments.json
+**/advisor-performance.json
+**/operational-metrics.json
+**/assign-next.json
+**/auto-import.json
+**/meeting-cycle.json
+**/recovery.json
+**/*-state.json
+**/local-*.json
+
+# Credentials and machine-specific files.
+.env
+.env.*
+**/.env
+**/.env.*
+*.key
+*.pem
+**/credentials*
+**/secrets*
+Thumbs.db
+Desktop.ini
+.DS_Store
