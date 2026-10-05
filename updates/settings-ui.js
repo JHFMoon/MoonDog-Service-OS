@@ -100,10 +100,10 @@
     state.busy = true; render();
     planText.hidden = true;
     try {
-      const catalog = [...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
+      const catalog = [...new Set([...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
         "assets/moondog-update-verify.js", "assets/moondog-update-plan.js",
         "assets/moondog-update-model.js", "assets/moondog-update-install.js",
-        "assets/moondog-update-settings.js"];
+        "assets/moondog-update-settings.js"])];
       if (catalog.length < 7) throw new Error("Installed application file catalog is unavailable.");
       status.textContent = "Verifying update package...";
       const verified = await global.MoonDogPackageVerification.verify();
@@ -150,10 +150,10 @@
       const backup = await global.showDirectoryPicker({ mode: "readwrite" });
       if (!global.confirm(`Restore MoonDog application files from ${backup.name}? Confirm this is the backup folder created by the interrupted update.`)) return;
       state.busy = true; render();
-      const catalog = [...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
+      const catalog = [...new Set([...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
         "assets/moondog-update-verify.js", "assets/moondog-update-plan.js",
         "assets/moondog-update-model.js", "assets/moondog-update-install.js",
-        "assets/moondog-update-settings.js"];
+        "assets/moondog-update-settings.js"])];
       const outcome = await global.MoonDogUpdateInstall.recover({ appDirectoryHandle: state.app,
         backupDirectoryHandle: backup, trustedAllowlist: catalog, confirmed: true });
       status.textContent = outcome.status === "restored" ?
