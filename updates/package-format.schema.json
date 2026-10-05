@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MoonDog browser-readable update package v1",
+  "description": "UTF-8 JSON. The manifest SHA-256 covers these exact package bytes. approvedFiles is the explicit package file list and must exactly match files; the installed app's trusted allowlist remains authoritative. No package is published in Phase 1G.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "version", "approvedFiles", "files"],
+  "properties": {
+    "formatVersion": {"const": 1},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-beta\\.[0-9]+)?$"},
+    "approvedFiles": {"type": "array", "minItems": 1, "maxItems": 512, "uniqueItems": true, "items": {"type": "string"}},
+    "files": {
+      "type": "array", "minItems": 1, "maxItems": 512,
+      "items": {"oneOf": [
+        {
+          "description": "put: sha256 hashes the decoded contentBase64 bytes.",
+          "type": "object", "additionalProperties": false,
+          "required": ["path", "action", "sha256", "contentBase64"],
+          "properties": {
+            "path": {"type": "string"}, "action": {"const": "put"},
+            "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+            "contentBase64": {"type": "string"}
+          }
+        },
+        {
+          "description": "delete: sha256 hashes the expected current local file bytes; a mismatch rejects deletion.",
+          "type": "object", "additionalProperties": false,
+          "required": ["path", "action", "sha256"],
+          "properties": {
+            "path": {"type": "string"}, "action": {"const": "delete"},
+            "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+          }
+        }
+      ]}
+    }
+  }
+}

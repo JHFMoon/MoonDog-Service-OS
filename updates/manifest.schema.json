@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "MoonDog public update manifest",
-  "description": "One future package is identified by packageUrl and sha256. The package is opaque bytes at a browser-readable public GitHub URL, limited to 64 MiB; sha256 covers the exact downloaded bytes. Null values mean no package is published.",
+  "description": "One future package is identified by packageUrl and sha256. A future package uses package-format.schema.json: UTF-8 JSON at a browser-readable public GitHub URL, limited to 64 MiB. sha256 covers the exact downloaded package bytes. Null values mean no package is published.",
   "type": "object",
   "additionalProperties": false,
   "required": ["stableVersion", "betaVersion", "channel", "minimumCompatibleVersion", "migrationRequired", "packageUrl", "sha256", "releaseNotes"],
