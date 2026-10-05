@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MoonDog update check</title>
+  <style>
+    body { font: 1rem system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; padding: 0 1rem; }
+    label { display: block; margin: 1rem 0; }
+    input, select, button { font: inherit; padding: .4rem; }
+    output { display: block; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Check for MoonDog updates</h1>
+  <form id="check-form">
+    <label>Installed version <input id="installed-version" type="text" placeholder="0.0.0" required></label>
+    <label>Channel <select id="channel"><option value="stable">Stable</option><option value="beta">Beta (opt in)</option></select></label>
+    <button type="submit">Check now</button>
+  </form>
+  <output id="result" aria-live="polite"></output>
+  <script src="check.js"></script>
+  <script>
+    const form = document.getElementById("check-form");
+    const versionInput = document.getElementById("installed-version");
+    const channelInput = document.getElementById("channel");
+    const result = document.getElementById("result");
+    if (typeof window.MOONDOG_INSTALLED_VERSION === "string") {
+      versionInput.value = window.MOONDOG_INSTALLED_VERSION;
+    }
+    async function runCheck(manual) {
+      const check = await MoonDogUpdateCheck.check({
+        currentVersion: versionInput.value.trim(), channel: channelInput.value, manual
+      });
+      const messages = {
+        "newer-version": `Newer ${check.channel} version: ${check.version}. No download or installation is performed.`,
+        "up-to-date": `No newer ${check.channel} version found.`,
+        "incompatible": `Version ${check.version} exists, but requires at least ${check.minimumCompatibleVersion}.`,
+        "invalid-input": "Enter a valid installed version, such as 1.2.3.",
+        "unavailable": "Could not check GitHub right now. Try again later."
+      };
+      if (check.status !== "silent") result.textContent = messages[check.status];
+    }
+    form.addEventListener("submit", (event) => { event.preventDefault(); runCheck(true); });
+    if (versionInput.value) runCheck(false);
+  </script>
+</body>
+</html>

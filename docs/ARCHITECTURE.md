@@ -24,4 +24,6 @@ Stable is the default channel; beta is opt-in. A future update definition should
 
 The plain-JSON `updates/manifest.json` is a contract placeholder. Its `0.0.0` version values and null package URL and SHA-256 hash mean no update is available. It does not trigger downloads or installation.
 
+`updates/check.html` and `updates/check.js` are a browser-only version check. The local installation supplies its installed version, or a user enters it on the page. The checker reads only the fixed public GitHub manifest URL, sends no operational data or URL parameters, and compares version numbers. Stable is selected by default; Beta requires selection. An automatic check stays silent if GitHub is unavailable; a manual check shows a short error. The check never downloads a package, changes files, or applies an update.
+
 After a successful future update, a Files to Learn rescan may run on the local machine. It must not upload the files or their derived observations. No updater or release artifact is implemented in Phase 1.
