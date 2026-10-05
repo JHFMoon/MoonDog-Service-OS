@@ -13,6 +13,6 @@ jobs:
       - name: Run focused tests
         run: python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Test browser update check
-        run: node --test tests/update-check.test.cjs
+        run: node --test tests/*.test.cjs
       - name: Check tracked publication contents
         run: python3 scripts/check_publication.py

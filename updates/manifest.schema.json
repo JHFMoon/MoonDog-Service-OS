@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MoonDog public update manifest",
+  "description": "One future package is identified by packageUrl and sha256. The package is opaque bytes at a browser-readable public GitHub URL, limited to 64 MiB; sha256 covers the exact downloaded bytes. Null values mean no package is published.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["stableVersion", "betaVersion", "channel", "minimumCompatibleVersion", "migrationRequired", "packageUrl", "sha256", "releaseNotes"],
+  "properties": {
+    "stableVersion": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "betaVersion": {"type": ["string", "null"], "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-beta\\.[0-9]+$"},
+    "channel": {"enum": ["stable", "beta"]},
+    "minimumCompatibleVersion": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "migrationRequired": {"type": "boolean"},
+    "packageUrl": {"type": ["string", "null"], "pattern": "^https://(raw\\.githubusercontent\\.com/JHFMoon/MoonDog-Service-OS/|github\\.com/JHFMoon/MoonDog-Service-OS/releases/download/)"},
+    "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{64}$"},
+    "releaseNotes": {"type": "string"}
+  },
+  "oneOf": [
+    {"properties": {"packageUrl": {"type": "null"}, "sha256": {"type": "null"}}},
+    {"properties": {"packageUrl": {"type": "string"}, "sha256": {"type": "string"}}}
+  ]
+}
