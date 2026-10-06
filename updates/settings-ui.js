@@ -3,10 +3,15 @@
   const host = document.getElementById("view-settings");
   if (!host) return;
   const version = String(global.MoonDogInstalledVersion || "");
-  const comparisonVersion = /^\d+\.\d+\.\d+/.exec(version)?.[0] || "";
+  const baseComparisonVersion = /^\d+\.\d+\.\d+/.exec(version)?.[0] || "";
+  let comparisonVersion = baseComparisonVersion;
+  let installedVersion = version;
+  let inspectedRoot = null;
+  const betaMarker = "\n/* MoonDog controlled Beta update test 0.10.7-beta.1; no style changes. */\n";
   function compatible(minimum) {
     if (!/^\d+\.\d+\.\d+$/.test(minimum) || !comparisonVersion) return false;
-    const installed = comparisonVersion.split(".").map(Number);
+    const installed = /^\d+\.\d+\.\d+/.exec(comparisonVersion)?.[0].split(".").map(Number);
+    if (!installed) return false;
     const required = minimum.split(".").map(Number);
     for (let index = 0; index < 3; index += 1) {
       if (installed[index] !== required[index]) return installed[index] > required[index];
@@ -20,6 +25,28 @@
     lastCheck: saved.lastCheck || null, check: null, backup: null,
     recoveryRequired: saved.recoveryRequired === true, busy: false };
   const appRoot = () => global.__moondogSettingsModel?.root || null;
+  async function inspectInstalledTestVersion() {
+    const root = appRoot();
+    if (!root || root === inspectedRoot) return;
+    inspectedRoot = root;
+    installedVersion = version;
+    comparisonVersion = baseComparisonVersion;
+    state.check = null;
+    field("updateInstalledVersion").textContent = installedVersion || "Unknown";
+    render();
+    try {
+      const assets = await root.getDirectoryHandle("assets", { create: false });
+      const stylesheet = await assets.getFileHandle("product-settings.css", { create: false });
+      const content = await (await stylesheet.getFile()).text();
+      if (content.endsWith(betaMarker)) {
+        installedVersion = "0.10.7-beta.1";
+        comparisonVersion = installedVersion;
+        state.check = null;
+        field("updateInstalledVersion").textContent = installedVersion;
+        render();
+      }
+    } catch (_) { /* The baseline version remains authoritative if the marker cannot be read. */ }
+  }
   const card = document.createElement("section");
   card.className = "card settings-card";
   card.id = "settings-update";
@@ -42,7 +69,7 @@
   const planText = field("updatePlan");
   const installButton = field("installMoonDogUpdate");
   channel.value = state.channel;
-  field("updateInstalledVersion").textContent = version || "Unknown";
+  field("updateInstalledVersion").textContent = installedVersion || "Unknown";
 
   function save() {
     try { global.localStorage.setItem(key, JSON.stringify({ channel: state.channel,
@@ -134,7 +161,14 @@
         outcome.status === "recovery-required" ? `Update stopped. Recovery is required from ${outcome.backupName}; do not retry installation. ${outcome.reason}` :
         `Update stopped without a verified installation. ${outcome.reason || outcome.status}`;
       if (outcome.status === "recovery-required") { state.recoveryRequired = true; save(); }
-      if (outcome.status === "installed") state.check = null;
+      if (outcome.status === "installed") {
+        state.check = null;
+        if (outcome.version === "0.10.7-beta.1") {
+          installedVersion = outcome.version;
+          comparisonVersion = outcome.version;
+          field("updateInstalledVersion").textContent = installedVersion;
+        }
+      }
     } catch (error) {
       status.textContent = error.message || "Update stopped before installation.";
     } finally { state.busy = false; render(); }
@@ -164,7 +198,8 @@
     } finally { state.busy = false; render(); }
   });
   render();
-  document.addEventListener("moondog-data", render);
+  document.addEventListener("moondog-data", () => { render(); inspectInstalledTestVersion(); });
+  inspectInstalledTestVersion();
   const today = new Date().toLocaleDateString("en-CA");
   if (!state.lastCheck || new Date(state.lastCheck).toLocaleDateString("en-CA") !== today) check(false);
 })(globalThis);
