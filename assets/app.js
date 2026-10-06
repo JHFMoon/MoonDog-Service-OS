@@ -276,7 +276,7 @@
   function latestSupplementalFamily(family){return Object.values(model.operationalMetrics?.supplementalReports?.snapshots||{}).filter((item)=>item.family===family).sort((a,b)=>String(a.periodEnd||a.asOfDate||a.importedAt).localeCompare(String(b.periodEnd||b.asOfDate||b.importedAt))).at(-1)||null;}
   function supplementalManagerAttention(todayKey=localDateKey()){
     const actions=[],audit=latestSupplementalFamily("service-consulting-audit"),outreach=latestSupplementalFamily("customer-outreach-transcript"),alerts=Object.values(model.operationalMetrics?.supplementalReports?.snapshots||{}).filter((item)=>item.family==="parts-quality-alert"&&item.asOfDate&&item.asOfDate<=todayKey).sort((a,b)=>String(b.asOfDate).localeCompare(String(a.asOfDate)));
-    for(const item of audit?.metrics?.actionItems||[]){if(item.expectedCompletionDate&&item.expectedCompletionDate>=todayKey)actions.push("SERVICE CONSULTING ACTION · "+String(item.severity||"").toUpperCase()+" · Due "+item.expectedCompletionDate+" · "+(item.owner||"Owner not listed")+" · "+(item.suggestion||item.reason));}
+    for(const item of audit?.metrics?.actionItems||[]){if(item.expectedCompletionDate&&item.expectedCompletionDate>=todayKey){const detail=String(item.suggestion||item.reason||"").replace(/\s+/g," ").trim();actions.push("SERVICE CONSULTING ACTION · "+String(item.severity||"").toUpperCase()+" · Due "+item.expectedCompletionDate+" · "+(item.owner||"Owner not listed")+" · "+(detail.length>180?detail.slice(0,177)+"…":detail));}}
     if(outreach?.metrics?.needsFollowUp&&(!outreach.periodEnd||outreach.periodEnd>=freshness.addDays(todayKey,-14)))actions.push("OUTREACH FOLLOW-UP · "+(outreach.metrics.customer||"Customer")+" · "+(outreach.metrics.lastCustomerRequest||outreach.metrics.followUpReason));
     const recentAlert=alerts.find((item)=>item.asOfDate>=freshness.addDays(todayKey,-45));if(recentAlert)actions.push("PARTS QUALITY ALERT · "+(recentAlert.metrics?.partName||"Suspect part")+" · "+(recentAlert.metrics?.partNumbers||[]).join(", ")+" · "+(recentAlert.metrics?.requiredAction||"Review before installation"));
     return actions;
@@ -1002,7 +1002,7 @@
   }
 
   async function importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess=false) {
-    let snapshot;if(kind==="supplemental-pdf"){const signature=await pdfSignatureText(bytes),family=supplementalPdfFamily(signature,candidate.name),pages=family==="controllable-ranking"?80:4;snapshot=parseSupplementalPdfReport(await pdfReportText(bytes,pages),candidate.name,{storeCode:model.settings.store?.code||""});}
+    let snapshot;if(kind==="supplemental-pdf"){const signature=await pdfSignatureText(bytes),family=supplementalPdfFamily(signature,candidate.name),pages=family==="controllable-ranking"?80:family==="service-consulting-audit"?20:4;snapshot=parseSupplementalPdfReport(await pdfReportText(bytes,pages),candidate.name,{storeCode:model.settings.store?.code||""});}
     else if(kind==="supplemental-csv")snapshot=parseAppointmentsCreatedSummaryCsv(new TextDecoder().decode(new Uint8Array(bytes)),candidate.name);
     else if(kind==="supplemental-workbook")snapshot=parseSupplementalWorkbook(bytes,candidate.name);
     else if(kind==="supplemental-docx")snapshot=parseSupplementalDocxReport(await docxText(bytes),candidate.name);
