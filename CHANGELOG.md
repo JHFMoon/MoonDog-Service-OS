@@ -2,6 +2,14 @@
 
 This file summarizes user-relevant release milestones. The Git commit history remains the detailed engineering record.
 
+## 0.10.9-beta.4
+
+- Adds isolated supplemental ingestion for Mopar Retail Rewards, ServiceView, CX/NPS, TireWorks, Controllable Ranking, appointment-summary, Cash Clearing, Credit Holds, and CDK browser-export summaries.
+- Recognizes valid-but-empty Media ASR, Efficiency Tracking, and Service Daily Log exports without fabricating KPI zeroes.
+- Keeps supplemental snapshots out of active KPI promotion unless a future explicit mapping is implemented.
+- Recognizes claims, collision estimates, QIR bulletins, outreach transcripts, and training playbooks as non-KPI reference documents and keeps them in Files To Learn.
+- Keeps all source reports local; no source PDF, spreadsheet, CSV, or DOCX is published to GitHub.
+
 ## 0.10.9-beta.3 — current Beta
 
 - Repairs the Publication check after the sanitized Git history rewrite and updates its tests to use the active Stable/Beta packages.
