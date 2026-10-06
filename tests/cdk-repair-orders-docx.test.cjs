@@ -25,11 +25,11 @@ const context={};vm.createContext(context);vm.runInContext(source,context);
 
 const sample = [
   "CDK","Repair Orders","RO#:","All: 3","Open: 2","Working: 0","On Hold: 0","Closed: 1",
-  "50001","Open","CUSTOMER ONE","1C4ABCDEFGHIJ1234","2025 JEEP TEST","T100","101",
+  "50001","Open","CUSTOMER ONE","1C4ABCDEFGHJK1234","2025 JEEP TEST","T100","101",
   "10/06/2026","9:23 am","10/06/2026","3:30 pm","[A] [B]",
-  "50002","Review","CUSTOMER TWO","3C6ABCDEFGHIJ5678","2024 RAM TEST","T101","102","9001",
+  "50002","Review","CUSTOMER TWO","3C6ABCDEFGHJK5678","2024 RAM TEST","T101","102","9001",
   "10/05/2026","4:15 pm","10/08/2026","3:30 pm","[A]",
-  "50003","Closed","CUSTOMER THREE","2C4ABCDEFGHIJ9012","2023 CHRYSLER TEST","T102","103","9002",
+  "50003","Closed","CUSTOMER THREE","2C4ABCDEFGHJK9012","2023 CHRYSLER TEST","T102","103","9002",
   "10/04/2026","8:00 am","10/04/2026","3:30 pm","10/05/2026","10:00 am","[A]"
 ].join("\n");
 const parsed=context.parse(sample,"synthetic.docx");
@@ -37,7 +37,7 @@ assert.equal(parsed.summary.all,3);
 assert.equal(parsed.summary.open,2);
 assert.equal(parsed.summary.closed,1);
 assert.equal(parsed.records.length,2);
-assert.equal(parsed.records[0].vin,"1C4ABCDEFGHIJ1234");
+assert.equal(parsed.records[0].vin,"1C4ABCDEFGHJK1234");
 assert.equal(parsed.records[0].vehicle,"2025 JEEP TEST");
 assert.equal(parsed.records[0].opened,"10/06/2026 9:23 AM");
 assert.equal(parsed.records[1].technicianCode,"9001");
