@@ -144,11 +144,24 @@
   }
   function roForm(task,host){
     const r=model.state.records.find(x=>x.id===task.recordId);if(!r)return;
-    const original=JSON.stringify(r),m=r.management||{};
-    const writtenBy=r.advisor||r.advisorCode||"Not identified",sourceTech=r.technician||r.technicianCode||"Not identified"; host.insertAdjacentHTML('beforeend',`<div class="daily-ro-context"><strong>RO ${esc(r.ro)}</strong><span>${esc(r.customer)}</span><span>${esc(r.vehicle||r.tagNumber)}</span><small><b>Written by:</b> ${esc(writtenBy)}${r.advisorCode&&r.advisor!==r.advisorCode?' · '+esc(r.advisorCode):''} &nbsp;·&nbsp; <b>Source technician:</b> ${esc(sourceTech)} &nbsp;·&nbsp; <b>Source status:</b> ${esc(r.sourceStatus||'Not provided')}</small></div>`);
+    const original=JSON.stringify(r),m=r.management||{},indicator=api.cdkIndicator(r);
+    const writtenBy=r.advisor||r.advisorCode||"Not identified",sourceTech=r.technician||r.technicianCode||"Not identified";
+    host.insertAdjacentHTML('beforeend',`<div class="daily-ro-context"><strong>RO ${esc(r.ro)}</strong><span>${esc(r.customer)}</span><span>${esc(r.vehicle||r.tagNumber)}</span><small><b>Written by:</b> ${esc(writtenBy)}${r.advisorCode&&r.advisor!==r.advisorCode?' · '+esc(r.advisorCode):''} &nbsp;·&nbsp; <b>Source technician:</b> ${esc(sourceTech)}</small>${indicator?`<em class="daily-cdk-indicator ${esc(indicator.kind)}">${esc(indicator.text)}</em>`:''}</div>`);
     const form=document.createElement('form');form.id='dailyRoForm';form.className='daily-ro-form';
     const status=document.createElement('select');api.statuses(r).forEach(v=>status.add(new Option(v,v)));
-    compactField(form,'Current condition','status',api.status(r),status,Boolean(api.clarification(r))||!m.status);
+    compactField(form,'Current condition','status',api.status(r),status,Boolean(api.clarification(r))||!m.updatedAt);
+    const detail=document.createElement('select'),currentDetail=api.statusDetail(r);
+    compactField(form,'Status detail','statusDetail',currentDetail,detail,false);const detailField=detail.closest('.daily-field');
+    const other=document.createElement('input');other.maxLength=120;
+    compactField(form,'Other status detail','statusDetailOther',m.statusDetailOther||'',other,false);const otherField=other.closest('.daily-field');
+    function syncDetailFields(force=false){
+      const options=api.statusDetails(status.value);detail.replaceChildren(new Option(options.length?'Choose detail':'No detail needed',''));options.forEach(v=>detail.add(new Option(v,v)));
+      if(options.includes(currentDetail)&&!force)detail.value=currentDetail;detailField.hidden=!options.length;
+      if(options.length&&(force||!currentDetail)){detail.hidden=false;detailField.querySelector('.daily-field-context').hidden=true;}
+      const needsOther=detail.value==='Other';otherField.hidden=!needsOther;
+      if(needsOther&&(force||!m.statusDetailOther)){other.hidden=false;otherField.querySelector('.daily-field-context').hidden=true;}
+    }
+    syncDetailFields(false);status.addEventListener('change',()=>syncDetailFields(true));detail.addEventListener('change',()=>syncDetailFields(true));
     const next=document.createElement('textarea');next.rows=2;next.required=true;compactField(form,'Next action','nextAction',m.nextAction,next,!m.nextAction||task.hard);
     const date=document.createElement('input');date.type='date';date.required=true;compactField(form,'Follow-up date','reviewDate',m.reviewDate,date,!m.reviewDate||m.reviewDate<=today());
     const time=document.createElement('input');time.type='time';compactField(form,'Follow-up time (optional)','reviewTime',m.reviewTime,time,false);
@@ -156,7 +169,9 @@
     const tech=document.createElement('input');tech.maxLength=120;compactField(form,'Current technician','currentTechnician',m.currentTechnician||r.technician||'',tech,false);
     const owner=document.createElement('input');compactField(form,'Follow-up owner','owner',m.owner||r.advisor||'',owner,false);
     const note=document.createElement('details');note.className='daily-note';note.innerHTML='<summary>Add note</summary><label for="daily-note">Update note</label><textarea id="daily-note" name="note" rows="2"></textarea>';note.querySelector('textarea').value=m.note||'';form.append(note);
-    const save=document.createElement('button');save.type='submit';save.className='primary daily-primary';save.textContent='Save and continue';form.append(save);
+    const actions=document.createElement('div');actions.className='daily-ro-actions';
+    const close=button('This RO is closed',()=>action(async()=>{await api.closeRo(r.id);await selectNext();}),'secondary daily-close-ro');
+    const save=document.createElement('button');save.type='submit';save.className='primary daily-primary';save.textContent='Save and continue';actions.append(close,save);form.append(actions);
     form.addEventListener('input',()=>state.editing=true);form.addEventListener('change',()=>state.editing=true);
     form.addEventListener('submit',e=>{e.preventDefault();action(async()=>{const values=Object.fromEntries(new FormData(form));try{await api.saveHome(r.id,original,values);}catch(error){if(JSON.stringify(model.state.records.find(x=>x.id===r.id))!==original){state.pending=true;$("dailyChanged").hidden=false;}throw error;}const updated=compactTask(engine.roTask(model.state.records.find(x=>x.id===r.id),api,today(),now()));const savedTask=updated||task;await log('completed',savedTask,{fingerprint:savedTask.fingerprint,until:new Date(now()+(task.hard?30:120)*60000).toISOString()});await selectNext();});});
     host.append(form);
