@@ -97,6 +97,10 @@ def release_contract_errors(root):
             packages[channel] = {entry["path"]: entry for entry in files}
         if not set(packages["beta"]).issubset(packages["stable"]):
             raise ValueError("Stable package does not restore every Beta-touched file")
+        for retained in (root / "updates" / "packages").glob("moondog-*-beta.*.json"):
+            previous = json.loads(retained.read_bytes())
+            if not set(previous["approvedFiles"]).issubset(packages["stable"]):
+                raise ValueError("Stable package does not restore a retained Beta package")
         return []
     except (KeyError, TypeError, ValueError, OSError, UnicodeError, binascii.Error) as error:
         return [str(error)]

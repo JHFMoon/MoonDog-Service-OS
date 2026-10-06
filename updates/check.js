@@ -53,7 +53,7 @@
       const version = release.version;
       const selected = parseVersion(version);
       if (channel === "stable" && current[3] !== null &&
-          compareVersions(current, beta) === 0 && compareVersions(current, stable) > 0) {
+          compareVersions(current, stable) > 0) {
         if (!stableRelease.packageUrl || !stableRelease.sha256 || betaRelease.migrationRequired) {
           return manual ? { status: "unavailable" } : { status: "silent" };
         }

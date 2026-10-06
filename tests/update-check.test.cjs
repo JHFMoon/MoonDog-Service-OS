@@ -60,6 +60,8 @@ test("current Beta can select the verified Stable package as a channel downgrade
   assert.equal(result.status, "channel-switch");
   assert.equal(result.channel, "stable");
   assert.equal(result.version, "1.2.0");
+  assert.equal((await check({ currentVersion: "1.3.0-beta.1", channel: "stable",
+    fetcher: fetchManifest(ready) })).status, "channel-switch");
   assert.equal((await check({ currentVersion: "1.3.0-beta.2", channel: "stable", fetcher: fetchManifest() })).status, "silent");
   assert.equal((await check({ currentVersion: "1.3.0-beta.2", channel: "stable", manual: true,
     fetcher: fetchManifest({ ...ready, beta: { ...ready.beta, migrationRequired: true } }) })).status, "unavailable");
