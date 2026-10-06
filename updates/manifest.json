@@ -2,17 +2,17 @@
   "stable": {
     "version": "0.10.8",
     "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.8.json",
-    "sha256": "01e07241bd899104a511094ceeed65f88c03248cd5570c70d251ffa2041028e8",
+    "sha256": "c596cc17a7c71f3f1b02a5230ad7d8c7972f34a2ee66f8cf2c68dc59835f4c04",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Sanitized restoration baseline. Store performance targets and dollar goals are local-only configuration; protected operational data remains untouched."
+    "releaseNotes": "Sanitized restoration baseline. Store performance targets and dollar goals are local-only configuration; protected operational data remains untouched. Stable return also restores the verified updater runtime."
   },
   "beta": {
-    "version": "0.10.9-beta.7",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.9-beta.7.json",
-    "sha256": "289f7f22202b009a78199890375d419da5152c0a31b395f1d737970369fe9ca1",
+    "version": "0.10.9-beta.8",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.9-beta.8.json",
+    "sha256": "0259e7d8acfc1dd32650ce45b12f1f1dbca7201f921af12007925f7008cae306",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Adds the authoritative CDK Open RO workflow: fixed canonical review statuses, role-based review details, non-intrusive CDK change/stale cues, independent Open RO source merging, manager close action, and seven-day closed-RO restoration while preserving follow-up commitments."
+    "releaseNotes": "Adds visible installation progress with a live percentage, progress bar, current step, file-count detail, verified completion state, and rollback/recovery progress so System Updates no longer appears frozen during long file operations."
   }
 }

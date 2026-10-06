@@ -94,3 +94,19 @@ test("update offer and preview expire on channel or check changes; recovery stay
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(field("recoverMoonDogUpdate").hidden, false);
 });
+
+
+test("System Updates exposes a live progress bar, percentage, detail text, and awaited progress callback", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "assets", "moondog-update-settings.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "..", "assets", "product-settings.css"), "utf8");
+  assert.match(source, /id="updateProgress"/);
+  assert.match(source, /role="progressbar"/);
+  assert.match(source, /id="updateProgressPercent"/);
+  assert.match(source, /id="updateProgressDetail"/);
+  assert.match(source, /aria-valuenow/);
+  assert.match(source, /onProgress:\s*event\s*=>\s*setProgress/);
+  assert.match(source, /requestAnimationFrame/);
+  assert.match(css, /\.update-progress-track/);
+  assert.match(css, /\.update-progress\.warning/);
+  assert.match(css, /\.update-progress\.error/);
+});
