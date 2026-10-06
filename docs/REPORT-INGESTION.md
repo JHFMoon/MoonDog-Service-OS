@@ -89,3 +89,20 @@ A known supported source must be ingested and removed after durable verification
 Source reports remain local. The public repository contains only generic parser / classifier logic, tests, schemas, and documentation. It must not contain dealership report files, customer records, employee records, repair orders, VINs, report snapshots, or local operational state.
 
 Supplemental parsers intentionally prefer compact operational facts and source provenance over copying entire report bodies.
+
+## Final source-material triage
+
+The following source types have an explicit disposition so they do not remain indefinitely in Files To Learn:
+
+| Source type | Service OS disposition | Why |
+| --- | --- | --- |
+| CDK Repair Orders browser-export DOCX | Primary Open RO source | Reconciles the complete active RO population, writer/technician codes, source status, open/promised times, VIN, tag, vehicle, and service-line presence before replacing the current Open RO source. |
+| Mopar Express Lane Standards / Service Flow / Action Plan PDF | Supplemental manager-operating source | Retains cycle-time steps, audit observations, recommendations, and dated action-plan items without promoting them into unrelated KPI families. |
+| Quality Inspection Request (QIR) PDF | Parts-quality operational alert | Retains affected part numbers, suspect criteria, dates, and quarantine action so the department can avoid installing or selling suspect inventory. |
+| Autumn Ivy outreach transcript PDF | Customer follow-up source | Retains the local conversation summary and identifies unresolved handoffs/follow-up needs. It remains local and is not a public-repo artifact. |
+| Technician Video MPI Playbook DOCX | Coaching/process standard | Retains the expected video sequence, inspection examples, filming rules, and timing standard for coaching context. |
+| Incident/claim forms | Recognized and retired | Useful as claim records, but not Service Operations Hub workflow/performance data. No Service OS snapshot is retained. |
+| Collision repair estimate | Recognized and retired | Body/collision claim estimate data does not belong in service-drive KPI or Open RO control. No Service OS snapshot is retained. |
+| Decorative image fragments / logos | Unsupported and disposable | They contain no operational source data and should not be taught as report families. |
+
+CDK browser exports commonly split VIN from vehicle description and split dates from clock times into separate document lines. The parser explicitly supports that export shape and requires the parsed All/Open/Closed counts to reconcile to the report header before replacing the current Open RO population.
