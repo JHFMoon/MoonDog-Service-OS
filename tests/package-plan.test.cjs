@@ -51,10 +51,10 @@ test("Format contract is JSON and the live manifest advertises the Beta package"
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.json"), "utf8"));
   assert.equal(schema.properties.formatVersion.const, 1);
   assert.deepEqual(schema.required, ["formatVersion", "version", "approvedFiles", "files"]);
-  assert.match(manifest.stable.version, /^\\d+\\.\\d+\\.\\d+$/);
+  assert.match(manifest.stable.version, /^\d+\.\d+\.\d+$/);
   assert.ok(manifest.stable.packageUrl.endsWith(`/updates/packages/moondog-${manifest.stable.version}.json`));
   assert.match(manifest.stable.sha256, /^[0-9a-f]{64}$/);
-  assert.match(manifest.beta.version, /^\\d+\\.\\d+\\.\\d+-beta\\.\\d+$/);
+  assert.match(manifest.beta.version, /^\d+\.\d+\.\d+-beta\.\d+$/);
   assert.ok(manifest.beta.packageUrl.endsWith(`/updates/packages/moondog-${manifest.beta.version}.json`));
   assert.match(manifest.beta.sha256, /^[0-9a-f]{64}$/);
 });
