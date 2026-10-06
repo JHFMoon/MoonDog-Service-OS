@@ -957,7 +957,7 @@
   }
   function parseCdkRepairOrdersDocx(source,fileName) {
     const lines=String(source||"").replace(/\r/g,"").split(/\n+/).map((line)=>line.replace(/\u00a0/g," ").replace(/\s+/g," ").trim()).filter(Boolean),joined=lines.join(" ");
-    if(!/\bCDK\b/i.test(joined)||!/\bRepair Orders\b/i.test(joined)||!/\bRO#\b/i.test(joined))throw new Error("This is not a CDK Repair Orders export.");
+    if(!/\bCDK\b/i.test(joined)||!/\bRepair Orders\b/i.test(joined)||!/\bRO\s*#\s*:?/i.test(joined))throw new Error("This is not a CDK Repair Orders export.");
     const summary=joined.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);
     if(!summary)throw new Error("The CDK Repair Orders summary counts could not be verified.");
     const validStatuses=new Set(["open","pending","review","closed","waiting","parts estimate","inspection","working"]),starts=[];
@@ -1001,7 +1001,7 @@
 
   function parseSupplementalDocxReport(source,fileName) {
     const video=parseTechnicianVideoPlaybook(source,fileName);if(video)return video;
-    const s=String(source||"").replace(/\s+/g," ");if(!/\bCDK\b/i.test(s)||!/\bRepair Orders\b/i.test(s)||!/\bRO#\b/i.test(s))return null;const match=s.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);if(!match)throw new Error("The CDK Repair Orders summary counts could not be verified.");return{family:"open-ro-browser-summary",sourceFile:fileName,sourceFormat:"docx",importedAt:now(),periodStart:"",periodEnd:"",variant:"browser-export",metrics:{all:Number(match[1]),open:Number(match[2]),working:Number(match[3]),onHold:Number(match[4]),closed:Number(match[5])},validation:{parser:"open-ro-browser-summary-v1",supplementalOnly:true,kpiPromotion:false,detailRowsNotRetained:true}};
+    const s=String(source||"").replace(/\s+/g," ");if(!/\bCDK\b/i.test(s)||!/\bRepair Orders\b/i.test(s)||!/\bRO\s*#\s*:?/i.test(s))return null;const match=s.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);if(!match)throw new Error("The CDK Repair Orders summary counts could not be verified.");return{family:"open-ro-browser-summary",sourceFile:fileName,sourceFormat:"docx",importedAt:now(),periodStart:"",periodEnd:"",variant:"browser-export",metrics:{all:Number(match[1]),open:Number(match[2]),working:Number(match[3]),onHold:Number(match[4]),closed:Number(match[5])},validation:{parser:"open-ro-browser-summary-v1",supplementalOnly:true,kpiPromotion:false,detailRowsNotRetained:true}};
   }
   async function pdfReportText(bytes,pageLimit=4) { return withLocalPdf(bytes,async pdf=>{const pages=[];for(let pageNumber=1;pageNumber<=Math.min(pdf.numPages,pageLimit);pageNumber++)pages.push(pdfTextLines(await(await pdf.getPage(pageNumber)).getTextContent()).join("\n"));return pages.join("\n__PAGE_BREAK__\n");}); }
   function supplementalSnapshotKey(snapshot) { const date=snapshot.periodEnd||snapshot.asOfDate||snapshot.periodStart||"observation",variant=slug(snapshot.variant||"default").slice(0,90)||"default";return [snapshot.family,date,variant].join("|"); }
