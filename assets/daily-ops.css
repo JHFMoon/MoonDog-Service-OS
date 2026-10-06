@@ -1,0 +1,81 @@
+body.daily-operating{background:#f5f7f8;color:#17313b}
+body.daily-operating .app-shell{display:block;max-width:none}
+body.daily-operating .sidebar{position:sticky;top:0;width:100%;height:auto;min-height:0;z-index:20;padding:12px 24px;background:#123c47;display:block}
+body.daily-operating .sidebar .brand,body.daily-operating .sidebar-foot{display:none}
+body.daily-operating .sidebar nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+body.daily-operating .sidebar .nav-item{width:auto;font-size:15px;padding:11px 16px;white-space:nowrap}
+body.daily-operating .secondary-destination{display:none!important}
+body.daily-operating main{padding:24px 34px;min-width:0}
+body.daily-operating .topbar{gap:30px;align-items:center;margin-bottom:22px}
+body.daily-operating .topbar h1{font-size:22px}
+body.daily-operating .topbar .eyebrow{display:none}
+body.daily-operating #folderWatchStatus{display:none}
+body.daily-operating #status.success,body.daily-operating #status.info:not(:first-child){font-size:13px}
+body.daily-operating #status.success{display:none}
+body.daily-operating #view-home~.view{min-width:0}
+#dailyTask{max-width:880px;margin:8px auto 30px;padding:10px 14px;min-height:400px}
+#dailyTask h2,#dailyTools>h2{font-size:34px;line-height:1.2;margin:10px 0 28px;letter-spacing:-.6px}
+#dailyTask .eyebrow{font-size:13px;letter-spacing:.16em;color:#42736e}
+.daily-description{font-size:19px;line-height:1.6;max-width:760px}
+.daily-ro-context{display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:26px;align-items:baseline}
+.daily-ro-context>strong{font-size:24px}.daily-ro-context>span{font-size:20px}.daily-ro-context>small{flex-basis:100%;font-size:15px;color:#62727a}
+.daily-ro-form{display:grid;grid-template-columns:1fr 1fr;gap:14px 26px}
+.daily-field>label{display:block;font-size:15px;font-weight:700;margin-bottom:6px}
+.daily-field:has(textarea){grid-column:1/-1}
+.daily-field input,.daily-field select,.daily-field textarea{width:100%;font-size:17px;padding:12px;box-sizing:border-box}
+.daily-field-context{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:16px;line-height:1.5;color:#4f626a}
+.daily-field-context .link-button{font-size:13px;text-decoration:underline;white-space:nowrap}
+.daily-note{grid-column:1/-1;color:#51666e}.daily-note textarea{display:block;width:100%;font-size:16px;padding:10px}.daily-note label{display:block;margin:12px 0}
+.daily-primary{font-size:18px!important;padding:14px 26px!important;justify-self:start}
+.daily-task-footer{margin-top:16px;padding-top:14px;border-top:1px solid #dce4e6}
+.daily-task-footer button{font-size:17px;padding:11px 24px}
+.daily-hint{font-size:14px;color:#66767d;margin:15px 0}
+#dailyError,#dailyChanged{padding:14px;background:#fff1d9;color:#6d4100;border-radius:8px;margin-bottom:20px;line-height:1.5}
+#dailyTask [hidden],.daily-operating [hidden]{display:none!important}
+.daily-search{position:relative;flex:1;max-width:560px}.daily-search label{font-size:13px;display:block;font-weight:700;margin-bottom:5px}.daily-search input{width:100%;font-size:16px;padding:12px 15px;box-sizing:border-box}
+.find-results{position:absolute;top:100%;left:0;right:0;max-height:65vh;overflow:auto;background:white;box-shadow:0 14px 40px #17313b33;border:1px solid #d1dddf;border-radius:10px;z-index:40;padding:12px}
+.find-result{display:block;width:100%;text-align:left;background:white;border:0;border-bottom:1px solid #e6ebed;border-radius:0;padding:14px;font-size:16px}.find-result:hover{background:#eff6f4}.find-result small{display:block;margin-top:5px;color:#62747c;font-weight:400}
+#dailyReadOnly{max-width:850px;width:80vw;max-height:80vh;overflow:auto}#dailyReadBody dl{display:grid;grid-template-columns:minmax(120px,1fr) 3fr;gap:12px}#dailyReadBody dt{font-size:13px;color:#61727b}#dailyReadBody dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+#dailyTools{max-width:980px;margin:30px auto}.daily-tool-choices{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:28px 0}.daily-tool-choices>button{padding:26px;text-align:left;background:white;font-size:20px;color:#18444c;border:1px solid #d4e0e0}.daily-source-row{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr auto;gap:8px;padding:18px 0;border-bottom:1px solid #dce4e6}.daily-source-row small{grid-column:1/3;color:#61727b}.daily-source-row button{grid-column:3;grid-row:1/3}.daily-source-coverage{grid-column:1/3;font-size:13px;line-height:1.5}.daily-source-coverage p{margin:4px 0;color:#52666f}.daily-source-coverage ul{margin:4px 0;padding-left:20px}
+.daily-disclosure{margin:16px 0}.daily-disclosure>summary,.daily-note>summary{cursor:pointer;font-size:16px;font-weight:600;padding:12px 0}.daily-disclosure[open]>summary{margin-bottom:12px}.daily-settings-hidden{display:none!important}.daily-settings-back{margin-bottom:20px}
+body.daily-operating .assign-recommendation>strong{font-size:52px}body.daily-operating #view-assign-next{max-width:1100px;margin:auto}
+body.daily-operating.meeting-fullscreen .sidebar,body.daily-operating.meeting-fullscreen .topbar{display:none!important}
+body.daily-operating.meeting-fullscreen main{padding:0}
+@media(max-width:900px){body.daily-operating main{padding:18px}body.daily-operating .sidebar{padding:8px}body.daily-operating .sidebar .nav-item{font-size:13px;padding:9px}body.daily-operating .topbar{flex-wrap:wrap;gap:12px}.daily-search{min-width:240px}.top-actions{font-size:12px}.daily-tool-choices{grid-template-columns:1fr}#dailyTask h2{font-size:28px}}
+@media(max-width:600px){.daily-ro-form{grid-template-columns:1fr}.daily-field{grid-column:1/-1}}
+
+/* Report needs share the existing import layout; evidence stays collapsed. */
+.daily-report-needs{grid-column:1/-1;min-width:0}.daily-report-needs h3{font-size:14px;letter-spacing:.06em;margin:20px 0 6px}.daily-source-row>details,.daily-source-row>p{grid-column:1/3;min-width:0}.daily-source-row>details summary{cursor:pointer;color:#18444c;font-size:13px}.daily-source-row>details[open]{padding-top:4px}.daily-source-row .daily-source-coverage{overflow-wrap:anywhere}
+.daily-trend-compact{grid-column:1/3;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:13px;color:#34515b}.daily-trend-compact strong{font-size:11px;letter-spacing:.06em;color:#18444c}.daily-trend-plan{padding:14px 18px;background:#f2f7f7;border:1px solid #dce4e6;border-radius:10px}.daily-trend-plan h3{margin-top:0}.daily-trend-plan h4{font-size:12px;letter-spacing:.06em;margin:13px 0 4px}.daily-trend-plan p{margin:4px 0;font-size:13px;line-height:1.45}
+
+/* Browser-local theme. The last loaded stylesheet keeps the override consistent across views. */
+.theme-toggle{margin-left:auto;white-space:nowrap;border:1px solid #a6c1c7;border-radius:8px;background:#fff;color:#17313b;padding:9px 12px;font:inherit;font-weight:700;cursor:pointer}
+.theme-toggle:focus-visible{outline:3px solid #49a8ce;outline-offset:2px}
+html[data-theme="dark"]{color-scheme:dark;background:#0c1520;color:#e8f1f7}
+html[data-theme="dark"] body.daily-operating,html[data-theme="dark"] body.daily-operating main,html[data-theme="dark"] body.daily-operating .view{background:#0c1520;color:#e8f1f7}
+html[data-theme="dark"] body.daily-operating .sidebar{background:#071c27;color:#e8f1f7;border-color:#31505d}
+html[data-theme="dark"] body.daily-operating .sidebar .nav-item{color:#d4e6ed}
+html[data-theme="dark"] body.daily-operating .sidebar .nav-item:hover,html[data-theme="dark"] body.daily-operating .sidebar .nav-item.active{background:#245569;color:#fff}
+html[data-theme="dark"] body.daily-operating :is(.card,.settings-card,.meeting-panel,.meeting-chart-panel,.meeting-talk-panel,.meeting-advisors,.daily-trend-plan,.daily-source-row,.daily-task-card,.daily-tools-card,.setup-checklist,.setup-heading,.customer-voice-manager,article,details,dialog,[role="dialog"],.modal,.dropdown,.find-results){background-color:#182937!important;color:#e8f1f7!important;border-color:#3a5262!important;box-shadow:none}
+html[data-theme="dark"] body.daily-operating :is(.card,.settings-card,article,details,dialog,[role="dialog"],.modal) :is(h1,h2,h3,h4,strong,b,dt,dd,summary){color:#f2f8fc}
+html[data-theme="dark"] body.daily-operating :is(p,span,small,label,th,td,.eyebrow,.step,.settings-note,.empty,.muted,.daily-description,.daily-trend-compact){color:#c2d5e0}
+html[data-theme="dark"] body.daily-operating :is(input,select,textarea,button:not(.primary):not(.nav-item),[contenteditable="true"]){background:#10212f;color:#eef6fb;border-color:#547184}
+html[data-theme="dark"] body.daily-operating :is(input,select,textarea)::placeholder{color:#a9c2d0;opacity:1}
+html[data-theme="dark"] body.daily-operating :is(input,select,textarea,button):focus-visible{outline:3px solid #6cc8e8;outline-offset:2px}
+html[data-theme="dark"] body.daily-operating :is(button.primary,.primary){background:#2e839d;color:#fff;border-color:#58b5ce}
+html[data-theme="dark"] body.daily-operating :is(button,.nav-item):disabled{background:#293744;color:#a4b7c3;border-color:#425564;opacity:1;cursor:not-allowed}
+html[data-theme="dark"] body.daily-operating :is(a,[role="link"]){color:#8ddaf7;text-decoration-color:#8ddaf7}
+html[data-theme="dark"] body.daily-operating :is(table,thead,tbody,tr,th,td){background-color:#182937;color:#e8f1f7;border-color:#3a5262}
+html[data-theme="dark"] body.daily-operating :is(tr:nth-child(even),.alternate-row){background-color:#203544}
+html[data-theme="dark"] body.daily-operating :is(.badge,.status,.banner,.alert,.notice){background:#244253;color:#edf8fd;border-color:#4b7184}
+html[data-theme="dark"] body.daily-operating :is(.status.error,.error,[role="alert"]){background:#502b32;color:#ffe7e8;border-color:#ae6570}
+html[data-theme="dark"] body.daily-operating :is(.status.success,.success){background:#1d473b;color:#dcf8e8;border-color:#4e9779}
+html[data-theme="dark"] body.daily-operating :is(.status.working,.warning){background:#594727;color:#fff1cb;border-color:#af8e45}
+html[data-theme="dark"] body.daily-operating :is(hr,.divider){border-color:#3a5262}
+html[data-theme="dark"] body.daily-operating :is(svg,canvas,img){color:inherit}
+@media print{
+  html[data-theme="dark"],html[data-theme="dark"] body.daily-operating,html[data-theme="dark"] body.daily-operating :is(main,.view,.card,.settings-card,article,details,table,thead,tbody,tr,th,td,.status,.banner){background:#fff!important;color:#111!important;border-color:#777!important;box-shadow:none!important}
+  html[data-theme="dark"] body.daily-operating :is(h1,h2,h3,h4,p,span,small,label,strong,b,th,td,a){color:#111!important}
+  .theme-toggle{display:none!important}
+}
+
