@@ -85,14 +85,10 @@
     items.push(...sourceTasks());
     if(model.state.reviewQueue?.length)items.push({id:'unmatched:questions',type:'questions',title:'Resolve the returned workbook questions',description:'Review unmatched advisor updates before applying them to an RO.',view:'open-ro',rank:3,fingerprint:String(model.state.reviewQueue.length)});
     if(model.assignNext.currentOpenRo)items.push({id:'availability:'+day+':'+hour,type:'availability',title:'Check advisor availability',description:'Confirm who is available before assigning the next RO.',view:'assign-next',rank:12,once:true,fingerprint:day+':'+hour});
-    const appointments=model.appointments.days?.[day]?.appointments||[];
-    if(hour<14)for(const a of appointments.filter(a=>(a.arrivalStatus||'Scheduled')==='Scheduled'))items.push({id:`arrival:${day}:${a.id}`,type:'arrival',title:'Prepare for this arrival',appointment:a,rank:6,once:true,fingerprint:JSON.stringify(a),description:'Confirm the visit is ready for the drive.'});
     const open=model.state.records.filter(r=>!api.closed(r.management||{})),parts=open.filter(r=>/waiting on parts|parts delay/i.test(api.status(r))&&!engine.hasFuturePlan(r,day));
     if(parts.length>=3)items.push({id:`parts:${day}`,type:'parts',title:'Review the parts delays',description:`${parts.length} current ROs are waiting on parts. Confirm the next action and customer update with Parts.`,view:'open-ro',rank:8,once:true,fingerprint:day});
-    const nextDate=new Date(day+'T12:00:00Z');nextDate.setUTCDate(nextDate.getUTCDate()+1);
-    const tomorrow=nextDate.toISOString().slice(0,10),scheduled=(model.appointments.days?.[tomorrow]?.appointments||[]).filter(a=>(a.arrivalStatus||'Scheduled')==='Scheduled');
     const unresolved=open.filter(r=>r.management?.reviewDate===day||r.management?.communication==='Needs update'||Boolean(engine.stuckWork(r,day)));
-    if(hour>=15&&(scheduled.length||unresolved.length))items.push({id:`tomorrow:${day}`,type:'tomorrow',title:'Make tomorrow ready',description:scheduled.length?`Review ${scheduled.length} saved appointment${scheduled.length===1?'':'s'} for tomorrow and confirm the drive is ready.`:'Review unresolved follow-ups, customer updates, or finish plans before closing.',view:scheduled.length?'arrivals':'open-ro',rank:5.5,once:true,fingerprint:JSON.stringify([day,scheduled.map(a=>[a.id,a.arrivalStatus,a.statusUpdatedAt]),unresolved.map(r=>[r.id,r.management?.updatedAt,r.management?.reviewDate])])});
+    if(hour>=15&&unresolved.length)items.push({id:`tomorrow:${day}`,type:'tomorrow',title:'Make tomorrow ready',description:`Review ${unresolved.length} unresolved follow-up${unresolved.length===1?'':'s'}, customer update${unresolved.length===1?'':'s'}, or finish plan${unresolved.length===1?'':'s'} before closing.`,view:'open-ro',rank:5.5,once:true,fingerprint:JSON.stringify([day,unresolved.map(r=>[r.id,r.management?.updatedAt,r.management?.reviewDate])])});
     const coaching=engine.coachingTurn(engine.coachingTasks(api.latestSapr(),api.advisors(),model.settings.performanceStandards,globalThis.__moondogFreshness.sourceFreshness('sapr',{today:day}).safeForCurrent,day),state.events,at);
     if(coaching)items.push(coaching);
     return items;
@@ -109,7 +105,7 @@
     return event;
   }
   // Fingerprints in history are compact source/revision evidence, never customer text.
-  function compactTask(task){if(task?.type==='ro')task.fingerprint=JSON.stringify([task.record.id,task.record.management?.updatedAt,task.record.sourceStatus,task.record.management?.reviewDate,task.record.management?.reviewTime,task.record.management?.nextAction?true:false,task.rank,model.state.source?.importedAt]);if(task?.type==='arrival')task.fingerprint=JSON.stringify([task.appointment.id,task.appointment.arrivalStatus,task.appointment.statusUpdatedAt,today()]);if(task?.type==='settings')task.fingerprint=Object.values(model.settings.advisors||{}).filter(a=>a.setupRequired).map(a=>a.number).sort().join(',');return task;}
+  function compactTask(task){if(task?.type==='ro')task.fingerprint=JSON.stringify([task.record.id,task.record.management?.updatedAt,task.record.sourceStatus,task.record.management?.reviewDate,task.record.management?.reviewTime,task.record.management?.nextAction?true:false,task.rank,model.state.source?.importedAt]);if(task?.type==='settings')task.fingerprint=Object.values(model.settings.advisors||{}).filter(a=>a.setupRequired).map(a=>a.number).sort().join(',');return task;}
   function allTasks(){return candidates().map(compactTask);}
   async function selectNext(){
     state.operatingDate=today();
@@ -185,10 +181,7 @@
       if(task.description){const p=document.createElement('p');p.className='daily-description';p.textContent=task.description.replace(/TREND DATA NEEDED · SAPR · /,'').replace(/historical snapshot/g,'historical report');host.append(p);}
       if(task.type==='coaching'){const p=document.createElement('p');p.className='daily-description';p.textContent=`NEXT · ${task.next}`;host.append(p);}
       if(task.source)importer(host,task);
-      else if(task.type==='arrival'){
-        const a=task.appointment;const p=document.createElement('p');p.className='daily-description';p.textContent=[a.time,a.guest||a.customer,a.vehicle,a.advisor,a.request||a.serviceRequest].filter(Boolean).join(' · ');host.append(p);
-        const select=document.createElement('select');select.setAttribute('aria-label','Arrival status');['Scheduled','Arrived','No show','Cancelled','Rescheduled'].forEach(v=>select.add(new Option(v,v)));select.value=a.arrivalStatus||'Scheduled';select.onchange=()=>state.editing=true;host.append(select,button('Save and continue',()=>action(async()=>{await api.updateArrivalStatus(a.id,select.value);const updated=model.appointments.days[today()].appointments.find(x=>x.id===a.id);await log('completed',compactTask({...task,appointment:updated}));await selectNext();}),'primary'));
-      }else{
+      else{
         if(task.type==='questions')host.append(button('View saved questions',()=>showReadOnly('Returned workbook questions',{questions:model.state.reviewQueue})));
         if(task.type!=='coaching')host.append(button('Open '+(task.type==='settings'?'advisor settings':task.view==='open-ro'?'Open RO Control':task.view==='imports'?'workbook tools':task.view==='assign-next'?'Assign Next':'Advisor Performance'),()=>go(task.view,task.anchor),'primary'));
         host.append(button('Completed',()=>action(async()=>{await log('completed',task,{until:new Date(now()+120*60000).toISOString()});await selectNext();})));
