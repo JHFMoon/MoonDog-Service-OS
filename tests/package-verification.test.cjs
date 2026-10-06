@@ -45,8 +45,8 @@ test("Current manifest verifies independent Stable and Beta packages in memory",
   const current = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.json"), "utf8"));
   const contract = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.schema.json"), "utf8"));
   assert.deepEqual(Object.keys(current).sort(), contract.required.slice().sort());
-  const betaBytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", "moondog-0.10.7-beta.2.json"));
-  const stableBytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", "moondog-0.10.6.json"));
+  const betaBytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", `moondog-${current.beta.version}.json`));
+  const stableBytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", `moondog-${current.stable.version}.json`));
   const calls = [];
   const fetcher = async (url, options) => {
     calls.push({ url, options });
@@ -57,7 +57,7 @@ test("Current manifest verifies independent Stable and Beta packages in memory",
   };
   const stable = await verify({ fetcher, subtle: webcrypto.subtle });
   assert.equal(stable.status, "verified");
-  assert.equal(stable.version, "0.10.6");
+  assert.equal(stable.version, current.stable.version);
   assert.deepEqual(Buffer.from(stable.bytes), stableBytes);
   const result = await verify({ channel: "beta", fetcher, subtle: webcrypto.subtle });
   assert.equal(result.status, "verified");

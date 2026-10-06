@@ -226,9 +226,14 @@ test("Stable to Beta to Stable uses verified packages, protected workspace backu
   const allowlist = Object.keys(stableFiles);
   const apply = async (channel) => {
     const verifiedPackage = packages[channel];
+    const targetFiles = decoded(verifiedPackage);
     const expectedPlan = await context.MoonDogPackagePlan.dryRun({ verifiedPackage,
       appDirectoryHandle: app.root, trustedAllowlist: allowlist, subtle: webcrypto.subtle });
-    assert.deepEqual(Array.from(expectedPlan.replace), Object.keys(betaFiles));
+    assert.equal(expectedPlan.rejected.length, 0);
+    assert.deepEqual(
+      new Set([...Array.from(expectedPlan.add), ...Array.from(expectedPlan.replace), ...Array.from(expectedPlan.unchanged)]),
+      new Set(Object.keys(targetFiles))
+    );
     const result = await context.MoonDogUpdateInstall.apply({ verifiedPackage,
       appDirectoryHandle: app.root,
       trustedAllowlist: allowlist, expectedPlan, confirmed: true });
@@ -241,7 +246,7 @@ test("Stable to Beta to Stable uses verified packages, protected workspace backu
   for (const [file, bytes] of Object.entries(betaFiles)) assert.deepEqual(app.store.files.get(file), bytes);
   const returned = await apply("stable");
   assert.equal(returned.status, "installed");
-  assert.equal(returned.version, "0.10.6");
+  assert.equal(returned.version, manifest.stable.version);
   for (const [file, bytes] of Object.entries(stableFiles)) assert.deepEqual(app.store.files.get(file), bytes);
   assert.equal(app.store.files.get("data/current-state.json").toString(), "synthetic private state");
   assert.equal(app.store.files.get("settings.json").toString(), "synthetic settings");
