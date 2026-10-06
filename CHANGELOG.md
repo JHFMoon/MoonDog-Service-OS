@@ -2,7 +2,14 @@
 
 This file summarizes user-relevant release milestones. The Git commit history remains the detailed engineering record.
 
-## 0.10.8-beta.2 — current Beta
+## 0.10.8-beta.3 — current Beta
+
+- Replaces a stale “reconnecting” banner with a verified connected state after folder restoration completes.
+- Shows installed-version availability more clearly after an update and labels the Beta install action consistently even before a fresh check.
+- Gives the System Updates panel more useful desktop width when it is the selected Tools section.
+- Adds focused regression coverage for the screenshot-state issues.
+
+## 0.10.8-beta.2
 
 - Uses the operating system Light/Dark preference on first run until the user makes an explicit theme choice.
 - Makes the installed Beta/Stable channel visible immediately in System Updates.
