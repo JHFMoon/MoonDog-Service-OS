@@ -22,8 +22,10 @@
   const button=(text,fn,cls='secondary')=>{const el=document.createElement('button');el.type='button';el.className=cls;el.textContent=text;el.addEventListener('click',fn);return el;};
   function installThemeToggle(){
     const storageKey='service-operations-hub-theme-v1';
-    let theme='light';
-    try { if(globalThis.localStorage.getItem(storageKey)==='dark') theme='dark'; } catch(_) {}
+    const systemTheme=globalThis.matchMedia?.('(prefers-color-scheme: dark)');
+    let savedTheme='';
+    try { const saved=globalThis.localStorage.getItem(storageKey); if(saved==='dark'||saved==='light') savedTheme=saved; } catch(_) {}
+    let theme=savedTheme||(systemTheme?.matches?'dark':'light');
     const control=document.createElement('button');
     control.type='button';control.className='theme-toggle';
     function paint(){
@@ -33,7 +35,8 @@
       control.setAttribute('aria-pressed',String(theme==='dark'));
       control.setAttribute('aria-label',theme==='dark'?'Switch to light mode':'Switch to dark mode');
     }
-    control.addEventListener('click',()=>{theme=theme==='dark'?'light':'dark';try{globalThis.localStorage.setItem(storageKey,theme);}catch(_){}paint();});
+    control.addEventListener('click',()=>{theme=theme==='dark'?'light':'dark';savedTheme=theme;try{globalThis.localStorage.setItem(storageKey,theme);}catch(_){}paint();});
+    systemTheme?.addEventListener?.('change',event=>{if(savedTheme)return;theme=event.matches?'dark':'light';paint();});
     document.querySelector('.top-actions')?.append(control);
     paint();
   }
