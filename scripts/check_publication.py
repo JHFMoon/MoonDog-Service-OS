@@ -123,17 +123,19 @@ def release_contract_errors(root):
 
 def scan(root):
     paths = subprocess.check_output(["git", "ls-files", "-z"], cwd=root).split(b"\0")
-    violations = 0
+    violations = []
     for raw_path in filter(None, paths):
         path = os.fsdecode(raw_path)
         if blocked_path(path):
-            violations += 1
+            violations.append(f"blocked path: {path}")
             continue
         content = subprocess.check_output(["git", "show", ":" + path], cwd=root)
         if blocked_content(content):
-            violations += 1
-    violations += len(release_contract_errors(root))
-    return violations
+            violations.append(f"blocked content: {path}")
+    violations.extend(f"release contract: {message}" for message in release_contract_errors(root))
+    for violation in violations:
+        print(violation)
+    return len(violations)
 
 
 if __name__ == "__main__":
