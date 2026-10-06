@@ -6,7 +6,7 @@ MoonDog Service OS is the public source repository for the user-facing **Service
 
 Installed Service Operations Hub files run locally and remain offline-capable. GitHub is used for source control and software update distribution; dealership operational data remains in the local workspace.
 
-See [Source and data boundary](docs/SOURCE-OF-TRUTH.md) for the authoritative split between public application source and protected local configuration/data. Release history is summarized in [CHANGELOG.md](CHANGELOG.md).
+See [Source and data boundary](docs/SOURCE-OF-TRUTH.md) for the authoritative split between public application source and protected local configuration/data. Release history is summarized in [CHANGELOG.md](CHANGELOG.md). Report-family behavior is documented in [Supplemental report ingestion](docs/REPORT-INGESTION.md).
 
 ## Repository boundary
 
