@@ -8,11 +8,11 @@
     "releaseNotes": "Stable generic application source with protected local store configuration and full restoration of every retained Beta-touched application file."
   },
   "beta": {
-    "version": "0.10.8-beta.2",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.8-beta.2.json",
-    "sha256": "2e8a8b1e6ea340aef5b0a2b2581b68740930f8b3f107c36de46fdd8d7e5807be",
+    "version": "0.10.8-beta.3",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.8-beta.3.json",
+    "sha256": "26d270760c06559b3f369930baff4bc9c39dcba6e3c13cc3b0172d9a792f5f71",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Beta usability polish: follows the system theme on first run, clarifies Beta/Stable update state and actions, and refreshes runtime build metadata. No operational-data migration."
+    "releaseNotes": "Beta display polish: clears stale reconnecting status after a verified connection, clarifies installed update state and Beta actions, and gives System Updates more desktop room. No operational-data migration."
   }
 }
