@@ -80,6 +80,13 @@ class PublicationCheckTests(unittest.TestCase):
         self.assertTrue(blocked_content(b"ghp_" + b"A" * 36))
         self.assertFalse(blocked_content(b"Synthetic product documentation."))
 
+    def test_store_target_literals_are_blocked_without_blocking_generic_docs(self):
+        self.assertTrue(blocked_content(b"grossMinimum:" + b"75000"))
+        self.assertTrue(blocked_content(b"Local target $" + b"12345"))
+        self.assertTrue(blocked_content(b"Goal " + b"91%"))
+        self.assertFalse(blocked_content(b"Local target not configured"))
+        self.assertFalse(blocked_content(b"Generic product target field"))
+
     def test_force_added_ignored_file_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
