@@ -2,7 +2,19 @@
 
 This file summarizes user-relevant release milestones. The Git commit history remains the detailed engineering record.
 
-## 0.10.9-beta.2 — current Beta
+## 0.10.9-beta.3 — current Beta
+
+- Repairs the Publication check after the sanitized Git history rewrite and updates its tests to use the active Stable/Beta packages.
+- Corrects the local-target publication regex so target values are actually blocked from future public source and release packages.
+- Keeps the Home queue free of the vague appointment-preparation task introduced in earlier Beta work.
+- Expands Open RO source parsing for advisor/writer and technician fields, including common advisor/tech number headers.
+- Recovers missing advisor ownership from the current Open RO workload ledger when the detailed record lacks it.
+- Resolves technician names from stored source fields and the protected local technician directory when possible.
+- Shows **Written by**, **Source technician**, and **Source status** directly on the Home RO review card.
+- Renames **Owner** to **Follow-up owner** and defaults an unassigned follow-up owner to the source service advisor without overwriting an existing manual owner.
+- Reconciles existing durable Open RO records on connection, so the fix is not limited to newly imported ROs.
+
+## 0.10.9-beta.2
 
 - Removes the vague “Prepare for this arrival” Home task and its arrival-status form.
 - Stops tomorrow-planning prompts from being triggered merely because appointments are scheduled.
