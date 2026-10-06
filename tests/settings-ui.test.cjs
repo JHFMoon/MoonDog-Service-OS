@@ -44,6 +44,12 @@ test("connected CSS marker reports the installed Beta without a second app-folde
   assert.equal(mountedInSettings, true);
   assert.equal(field("updateInstalledChannel").textContent, "Beta");
   assert.equal(card.innerHTML.includes("selectUpdateApp"), false);
+  assert.equal(card.innerHTML.includes("selectUpdateBackup"), false);
+  assert.equal(source.includes("showDirectoryPicker"), false);
+  assert.equal(source.includes("backupDirectoryHandle"), false);
+  assert.match(field("updateFolders").textContent, /backups\/system-updates\//);
+  assert.doesNotMatch(card.innerHTML.replace(/id="[^"]+"/g, ""), /MoonDog|separate backup folder/);
+  assert.doesNotMatch(field("updateFolders").textContent, /MoonDog/);
   assert.match(field("updateFolders").textContent, /Connected application folder: Test-App/);
   await listeners.get("checkMoonDogUpdate:click")();
   assert.equal(checks.at(-1).currentVersion, "0.10.7-beta.1");

@@ -23,7 +23,7 @@
   let saved = {};
   try { saved = JSON.parse(global.localStorage.getItem(key) || "{}"); } catch (_) {}
   const state = { channel: saved.channel === "beta" ? "beta" : "stable",
-    lastCheck: saved.lastCheck || null, check: null, backup: null,
+    lastCheck: saved.lastCheck || null, check: null,
     recoveryRequired: saved.recoveryRequired === true, busy: false };
   const appRoot = () => global.__moondogSettingsModel?.root || null;
   async function inspectInstalledTestVersion() {
@@ -62,10 +62,9 @@
     '<div><strong>Last check:</strong> <span id="updateLastCheck"></span></div>' +
     '<div><strong>Availability:</strong> <span id="updateAvailability" role="status"></span></div>' +
     '<div class="button-row"><button type="button" id="checkMoonDogUpdate">Check for Updates</button>' +
-    '<button type="button" id="selectUpdateBackup">Choose separate backup folder</button>' +
     '<button type="button" id="installMoonDogUpdate" class="primary" disabled>Install Update</button>' +
     '<button type="button" id="recoverMoonDogUpdate">Recover interrupted update</button></div>' +
-    '<p id="updateFolders" class="settings-note">Connect Service Operations Hub and choose a separate backup folder before installation.</p>' +
+    '<p id="updateFolders" class="settings-note">Connect Service Operations Hub before installation. Update rollback backups are saved in backups/system-updates/ inside the connected workspace.</p>' +
     '<pre id="updatePlan" hidden></pre><p id="updateStatus" role="status" aria-live="polite"></p>';
   const settingsSections = host.querySelector(".settings-sections");
   if (!settingsSections) return;
@@ -94,9 +93,9 @@
       result?.status === "incompatible" ? `New version requires ${result.minimumCompatibleVersion}` :
       result?.status === "unavailable" ? "GitHub unavailable" :
       result?.status === "invalid-input" ? "Installed version cannot be compared" : "Not checked";
-    field("updateFolders").textContent = `Connected application folder: ${appRoot()?.name || "not connected"}. Backup folder: ${state.backup?.name || "not chosen"}.`;
+    field("updateFolders").textContent = `Connected application folder: ${appRoot()?.name || "not connected"}. Update rollback backups: backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" : "Install Update";
-    installButton.disabled = state.busy || state.recoveryRequired || !["newer-version", "channel-switch"].includes(result?.status) || !appRoot() || !state.backup;
+    installButton.disabled = state.busy || state.recoveryRequired || !["newer-version", "channel-switch"].includes(result?.status) || !appRoot();
     field("checkMoonDogUpdate").disabled = state.busy;
   }
 
@@ -121,19 +120,8 @@
     save(); render();
   });
   field("checkMoonDogUpdate").addEventListener("click", () => check(true));
-  async function choose(which) {
-    if (!global.showDirectoryPicker) { status.textContent = "Folder access is unavailable in this browser."; return; }
-    try {
-      state[which] = await global.showDirectoryPicker({ mode: "readwrite" });
-      status.textContent = "Folder selected. No application files changed.";
-    } catch (error) {
-      if (error?.name !== "AbortError") status.textContent = "Folder selection failed: " + error.message;
-    }
-    render();
-  }
-  field("selectUpdateBackup").addEventListener("click", () => choose("backup"));
   installButton.addEventListener("click", async () => {
-    if (state.busy || !["newer-version", "channel-switch"].includes(state.check?.status) || !appRoot() || !state.backup) return;
+    if (state.busy || !["newer-version", "channel-switch"].includes(state.check?.status) || !appRoot()) return;
     state.busy = true; render();
     planText.hidden = true;
     try {
@@ -159,17 +147,17 @@
       planText.hidden = false;
       if (plan.rejected.length) throw new Error("Update rejected. No application files changed.");
       status.textContent = "Review the file changes before confirming.";
-      if (!global.confirm(`Install Service Operations Hub ${verified.version}?\n\n${summary}\n\nA separate backup will be verified before any application file is changed.`)) {
+      if (!global.confirm(`Install Service Operations Hub ${verified.version}?\n\n${summary}\n\nA rollback backup in backups/system-updates/ will be verified before any application file is changed.`)) {
         status.textContent = "Installation cancelled. No application files changed.";
         return;
       }
       const outcome = await global.MoonDogUpdateInstall.apply({ verifiedPackage: verified,
-        appDirectoryHandle: appRoot(), backupDirectoryHandle: state.backup,
+        appDirectoryHandle: appRoot(),
         trustedAllowlist: catalog, expectedPlan: plan, confirmed: true });
       status.textContent = outcome.status === "installed" ?
-        `Update verified. Restart Service Operations Hub to use version ${outcome.version}. Backup: ${outcome.backupName}.` :
-        outcome.status === "rolled-back" ? `Update failed and original app files were verified restored. Backup: ${outcome.backupName}.` :
-        outcome.status === "recovery-required" ? `Update stopped. Recovery is required from ${outcome.backupName}; do not retry installation. ${outcome.reason}` :
+        `Update verified. Restart Service Operations Hub to use version ${outcome.version}. Rollback backup saved in backups/system-updates/.` :
+        outcome.status === "rolled-back" ? "Update failed and original app files were verified restored. Rollback backup saved in backups/system-updates/." :
+        outcome.status === "recovery-required" ? `Update stopped. Recovery is required from backups/system-updates/; do not retry installation. ${outcome.reason}` :
         `Update stopped without a verified installation. ${outcome.reason || outcome.status}`;
       if (outcome.status === "recovery-required") { state.recoveryRequired = true; save(); }
       if (outcome.status === "installed") {
@@ -186,20 +174,24 @@
   });
   field("recoverMoonDogUpdate").addEventListener("click", async () => {
     if (state.busy) return;
-    if (!appRoot() || !global.showDirectoryPicker) {
+    if (!appRoot()) {
       status.textContent = "Connect Service Operations Hub in a browser with folder access first.";
       return;
     }
     try {
-      const backup = await global.showDirectoryPicker({ mode: "readwrite" });
-      if (!global.confirm(`Restore Service Operations Hub application files from ${backup.name}? Confirm this is the backup folder created by the interrupted update.`)) return;
+      const backups = await global.MoonDogUpdateInstall.listBackups(appRoot());
+      if (!backups.length) { status.textContent = "No update rollback backups were found in backups/system-updates/."; return; }
+      const selection = backups.length === 1 ? "1" : global.prompt(`Select an update backup number from backups/system-updates/:\n\n${backups.map((_, index) => `Backup ${index + 1}`).join("\n")}`, "1");
+      const backupName = /^\d+$/.test(selection || "") ? backups[Number(selection) - 1] : null;
+      if (!backupName) { status.textContent = "Recovery cancelled or backup not found."; return; }
+      if (!global.confirm(`Restore Service Operations Hub application files from update backup ${selection} in backups/system-updates/?`)) return;
       state.busy = true; render();
       const catalog = [...new Set([...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
         "assets/moondog-update-verify.js", "assets/moondog-update-plan.js",
         "assets/moondog-update-model.js", "assets/moondog-update-install.js",
         "assets/moondog-update-settings.js"])];
       const outcome = await global.MoonDogUpdateInstall.recover({ appDirectoryHandle: appRoot(),
-        backupDirectoryHandle: backup, trustedAllowlist: catalog, confirmed: true });
+        backupName, trustedAllowlist: catalog, confirmed: true });
       status.textContent = outcome.status === "restored" ?
         "Original application files were verified restored. Restart Service Operations Hub." :
         `Recovery could not be verified. Keep the backup intact. ${outcome.reason || ""}`;

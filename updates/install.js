@@ -19,12 +19,28 @@
     if (result !== "granted") throw new Error("Folder write permission was not granted.");
   }
 
-  async function separateFolders(app, backup) {
-    if (!app || !backup || typeof app.resolve !== "function" || typeof backup.resolve !== "function") {
-      throw new Error("The browser cannot prove that the backup folder is separate from MoonDog.");
-    }
-    if (await app.resolve(backup) !== null || await backup.resolve(app) !== null) {
-      throw new Error("Choose a backup folder outside the MoonDog folder.");
+  async function backupRoot(app, create = false) {
+    if (!app || typeof app.getDirectoryHandle !== "function") throw new Error("Application folder is unavailable.");
+    const backups = await app.getDirectoryHandle("backups", { create });
+    return backups.getDirectoryHandle("system-updates", { create });
+  }
+
+  async function listBackups(app) {
+    try {
+      const root = await backupRoot(app);
+      const names = [];
+      for await (const [name, handle] of root.entries()) {
+        if (handle.kind !== "directory" || !name.startsWith(BACKUP_PREFIX) ||
+            !/^[A-Za-z0-9-]+$/.test(name)) continue;
+        try {
+          const record = JSON.parse(decoder.decode(await read(handle, "journal.json")));
+          if (["applying", "prepared", "restored"].includes(record?.status)) names.push(name);
+        } catch (_) { /* A malformed record is not offered for recovery. */ }
+      }
+      return names.sort().reverse();
+    } catch (error) {
+      if (error?.name === "NotFoundError") return [];
+      throw error;
     }
   }
 
@@ -87,7 +103,7 @@
     }
   }
 
-  async function apply({ verifiedPackage, appDirectoryHandle: app, backupDirectoryHandle: backupParent,
+  async function apply({ verifiedPackage, appDirectoryHandle: app,
     trustedAllowlist, expectedPlan, confirmed = false, subtle = global.crypto && global.crypto.subtle } = {}) {
     if (!confirmed) return { status: "confirmation-required" };
     if (!subtle || !global.MoonDogPackagePlan || !global.MoonDogApplyDesignModel) return { status: "unavailable" };
@@ -101,14 +117,12 @@
         return { status: "rejected", reason: "Package verification is missing or invalid." };
       }
       global.MoonDogApplyDesignModel.plan([], trustedAllowlist);
-      await separateFolders(app, backupParent);
       await permission(app);
-      await permission(backupParent);
       if (trustedAllowlist.includes("index.html") && await read(app, "index.html") === null) {
-        throw new Error("The selected MoonDog folder has no index.html.");
+        throw new Error("The connected application folder has no index.html.");
       }
       if (trustedAllowlist.includes("assets/app.js") && await read(app, "assets/app.js") === null) {
-        throw new Error("The selected MoonDog folder has no application script.");
+        throw new Error("The connected application folder has no application script.");
       }
       const plan = await global.MoonDogPackagePlan.dryRun({ verifiedPackage,
         appDirectoryHandle: app, trustedAllowlist, subtle });
@@ -124,7 +138,14 @@
           sha256: original === null ? null : await digest(original, subtle), bytes: original });
       }
       const backupName = BACKUP_PREFIX + new Date().toISOString().replace(/[:.]/g, "-") + "-" + global.crypto.randomUUID();
-      backup = await backupParent.getDirectoryHandle(backupName, { create: true });
+      const root = await backupRoot(app, true);
+      try {
+        await root.getDirectoryHandle(backupName, { create: false });
+        throw new Error("Update backup already exists; no application files changed.");
+      } catch (error) {
+        if (error?.name !== "NotFoundError") throw error;
+      }
+      backup = await root.getDirectoryHandle(backupName, { create: true });
       const record = inventory.map(({ path, existed, sha256 }) => ({ path, existed, sha256 }));
       for (const item of inventory) {
         if (item.existed) await write(backup, item.path, item.bytes, true);
@@ -164,15 +185,17 @@
     }
   }
 
-  async function recover({ appDirectoryHandle: app, backupDirectoryHandle: backup,
+  async function recover({ appDirectoryHandle: app, backupName,
     trustedAllowlist, confirmed = false, subtle = global.crypto && global.crypto.subtle } = {}) {
     if (!confirmed) return { status: "confirmation-required" };
     try {
       if (!subtle || !global.MoonDogApplyDesignModel) throw new Error("Recovery verification is unavailable.");
       global.MoonDogApplyDesignModel.plan([], trustedAllowlist);
-      await separateFolders(app, backup);
+      if (typeof backupName !== "string" || !backupName.startsWith(BACKUP_PREFIX) ||
+          !/^[A-Za-z0-9-]+$/.test(backupName)) throw new Error("Invalid update backup name.");
       await permission(app);
-      await permission(backup);
+      const root = await backupRoot(app);
+      const backup = await root.getDirectoryHandle(backupName, { create: false });
       const bytes = await read(backup, "journal.json");
       if (!bytes) throw new Error("Backup journal is missing.");
       const record = JSON.parse(decoder.decode(bytes));
@@ -197,5 +220,5 @@
     }
   }
 
-  global.MoonDogUpdateInstall = { apply, recover };
+  global.MoonDogUpdateInstall = { apply, recover, listBackups };
 })(globalThis);

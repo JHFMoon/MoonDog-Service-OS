@@ -80,7 +80,8 @@ test("Dry-run classifies add, replace, delete, and unchanged without writing", a
 });
 
 test("Protected and unknown paths reject before local-folder reads", async () => {
-  for (const target of ["data/store.json", "Files to Learn/notes.txt",
+  for (const target of ["data/store.json", "backups/system-updates/journal.json",
+    "backups/other/backup.json", "BACKUPS/System-Updates/old.txt", "Files to Learn/notes.txt",
     "01 - DROP REPORTS HERE/report.csv", "settings.json", "assets/helper.exe",
     "assets/../settings.json", "assets/unknown.js"]) {
     const local = folder(new Map());
