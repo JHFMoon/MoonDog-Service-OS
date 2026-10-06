@@ -34,28 +34,30 @@
       });
       if (!response.ok) throw new Error("Manifest unavailable");
       const manifest = await response.json();
-      const stable = parseVersion(manifest.stableVersion);
-      const beta = manifest.betaVersion === null ? null : parseVersion(manifest.betaVersion);
-      const minimum = parseVersion(manifest.minimumCompatibleVersion);
-      if (!stable || !minimum || (manifest.betaVersion !== null && !beta) ||
-          !["stable", "beta"].includes(manifest.channel)) {
+      const stableRelease = manifest?.stable;
+      const betaRelease = manifest?.beta;
+      const stable = parseVersion(stableRelease?.version);
+      const beta = parseVersion(betaRelease?.version);
+      if (!stable || stable[3] !== null || !beta || beta[3] === null ||
+          !parseVersion(stableRelease.minimumCompatibleVersion) ||
+          !parseVersion(betaRelease.minimumCompatibleVersion)) {
         throw new Error("Invalid manifest");
       }
 
-      let version = manifest.stableVersion;
-      let selected = stable;
+      let release = stableRelease;
       let selectedChannel = "stable";
-      if (channel === "beta" && beta && compareVersions(beta, stable) > 0) {
-        version = manifest.betaVersion;
-        selected = beta;
+      if (channel === "beta" && compareVersions(beta, stable) > 0) {
+        release = betaRelease;
         selectedChannel = "beta";
       }
+      const version = release.version;
+      const selected = parseVersion(version);
       if (compareVersions(selected, current) <= 0) {
         return { status: "up-to-date", channel: selectedChannel, version };
       }
-      if (compareVersions(current, minimum) < 0) {
+      if (compareVersions(current, parseVersion(release.minimumCompatibleVersion)) < 0) {
         return { status: "incompatible", channel: selectedChannel, version,
-          minimumCompatibleVersion: manifest.minimumCompatibleVersion };
+          minimumCompatibleVersion: release.minimumCompatibleVersion };
       }
       return { status: "newer-version", channel: selectedChannel, version };
     } catch (_) {

@@ -1,10 +1,18 @@
 {
-  "stableVersion": "0.0.0",
-  "betaVersion": null,
-  "channel": "stable",
-  "minimumCompatibleVersion": "0.0.0",
-  "migrationRequired": false,
-  "packageUrl": null,
-  "sha256": null,
-  "releaseNotes": "Foundation placeholder. No update is available."
+  "stable": {
+    "version": "0.10.6",
+    "packageUrl": null,
+    "sha256": null,
+    "minimumCompatibleVersion": "0.10.6",
+    "migrationRequired": false,
+    "releaseNotes": "Installed Stable baseline. No Stable package is published."
+  },
+  "beta": {
+    "version": "0.10.7-beta.1",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.7-beta.1.json",
+    "sha256": "c47b081411f20622e79c5d2fd05eb37987a8627a28bb7811e584628fcc378ac1",
+    "minimumCompatibleVersion": "0.10.6",
+    "migrationRequired": false,
+    "releaseNotes": "Controlled Beta test: replaces only assets/product-settings.css with identical CSS plus a nonfunctional version comment."
+  }
 }

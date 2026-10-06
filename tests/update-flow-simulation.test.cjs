@@ -69,9 +69,10 @@ test("synthetic folder: check, fetch, verify, plan, backup, apply, verify, fail,
     const packageBytes = bytesOf(JSON.stringify({ formatVersion: 1, version: "1.1.0",
       approvedFiles: entries.map(entry => entry.path), files: entries }));
     const packageUrl = "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/test/synthetic-package.json";
-    const manifest = { stableVersion: "1.1.0", betaVersion: null, channel: "stable",
-      minimumCompatibleVersion: "1.0.0", migrationRequired: false,
-      packageUrl, sha256: hash(packageBytes), releaseNotes: "Synthetic test only" };
+    const manifest = { stable: { version: "1.1.0", minimumCompatibleVersion: "1.0.0",
+      migrationRequired: false, packageUrl, sha256: hash(packageBytes), releaseNotes: "Synthetic test only" },
+      beta: { version: "1.2.0-beta.1", minimumCompatibleVersion: "1.1.0",
+        migrationRequired: false, packageUrl: null, sha256: null, releaseNotes: "No Beta test" } };
     const fetcher = async url => {
       if (url.endsWith("/updates/manifest.json")) return { ok: true, json: async () => manifest };
       assert.equal(url, packageUrl);
@@ -87,7 +88,7 @@ test("synthetic folder: check, fetch, verify, plan, backup, apply, verify, fail,
     assert.equal(check.channel, "stable");
     const verified = await context.MoonDogPackageVerification.verify({ fetcher, subtle: webcrypto.subtle });
     assert.equal(verified.status, "verified");
-    assert.equal(verified.sha256, manifest.sha256);
+    assert.equal(verified.sha256, manifest.stable.sha256);
     const dryRun = await context.MoonDogPackagePlan.dryRun({ verifiedPackage: verified,
       appDirectoryHandle: readOnlyFolder(app), trustedAllowlist: allowlist, subtle: webcrypto.subtle });
     for (const [kind, expected] of Object.entries({ add: ["assets/new.js"], replace: ["index.html"],

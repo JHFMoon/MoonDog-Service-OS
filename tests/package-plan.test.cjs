@@ -46,13 +46,16 @@ function folder(files, permission = "granted") {
   return { handle: directory(""), calls };
 }
 
-test("Format contract is JSON and the live manifest still advertises no package", () => {
+test("Format contract is JSON and the live manifest advertises the Beta package", () => {
   const schema = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "package-format.schema.json"), "utf8"));
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.json"), "utf8"));
   assert.equal(schema.properties.formatVersion.const, 1);
   assert.deepEqual(schema.required, ["formatVersion", "version", "approvedFiles", "files"]);
-  assert.equal(manifest.packageUrl, null);
-  assert.equal(manifest.sha256, null);
+  assert.equal(manifest.stable.version, "0.10.6");
+  assert.equal(manifest.stable.packageUrl, null);
+  assert.equal(manifest.beta.version, "0.10.7-beta.1");
+  assert.match(manifest.beta.packageUrl, /\/updates\/packages\/moondog-0\.10\.7-beta\.1\.json$/);
+  assert.match(manifest.beta.sha256, /^[0-9a-f]{64}$/);
 });
 
 test("Dry-run classifies add, replace, delete, and unchanged without writing", async () => {

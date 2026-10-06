@@ -150,3 +150,35 @@ test("an interrupted update can be restored from its verified backup journal", a
   assert.equal(setup.app.store.files.has("assets/new.js"), false);
   assert.equal(setup.app.store.files.get("data/current-state.json").toString(), "synthetic private state");
 });
+
+test("published Beta package changes only the approved CSS and rolls back on failure", async () => {
+  const packageBytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", "moondog-0.10.7-beta.1.json"));
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.json"), "utf8"));
+  const content = JSON.parse(packageBytes);
+  const marker = Buffer.from("\n/* MoonDog controlled Beta update test 0.10.7-beta.1; no style changes. */\n");
+  const updated = Buffer.from(content.files[0].contentBase64, "base64");
+  assert.equal(hash(packageBytes), manifest.beta.sha256);
+  assert.equal(hash(updated), content.files[0].sha256);
+  assert.deepEqual(updated.subarray(-marker.length), marker);
+  const original = updated.subarray(0, -marker.length);
+  const trustedAllowlist = ["assets/product-settings.css"];
+  const verifiedPackage = { status: "verified", version: manifest.beta.version,
+    sha256: manifest.beta.sha256, bytes: packageBytes, migrationRequired: false };
+  for (const fail of [false, true]) {
+    const app = folder("MoonDog-Test", { "assets/product-settings.css": original,
+      "data/current-state.json": "synthetic private state" });
+    const backups = folder("External-Backups");
+    const expectedPlan = await context.MoonDogPackagePlan.dryRun({ verifiedPackage,
+      appDirectoryHandle: app.root, trustedAllowlist, subtle: webcrypto.subtle });
+    assert.deepEqual(Array.from(expectedPlan.replace), trustedAllowlist);
+    assert.equal(expectedPlan.rejected.length, 0);
+    if (fail) app.store.failOnce = "assets/product-settings.css";
+    const result = await context.MoonDogUpdateInstall.apply({ verifiedPackage,
+      appDirectoryHandle: app.root, backupDirectoryHandle: backups.root,
+      trustedAllowlist, expectedPlan, confirmed: true });
+    assert.equal(result.status, fail ? "rolled-back" : "installed");
+    assert.deepEqual(app.store.files.get("assets/product-settings.css"), fail ? original : updated);
+    assert.equal(app.store.files.get("data/current-state.json").toString(), "synthetic private state");
+    assert.deepEqual(backups.store.files.get(result.backupName + "/assets/product-settings.css"), original);
+  }
+});

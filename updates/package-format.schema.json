@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "MoonDog browser-readable update package v1",
-  "description": "UTF-8 JSON. The manifest SHA-256 covers these exact package bytes. approvedFiles is the explicit package file list and must exactly match files; the installed app's trusted allowlist remains authoritative. No package is published in Phase 1G.",
+  "description": "UTF-8 JSON. The manifest SHA-256 covers these exact package bytes. approvedFiles is the explicit package file list and must exactly match files; the installed app's trusted allowlist remains authoritative.",
   "type": "object",
   "additionalProperties": false,
   "required": ["formatVersion", "version", "approvedFiles", "files"],

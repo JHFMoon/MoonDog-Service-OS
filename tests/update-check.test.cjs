@@ -10,9 +10,10 @@ vm.runInContext(source, context);
 const check = context.MoonDogUpdateCheck.check;
 
 const manifest = {
-  stableVersion: "1.2.0", betaVersion: "1.3.0-beta.2", channel: "stable",
-  minimumCompatibleVersion: "1.0.0", migrationRequired: false,
-  packageUrl: null, sha256: null, releaseNotes: "Synthetic test release"
+  stable: { version: "1.2.0", minimumCompatibleVersion: "1.0.0",
+    migrationRequired: false, packageUrl: null, sha256: null, releaseNotes: "Stable test" },
+  beta: { version: "1.3.0-beta.2", minimumCompatibleVersion: "1.2.0",
+    migrationRequired: false, packageUrl: null, sha256: null, releaseNotes: "Beta test" }
 };
 
 function fetchManifest(value = manifest) {
@@ -31,7 +32,7 @@ test("Stable is the default; Beta requires opt-in", async () => {
   assert.equal(beta.version, "1.3.0-beta.2");
 
   const noBeta = await check({ currentVersion: "1.2.0", channel: "beta",
-    fetcher: fetchManifest({ ...manifest, betaVersion: null }) });
+    fetcher: fetchManifest({ ...manifest, beta: { ...manifest.beta, version: "1.1.0-beta.1" } }) });
   assert.equal(noBeta.status, "up-to-date");
 });
 
@@ -42,6 +43,11 @@ test("Compares versions and reports incompatibility without applying", async () 
   const incompatible = await check({ currentVersion: "0.9.0", fetcher: fetchManifest() });
   assert.equal(incompatible.status, "incompatible");
   assert.equal(incompatible.minimumCompatibleVersion, "1.0.0");
+
+  const incompatibleBeta = await check({ currentVersion: "1.1.0", channel: "beta",
+    fetcher: fetchManifest() });
+  assert.equal(incompatibleBeta.status, "incompatible");
+  assert.equal(incompatibleBeta.minimumCompatibleVersion, "1.2.0");
 
   const prerelease = await check({ currentVersion: "1.3.0-beta.1", channel: "beta",
     fetcher: fetchManifest() });
