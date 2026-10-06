@@ -39,6 +39,7 @@ test("connected CSS marker reports the installed Beta without a second app-folde
   vm.runInContext(source, context);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(field("updateInstalledVersion").textContent, "0.10.7-beta.1");
+  assert.equal(field("updateInstalledChannel").textContent, "Beta");
   assert.equal(card.innerHTML.includes("selectUpdateApp"), false);
   assert.match(field("updateFolders").textContent, /Connected application folder: Test-App/);
   await listeners.get("checkMoonDogUpdate:click")();

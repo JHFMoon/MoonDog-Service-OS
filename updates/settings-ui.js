@@ -5,7 +5,8 @@
   const version = String(global.MoonDogInstalledVersion || "");
   const baseComparisonVersion = /^\d+\.\d+\.\d+/.exec(version)?.[0] || "";
   let comparisonVersion = baseComparisonVersion;
-  let installedVersion = version;
+  let installedVersion = baseComparisonVersion;
+  let installedChannel = "stable";
   let inspectedRoot = null;
   const betaMarker = "\n/* MoonDog controlled Beta update test 0.10.7-beta.1; no style changes. */\n";
   function compatible(minimum) {
@@ -29,10 +30,12 @@
     const root = appRoot();
     if (!root || root === inspectedRoot) return;
     inspectedRoot = root;
-    installedVersion = version;
+    installedVersion = baseComparisonVersion;
+    installedChannel = "stable";
     comparisonVersion = baseComparisonVersion;
     state.check = null;
     field("updateInstalledVersion").textContent = installedVersion || "Unknown";
+    field("updateInstalledChannel").textContent = "Stable";
     render();
     try {
       const assets = await root.getDirectoryHandle("assets", { create: false });
@@ -40,9 +43,11 @@
       const content = await (await stylesheet.getFile()).text();
       if (content.endsWith(betaMarker)) {
         installedVersion = "0.10.7-beta.1";
+        installedChannel = "beta";
         comparisonVersion = installedVersion;
         state.check = null;
         field("updateInstalledVersion").textContent = installedVersion;
+        field("updateInstalledChannel").textContent = "Beta";
         render();
       }
     } catch (_) { /* The baseline version remains authoritative if the marker cannot be read. */ }
@@ -52,6 +57,7 @@
   card.id = "settings-update";
   card.innerHTML = '<h2>System Updates</h2><p>Service Operations Hub checks its public update source. Installation always requires your approval.</p>' +
     '<div><strong>Installed version:</strong> <span id="updateInstalledVersion"></span></div>' +
+    '<div><strong>Installed channel:</strong> <span id="updateInstalledChannel"></span></div>' +
     '<label>Update channel <select id="updateChannel"><option value="stable">Stable</option><option value="beta">Beta (opt in)</option></select></label>' +
     '<div><strong>Last check:</strong> <span id="updateLastCheck"></span></div>' +
     '<div><strong>Availability:</strong> <span id="updateAvailability" role="status"></span></div>' +
@@ -70,6 +76,7 @@
   const installButton = field("installMoonDogUpdate");
   channel.value = state.channel;
   field("updateInstalledVersion").textContent = installedVersion || "Unknown";
+  field("updateInstalledChannel").textContent = "Stable";
 
   function save() {
     try { global.localStorage.setItem(key, JSON.stringify({ channel: state.channel,
@@ -80,12 +87,14 @@
     const result = state.check;
     availability.textContent = result?.status === "newer-version" ?
       `${result.channel === "beta" ? "Beta" : "Stable"} ${result.version} available` :
+      result?.status === "channel-switch" ? `Return to Stable ${result.version} available` :
       result?.status === "up-to-date" ? "No newer update" :
       result?.status === "incompatible" ? `New version requires ${result.minimumCompatibleVersion}` :
       result?.status === "unavailable" ? "GitHub unavailable" :
       result?.status === "invalid-input" ? "Installed version cannot be compared" : "Not checked";
     field("updateFolders").textContent = `Connected application folder: ${appRoot()?.name || "not connected"}. Backup folder: ${state.backup?.name || "not chosen"}.`;
-    installButton.disabled = state.busy || state.recoveryRequired || result?.status !== "newer-version" || !appRoot() || !state.backup;
+    installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" : "Install Update";
+    installButton.disabled = state.busy || state.recoveryRequired || !["newer-version", "channel-switch"].includes(result?.status) || !appRoot() || !state.backup;
     field("checkMoonDogUpdate").disabled = state.busy;
   }
 
@@ -122,7 +131,7 @@
   }
   field("selectUpdateBackup").addEventListener("click", () => choose("backup"));
   installButton.addEventListener("click", async () => {
-    if (state.busy || state.check?.status !== "newer-version" || !appRoot() || !state.backup) return;
+    if (state.busy || !["newer-version", "channel-switch"].includes(state.check?.status) || !appRoot() || !state.backup) return;
     state.busy = true; render();
     planText.hidden = true;
     try {
@@ -163,11 +172,11 @@
       if (outcome.status === "recovery-required") { state.recoveryRequired = true; save(); }
       if (outcome.status === "installed") {
         state.check = null;
-        if (outcome.version === "0.10.7-beta.1") {
-          installedVersion = outcome.version;
-          comparisonVersion = outcome.version;
-          field("updateInstalledVersion").textContent = installedVersion;
-        }
+        installedVersion = outcome.version;
+        comparisonVersion = outcome.version;
+        installedChannel = verified.channel;
+        field("updateInstalledVersion").textContent = installedVersion;
+        field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
       }
     } catch (error) {
       status.textContent = error.message || "Update stopped before installation.";

@@ -1,11 +1,11 @@
 {
   "stable": {
     "version": "0.10.6",
-    "packageUrl": null,
-    "sha256": null,
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.6.json",
+    "sha256": "4f14220acbf8a7bf97126057659b46dedbc8c873153362a8a0a6e658ce8944d0",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Installed Stable baseline. No Stable package is published."
+    "releaseNotes": "Current Stable 0.10.6: restores the exact pre-Beta application stylesheet."
   },
   "beta": {
     "version": "0.10.7-beta.1",

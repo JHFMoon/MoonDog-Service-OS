@@ -41,26 +41,30 @@ function fetcherFor(manifest, response = packageResponse()) {
   return { fetcher, calls };
 }
 
-test("Current manifest verifies the published Beta package in memory", async () => {
+test("Current manifest verifies independent Stable and Beta packages in memory", async () => {
   const current = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.json"), "utf8"));
   const contract = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.schema.json"), "utf8"));
   assert.deepEqual(Object.keys(current).sort(), contract.required.slice().sort());
-  const bytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", "moondog-0.10.7-beta.1.json"));
+  const betaBytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", "moondog-0.10.7-beta.1.json"));
+  const stableBytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", "moondog-0.10.6.json"));
   const calls = [];
   const fetcher = async (url, options) => {
     calls.push({ url, options });
     if (url === manifestUrl) return { ok: true, json: async () => current };
-    if (url === current.beta.packageUrl) return packageResponse(bytes);
+    if (url === current.beta.packageUrl) return packageResponse(betaBytes);
+    if (url === current.stable.packageUrl) return packageResponse(stableBytes);
     throw new Error("Unexpected URL");
   };
   const stable = await verify({ fetcher, subtle: webcrypto.subtle });
-  assert.equal(stable.status, "no-package");
+  assert.equal(stable.status, "verified");
+  assert.equal(stable.version, "0.10.6");
+  assert.deepEqual(Buffer.from(stable.bytes), stableBytes);
   const result = await verify({ channel: "beta", fetcher, subtle: webcrypto.subtle });
   assert.equal(result.status, "verified");
   assert.equal(result.version, current.beta.version);
   assert.equal(result.sha256, current.beta.sha256);
-  assert.deepEqual(Buffer.from(result.bytes), bytes);
-  assert.deepEqual(calls.map(call => call.url), [manifestUrl, manifestUrl, current.beta.packageUrl]);
+  assert.deepEqual(Buffer.from(result.bytes), betaBytes);
+  assert.deepEqual(calls.map(call => call.url), [manifestUrl, current.stable.packageUrl, manifestUrl, current.beta.packageUrl]);
 });
 
 test("Matching SHA-256 returns only verified in-memory bytes", async () => {

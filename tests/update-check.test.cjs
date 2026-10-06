@@ -54,6 +54,17 @@ test("Compares versions and reports incompatibility without applying", async () 
   assert.equal(prerelease.status, "newer-version");
 });
 
+test("current Beta can select the verified Stable package as a channel downgrade", async () => {
+  const ready = { ...manifest, stable: { ...manifest.stable, packageUrl: "https://example.test/stable.json", sha256: "a".repeat(64) } };
+  const result = await check({ currentVersion: "1.3.0-beta.2", channel: "stable", fetcher: fetchManifest(ready) });
+  assert.equal(result.status, "channel-switch");
+  assert.equal(result.channel, "stable");
+  assert.equal(result.version, "1.2.0");
+  assert.equal((await check({ currentVersion: "1.3.0-beta.2", channel: "stable", fetcher: fetchManifest() })).status, "silent");
+  assert.equal((await check({ currentVersion: "1.3.0-beta.2", channel: "stable", manual: true,
+    fetcher: fetchManifest({ ...ready, beta: { ...ready.beta, migrationRequired: true } }) })).status, "unavailable");
+});
+
 test("Uses only the fixed public manifest URL and sends no credentials", async () => {
   let calls = 0;
   const fetcher = async (url, options) => {

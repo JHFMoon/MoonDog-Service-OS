@@ -182,3 +182,42 @@ test("published Beta package changes only the approved CSS and rolls back on fai
     assert.deepEqual(backups.store.files.get(result.backupName + "/assets/product-settings.css"), original);
   }
 });
+
+test("Stable to Beta to Stable uses verified packages, separate backups, and preserves protected data", async () => {
+  const updates = path.join(__dirname, "..", "updates");
+  const manifest = JSON.parse(fs.readFileSync(path.join(updates, "manifest.json"), "utf8"));
+  const packages = Object.fromEntries(["stable", "beta"].map(channel => {
+    const bytes = fs.readFileSync(path.join(updates, "packages", `moondog-${manifest[channel].version}.json`));
+    assert.equal(hash(bytes), manifest[channel].sha256);
+    return [channel, { status: "verified", channel, version: manifest[channel].version,
+      sha256: manifest[channel].sha256, migrationRequired: false, bytes }];
+  }));
+  const stableCss = Buffer.from(JSON.parse(packages.stable.bytes).files[0].contentBase64, "base64");
+  const betaCss = Buffer.from(JSON.parse(packages.beta.bytes).files[0].contentBase64, "base64");
+  const app = folder("MoonDog-Test", { "assets/product-settings.css": stableCss,
+    "data/current-state.json": "synthetic private state", "settings.json": "synthetic settings" });
+  const backups = folder("External-Backups");
+  const allowlist = ["assets/product-settings.css"];
+  const apply = async (channel) => {
+    const verifiedPackage = packages[channel];
+    const expectedPlan = await context.MoonDogPackagePlan.dryRun({ verifiedPackage,
+      appDirectoryHandle: app.root, trustedAllowlist: allowlist, subtle: webcrypto.subtle });
+    assert.deepEqual(Array.from(expectedPlan.replace), allowlist);
+    const result = await context.MoonDogUpdateInstall.apply({ verifiedPackage,
+      appDirectoryHandle: app.root, backupDirectoryHandle: backups.root,
+      trustedAllowlist: allowlist, expectedPlan, confirmed: true });
+    return result;
+  };
+  assert.equal((await apply("beta")).status, "installed");
+  assert.deepEqual(app.store.files.get(allowlist[0]), betaCss);
+  app.store.failOnce = allowlist[0];
+  assert.equal((await apply("stable")).status, "rolled-back");
+  assert.deepEqual(app.store.files.get(allowlist[0]), betaCss);
+  const returned = await apply("stable");
+  assert.equal(returned.status, "installed");
+  assert.equal(returned.version, "0.10.6");
+  assert.deepEqual(app.store.files.get(allowlist[0]), stableCss);
+  assert.equal(app.store.files.get("data/current-state.json").toString(), "synthetic private state");
+  assert.equal(app.store.files.get("settings.json").toString(), "synthetic settings");
+  assert.ok(backups.store.files.has(returned.backupName + "/assets/product-settings.css"));
+});

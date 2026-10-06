@@ -57,7 +57,8 @@
       const versionPattern = channel === "stable" ? /^\d+\.\d+\.\d+$/ : /^\d+\.\d+\.\d+-beta\.\d+$/;
       if (!release || !versionPattern.test(release.version) ||
           !/^\d+\.\d+\.\d+$/.test(release.minimumCompatibleVersion) ||
-          typeof release.migrationRequired !== "boolean") {
+          typeof release.migrationRequired !== "boolean" ||
+          (channel === "beta" && release.migrationRequired)) {
         return { status: "rejected", reason: "invalid-metadata" };
       }
       if (release.packageUrl === null && release.sha256 === null) return { status: "no-package" };

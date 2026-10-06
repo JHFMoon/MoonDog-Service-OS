@@ -25,8 +25,19 @@ class UpdateManifestTests(unittest.TestCase):
             self.assertTrue(release["releaseNotes"].strip())
         self.assertEqual(manifest["stable"]["version"], "0.10.6")
         self.assertEqual(manifest["beta"]["version"], "0.10.7-beta.1")
-        self.assertIsNone(manifest["stable"]["packageUrl"])
-        self.assertIsNone(manifest["stable"]["sha256"])
+        self.assertTrue(manifest["stable"]["packageUrl"].endswith("/moondog-0.10.6.json"))
+        self.assertFalse(manifest["beta"]["migrationRequired"])
+        stable_bytes = (MANIFEST.parent / "packages" / "moondog-0.10.6.json").read_bytes()
+        self.assertEqual(manifest["stable"]["sha256"], hashlib.sha256(stable_bytes).hexdigest())
+        stable_package = json.loads(stable_bytes)
+        self.assertEqual(stable_package["version"], "0.10.6")
+        self.assertEqual(stable_package["approvedFiles"], ["assets/product-settings.css"])
+        stable_css = base64.b64decode(stable_package["files"][0]["contentBase64"], validate=True)
+        self.assertEqual(stable_package["files"][0]["sha256"], hashlib.sha256(stable_css).hexdigest())
+        beta_package = json.loads((MANIFEST.parent / "packages" / "moondog-0.10.7-beta.1.json").read_bytes())
+        beta_css = base64.b64decode(beta_package["files"][0]["contentBase64"], validate=True)
+        marker = b"\n/* MoonDog controlled Beta update test 0.10.7-beta.1; no style changes. */\n"
+        self.assertEqual(beta_css, stable_css + marker)
 
     def test_beta_package_has_exact_hashes_and_one_approved_file(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))

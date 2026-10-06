@@ -7,10 +7,35 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from check_publication import blocked_content, blocked_path, scan
+from check_publication import blocked_content, blocked_path, release_contract_errors, scan
 
 
 class PublicationCheckTests(unittest.TestCase):
+    def test_beta_publication_requires_safe_stable_return(self):
+        import json
+        root = Path(__file__).resolve().parents[1]
+        self.assertEqual(release_contract_errors(root), [])
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            (fixture / "updates" / "packages").mkdir(parents=True)
+            for name in ("moondog-0.10.6.json", "moondog-0.10.7-beta.1.json"):
+                (fixture / "updates" / "packages" / name).write_bytes((root / "updates" / "packages" / name).read_bytes())
+            manifest = json.loads((root / "updates" / "manifest.json").read_text(encoding="utf-8"))
+            target = fixture / "updates" / "manifest.json"
+            manifest["beta"]["migrationRequired"] = True
+            target.write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertTrue(release_contract_errors(fixture))
+            manifest["beta"]["migrationRequired"] = False
+            manifest["stable"]["packageUrl"] = None
+            target.write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertTrue(release_contract_errors(fixture))
+            manifest["stable"]["packageUrl"] = json.loads((root / "updates" / "manifest.json").read_text(encoding="utf-8"))["stable"]["packageUrl"]
+            package_path = fixture / "updates" / "packages" / "moondog-0.10.6.json"
+            package = json.loads(package_path.read_text(encoding="utf-8"))
+            package["approvedFiles"] = ["assets/other.css"]
+            package_path.write_text(json.dumps(package), encoding="utf-8")
+            self.assertTrue(release_contract_errors(fixture))
+
     def test_prohibited_paths_and_public_sources(self):
         for path in (
             "data/ro.json", "history/old.txt", "backups/save.zip",
