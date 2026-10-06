@@ -28,10 +28,10 @@ BLOCKED_LOCAL_STATE = {
 PRIVATE_KEY_PATTERN = re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
 TOKEN_PATTERN = re.compile(rb"\b(?:gh[opusr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,})\b")
 LOCAL_TARGET_LITERAL_PATTERN = re.compile(
-    rb"\\b(?:grossMinimum|grossStretch|storeGrossTarget|dealerNps|vir|menuPresentation|menuPenetration|mediaViewed|texting|cpElr|cpHoursPerRo)\\s*:\\s*-?(?:\\d|\\.\\d)"
+    rb"\b(?:grossMinimum|grossStretch|storeGrossTarget|dealerNps|vir|menuPresentation|menuPenetration|mediaViewed|texting|cpElr|cpHoursPerRo)\s*:\s*-?(?:\d|\.\d)"
 )
 LOCAL_TARGET_TEXT_PATTERN = re.compile(
-    rb"(?i)(?:(?:\\bgoal\\b|\\btarget\\b|\\bminimum\\b|\\bstretch\\b)[^\\r\\n]{0,28}(?:\\$\\s*\\d|\\b\\d+(?:\\.\\d+)?%)|(?:\\$\\s*\\d|\\b\\d+(?:\\.\\d+)?%)[^\\r\\n]{0,28}(?:\\bgoal\\b|\\btarget\\b|\\bminimum\\b|\\bstretch\\b))"
+    rb"(?i)(?:(?:\bgoal\b|\btarget\b|\bminimum\b|\bstretch\b)[^\r\n]{0,28}(?:\$\s*\d|\b\d+(?:\.\d+)?%)|(?:\$\s*\d|\b\d+(?:\.\d+)?%)[^\r\n]{0,28}(?:\bgoal\b|\btarget\b|\bminimum\b|\bstretch\b))"
 )
 
 
