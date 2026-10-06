@@ -2,6 +2,14 @@
 
 This file summarizes user-relevant release milestones. The Git commit history remains the detailed engineering record.
 
+## 0.10.9-beta.5
+
+- Promotes the CDK Repair Orders DOCX browser export to a reconciled primary Open RO source, including active RO detail and Assign Next workload evidence.
+- Adds useful learned-source ingestion for Mopar QIR parts alerts, Express Lane/service-consulting audits and action plans, customer outreach transcripts, and the Technician Video MPI coaching standard.
+- Feeds current service-consulting actions, unresolved outreach handoffs, and recent parts-quality alerts into Manager Attention without changing authoritative KPI families.
+- Treats claim/loss forms and collision estimates as verified non-service records; their inbox or Files To Learn copies are retired instead of accumulating as unknown files.
+- Keeps all uploaded source material local and out of GitHub.
+
 ## 0.10.9-beta.4
 
 - Adds isolated supplemental ingestion for Mopar Retail Rewards, ServiceView, CX/NPS, TireWorks, Controllable Ranking, appointment-summary, Cash Clearing, Credit Holds, and CDK browser-export summaries.

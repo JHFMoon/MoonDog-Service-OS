@@ -8,11 +8,11 @@
     "releaseNotes": "Sanitized restoration baseline. Store performance targets and dollar goals are local-only configuration; protected operational data remains untouched."
   },
   "beta": {
-    "version": "0.10.9-beta.4",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.9-beta.4.json",
-    "sha256": "a6f4adbd6eae2ac0dfb8538129accd074007d05bbf4d846ef8f46e2e77ca974e",
+    "version": "0.10.9-beta.5",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.9-beta.5.json",
+    "sha256": "513c99e704d2a64434fc229ba4f5c7d6780ebefaaf72e3a806fb0be3bc5268d9",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Adds isolated supplemental report ingestion for Mopar, ServiceView, CX, TireWorks and manager reference reports while keeping non-KPI documents and source files out of active KPI data and out of GitHub."
+    "releaseNotes": "Finishes Files To Learn triage: CDK Repair Orders DOCX becomes a reconciled primary Open RO source; QIRs, service-consulting audits, outreach transcripts, and video-MPI standards are used locally; claims and collision estimates are recognized and retired outside Service OS."
   }
 }
