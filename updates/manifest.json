@@ -2,10 +2,10 @@
   "stable": {
     "version": "0.10.8",
     "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.8.json",
-    "sha256": "01e07241bd899104a511094ceeed65f88c03248cd5570c70d251ffa2041028e8",
+    "sha256": "c596cc17a7c71f3f1b02a5230ad7d8c7972f34a2ee66f8cf2c68dc59835f4c04",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Sanitized restoration baseline. Store performance targets and dollar goals are local-only configuration; protected operational data remains untouched."
+    "releaseNotes": "Sanitized restoration baseline. Store performance targets and dollar goals are local-only configuration; protected operational data remains untouched. Stable return also restores the verified updater runtime."
   },
   "beta": {
     "version": "0.10.9-beta.8",
