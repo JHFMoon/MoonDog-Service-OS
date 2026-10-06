@@ -2,7 +2,14 @@
 
 This file summarizes user-relevant release milestones. The Git commit history remains the detailed engineering record.
 
-## 0.10.9-beta.1 — current Beta
+## 0.10.9-beta.2 — current Beta
+
+- Removes the vague “Prepare for this arrival” Home task and its arrival-status form.
+- Stops tomorrow-planning prompts from being triggered merely because appointments are scheduled.
+- Keeps the useful end-of-day “Make tomorrow ready” task when unresolved RO follow-ups, customer updates, or finish plans still need attention.
+- Keeps Today’s Arrivals as an intentional operational view for schedule, rush-window, and porter/check-in work.
+
+## 0.10.9-beta.1
 
 - Moves store performance targets, required thresholds, gross minimum/stretch values, and dollar goals out of public application defaults.
 - Preserves target values already saved in the connected local settings file.
