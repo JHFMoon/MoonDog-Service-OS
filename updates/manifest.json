@@ -1,18 +1,18 @@
 {
   "stable": {
-    "version": "0.10.7",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.7.json",
-    "sha256": "3079bd9aa8763fa6a06b54a0af0075cb563f2b44252617a805678fc4e7634d23",
+    "version": "0.10.8",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.8.json",
+    "sha256": "f0aa2fbd81ba8c801933cc9a83cb2f85f13869a7b3cfe1ca5f73e5c4986bd80e",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Stable generic application source with protected local store configuration and full restoration of every retained Beta-touched application file."
+    "releaseNotes": "Sanitized restoration baseline. Store performance targets and dollar goals are local-only configuration; protected operational data remains untouched."
   },
   "beta": {
-    "version": "0.10.8-beta.3",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.8-beta.3.json",
-    "sha256": "26d270760c06559b3f369930baff4bc9c39dcba6e3c13cc3b0172d9a792f5f71",
+    "version": "0.10.9-beta.1",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.9-beta.1.json",
+    "sha256": "5fd05fd6c006056b502f5244824e4d2b5437738b60ebea074187444e93eafa0f",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Beta display polish: clears stale reconnecting status after a verified connection, clarifies installed update state and Beta actions, and gives System Updates more desktop room. No operational-data migration."
+    "releaseNotes": "Moves store performance targets, gross minimum/stretch goals, and target thresholds out of public source and into protected local Settings. Existing locally saved targets are preserved; newly added target fields start unconfigured."
   }
 }
