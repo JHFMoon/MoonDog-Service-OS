@@ -145,7 +145,7 @@
   function roForm(task,host){
     const r=model.state.records.find(x=>x.id===task.recordId);if(!r)return;
     const original=JSON.stringify(r),m=r.management||{};
-    host.insertAdjacentHTML('beforeend',`<div class="daily-ro-context"><strong>RO ${esc(r.ro)}</strong><span>${esc(r.customer)}</span><span>${esc(r.vehicle||r.tagNumber)}</span><small>${esc(r.advisor)}${r.advisorCode?' · '+esc(r.advisorCode):''} · ${esc(r.sourceStatus||'Status not provided')}</small></div>`);
+    const writtenBy=r.advisor||r.advisorCode||"Not identified",sourceTech=r.technician||r.technicianCode||"Not identified"; host.insertAdjacentHTML('beforeend',`<div class="daily-ro-context"><strong>RO ${esc(r.ro)}</strong><span>${esc(r.customer)}</span><span>${esc(r.vehicle||r.tagNumber)}</span><small><b>Written by:</b> ${esc(writtenBy)}${r.advisorCode&&r.advisor!==r.advisorCode?' · '+esc(r.advisorCode):''} &nbsp;·&nbsp; <b>Source technician:</b> ${esc(sourceTech)} &nbsp;·&nbsp; <b>Source status:</b> ${esc(r.sourceStatus||'Not provided')}</small></div>`);
     const form=document.createElement('form');form.id='dailyRoForm';form.className='daily-ro-form';
     const status=document.createElement('select');api.statuses(r).forEach(v=>status.add(new Option(v,v)));
     compactField(form,'Current condition','status',api.status(r),status,Boolean(api.clarification(r))||!m.status);
@@ -154,7 +154,7 @@
     const time=document.createElement('input');time.type='time';compactField(form,'Follow-up time (optional)','reviewTime',m.reviewTime,time,false);
     const comm=document.createElement('select');api.communication.forEach(v=>comm.add(new Option(v||'Not recorded',v)));compactField(form,'Customer communication','communication',m.communication,comm,!m.communication||m.communication==='Needs update');
     const tech=document.createElement('input');tech.maxLength=120;compactField(form,'Current technician','currentTechnician',m.currentTechnician||r.technician||'',tech,false);
-    const owner=document.createElement('input');compactField(form,'Owner','owner',m.owner,owner,false);
+    const owner=document.createElement('input');compactField(form,'Follow-up owner','owner',m.owner||r.advisor||'',owner,false);
     const note=document.createElement('details');note.className='daily-note';note.innerHTML='<summary>Add note</summary><label for="daily-note">Update note</label><textarea id="daily-note" name="note" rows="2"></textarea>';note.querySelector('textarea').value=m.note||'';form.append(note);
     const save=document.createElement('button');save.type='submit';save.className='primary daily-primary';save.textContent='Save and continue';form.append(save);
     form.addEventListener('input',()=>state.editing=true);form.addEventListener('change',()=>state.editing=true);
