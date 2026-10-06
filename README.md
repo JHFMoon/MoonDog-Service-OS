@@ -21,9 +21,9 @@ The connected local workspace remains authoritative for dealership-specific and 
 The update manifest currently publishes:
 
 - **Stable:** `0.10.7`
-- **Beta:** `0.10.8-beta.1`
+- **Beta:** `0.10.8-beta.2`
 
-Both channels distribute approved application files through the browser-native updater. Stable is the default channel; Beta requires user opt-in.
+Both channels distribute approved application files through the browser-native updater. Stable is the default channel; Beta requires user opt-in. Beta 0.10.8-beta.2 adds first-run system-theme matching and clearer update-channel status without changing operational data.
 
 Updates are checked and downloaded from GitHub, then installed locally only after user approval. The updater verifies the package, shows a dry run, protects local-only paths, creates a rollback backup before writes, verifies written files, and can restore the prior application state if installation fails.
 
