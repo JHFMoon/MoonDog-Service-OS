@@ -12,6 +12,35 @@ The DOCX parser reconciles the source summary against the detailed population be
 
 The parser retains the same operational fields used by Open RO control: RO, source status, customer, VIN / vehicle, tag, advisor, technician, opened time, promised time, closed time when present, and service-line indicators.
 
+Both complete Open RO source families are independent inputs to the same durable RO record. A legacy Open RO XLSX can establish the active roster without erasing richer CDK workflow facts, and a CDK Repair Orders import can refresh the roster plus workflow status without erasing manager reviews or commitments. A valid complete import may close an RO by omission; closed records remain locally recoverable for seven calendar days and are restored with their prior review state if a later complete import shows them open again.
+
+### Canonical CDK workflow
+
+The raw CDK Repair Orders status is normalized into one fixed review workflow:
+
+| CDK row status | Canonical review status |
+| --- | --- |
+| Open | Awaiting Assignment |
+| Inspection | Work in Progress |
+| Parts Estimate | Parts Estimate |
+| Pending | Pending Authorization |
+| Waiting | Awaiting Technician Attention |
+| Working | Being Repaired |
+| Review | Ready for Review |
+| Closed | Removed from active workflow |
+
+These seven canonical statuses are the only statuses available for new manager reviews. Historical reviews keep their original status value, but the next review must reconcile a retired status to the canonical workflow.
+
+Some canonical statuses carry a management-only detail while preserving their parent CDK category:
+
+- **Pending Authorization:** Customer, Warranty, Insurance, Internal/Management, or Other. Other requires a local free-text description.
+- **Awaiting Technician Attention:** Approved — Waiting Parts; Approved — Waiting for Technician to Begin; Deferred — Waiting for Reassembly/Ready for Delivery; Deferred — Waiting for Technician Story/Documentation; or Other. Other requires a local free-text description.
+- **Ready for Review:** Advisor, Warranty Admin, Service Manager, or Other. Other requires a local free-text description.
+
+A manager review is never overwritten by a later CDK import. When the latest confirmed CDK parent status differs from the last reviewed parent status, the review UI shows a compact CDK change cue. If an import does not provide a recognized authoritative status, the last confirmed CDK status is retained and marked stale immediately rather than guessed. Neither a CDK status change nor a reopened RO creates a new review; the saved follow-up commitment continues to control when the RO is reviewed next.
+
+Managers can explicitly mark an RO closed from the review UI. That removes it from active workflow immediately while preserving its local state under the same seven-day closed-record retention rule.
+
 ## Supplemental operational sources
 
 The Report Inbox can recognize and durably retain compact snapshots for:
