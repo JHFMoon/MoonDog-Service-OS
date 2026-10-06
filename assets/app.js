@@ -742,8 +742,8 @@
   async function importManagerSource(name, kind, bytes, deleteAfterSuccess = false) { const parsers = { sor: parseSorWorkbook, "appointment-activity": parseAppointmentActivityWorkbook, efficiency: parseEfficiencyWorkbook, "media-asr": parseMediaAsrAdvisorWorkbook, "media-asr-tech":parseMediaAsrTechWorkbook, "open-ro-summary": parseOpenRoSummaryWorkbook }, families = { sor: "sor", "appointment-activity": "appointmentActivity", efficiency: "efficiency", "media-asr": "mediaAsr", "media-asr-tech":"mediaAsrTech", "open-ro-summary": "openRoSummary" }, snapshot = parsers[kind](bytes, name), family = families[kind], key = snapshot.period || snapshot.periodEnd || snapshot.date; const sourceFile=await (await sourceFileHandle(name)).getFile(); snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString(); snapshot.coverageDate=["sor","appointmentActivity"].includes(family)?internalObservationDate(workbookGrid(bytes).rows)||dailyEvidenceDate(family,snapshot):dailyEvidenceDate(family,snapshot); const priorMetrics=structuredClone(model.operationalMetrics); if(family==="mediaAsrTech")learnTechnicians(snapshot); if(family==="efficiency"){const directory=model.operationalMetrics.mediaAsrTech?.directory;for(const row of snapshot.technicians||[]){if(row.number&&directory?.[row.number])directory[row.number].sourceAliases=[...new Set([...(directory[row.number].sourceAliases||[]),row.name])].slice(-30);}} model.operationalMetrics[family] ||= { snapshots: {} }; model.operationalMetrics[family].snapshots[key] = snapshot; if(snapshot.coverageDate&&snapshot.coverageDate<=localDateKey()){model.operationalMetrics[family].dailySnapshots||={};model.operationalMetrics[family].dailySnapshots[snapshot.coverageDate]=structuredClone(snapshot);model.operationalMetrics[family].dailySnapshots=pruneDatedSnapshots(model.operationalMetrics[family].dailySnapshots);} model.operationalMetrics[family].snapshots = pruneDatedSnapshots(model.operationalMetrics[family].snapshots); model.operationalMetrics.updatedAt = now(); try{await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics); const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (JSON.stringify(check?.[family])!==JSON.stringify(model.operationalMetrics[family])) throw new Error(`${kind} snapshot could not be verified after saving.`);}catch(error){model.operationalMetrics=priorMetrics;throw error;} await addHistory(`${kind}-import`, `Saved verified ${kind} snapshot`, { fileName: name, periodStart: snapshot.periodStart || snapshot.period, periodEnd: snapshot.periodEnd || snapshot.period, compact: true }); if (deleteAfterSuccess) await removeSourceEntry(name); }
   async function classifyImportFile(name, file, bytes) {
     if (/\.csv$/i.test(name)) { const source = await file.text(); try { parseAppointmentsCreatedSummaryCsv(source,name); return "supplemental-csv"; } catch (_) {} try { parseNextAppointmentsCsv(source, name); return "next-appointments"; } catch (_) {} try { parseVirCsv(source, name); return "vir"; } catch (_) {} try { parseCsiCsv(source, name); return "csi"; } catch (_) { return null; } }
-    if (/\.pdf$/i.test(name)) {const signature=await pdfSignatureText(bytes);if(await isMoonDogGreeterOutput(bytes,signature))return "disposable-greeter";if(isAppointmentPdf(signature))return"appointments";return supplementalPdfFamily(signature,name)?"supplemental-pdf":null;}
-    if (/\.docx$/i.test(name)) {try {const source=await docxText(bytes);return parseSupplementalDocxReport(source,name)?"supplemental-docx":null;} catch (_) {return null;}}
+    if (/\.pdf$/i.test(name)) {const signature=await pdfSignatureText(bytes);if(await isMoonDogGreeterOutput(bytes,signature))return "disposable-greeter";if(isAppointmentPdf(signature))return"appointments";if(supplementalPdfFamily(signature,name))return"supplemental-pdf";return referenceOnlyDocumentType(name,signature)?"known-non-service":null;}
+    if (/\.docx$/i.test(name)) {try {const source=await docxText(bytes);try{parseCdkRepairOrdersDocx(source,name);return"open-ro-docx";}catch(_){}return parseSupplementalDocxReport(source,name)?"supplemental-docx":null;} catch (_) {return null;}}
     if (!/\.xlsx$/i.test(name) || /^~\$/.test(name)) return null;
     let book;
     try { book = XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true }); } catch (_) { return null; }
@@ -936,12 +936,63 @@
   async function docxText(bytes) {
     if(!globalThis.JSZip)throw new Error("The local DOCX reader is unavailable.");const zip=await JSZip.loadAsync(bytes),entry=zip.file("word/document.xml");if(!entry)throw new Error("The DOCX document body is missing.");const xml=await entry.async("string"),source=xml.replace(/<w:tab[^>]*\/>/g,"\t").replace(/<w:br[^>]*\/>/g,"\n").replace(/<\/w:p>/g,"\n").replace(/<[^>]+>/g," ");const area=document.createElement("textarea");area.innerHTML=source;return area.value.replace(/[ \t]+/g," ").replace(/\n\s+/g,"\n").trim();
   }
+
+  function cdkDateTime(value) {
+    const match=String(value||"").match(/(\d{1,2}\/\d{1,2}\/20\d{2})\s*(\d{1,2}:\d{2}\s*(?:am|pm))/i);
+    return match?{iso:usDateToIso(match[1]),display:match[1]+" "+match[2].toUpperCase()}:null;
+  }
+  function parseCdkRepairOrdersDocx(source,fileName) {
+    const lines=String(source||"").replace(/\r/g,"").split(/\n+/).map((line)=>line.replace(/\u00a0/g," ").replace(/\s+/g," ").trim()).filter(Boolean),joined=lines.join(" ");
+    if(!/\bCDK\b/i.test(joined)||!/\bRepair Orders\b/i.test(joined)||!/\bRO#\b/i.test(joined))throw new Error("This is not a CDK Repair Orders export.");
+    const summary=joined.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);
+    if(!summary)throw new Error("The CDK Repair Orders summary counts could not be verified.");
+    const validStatuses=new Set(["open","pending","review","closed","waiting","parts estimate","inspection","working"]),starts=[];
+    for(let i=0;i<lines.length-1;i++)if(/^\d{5,7}$/.test(lines[i])&&validStatuses.has(norm(lines[i+1])))starts.push(i);
+    const allRecords=[],activeRecords=[],workloadRecords=[];
+    for(let index=0;index<starts.length;index++){
+      const block=lines.slice(starts[index],starts[index+1]??lines.length),ro=block[0],sourceStatus=block[1],vehicleIndex=block.findIndex((line,position)=>position>1&&/^[A-HJ-NPR-Z0-9]{17}(?:19|20)\d{2}/i.test(line));
+      if(vehicleIndex<3)continue;
+      const vehicleMatch=block[vehicleIndex].match(/^([A-HJ-NPR-Z0-9]{17})((?:19|20)\d{2})(.*)$/i);if(!vehicleMatch)continue;
+      const tail=block.slice(vehicleIndex+1),openIndex=tail.findIndex((line)=>Boolean(cdkDateTime(line)));if(openIndex<2)continue;
+      const codes=tail.slice(0,openIndex),dateLines=tail.slice(openIndex).filter((line)=>cdkDateTime(line)),opened=cdkDateTime(dateLines[0]),promised=cdkDateTime(dateLines[1]),closed=cdkDateTime(dateLines[2]),services=tail.find((line)=>/^\[[A-Z]\]/.test(line))||"";
+      const raw={ro,advisorCode:codes[1]||"",advisor:"",technicianCode:codes[2]||"",technician:"",customer:block.slice(2,vehicleIndex).join(" / "),vehicle:(vehicleMatch[2]+" "+vehicleMatch[3]).replace(/\s+/g," ").trim(),vin:vehicleMatch[1].toUpperCase(),tagNumber:codes[0]||"",sourceStatus,opened:opened?.display||"",promised:promised?.display||"",closed:closed?.display||"",services,sourceFields:{Status:sourceStatus,"Tag #":codes[0]||"",Adv:codes[1]||"",Tech:codes[2]||"",Open:opened?.display||"",Promised:promised?.display||"",Closed:closed?.display||"",Services:services}};
+      reconcileRecordSourceIdentity(raw);raw.id=stableId(raw);allRecords.push(raw);
+      if(norm(sourceStatus)!=="closed"){activeRecords.push(raw);workloadRecords.push({ro,advisorCode:raw.advisorCode,opened:opened?.iso||workloadDate(raw.opened),isOpen:true});}
+    }
+    const expectedAll=Number(summary[1]),expectedOpen=Number(summary[2]),expectedClosed=Number(summary[5]),closedCount=allRecords.filter((record)=>norm(record.sourceStatus)==="closed").length;
+    if(allRecords.length!==expectedAll||activeRecords.length!==expectedOpen||closedCount!==expectedClosed)throw new Error("CDK Repair Orders reconciliation failed: parsed "+allRecords.length+"/"+activeRecords.length+"/"+closedCount+", expected "+expectedAll+"/"+expectedOpen+"/"+expectedClosed+".");
+    return{records:activeRecords,workloadRecords,summary:{all:expectedAll,open:expectedOpen,working:Number(summary[3]),onHold:Number(summary[4]),closed:expectedClosed},format:"CDK Repair Orders browser export",validation:{parser:"cdk-repair-orders-docx-v1",recordStarts:starts.length,activeRecords:activeRecords.length,closedExcluded:true}};
+  }
+  async function importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess=false) {
+    const source=await docxText(bytes),parsed=parseCdkRepairOrdersDocx(source,candidate.name),file=await(await sourceFileHandle(candidate.name)).getFile(),existing=new Map(model.state.records.map((record)=>[record.id,record])),initialStatus=managementStatusDefinitions().find((item)=>item.enabled),records=parsed.records.map((raw)=>{reconcileRecordSourceIdentity(raw);const record={...raw,management:existing.get(raw.id)?.management||{statusId:initialStatus?.id||"",status:initialStatus?.name||"",owner:raw.advisor||"",nextAction:"",reviewDate:"",communication:"",note:"",updatedAt:null}};reconcileRecordSourceIdentity(record);return record;});
+    await backupState("before-cdk-docx-import");
+    const importedAt=now(),sourceModifiedAt=new Date(file.lastModified).toISOString();
+    model.state={...model.state,updatedAt:importedAt,source:{fileName:candidate.name,importedAt,sourceModifiedAt,sheetName:"CDK Repair Orders",rowCount:records.length,format:parsed.format,summary:parsed.summary,validation:parsed.validation},records};
+    await writeJson(STATE_PATH,model.state);
+    await retainDailyReport("openRo",{...model.state.source,coverageDate:coverageTimestamp(sourceModifiedAt),rowCount:records.length,advisors:Object.fromEntries([...new Set(records.map((row)=>row.advisorCode).filter(Boolean))].map((code)=>[code,records.filter((row)=>row.advisorCode===code).length]))});
+    await saveOpenRoWorkload(openRoWorkloadSnapshot(parsed.workloadRecords,model.state.source,sourceModifiedAt));
+    await ensureDailyFocus();await addHistory("source-import","Imported "+records.length+" active Open ROs from CDK Repair Orders DOCX",{fileName:candidate.name,format:parsed.format,allRows:parsed.summary.all,closedExcluded:parsed.summary.closed,rawCopyRetained:false,assignNextWorkload:true});
+    await markSupervisorWorkbookStale("Open RO population changed after a CDK Repair Orders import");renderAll();if(deleteAfterSuccess)await removeSourceEntry(candidate.name);return{records:records.length,deleted:deleteAfterSuccess};
+  }
+  function parseTechnicianVideoPlaybook(source,fileName) {
+    const textSource=String(source||"").replace(/\s+/g," ");if(!/Technician Video MPI Playbook/i.test(textSource)||!/The four parts of every video/i.test(textSource))return null;
+    const duration=textSource.match(/Aim for\s+(\d+)\s+to\s+(\d+)\s+minutes/i),under=textSource.match(/Keep it under\s+(\d+)\s+minutes/i);
+    return{family:"technician-video-standard",sourceFile:fileName,sourceFormat:"docx",importedAt:now(),periodStart:"",periodEnd:"",variant:"current-video-mpi-standard",metrics:{durationMinutes:{min:duration?Number(duration[1]):1,max:duration?Number(duration[2]):under?Number(under[1]):3},requiredSequence:["technician introduction","customer concern","reason for visit","multi-point inspection findings"],trafficLight:{green:"good / no action",yellow:"attention soon",red:"attention now"},inspectionExamples:["tires","brakes","battery","filters"],filmingRules:{horizontal:true,steady:true,useLightWhenNeeded:true,showPhysicalEvidence:true,plainLanguage:true,technicianQuotesPrices:false,noScareTactics:true,avoidOtherCustomerVehicles:true}},validation:{parser:"technician-video-standard-v1",supplementalOnly:true,kpiPromotion:false,coachingStandard:true}};
+  }
+
   function parseSupplementalDocxReport(source,fileName) {
+    const video=parseTechnicianVideoPlaybook(source,fileName);if(video)return video;
     const s=String(source||"").replace(/\s+/g," ");if(!/\bCDK\b/i.test(s)||!/\bRepair Orders\b/i.test(s)||!/\bRO#\b/i.test(s))return null;const match=s.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);if(!match)throw new Error("The CDK Repair Orders summary counts could not be verified.");return{family:"open-ro-browser-summary",sourceFile:fileName,sourceFormat:"docx",importedAt:now(),periodStart:"",periodEnd:"",variant:"browser-export",metrics:{all:Number(match[1]),open:Number(match[2]),working:Number(match[3]),onHold:Number(match[4]),closed:Number(match[5])},validation:{parser:"open-ro-browser-summary-v1",supplementalOnly:true,kpiPromotion:false,detailRowsNotRetained:true}};
   }
   async function pdfReportText(bytes,pageLimit=4) { return withLocalPdf(bytes,async pdf=>{const pages=[];for(let pageNumber=1;pageNumber<=Math.min(pdf.numPages,pageLimit);pageNumber++)pages.push(pdfTextLines(await(await pdf.getPage(pageNumber)).getTextContent()).join("\n"));return pages.join("\n__PAGE_BREAK__\n");}); }
   function supplementalSnapshotKey(snapshot) { const date=snapshot.periodEnd||snapshot.asOfDate||snapshot.periodStart||"observation",variant=slug(snapshot.variant||"default").slice(0,90)||"default";return [snapshot.family,date,variant].join("|"); }
   function pruneSupplementalSnapshots(snapshots,limit=500) { const rows=Object.entries(snapshots||{}).sort((a,b)=>text(a[1]?.importedAt).localeCompare(text(b[1]?.importedAt)));return Object.fromEntries(rows.slice(-limit)); }
+
+  async function retireKnownNonServiceSource(candidate,bytes,deleteAfterSuccess=false) {
+    let source="";if(/\.pdf$/i.test(candidate.name))source=await pdfSignatureText(bytes,2);else if(/\.docx$/i.test(candidate.name))source=await docxText(bytes);const documentType=referenceOnlyDocumentType(candidate.name,source);if(!documentType)throw new Error("The non-service document type could not be verified.");
+    await addHistory("non-service-source-retired","Recognized "+documentType+"; no Service Operations Hub data retained",{fileName:candidate.name,documentType,reason:"Administrative/claims/collision record is outside Service Operations Hub operational data"});if(deleteAfterSuccess)await removeSourceEntry(candidate.name);return{retired:true,documentType,deleted:deleteAfterSuccess};
+  }
+
   async function importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess=false) {
     let snapshot;if(kind==="supplemental-pdf"){const signature=await pdfSignatureText(bytes),family=supplementalPdfFamily(signature,candidate.name),pages=family==="controllable-ranking"?80:4;snapshot=parseSupplementalPdfReport(await pdfReportText(bytes,pages),candidate.name,{storeCode:model.settings.store?.code||""});}
     else if(kind==="supplemental-csv")snapshot=parseAppointmentsCreatedSummaryCsv(new TextDecoder().decode(new Uint8Array(bytes)),candidate.name);
@@ -960,6 +1011,8 @@
     else if (kind === "menu-sales") await importMenuSalesFile(candidate.name, deleteAfterSuccess);
     else if (kind === "csi") await importCsiFile(candidate.name, deleteAfterSuccess);
     else if (["sor", "appointment-activity", "efficiency", "media-asr", "media-asr-tech", "open-ro-summary"].includes(kind)) await importManagerSource(candidate.name, kind, bytes, deleteAfterSuccess);
+    else if (kind === "open-ro-docx") return await importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess);
+    else if (kind === "known-non-service") return await retireKnownNonServiceSource(candidate,bytes,deleteAfterSuccess);
     else if (["supplemental-pdf","supplemental-csv","supplemental-workbook","supplemental-docx"].includes(kind)) await importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess);
     else if (kind === "appointments") appointmentOutcome=await importAppointmentFile(candidate.name, deleteAfterSuccess);
     else if (kind === "disposable-greeter") { if (deleteAfterSuccess) await removeSourceEntry(candidate.name); await addHistory("disposable-output-removed", "Removed MoonDog-generated Greeter appointment output", { outputType: "MoonDog Greeter Appointment List" }); recordDiagnostic("REPORT INBOX", "MoonDog Greeter output deleted as disposable output"); }
