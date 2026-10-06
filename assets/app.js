@@ -1006,18 +1006,35 @@
     if(allRecords.length!==expectedAll||activeRecords.length!==expectedOpen||closedCount!==expectedClosed)throw new Error("CDK Repair Orders reconciliation failed: parsed "+allRecords.length+"/"+activeRecords.length+"/"+closedCount+", expected "+expectedAll+"/"+expectedOpen+"/"+expectedClosed+".");
     return{records:activeRecords,workloadRecords,summary:{all:expectedAll,open:expectedOpen,working:Number(summary[3]),onHold:Number(summary[4]),closed:expectedClosed},format:"CDK Repair Orders browser export",validation:{parser:"cdk-repair-orders-docx-v2-split-fields",recordStarts:starts.length,activeRecords:activeRecords.length,closedExcluded:true,splitVinVehicleSupported:true,splitDateTimeSupported:true}};
   }
-  async function importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess=false) {
-    const source=await docxText(bytes),parsed=parseCdkRepairOrdersDocx(source,candidate.name),file=await(await sourceFileHandle(candidate.name)).getFile(),existing=new Map(model.state.records.map((record)=>[record.id,record])),initialStatus=managementStatusDefinitions().find((item)=>item.enabled),records=parsed.records.map((raw)=>{reconcileRecordSourceIdentity(raw);const record={...raw,management:existing.get(raw.id)?.management||{statusId:initialStatus?.id||"",status:initialStatus?.name||"",owner:raw.advisor||"",nextAction:"",reviewDate:"",communication:"",note:"",updatedAt:null}};reconcileRecordSourceIdentity(record);return record;});
-    await backupState("before-cdk-docx-import");
-    const importedAt=now(),sourceModifiedAt=new Date(file.lastModified).toISOString();
-    model.state={...model.state,updatedAt:importedAt,source:{fileName:candidate.name,importedAt,sourceModifiedAt,sheetName:"CDK Repair Orders",rowCount:records.length,format:parsed.format,summary:parsed.summary,validation:parsed.validation},records};
-    await writeJson(STATE_PATH,model.state);
-    await retainDailyReport("openRo",{...model.state.source,coverageDate:coverageTimestamp(sourceModifiedAt),rowCount:records.length,advisors:Object.fromEntries([...new Set(records.map((row)=>row.advisorCode).filter(Boolean))].map((code)=>[code,records.filter((row)=>row.advisorCode===code).length]))});
-    await saveOpenRoWorkload(openRoWorkloadSnapshot(parsed.workloadRecords,model.state.source,sourceModifiedAt));
-    await ensureDailyFocus();await addHistory("source-import","Imported "+records.length+" active Open ROs from CDK Repair Orders DOCX",{fileName:candidate.name,format:parsed.format,allRows:parsed.summary.all,closedExcluded:parsed.summary.closed,rawCopyRetained:false,assignNextWorkload:true});
-    await markSupervisorWorkbookStale("Open RO population changed after a CDK Repair Orders import");renderAll();if(deleteAfterSuccess)await removeSourceEntry(candidate.name);return{records:records.length,deleted:deleteAfterSuccess};
+  function defaultManagementFor(raw){return{statusId:"",status:"",owner:raw.advisor||"",nextAction:"",reviewDate:"",communication:"",note:"",updatedAt:null};}
+  function pruneClosedRecords(records,at=Date.now()){const cutoff=at-CLOSED_RO_RETENTION_DAYS*86400000;return (records||[]).filter((record)=>{const time=Date.parse(record.closedAt||"");return Number.isFinite(time)&&time>=cutoff;}).sort((a,b)=>String(b.closedAt).localeCompare(String(a.closedAt)));}
+  function operationalStatusFromImport(raw,prior,importedAt){
+    const mapped=canonicalCdkStatus(raw?.sourceStatus);
+    if(mapped&&mapped!=="Closed")return{status:mapped,rawStatus:String(raw.sourceStatus||""),confirmedAt:importedAt,stale:false,staleAt:""};
+    const previous=prior?.cdkOperational;
+    return previous?.status?{...previous,stale:true,staleAt:importedAt}:null;
   }
-  function parseTechnicianVideoPlaybook(source,fileName) {
+  function mergeCompleteOpenRoRecords(incoming,importedAt,sourceKind){
+    const active=new Map((model.state.records||[]).map((record)=>[record.id,record])),retained=pruneClosedRecords(model.state.closedRecords||[]),closed=new Map(retained.map((record)=>[record.id,record])),incomingIds=new Set(incoming.map((record)=>record.id));
+    const records=incoming.map((raw)=>{const prior=active.get(raw.id)||closed.get(raw.id),management=prior?.management||defaultManagementFor(raw),cdkOperational=operationalStatusFromImport(raw,prior,importedAt),record={...(prior||{}),...raw,management};if(cdkOperational)record.cdkOperational=cdkOperational;else delete record.cdkOperational;delete record.closedAt;delete record.closedReason;return record;});
+    const newlyClosed=[...active.values()].filter((record)=>!incomingIds.has(record.id)).map((record)=>({...record,closedAt:importedAt,closedReason:"missing-from-complete-open-ro-source"}));
+    const reopened=new Set(records.map((record)=>record.id));
+    const retainedStillClosed=retained.filter((record)=>!reopened.has(record.id));
+    const closedRecords=pruneClosedRecords([...retainedStillClosed,...newlyClosed]);
+    return{records,closedRecords,reopenedCount:[...closed.keys()].filter((id)=>reopened.has(id)).length,closedCount:newlyClosed.length,sourceKind};
+  }
+  async function importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess=false) {
+    const source=await docxText(bytes),parsed=parseCdkRepairOrdersDocx(source,candidate.name),file=await(await sourceFileHandle(candidate.name)).getFile();
+    await backupState("before-cdk-docx-import");
+    const importedAt=now(),sourceModifiedAt=new Date(file.lastModified).toISOString(),merged=mergeCompleteOpenRoRecords(parsed.records,importedAt,"cdk-repair-orders");
+    model.state={...model.state,updatedAt:importedAt,source:{fileName:candidate.name,importedAt,sourceModifiedAt,sheetName:"CDK Repair Orders",rowCount:merged.records.length,format:parsed.format,summary:parsed.summary,validation:parsed.validation},records:merged.records,closedRecords:merged.closedRecords};
+    await writeJson(STATE_PATH,model.state);
+    await retainDailyReport("openRo",{...model.state.source,coverageDate:coverageTimestamp(sourceModifiedAt),rowCount:merged.records.length,advisors:Object.fromEntries([...new Set(merged.records.map((row)=>row.advisorCode).filter(Boolean))].map((code)=>[code,merged.records.filter((row)=>row.advisorCode===code).length]))});
+    await saveOpenRoWorkload(openRoWorkloadSnapshot(parsed.workloadRecords,model.state.source,sourceModifiedAt));
+    await ensureDailyFocus();await addHistory("source-import","Imported active Open ROs from CDK Repair Orders DOCX",{fileName:candidate.name,format:parsed.format,recordCount:merged.records.length,closedByReconciliation:merged.closedCount,reopenedFromRetention:merged.reopenedCount,rawCopyRetained:false,assignNextWorkload:true});
+    await markSupervisorWorkbookStale("Open RO population changed after a CDK Repair Orders import");renderAll();if(deleteAfterSuccess)await removeSourceEntry(candidate.name);return{records:merged.records.length,deleted:deleteAfterSuccess};
+  }
+  function parseTechnicianVideoPlaybook  function parseTechnicianVideoPlaybook(source,fileName) {
     const textSource=String(source||"").replace(/\s+/g," ");if(!/Technician Video MPI Playbook/i.test(textSource)||!/The four parts of every video/i.test(textSource))return null;
     const duration=textSource.match(/Aim for\s+(\d+)\s+to\s+(\d+)\s+minutes/i),under=textSource.match(/Keep it under\s+(\d+)\s+minutes/i);
     return{family:"technician-video-standard",sourceFile:fileName,sourceFormat:"docx",importedAt:now(),periodStart:"",periodEnd:"",variant:"current-video-mpi-standard",metrics:{durationMinutes:{min:duration?Number(duration[1]):1,max:duration?Number(duration[2]):under?Number(under[1]):3},requiredSequence:["technician introduction","customer concern","reason for visit","multi-point inspection findings"],trafficLight:{green:"good / no action",yellow:"attention soon",red:"attention now"},inspectionExamples:["tires","brakes","battery","filters"],filmingRules:{horizontal:true,steady:true,useLightWhenNeeded:true,showPhysicalEvidence:true,plainLanguage:true,technicianQuotesPrices:false,noScareTactics:true,avoidOtherCustomerVehicles:true}},validation:{parser:"technician-video-standard-v1",supplementalOnly:true,kpiPromotion:false,coachingStandard:true}};
@@ -1167,24 +1184,24 @@
   }
 
   async function importSource(selectedName = null, deleteAfterSuccess = false) {
-    const name = selectedName || ui.sourceSelect.value; if (!name) return; status(`Reading ${name}…`, "working");
+    const name = selectedName || ui.sourceSelect.value; if (!name) return; status("Reading "+name+"…", "working");
     const file = await (await sourceFileHandle(name)).getFile(); const bytes = await file.arrayBuffer(); const book = XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true }); if (workbookHasReturnSchema(book)) return importReturnedWorkbook(name, deleteAfterSuccess); const legacy = legacyReport(book); const table = legacy ? null : findTable(book);
     const incoming = legacy ? legacy.records : table.rows.map((row) => rawRecord(row, table)).filter((record) => record.ro); if (!incoming.length) throw new Error("The detected table contained no RO records.");
-    const existing = new Map(model.state.records.map((record) => [record.id, record])), initialStatus=managementStatusDefinitions().find((item)=>item.enabled); const records = incoming.map((raw) => { reconcileRecordSourceIdentity(raw); const record={ ...raw, management: existing.get(raw.id)?.management || { statusId:initialStatus?.id||"", status: initialStatus?.name||"", owner: raw.advisor||"", nextAction: "", reviewDate: "", communication: "", note: "", updatedAt: null } }; reconcileRecordSourceIdentity(record); return record; });
+    incoming.forEach((raw)=>reconcileRecordSourceIdentity(raw));const importedAt=now(),merged=mergeCompleteOpenRoRecords(incoming,importedAt,"open-ro-xlsx"),records=merged.records;records.forEach(reconcileRecordSourceIdentity);
     await backupState("before-import");
-    if (!deleteAfterSuccess) await writeBytes(["imports", `${stamp()}-${slug(name.replace(/\.xlsx$/i, ""))}.xlsx`], new Uint8Array(bytes));
-    const sheetName = legacy?.sheetName || table.sheetName; model.state = { ...model.state, updatedAt: now(), source: { fileName: name, importedAt: now(), sourceModifiedAt:new Date(file.lastModified).toISOString(), sheetName, rowCount: records.length, format: legacy?.format || "Generic table", advisorSections: legacy?.advisorSections || null }, records };
-    await writeJson(STATE_PATH, model.state);await retainDailyReport("openRo",{...model.state.source,coverageDate:internalObservationDate(XLSX.utils.sheet_to_json(book.Sheets[sheetName],{header:1,defval:""}))||coverageTimestamp(model.state.source.sourceModifiedAt),rowCount:records.length,advisors:Object.fromEntries([...new Set(records.map(row=>row.advisorCode))].map(code=>[code,records.filter(row=>row.advisorCode===code).length]))});await saveOpenRoWorkload(openRoWorkloadSnapshot(legacy?.workloadRecords || records,model.state.source,model.state.source.sourceModifiedAt)); await ensureDailyFocus(); await addHistory("source-import", `Imported ${records.length} open ROs from ${name}`, { fileName: name, sheetName, format: model.state.source.format, advisorSections: model.state.source.advisorSections, rawCopyRetained: !deleteAfterSuccess,assignNextWorkload:true });
+    if (!deleteAfterSuccess) await writeBytes(["imports", stamp()+"-"+slug(name.replace(/\.xlsx$/i, ""))+".xlsx"], new Uint8Array(bytes));
+    const sheetName = legacy?.sheetName || table.sheetName; model.state = { ...model.state, updatedAt: importedAt, source: { fileName: name, importedAt, sourceModifiedAt:new Date(file.lastModified).toISOString(), sheetName, rowCount: records.length, format: legacy?.format || "Generic table", advisorSections: legacy?.advisorSections || null }, records, closedRecords:merged.closedRecords };
+    await writeJson(STATE_PATH, model.state);await retainDailyReport("openRo",{...model.state.source,coverageDate:internalObservationDate(XLSX.utils.sheet_to_json(book.Sheets[sheetName],{header:1,defval:""}))||coverageTimestamp(model.state.source.sourceModifiedAt),rowCount:records.length,advisors:Object.fromEntries([...new Set(records.map(row=>row.advisorCode))].map(code=>[code,records.filter(row=>row.advisorCode===code).length]))});await saveOpenRoWorkload(openRoWorkloadSnapshot(legacy?.workloadRecords || records,model.state.source,model.state.source.sourceModifiedAt)); await ensureDailyFocus(); await addHistory("source-import", "Imported "+records.length+" open ROs from "+name, { fileName: name, sheetName, format: model.state.source.format, advisorSections: model.state.source.advisorSections, rawCopyRetained: !deleteAfterSuccess,assignNextWorkload:true,closedByReconciliation:merged.closedCount,reopenedFromRetention:merged.reopenedCount });
     await markSupervisorWorkbookStale("Open RO population changed after a source import"); renderAll();
     let deleted = false;
-    if (deleteAfterSuccess || (!dailyPickedSources.has(name) && window.confirm(`Import complete and verified.\n\nDelete the original source file "${name}" from the working folder?\n\nA timestamped audit copy remains in the imports folder.`))) {
-      try { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported source file ${name}`, { fileName: name, retainedAuditCopy: !deleteAfterSuccess }); deleted = true; await scanFiles(); }
-      catch (error) { throw new Error(`Imported ${records.length} records, but ${name} could not be deleted: ${error.message || error}`); }
+    if (deleteAfterSuccess || (!dailyPickedSources.has(name) && window.confirm("Import complete and verified.\n\nDelete the original source file \""+name+"\" from the working folder?\n\nA timestamped audit copy remains in the imports folder."))) {
+      try { await removeSourceEntry(name); await addHistory("source-deleted", "Deleted processed source file "+name, { fileName: name, retainedAuditCopy: !deleteAfterSuccess }); deleted = true; await scanFiles(); }
+      catch (error) { throw new Error("Imported "+records.length+" records, but "+name+" could not be deleted: "+(error.message || error)); }
     }
-    status(`Imported ${records.length} records. Management state was retained for matching ROs.${deleted ? ` The original ${name} was deleted${deleteAfterSuccess ? " after durable verification." : "; its audit copy remains in imports."}` : " The original source file was retained."}`, "success");
+    status("Imported "+records.length+" records. Existing reviews and commitments were retained for matching ROs."+(deleted ? " The original "+name+" was deleted"+(deleteAfterSuccess ? " after durable verification." : "; its audit copy remains in imports.") : " The original source file was retained."), "success");
   }
 
-  const timeMinutes = (value) => { const match = text(value).match(/(\d{1,2}):(\d{2})/); return match ? Number(match[1]) * 60 + Number(match[2]) : Number.MAX_SAFE_INTEGER; };
+  const timeMinutes =  const timeMinutes = (value) => { const match = text(value).match(/(\d{1,2}):(\d{2})/); return match ? Number(match[1]) * 60 + Number(match[2]) : Number.MAX_SAFE_INTEGER; };
   const appointmentTime = (value) => { const match = text(value).match(/(\d{1,2}):(\d{2})/); if (!match) return text(value); const hour = Number(match[1]); return `${hour % 12 || 12}:${match[2]} ${hour >= 12 ? "PM" : "AM"}`; };
   function visitSummary(value) { const source = text(value).replace(/\s+/g, " ").trim(), lower = source.toLowerCase(); const topics = [[/oil|lube|lof|oil change/, "Oil change / maintenance"], [/tire|rotation|flat|wheel/, "Tire service"], [/brake/, "Brake service"], [/battery|no start|won't start/, "Battery / starting concern"], [/align/, "Alignment"], [/recall/, "Recall visit"], [/warranty/, "Warranty visit"], [/check engine|engine light|warning light/, "Warning light diagnosis"], [/diagnos|inspect|concern|noise|vibrat/, "Vehicle concern / inspection"], [/maintenance|service due|scheduled service/, "Scheduled maintenance"]]; const found = topics.filter(([pattern]) => pattern.test(lower)).map(([, label]) => label); return found.length ? [...new Set(found)].slice(0, 2).join(" · ") : source.length > 100 ? `${source.slice(0, 97).trim()}…` : source || "Service visit"; }
 
