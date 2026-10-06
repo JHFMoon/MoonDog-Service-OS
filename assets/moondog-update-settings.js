@@ -94,6 +94,7 @@
     '<label>Update channel <select id="updateChannel"><option value="stable">Stable</option><option value="beta">Beta (opt in)</option></select></label>' +
     '<div><strong>Last check:</strong> <span id="updateLastCheck"></span></div>' +
     '<div><strong>Availability:</strong> <span id="updateAvailability" role="status"></span></div>' +
+    '<p id="updateChannelNote" class="settings-note"></p>' +
     '<div class="button-row"><button type="button" id="checkMoonDogUpdate">Check for Updates</button>' +
     '<button type="button" id="installMoonDogUpdate" class="primary" disabled>Install Update</button>' +
     '<button type="button" id="recoverMoonDogUpdate" hidden>Recover interrupted update</button></div>' +
@@ -110,13 +111,17 @@
   const installButton = field("installMoonDogUpdate");
   channel.value = state.channel;
   field("updateInstalledVersion").textContent = installedVersion || "Unknown";
-  field("updateInstalledChannel").textContent = "Stable";
+  field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
 
   function save() {
     try { global.localStorage.setItem(key, JSON.stringify({ channel: state.channel,
       lastCheck: state.lastCheck, recoveryRequired: state.recoveryRequired })); } catch (_) {}
   }
   function render() {
+    field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
+    field("updateChannelNote").textContent = state.channel === "beta" ?
+      "Beta is the test channel. A verified return to Stable remains available." :
+      "Stable is the normal operating channel.";
     field("updateLastCheck").textContent = state.lastCheck ? new Date(state.lastCheck).toLocaleString() : "Never";
     const result = state.check;
     availability.textContent = result?.status === "newer-version" ?
@@ -127,7 +132,8 @@
       result?.status === "unavailable" ? "GitHub unavailable" :
       result?.status === "invalid-input" ? "Installed version cannot be compared" : "Not checked";
     field("updateFolders").textContent = `Connected application folder: ${appRoot()?.name || "not connected"}. Update rollback backups: backups/system-updates/.`;
-    installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" : "Install Update";
+    installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
+      result?.channel === "beta" ? "Install Beta" : "Install Update";
     installButton.disabled = state.busy || state.recoveryRequired || !currentOffer();
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
