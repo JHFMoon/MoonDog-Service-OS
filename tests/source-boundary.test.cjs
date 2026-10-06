@@ -16,6 +16,15 @@ assert.match(app, /const CSI_ADVISOR_CODES = \{\};/);
 assert.match(app, /const ARRIVAL_ADVISOR_NAMES = \{\};/);
 assert.match(app, /function reportStoreCode\(family\)/);
 assert.match(app, /function unassignedAdvisorCode\(\)|const unassignedAdvisorCode =/);
+assert.match(app, /grossMinimum:\s*null/);
+assert.match(app, /grossStretch:\s*null/);
+assert.match(app, /storeGrossTarget:\s*null/);
+assert.match(app, /cpElr:\s*null/);
+assert.match(app, /cpHoursPerRo:\s*null/);
+assert.doesNotMatch(app, /\$(?:75|100|800)K/i);
+assert.doesNotMatch(app, /(?:grossMinimum|grossStretch|storeGrossTarget|dealerNps|menuPresentation|menuPenetration|mediaViewed|texting|cpElr|cpHoursPerRo)\s*:\s*-?\d/);
+assert.match(html, /Local Performance Targets/);
+assert.match(html, /never supplied by the public GitHub source/);
 
 for (const channel of ['stable', 'beta']) {
   const release = manifest[channel];
