@@ -120,8 +120,10 @@
   }
   function flushUi() {
     return new Promise(resolve => {
-      if (typeof global.requestAnimationFrame === "function") global.requestAnimationFrame(() => global.requestAnimationFrame(resolve));
-      else global.setTimeout(resolve, 0);
+      let finished = false;
+      const finish = () => { if (!finished) { finished = true; resolve(); } };
+      global.setTimeout(finish, 20);
+      if (typeof global.requestAnimationFrame === "function") global.requestAnimationFrame(() => global.requestAnimationFrame(finish));
     });
   }
   async function setProgress(value) {
@@ -192,6 +194,7 @@
     state.check = null;
     state.checkFor = null;
     clearPlan();
+    clearProgress();
     save(); render();
   });
   field("checkMoonDogUpdate").addEventListener("click", () => check(true));
