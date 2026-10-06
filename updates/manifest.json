@@ -8,11 +8,11 @@
     "releaseNotes": "Sanitized restoration baseline. Store performance targets and dollar goals are local-only configuration; protected operational data remains untouched."
   },
   "beta": {
-    "version": "0.10.9-beta.2",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.9-beta.2.json",
-    "sha256": "f7769f85b9e00ada28f12e4e0a2611d23b898f4b9ca3ff0c43df90cd31a97dc6",
+    "version": "0.10.9-beta.3",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.9-beta.3.json",
+    "sha256": "1a958ef0e2361b03c04b2b2a286392a6f32bbdc96bdb6cef8a49dd5c206b0c48",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Removes vague appointment-preparation prompts from Home. Today's Arrivals remains available as an operational view; the end-of-day Tomorrow task now surfaces only unresolved RO follow-ups, customer updates, or finish plans."
+    "releaseNotes": "Repairs the publication check after the history rewrite, keeps store targets local-only, keeps appointment-prep noise out of Home, and recovers/displays Open RO writer and technician identities from current source data and workload context."
   }
 }
