@@ -2,7 +2,7 @@
   "use strict";
   const responsiveRefinements = document.createElement("style"); responsiveRefinements.textContent = `.performance-svg{display:block;width:100%;height:auto;aspect-ratio:760/260}.meeting-cycle-label{display:block;margin-top:1px;font-size:11px;line-height:1.1;letter-spacing:.12em;color:#76d7b2}.meeting-cycle-delta{display:block;font-style:normal;font-size:10px;line-height:1.1;letter-spacing:.04em;color:#b9ced6}.meeting-v3-nps .meeting-cycle-delta{font-size:11px;margin-top:3px}.trend-coverage-summary{margin-top:14px;padding-top:12px;border-top:1px solid #d6e2e7}.trend-coverage-summary>strong{display:block;margin-bottom:7px}.trend-coverage-grid{display:flex;flex-wrap:wrap;gap:7px}.trend-coverage-grid span{padding:6px 9px;border-radius:8px;background:#eef5f7;font-size:12px}.previous-month-totals{margin-top:18px}.previous-month-totals .month-total-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px;margin:12px 0}.previous-month-totals .month-total-grid div,.previous-month-totals .month-advisor-row{padding:10px;border-radius:9px;background:#f3f7f8}.previous-month-totals .month-total-grid span,.previous-month-totals .month-advisor-row span{display:block;font-size:11px;color:#59717a}.previous-month-totals .month-total-grid strong{font-size:18px}.month-advisor-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.month-advisor-row strong{display:block;margin-bottom:5px}.month-advisor-metrics{font-size:12px;line-height:1.5}`; document.head.append(responsiveRefinements);
   const correctionStyles=document.createElement("style");correctionStyles.textContent=".month-correction-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;padding:10px 12px;border:1px solid #dfbd69;border-radius:9px;background:#fff8e5;color:#6b5316}.month-correction-notice button{white-space:nowrap}.voice-mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.customer-voice-manager [hidden]{display:none!important}.voice-use-full{align-self:flex-start}@media(max-width:760px){.voice-mode-grid{grid-template-columns:1fr}}";document.head.append(correctionStyles);
-  const VERSION = "0.10.9-beta.6";
+  const VERSION = "0.10.9-beta.7";
   globalThis.MoonDogInstalledVersion = VERSION;
   const BUILD_DATE = "2026-10-06";
   const DB_NAME = "moondog-operations-local";
@@ -48,7 +48,23 @@
   const escapeSourceCode = value => String(value).replace(/[^A-Za-z0-9]/g, char => "\\" + char);
   const storeRowPattern = family => new RegExp("^" + escapeSourceCode(reportStoreCode(family)) + "\\s*-", "i");
   const LEGACY_PARTICIPATION = {};
-  const FRESH_MANAGEMENT_STATUSES = ["Initial Review Pending", "Waiting Dispatch", "Diagnosis", "Repair", "Waiting Parts", "Waiting Authorization", "Waiting Customer", "Ready Pickup", "Paperwork/Admin", "Warranty Admin"];
+  const FRESH_MANAGEMENT_STATUSES = ["Awaiting Assignment", "Work in Progress", "Parts Estimate", "Pending Authorization", "Awaiting Technician Attention", "Being Repaired", "Ready for Review"];
+  const CDK_OPERATIONAL_STATUS_MAP = Object.freeze({
+    "open":"Awaiting Assignment",
+    "inspection":"Work in Progress",
+    "parts estimate":"Parts Estimate",
+    "pending":"Pending Authorization",
+    "waiting":"Awaiting Technician Attention",
+    "working":"Being Repaired",
+    "review":"Ready for Review",
+    "closed":"Closed"
+  });
+  const REVIEW_STATUS_DETAILS = Object.freeze({
+    "Pending Authorization":["Customer","Warranty","Insurance","Internal/Management","Other"],
+    "Awaiting Technician Attention":["Approved — Waiting Parts","Approved — Waiting for Technician to Begin","Deferred — Waiting for Reassembly/Ready for Delivery","Deferred — Waiting for Technician Story/Documentation","Other"],
+    "Ready for Review":["Advisor","Warranty Admin","Service Manager","Other"]
+  });
+  const CLOSED_RO_RETENTION_DAYS = 7;
   const LEGACY_MANAGEMENT_STATUSES = [];
   const statusRecord = (name, index) => ({ id: `status-${String(name).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")}`, name, enabled: true, order: index });
   const SETUP_SOURCE_DEFAULTS = { csi: "recommended", vir: "recommended", menu: "recommended", nextAppointments: "recommended", mediaAsr: "recommended", efficiency: "recommended", sor: "recommended", openRoSummary: "recommended" };
@@ -102,7 +118,7 @@
   populateSelect(ui.editCommunication, COMMUNICATION_STATUSES, "Not recorded");
   const assignIntro = ui["view-assign-next"]?.querySelector(".assign-hero p:not(.eyebrow)"); if (assignIntro) assignIntro.textContent = "Open ROs and Opened Today update exclusively from verified Open RO reports. Mark anyone unavailable as needed.";
   ui["view-performance"]?.querySelector(".performance-controls")?.after(ui["view-performance"].querySelector(".performance-chart-card"));
-  const model = { root: null, pendingRoot: null, connectionState: "STARTING", selectedId: null, editOrigin: "table", state: { schemaVersion: 1, appVersion: VERSION, updatedAt: null, source: null, records: [] }, appointments: { schemaVersion: 1, updatedAt: null, days: {} }, performance: { schemaVersion: 1, updatedAt: null, snapshots: {} }, operationalMetrics: { schemaVersion: 1, updatedAt: null, nextAppointments: { snapshots: {} }, vir: { snapshots: {} }, menu: { snapshots: {} }, csi: { surveys: {}, imports: [] }, monthlySummaries: {}, sor: { snapshots: {} }, appointmentActivity: { snapshots: {} }, efficiency: { snapshots: {} }, mediaAsr: { snapshots: {} }, openRoSummary: { snapshots: {} }, supplementalReports: { snapshots: {} } }, meetingCycle: { schemaVersion: 1, cycleStart: "", resetAt: "", capturedAt: "", metrics: {} }, assignNext: { schemaVersion: 3, updatedAt: null, days: {}, currentOpenRo: null }, autoImport: { schemaVersion: 1, initializedAt: null, updatedAt: null, seen: {} }, recovery: { schemaVersion: 1, lastSuccessfulConnectionAt: "", lastBackup: null, lastRestore: null, status: "Ready" }, settings: { ...DEFAULTS } };
+  const model = { root: null, pendingRoot: null, connectionState: "STARTING", selectedId: null, editOrigin: "table", state: { schemaVersion: 1, appVersion: VERSION, updatedAt: null, source: null, records: [], closedRecords: [] }, appointments: { schemaVersion: 1, updatedAt: null, days: {} }, performance: { schemaVersion: 1, updatedAt: null, snapshots: {} }, operationalMetrics: { schemaVersion: 1, updatedAt: null, nextAppointments: { snapshots: {} }, vir: { snapshots: {} }, menu: { snapshots: {} }, csi: { surveys: {}, imports: [] }, monthlySummaries: {}, sor: { snapshots: {} }, appointmentActivity: { snapshots: {} }, efficiency: { snapshots: {} }, mediaAsr: { snapshots: {} }, openRoSummary: { snapshots: {} }, supplementalReports: { snapshots: {} } }, meetingCycle: { schemaVersion: 1, cycleStart: "", resetAt: "", capturedAt: "", metrics: {} }, assignNext: { schemaVersion: 3, updatedAt: null, days: {}, currentOpenRo: null }, autoImport: { schemaVersion: 1, initializedAt: null, updatedAt: null, seen: {} }, recovery: { schemaVersion: 1, lastSuccessfulConnectionAt: "", lastBackup: null, lastRestore: null, status: "Ready" }, settings: { ...DEFAULTS } };
   new MutationObserver(() => { const node = ui.clarificationBanner?.querySelector("span"); if (node?.textContent.includes("and Activity history")) node.textContent = node.textContent.replace(" and Activity history", ""); }).observe(ui.clarificationBanner, { childList: true, subtree: true });
   const status = (message, type = "info") => { ui.status.textContent = message; ui.status.className = `status ${type}`; };
   function setConnectionState(state, message = "") {
