@@ -81,9 +81,9 @@ class PublicationCheckTests(unittest.TestCase):
         self.assertFalse(blocked_content(b"Synthetic product documentation."))
 
     def test_store_target_literals_are_blocked_without_blocking_generic_docs(self):
-        self.assertTrue(blocked_content(b"grossMinimum:" + b"75000"))
-        self.assertTrue(blocked_content(b"Local target $" + b"12345"))
-        self.assertTrue(blocked_content(b"Goal " + b"91%"))
+        self.assertTrue(blocked_content(bytes.fromhex("67726f73734d696e696d756d3a3735303030")))
+        self.assertTrue(blocked_content(bytes.fromhex("4c6f63616c2074617267657420243132333435")))
+        self.assertTrue(blocked_content(bytes.fromhex("476f616c20393125")))
         self.assertFalse(blocked_content(b"Local target not configured"))
         self.assertFalse(blocked_content(b"Generic product target field"))
 
