@@ -5,8 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 test("connected CSS marker reports the installed Beta without a second app-folder picker", async () => {
-  const packageFile = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "packages", "moondog-0.10.7-beta.1.json"), "utf8"));
-  const css = Buffer.from(packageFile.files[0].contentBase64, "base64").toString("utf8");
+  const css = "/* baseline */\n/* MoonDog controlled Beta update test 0.10.7-beta.1; no style changes. */\n";
   const fields = new Map();
   const listeners = new Map();
   const checks = [];
@@ -37,7 +36,7 @@ test("connected CSS marker reports the installed Beta without a second app-folde
     showDirectoryPicker: () => { throw new Error("Application root must not be reselected"); },
     Date
   });
-  const source = fs.readFileSync(path.join(__dirname, "..", "updates", "settings-ui.js"), "utf8");
+  const source = fs.readFileSync(path.join(__dirname, "..", "assets", "moondog-update-settings.js"), "utf8");
   vm.runInContext(source, context);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(field("updateInstalledVersion").textContent, "0.10.7-beta.1");
@@ -77,7 +76,7 @@ test("update offer and preview expire on channel or check changes; recovery stay
     MoonDogUpdateInstall: { listBackups: async () => recoverable },
     localStorage: { getItem: () => '{"channel":"beta","lastCheck":"2099-01-01T00:00:00Z"}', setItem: () => {} }, Date
   });
-  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "updates", "settings-ui.js"), "utf8"), context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "assets", "moondog-update-settings.js"), "utf8"), context);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(field("recoverMoonDogUpdate").hidden, true);
   await listeners.get("checkMoonDogUpdate:click")();
