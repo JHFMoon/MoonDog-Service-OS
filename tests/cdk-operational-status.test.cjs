@@ -18,7 +18,7 @@ const source = [
   constants,
   "const statusById=()=>null;",
   statusFns,
-  "const model={state:{records:[],closedRecords:[]}};",
+  "const model={state:{records:[],closedRecords:[]}};globalThis.model=model;",
   mergeFns,
   "globalThis.api={canonicalCdkStatus,canonicalReviewStatus,statusDetailsFor,operationalStatusFromImport,mergeCompleteOpenRoRecords,pruneClosedRecords};"
 ].join("\n");
