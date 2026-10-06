@@ -2,7 +2,15 @@
 
 This file summarizes user-relevant release milestones. The Git commit history remains the detailed engineering record.
 
-## 0.10.8-beta.1 — current Beta
+## 0.10.8-beta.2 — current Beta
+
+- Uses the operating system Light/Dark preference on first run until the user makes an explicit theme choice.
+- Makes the installed Beta/Stable channel visible immediately in System Updates.
+- Labels Beta installation actions explicitly and keeps the verified Stable-return path visible.
+- Refreshes runtime build metadata to October 6, 2026.
+- Adds repository runtime mirrors for the browser updater and a test that prevents those mirrors from drifting.
+
+## 0.10.8-beta.1
 
 - Moves the generic application core, including `index.html` and `assets/app.js`, under GitHub source authority.
 - Reads store/employee/report-specific parser mappings from protected local configuration instead of embedding dealership identity in public source.
