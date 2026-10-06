@@ -10,7 +10,7 @@
   "beta": {
     "version": "0.10.9-beta.8",
     "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.9-beta.8.json",
-    "sha256": "e9fa29004261d595620820783e104eebac12ea140ce38e24f81f593fd373ab6d",
+    "sha256": "4b9da9d1c9dd4172a6d77ce157b33ff1c41c36301aa9231497844e3f44947e93",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
     "releaseNotes": "Adds visible installation progress with a live percentage, progress bar, current step, file-count detail, verified completion state, and rollback/recovery progress so System Updates no longer appears frozen during long file operations."
