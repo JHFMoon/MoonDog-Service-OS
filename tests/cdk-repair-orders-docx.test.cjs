@@ -4,10 +4,10 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
-function extract(name, next) {
-  const start = app.indexOf("  function " + name);
-  const end = app.indexOf("  function " + next, start + 1);
-  assert.ok(start >= 0 && end > start, "could not extract " + name);
+function extractBetween(startToken, endToken) {
+  const start = app.indexOf(startToken);
+  const end = app.indexOf(endToken, start + 1);
+  assert.ok(start >= 0 && end > start, "could not extract " + startToken);
   return app.slice(start, end);
 }
 const source = [
@@ -16,9 +16,9 @@ const source = [
   "const workloadDate=(v)=>v;",
   "const reconcileRecordSourceIdentity=()=>{};",
   "const stableId=(r)=>r.ro;",
-  extract("cdkDateTime(value)", "cdkDateTimeFromLines"),
-  extract("cdkDateTimeFromLines(lines,index)", "parseCdkRepairOrdersDocx"),
-  extract("parseCdkRepairOrdersDocx(source,fileName)", "importCdkRepairOrdersDocx"),
+  extractBetween("  function cdkDateTime(value)", "  function cdkDateTimeFromLines"),
+  extractBetween("  function cdkDateTimeFromLines(lines,index)", "  function parseCdkRepairOrdersDocx"),
+  extractBetween("  function parseCdkRepairOrdersDocx(source,fileName)", "  async function importCdkRepairOrdersDocx"),
   "globalThis.parse=parseCdkRepairOrdersDocx;"
 ].join("\n");
 const context={};vm.createContext(context);vm.runInContext(source,context);
