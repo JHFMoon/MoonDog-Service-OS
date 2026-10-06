@@ -2,7 +2,7 @@
   "use strict";
   const responsiveRefinements = document.createElement("style"); responsiveRefinements.textContent = `.performance-svg{display:block;width:100%;height:auto;aspect-ratio:760/260}.meeting-cycle-label{display:block;margin-top:1px;font-size:11px;line-height:1.1;letter-spacing:.12em;color:#76d7b2}.meeting-cycle-delta{display:block;font-style:normal;font-size:10px;line-height:1.1;letter-spacing:.04em;color:#b9ced6}.meeting-v3-nps .meeting-cycle-delta{font-size:11px;margin-top:3px}.trend-coverage-summary{margin-top:14px;padding-top:12px;border-top:1px solid #d6e2e7}.trend-coverage-summary>strong{display:block;margin-bottom:7px}.trend-coverage-grid{display:flex;flex-wrap:wrap;gap:7px}.trend-coverage-grid span{padding:6px 9px;border-radius:8px;background:#eef5f7;font-size:12px}.previous-month-totals{margin-top:18px}.previous-month-totals .month-total-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px;margin:12px 0}.previous-month-totals .month-total-grid div,.previous-month-totals .month-advisor-row{padding:10px;border-radius:9px;background:#f3f7f8}.previous-month-totals .month-total-grid span,.previous-month-totals .month-advisor-row span{display:block;font-size:11px;color:#59717a}.previous-month-totals .month-total-grid strong{font-size:18px}.month-advisor-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.month-advisor-row strong{display:block;margin-bottom:5px}.month-advisor-metrics{font-size:12px;line-height:1.5}`; document.head.append(responsiveRefinements);
   const correctionStyles=document.createElement("style");correctionStyles.textContent=".month-correction-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;padding:10px 12px;border:1px solid #dfbd69;border-radius:9px;background:#fff8e5;color:#6b5316}.month-correction-notice button{white-space:nowrap}.voice-mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.customer-voice-manager [hidden]{display:none!important}.voice-use-full{align-self:flex-start}@media(max-width:760px){.voice-mode-grid{grid-template-columns:1fr}}";document.head.append(correctionStyles);
-  const VERSION = "0.10.9-beta.5";
+  const VERSION = "0.10.9-beta.6";
   globalThis.MoonDogInstalledVersion = VERSION;
   const BUILD_DATE = "2026-10-06";
   const DB_NAME = "moondog-operations-local";
@@ -949,27 +949,38 @@
     const match=String(value||"").match(/(\d{1,2}\/\d{1,2}\/20\d{2})\s*(\d{1,2}:\d{2}\s*(?:am|pm))/i);
     return match?{iso:usDateToIso(match[1]),display:match[1]+" "+match[2].toUpperCase()}:null;
   }
+  function cdkDateTimeFromLines(lines,index) {
+    const current=String(lines[index]||"").trim(),combined=cdkDateTime(current);if(combined)return{...combined,consumed:1};
+    if(!/^\d{1,2}\/\d{1,2}\/20\d{2}$/.test(current))return null;
+    const time=String(lines[index+1]||"").trim();if(!/^\d{1,2}:\d{2}\s*(?:am|pm)$/i.test(time))return null;
+    return{iso:usDateToIso(current),display:current+" "+time.toUpperCase(),consumed:2};
+  }
   function parseCdkRepairOrdersDocx(source,fileName) {
     const lines=String(source||"").replace(/\r/g,"").split(/\n+/).map((line)=>line.replace(/\u00a0/g," ").replace(/\s+/g," ").trim()).filter(Boolean),joined=lines.join(" ");
-    if(!/\bCDK\b/i.test(joined)||!/\bRepair Orders\b/i.test(joined)||!/\bRO#\b/i.test(joined))throw new Error("This is not a CDK Repair Orders export.");
+    if(!/\bCDK\b/i.test(joined)||!/\bRepair Orders\b/i.test(joined)||!/\bRO\s*#\s*:?/i.test(joined))throw new Error("This is not a CDK Repair Orders export.");
     const summary=joined.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);
     if(!summary)throw new Error("The CDK Repair Orders summary counts could not be verified.");
     const validStatuses=new Set(["open","pending","review","closed","waiting","parts estimate","inspection","working"]),starts=[];
     for(let i=0;i<lines.length-1;i++)if(/^\d{5,7}$/.test(lines[i])&&validStatuses.has(norm(lines[i+1])))starts.push(i);
     const allRecords=[],activeRecords=[],workloadRecords=[];
     for(let index=0;index<starts.length;index++){
-      const block=lines.slice(starts[index],starts[index+1]??lines.length),ro=block[0],sourceStatus=block[1],vehicleIndex=block.findIndex((line,position)=>position>1&&/^[A-HJ-NPR-Z0-9]{17}(?:19|20)\d{2}/i.test(line));
-      if(vehicleIndex<3)continue;
-      const vehicleMatch=block[vehicleIndex].match(/^([A-HJ-NPR-Z0-9]{17})((?:19|20)\d{2})(.*)$/i);if(!vehicleMatch)continue;
-      const tail=block.slice(vehicleIndex+1),openIndex=tail.findIndex((line)=>Boolean(cdkDateTime(line)));if(openIndex<2)continue;
-      const codes=tail.slice(0,openIndex),dateLines=tail.slice(openIndex).filter((line)=>cdkDateTime(line)),opened=cdkDateTime(dateLines[0]),promised=cdkDateTime(dateLines[1]),closed=cdkDateTime(dateLines[2]),services=tail.find((line)=>/^\[[A-Z]\]/.test(line))||"";
-      const raw={ro,advisorCode:codes[1]||"",advisor:"",technicianCode:codes[2]||"",technician:"",customer:block.slice(2,vehicleIndex).join(" / "),vehicle:(vehicleMatch[2]+" "+vehicleMatch[3]).replace(/\s+/g," ").trim(),vin:vehicleMatch[1].toUpperCase(),tagNumber:codes[0]||"",sourceStatus,opened:opened?.display||"",promised:promised?.display||"",closed:closed?.display||"",services,sourceFields:{Status:sourceStatus,"Tag #":codes[0]||"",Adv:codes[1]||"",Tech:codes[2]||"",Open:opened?.display||"",Promised:promised?.display||"",Closed:closed?.display||"",Services:services}};
+      const block=lines.slice(starts[index],starts[index+1]??lines.length),ro=block[0],sourceStatus=block[1];
+      const vinIndex=block.findIndex((line,position)=>position>1&&/^[A-HJ-NPR-Z0-9]{17}$/i.test(line));
+      if(vinIndex<3)continue;
+      const vin=block[vinIndex].toUpperCase(),vehicleLine=String(block[vinIndex+1]||"").trim(),hasVehicle=/^(?:19|20)\d{2}\b/.test(vehicleLine),vehicle=hasVehicle?vehicleLine:"",tailStart=vinIndex+(hasVehicle?2:1);
+      let firstDate=-1;for(let i=tailStart;i<block.length;i++)if(cdkDateTimeFromLines(block,i)){firstDate=i;break;}
+      if(firstDate<0)continue;
+      const codes=block.slice(tailStart,firstDate).filter((line)=>!/^\[[A-Z]\]/.test(line)),dateValues=[];
+      for(let i=firstDate;i<block.length;){const value=cdkDateTimeFromLines(block,i);if(value){dateValues.push(value);i+=value.consumed;}else i+=1;}
+      const opened=dateValues[0],promised=dateValues[1],closed=dateValues[2],services=block.find((line)=>/^\[[A-Z]\]/.test(line))||"";
+      if(codes.length<2||!opened||!promised)continue;
+      const raw={ro,advisorCode:codes[1]||"",advisor:"",technicianCode:codes[2]||"",technician:"",customer:block.slice(2,vinIndex).join(" / "),vehicle,vin,tagNumber:codes[0]||"",sourceStatus,opened:opened.display||"",promised:promised.display||"",closed:closed?.display||"",services,sourceFields:{Status:sourceStatus,"Tag #":codes[0]||"",Adv:codes[1]||"",Tech:codes[2]||"",Open:opened.display||"",Promised:promised.display||"",Closed:closed?.display||"",Services:services}};
       reconcileRecordSourceIdentity(raw);raw.id=stableId(raw);allRecords.push(raw);
-      if(norm(sourceStatus)!=="closed"){activeRecords.push(raw);workloadRecords.push({ro,advisorCode:raw.advisorCode,opened:opened?.iso||workloadDate(raw.opened),isOpen:true});}
+      if(norm(sourceStatus)!=="closed"){activeRecords.push(raw);workloadRecords.push({ro,advisorCode:raw.advisorCode,opened:opened.iso||workloadDate(raw.opened),isOpen:true});}
     }
     const expectedAll=Number(summary[1]),expectedOpen=Number(summary[2]),expectedClosed=Number(summary[5]),closedCount=allRecords.filter((record)=>norm(record.sourceStatus)==="closed").length;
     if(allRecords.length!==expectedAll||activeRecords.length!==expectedOpen||closedCount!==expectedClosed)throw new Error("CDK Repair Orders reconciliation failed: parsed "+allRecords.length+"/"+activeRecords.length+"/"+closedCount+", expected "+expectedAll+"/"+expectedOpen+"/"+expectedClosed+".");
-    return{records:activeRecords,workloadRecords,summary:{all:expectedAll,open:expectedOpen,working:Number(summary[3]),onHold:Number(summary[4]),closed:expectedClosed},format:"CDK Repair Orders browser export",validation:{parser:"cdk-repair-orders-docx-v1",recordStarts:starts.length,activeRecords:activeRecords.length,closedExcluded:true}};
+    return{records:activeRecords,workloadRecords,summary:{all:expectedAll,open:expectedOpen,working:Number(summary[3]),onHold:Number(summary[4]),closed:expectedClosed},format:"CDK Repair Orders browser export",validation:{parser:"cdk-repair-orders-docx-v2-split-fields",recordStarts:starts.length,activeRecords:activeRecords.length,closedExcluded:true,splitVinVehicleSupported:true,splitDateTimeSupported:true}};
   }
   async function importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess=false) {
     const source=await docxText(bytes),parsed=parseCdkRepairOrdersDocx(source,candidate.name),file=await(await sourceFileHandle(candidate.name)).getFile(),existing=new Map(model.state.records.map((record)=>[record.id,record])),initialStatus=managementStatusDefinitions().find((item)=>item.enabled),records=parsed.records.map((raw)=>{reconcileRecordSourceIdentity(raw);const record={...raw,management:existing.get(raw.id)?.management||{statusId:initialStatus?.id||"",status:initialStatus?.name||"",owner:raw.advisor||"",nextAction:"",reviewDate:"",communication:"",note:"",updatedAt:null}};reconcileRecordSourceIdentity(record);return record;});
@@ -990,7 +1001,7 @@
 
   function parseSupplementalDocxReport(source,fileName) {
     const video=parseTechnicianVideoPlaybook(source,fileName);if(video)return video;
-    const s=String(source||"").replace(/\s+/g," ");if(!/\bCDK\b/i.test(s)||!/\bRepair Orders\b/i.test(s)||!/\bRO#\b/i.test(s))return null;const match=s.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);if(!match)throw new Error("The CDK Repair Orders summary counts could not be verified.");return{family:"open-ro-browser-summary",sourceFile:fileName,sourceFormat:"docx",importedAt:now(),periodStart:"",periodEnd:"",variant:"browser-export",metrics:{all:Number(match[1]),open:Number(match[2]),working:Number(match[3]),onHold:Number(match[4]),closed:Number(match[5])},validation:{parser:"open-ro-browser-summary-v1",supplementalOnly:true,kpiPromotion:false,detailRowsNotRetained:true}};
+    const s=String(source||"").replace(/\s+/g," ");if(!/\bCDK\b/i.test(s)||!/\bRepair Orders\b/i.test(s)||!/\bRO\s*#\s*:?/i.test(s))return null;const match=s.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);if(!match)throw new Error("The CDK Repair Orders summary counts could not be verified.");return{family:"open-ro-browser-summary",sourceFile:fileName,sourceFormat:"docx",importedAt:now(),periodStart:"",periodEnd:"",variant:"browser-export",metrics:{all:Number(match[1]),open:Number(match[2]),working:Number(match[3]),onHold:Number(match[4]),closed:Number(match[5])},validation:{parser:"open-ro-browser-summary-v1",supplementalOnly:true,kpiPromotion:false,detailRowsNotRetained:true}};
   }
   async function pdfReportText(bytes,pageLimit=4) { return withLocalPdf(bytes,async pdf=>{const pages=[];for(let pageNumber=1;pageNumber<=Math.min(pdf.numPages,pageLimit);pageNumber++)pages.push(pdfTextLines(await(await pdf.getPage(pageNumber)).getTextContent()).join("\n"));return pages.join("\n__PAGE_BREAK__\n");}); }
   function supplementalSnapshotKey(snapshot) { const date=snapshot.periodEnd||snapshot.asOfDate||snapshot.periodStart||"observation",variant=slug(snapshot.variant||"default").slice(0,90)||"default";return [snapshot.family,date,variant].join("|"); }

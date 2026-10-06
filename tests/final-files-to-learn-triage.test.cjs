@@ -7,7 +7,7 @@ const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf
 new vm.Script(app);
 
 for (const token of [
-  "cdk-repair-orders-docx-v1",
+  "cdk-repair-orders-docx-v2-split-fields",
   "parts-quality-alert-v1",
   "service-consulting-audit-v1",
   "customer-outreach-transcript-v1",

@@ -44,6 +44,8 @@ assert.match(app, /collision-estimate/);
 assert.match(app, /technician-video-standard/);
 assert.match(app, /customer-outreach-transcript/);
 assert.match(app, /service-consulting-audit/);
-assert.match(app, /cdk-repair-orders-docx-v1/);
+assert.match(app, /cdk-repair-orders-docx-v2-split-fields/);
+assert.match(app, /splitVinVehicleSupported:true/);
+assert.match(app, /splitDateTimeSupported:true/);
 
 console.log("PASS supplemental report families are recognized, isolated, and syntax-valid");

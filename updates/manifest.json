@@ -8,11 +8,11 @@
     "releaseNotes": "Sanitized restoration baseline. Store performance targets and dollar goals are local-only configuration; protected operational data remains untouched."
   },
   "beta": {
-    "version": "0.10.9-beta.5",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.9-beta.5.json",
-    "sha256": "513c99e704d2a64434fc229ba4f5c7d6780ebefaaf72e3a806fb0be3bc5268d9",
+    "version": "0.10.9-beta.6",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.9-beta.6.json",
+    "sha256": "247a1fc49f9fc8b7b846ce2c5bec1f0bb86b96bffcf8681a9937a825fb9e567e",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Finishes Files To Learn triage: CDK Repair Orders DOCX becomes a reconciled primary Open RO source; QIRs, service-consulting audits, outreach transcripts, and video-MPI standards are used locally; claims and collision estimates are recognized and retired outside Service OS."
+    "releaseNotes": "Fixes CDK Repair Orders DOCX ingestion for split VIN/vehicle and split date/time browser exports; finalizes triage for useful service-flow, QIR, outreach, and coaching sources while retiring claims/collision records outside Service OS."
   }
 }
