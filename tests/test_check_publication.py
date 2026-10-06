@@ -18,7 +18,7 @@ class PublicationCheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory)
             (fixture / "updates" / "packages").mkdir(parents=True)
-            for name in ("moondog-0.10.6.json", "moondog-0.10.7-beta.1.json", "moondog-0.10.7-beta.2.json"):
+            for name in ("moondog-0.10.7.json", "moondog-0.10.8-beta.1.json", "moondog-0.10.7-beta.1.json", "moondog-0.10.7-beta.2.json"):
                 (fixture / "updates" / "packages" / name).write_bytes((root / "updates" / "packages" / name).read_bytes())
             manifest = json.loads((root / "updates" / "manifest.json").read_text(encoding="utf-8"))
             target = fixture / "updates" / "manifest.json"
@@ -30,10 +30,35 @@ class PublicationCheckTests(unittest.TestCase):
             target.write_text(json.dumps(manifest), encoding="utf-8")
             self.assertTrue(release_contract_errors(fixture))
             manifest["stable"]["packageUrl"] = json.loads((root / "updates" / "manifest.json").read_text(encoding="utf-8"))["stable"]["packageUrl"]
-            package_path = fixture / "updates" / "packages" / "moondog-0.10.6.json"
+            package_path = fixture / "updates" / "packages" / "moondog-0.10.7.json"
             package = json.loads(package_path.read_text(encoding="utf-8"))
             package["approvedFiles"] = ["assets/other.css"]
             package_path.write_text(json.dumps(package), encoding="utf-8")
+            self.assertTrue(release_contract_errors(fixture))
+
+    def test_root_application_entry_is_approved_but_backups_are_not(self):
+        import base64
+        import hashlib
+        import json
+        root = Path(__file__).resolve().parents[1]
+        self.assertEqual(release_contract_errors(root), [])
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            packages = fixture / "updates" / "packages"
+            packages.mkdir(parents=True)
+            manifest = json.loads((root / "updates" / "manifest.json").read_text(encoding="utf-8"))
+            for channel in ("stable", "beta"):
+                version = manifest[channel]["version"]
+                name = f"moondog-{version}.json"
+                package = json.loads((root / "updates" / "packages" / name).read_text(encoding="utf-8"))
+                self.assertIn("index.html", package["approvedFiles"])
+                if channel == "beta":
+                    package["approvedFiles"].append("backups/system-updates/forbidden.json")
+                    package["files"].append({"path": "backups/system-updates/forbidden.json", "action": "put", "sha256": hashlib.sha256(b"{}").hexdigest(), "contentBase64": base64.b64encode(b"{}").decode("ascii")})
+                raw = (json.dumps(package) + "\n").encode("utf-8")
+                (packages / name).write_bytes(raw)
+                manifest[channel]["sha256"] = hashlib.sha256(raw).hexdigest()
+            (fixture / "updates" / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
             self.assertTrue(release_contract_errors(fixture))
 
     def test_prohibited_paths_and_public_sources(self):

@@ -1,18 +1,18 @@
 {
   "stable": {
-    "version": "0.10.6",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.6.json",
-    "sha256": "677f4bb715566aad02bd53e5edc852fedb7860a6daaf999a49f4b5fc0423dfae",
+    "version": "0.10.7",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.7.json",
+    "sha256": "3079bd9aa8763fa6a06b54a0af0075cb563f2b44252617a805678fc4e7634d23",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Stable 0.10.6: restores exact pre-Beta application styles and navigation script, including every retained Beta-touched file."
+    "releaseNotes": "Stable generic application source with protected local store configuration and full restoration of every retained Beta-touched application file."
   },
   "beta": {
-    "version": "0.10.7-beta.2",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.7-beta.2.json",
-    "sha256": "b8d8bf9e2a8ab42ec25fde9a025c0d7c39c80bf9df7df8efd83922300afd5efb",
+    "version": "0.10.8-beta.1",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.8-beta.1.json",
+    "sha256": "5678c088c4df7233d901f100eb810bc7a5d8b80606ed01a44ad33b7971af4ecd",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Browser-local Light/Dark mode control in the top header; no operational data or migration changes."
+    "releaseNotes": "Generic application source and protected local source-adapter support; retains the browser-local Light/Dark mode."
   }
 }

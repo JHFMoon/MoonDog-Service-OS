@@ -86,8 +86,12 @@ def release_contract_errors(root):
                 path = entry["path"]
                 if (path.startswith("/") or "\\" in path or
                     any(part in ("", ".", "..") for part in path.split("/")) or
-                    blocked_path(path) or not path.startswith("assets/") or
-                    Path(path).suffix.lower() not in (".css", ".js", ".html", ".json")):
+                    blocked_path(path) or not (
+                        path == "index.html" or (
+                            path.startswith("assets/") and
+                            Path(path).suffix.lower() in (".css", ".js", ".html", ".json")
+                        )
+                    )):
                     raise ValueError(f"{channel} contains protected or unknown path")
                 if entry["action"] != "put":
                     raise ValueError(f"{channel} contains an unsupported deletion")
