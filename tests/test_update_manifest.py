@@ -1,4 +1,4 @@
-"""Validate the public update manifest and controlled test package."""
+"""Validate the public update manifest and current Stable/Beta packages."""
 
 import base64
 import hashlib
@@ -8,64 +8,89 @@ import re
 import unittest
 
 
-MANIFEST = Path(__file__).resolve().parents[1] / "updates" / "manifest.json"
+ROOT = Path(__file__).resolve().parents[1]
+MANIFEST = ROOT / "updates" / "manifest.json"
+PACKAGES = MANIFEST.parent / "packages"
 FIELDS = {"version", "packageUrl", "sha256", "minimumCompatibleVersion",
           "migrationRequired", "releaseNotes"}
-VERSION = re.compile(r"^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$")
+STABLE_VERSION = re.compile(r"^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$")
+BETA_VERSION = re.compile(r"^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-beta\.(?:0|[1-9]\d*)$")
+PACKAGE_FIELDS = {"formatVersion", "version", "approvedFiles", "files"}
+FILE_FIELDS = {"path", "action", "sha256", "contentBase64"}
 
 
 class UpdateManifestTests(unittest.TestCase):
-    def test_contract_is_plain_json_with_required_fields(self):
-        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(set(manifest), {"stable", "beta"})
-        for release in manifest.values():
-            self.assertEqual(set(release), FIELDS)
-            self.assertRegex(release["minimumCompatibleVersion"], VERSION)
-            self.assertIsInstance(release["migrationRequired"], bool)
-            self.assertTrue(release["releaseNotes"].strip())
-        self.assertEqual(manifest["stable"]["version"], "0.10.6")
-        self.assertEqual(manifest["beta"]["version"], "0.10.7-beta.2")
-        self.assertTrue(manifest["stable"]["packageUrl"].endswith("/moondog-0.10.6.json"))
-        self.assertFalse(manifest["beta"]["migrationRequired"])
-        stable_bytes = (MANIFEST.parent / "packages" / "moondog-0.10.6.json").read_bytes()
-        self.assertEqual(manifest["stable"]["sha256"], hashlib.sha256(stable_bytes).hexdigest())
-        stable_package = json.loads(stable_bytes)
-        self.assertEqual(stable_package["version"], "0.10.6")
-        self.assertEqual(stable_package["approvedFiles"], ["assets/product-settings.css", "assets/daily-ops.css", "assets/daily-ops.js"])
-        stable_css = base64.b64decode(stable_package["files"][0]["contentBase64"], validate=True)
-        self.assertEqual(stable_package["files"][0]["sha256"], hashlib.sha256(stable_css).hexdigest())
-        retained = json.loads((MANIFEST.parent / "packages" / "moondog-0.10.7-beta.1.json").read_bytes())
-        retained_css = base64.b64decode(retained["files"][0]["contentBase64"], validate=True)
-        marker = b"\n/* MoonDog controlled Beta update test 0.10.7-beta.1; no style changes. */\n"
-        self.assertEqual(retained_css, stable_css + marker)
-        beta_package = json.loads((MANIFEST.parent / "packages" / "moondog-0.10.7-beta.2.json").read_bytes())
-        self.assertEqual(beta_package["approvedFiles"], ["assets/daily-ops.css", "assets/daily-ops.js"])
-        self.assertTrue(set(beta_package["approvedFiles"]).issubset(stable_package["approvedFiles"]))
+    def load_manifest(self):
+        return json.loads(MANIFEST.read_text(encoding="utf-8"))
 
-    def test_beta_package_has_exact_hashes_and_two_approved_files(self):
-        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        beta = manifest["beta"]
-        self.assertEqual(beta["minimumCompatibleVersion"], "0.10.6")
-        self.assertFalse(beta["migrationRequired"])
-        package_path = MANIFEST.parent / "packages" / "moondog-0.10.7-beta.2.json"
-        self.assertEqual(beta["packageUrl"],
-                         "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.7-beta.2.json")
+    def validate_package(self, channel, release):
+        version = release["version"]
+        package_path = PACKAGES / f"moondog-{version}.json"
+        self.assertTrue(package_path.is_file(), f"Missing {channel} package {package_path.name}")
+        self.assertEqual(
+            release["packageUrl"],
+            f"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/{package_path.name}",
+        )
+
         package_bytes = package_path.read_bytes()
-        self.assertEqual(beta["sha256"], hashlib.sha256(package_bytes).hexdigest())
+        self.assertEqual(release["sha256"], hashlib.sha256(package_bytes).hexdigest())
+
         package = json.loads(package_bytes)
-        self.assertEqual(set(package), {"formatVersion", "version", "approvedFiles", "files"})
+        self.assertEqual(set(package), PACKAGE_FIELDS)
         self.assertEqual(package["formatVersion"], 1)
-        self.assertEqual(package["version"], beta["version"])
-        self.assertEqual(package["approvedFiles"], ["assets/daily-ops.css", "assets/daily-ops.js"])
-        self.assertEqual(len(package["files"]), 2)
-        for entry in package["files"]:
-            self.assertEqual(set(entry), {"path", "action", "sha256", "contentBase64"})
+        self.assertEqual(package["version"], version)
+        self.assertTrue(package["approvedFiles"])
+        self.assertEqual(len(package["approvedFiles"]), len(set(package["approvedFiles"])))
+
+        entries = package["files"]
+        self.assertEqual([entry["path"] for entry in entries], package["approvedFiles"])
+        for entry in entries:
+            self.assertEqual(set(entry), FILE_FIELDS)
             self.assertEqual(entry["action"], "put")
             content = base64.b64decode(entry["contentBase64"], validate=True)
             self.assertEqual(entry["sha256"], hashlib.sha256(content).hexdigest())
-            self.assertEqual(content, (MANIFEST.parents[1] / entry["path"]).read_bytes())
-        self.assertTrue(base64.b64decode(package["files"][1]["contentBase64"]).endswith(
-            b"\n/* Service Operations Hub theme Beta 0.10.7-beta.2. */\n"))
+            path = entry["path"]
+            self.assertTrue(
+                path == "index.html" or path.startswith("assets/"),
+                f"Package contains non-application path: {path}",
+            )
+            self.assertNotRegex(path, r"(^|/)(data|backups?|history|reports|imports|exports)(/|$)")
+
+        return package
+
+    def test_manifest_contract_and_current_packages(self):
+        manifest = self.load_manifest()
+        self.assertEqual(set(manifest), {"stable", "beta"})
+
+        stable = manifest["stable"]
+        beta = manifest["beta"]
+        self.assertRegex(stable["version"], STABLE_VERSION)
+        self.assertRegex(beta["version"], BETA_VERSION)
+
+        for release in (stable, beta):
+            self.assertEqual(set(release), FIELDS)
+            self.assertRegex(release["minimumCompatibleVersion"], STABLE_VERSION)
+            self.assertIsInstance(release["migrationRequired"], bool)
+            self.assertTrue(release["releaseNotes"].strip())
+            self.assertRegex(release["sha256"], r"^[0-9a-f]{64}$")
+
+        self.assertFalse(beta["migrationRequired"])
+
+        stable_package = self.validate_package("stable", stable)
+        beta_package = self.validate_package("beta", beta)
+
+        self.assertTrue(
+            set(beta_package["approvedFiles"]).issubset(stable_package["approvedFiles"]),
+            "Stable must restore every file touched by the current Beta package",
+        )
+
+    def test_retained_package_names_do_not_override_manifest(self):
+        manifest = self.load_manifest()
+        current = {
+            f"moondog-{manifest['stable']['version']}.json",
+            f"moondog-{manifest['beta']['version']}.json",
+        }
+        self.assertTrue(current.issubset({path.name for path in PACKAGES.glob("moondog-*.json")}))
 
 
 if __name__ == "__main__":

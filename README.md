@@ -1,10 +1,12 @@
 # MoonDog Service OS
 
+[![Publication check](https://github.com/JHFMoon/MoonDog-Service-OS/actions/workflows/publication-check.yml/badge.svg)](https://github.com/JHFMoon/MoonDog-Service-OS/actions/workflows/publication-check.yml)
+
 MoonDog Service OS is the public source repository for the user-facing **Service Operations Hub**, a locally operated service department application. This repository is the development and release authority for the generic application core, browser-native updater, approved update packages, tests, and release metadata.
 
 Installed Service Operations Hub files run locally and remain offline-capable. GitHub is used for source control and software update distribution; dealership operational data remains in the local workspace.
 
-See [Source and data boundary](docs/SOURCE-OF-TRUTH.md) for the authoritative split between public application source and protected local configuration/data.
+See [Source and data boundary](docs/SOURCE-OF-TRUTH.md) for the authoritative split between public application source and protected local configuration/data. Release history is summarized in [CHANGELOG.md](CHANGELOG.md).
 
 ## Repository boundary
 
@@ -36,5 +38,7 @@ Internet access is only needed for functions such as checking/downloading softwa
 ## Release safety
 
 Update packages may contain approved application-core files only. Protected local paths, including `data/` and `backups/`, are not valid package targets. `backups/system-updates/` is reserved for updater rollback records and is excluded from ordinary housekeeping.
+
+Every push to `main` and every pull request runs the repository publication check, which validates the update contract, browser-side updater tests, and public-data boundary.
 
 `.gitignore` reduces accidental inclusion but does not protect data that is force-added, already tracked, or embedded in otherwise allowed files. Every future change and release must be checked for dealership or operational data before publication.

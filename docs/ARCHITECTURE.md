@@ -2,32 +2,67 @@
 
 ## Authority and direction
 
-This public repository defines product structure, distributable code, and future update logic. The installed application runs on the end user's machine. It owns its local operational state, reports, settings, history, and recovery files.
+This public repository is the development and release authority for the generic Service Operations Hub application core, update logic, tests, and release metadata. The installed Hub runs from local files and owns its local operational state, reports, settings, history, and recovery records.
 
 ```text
-GitHub: public source and verified update artifacts
+GitHub: generic source + verified update packages
                     |
-                    | user-applied download only
+                    | user-approved update only
                     v
-Local MoonDog installation: application + private operational data
+Local Service Operations Hub: application + protected store configuration + operational data
 ```
 
-There is no automatic path from the local installation to GitHub for dealership data. No EXE or registry change is part of this foundation.
+There is no automatic application path that uploads dealership operational data to GitHub.
 
 ## Client runtime
 
-The end-user application remains browser-only: HTML, CSS, JavaScript, and JSON. It requires no Python, Node, EXE, PowerShell, or other external runtime on end-user PCs. Python in this repository is limited to CI and repository tests.
+The end-user application is browser-only: HTML, CSS, JavaScript, and JSON. Normal operation requires no Python, Node, PowerShell, EXE, service, or registry change on end-user PCs. Python and Node in this repository are used only for CI, tests, and release validation.
 
-## Future update contract
+The installed Hub remains offline-capable. Internet access is used for update checks/downloads and is separate from normal OneDrive synchronization.
 
-Stable is the default channel; Beta is opt-in. Each channel has its own version, package URL, SHA-256, minimum compatible version, migration flag, and release notes. The local application shows the proposed change, lets the user apply it, verifies it before replacement, preserves local data, and supports rollback if application fails.
+## Public source vs local configuration
 
-The plain-JSON `updates/manifest.json` publishes independent packages for Stable `0.10.6` and Beta `0.10.7-beta.2`. Beta 2 changes only `assets/daily-ops.css` and `assets/daily-ops.js` to add a browser-local Light/Dark control; the retained Beta 1 package changed only `assets/product-settings.css`. The Stable package restores exact pre-Beta bytes of all three files. Selecting Stable while a Beta is installed offers a normal, user-confirmed channel downgrade through the same backup, verification, and rollback path. The update page reads the markers from the connected application folder to report installed version and channel after restart. Beta publication rejects migration-required releases or packages whose touched files lack a verified Stable restoration entry.
+GitHub-authoritative application source includes `index.html`, `assets/app.js`, reviewed application modules, updater code, tests, schemas, and release packages.
 
-The local Service Operations Hub Tools → Change how Service Operations Hub works → System Updates page uses `updates/settings-ui.js` to show installed version, Stable/Beta choice, last check, and availability. A silent check is limited to once per local day. Installation requires a manual click, a verified package, a dry-run file summary, the already-connected application root, and explicit confirmation. The updater creates a unique rollback record under the protected `backups/system-updates/` directory inside that root; no backup folder picker is required. The browser transaction backs up and verifies approved app files before writing, verifies installed bytes, and rolls back on failure. Update packages cannot contain or change any `backups/` path. Disaster/full-system backups remain separate. Protected operational files never enter the trusted application catalog. An interrupted transaction retains a journal for explicit recovery from that protected directory after folder reconnection. Installation is never automatic.
+Store identity, advisor/employee mappings, report-specific aliases, source-adapter parameters, operational state, reports, history, backups, and machine/browser state stay local. The source transition uses protected local configuration, including `data/settings.json` and the one-time `data/source-adapter-bootstrap.json` handoff described in [SOURCE-OF-TRUTH.md](SOURCE-OF-TRUTH.md).
 
-Normal housekeeping excludes `backups/system-updates/` entirely; only the updater and explicit recovery inspect or write that subtree. The installed Hub still runs from local files without internet. Internet is used only for update checks and package downloads; OneDrive sync remains the existing workspace transport.
+Missing or invalid required local adapter configuration stops connection before normal application writes.
 
-`updates/check.html` and `updates/check.js` are a browser-only version check. The local installation supplies its installed version, or a user enters it on the page. The checker reads only the fixed public GitHub manifest URL, sends no operational data or URL parameters, and compares version numbers. Stable is selected by default; Beta requires selection. An automatic check stays silent if GitHub is unavailable; a manual check shows a short error. The check never downloads a package, changes files, or applies an update.
+## Update contract
 
-After a successful future update, a Files to Learn rescan may run on the local machine. It must not upload the files or their derived observations. Update packages contain application-core files only. The existing production workspace/computer remains the sole supported Work location. Multi-device Work coordination is deferred; no OneDrive heartbeat file is used as a cross-device lock.
+`updates/manifest.json` publishes independent Stable and Beta channels. Each channel declares its version, package URL, SHA-256, minimum compatible version, migration flag, and release notes.
+
+Current channels:
+
+- Stable: `0.10.7`
+- Beta: `0.10.8-beta.1`
+
+Beta is opt-in. Installation is never automatic.
+
+The installed **Tools → Change how Service Operations Hub works → System Updates** page uses the browser-native updater modules under `assets/`. A user-triggered install:
+
+1. checks the selected channel,
+2. downloads the package in memory,
+3. verifies the package SHA-256 and release contract,
+4. performs a dry run against the approved application-file allowlist,
+5. requires explicit confirmation,
+6. creates and verifies a rollback backup under `backups/system-updates/`,
+7. writes only approved application files,
+8. reads installed bytes back for verification, and
+9. rolls back or exposes explicit recovery when verification cannot complete.
+
+Update packages cannot contain operational data or target protected local paths. Stable coverage must be able to restore every application file touched by the active or retained Beta path. Beta releases cannot require irreversible migrations.
+
+## Update backup isolation
+
+`backups/system-updates/` belongs only to updater and recovery logic. Normal maintenance and housekeeping skip that subtree completely. Disaster/full-system backups remain separate.
+
+## Offline operation
+
+After installation, Service Operations Hub runs from local application files and local data. GitHub is not a runtime host. If GitHub is unavailable, normal already-local Hub operation continues; only update availability/download functions are affected.
+
+## Repository validation
+
+Every pull request and push to `main` runs `.github/workflows/publication-check.yml`. The workflow runs Python release/publication tests, Node updater tests, and the tracked-publication boundary check.
+
+The local production workspace remains the authoritative operational environment. Multi-device write coordination remains out of scope until a real shared transactional coordination layer exists.
