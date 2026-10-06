@@ -21,9 +21,9 @@ The connected local workspace remains authoritative for dealership-specific and 
 The update manifest currently publishes:
 
 - **Stable:** `0.10.8`
-- **Beta:** `0.10.9-beta.2`
+- **Beta:** `0.10.9-beta.3`
 
-Both channels distribute approved application files through the browser-native updater. Stable is the default channel; Beta requires user opt-in. Store-specific performance targets remain local-only. Beta 0.10.9-beta.2 also removes non-actionable appointment-preparation prompts from Home while keeping Today’s Arrivals available when the manager intentionally opens it.
+Both channels distribute approved application files through the browser-native updater. Stable is the default channel; Beta requires user opt-in. Store-specific performance targets remain local-only. Beta 0.10.9-beta.3 repairs the post-rewrite publication check and improves Open RO source identity recovery while keeping the Home queue focused on actionable work.
 
 Updates are checked and downloaded from GitHub, then installed locally only after user approval. The updater verifies the package, shows a dry run, protects local-only paths, creates a rollback backup before writes, verifies written files, and can restore the prior application state if installation fails.
 
