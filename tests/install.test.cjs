@@ -223,3 +223,43 @@ test("Stable to Beta to Stable uses verified packages, protected workspace backu
   assert.equal(app.store.files.get("settings.json").toString(), "synthetic settings");
   for (const file of allowlist) assert.ok(app.store.files.has("backups/system-updates/" + returned.backupName + "/" + file));
 });
+
+
+test("install reports visible staged progress through verified completion", async () => {
+  const setup = await fixture();
+  const events = [];
+  const result = await context.MoonDogUpdateInstall.apply({ verifiedPackage: setup.verifiedPackage,
+    appDirectoryHandle: setup.app.root, trustedAllowlist: setup.trustedAllowlist,
+    expectedPlan: setup.expectedPlan, confirmed: true,
+    onProgress: async event => { events.push({ ...event }); } });
+  assert.equal(result.status, "installed");
+  assert.ok(events.length > 8);
+  for (const event of events) {
+    assert.ok(Number.isInteger(event.percent));
+    assert.ok(event.percent >= 0 && event.percent <= 100);
+    assert.ok(event.label);
+  }
+  for (const phase of ["verify-package", "permission", "plan", "inventory", "backup",
+    "backup-verify", "apply", "verify-install", "complete"]) {
+    assert.ok(events.some(event => event.phase === phase), "missing progress phase " + phase);
+  }
+  assert.equal(events.at(-1).phase, "complete");
+  assert.equal(events.at(-1).percent, 100);
+});
+
+test("failed install reports rollback progress and still restores exact files", async () => {
+  const setup = await fixture();
+  setup.app.store.failOnce = "assets/new.js";
+  const events = [];
+  const result = await context.MoonDogUpdateInstall.apply({ verifiedPackage: setup.verifiedPackage,
+    appDirectoryHandle: setup.app.root, trustedAllowlist: setup.trustedAllowlist,
+    expectedPlan: setup.expectedPlan, confirmed: true,
+    onProgress: event => events.push({ ...event }) });
+  assert.equal(result.status, "rolled-back");
+  assert.ok(events.some(event => event.phase === "rollback"));
+  assert.equal(events.at(-1).phase, "rolled-back");
+  assert.equal(events.at(-1).percent, 100);
+  assert.equal(setup.app.store.files.get("index.html").toString(), "old");
+  assert.equal(setup.app.store.files.get("assets/old.js").toString(), "retired");
+  assert.equal(setup.app.store.files.has("assets/new.js"), false);
+});
