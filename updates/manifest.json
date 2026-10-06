@@ -8,11 +8,11 @@
     "releaseNotes": "Stable generic application source with protected local store configuration and full restoration of every retained Beta-touched application file."
   },
   "beta": {
-    "version": "0.10.8-beta.1",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.8-beta.1.json",
-    "sha256": "5678c088c4df7233d901f100eb810bc7a5d8b80606ed01a44ad33b7971af4ecd",
+    "version": "0.10.8-beta.2",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.8-beta.2.json",
+    "sha256": "2e8a8b1e6ea340aef5b0a2b2581b68740930f8b3f107c36de46fdd8d7e5807be",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Generic application source and protected local source-adapter support; retains the browser-local Light/Dark mode."
+    "releaseNotes": "Beta usability polish: follows the system theme on first run, clarifies Beta/Stable update state and actions, and refreshes runtime build metadata. No operational-data migration."
   }
 }
