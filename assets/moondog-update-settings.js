@@ -92,7 +92,7 @@
     '<div><strong>Installed version:</strong> <span id="updateInstalledVersion"></span></div>' +
     '<div><strong>Installed channel:</strong> <span id="updateInstalledChannel"></span></div>' +
     '<label>Update channel <select id="updateChannel"><option value="stable">Stable</option><option value="beta">Beta (opt in)</option></select></label>' +
-    '<div><strong>Last check:</strong> <span id="updateLastCheck"></span></div>' +
+    '<div><strong>Last update check:</strong> <span id="updateLastCheck"></span></div>' +
     '<div><strong>Availability:</strong> <span id="updateAvailability" role="status"></span></div>' +
     '<p id="updateChannelNote" class="settings-note"></p>' +
     '<div class="button-row"><button type="button" id="checkMoonDogUpdate">Check for Updates</button>' +
@@ -130,10 +130,11 @@
       result?.status === "up-to-date" ? "No newer update" :
       result?.status === "incompatible" ? `New version requires ${result.minimumCompatibleVersion}` :
       result?.status === "unavailable" ? "GitHub unavailable" :
-      result?.status === "invalid-input" ? "Installed version cannot be compared" : "Not checked";
+      result?.status === "invalid-input" ? "Installed version cannot be compared" :
+      installedChannel === state.channel ? `Installed ${installedChannel === "beta" ? "Beta" : "Stable"} ${installedVersion}; check for newer builds` : "Not checked";
     field("updateFolders").textContent = `Connected application folder: ${appRoot()?.name || "not connected"}. Update rollback backups: backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
-      result?.channel === "beta" ? "Install Beta" : "Install Update";
+      state.channel === "beta" ? "Install Beta" : "Install Update";
     installButton.disabled = state.busy || state.recoveryRequired || !currentOffer();
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
