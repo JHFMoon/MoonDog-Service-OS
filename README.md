@@ -2,6 +2,8 @@
 
 MoonDog Service OS is a locally operated service department application. This public repository is the authority for product architecture, distributable code, and future update definitions.
 
+See [Source and data boundary](docs/SOURCE-OF-TRUTH.md) for the reviewed application modules currently published here and the remaining private-source transition blocker. Installed operation remains offline-capable.
+
 The running application and all dealership operational data stay on each end user's machine. Customer, employee, repair order, VIN, contact, report, history, settings, backup, and Files to Learn data do not belong in this repository.
 
 ## Repository boundary

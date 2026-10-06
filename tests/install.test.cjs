@@ -180,19 +180,17 @@ test("an interrupted update can be restored from its verified backup journal", a
   assert.equal(setup.app.store.files.get("data/current-state.json").toString(), "synthetic private state");
 });
 
-test("published Beta package changes only the approved CSS and rolls back on failure", async () => {
+test("retained Beta 1 package changes only the approved CSS and rolls back on failure", async () => {
   const packageBytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", "moondog-0.10.7-beta.1.json"));
-  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.json"), "utf8"));
   const content = JSON.parse(packageBytes);
   const marker = Buffer.from("\n/* MoonDog controlled Beta update test 0.10.7-beta.1; no style changes. */\n");
   const updated = Buffer.from(content.files[0].contentBase64, "base64");
-  assert.equal(hash(packageBytes), manifest.beta.sha256);
   assert.equal(hash(updated), content.files[0].sha256);
   assert.deepEqual(updated.subarray(-marker.length), marker);
   const original = updated.subarray(0, -marker.length);
   const trustedAllowlist = ["assets/product-settings.css"];
-  const verifiedPackage = { status: "verified", version: manifest.beta.version,
-    sha256: manifest.beta.sha256, bytes: packageBytes, migrationRequired: false };
+  const verifiedPackage = { status: "verified", version: "0.10.7-beta.1",
+    sha256: hash(packageBytes), bytes: packageBytes, migrationRequired: false };
   for (const fail of [false, true]) {
     const app = folder("MoonDog-Test", { "assets/product-settings.css": original,
       "data/current-state.json": "synthetic private state" });
@@ -220,31 +218,32 @@ test("Stable to Beta to Stable uses verified packages, protected workspace backu
     return [channel, { status: "verified", channel, version: manifest[channel].version,
       sha256: manifest[channel].sha256, migrationRequired: false, bytes }];
   }));
-  const stableCss = Buffer.from(JSON.parse(packages.stable.bytes).files[0].contentBase64, "base64");
-  const betaCss = Buffer.from(JSON.parse(packages.beta.bytes).files[0].contentBase64, "base64");
-  const app = folder("MoonDog-Test", { "assets/product-settings.css": stableCss,
+  const decoded = value => Object.fromEntries(JSON.parse(value.bytes).files.map(entry =>
+    [entry.path, Buffer.from(entry.contentBase64, "base64")]));
+  const stableFiles = decoded(packages.stable), betaFiles = decoded(packages.beta);
+  const app = folder("MoonDog-Test", { ...stableFiles,
     "data/current-state.json": "synthetic private state", "settings.json": "synthetic settings" });
-  const allowlist = ["assets/product-settings.css"];
+  const allowlist = Object.keys(stableFiles);
   const apply = async (channel) => {
     const verifiedPackage = packages[channel];
     const expectedPlan = await context.MoonDogPackagePlan.dryRun({ verifiedPackage,
       appDirectoryHandle: app.root, trustedAllowlist: allowlist, subtle: webcrypto.subtle });
-    assert.deepEqual(Array.from(expectedPlan.replace), allowlist);
+    assert.deepEqual(Array.from(expectedPlan.replace), Object.keys(betaFiles));
     const result = await context.MoonDogUpdateInstall.apply({ verifiedPackage,
       appDirectoryHandle: app.root,
       trustedAllowlist: allowlist, expectedPlan, confirmed: true });
     return result;
   };
   assert.equal((await apply("beta")).status, "installed");
-  assert.deepEqual(app.store.files.get(allowlist[0]), betaCss);
-  app.store.failOnce = allowlist[0];
+  for (const [file, bytes] of Object.entries(betaFiles)) assert.deepEqual(app.store.files.get(file), bytes);
+  app.store.failOnce = Object.keys(betaFiles)[0];
   assert.equal((await apply("stable")).status, "rolled-back");
-  assert.deepEqual(app.store.files.get(allowlist[0]), betaCss);
+  for (const [file, bytes] of Object.entries(betaFiles)) assert.deepEqual(app.store.files.get(file), bytes);
   const returned = await apply("stable");
   assert.equal(returned.status, "installed");
   assert.equal(returned.version, "0.10.6");
-  assert.deepEqual(app.store.files.get(allowlist[0]), stableCss);
+  for (const [file, bytes] of Object.entries(stableFiles)) assert.deepEqual(app.store.files.get(file), bytes);
   assert.equal(app.store.files.get("data/current-state.json").toString(), "synthetic private state");
   assert.equal(app.store.files.get("settings.json").toString(), "synthetic settings");
-  assert.ok(app.store.files.has("backups/system-updates/" + returned.backupName + "/assets/product-settings.css"));
+  for (const file of allowlist) assert.ok(app.store.files.has("backups/system-updates/" + returned.backupName + "/" + file));
 });

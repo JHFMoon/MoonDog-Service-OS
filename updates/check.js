@@ -57,7 +57,8 @@
         if (!stableRelease.packageUrl || !stableRelease.sha256 || betaRelease.migrationRequired) {
           return manual ? { status: "unavailable" } : { status: "silent" };
         }
-        return { status: "channel-switch", channel: "stable", version };
+        return { status: "channel-switch", channel: "stable", version,
+          packageUrl: release.packageUrl, sha256: release.sha256 };
       }
       if (compareVersions(selected, current) <= 0) {
         return { status: "up-to-date", channel: selectedChannel, version };
@@ -66,7 +67,8 @@
         return { status: "incompatible", channel: selectedChannel, version,
           minimumCompatibleVersion: release.minimumCompatibleVersion };
       }
-      return { status: "newer-version", channel: selectedChannel, version };
+      return { status: "newer-version", channel: selectedChannel, version,
+        packageUrl: release.packageUrl, sha256: release.sha256 };
     } catch (_) {
       return manual ? { status: "unavailable" } : { status: "silent" };
     }

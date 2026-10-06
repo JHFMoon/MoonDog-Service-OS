@@ -20,6 +20,23 @@
   ]);
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const button=(text,fn,cls='secondary')=>{const el=document.createElement('button');el.type='button';el.className=cls;el.textContent=text;el.addEventListener('click',fn);return el;};
+  function installThemeToggle(){
+    const storageKey='service-operations-hub-theme-v1';
+    let theme='light';
+    try { if(globalThis.localStorage.getItem(storageKey)==='dark') theme='dark'; } catch(_) {}
+    const control=document.createElement('button');
+    control.type='button';control.className='theme-toggle';
+    function paint(){
+      document.documentElement.dataset.theme=theme;
+      document.querySelector('meta[name="color-scheme"]')?.setAttribute('content',theme);
+      control.textContent=theme==='dark'?'☀ Light mode':'☾ Dark mode';
+      control.setAttribute('aria-pressed',String(theme==='dark'));
+      control.setAttribute('aria-label',theme==='dark'?'Switch to light mode':'Switch to dark mode');
+    }
+    control.addEventListener('click',()=>{theme=theme==='dark'?'light':'dark';try{globalThis.localStorage.setItem(storageKey,theme);}catch(_){}paint();});
+    document.querySelector('.top-actions')?.append(control);
+    paint();
+  }
   const active=()=>document.querySelector('.view.active')?.id.replace('view-','');
   const today=()=>api.date();
   const now=()=>Date.now();
@@ -292,6 +309,7 @@
   setInterval(checkOperatingDate,30000);
   window.addEventListener('focus',checkOperatingDate);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkOperatingDate();});
-  installShell();renderHome();ready();
+  installThemeToggle();installShell();renderHome();ready();
   globalThis.__moondogDailyUI=Object.freeze({state,candidates:allTasks,selectNext,renderHome,renderTools,searchAll,settingsCategory,ready});
 })();
+/* Service Operations Hub theme Beta 0.10.7-beta.2. */

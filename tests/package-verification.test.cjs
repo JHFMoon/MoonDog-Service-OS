@@ -45,7 +45,7 @@ test("Current manifest verifies independent Stable and Beta packages in memory",
   const current = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.json"), "utf8"));
   const contract = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.schema.json"), "utf8"));
   assert.deepEqual(Object.keys(current).sort(), contract.required.slice().sort());
-  const betaBytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", "moondog-0.10.7-beta.1.json"));
+  const betaBytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", "moondog-0.10.7-beta.2.json"));
   const stableBytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", "moondog-0.10.6.json"));
   const calls = [];
   const fetcher = async (url, options) => {

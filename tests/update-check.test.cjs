@@ -60,11 +60,22 @@ test("current Beta can select the verified Stable package as a channel downgrade
   assert.equal(result.status, "channel-switch");
   assert.equal(result.channel, "stable");
   assert.equal(result.version, "1.2.0");
+  assert.equal(result.sha256, "a".repeat(64));
+  assert.equal(result.packageUrl, "https://example.test/stable.json");
   assert.equal((await check({ currentVersion: "1.3.0-beta.1", channel: "stable",
     fetcher: fetchManifest(ready) })).status, "channel-switch");
   assert.equal((await check({ currentVersion: "1.3.0-beta.2", channel: "stable", fetcher: fetchManifest() })).status, "silent");
   assert.equal((await check({ currentVersion: "1.3.0-beta.2", channel: "stable", manual: true,
     fetcher: fetchManifest({ ...ready, beta: { ...ready.beta, migrationRequired: true } }) })).status, "unavailable");
+});
+
+test("a new-version offer carries the checked package identity", async () => {
+  const ready = { ...manifest, beta: { ...manifest.beta,
+    packageUrl: "https://example.test/beta.json", sha256: "b".repeat(64) } };
+  const result = await check({ currentVersion: "1.2.0", channel: "beta", fetcher: fetchManifest(ready) });
+  assert.equal(result.status, "newer-version");
+  assert.equal(result.packageUrl, ready.beta.packageUrl);
+  assert.equal(result.sha256, ready.beta.sha256);
 });
 
 test("Uses only the fixed public manifest URL and sends no credentials", async () => {

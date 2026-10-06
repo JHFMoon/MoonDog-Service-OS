@@ -34,7 +34,7 @@
             !/^[A-Za-z0-9-]+$/.test(name)) continue;
         try {
           const record = JSON.parse(decoder.decode(await read(handle, "journal.json")));
-          if (["applying", "prepared", "restored"].includes(record?.status)) names.push(name);
+          if (["applying", "prepared"].includes(record?.status)) names.push(name);
         } catch (_) { /* A malformed record is not offered for recovery. */ }
       }
       return names.sort().reverse();

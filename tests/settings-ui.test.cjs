@@ -55,3 +55,43 @@ test("connected CSS marker reports the installed Beta without a second app-folde
   assert.equal(checks.at(-1).currentVersion, "0.10.7-beta.1");
   assert.equal(checks.at(-1).channel, "beta");
 });
+
+test("update offer and preview expire on channel or check changes; recovery stays hidden without an interrupted backup", async () => {
+  const fields = new Map(), listeners = new Map(), documentListeners = new Map();
+  const field = id => {
+    if (!fields.has(id)) fields.set(id, { textContent: "", disabled: false, hidden: false, value: "",
+      addEventListener: (type, handler) => listeners.set(id + ":" + type, handler) });
+    return fields.get(id);
+  };
+  const card = { innerHTML: "", querySelector: selector => field(selector.slice(1)) };
+  const root = { name: "Test-App", getDirectoryHandle: async () => { throw Object.assign(new Error("missing"), { name: "NotFoundError" }); } };
+  let offered = { status: "newer-version", channel: "beta", version: "0.10.7-beta.2",
+    packageUrl: "https://example.test/beta.json", sha256: "a".repeat(64) };
+  let recoverable = [];
+  const context = vm.createContext({
+    document: { getElementById: id => id === "view-settings" ? {
+      querySelector: () => ({ append: () => {} }) } : null,
+      createElement: () => card, addEventListener: (name, handler) => documentListeners.set(name, handler) },
+    MoonDogInstalledVersion: "0.10.6-freshness", __moondogSettingsModel: { root },
+    MoonDogUpdateCheck: { check: async () => offered },
+    MoonDogUpdateInstall: { listBackups: async () => recoverable },
+    localStorage: { getItem: () => '{"channel":"beta","lastCheck":"2099-01-01T00:00:00Z"}', setItem: () => {} }, Date
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "updates", "settings-ui.js"), "utf8"), context);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(field("recoverMoonDogUpdate").hidden, true);
+  await listeners.get("checkMoonDogUpdate:click")();
+  assert.equal(field("installMoonDogUpdate").disabled, false);
+  field("updatePlan").textContent = "stale preview"; field("updatePlan").hidden = false;
+  field("updateChannel").value = "stable"; listeners.get("updateChannel:change")();
+  assert.equal(field("installMoonDogUpdate").disabled, true);
+  assert.equal(field("updatePlan").textContent, "");
+  assert.equal(field("updatePlan").hidden, true);
+  offered = { status: "up-to-date", channel: "stable", version: "0.10.6" };
+  await listeners.get("checkMoonDogUpdate:click")();
+  assert.equal(field("installMoonDogUpdate").disabled, true);
+  recoverable = ["MoonDog-Update-Backup-test"];
+  documentListeners.get("moondog-data")();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(field("recoverMoonDogUpdate").hidden, false);
+});

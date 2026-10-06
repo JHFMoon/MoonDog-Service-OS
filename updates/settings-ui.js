@@ -9,6 +9,7 @@
   let installedChannel = "stable";
   let inspectedRoot = null;
   const betaMarker = "\n/* MoonDog controlled Beta update test 0.10.7-beta.1; no style changes. */\n";
+  const beta2Marker = "\n/* Service Operations Hub theme Beta 0.10.7-beta.2. */\n";
   function compatible(minimum) {
     if (!/^\d+\.\d+\.\d+$/.test(minimum) || !comparisonVersion) return false;
     const installed = /^\d+\.\d+\.\d+/.exec(comparisonVersion)?.[0].split(".").map(Number);
@@ -23,9 +24,23 @@
   let saved = {};
   try { saved = JSON.parse(global.localStorage.getItem(key) || "{}"); } catch (_) {}
   const state = { channel: saved.channel === "beta" ? "beta" : "stable",
-    lastCheck: saved.lastCheck || null, check: null,
-    recoveryRequired: saved.recoveryRequired === true, busy: false };
+    lastCheck: saved.lastCheck || null, check: null, checkFor: null,
+    recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false, busy: false };
   const appRoot = () => global.__moondogSettingsModel?.root || null;
+  function clearPlan() { planText.textContent = ""; planText.hidden = true; }
+  function currentOffer() {
+    const result = state.check, stamp = state.checkFor;
+    return ["newer-version", "channel-switch"].includes(result?.status) &&
+      stamp?.channel === state.channel && stamp.version === comparisonVersion &&
+      stamp.root === appRoot() && /^https:\/\//.test(result.packageUrl || "") &&
+      /^[0-9a-f]{64}$/.test(result.sha256 || "");
+  }
+  async function refreshRecovery() {
+    try { state.hasRecoverable = !!appRoot() &&
+      (await global.MoonDogUpdateInstall.listBackups(appRoot())).length > 0; }
+    catch (_) { state.hasRecoverable = false; }
+    render();
+  }
   async function inspectInstalledTestVersion() {
     const root = appRoot();
     if (!root || root === inspectedRoot) return;
@@ -34,6 +49,8 @@
     installedChannel = "stable";
     comparisonVersion = baseComparisonVersion;
     state.check = null;
+    state.checkFor = null;
+    clearPlan();
     field("updateInstalledVersion").textContent = installedVersion || "Unknown";
     field("updateInstalledChannel").textContent = "Stable";
     render();
@@ -51,6 +68,21 @@
         render();
       }
     } catch (_) { /* The baseline version remains authoritative if the marker cannot be read. */ }
+    try {
+      const assets = await root.getDirectoryHandle("assets", { create: false });
+      const script = await assets.getFileHandle("daily-ops.js", { create: false });
+      if ((await (await script.getFile()).text()).endsWith(beta2Marker)) {
+        installedVersion = "0.10.7-beta.2";
+        installedChannel = "beta";
+        comparisonVersion = installedVersion;
+        state.check = null;
+        state.checkFor = null;
+        field("updateInstalledVersion").textContent = installedVersion;
+        field("updateInstalledChannel").textContent = "Beta";
+        render();
+      }
+    } catch (_) { /* The baseline or Beta 1 marker remains authoritative. */ }
+    refreshRecovery();
   }
   const card = document.createElement("section");
   card.className = "card settings-card";
@@ -63,7 +95,7 @@
     '<div><strong>Availability:</strong> <span id="updateAvailability" role="status"></span></div>' +
     '<div class="button-row"><button type="button" id="checkMoonDogUpdate">Check for Updates</button>' +
     '<button type="button" id="installMoonDogUpdate" class="primary" disabled>Install Update</button>' +
-    '<button type="button" id="recoverMoonDogUpdate">Recover interrupted update</button></div>' +
+    '<button type="button" id="recoverMoonDogUpdate" hidden>Recover interrupted update</button></div>' +
     '<p id="updateFolders" class="settings-note">Connect Service Operations Hub before installation. Update rollback backups are saved in backups/system-updates/ inside the connected workspace.</p>' +
     '<pre id="updatePlan" hidden></pre><p id="updateStatus" role="status" aria-live="polite"></p>';
   const settingsSections = host.querySelector(".settings-sections");
@@ -95,18 +127,28 @@
       result?.status === "invalid-input" ? "Installed version cannot be compared" : "Not checked";
     field("updateFolders").textContent = `Connected application folder: ${appRoot()?.name || "not connected"}. Update rollback backups: backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" : "Install Update";
-    installButton.disabled = state.busy || state.recoveryRequired || !["newer-version", "channel-switch"].includes(result?.status) || !appRoot();
+    installButton.disabled = state.busy || state.recoveryRequired || !currentOffer();
     field("checkMoonDogUpdate").disabled = state.busy;
+    channel.disabled = state.busy;
+    field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable;
   }
 
   async function check(manual) {
     if (state.busy) return;
+    const checkedChannel = state.channel, checkedVersion = comparisonVersion, checkedRoot = appRoot();
+    state.check = null;
+    state.checkFor = null;
+    clearPlan();
     state.busy = true; render();
     try {
-      const result = await global.MoonDogUpdateCheck.check({ currentVersion: comparisonVersion,
-        channel: state.channel, manual });
+      const result = await global.MoonDogUpdateCheck.check({ currentVersion: checkedVersion,
+        channel: checkedChannel, manual });
+      if (checkedChannel !== state.channel || checkedVersion !== comparisonVersion || checkedRoot !== appRoot()) return;
       state.lastCheck = new Date().toISOString();
       state.check = result;
+      if (["newer-version", "channel-switch"].includes(result.status)) {
+        state.checkFor = { channel: checkedChannel, version: checkedVersion, root: checkedRoot };
+      }
       save();
       if (manual && result.status === "unavailable") status.textContent = "Could not reach GitHub. Try again later.";
       else if (manual && result.status === "invalid-input") status.textContent = "The installed version cannot be compared.";
@@ -117,13 +159,16 @@
   channel.addEventListener("change", () => {
     state.channel = channel.value === "beta" ? "beta" : "stable";
     state.check = null;
+    state.checkFor = null;
+    clearPlan();
     save(); render();
   });
   field("checkMoonDogUpdate").addEventListener("click", () => check(true));
   installButton.addEventListener("click", async () => {
-    if (state.busy || !["newer-version", "channel-switch"].includes(state.check?.status) || !appRoot()) return;
+    if (state.busy || !currentOffer()) return;
+    const offered = state.check, offeredFor = state.checkFor;
     state.busy = true; render();
-    planText.hidden = true;
+    clearPlan();
     try {
       const catalog = [...new Set([...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
         "assets/moondog-update-verify.js", "assets/moondog-update-plan.js",
@@ -131,10 +176,12 @@
         "assets/moondog-update-settings.js"])];
       if (catalog.length < 7) throw new Error("Installed application file catalog is unavailable.");
       status.textContent = "Verifying update package...";
-      const verified = await global.MoonDogPackageVerification.verify({ channel: state.check.channel });
+      const verified = await global.MoonDogPackageVerification.verify({ channel: offered.channel });
       if (verified.status === "no-package") throw new Error("No update package has been published.");
-      if (verified.status !== "verified" || verified.version !== state.check.version ||
-          verified.channel !== state.check.channel || verified.migrationRequired ||
+      if (verified.status !== "verified" || verified.version !== offered.version ||
+          verified.channel !== offered.channel || verified.sha256 !== offered.sha256 ||
+          offeredFor.channel !== state.channel || offeredFor.version !== comparisonVersion ||
+          offeredFor.root !== appRoot() || verified.migrationRequired ||
           !compatible(verified.minimumCompatibleVersion)) {
         throw new Error("The update package is unavailable, changed, or requires an unsupported migration.");
       }
@@ -162,6 +209,8 @@
       if (outcome.status === "recovery-required") { state.recoveryRequired = true; save(); }
       if (outcome.status === "installed") {
         state.check = null;
+        state.checkFor = null;
+        clearPlan();
         installedVersion = outcome.version;
         comparisonVersion = outcome.version;
         installedChannel = verified.channel;
@@ -170,7 +219,7 @@
       }
     } catch (error) {
       status.textContent = error.message || "Update stopped before installation.";
-    } finally { state.busy = false; render(); }
+    } finally { state.busy = false; render(); if (state.recoveryRequired) refreshRecovery(); }
   });
   field("recoverMoonDogUpdate").addEventListener("click", async () => {
     if (state.busy) return;
@@ -195,13 +244,13 @@
       status.textContent = outcome.status === "restored" ?
         "Original application files were verified restored. Restart Service Operations Hub." :
         `Recovery could not be verified. Keep the backup intact. ${outcome.reason || ""}`;
-      if (outcome.status === "restored") { state.recoveryRequired = false; save(); }
+      if (outcome.status === "restored") { state.recoveryRequired = false; save(); await refreshRecovery(); }
     } catch (error) {
       if (error?.name !== "AbortError") status.textContent = "Recovery stopped: " + error.message;
     } finally { state.busy = false; render(); }
   });
   render();
-  document.addEventListener("moondog-data", () => { render(); inspectInstalledTestVersion(); });
+  document.addEventListener("moondog-data", () => { render(); inspectInstalledTestVersion(); refreshRecovery(); });
   inspectInstalledTestVersion();
   const today = new Date().toLocaleDateString("en-CA");
   if (!state.lastCheck || new Date(state.lastCheck).toLocaleDateString("en-CA") !== today) check(false);

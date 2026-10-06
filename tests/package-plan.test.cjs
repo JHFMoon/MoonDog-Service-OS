@@ -54,8 +54,8 @@ test("Format contract is JSON and the live manifest advertises the Beta package"
   assert.equal(manifest.stable.version, "0.10.6");
   assert.match(manifest.stable.packageUrl, /\/updates\/packages\/moondog-0\.10\.6\.json$/);
   assert.match(manifest.stable.sha256, /^[0-9a-f]{64}$/);
-  assert.equal(manifest.beta.version, "0.10.7-beta.1");
-  assert.match(manifest.beta.packageUrl, /\/updates\/packages\/moondog-0\.10\.7-beta\.1\.json$/);
+  assert.equal(manifest.beta.version, "0.10.7-beta.2");
+  assert.match(manifest.beta.packageUrl, /\/updates\/packages\/moondog-0\.10\.7-beta\.2\.json$/);
   assert.match(manifest.beta.sha256, /^[0-9a-f]{64}$/);
 });
 

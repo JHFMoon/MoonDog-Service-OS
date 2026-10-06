@@ -18,7 +18,7 @@ class PublicationCheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory)
             (fixture / "updates" / "packages").mkdir(parents=True)
-            for name in ("moondog-0.10.6.json", "moondog-0.10.7-beta.1.json"):
+            for name in ("moondog-0.10.6.json", "moondog-0.10.7-beta.1.json", "moondog-0.10.7-beta.2.json"):
                 (fixture / "updates" / "packages" / name).write_bytes((root / "updates" / "packages" / name).read_bytes())
             manifest = json.loads((root / "updates" / "manifest.json").read_text(encoding="utf-8"))
             target = fixture / "updates" / "manifest.json"

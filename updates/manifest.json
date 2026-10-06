@@ -2,17 +2,17 @@
   "stable": {
     "version": "0.10.6",
     "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.6.json",
-    "sha256": "4f14220acbf8a7bf97126057659b46dedbc8c873153362a8a0a6e658ce8944d0",
+    "sha256": "677f4bb715566aad02bd53e5edc852fedb7860a6daaf999a49f4b5fc0423dfae",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Current Stable 0.10.6: restores the exact pre-Beta application stylesheet."
+    "releaseNotes": "Stable 0.10.6: restores exact pre-Beta application styles and navigation script, including every retained Beta-touched file."
   },
   "beta": {
-    "version": "0.10.7-beta.1",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.7-beta.1.json",
-    "sha256": "c47b081411f20622e79c5d2fd05eb37987a8627a28bb7811e584628fcc378ac1",
+    "version": "0.10.7-beta.2",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.7-beta.2.json",
+    "sha256": "b8d8bf9e2a8ab42ec25fde9a025c0d7c39c80bf9df7df8efd83922300afd5efb",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
-    "releaseNotes": "Controlled Beta test: replaces only assets/product-settings.css with identical CSS plus a nonfunctional version comment."
+    "releaseNotes": "Browser-local Light/Dark mode control in the top header; no operational data or migration changes."
   }
 }

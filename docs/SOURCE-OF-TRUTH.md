@@ -1,0 +1,7 @@
+# Source and data boundary
+
+This public repository is the development authority for the reviewed application modules committed here, the browser-native updater, packages, tests, and release metadata. An installed Service Operations Hub runs from local files and must continue to work without internet. GitHub is contacted only when checking for or downloading updates; the connected OneDrive workspace syncs normally.
+
+The installed workspace is the authority for all operational and store-specific state. Never commit customer, employee, RO, VIN, contact, report, history, settings, backup, Files To Learn, conflict-copy, transaction-journal, or machine-specific data. Packages contain approved application files only. Every `backups/` path is forbidden in a package. `backups/system-updates/` is reserved for updater rollback records and is excluded from ordinary housekeeping. Disaster/full-system backups remain separate.
+
+The public source transition is incomplete. The current production `assets/app.js` and `index.html` contain embedded store and employee identifiers and remain local pending a separate data-boundary review. Do not copy them to this public repository or claim that this checkout can rebuild the entire installed Hub yet. The reviewed `assets/daily-ops.js`, `assets/daily-ops.css`, `assets/product-settings.css`, and `assets/maintenance.js` are authoritative here; the local copies of runtime files remain the installed baseline until a verified user-applied update. Do not refactor store-specific parsers as part of this release.
