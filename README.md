@@ -1,19 +1,40 @@
 # MoonDog Service OS
 
-MoonDog Service OS is a locally operated service department application. This public repository is the authority for product architecture, distributable code, and future update definitions.
+MoonDog Service OS is the public source repository for the user-facing **Service Operations Hub**, a locally operated service department application. This repository is the development and release authority for the generic application core, browser-native updater, approved update packages, tests, and release metadata.
 
-See [Source and data boundary](docs/SOURCE-OF-TRUTH.md) for the reviewed application modules currently published here and the remaining private-source transition blocker. Installed operation remains offline-capable.
+Installed Service Operations Hub files run locally and remain offline-capable. GitHub is used for source control and software update distribution; dealership operational data remains in the local workspace.
 
-The running application and all dealership operational data stay on each end user's machine. Customer, employee, repair order, VIN, contact, report, history, settings, backup, and Files to Learn data do not belong in this repository.
+See [Source and data boundary](docs/SOURCE-OF-TRUTH.md) for the authoritative split between public application source and protected local configuration/data.
 
 ## Repository boundary
 
-Public content may include product structure, code, parser definitions, schemas, update logic, tests, and documentation using synthetic examples. See [Data Boundary](docs/DATA-BOUNDARY.md) and [Architecture](docs/ARCHITECTURE.md).
+Public content may include product structure, application code, parser definitions, schemas, update logic, tests, release metadata, and documentation using synthetic examples. See [Data Boundary](docs/DATA-BOUNDARY.md) and [Architecture](docs/ARCHITECTURE.md).
 
-No application release or update package is published yet. This repository currently contains only the Phase 1 foundation.
+The connected local workspace remains authoritative for dealership-specific and operational information. Customer, employee, advisor, technician, repair order, VIN, contact, report, history, settings, backup, Files To Learn, conflict-copy, transaction-journal, and machine-specific data do not belong in this repository.
 
-## Future updates
+**GitHub may contain the product. GitHub may never contain the dealership.**
 
-The intended update flow is GitHub to a local installation only. Stable is the default channel; beta requires user opt-in. The user applies an update after verification, with a rollback path. A successful update may rescan Files to Learn locally; the files and results remain local.
+## Current update channels
 
-`.gitignore` reduces accidental inclusion but does not protect data that is force-added, already tracked, or embedded in otherwise allowed files. Check every future change and release for operational data before publication.
+The update manifest currently publishes:
+
+- **Stable:** `0.10.7`
+- **Beta:** `0.10.8-beta.1`
+
+Both channels distribute approved application files through the browser-native updater. Stable is the default channel; Beta requires user opt-in.
+
+Updates are checked and downloaded from GitHub, then installed locally only after user approval. The updater verifies the package, shows a dry run, protects local-only paths, creates a rollback backup before writes, verifies written files, and can restore the prior application state if installation fails.
+
+The current application core includes GitHub-authoritative `index.html` and `assets/app.js`. Store identity, advisor/employee mappings, report-specific adapter values, operational state, and other dealership-specific information remain protected in the local workspace.
+
+## Offline operation
+
+Service Operations Hub does not run from GitHub. After installation, normal Hub operation uses local application files and local data.
+
+Internet access is only needed for functions such as checking/downloading software updates and normal external synchronization such as OneDrive. Loss of internet does not prevent the locally installed Hub from opening and using already-local data.
+
+## Release safety
+
+Update packages may contain approved application-core files only. Protected local paths, including `data/` and `backups/`, are not valid package targets. `backups/system-updates/` is reserved for updater rollback records and is excluded from ordinary housekeeping.
+
+`.gitignore` reduces accidental inclusion but does not protect data that is force-added, already tracked, or embedded in otherwise allowed files. Every future change and release must be checked for dealership or operational data before publication.
