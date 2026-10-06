@@ -2,6 +2,13 @@
 
 This file summarizes user-relevant release milestones. The Git commit history remains the detailed engineering record.
 
+## 0.10.9-beta.6
+
+- Fixes CDK Repair Orders DOCX ingestion for the actual browser-export layout where VIN/vehicle and date/time are split across separate lines.
+- Requires the parsed All/Open/Closed population to reconcile before the DOCX can replace current Open RO data.
+- Finalizes source-material triage: service-flow/action-plan audits, QIR alerts, outreach transcripts, and video-MPI standards remain useful local sources; incident claims and collision estimates are recognized and retired; decorative image fragments remain disposable.
+- No uploaded source file or dealership operational data is published to GitHub.
+
 ## 0.10.9-beta.5
 
 - Promotes the CDK Repair Orders DOCX browser export to a reconciled primary Open RO source, including active RO detail and Assign Next workload evidence.
