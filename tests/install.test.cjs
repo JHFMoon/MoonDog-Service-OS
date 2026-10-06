@@ -194,7 +194,7 @@ test("Stable to Beta to Stable uses verified packages, protected workspace backu
   const stableFiles = decoded(packages.stable), betaFiles = decoded(packages.beta);
   const app = folder("MoonDog-Test", { ...stableFiles,
     "data/current-state.json": "synthetic private state", "settings.json": "synthetic settings" });
-  const allowlist = [...new Set([...Object.keys(stableFiles), ...Object.keys(betaFiles)])];
+  const allowlist = Object.keys(stableFiles);
   const apply = async (channel) => {
     const verifiedPackage = packages[channel];
     const targetFiles = decoded(verifiedPackage);
