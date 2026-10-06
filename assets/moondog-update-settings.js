@@ -209,7 +209,6 @@
       if (catalog.length < 7) throw new Error("Installed application file catalog is unavailable.");
       status.textContent = "Verifying update package...";
       const verified = await global.MoonDogPackageVerification.verify({ channel: offered.channel });
-      await setProgress({ phase: "verify-package", percent: 15, label: "Update package verified", detail: "Package integrity confirmed" });
       if (verified.status === "no-package") throw new Error("No update package has been published.");
       if (verified.status !== "verified" || verified.version !== offered.version ||
           verified.channel !== offered.channel || verified.sha256 !== offered.sha256 ||
@@ -218,6 +217,7 @@
           !compatible(verified.minimumCompatibleVersion)) {
         throw new Error("The update package is unavailable, changed, or requires an unsupported migration.");
       }
+      await setProgress({ phase: "verify-package", percent: 15, label: "Update package verified", detail: "Package integrity confirmed" });
       await setProgress({ phase: "plan", percent: 20, label: "Preparing file changes", detail: "Building a safe installation plan" });
       const plan = await global.MoonDogPackagePlan.dryRun({ verifiedPackage: verified,
         appDirectoryHandle: appRoot(), trustedAllowlist: catalog });
