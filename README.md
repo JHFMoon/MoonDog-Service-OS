@@ -20,14 +20,14 @@ The connected local workspace remains authoritative for dealership-specific and 
 
 The update manifest currently publishes:
 
-- **Stable:** `0.10.7`
-- **Beta:** `0.10.8-beta.3`
+- **Stable:** `0.10.8`
+- **Beta:** `0.10.9-beta.1`
 
-Both channels distribute approved application files through the browser-native updater. Stable is the default channel; Beta requires user opt-in. Beta 0.10.8-beta.3 keeps the first-run system-theme behavior and adds clearer connection/update-state feedback plus a wider System Updates panel without changing operational data.
+Both channels distribute approved application files through the browser-native updater. Stable is the default channel; Beta requires user opt-in. Store-specific performance targets, minimums, stretch goals, dollar goals, and threshold values live only in the connected workspace settings and are not published as application defaults.
 
 Updates are checked and downloaded from GitHub, then installed locally only after user approval. The updater verifies the package, shows a dry run, protects local-only paths, creates a rollback backup before writes, verifies written files, and can restore the prior application state if installation fails.
 
-The current application core includes GitHub-authoritative `index.html` and `assets/app.js`. Store identity, advisor/employee mappings, report-specific adapter values, operational state, and other dealership-specific information remain protected in the local workspace.
+The current application core includes GitHub-authoritative `index.html` and `assets/app.js`. Store identity, advisor/employee mappings, report-specific adapter values, operational state, performance targets, dollar goals, and other dealership-specific information remain protected in the local workspace.
 
 ## Offline operation
 
