@@ -38,10 +38,10 @@ assert.match(app, /service-daily-log-empty/);
 assert.match(app, /supplementalReports:\s*\{\s*snapshots:\s*\{\}\s*\}/);
 assert.match(app, /supplementalOnly:true,kpiPromotion:false/);
 assert.match(app, /Recognized non-KPI reference document; excluded from KPI ingestion/);
-assert.match(app, /quality-inspection-request/);
+assert.match(app, /parts-quality-alert/);
 assert.match(app, /incident-claim/);
 assert.match(app, /collision-estimate/);
-assert.match(app, /training-playbook/);
-assert.match(app, /customer-outreach-transcript/);
+assert.match(app, /technician-video-standard/);
+assert.match(app, /customer-outreach-transcript/);\nassert.match(app, /service-consulting-audit/);\nassert.match(app, /cdk-repair-orders-docx-v1/);
 
 console.log("PASS supplemental report families are recognized, isolated, and syntax-valid");
