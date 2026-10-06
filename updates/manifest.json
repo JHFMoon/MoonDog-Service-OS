@@ -10,7 +10,7 @@
   "beta": {
     "version": "0.10.9-beta.6",
     "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.9-beta.6.json",
-    "sha256": "17d906a98ddab6afc6e4cc1e35a6dd9a095c33e4c3865a7ece2fbc0581187060",
+    "sha256": "247a1fc49f9fc8b7b846ce2c5bec1f0bb86b96bffcf8681a9937a825fb9e567e",
     "minimumCompatibleVersion": "0.10.6",
     "migrationRequired": false,
     "releaseNotes": "Fixes CDK Repair Orders DOCX ingestion for split VIN/vehicle and split date/time browser exports; finalizes triage for useful service-flow, QIR, outreach, and coaching sources while retiring claims/collision records outside Service OS."
