@@ -1038,9 +1038,8 @@
       try {
         if(model.autoImport.seen?.[entry.signature]?.kind==="appointments"&&model.autoImport.seen[entry.signature].importedAt)continue;const bytes = await entry.file.arrayBuffer(), kind = await classifyImportFile(entry.name, entry.file, bytes);
         if (!kind) continue;
-        await processClassifiedCandidate(entry, kind, bytes, true);if(kind==="appointments"){model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,importedAt:now(),kind};await writeJson(AUTO_IMPORT_PATH,model.autoImport);}
-        await addHistory("learned-file-recovered", "Verified a now-supported learned source through durable intake", { sourceFamily: kind, recovered: true });
-        recordDiagnostic("FILES TO LEARN", `${kind} recovered after durable verification`);
+        const outcome=await processClassifiedCandidate(entry, kind, bytes, true);if(kind==="appointments"){model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,importedAt:now(),kind};await writeJson(AUTO_IMPORT_PATH,model.autoImport);}
+        if(outcome?.retired){await addHistory("learned-file-retired","Verified a known non-service learned source and removed the Service OS copy",{sourceFamily:kind,retired:true});recordDiagnostic("FILES TO LEARN",`${kind} retired; no Service OS data retained`);}else{await addHistory("learned-file-recovered", "Verified a now-supported learned source through durable intake", { sourceFamily: kind, recovered: true });recordDiagnostic("FILES TO LEARN", `${kind} recovered after durable verification`);}
       } catch (error) { recordDiagnostic("FILES TO LEARN", `Known-file reconciliation deferred: ${error.name}: ${error.message||error}`); }
     }
     }finally{dailyImportBusy=false;}
@@ -1077,7 +1076,7 @@
     for (const candidate of candidates) { candidate.modified=candidate.file.lastModified; candidate.structurePriority=10; if (/\.csv$/i.test(candidate.name)) { const start=(await candidate.file.slice(0,160).text()).trim().toLowerCase(); candidate.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     candidates.sort((a, b) => a.structurePriority - b.structurePriority || a.modified - b.modified || a.name.localeCompare(b.name, undefined, { numeric: true }));
     model.autoImport.seen ||= {};
-    const imported = [], learned = [], retained = [];
+    const imported = [], learned = [], retired = [], retained = [];
     let ledgerChanged = false, pdfFailureMessage="";
     for (const candidate of candidates.filter((item)=>item.signature).filter(candidateNeedsImport).filter((item) => !eligibleSignatures || eligibleSignatures.has(item.signature))) {
       let kind = null, bytes = null;
@@ -1085,7 +1084,7 @@
         sourceLocations.set(candidate.name,candidate.location); bytes = await candidate.file.arrayBuffer(); kind = await classifyImportFile(candidate.name, candidate.file, bytes); if(candidate.location==="root"&&kind!=="ro-update")throw new Error("Only returned supervisor workbooks use the specialized root intake path.");
         if (!kind) { const referenceOnly=referenceOnlyHint(candidate.name),recognized=referenceOnly||recognizedFamilyHint(candidate.name,bytes),reason=referenceOnly?"Recognized non-KPI reference document; excluded from KPI ingestion":recognized?"Recognized report family but invalid or unsupported structure":"Unsupported or unrecognized file structure",storedAs=await moveToLearn(candidate,reason);learned.push(candidate.name);model.autoImport.seen[candidate.signature]={fileName:candidate.name,movedAt:now(),storedAs,recognized,referenceOnly,importFailed:recognized&&!referenceOnly};ledgerChanged=true;recordDiagnostic("REPORT INBOX",referenceOnly?"Moved to Files To Learn - recognized reference only":recognized?"Moved to Files To Learn - recognized but invalid":"Moved to Files To Learn - unsupported");if(/\.pdf$/i.test(candidate.name)&&!referenceOnly){pdfFailureMessage="PDF is not a supported PreRO appointment or supplemental report. Source kept in Files To Learn for review.";recordDiagnostic("PDF INTAKE","No supported PDF structure; source preserved for learning");}continue; }
         const outcome=await processClassifiedCandidate(candidate, kind, bytes, true);if(kind==="appointments"&&outcome?.deleted===false)pdfFailureMessage="Verified appointments saved. Source retained: "+outcome.retainedReason+". Stable source will not be reread.";
-        imported.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, relativePath:candidate.relativePath, importedAt: now(), kind }; ledgerChanged = true;recordDiagnostic("REPORT INBOX",`${kind} recognized and imported or safely deduplicated`);
+        if(outcome?.retired)retired.push(candidate.name);else imported.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, relativePath:candidate.relativePath, importedAt: now(), kind, retired:Boolean(outcome?.retired) }; ledgerChanged = true;recordDiagnostic("REPORT INBOX",outcome?.retired?`${kind} recognized and retired outside Service OS`:`${kind} recognized and imported or safely deduplicated`);
       } catch (error) {
         console.warn(`Automatic import retained ${candidate.name}:`, error);if(/\.pdf$/i.test(candidate.name)){pdfFailureMessage=`PDF intake failed: ${error.message||error}. Source kept for retry/review.`;recordDiagnostic("PDF INTAKE",error.name+": "+(error.message||error));}
         if(transientIntakeError(error)){retained.push(candidate.name);recordDiagnostic("REPORT INBOX PENDING","Temporary read, permission, or durable-write failure; retry scheduled");continue;}
@@ -1094,11 +1093,11 @@
       }
     }
     if (ledgerChanged) { const entries = Object.entries(model.autoImport.seen); if (entries.length > 1000) model.autoImport.seen = Object.fromEntries(entries.slice(-1000)); model.autoImport.updatedAt = now(); await writeJson(AUTO_IMPORT_PATH, model.autoImport); }
-    const learnNote = learned.length ? ` ${learned.length} file${learned.length === 1 ? " was" : "s were"} moved safely to Files To Learn.` : "", retainedNote = retained.length ? ` ${retained.length} file${retained.length === 1 ? " remains" : "s remain"} in place because it could not be moved safely.` : "";
-    if (imported.length) status(`Folder checked automatically. Imported and removed ${imported.length} verified source file${imported.length === 1 ? "" : "s"}.${learnNote}${retainedNote}`, retained.length ? "info" : "success");
-    else if (learned.length || retained.length) status(`Folder checked automatically.${learnNote}${retainedNote}`, retained.length ? "info" : "success");
+    const learnNote = learned.length ? ` ${learned.length} file${learned.length === 1 ? " was" : "s were"} moved safely to Files To Learn.` : "", retiredNote = retired.length ? ` ${retired.length} known non-service file${retired.length === 1 ? " was" : "s were"} retired from Service OS intake.` : "", retainedNote = retained.length ? ` ${retained.length} file${retained.length === 1 ? " remains" : "s remain"} in place because it could not be moved safely.` : "";
+    if (imported.length) status(`Folder checked automatically. Imported and removed ${imported.length} verified source file${imported.length === 1 ? "" : "s"}.${retiredNote}${learnNote}${retainedNote}`, retained.length ? "info" : "success");
+    else if (retired.length || learned.length || retained.length) status(`Folder checked automatically.${retiredNote}${learnNote}${retainedNote}`, retained.length ? "info" : "success");
     if(pdfFailureMessage)status(pdfFailureMessage,"error");
-    return { imported, learned, retained, initialized: false };
+    return { imported, retired, learned, retained, initialized: false };
   }
 
   async function importReturnedWorkbook(selectedName, deleteAfterSuccess = false) {
