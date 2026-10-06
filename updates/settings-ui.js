@@ -67,7 +67,9 @@
     '<button type="button" id="recoverMoonDogUpdate">Recover interrupted update</button></div>' +
     '<p id="updateFolders" class="settings-note">Connect Service Operations Hub and choose a separate backup folder before installation.</p>' +
     '<pre id="updatePlan" hidden></pre><p id="updateStatus" role="status" aria-live="polite"></p>';
-  host.append(card);
+  const settingsSections = host.querySelector(".settings-sections");
+  if (!settingsSections) return;
+  settingsSections.append(card);
   const field = id => card.querySelector("#" + id);
   const channel = field("updateChannel");
   const availability = field("updateAvailability");

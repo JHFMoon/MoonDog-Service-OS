@@ -16,7 +16,9 @@ test("connected CSS marker reports the installed Beta without a second app-folde
     return fields.get(id);
   };
   const card = { className: "", id: "", innerHTML: "", querySelector: selector => field(selector.slice(1)) };
-  const host = { append: value => assert.equal(value, card) };
+  let mountedInSettings = false;
+  const host = { querySelector: selector => selector === ".settings-sections" ?
+    { append: value => { assert.equal(value, card); mountedInSettings = true; } } : null };
   const events = new Map();
   const root = { name: "Test-App", getDirectoryHandle: async (name, options) => {
     assert.equal(name, "assets"); assert.equal(options.create, false);
@@ -39,6 +41,7 @@ test("connected CSS marker reports the installed Beta without a second app-folde
   vm.runInContext(source, context);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(field("updateInstalledVersion").textContent, "0.10.7-beta.1");
+  assert.equal(mountedInSettings, true);
   assert.equal(field("updateInstalledChannel").textContent, "Beta");
   assert.equal(card.innerHTML.includes("selectUpdateApp"), false);
   assert.match(field("updateFolders").textContent, /Connected application folder: Test-App/);
