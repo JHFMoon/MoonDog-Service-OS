@@ -20,3 +20,26 @@ html[data-theme="dark"] .cdk-status-indicator{background:#244253;color:#edf8fd;b
 html[data-theme="dark"] .cdk-status-indicator.delta{background:#594727;color:#fff1cb;border-color:#af8e45}
 html[data-theme="dark"] .cdk-status-indicator.stale{background:#293744;color:#c9d6dd;border-color:#425564}
 html[data-theme="dark"] .close-ro-action{color:#ffb8b8;border-color:#ae6570}
+
+/* System update progress */
+.update-progress{display:grid;gap:8px;padding:14px 16px;border:1px solid #b8d4df;border-radius:12px;background:#f5fafc}
+.update-progress[hidden]{display:none!important}
+.update-progress-head{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.update-progress-head strong{font-size:15px}
+.update-progress-head span{font-variant-numeric:tabular-nums;font-size:14px;font-weight:800;color:#315966}
+.update-progress-track{height:12px;overflow:hidden;border-radius:999px;background:#dce8ed;box-shadow:inset 0 0 0 1px rgba(49,89,102,.08)}
+.update-progress-track>span{display:block;width:0;height:100%;border-radius:inherit;background:#3f8eab;transition:width .18s ease}
+.update-progress small{color:var(--muted);line-height:1.35}
+.update-progress.complete{border-color:#9fceb6;background:#f4fbf7}
+.update-progress.complete .update-progress-track>span{background:#39845c}
+.update-progress.warning{border-color:#dfc27b;background:#fffaf0}
+.update-progress.warning .update-progress-track>span{background:#b88628}
+.update-progress.error{border-color:#d8a0a0;background:#fff6f6}
+.update-progress.error .update-progress-track>span{background:#a94a4a}
+html[data-theme="dark"] .update-progress{background:#122936;border-color:#34586a}
+html[data-theme="dark"] .update-progress-track{background:#29414e}
+html[data-theme="dark"] .update-progress-head span{color:#b8ddeb}
+html[data-theme="dark"] .update-progress.complete{background:#173327;border-color:#3f6f58}
+html[data-theme="dark"] .update-progress.warning{background:#3a3120;border-color:#725d2d}
+html[data-theme="dark"] .update-progress.error{background:#392326;border-color:#75454d}
+@media (prefers-reduced-motion:reduce){.update-progress-track>span{transition:none}}
