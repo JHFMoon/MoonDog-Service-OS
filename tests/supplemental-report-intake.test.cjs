@@ -42,6 +42,8 @@ assert.match(app, /parts-quality-alert/);
 assert.match(app, /incident-claim/);
 assert.match(app, /collision-estimate/);
 assert.match(app, /technician-video-standard/);
-assert.match(app, /customer-outreach-transcript/);\nassert.match(app, /service-consulting-audit/);\nassert.match(app, /cdk-repair-orders-docx-v1/);
+assert.match(app, /customer-outreach-transcript/);
+assert.match(app, /service-consulting-audit/);
+assert.match(app, /cdk-repair-orders-docx-v1/);
 
 console.log("PASS supplemental report families are recognized, isolated, and syntax-valid");
