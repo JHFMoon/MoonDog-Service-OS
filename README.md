@@ -21,13 +21,15 @@ The connected local workspace remains authoritative for dealership-specific and 
 The update manifest currently publishes:
 
 - **Stable:** `0.10.8`
-- **Beta:** `0.10.9-beta.3`
+- **Beta:** `0.10.9-beta.8`
 
-Both channels distribute approved application files through the browser-native updater. Stable is the default channel; Beta requires user opt-in. Store-specific performance targets remain local-only. Beta 0.10.9-beta.3 repairs the post-rewrite publication check and improves Open RO source identity recovery while keeping the Home queue focused on actionable work.
+Both channels distribute approved application files through the browser-native updater. Stable is the default channel; Beta requires user opt-in. Store-specific performance targets remain local-only. Beta 0.10.9-beta.8 shows live install and rollback progress; earlier 0.10.9 Betas added supplemental report ingestion and the canonical CDK Open RO workflow.
 
 Updates are checked and downloaded from GitHub, then installed locally only after user approval. The updater verifies the package, shows a dry run, protects local-only paths, creates a rollback backup before writes, verifies written files, and can restore the prior application state if installation fails.
 
 The current application core includes GitHub-authoritative `index.html` and `assets/app.js`. Store identity, advisor/employee mappings, report-specific adapter values, operational state, performance targets, dollar goals, and other dealership-specific information remain protected in the local workspace.
+
+This checkout is not yet a standalone installed Hub. `index.html` also references local runtime styles, the freshness and daily engines, and bundled PDF/XLSX/ZIP libraries that are not tracked here. Those installed dependencies must be preserved during updates; bringing them under public source authority requires a separate privacy and licensing review.
 
 ## Offline operation
 

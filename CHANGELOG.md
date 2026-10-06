@@ -2,6 +2,15 @@
 
 This file summarizes user-relevant release milestones. The Git commit history remains the detailed engineering record.
 
+## 0.10.9-beta.8 — current Beta
+
+- Shows live installation progress, including percentage, current step, file count, verified completion, and rollback or recovery progress in System Updates.
+
+## 0.10.9-beta.7
+
+- Uses the authoritative CDK workflow statuses for new Open RO reviews, with explicit management details for authorization, technician wait, and ready-for-review states.
+- Preserves saved reviews and follow-up commitments while showing a cue when a confirmed CDK status changes.
+
 ## 0.10.9-beta.6
 
 - Fixes CDK Repair Orders DOCX ingestion for the actual browser-export layout where VIN/vehicle and date/time are split across separate lines.
@@ -25,7 +34,7 @@ This file summarizes user-relevant release milestones. The Git commit history re
 - Recognizes claims, collision estimates, QIR bulletins, outreach transcripts, and training playbooks as non-KPI reference documents and keeps them in Files To Learn.
 - Keeps all source reports local; no source PDF, spreadsheet, CSV, or DOCX is published to GitHub.
 
-## 0.10.9-beta.3 — current Beta
+## 0.10.9-beta.3
 
 - Repairs the Publication check after the sanitized Git history rewrite and updates its tests to use the active Stable/Beta packages.
 - Corrects the local-target publication regex so target values are actually blocked from future public source and release packages.

@@ -34,8 +34,8 @@ Missing or invalid required local adapter configuration stops connection before 
 
 Current channels:
 
-- Stable: `0.10.7`
-- Beta: `0.10.8-beta.1`
+- Stable: `0.10.8`
+- Beta: `0.10.9-beta.8`
 
 Beta is opt-in. Installation is never automatic.
 
