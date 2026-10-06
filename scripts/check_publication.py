@@ -28,10 +28,10 @@ BLOCKED_LOCAL_STATE = {
 PRIVATE_KEY_PATTERN = re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
 TOKEN_PATTERN = re.compile(rb"\b(?:gh[opusr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,})\b")
 LOCAL_TARGET_LITERAL_PATTERN = re.compile(
-    rb"\\b(?:grossMinimum|grossStretch|storeGrossTarget|dealerNps|vir|menuPresentation|menuPenetration|mediaViewed|texting|cpElr|cpHoursPerRo)\\s*:\\s*-?(?:\\d|\\.\\d)"
+    rb"\b(?:grossMinimum|grossStretch|storeGrossTarget|dealerNps|vir|menuPresentation|menuPenetration|mediaViewed|texting|cpElr|cpHoursPerRo)\s*:\s*-?(?:\d|\.\d)"
 )
 LOCAL_TARGET_TEXT_PATTERN = re.compile(
-    rb"(?i)(?:(?:\\bgoal\\b|\\btarget\\b|\\bminimum\\b|\\bstretch\\b)[^\\r\\n]{0,28}(?:\\$\\s*\\d|\\b\\d+(?:\\.\\d+)?%)|(?:\\$\\s*\\d|\\b\\d+(?:\\.\\d+)?%)[^\\r\\n]{0,28}(?:\\bgoal\\b|\\btarget\\b|\\bminimum\\b|\\bstretch\\b))"
+    rb"(?i)(?:(?:\bgoal\b|\btarget\b|\bminimum\b|\bstretch\b)[^\r\n]{0,28}(?:\$\s*\d|\b\d+(?:\.\d+)?%)|(?:\$\s*\d|\b\d+(?:\.\d+)?%)[^\r\n]{0,28}(?:\bgoal\b|\btarget\b|\bminimum\b|\bstretch\b))"
 )
 
 
@@ -123,17 +123,19 @@ def release_contract_errors(root):
 
 def scan(root):
     paths = subprocess.check_output(["git", "ls-files", "-z"], cwd=root).split(b"\0")
-    violations = 0
+    violations = []
     for raw_path in filter(None, paths):
         path = os.fsdecode(raw_path)
         if blocked_path(path):
-            violations += 1
+            violations.append(f"blocked path: {path}")
             continue
         content = subprocess.check_output(["git", "show", ":" + path], cwd=root)
         if blocked_content(content):
-            violations += 1
-    violations += len(release_contract_errors(root))
-    return violations
+            violations.append(f"blocked content: {path}")
+    violations.extend(f"release contract: {message}" for message in release_contract_errors(root))
+    for violation in violations:
+        print(violation)
+    return len(violations)
 
 
 if __name__ == "__main__":

@@ -18,9 +18,10 @@ class PublicationCheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory)
             (fixture / "updates" / "packages").mkdir(parents=True)
-            for name in ("moondog-0.10.7.json", "moondog-0.10.8-beta.1.json", "moondog-0.10.7-beta.1.json", "moondog-0.10.7-beta.2.json"):
-                (fixture / "updates" / "packages" / name).write_bytes((root / "updates" / "packages" / name).read_bytes())
             manifest = json.loads((root / "updates" / "manifest.json").read_text(encoding="utf-8"))
+            for channel in ("stable", "beta"):
+                name = f"moondog-{manifest[channel]['version']}.json"
+                (fixture / "updates" / "packages" / name).write_bytes((root / "updates" / "packages" / name).read_bytes())
             target = fixture / "updates" / "manifest.json"
             manifest["beta"]["migrationRequired"] = True
             target.write_text(json.dumps(manifest), encoding="utf-8")
@@ -30,7 +31,7 @@ class PublicationCheckTests(unittest.TestCase):
             target.write_text(json.dumps(manifest), encoding="utf-8")
             self.assertTrue(release_contract_errors(fixture))
             manifest["stable"]["packageUrl"] = json.loads((root / "updates" / "manifest.json").read_text(encoding="utf-8"))["stable"]["packageUrl"]
-            package_path = fixture / "updates" / "packages" / "moondog-0.10.7.json"
+            package_path = fixture / "updates" / "packages" / f"moondog-{manifest['stable']['version']}.json"
             package = json.loads(package_path.read_text(encoding="utf-8"))
             package["approvedFiles"] = ["assets/other.css"]
             package_path.write_text(json.dumps(package), encoding="utf-8")
@@ -78,6 +79,13 @@ class PublicationCheckTests(unittest.TestCase):
         self.assertTrue(blocked_content(b"-----BEGIN " + b"PRIVATE KEY-----"))
         self.assertTrue(blocked_content(b"ghp_" + b"A" * 36))
         self.assertFalse(blocked_content(b"Synthetic product documentation."))
+
+    def test_store_target_literals_are_blocked_without_blocking_generic_docs(self):
+        self.assertTrue(blocked_content(bytes.fromhex("67726f73734d696e696d756d3a3735303030")))
+        self.assertTrue(blocked_content(bytes.fromhex("4c6f63616c2074617267657420243132333435")))
+        self.assertTrue(blocked_content(bytes.fromhex("476f616c20393125")))
+        self.assertFalse(blocked_content(b"Local target not configured"))
+        self.assertFalse(blocked_content(b"Generic product target field"))
 
     def test_force_added_ignored_file_fails(self):
         with tempfile.TemporaryDirectory() as directory:

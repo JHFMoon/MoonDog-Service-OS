@@ -6,8 +6,9 @@ const root = path.resolve(__dirname, "..");
 const app = fs.readFileSync(path.join(root, "assets/app.js"), "utf8");
 const updates = fs.readFileSync(path.join(root, "assets/moondog-update-settings.js"), "utf8");
 const settingsCss = fs.readFileSync(path.join(root, "assets/product-settings.css"), "utf8");
+const manifest = JSON.parse(fs.readFileSync(path.join(root, "updates/manifest.json"), "utf8"));
 
-assert.match(app, /const VERSION = "0\.10\.8-beta\.3"/);
+assert.ok(app.includes(`const VERSION = "${manifest.beta.version}"`));
 assert.match(app, /SERVICE OPERATIONS HUB CONNECTED/);
 assert.match(app, /RECONNECTING\|RESTORING\|FOLDER ACCESS REQUIRED/);
 assert.match(updates, /Last update check:/);
