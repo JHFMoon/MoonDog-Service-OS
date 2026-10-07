@@ -102,7 +102,7 @@ jobs:
           SHA256=""
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            DIGEST="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq ".assets[] | select(.name == \"$ASSET\") | .digest" | head -n 1)"
+            DIGEST="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq ".assets[] | select(.name == \"$ASSET\") | .digest" | head -n 1)"
             if [[ -n "$DIGEST" ]]; then
               if [[ ! "$DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
                 echo "Existing clean-install asset has no valid SHA-256 digest" >&2
