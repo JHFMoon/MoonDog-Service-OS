@@ -48,6 +48,8 @@ Current channels:
 
 Stable 0.10.10 requires `0.10.9` or later. This is intentional: the 0.10.8-era updater cannot safely perform the application/workspace layout separation.
 
+A Stable version is considered published only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package asset whose SHA-256 is declared by `updates/manifest.json`. The Stable manifest points to that Release asset. After the `Publication check` succeeds on `main`, `.github/workflows/stable-release.yml` creates or verifies the matching release automatically.
+
 The installed **Tools → Change how Service Operations Dashboard works → System Updates** workflow:
 
 1. checks the selected public channel,

@@ -4,7 +4,7 @@
 
 This repository is the public source and update authority for the generic **Service Operations Dashboard**. The installed application runs locally in the browser and remains offline-capable for normal operations. GitHub is used only for source control and software update distribution; dealership operational data stays in the connected local/company-controlled workspace.
 
-See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DATA-BOUNDARY.md), [Architecture](docs/ARCHITECTURE.md), and [CHANGELOG.md](CHANGELOG.md).
+See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DATA-BOUNDARY.md), [Architecture](docs/ARCHITECTURE.md), [Stable release process](docs/RELEASE-PROCESS.md), and [CHANGELOG.md](CHANGELOG.md).
 
 ## Current channels
 
@@ -12,6 +12,8 @@ See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DA
 - **Beta:** `0.10.9-beta.8` (historical opt-in channel)
 
 Stable 0.10.10 is the validated architecture used by the current migrated installation. It requires updater version `0.10.9` or later because older 0.10.8-era installations do not have the layout-aware updater needed to safely separate application files from protected workspace data.
+
+A version is considered **Stable** only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package declared by the Stable manifest. The Stable manifest points to that GitHub Release asset; a manifest-only version is not a completed Stable publication.
 
 ## Installed layout
 

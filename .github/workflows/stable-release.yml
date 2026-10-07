@@ -1,0 +1,131 @@
+name: Publish Stable GitHub Release
+
+on:
+  workflow_run:
+    workflows: ["Publication check"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stable-github-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    env:
+      HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out validated main commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+
+      - name: Re-run release safety checks
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          node --test tests/*.test.cjs
+          python3 scripts/check_publication.py
+
+      - name: Read and verify Stable release contract
+        id: stable
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          manifest = json.loads(Path("updates/manifest.json").read_text(encoding="utf-8"))
+          stable = manifest["stable"]
+          version = stable["version"]
+          if not re.fullmatch(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)", version):
+              raise SystemExit("Stable version is invalid")
+
+          package = Path("updates/packages") / f"moondog-{version}.json"
+          if not package.is_file():
+              raise SystemExit(f"Missing Stable package: {package}")
+
+          expected_url = (
+              f"https://github.com/JHFMoon/MoonDog-Service-OS/releases/download/"
+              f"v{version}/{package.name}"
+          )
+          if stable.get("packageUrl") != expected_url:
+              raise SystemExit("Stable manifest must point to the matching GitHub Release asset")
+
+          package_bytes = package.read_bytes()
+          digest = hashlib.sha256(package_bytes).hexdigest()
+          if digest != stable.get("sha256"):
+              raise SystemExit("Stable package SHA-256 does not match the manifest")
+
+          package_json = json.loads(package_bytes)
+          if package_json.get("version") != version:
+              raise SystemExit("Stable package version does not match the manifest")
+
+          notes = (
+              f"Service Operations Dashboard {version}\n\n"
+              f"{stable['releaseNotes'].strip()}\n\n"
+              f"Updater package: {package.name}\n"
+              f"SHA-256: {digest}\n"
+              f"Minimum compatible version: {stable['minimumCompatibleVersion']}\n"
+          )
+          Path("stable-release-notes.md").write_text(notes, encoding="utf-8", newline="\n")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+              output.write(f"tag=v{version}\n")
+              output.write(f"package={package.as_posix()}\n")
+              output.write(f"asset={package.name}\n")
+              output.write(f"sha256={digest}\n")
+          PY
+
+      - name: Create or verify the formal Stable GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.stable.outputs.tag }}"
+          VERSION="${{ steps.stable.outputs.version }}"
+          PACKAGE="${{ steps.stable.outputs.package }}"
+          ASSET="${{ steps.stable.outputs.asset }}"
+          SHA256="${{ steps.stable.outputs.sha256 }}"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$ASSET"; then
+              rm -rf .stable-release-check
+              mkdir .stable-release-check
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$ASSET" --dir .stable-release-check
+              printf '%s  %s\n' "$SHA256" ".stable-release-check/$ASSET" | sha256sum -c -
+            else
+              gh release upload "$TAG" "$PACKAGE#Verified updater package" --repo "$GITHUB_REPOSITORY"
+            fi
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --latest
+          else
+            if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+              gh release create "$TAG" "$PACKAGE#Verified updater package" \
+                --repo "$GITHUB_REPOSITORY" \
+                --title "Service Operations Dashboard $VERSION" \
+                --notes-file stable-release-notes.md \
+                --latest
+            else
+              gh release create "$TAG" "$PACKAGE#Verified updater package" \
+                --repo "$GITHUB_REPOSITORY" \
+                --target "$HEAD_SHA" \
+                --title "Service Operations Dashboard $VERSION" \
+                --notes-file stable-release-notes.md \
+                --latest
+            fi
+          fi
+
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,assets,url
