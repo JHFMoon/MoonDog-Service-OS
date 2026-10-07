@@ -90,11 +90,46 @@ jobs:
               output.write(f"sha256={digest}\n")
           PY
 
+      - name: Inspect immutable clean-install asset
+        id: clean_state
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.stable.outputs.tag }}"
+          VERSION="${{ steps.stable.outputs.version }}"
+          ASSET="service-operations-dashboard-clean-$VERSION.zip"
+          EXISTS=false
+          SHA256=""
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            DIGEST="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq ".assets[] | select(.name == \"$ASSET\") | .digest" | head -n 1)"
+            if [[ -n "$DIGEST" ]]; then
+              if [[ ! "$DIGEST" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
+                echo "Existing clean-install asset has no valid SHA-256 digest" >&2
+                exit 1
+              fi
+              EXISTS=true
+              SHA256="${DIGEST#sha256:}"
+              {
+                echo
+                echo "Clean install: $ASSET"
+                echo "Clean-install SHA-256: $SHA256"
+                echo "The clean archive contains an empty System Files/Workspace and user-owned operational data is not packaged."
+              } >> stable-release-notes.md
+            fi
+          fi
+
+          echo "exists=$EXISTS" >> "$GITHUB_OUTPUT"
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
       - name: Recreate pinned browser dependencies
+        if: steps.clean_state.outputs.exists != 'true'
         run: bash scripts/prepare_distribution_vendor.sh .distribution-vendor
 
       - name: Build exact Stable clean-install archive
         id: clean
+        if: steps.clean_state.outputs.exists != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -148,9 +183,13 @@ jobs:
           PACKAGE="${{ steps.stable.outputs.package }}"
           ASSET="${{ steps.stable.outputs.asset }}"
           SHA256="${{ steps.stable.outputs.sha256 }}"
+          CLEAN_EXISTS="${{ steps.clean_state.outputs.exists }}"
+          CLEAN_ASSET="${{ steps.clean_state.outputs.asset }}"
           CLEAN_PACKAGE="${{ steps.clean.outputs.zip }}"
-          CLEAN_ASSET="${{ steps.clean.outputs.asset }}"
-          CLEAN_SHA256="${{ steps.clean.outputs.sha256 }}"
+          CLEAN_SHA256="${{ steps.clean_state.outputs.sha256 }}"
+          if [[ "$CLEAN_EXISTS" != "true" ]]; then
+            CLEAN_SHA256="${{ steps.clean.outputs.sha256 }}"
+          fi
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$ASSET"; then
@@ -162,12 +201,14 @@ jobs:
               gh release upload "$TAG" "$PACKAGE#Verified updater package" --repo "$GITHUB_REPOSITORY"
             fi
 
-            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$CLEAN_ASSET"; then
+            if [[ "$CLEAN_EXISTS" == "true" ]]; then
               rm -rf .clean-release-check
               mkdir .clean-release-check
               gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$CLEAN_ASSET" --dir .clean-release-check
               printf '%s  %s\n' "$CLEAN_SHA256" ".clean-release-check/$CLEAN_ASSET" | sha256sum -c -
             else
+              test -n "$CLEAN_PACKAGE"
+              test -n "$CLEAN_SHA256"
               gh release upload "$TAG" "$CLEAN_PACKAGE#Verified offline clean install" --repo "$GITHUB_REPOSITORY"
             fi
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file stable-release-notes.md --latest
