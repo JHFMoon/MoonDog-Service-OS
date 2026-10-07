@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.10.15 — current Stable
+## 0.10.16 — current Stable
+
+- Treats temporary OneDrive/file-ingestion File System Access conflicts as transient workspace synchronization instead of lost owner authority.
+- Retries owner-authority validation automatically while synchronized files settle.
+- Shows a neutral **Updating workspace files…** state instead of a red application failure for the known transient interface-state condition.
+- Keeps **Recover owner editing** hidden while the workspace is only temporarily busy, then restores editing automatically when validation succeeds.
+- Preserves the existing protected Workspace and update rollback boundaries with no migration.
+
+## 0.10.15 — previous Stable
 
 - Adds **Recover owner editing** for a connected local copy that has lost its matching browser identity.
 - Requests folder write permission directly from the final recovery click so Edge retains required user activation.
