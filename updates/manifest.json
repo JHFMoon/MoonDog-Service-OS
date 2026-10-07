@@ -1,7 +1,7 @@
 {
   "stable": {
     "version": "0.10.10",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.10.json",
+    "packageUrl": "https://github.com/JHFMoon/MoonDog-Service-OS/releases/download/v0.10.10/moondog-0.10.10.json",
     "sha256": "ac3ad271ab670ce4139dbb8e5da67bfebb7c22a8e889b8a6317957767c93d130",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
