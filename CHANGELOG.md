@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.10.10 — current Stable
+## 0.10.11 — current Stable
+
+- Adds a compact Home **Data needed** strip with report/source, date, location, purpose, Update, and Not now, using existing validated freshness evidence.
+- Learns typical report arrival times and deferrals in protected local settings; repeated uploads improve scheduling without writing operational data to GitHub.
+- Shows a maximum of five distinct, actionable Home priorities with direct navigation and no unnecessary Wins Today feed.
+- Uses the reported SAPR days worked, counting an open day as 0.5 for pace/remaining-day calculations, and matches prior-year snapshots by the closest verified working-day count.
+- Presents the Store and each advisor as a single 30-second rotating meeting slide, with configurable duration and automatic 16:9 or 9:16 composition.
+- Bundles new generic modules into existing updater-approved runtime paths for a normal protected update; preserves browser-origin compatibility and all Workspace data.
+- Publishes a formal GitHub Stable Release and an opt-in next-version Beta from the same verified baseline.
+
+## 0.10.12-beta.1 — next Beta
+
+- Carries forward the validated 0.10.11 experience as the new optional Beta baseline for future testing.
+
+## 0.10.10 — previous Stable
 
 - Promotes the locally validated single-store architecture with one authoritative writable computer and read-only synchronized copies.
 - Keeps maintained application files under `System Files/` and protected operational state under `System Files/Workspace/`.

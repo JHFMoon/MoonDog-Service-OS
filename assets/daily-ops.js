@@ -82,7 +82,7 @@
   function candidates(){
     if(!model.root)return[];
     const day=today(),at=now(),hour=businessHour(),items=(model.state.records||[]).map(r=>engine.roTask(r,api,day,at)).filter(Boolean);
-    items.push(...sourceTasks());
+    // Refresh requests live in the compact Data Needed strip, never as duplicate Home work cards.
     if(model.state.reviewQueue?.length)items.push({id:'unmatched:questions',type:'questions',title:'Resolve the returned workbook questions',description:'Review unmatched advisor updates before applying them to an RO.',view:'open-ro',rank:3,fingerprint:String(model.state.reviewQueue.length)});
     if(model.assignNext.currentOpenRo)items.push({id:'availability:'+day+':'+hour,type:'availability',title:'Check advisor availability',description:'Confirm who is available before assigning the next RO.',view:'assign-next',rank:12,once:true,fingerprint:day+':'+hour});
     const open=model.state.records.filter(r=>!api.closed(r.management||{})),parts=open.filter(r=>api.statusDetail(r)==='Approved — Waiting Parts'&&!engine.hasFuturePlan(r,day));
@@ -183,26 +183,101 @@
     host.append(input,choose);
     const hint=document.createElement('p');hint.className='daily-hint';hint.textContent='Or place reports in “01 - DROP REPORTS HERE”. Service Operations Dashboard checks them automatically.';host.append(hint);
   }
+  function renderRefreshStrip(host) {
+    const planner=globalThis.ServiceRefreshIntelligence;
+    if(!planner||!model.root)return;
+    const at=new Date().toISOString(),items=planner.plan(api.reportRefreshRequests(today()),api.refreshHistory(),{
+      at,today:today(),limit:3
+    });
+    const yoy=api.priorYearSapr?.();
+    const sourceCurrent=globalThis.__moondogFreshness?.sourceFreshness?.('sapr',{today:today()});
+    const hasSaprRequest=api.reportRefreshRequests(today()).some(item=>item.source==='performance');
+    const usefulYoy=sourceCurrent?.safeForCurrent&&yoy?.status==='needs-history'&&
+      yoy.estimatedEnd&&yoy.current?.daysWorked>0;
+    if(!items.length&&!usefulYoy)return;
+    const section=document.createElement('section');section.className='daily-data-needed';
+    const title=document.createElement('h3');title.textContent='Data needed';section.append(title);
+    const sources=api.sourceLocations?.()||{};
+    for(const item of items){
+      const row=document.createElement('div');row.className='daily-needed-row';
+      const copy=document.createElement('div'),header=document.createElement('strong'),detail=document.createElement('small');
+      header.textContent=item.range?`${item.label} · ${item.range}`:item.label;
+      detail.textContent=[sources[item.source]||item.location,item.instruction].filter(Boolean).join(' · ');
+      copy.append(header,detail);
+      const action=button('Update',()=>{const picker=host.querySelector('#dailyRefreshPicker');picker.dataset.source=item.source;picker.click();},'secondary');
+      const later=button('Not now',()=>actionWrap(async()=>{
+        await api.recordRefresh(item.source,'not-now');renderHome();
+      }),'link-button');
+      row.append(copy,action,later);section.append(row);
+    }
+    if(usefulYoy&&!items.some(item=>item.source==='performance')){
+      const record=planner.sourceRecord(api.refreshHistory(),'performance'),until=Date.parse(record.notNowUntil||'');
+      if(!Number.isFinite(until)||until<=Date.now()){
+        const row=document.createElement('div');row.className='daily-needed-row daily-yoy-hint';
+        const detail=document.createElement('div');
+        const title=document.createElement('strong');title.textContent='SAPR · Year-over-year comparison';
+        const copy=document.createElement('small');
+        copy.textContent=`DealerCentral → SAPR · ${yoy.periodStart} to about ${yoy.estimatedEnd} · Match ${yoy.current.daysWorked} working days. Confirm the prior SAPR days-worked count.`;
+        detail.append(title,copy);row.append(detail,
+          button('Update',()=>{const picker=host.querySelector('#dailyRefreshPicker');picker.dataset.source='performance';picker.click();},'secondary'),
+          button('Not now',()=>actionWrap(async()=>{await api.recordRefresh('performance','not-now');renderHome();}),'link-button'));
+        section.append(row);
+      }
+    }
+    if(!section.querySelector('.daily-needed-row'))return;
+    const input=document.createElement('input');input.type='file';input.id='dailyRefreshPicker';
+    input.accept='.xlsx,.xls,.csv,.pdf,.docx';input.hidden=true;
+    input.addEventListener('change',()=>{const file=input.files?.[0];if(!file)return;
+      actionWrap(async()=>{if(input.dataset.source)await api.recordRefresh(input.dataset.source,'requested');await api.importFile(file);await selectNext();});
+    });
+    host.append(section,input);
+  }
+  async function actionWrap(fn){await action(fn);}
+  function renderOtherPriorities(task,host){
+    const planner=globalThis.ServiceRefreshIntelligence;
+    if(!planner||!model.root)return;
+    const all=planner.topFive(allTasks(),state.events,engine,now());
+    const extra=all.filter(item=>item.id!==task?.id).slice(0,task?4:5);
+    if(!extra.length)return;
+    const section=document.createElement('section');section.className='daily-next-priorities';
+    const h=document.createElement('h3');h.textContent='Also needs attention';section.append(h);
+    for(const item of extra){
+      const row=document.createElement('div');row.className='daily-priority-row';
+      const copy=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('small');
+      title.textContent=item.title;
+      detail.textContent=item.type==='ro'
+        ?`RO ${item.record?.ro||''} · ${item.record?.management?.nextAction||'Check the current status and agree on a next action'}`
+        :item.next||item.description||'Open to review';
+      copy.append(title,detail);
+      row.append(copy,button('Open',()=>item.recordId?api.openEdit(item.recordId):go(item.view,item.anchor),'secondary'),
+        button('Not now',()=>actionWrap(async()=>{await log('deferred',item,{until:engine.deferUntil(item,state.events,now()),fingerprint:item.fingerprint});await selectNext();}),'link-button'));
+      section.append(row);
+    }
+    host.append(section);
+  }
+
   function renderHome(){
     const host=$('dailyTask');host.replaceChildren();
+    if(model.root)renderRefreshStrip(host);
     if(!model.root){host.innerHTML='<p class="eyebrow">Your daily workspace</p><h2>Connect Service Operations Dashboard to begin</h2><p>Your saved work stays in the connected working folder.</p>';host.append(button('Connect working folder',()=>api.connect(),'primary'));return;}
     if(!state.loadedRoot&&!state.current){host.innerHTML='<h2>Loading your saved work…</h2>';return;}
     const task=state.current;
-    if(!task){host.innerHTML='<p class="eyebrow">Home</p><h2>No other task is ready right now</h2><p>Deferred work is still saved. You can check the drive or find any item above.</p>';host.append(button('Check priorities',()=>action(selectNext),'primary'),button('Open RO Control',()=>go('open-ro')));return;}
-    host.innerHTML=`<p class="eyebrow">${task.type==='coaching'?'Coaching opportunity':'Do this next'}</p><h2>${esc(task.title)}</h2><p id="dailyError" role="alert" hidden></p><div id="dailyChanged" hidden>New information is available. Your draft is still here. <button type="button">Refresh this task</button></div>`;
+    if(!task){const note=document.createElement('div');note.innerHTML='<p class="eyebrow">Home</p><h2>No other task is ready right now</h2><p>Deferred work is still saved. You can check the drive or find any item above.</p>';note.append(button('Check priorities',()=>action(selectNext),'primary'),button('Open RO Control',()=>go('open-ro')));host.append(note);renderOtherPriorities(null,host);return;}
+    const focus=document.createElement('div');focus.className='daily-main-priority';focus.innerHTML=`<p class="eyebrow">${task.type==='coaching'?'Coaching opportunity':'Do this next'}</p><h2>${esc(task.title)}</h2><p id="dailyError" role="alert" hidden></p><div id="dailyChanged" hidden>New information is available. Your draft is still here. <button type="button">Refresh this task</button></div>`;host.append(focus);
     $('dailyChanged').querySelector('button').onclick=()=>action(selectNext);
-    if(task.type==='ro')roForm(task,host);
+    if(task.type==='ro')roForm(task,focus);
     else{
-      if(task.description){const p=document.createElement('p');p.className='daily-description';p.textContent=task.description.replace(/TREND DATA NEEDED · SAPR · /,'').replace(/historical snapshot/g,'historical report');host.append(p);}
-      if(task.type==='coaching'){const p=document.createElement('p');p.className='daily-description';p.textContent=`NEXT · ${task.next}`;host.append(p);}
-      if(task.source)importer(host,task);
+      if(task.description){const p=document.createElement('p');p.className='daily-description';p.textContent=task.description.replace(/TREND DATA NEEDED · SAPR · /,'').replace(/historical snapshot/g,'historical report');focus.append(p);}
+      if(task.type==='coaching'){const p=document.createElement('p');p.className='daily-description';p.textContent=`NEXT · ${task.next}`;focus.append(p);}
+      if(task.source)importer(focus,task);
       else{
-        if(task.type==='questions')host.append(button('View saved questions',()=>showReadOnly('Returned workbook questions',{questions:model.state.reviewQueue})));
-        if(task.type!=='coaching')host.append(button('Open '+(task.type==='settings'?'advisor settings':task.view==='open-ro'?'Open RO Control':task.view==='imports'?'workbook tools':task.view==='assign-next'?'Assign Next':'Advisor Performance'),()=>go(task.view,task.anchor),'primary'));
-        host.append(button('Completed',()=>action(async()=>{await log('completed',task,{until:new Date(now()+120*60000).toISOString()});await selectNext();})));
+        if(task.type==='questions')focus.append(button('View saved questions',()=>showReadOnly('Returned workbook questions',{questions:model.state.reviewQueue})));
+        if(task.type!=='coaching')focus.append(button('Open '+(task.type==='settings'?'advisor settings':task.view==='open-ro'?'Open RO Control':task.view==='imports'?'workbook tools':task.view==='assign-next'?'Assign Next':'Advisor Performance'),()=>go(task.view,task.anchor),'primary'));
+        focus.append(button('Completed',()=>action(async()=>{await log('completed',task,{until:new Date(now()+120*60000).toISOString()});await selectNext();})));
       }
     }
-    const footer=document.createElement('div');footer.className='daily-task-footer';footer.append(button('Not Now',()=>action(async()=>{await log('deferred',task,{until:engine.deferUntil(task,state.events,now()),fingerprint:task.fingerprint});await selectNext();})));host.append(footer);
+    const footer=document.createElement('div');footer.className='daily-task-footer';footer.append(button('Not Now',()=>action(async()=>{await log('deferred',task,{until:engine.deferUntil(task,state.events,now()),fingerprint:task.fingerprint});await selectNext();})));focus.append(footer);
+    renderOtherPriorities(task,host);
     say(state.error);
   }
 
@@ -262,7 +337,22 @@
           for(const line of lines.filter(Boolean)){const p=document.createElement('p');p.textContent=line;coverage.append(p);}
           const actions=['REQUIRED TREND','CUMULATIVE / RECOVERABLE','WEEKLY'].includes(row.need.purpose)?row.coverage.actions:row.need.actions;
           if(actions.length){const list=document.createElement('ul');for(const line of actions){const item=document.createElement('li');item.textContent=line;list.append(item);}coverage.append(list);}
-          details.append(coverage);entry.append(details,button(row.need.state==='ON DEMAND'?'Generate / workbook tools':'Import',()=>row.need.state==='ON DEMAND'?go('imports'):options.querySelector('input[type="file"]').click()));group.append(entry);
+          details.append(coverage);
+          const key=({openRo:'open-ro',sapr:'performance',menu:'menu-sales',nextAppointments:'next-appointments',
+            mediaAsr:'media-asr',mediaAsrTech:'media-asr-tech'})[row.key]||
+            row.key.replace(/[A-Z]/g,letter=>'-'+letter.toLowerCase());
+          const sourceInfo=globalThis.ServiceRefreshIntelligence?.catalog?.[key];
+          if(sourceInfo){
+            const where=document.createElement('div');where.className='daily-source-location';
+            const label=document.createElement('small');label.textContent='Get it from: '+(api.sourceLocations?.()?.[key]||sourceInfo.location);
+            where.append(label,button('Change location',()=>action(async()=>{
+              const prior=api.sourceLocations?.()?.[key]||sourceInfo.location;
+              const location=prompt('Where do you get '+sourceInfo.label+'?',prior);
+              if(location===null||!location.trim()||location.length>200)return;
+              await api.saveSourceLocation(key,location);renderTools('imports');
+            }),'link-button'));entry.append(where);
+          }
+          entry.append(details,button(row.need.state==='ON DEMAND'?'Generate / workbook tools':'Import',()=>row.need.state==='ON DEMAND'?go('imports'):options.querySelector('input[type="file"]').click()));group.append(entry);
         }
         if(label==='WHAT YOU NEED NOW'){
           const plan=document.createElement('section');plan.className='daily-trend-plan daily-report-needs';plan.innerHTML='<h3>TREND MAINTENANCE</h3>';
@@ -324,3 +414,119 @@
   globalThis.__moondogDailyUI=Object.freeze({state,candidates:allTasks,selectNext,renderHome,renderTools,searchAll,settingsCategory,ready});
 })();
 /* Service Operations Dashboard theme Beta 0.10.7-beta.2. */
+// BEGIN GENERATED MEETING PRESENTER (see src/meeting-presenter.js)
+/* Responsive one-card-at-a-time Advisor Meeting presentation. No copied KPIs. */
+(function(root){
+  "use strict";
+  const api=root.__moondogDaily,model=api?.model;
+  if(!api||!model)return;
+  const state={enabled:false,paused:false,index:0,timer:null,view:null,controls:null,seconds:30};
+  const $=id=>document.getElementById(id);
+  function setting(){const prefs=api.presentationSettings?.()||{};return {
+    seconds:Number.isInteger(prefs.seconds)&&prefs.seconds>=10&&prefs.seconds<=120?prefs.seconds:30,
+    orientation:["auto","landscape","portrait"].includes(prefs.orientation)?prefs.orientation:"auto"
+  };}
+  function cards(){const parent=$("meetingV3Advisors");if(!parent)return[];
+    return [...parent.querySelectorAll(".meeting-v3-advisor")].sort((a,b)=>
+      (a.querySelector("h3")?.textContent||"").localeCompare(b.querySelector("h3")?.textContent||"",undefined,{sensitivity:"base",numeric:true}));
+  }
+  function viewReady(){const view=$("view-meeting");return view?.classList.contains("meeting-scoreboard")?view:null;}
+  function stopTimer(){if(state.timer){clearInterval(state.timer);state.timer=null;}}
+  function restartTimer(){stopTimer();if(!state.enabled||state.paused||!state.view?.classList.contains("active"))return;
+    state.timer=setInterval(()=>{if(document.hidden||!state.view?.classList.contains("active"))return;next();},state.seconds*1000);
+  }
+  function paint(){
+    const view=viewReady();if(!view)return;
+    state.view=view;
+    const list=cards(),count=1+list.length;
+    state.index=Math.max(0,Math.min(state.index,count-1));
+    const owner=$("meetingV3Advisors");
+    for(const card of list){if(card.parentElement===owner)owner.append(card);}
+    const selected=state.index===0?null:list[state.index-1];
+    view.classList.toggle("presentation-active",state.enabled);
+    view.dataset.presenterSlide=selected?"advisor":"store";
+    view.dataset.presenterOrientation=setting().orientation;
+    for(const card of list)card.dataset.slideActive=String(Boolean(state.enabled&&card===selected));
+    if(state.controls){
+      const label=state.controls.querySelector("[data-slide-label]");
+      if(label)label.textContent=`${selected?selected.querySelector("h3")?.textContent||"Advisor":"Store"} · ${state.index+1} of ${count}`;
+      const paused=state.controls.querySelector("[data-pause]");
+      if(paused)paused.textContent=state.paused?"Resume":"Pause";
+      const overview=state.controls.querySelector("[data-overview]");
+      if(overview)overview.textContent=state.enabled?"Show overview":"Start cards";
+    }
+  }
+  function next(){const count=1+cards().length;if(!count)return;
+    state.index=(state.index+1)%count;paint();
+  }
+  function toggle(){state.enabled=!state.enabled;state.paused=false;state.index=0;paint();restartTimer();}
+  function pause(){if(!state.enabled)return;state.paused=!state.paused;paint();restartTimer();}
+  function activate(){
+    const view=viewReady();if(!view)return;
+    ensureControls();
+    if(!state.enabled){state.enabled=true;state.paused=false;state.index=0;}
+    state.seconds=setting().seconds;paint();restartTimer();
+  }
+  function ensureControls(){
+    const view=viewReady();if(!view)return;
+    const host=view.querySelector(".meeting-scoreboard-actions");
+    if(!host)return;
+    let controls=host.querySelector(".meeting-presenter-controls");
+    if(!controls){
+      controls=document.createElement("div");controls.className="meeting-presenter-controls";
+      controls.innerHTML=`<strong data-slide-label>Store · 1 of 1</strong>
+        <button type="button" data-pause>Pause</button><button type="button" data-next>Next</button>
+        <button type="button" data-fullscreen>Full screen</button>
+        <button type="button" data-overview>Show overview</button>`;
+      controls.querySelector("[data-pause]").addEventListener("click",pause);
+      controls.querySelector("[data-next]").addEventListener("click",()=>{if(!state.enabled)state.enabled=true;next();restartTimer();});
+      controls.querySelector("[data-overview]").addEventListener("click",toggle);
+      controls.querySelector("[data-fullscreen]").addEventListener("click",async()=>{
+        try{if(document.fullscreenElement)await document.exitFullscreen();else await view.requestFullscreen();}
+        catch(_){/* Inline 16:9 or 9:16 presentation remains available without browser fullscreen. */}
+      });
+      host.prepend(controls);
+    }
+    state.controls=controls;
+  }
+  function installPreferences(){
+    const area=[...document.querySelectorAll("#view-settings .settings-card")].find(card=>
+      card.querySelector("h2")?.textContent?.trim()==="Advisor Meeting");
+    if(!area||area.querySelector(".meeting-presentation-settings"))return;
+    const prefs=setting(),wrap=document.createElement("div");
+    wrap.className="meeting-presentation-settings";
+    wrap.innerHTML=`<h3>TV meeting cards</h3><p>One Store card, then each advisor by name. The cards repeat.</p>
+      <div class="settings-grid">
+      <label>Seconds per card<input type="number" min="10" max="120" step="1" data-presenter-seconds></label>
+      <label>Screen layout<select data-presenter-orientation>
+        <option value="auto">Auto</option><option value="landscape">16:9 (wide)</option>
+        <option value="portrait">9:16 (tall)</option></select></label></div>
+      <small aria-live="polite" data-presenter-save></small>`;
+    const duration=wrap.querySelector("[data-presenter-seconds]"),orientation=wrap.querySelector("[data-presenter-orientation]"),message=wrap.querySelector("[data-presenter-save]");
+    duration.value=String(prefs.seconds);orientation.value=prefs.orientation;
+    const persist=async()=>{
+      const seconds=Number(duration.value);
+      if(!Number.isInteger(seconds)||seconds<10||seconds>120){message.textContent="Choose between 10 and 120 seconds.";return;}
+      const previous=setting();
+      try{
+        await api.savePresentationSettings({seconds,orientation:orientation.value});
+        state.seconds=seconds;message.textContent="Saved to this working folder.";paint();restartTimer();
+      }catch(error){duration.value=String(previous.seconds);orientation.value=previous.orientation;
+        message.textContent=error?.message||"Preferences could not be saved in this working folder.";}
+    };
+    duration.addEventListener("change",persist);orientation.addEventListener("change",persist);
+    area.append(wrap);
+  }
+  document.addEventListener("moondog-navigation",event=>{
+    if(event.detail?.view==="meeting")queueMicrotask(activate);
+    else if(event.detail?.view){stopTimer();}
+  });
+  document.addEventListener("moondog-data",()=>{installPreferences();ensureControls();paint();});
+  document.addEventListener("moondog-recovered",()=>{stopTimer();state.index=0;state.enabled=false;paint();});
+  document.addEventListener("visibilitychange",()=>{if(document.hidden)stopTimer();else restartTimer();});
+  window.addEventListener("beforeunload",stopTimer);
+  installPreferences();ensureControls();
+  if(viewReady()?.classList.contains("active"))activate();
+  root.__serviceMeetingPresenter=Object.freeze({next,paint,setting,cards,activate});
+})(globalThis);
+// END GENERATED MEETING PRESENTER

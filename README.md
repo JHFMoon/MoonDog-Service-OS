@@ -8,10 +8,10 @@ See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DA
 
 ## Current channels
 
-- **Stable:** `0.10.10`
-- **Beta:** `0.10.9-beta.8` (historical opt-in channel)
+- **Stable:** `0.10.11` ([GitHub Release](https://github.com/JHFMoon/MoonDog-Service-OS/releases/tag/v0.10.11))
+- **Beta:** `0.10.12-beta.1` (optional preview of the next release)
 
-Stable 0.10.10 is the validated architecture used by the current migrated installation. It requires updater version `0.10.9` or later because older 0.10.8-era installations do not have the layout-aware updater needed to safely separate application files from protected workspace data.
+Stable 0.10.11 builds on the validated local architecture and requires the layout-aware updater from version `0.10.9` or later. Older 0.10.8-era installations remain intentionally incompatible.
 
 A version is considered **Stable** only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package declared by the Stable manifest. The Stable manifest points to that GitHub Release asset; a manifest-only version is not a completed Stable publication.
 
@@ -40,12 +40,14 @@ The connected workspace is not a multi-writer database. One browser installation
 
 System Updates verifies the public manifest and package SHA-256, performs a protected-path dry run, requires explicit installation approval, creates and verifies a rollback backup before writes, verifies installed bytes, and rolls back or exposes recovery if verification cannot complete.
 
-Stable 0.10.10 publishes only generic application changes. It does not publish or overwrite customer, employee, advisor, technician, RO, VIN, report, history, settings, backup, or store-specific source-adapter data.
+Stable 0.10.11 publishes only generic application changes. It does not publish or overwrite customer, employee, advisor, technician, RO, VIN, report, history, settings, backup, or store-specific source-adapter data.
 
 ## Repository boundary
 
 All reviewed first-party browser runtime files used by the current application are tracked here. Third-party license notices are also tracked. The pinned JSZip, PDF.js, and SheetJS browser binary bundles remain installed runtime dependencies and are not currently mirrored in this public repository, so this repository by itself is not yet a complete clean-install archive.
 
-That limitation does **not** affect the validated 0.10.9 → 0.10.10 update path because the migrated 0.10.9 installation already contains the pinned vendor bundles.
+That limitation does **not** affect the validated 0.10.9 → 0.10.11 update path because the migrated 0.10.9 installation already contains the pinned vendor bundles.
 
 **GitHub may contain the product. GitHub may never contain the dealership.**
+
+See [Operating Intelligence](docs/OPERATING-INTELLIGENCE.md) for Home refresh prompts, locally learned update cadence, SAPR working-day comparisons, and responsive meeting cards.

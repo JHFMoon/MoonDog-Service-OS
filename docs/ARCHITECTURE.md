@@ -43,10 +43,10 @@ Durable changes are guarded by authority and revision checks and use persistent 
 
 Current channels:
 
-- Stable: `0.10.10`
-- Beta: `0.10.9-beta.8`
+- Stable: `0.10.11`
+- Beta: `0.10.12-beta.1`
 
-Stable 0.10.10 requires `0.10.9` or later. This is intentional: the 0.10.8-era updater cannot safely perform the application/workspace layout separation.
+Stable 0.10.11 requires `0.10.9` or later. This is intentional: the 0.10.8-era updater cannot safely perform the application/workspace layout separation.
 
 A Stable version is considered published only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package asset whose SHA-256 is declared by `updates/manifest.json`. The Stable manifest points to that Release asset. After the `Publication check` succeeds on `main`, `.github/workflows/stable-release.yml` creates or verifies the matching release automatically.
 
@@ -76,3 +76,5 @@ Pinned vendor binaries for JSZip, PDF.js, and SheetJS remain installed dependenc
 ## Validation
 
 Every pull request and push to `main` runs the publication workflow. Release changes must keep update-package bytes deterministic and protect the public/private boundary.
+
+See [Operating Intelligence](OPERATING-INTELLIGENCE.md) for protected cadence settings, source-aware refresh requests, in-progress SAPR working-day pacing, and adaptive Advisor Meeting cards.

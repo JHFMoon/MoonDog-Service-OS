@@ -8,7 +8,7 @@
   renderWriteAuthority();
   const responsiveRefinements = document.createElement("style"); responsiveRefinements.textContent = `.performance-svg{display:block;width:100%;height:auto;aspect-ratio:760/260}.meeting-cycle-label{display:block;margin-top:1px;font-size:11px;line-height:1.1;letter-spacing:.12em;color:#76d7b2}.meeting-cycle-delta{display:block;font-style:normal;font-size:10px;line-height:1.1;letter-spacing:.04em;color:#b9ced6}.meeting-v3-nps .meeting-cycle-delta{font-size:11px;margin-top:3px}.trend-coverage-summary{margin-top:14px;padding-top:12px;border-top:1px solid #d6e2e7}.trend-coverage-summary>strong{display:block;margin-bottom:7px}.trend-coverage-grid{display:flex;flex-wrap:wrap;gap:7px}.trend-coverage-grid span{padding:6px 9px;border-radius:8px;background:#eef5f7;font-size:12px}.previous-month-totals{margin-top:18px}.previous-month-totals .month-total-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px;margin:12px 0}.previous-month-totals .month-total-grid div,.previous-month-totals .month-advisor-row{padding:10px;border-radius:9px;background:#f3f7f8}.previous-month-totals .month-total-grid span,.previous-month-totals .month-advisor-row span{display:block;font-size:11px;color:#59717a}.previous-month-totals .month-total-grid strong{font-size:18px}.month-advisor-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.month-advisor-row strong{display:block;margin-bottom:5px}.month-advisor-metrics{font-size:12px;line-height:1.5}`; document.head.append(responsiveRefinements);
   const correctionStyles=document.createElement("style");correctionStyles.textContent=".month-correction-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;padding:10px 12px;border:1px solid #dfbd69;border-radius:9px;background:#fff8e5;color:#6b5316}.month-correction-notice button{white-space:nowrap}.voice-mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.customer-voice-manager [hidden]{display:none!important}.voice-use-full{align-self:flex-start}@media(max-width:760px){.voice-mode-grid{grid-template-columns:1fr}}";document.head.append(correctionStyles);
-  const VERSION = "0.10.10";
+  const VERSION = "0.10.11";
   globalThis.MoonDogInstalledVersion = VERSION;
   const BUILD_DATE = "2026-10-06";
   const DB_NAME = "moondog-operations-local";
@@ -1396,7 +1396,7 @@
   function performanceDelta(latest, prior, key) { const current = latest?.[key], before = prior?.[key]; return Number.isFinite(current) && Number.isFinite(before) ? current - before : null; }
   function trackerOpenCount(code = "store") { const records = model.state.records || []; return code === "store" ? records.length : records.filter((record) => String(record.advisorCode || "") === String(code)).length; }
   function operatingDays(startKey, endKey) { return startKey&&endKey&&endKey>=startKey?freshness.operatingDays(startKey,endKey).length:null; }
-  function performancePlan(snapshot, entity, target) { const monthStart = `${snapshot.periodEnd.slice(0, 7)}-01`,monthEnd=lastDayOfMonth(snapshot.periodEnd.slice(0,7)), configuredTarget=configuredNumber(target), completed = Number.isFinite(snapshot.saprDaysCompleted) ? snapshot.saprDaysCompleted : null, totalDays = Number.isFinite(snapshot.saprTotalDays) ? snapshot.saprTotalDays : null, remainingDays = completed !== null && totalDays !== null ? Math.max(0, totalDays - completed) : null, pace = completed > 0 && totalDays > 0 && Number.isFinite(entity.totalGross) ? entity.totalGross / completed * totalDays : null, cpPace = completed > 0 && totalDays > 0 && Number.isFinite(entity.cpGross) ? entity.cpGross / completed * totalDays : null, remaining = Number.isFinite(configuredTarget) && Number.isFinite(entity.totalGross) ? Math.max(0, configuredTarget - entity.totalGross) : null, grossPerDay = remainingDays > 0 && Number.isFinite(remaining) ? remaining / remainingDays : remaining === 0 ? 0 : null, gpRate = Number.isFinite(entity.totalGross) && entity.totalRevenue > 0 ? entity.totalGross / entity.totalRevenue : null, revenuePerDay = Number.isFinite(grossPerDay) && gpRate > 0 ? grossPerDay / gpRate : null; return { target:configuredTarget, monthStart, monthEnd, completed, totalDays, remainingDays, pace, cpPace, remaining, grossPerDay, gpRate, revenuePerDay, source: "SAPR Days Completed" }; }
+  function performancePlan(snapshot, entity, target) { const monthStart = `${snapshot.periodEnd.slice(0, 7)}-01`,monthEnd=lastDayOfMonth(snapshot.periodEnd.slice(0,7)), configuredTarget=configuredNumber(target), progress = globalThis.ServiceRefreshIntelligence?.workingProgress(snapshot,{today:localDateKey(),hour:freshness.timeParts(new Date(),businessTimeZone())?.hour??19,closeHour:18}), completed = progress ? progress.daysWorked : Number.isFinite(snapshot.saprDaysCompleted) ? snapshot.saprDaysCompleted : null, totalDays = Number.isFinite(snapshot.saprTotalDays) ? snapshot.saprTotalDays : null, remainingDays = completed !== null && totalDays !== null ? Math.max(0, totalDays - completed) : null, pace = completed > 0 && totalDays > 0 && Number.isFinite(entity.totalGross) ? entity.totalGross / completed * totalDays : null, cpPace = completed > 0 && totalDays > 0 && Number.isFinite(entity.cpGross) ? entity.cpGross / completed * totalDays : null, remaining = Number.isFinite(configuredTarget) && Number.isFinite(entity.totalGross) ? Math.max(0, configuredTarget - entity.totalGross) : null, grossPerDay = remainingDays > 0 && Number.isFinite(remaining) ? remaining / remainingDays : remaining === 0 ? 0 : null, gpRate = Number.isFinite(entity.totalGross) && entity.totalRevenue > 0 ? entity.totalGross / entity.totalRevenue : null, revenuePerDay = Number.isFinite(grossPerDay) && gpRate > 0 ? grossPerDay / gpRate : null; return { target:configuredTarget, monthStart, monthEnd, completed, totalDays, remainingDays, pace, cpPace, remaining, grossPerDay, gpRate, revenuePerDay, source: progress?.inProgress ? "SAPR working days — current day counts 0.5" : "SAPR days worked" }; }
   function currentCsiSurveys(end = localDateKey()) { const start = model.settings.csiPeriodStart || `${end.slice(0, 7)}-01`; return Object.fromEntries(Object.entries(model.operationalMetrics?.csi?.surveys || {}).filter(([, survey]) => survey.surveyDate >= start && survey.surveyDate <= end)); }
   function latestCsiRefreshDate() { const csi = model.operationalMetrics?.csi || {}; if (/^20\d{2}-\d{2}-\d{2}$/.test(csi.lastSuccessfulRefreshDate || "")) return csi.lastSuccessfulRefreshDate; return (csi.imports || []).map((item) => item.refreshDate || (item.importedAt ? localDateKey(new Date(item.importedAt)) : "")).filter((value) => /^20\d{2}-\d{2}-\d{2}$/.test(value)).sort().at(-1) || ""; }
   function latestOperationalSnapshot(family) { if(family==="nextAppointments")return latestNextAppointmentsSnapshot();if(family==="vir")return latestVirObservation();if(family==="mediaAsr")return sourceTrendObservations("mediaAsr").sort((a,b)=>text(a.periodEnd).localeCompare(text(b.periodEnd))||text(a.importedAt).localeCompare(text(b.importedAt))).at(-1)||null;if(family==="mediaAsrTech")return mediaTechReports().sort((a,b)=>text(a.periodEnd).localeCompare(text(b.periodEnd))||text(a.importedAt).localeCompare(text(b.importedAt))).at(-1)||null; const snapshots = model.operationalMetrics?.[family]?.snapshots || {}, keys = Object.keys(snapshots).sort(); return keys.length ? snapshots[keys.at(-1)] : null; }
@@ -2099,12 +2099,52 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   const developerSourcePaths = Object.freeze(["assets/maintenance.js","assets/maintenance-tests.js","index.html","assets/freshness.js","assets/app.js","assets/styles.css","assets/queue.css","assets/arrivals.css","assets/performance.css","assets/meeting.css","assets/assign-next.css","assets/assign-next-controls.css","assets/worklist.css","assets/operational.css","assets/clarity.css","assets/product-settings.css","assets/developer-center.js","assets/developer-center.css","assets/daily-engine.js","assets/daily-ops.js","assets/daily-ops.css","assets/tests.js","PROJECT_CONTEXT.md","README.txt","TEST_STATUS.md","AGENTS.md","test-harness.html"]);
   globalThis.__moondogDeveloperRead = Object.freeze({ allowedPaths: developerSourcePaths, isConnected: () => Boolean(model.root), rootName: () => model.root?.name || "connected Service Operations Dashboard folder", readSourceFile: async path => { if (!developerSourcePaths.includes(path)) throw new Error("Developer Center is limited to approved project source and documentation files."); if (!model.root) throw new Error("Connect the Service Operations Dashboard working folder first."); const bytes = await readFileBytes(path.split("/")); return Object.freeze({ path, size: bytes.byteLength, text: decodeUtf8(bytes) }); } });
 
+  // Learned refresh behavior and TV preferences are private settings data. Keep
+  // them in the existing guarded settings artifact so backup/restore preserves
+  // them without adding a new untracked state file.
+  async function updateLocalFuture(mutator) {
+    writeAuthority.requireWrite();
+    const future = { ...(model.settings.future || {}) };
+    mutator(future);
+    const nextSettings = { ...model.settings, future, updatedAt:now() };
+    await writeJson(SETTINGS_PATH, nextSettings);
+    model.settings.future = future;
+    model.settings.updatedAt = nextSettings.updatedAt;
+    return future;
+  }
+  async function recordRefreshLearning(source,kind,details={}) {
+    const planner=globalThis.ServiceRefreshIntelligence;
+    if(!planner?.catalog?.[source]||!writeAuthority.canWrite)return;
+    await updateLocalFuture(future=>{
+      future.refreshCadence=planner.learn(future.refreshCadence,source,kind,{
+        ...details,at:details.at||now(),
+        hour:freshness.timeParts(new Date(),businessTimeZone())?.hour
+      });
+    });
+  }
+  const REFRESH_IMPORT_KINDS=Object.freeze({
+    performance:"performance",sapr:"performance","open-ro":"open-ro",
+    appointments:"appointments","next-appointments":"next-appointments",
+    csi:"csi",vir:"vir","menu-sales":"menu-sales",menu:"menu-sales",
+    "media-asr":"media-asr","media-asr-tech":"media-asr-tech",
+    efficiency:"efficiency",sor:"sor"
+  });
+  async function rememberVerifiedImport(kind) {
+    const source=REFRESH_IMPORT_KINDS[kind];
+    if(!source)return;
+    try {
+      const key=source==="performance"?"sapr":source==="open-ro"?"openRo":source==="menu-sales"?"menu":source.replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase());
+      const evidence=sourceFreshness(key,{today:localDateKey()});
+      await recordRefreshLearning(source,"imported",{periodEnd:evidence?.periodEnd||evidence?.sourceDate||""});
+    } catch(error) { recordDiagnostic("REFRESH LEARNING", "Import succeeded; cadence observation could not be saved"); }
+  }
+
   // Daily operating UI uses the existing model and persistence paths exclusively.
   const dailyNotify = (type, detail = {}) => document.dispatchEvent(new CustomEvent(type, { detail }));
   const renderBeforeDaily = renderAll;
   renderAll = function () { renderBeforeDaily(); dailyNotify('moondog-data'); };
   const processBeforeDaily = processClassifiedCandidate;
-  processClassifiedCandidate = async function(...args) { const result=await processBeforeDaily(...args); dailyNotify('moondog-imported',{kind:args[1]});return result; };
+  processClassifiedCandidate = async function(...args) { const result=await processBeforeDaily(...args); await rememberVerifiedImport(args[1]); dailyNotify('moondog-imported',{kind:args[1]});return result; };
   const restoreBeforeDaily=restoreSelectedBackup;
   restoreSelectedBackup=async function(){await restoreBeforeDaily();dailyNotify('moondog-recovered');};
   const prepareBeforeDaily=prepareForNewStore;
@@ -2131,7 +2171,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     reportNeeds,
     reportRefreshRequests(todayKey=localDateKey()) {
       const types={openRo:'open-ro',sapr:'performance',csi:'csi',menu:'menu-sales',appointments:'appointments',nextAppointments:'next-appointments',vir:'vir',mediaAsr:'media-asr',mediaAsrTech:'media-asr-tech',efficiency:'efficiency',sor:'sor'},ranks={openRo:3.5,appointments:4.5,sapr:5.5};
-      return Object.values(reportNeeds(todayKey)).filter(need=>need.actionable).map(need=>{const evidence=sourceFreshness(need.key,{today:todayKey});return {source:types[need.key],description:need.actions.join(' '),rank:ranks[need.key]||7,fingerprint:JSON.stringify([todayKey,evidence.status,evidence.sourceTimestamp,evidence.periodEnd,need.reason])};});
+      return Object.values(reportNeeds(todayKey)).filter(need=>need.actionable).map(need=>{const evidence=sourceFreshness(need.key,{today:todayKey});return {source:types[need.key],description:need.actions.join(' '),period:evidence.expectedPeriod||'',rank:ranks[need.key]||7,fingerprint:JSON.stringify([todayKey,evidence.status,evidence.sourceTimestamp,evidence.periodEnd,need.reason])};});
     },
     date: localDateKey, priority: dailyFocusPriority, closed: isClosedManagement,
     clarification: clarificationFor, status: statusForRecord, statuses: selectableStatusesFor, statusDetails: statusDetailsFor, statusDetail: reviewStatusDetail, statusDetailLabel: reviewStatusDetailLabel, cdkIndicator: cdkStatusIndicator,
@@ -2140,6 +2180,28 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     openEdit, updateArrivalStatus, classify: classifyImportFile,
     latestSapr: currentSaprSnapshot, nextWin: configuredMeetingNextWin,
     readJson: async path => readJson(path.split('/'), null),
+    refreshHistory: () => model.settings.future?.refreshCadence || globalThis.ServiceRefreshIntelligence?.empty(),
+    sourceLocations: () => model.settings.future?.sourceLocations || {},
+    recordRefresh: (source,kind,details={}) => recordRefreshLearning(source,kind,details),
+    saveSourceLocation: async (source,location) => {
+      if(!globalThis.ServiceRefreshIntelligence?.catalog?.[source]||typeof location!=="string"||location.length>200)
+        throw Error("Choose a valid source and short location description.");
+      return updateLocalFuture(future=>{ future.sourceLocations={...(future.sourceLocations||{}),[source]:location.trim()}; });
+    },
+    priorYearSapr: () => globalThis.ServiceRefreshIntelligence?.matchPriorYear(
+      currentSaprSnapshot(),Object.values(model.performance?.snapshots||{}),{
+        today:localDateKey(),hour:freshness.timeParts(new Date(),businessTimeZone())?.hour??19
+      }),
+    presentationSettings: () => ({
+      seconds:model.settings.future?.presentation?.seconds||30,
+      orientation:model.settings.future?.presentation?.orientation||"auto"
+    }),
+    savePresentationSettings: async ({seconds,orientation}) => {
+      const interval=Number(seconds);
+      if(!Number.isInteger(interval)||interval<10||interval>120||!["auto","landscape","portrait"].includes(orientation))
+        throw Error("Choose 10–120 seconds and Auto, 16:9, or 9:16.");
+      return updateLocalFuture(future=>{future.presentation={seconds:interval,orientation};});
+    },
     readEntries: async function(path) {
       const result = []; let folder;
       try { folder = await directory(path.split('/'), false); }
