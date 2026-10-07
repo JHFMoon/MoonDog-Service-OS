@@ -17,7 +17,9 @@
         "bundler": "esbuild",
         "version": "0.25.10",
         "format": "iife",
-        "target": "chrome120"
+        "target": "chrome120",
+        "mainGlobalName": "pdfjsLib",
+        "workerGlobalName": "pdfjsWorker"
       }
     },
     "sheetjs": {
