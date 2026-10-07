@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.18-beta.1 — current Beta
+
+- Adds a compact Home control pulse for overdue commitments, due-today work, missing plans, long vehicles, customer updates, and comebacks.
+- Puts Open RO Control ahead of Assign Next so finishing work is visually prioritized before starting more.
+- Adds direct 2+ day, 5+ day, customer-update, and comeback filters.
+- Corrects the Daily Walk calendar so Monday is active and Sunday is the non-review day.
+- Counts only active ROs in the Store overview open-RO metric.
+- Prioritizes CSI in the Data Needed refresh queue.
+- Protects unsaved Home task drafts and Open RO edits from accidental navigation/close.
+- Improves keyboard focus visibility and active-navigation semantics.
+- Removes obsolete owner-authority wording from workspace state.
+- Decouples application update/recovery from the retired owner-editing policy while retaining explicit folder permission, package verification, rollback backup, approved-path enforcement, and read-back verification.
+- No Workspace migration.
+
+
 ## 0.10.17 — current Stable
 
 - Removes the single-computer owner-editing designation requirement.
