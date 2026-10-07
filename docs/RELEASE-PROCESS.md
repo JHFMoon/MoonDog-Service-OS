@@ -7,8 +7,11 @@ For every Stable version `X.Y.Z`, all of the following must agree:
 - `updates/manifest.json` publishes Stable version `X.Y.Z`.
 - The Stable package is `updates/packages/moondog-X.Y.Z.json`.
 - The package SHA-256 exactly matches the Stable manifest.
-- The Stable package URL is the GitHub Release asset:
+- The formal GitHub Release asset is:
   `https://github.com/JHFMoon/MoonDog-Service-OS/releases/download/vX.Y.Z/moondog-X.Y.Z.json`.
+- The Stable manifest uses the **same tagged package**, served from GitHub's
+  browser-compatible raw files service:
+  `https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/vX.Y.Z/updates/packages/moondog-X.Y.Z.json`.
 - The formal GitHub Release tag is `vX.Y.Z`.
 - The GitHub Release contains that exact package as an asset.
 - The release is not a draft or prerelease.
@@ -22,7 +25,19 @@ For every Stable version `X.Y.Z`, all of the following must agree:
 4. After the successful Publication check on `main`, `.github/workflows/stable-release.yml` creates or verifies the matching GitHub Release.
 5. The workflow verifies the release asset SHA-256 against the Stable manifest before considering publication complete.
 
-The updater may advertise a Stable version only through the package URL declared in the Stable manifest. That URL must be the matching GitHub Release asset.
+A Stable version is not complete without its matching formal GitHub Release and
+attached asset. Because `file://` browser pages cannot reliably fetch GitHub
+Release download assets (the redirects lack CORS access), the updater **must not
+download directly from `github.com/.../releases/download/`**. Instead, it fetches
+the immutable-version **Release-tagged source mirror** above using `no-store`,
+then verifies the identical package SHA-256 from the manifest. The formal
+GitHub Release asset is still published and independently hash-checked by CI;
+a manifest-only version is never a finished Stable publication.
+
+The version tag, package, release asset, and manifest digest must agree.
+No third-party proxy, customer data transfer, special token, or runtime service
+is required. A tag-mirror URL is unavailable before the tag exists, preventing
+successful installation before formal release publication.
 
 ## Repair behavior
 
