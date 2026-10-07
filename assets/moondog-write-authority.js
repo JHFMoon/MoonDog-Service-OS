@@ -12,31 +12,40 @@
   const MARKER = [...WORKSPACE, "data", "write-authority.json"];
   const REVISION = [...WORKSPACE, "data", "store-revision.json"];
   const encoder = new TextEncoder();
+  const sessionIdentities = new Map();
   const notify = () => global.dispatchEvent?.(new Event("moondog-write-authority"));
   function setEditable(value) { editable = value; notify(); }
   async function localIdentity(markerDigest) {
-    const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, 1);
-      request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains("handles")) request.result.createObjectStore("handles"); };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    try { return await new Promise((resolve, reject) => {
-      const tx = db.transaction("handles", "readonly"), request = tx.objectStore("handles").get(`${ID_KEY}:${markerDigest}`);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    }); } finally { db.close(); }
+    if (sessionIdentities.has(markerDigest)) return sessionIdentities.get(markerDigest);
+    try {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains("handles")) request.result.createObjectStore("handles"); };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try { return await new Promise((resolve, reject) => {
+        const tx = db.transaction("handles", "readonly"), request = tx.objectStore("handles").get(`${ID_KEY}:${markerDigest}`);
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+      }); } finally { db.close(); }
+    } catch (_) { return null; }
   }
   async function saveLocalIdentity(secret, markerDigest) {
-    const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, 1);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    try { await new Promise((resolve, reject) => {
-      const tx = db.transaction("handles", "readwrite"); tx.objectStore("handles").put(secret, `${ID_KEY}:${markerDigest}`);
-      tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
-    }); } finally { db.close(); }
+    sessionIdentities.set(markerDigest, secret);
+    try {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains("handles")) request.result.createObjectStore("handles"); };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try { await new Promise((resolve, reject) => {
+        const tx = db.transaction("handles", "readwrite"); tx.objectStore("handles").put(secret, `${ID_KEY}:${markerDigest}`);
+        tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+      }); } finally { db.close(); }
+      return true;
+    } catch (_) { return false; }
   }
   async function at(root, path, create = false) {
     let dir = root;
@@ -172,6 +181,46 @@
     if (!root) return false;
     try { await at(root, MARKER); return false; }
     catch (error) { return error.name === "NotFoundError"; }
+  }
+  async function recoverOwner(root, confirmation) {
+    // Explicit local recovery; ordinary validation never grants or transfers authority.
+    if (confirmation !== "RECOVER EDITING") throw denied();
+    if (activeToken) throw Error("Finish the current write before recovering owner authority.");
+    root = originals.get(root) || root;
+    if (!root || await root.queryPermission({ mode: "readwrite" }) !== "granted") throw Error("Folder write permission was not granted.");
+    try {
+      await root.getFileHandle("index.html");
+      const workspace = await (await root.getDirectoryHandle(WORKSPACE[0])).getDirectoryHandle(WORKSPACE[1]);
+      await workspace.getDirectoryHandle("data");
+    } catch (error) {
+      if (["NotFoundError", "TypeMismatchError"].includes(error.name)) throw Error("The selected folder is not a Service Operations Dashboard workspace.");
+      throw error;
+    }
+    const markerBefore = await readBytes(root, MARKER), revisionBefore = await readBytes(root, REVISION);
+    let revision = null;
+    try { revision = await read(root, REVISION); } catch (error) {
+      if (error.name !== "NotFoundError" && !(error instanceof SyntaxError)) throw error;
+    }
+    if (validRevision(revision)) await recoverPending(root, revision);
+    else {
+      if ((await journalsIn(root)).length) throw Error("Interrupted writes must be reconciled before authority recovery.");
+      revision = { schemaVersion: 1, revision: 0 };
+    }
+    const secret = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    const markerDigest = await digest(secret);
+    try {
+      if (!validRevision(await read(root, REVISION).catch(() => null))) await write(root, REVISION, revision);
+      await write(root, MARKER, { schemaVersion: 1, digest: markerDigest });
+      const persisted = await saveLocalIdentity(secret, markerDigest);
+      if (!await validate(root)) throw Error("Owner authority recovery did not verify.");
+      return persisted;
+    } catch (error) {
+      try {
+        if (markerBefore === null) await removeRaw(root, MARKER); else await writeBytesRaw(root, MARKER, markerBefore);
+        if (revisionBefore === null) await removeRaw(root, REVISION); else await writeBytesRaw(root, REVISION, revisionBefore);
+      } catch (rollbackError) { throw new AggregateError([error, rollbackError], "Authority recovery failed and its rollback needs attention."); }
+      throw error;
+    }
   }
   let tail = Promise.resolve(), activeToken = null;
   async function beginMutation() {
@@ -384,6 +433,7 @@
     // A test build must opt in before loading this module. Normal builds cannot enable writes.
     provision,
     canProvision,
+    recoverOwner,
     validate,
     mutation,
     journaledDelete,
