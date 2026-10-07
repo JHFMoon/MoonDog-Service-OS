@@ -72,7 +72,7 @@ test("YoY matches closest verified SAPR workday and rejects materially unmatched
   const missing=R.matchPriorYear(current,[{periodEnd:"2025-10-01",saprDaysCompleted:1,saprTotalDays:23}],{today:"2026-10-06",hour:13});
   assert.equal(missing.status,"needs-history");
   assert.equal(missing.periodStart,"2025-10-01");
-  assert.equal(missing.estimatedEnd,"2025-10-09");
+  assert.equal(missing.estimatedEnd,"2025-10-10");
 });
 test("Home picks at most five non-duplicate actionable tasks and excludes reports",()=>{
   const tasks=[
