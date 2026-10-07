@@ -1,11 +1,11 @@
 {
   "stable": {
-    "version": "0.10.14",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v0.10.14/updates/packages/moondog-0.10.14.json",
-    "sha256": "c6c0a18bf57c47b5614691698e659f7d866c12ec2b84717ed5c2017b308238e9",
+    "version": "0.10.15",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v0.10.15/updates/packages/moondog-0.10.15.json",
+    "sha256": "fee5e99d26da8e2641f4785c0c48a3e2fe7f46d2ceb9f438e3cda767e3421fd9",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Refines full-backup retention: keep every validated full backup for 30 days, then retain one monthly recovery point for 12 months, always preserve the newest 3 validated full backups, and never prune a full backup unless a newer validated full backup exists. No workspace migration."
+    "releaseNotes": "Adds a deliberate local owner-recovery path for editing authority, including browser-safe folder permission recovery and browser-storage fallback, while preserving the existing write gate and protected Workspace. No workspace migration."
   },
   "beta": {
     "version": "0.10.15-beta.1",

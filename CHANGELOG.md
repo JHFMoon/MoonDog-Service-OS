@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.10.14 — current Stable
+## 0.10.15 — current Stable
+
+- Adds **Recover owner editing** for a connected local copy that has lost its matching browser identity.
+- Requests folder write permission directly from the final recovery click so Edge retains required user activation.
+- Preserves the existing write gate: ordinary read-only copies cannot mutate operational data without deliberate owner recovery and verified local folder write access.
+- Keeps recovery usable for the current session if browser storage is unavailable, without deleting or publishing operational data.
+- Preserves the protected Workspace with no migration.
+
+## 0.10.14 — previous Stable
 
 - Keeps every validated full backup for the first 30 days.
 - After 30 days, compacts full backups to one validated recovery point per calendar month across a 12-month window.
@@ -8,7 +16,7 @@
 - Never prunes a full backup unless a newer validated full backup exists.
 - Updates the Backup & Recovery policy text and regression coverage for monthly retention.
 
-## 0.10.15-beta.1 — next Beta
+## 0.10.15-beta.1 — previous Beta
 
 - Carries forward Stable 0.10.14 as the next optional Beta baseline.
 
