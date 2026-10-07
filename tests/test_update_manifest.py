@@ -81,6 +81,14 @@ class UpdateManifestTests(unittest.TestCase):
         stable_package = self.validate_package("stable", stable)
         beta_package = self.validate_package("beta", beta)
 
+        self.assertFalse(beta["migrationRequired"])
+        # Beta is self-contained and the installed 0.10.9+ updater is layout-aware.
+        # Do not require a separate Stable upgrade unless a real migration demands it.
+        stable_floor = tuple(map(int, stable["minimumCompatibleVersion"].split(".")))
+        beta_floor = tuple(map(int, beta["minimumCompatibleVersion"].split(".")))
+        self.assertLessEqual(beta_floor, stable_floor,
+            "A complete non-migration Beta must not demand an unnecessary Stable step")
+
         self.assertTrue(
             set(beta_package["approvedFiles"]).issubset(stable_package["approvedFiles"]),
             "Stable must restore every file touched by the current Beta package",

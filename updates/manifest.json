@@ -11,8 +11,8 @@
     "version": "0.10.12-beta.1",
     "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.12-beta.1.json",
     "sha256": "0b721e9c0a723dd0b5c452f9606ed27b20548710226b8b00bb365bcd3ecc0c80",
-    "minimumCompatibleVersion": "0.10.11",
+    "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Upcoming Beta baseline after Stable 0.10.11. Carries forward the source-aware refresh intelligence, private learned cadence, five-item Home, half-day SAPR pacing and 16:9/9:16 Advisor Meeting cards for optional continued testing."
+    "releaseNotes": "Optional next-version Beta containing the full Stable 0.10.11 feature set: source-aware refresh intelligence, private learned cadence, five-item Home, half-day SAPR pacing and 16:9/9:16 meeting cards. Can install directly from a validated 0.10.9+ layout-aware installation; no intermediate Stable update or workspace migration required."
   }
 }

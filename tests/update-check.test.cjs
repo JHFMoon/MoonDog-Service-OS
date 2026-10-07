@@ -54,6 +54,21 @@ test("Compares versions and reports incompatibility without applying", async () 
   assert.equal(prerelease.status, "newer-version");
 });
 
+test("live Beta allows a direct update from the validated 0.10.9 layout", async () => {
+  const activeManifest=JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.json"), "utf8"));
+  assert.equal(activeManifest.beta.migrationRequired, false);
+  const fromLocal=await check({currentVersion:"0.10.9",channel:"beta",manual:true,
+    fetcher:fetchManifest(activeManifest)});
+  assert.equal(fromLocal.status,"newer-version");
+  assert.equal(fromLocal.version,activeManifest.beta.version);
+  assert.equal(fromLocal.packageUrl,activeManifest.beta.packageUrl);
+
+  const unsupported=await check({currentVersion:"0.10.8",channel:"beta",manual:true,
+    fetcher:fetchManifest(activeManifest)});
+  assert.equal(unsupported.status,"incompatible");
+  assert.equal(unsupported.minimumCompatibleVersion,"0.10.9");
+});
+
 test("current Beta can select the verified Stable package as a channel downgrade", async () => {
   const ready = { ...manifest, stable: { ...manifest.stable, packageUrl: "https://example.test/stable.json", sha256: "a".repeat(64) } };
   const result = await check({ currentVersion: "1.3.0-beta.2", channel: "stable", fetcher: fetchManifest(ready) });
