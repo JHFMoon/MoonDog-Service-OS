@@ -9,7 +9,7 @@ See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DA
 ## Current channels
 
 - **Stable:** `0.10.11` ([GitHub Release](https://github.com/JHFMoon/MoonDog-Service-OS/releases/tag/v0.10.11))
-- **Beta:** `0.10.12-beta.1` (optional preview of the next release)
+- **Beta:** `0.10.12-beta.2` (optional preview with meeting/navigation and narrow-layout hotfixes)
 
 Stable 0.10.11 builds on the validated local architecture and requires the layout-aware updater from version `0.10.9` or later. Older 0.10.8-era installations remain intentionally incompatible.
 

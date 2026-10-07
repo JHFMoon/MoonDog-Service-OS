@@ -6,6 +6,10 @@
 .folder-watch-setting{display:grid;grid-template-columns:minmax(220px,1fr) auto auto;align-items:center;gap:16px;padding:14px 16px;margin:0 0 18px;border:1px solid #cbdde8;border-radius:10px;background:#f7fbfd}.folder-watch-setting div{display:grid;gap:3px}.folder-watch-setting small{color:var(--muted)}.folder-watch-setting>span{font-size:12px;color:var(--muted)}.switch-label{display:flex!important;align-items:center;gap:8px;margin:0!important;font-weight:800!important}.switch-label input{width:auto}.badge.watch-working{background:#fff3d3;color:#684b00}.badge.watch-error{background:#fde8e8;color:#862424}@media(max-width:760px){.folder-watch-setting{grid-template-columns:1fr auto}.folder-watch-setting>span{grid-column:1/-1}}
 
 #settings-update{grid-column:1/-1;max-width:760px;width:100%}
+#settings-update{min-width:0;overflow:hidden}
+#settings-update .button-row{flex-wrap:wrap}
+#settings-update .settings-note,#settings-update #updateStatus,#settings-update .update-progress small{max-width:100%;min-width:0;overflow-wrap:anywhere;word-break:break-word}
+#settings-update #updatePlan{max-width:100%;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;overflow:auto;font-size:12px;line-height:1.4}
 
 /* Authoritative CDK workflow review */
 .cdk-status-indicator{margin:10px 0 2px;padding:8px 11px;border-radius:9px;font-size:13px;font-weight:700;line-height:1.35;background:#eef5f7;color:#355965;border:1px solid #c9dce2}

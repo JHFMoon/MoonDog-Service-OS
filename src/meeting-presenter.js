@@ -26,10 +26,11 @@
     const owner=$("meetingV3Advisors");
     for(const card of list){if(card.parentElement===owner)owner.append(card);}
     const selected=state.index===0?null:list[state.index-1];
-    view.classList.toggle("presentation-active",state.enabled);
+    const visible=state.enabled&&view.classList.contains("active");
+    view.classList.toggle("presentation-active",visible);
     view.dataset.presenterSlide=selected?"advisor":"store";
     view.dataset.presenterOrientation=setting().orientation;
-    for(const card of list)card.dataset.slideActive=String(Boolean(state.enabled&&card===selected));
+    for(const card of list)card.dataset.slideActive=String(Boolean(visible&&card===selected));
     if(state.controls){
       const label=state.controls.querySelector("[data-slide-label]");
       if(label)label.textContent=`${selected?selected.querySelector("h3")?.textContent||"Advisor":"Store"} · ${state.index+1} of ${count}`;
@@ -102,7 +103,7 @@
   }
   document.addEventListener("moondog-navigation",event=>{
     if(event.detail?.view==="meeting")queueMicrotask(activate);
-    else if(event.detail?.view){stopTimer();}
+    else if(event.detail?.view){stopTimer();paint();}
   });
   document.addEventListener("moondog-data",()=>{installPreferences();ensureControls();paint();});
   document.addEventListener("moondog-recovered",()=>{stopTimer();state.index=0;state.enabled=false;paint();});

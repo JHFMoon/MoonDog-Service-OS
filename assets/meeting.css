@@ -92,7 +92,7 @@ body.meeting-fullscreen{padding:0!important;border:0!important;background:var(--
 .presentation-active .meeting-v3-advisor .next-win span{font-size:clamp(17px,1.4cqw,25px)!important}
 .presentation-active .meeting-v3-advisor .next-win strong{font-size:clamp(28px,2.8cqw,48px)!important}
 .presentation-active .meeting-v3-advisor .next-win small{font-size:clamp(15px,1.5cqw,24px)!important;line-height:1.2!important}
-body.meeting-fullscreen #view-meeting.meeting-scoreboard.presentation-active{
+#view-meeting.meeting-scoreboard.presentation-active:not(.active){display:none!important}\nbody.meeting-fullscreen #view-meeting.meeting-scoreboard.presentation-active{
   height:100dvh!important;min-height:100dvh!important
 }
 body.meeting-fullscreen .meeting-scoreboard-actions>#meetingFullscreen{display:none!important}
