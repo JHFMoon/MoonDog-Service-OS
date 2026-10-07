@@ -122,11 +122,13 @@ def build(source_root: Path, vendor_dir: Path, output: Path) -> dict:
     payload[f"{ARCHIVE_ROOT}/START HERE.txt"] = clean_install_readme(version)
 
     file_hashes = {name: sha256(data) for name, data in sorted(payload.items())}
+    dependency_contract = json.loads((DEFAULT_ROOT / "distribution" / "dependencies.json").read_text(encoding="utf-8"))
     install_manifest = {
         "schemaVersion": 1,
         "product": "Service Operations Dashboard",
         "version": version,
         "dataBoundary": "System Files/Workspace is user-owned local state and is intentionally empty in this archive.",
+        "runtimeDependencies": dependency_contract["runtimeLibraries"],
         "files": file_hashes,
     }
     payload[f"{ARCHIVE_ROOT}/INSTALL-MANIFEST.json"] = (
