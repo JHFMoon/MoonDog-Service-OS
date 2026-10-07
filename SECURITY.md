@@ -22,6 +22,12 @@ Customer, employee, advisor, technician, repair order, VIN, contact, report, his
 
 `.gitignore` is an accident-reduction measure, not a security boundary.
 
+## Continuous public-data guard
+
+The repository is public, so every branch and tag must be treated as public the moment it is pushed. The Publication Check therefore runs on every push, every pull request, on manual request, and on a weekly schedule. It scans the current tree and all reachable public Git history. Stable releases and the GitHub Pages/offline-distribution workflow independently re-run the current-tree and full-history sanitization gates before publishing.
+
+The guard fails closed for blocked operational paths, local state, common report/document/image formats, credentials/secrets, store target values, and contextual PII indicators. Matched sensitive values are never printed in CI logs.
+
 ## Reporting a problem
 
 Do not put sensitive data in a public issue. Use GitHub's private vulnerability reporting for this repository if available, or contact the repository owner privately.

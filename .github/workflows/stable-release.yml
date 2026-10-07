@@ -30,11 +30,15 @@ jobs:
           ref: ${{ env.HEAD_SHA }}
           fetch-depth: 0
 
+      - name: Fetch all public refs for history audit
+        run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
+
       - name: Re-run release safety checks
         run: |
           python3 -m unittest discover -s tests -p 'test_*.py'
           node --test tests/*.test.cjs
           python3 scripts/check_publication.py
+          python3 scripts/audit_git_history.py
 
       - name: Read and verify Stable release contract
         id: stable
