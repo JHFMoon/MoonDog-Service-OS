@@ -80,7 +80,13 @@ def release_contract_errors(root):
                 raise ValueError(f"{channel} version is invalid")
             filename = f"moondog-{version}.json"
             relative = f"updates/packages/{filename}"
-            expected_url = f"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/{relative}"
+            if channel == "stable":
+                expected_url = (
+                    f"https://github.com/JHFMoon/MoonDog-Service-OS/releases/download/"
+                    f"v{version}/{filename}"
+                )
+            else:
+                expected_url = f"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/{relative}"
             if release["packageUrl"] != expected_url:
                 raise ValueError(f"{channel} package URL is missing or untrusted")
             raw = (root / relative).read_bytes()
