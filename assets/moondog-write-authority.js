@@ -151,20 +151,41 @@
     }
   }
   async function validate(root = nativeRoot, ask = false) {
+    // Temporary open-editing mode: any connected workspace with browser-granted
+    // read/write folder permission may edit. The former single-computer identity
+    // gate is intentionally disabled until a replacement coordination model exists.
     root = originals.get(root) || root;
     if (!root) { setTransientValidation(false); setEditable(false); loadedRevision = null; return false; }
     let lastTransient = false;
     for (let attempt = 0; attempt < transientValidationDelays.length; attempt += 1) {
       if (transientValidationDelays[attempt]) await sleep(transientValidationDelays[attempt]);
       try {
-        const marker = await read(root, MARKER), revision = await read(root, REVISION);
-        const secret = await localIdentity(marker?.digest);
-        if (typeof secret !== "string" || secret.length < 32) throw denied();
-        if (marker?.schemaVersion !== 1 || marker.digest !== await digest(secret) || !validRevision(revision)) throw denied();
         let permission = await root.queryPermission({ mode: "readwrite" });
         if (permission !== "granted" && ask && attempt === 0) permission = await root.requestPermission({ mode: "readwrite" });
         if (permission !== "granted") throw denied();
-        if (!activeToken) await recoverPending(root, revision);
+        let revision = null;
+        try { revision = await read(root, REVISION); }
+        catch (error) {
+          if (error.name !== "NotFoundError" && !(error instanceof SyntaxError)) throw error;
+        }
+        if (!validRevision(revision)) {
+          revision = { schemaVersion: 1, revision: 0 };
+          await write(root, REVISION, revision);
+        }
+        if (!activeToken) {
+          try { await recoverPending(root, revision); }
+          catch (error) {
+            // A stale/inconsistent legacy journal must not put the whole dashboard
+            // back into read-only mode. Preserve the journal for later review and
+            // continue from the durable files currently on disk.
+            console.warn("MoonDog: stale transaction journal left in place; open editing continues.", error);
+          }
+          revision = await read(root, REVISION);
+          if (!validRevision(revision)) {
+            revision = { schemaVersion: 1, revision: 0 };
+            await write(root, REVISION, revision);
+          }
+        }
         nativeRoot = root; loadedRevision = revision.revision; setTransientValidation(false); setEditable(true); return true;
       } catch (error) {
         lastTransient = transientInterfaceState(error);
@@ -173,68 +194,9 @@
     }
     setTransientValidation(lastTransient); setEditable(false); loadedRevision = null; return false;
   }
-  async function provision(root) {
-    // One-time controlled setup on the designated computer. Never runs at startup.
-    if (await root.queryPermission({ mode: "readwrite" }) !== "granted") throw denied();
-    try { await at(root, MARKER); throw new Error("Authority already assigned; no takeover is available."); }
-    catch (error) { if (error.name !== "NotFoundError") throw error; }
-    const secret = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, "0")).join("");
-    let revision;
-    try { revision = await read(root, REVISION); }
-    catch (error) { if (error.name !== "NotFoundError") throw error; }
-    if (revision && !validRevision(revision)) throw Error("Store revision is invalid; setup stopped.");
-    await recoverPending(root, revision || { schemaVersion: 1, revision: 0 });
-    if (!revision) await write(root, REVISION, { schemaVersion: 1, revision: 0 });
-    const markerDigest = await digest(secret);
-    await write(root, MARKER, { schemaVersion: 1, digest: markerDigest });
-    await saveLocalIdentity(secret, markerDigest);
-    if (!await validate(root)) throw new Error("Authoritative computer setup did not verify.");
-  }
-  async function canProvision(root) {
-    if (!root) return false;
-    try { await at(root, MARKER); return false; }
-    catch (error) { return error.name === "NotFoundError"; }
-  }
-  async function recoverOwner(root, confirmation) {
-    // Explicit local recovery; ordinary validation never grants or transfers authority.
-    if (confirmation !== "RECOVER EDITING") throw denied();
-    if (activeToken) throw Error("Finish the current write before recovering owner authority.");
-    root = originals.get(root) || root;
-    if (!root || await root.queryPermission({ mode: "readwrite" }) !== "granted") throw Error("Folder write permission was not granted.");
-    try {
-      await root.getFileHandle("index.html");
-      const workspace = await (await root.getDirectoryHandle(WORKSPACE[0])).getDirectoryHandle(WORKSPACE[1]);
-      await workspace.getDirectoryHandle("data");
-    } catch (error) {
-      if (["NotFoundError", "TypeMismatchError"].includes(error.name)) throw Error("The selected folder is not a Service Operations Dashboard workspace.");
-      throw error;
-    }
-    const markerBefore = await readBytes(root, MARKER), revisionBefore = await readBytes(root, REVISION);
-    let revision = null;
-    try { revision = await read(root, REVISION); } catch (error) {
-      if (error.name !== "NotFoundError" && !(error instanceof SyntaxError)) throw error;
-    }
-    if (validRevision(revision)) await recoverPending(root, revision);
-    else {
-      if ((await journalsIn(root)).length) throw Error("Interrupted writes must be reconciled before authority recovery.");
-      revision = { schemaVersion: 1, revision: 0 };
-    }
-    const secret = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, "0")).join("");
-    const markerDigest = await digest(secret);
-    try {
-      if (!validRevision(await read(root, REVISION).catch(() => null))) await write(root, REVISION, revision);
-      await write(root, MARKER, { schemaVersion: 1, digest: markerDigest });
-      const persisted = await saveLocalIdentity(secret, markerDigest);
-      if (!await validate(root)) throw Error("Owner authority recovery did not verify.");
-      return persisted;
-    } catch (error) {
-      try {
-        if (markerBefore === null) await removeRaw(root, MARKER); else await writeBytesRaw(root, MARKER, markerBefore);
-        if (revisionBefore === null) await removeRaw(root, REVISION); else await writeBytesRaw(root, REVISION, revisionBefore);
-      } catch (rollbackError) { throw new AggregateError([error, rollbackError], "Authority recovery failed and its rollback needs attention."); }
-      throw error;
-    }
-  }
+  async function provision(root) { return validate(root, true); }
+  async function canProvision() { return false; }
+  async function recoverOwner(root) { return validate(root, true); }
   let tail = Promise.resolve(), activeToken = null;
   async function beginMutation() {
     requireWrite();
@@ -440,7 +402,7 @@
   }
   const authority = {
     get canWrite() { return editable; },
-    get mode() { return editable ? "EDITABLE" : "READ ONLY"; },
+    get mode() { return editable ? "EDITABLE" : "FOLDER PERMISSION REQUIRED"; },
     get transientValidation() { return transientValidation; },
     requireWrite,
     wrapDirectory,
