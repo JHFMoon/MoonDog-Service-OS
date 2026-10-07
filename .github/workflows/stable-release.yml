@@ -58,11 +58,11 @@ jobs:
               raise SystemExit(f"Missing Stable package: {package}")
 
           expected_url = (
-              f"https://github.com/JHFMoon/MoonDog-Service-OS/releases/download/"
-              f"v{version}/{package.name}"
+              f"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/"
+              f"v{version}/updates/packages/{package.name}"
           )
           if stable.get("packageUrl") != expected_url:
-              raise SystemExit("Stable manifest must point to the matching GitHub Release asset")
+              raise SystemExit("Stable manifest must point to the CORS-safe matching Release tag mirror")
 
           package_bytes = package.read_bytes()
           digest = hashlib.sha256(package_bytes).hexdigest()
