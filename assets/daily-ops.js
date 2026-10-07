@@ -443,7 +443,8 @@
     const owner=$("meetingV3Advisors");
     for(const card of list){if(card.parentElement===owner)owner.append(card);}
     const selected=state.index===0?null:list[state.index-1];
-    const visible=state.enabled&&view.classList.contains("active");\n    view.classList.toggle("presentation-active",visible);
+    const visible=state.enabled&&view.classList.contains("active");
+    view.classList.toggle("presentation-active",visible);
     view.dataset.presenterSlide=selected?"advisor":"store";
     view.dataset.presenterOrientation=setting().orientation;
     for(const card of list)card.dataset.slideActive=String(Boolean(visible&&card===selected));
