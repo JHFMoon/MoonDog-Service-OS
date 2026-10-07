@@ -31,7 +31,10 @@ jobs:
           import re
           from pathlib import Path
           text = Path("assets/app.js").read_text(encoding="utf-8")
-          print(re.search(r'const VERSION="([^"]+)"', text).group(1))
+          match = re.search(r'const\\s+VERSION\\s*=\\s*"([^"]+)"', text)
+          if not match:
+              raise SystemExit("Application version not found")
+          print(match.group(1))
           PY
           )"
           ZIP="dist/service-operations-dashboard-clean-$VERSION.zip"
