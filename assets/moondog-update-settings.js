@@ -148,9 +148,9 @@
   function clearProgress() { state.progress = null; const box = field("updateProgress"); box.hidden = true; box.className = "update-progress"; }
   function render() {
     field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
-    field("updateChannelNote").textContent = state.channel === "beta" ?
+    field("updateChannelNote").textContent = (state.channel === "beta" ?
       "Beta is the test channel. A verified return to Stable remains available." :
-      "Stable is the normal operating channel.";
+      "Stable is the normal operating channel.") + (state.hasRecoverable ? " Resolve the interrupted update recovery before installing another update." : "");
     field("updateLastCheck").textContent = state.lastCheck ? new Date(state.lastCheck).toLocaleString() : "Never";
     const result = state.check;
     availability.textContent = result?.status === "newer-version" ?
@@ -164,7 +164,7 @@
     field("updateFolders").textContent = `Connected workspace: ${appRoot()?.name || "not connected"}. Application files: System Files/. Update rollback backups: System Files/Workspace/backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
       state.channel === "beta" ? "Install Beta" : "Install Update";
-    installButton.disabled = state.busy || state.recoveryRequired || !currentOffer();
+    installButton.disabled = state.busy || state.recoveryRequired || state.hasRecoverable || !currentOffer();
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
     field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable;
