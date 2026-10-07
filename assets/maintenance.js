@@ -1,6 +1,6 @@
 (function(root){'use strict';
 const DAY=86400000,canonical=['current-state','settings','appointments','advisor-performance','assign-next','auto-import','operational-metrics','meeting-cycle','recovery'].map(n=>'data/'+n+'.json');
-const RETENTION=Object.freeze({automaticDays:30,automaticMax:50,fullDays:90,fullMax:3,fullRefreshDays:30,restoreSafetyDays:30,restoreSafetyMax:2,deploymentDays:90,deploymentMax:3,systemUpdateDays:30,systemUpdateMax:3,supportDays:30,supportMax:2,revisionDays:30,revisionMax:3,importDays:90});
+const RETENTION=Object.freeze({automaticDays:30,automaticMax:50,fullRecentDays:30,fullMonthlyMonths:12,fullMax:3,fullRefreshDays:30,restoreSafetyDays:30,restoreSafetyMax:2,deploymentDays:90,deploymentMax:3,systemUpdateDays:30,systemUpdateMax:3,supportDays:30,supportMax:2,revisionDays:30,revisionMax:3,importDays:90});
 const encode=s=>new TextEncoder().encode(s),decode=b=>new TextDecoder().decode(b),equal=(a,b)=>a?.length===b?.length&&a.every((v,i)=>v===b[i]);
 const json=b=>JSON.parse(decode(b).replace(/^\uFEFF/,''));
 const stable=v=>JSON.stringify(v&&typeof v==='object'?Array.isArray(v)?v.map(x=>JSON.parse(stable(x))):Object.fromEntries(Object.keys(v).sort().map(k=>[k,JSON.parse(stable(v[k]))])):v);
@@ -41,7 +41,12 @@ function policy(files,ctx){
  const automaticCap=new Set(automatic.slice(0,RETENTION.automaticMax).map(f=>f.path)),newest=new Map();
  for(const f of automatic){const k=f.family+':'+(f.day||f.path.slice(8,18));if(!newest.has(k))newest.set(k,f);}
  for(const f of automatic){const a=age(f),k=f.family+':'+(f.day||f.path.slice(8,18));if(a>RETENTION.automaticDays||!automaticCap.has(f.path)||(a>7&&newest.get(k)!==f))add(f);}
- const specs={'manager-full':[RETENTION.fullMax,RETENTION.fullDays],'restore-safety':[RETENTION.restoreSafetyMax,RETENTION.restoreSafetyDays],deployment:[RETENTION.deploymentMax,RETENTION.deploymentDays],'system-update':[RETENTION.systemUpdateMax,RETENTION.systemUpdateDays],support:[RETENTION.supportMax,RETENTION.supportDays],revision:[RETENTION.revisionMax,RETENTION.revisionDays]};
+ const full=files.filter(f=>f.area==='manager-full'&&f.valid&&!f.unresolved).sort((a,b)=>(b.createdAt||b.modified)-(a.createdAt||a.modified)||b.path.localeCompare(a.path));
+ const fullRetain=new Set(full.slice(0,RETENTION.fullMax).map(f=>f.path));
+ for(const f of full)if(age(f)<=RETENTION.fullRecentDays)fullRetain.add(f.path);
+ for(let n=0;n<RETENTION.fullMonthlyMonths;n++){const d=new Date(day+'T12:00:00Z');d.setUTCDate(1);d.setUTCMonth(d.getUTCMonth()-n);const month=d.toISOString().slice(0,7),f=full.find(f=>new Date(f.createdAt||f.modified).toISOString().slice(0,7)===month);if(f)fullRetain.add(f.path);}
+ for(const f of full){const stamp=f.createdAt||f.modified,newer=full.some(b=>(b.createdAt||b.modified)>stamp);if(!fullRetain.has(f.path)&&newer)add(f);}
+ const specs={'restore-safety':[RETENTION.restoreSafetyMax,RETENTION.restoreSafetyDays],deployment:[RETENTION.deploymentMax,RETENTION.deploymentDays],'system-update':[RETENTION.systemUpdateMax,RETENTION.systemUpdateDays],support:[RETENTION.supportMax,RETENTION.supportDays],revision:[RETENTION.revisionMax,RETENTION.revisionDays]};
  for(const [area,[maxCount,maxDays]] of Object.entries(specs)){
   const all=files.filter(f=>f.area===area&&f.valid&&!f.unresolved).sort((a,b)=>b.modified-a.modified||b.path.localeCompare(a.path));
   all.forEach((f,index)=>{if(index>=maxCount||age(f)>maxDays)add(f);});
