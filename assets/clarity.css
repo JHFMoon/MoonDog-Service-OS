@@ -1,0 +1,31 @@
+/* Page-ownership cleanup: remove the Total Gross KPI that repeats the
+   authoritative executive Total Gross immediately above it. */
+.performance-kpis article:first-child {
+  display: none;
+}
+
+.performance-kpis {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .performance-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .performance-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.edit-validation {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: #fde8e8;
+  color: #862424;
+  font-size: 13px;
+  font-weight: 700;
+}
