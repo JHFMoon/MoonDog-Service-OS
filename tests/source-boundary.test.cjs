@@ -7,7 +7,7 @@ const app = fs.readFileSync(path.join(root, 'assets/app.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'updates/manifest.json'), 'utf8'));
 
-assert.match(html, /<title>Service Operations Hub<\/title>/);
+assert.match(html, /<title>Service Operations Dashboard<\/title>/);
 assert.match(app, /const SOURCE_ADAPTER_BOOTSTRAP_PATH = \["data", "source-adapter-bootstrap\.json"\]/);
 assert.match(app, /const LEGACY_ADVISORS = \{\};/);
 assert.match(app, /const PRERO_ADVISORS = \{\};/);

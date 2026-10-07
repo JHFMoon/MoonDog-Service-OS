@@ -10,7 +10,7 @@
   let installedChannel = declaredBetaVersion ? "beta" : "stable";
   let inspectedRoot = null;
   const betaMarker = "\n/* MoonDog controlled Beta update test 0.10.7-beta.1; no style changes. */\n";
-  const beta2Marker = "\n/* Service Operations Hub theme Beta 0.10.7-beta.2. */\n";
+  const beta2Marker = "\n/* Service Operations Dashboard theme Beta 0.10.7-beta.2. */\n";
   function compatible(minimum) {
     if (!/^\d+\.\d+\.\d+$/.test(minimum) || !comparisonVersion) return false;
     const installed = /^\d+\.\d+\.\d+/.exec(comparisonVersion)?.[0].split(".").map(Number);
@@ -27,7 +27,12 @@
   const state = { channel: saved.channel === "beta" ? "beta" : "stable",
     lastCheck: saved.lastCheck || null, check: null, checkFor: null,
     recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false, busy: false, progress: null };
-  const appRoot = () => global.__moondogSettingsModel?.root || null;
+  const appRoot = () => global.__moondogSettingsModel?.applicationRoot || null;
+  const applicationFiles = async () => {
+    const workspace = appRoot();
+    if (!workspace) throw new Error("Connect the Service Operations Dashboard workspace first.");
+    return workspace.getDirectoryHandle("System Files", { create: false });
+  };
   function clearPlan() { planText.textContent = ""; planText.hidden = true; }
   function currentOffer() {
     const result = state.check, stamp = state.checkFor;
@@ -56,7 +61,7 @@
     field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
     render();
     try {
-      const assets = await root.getDirectoryHandle("assets", { create: false });
+      const assets = await (await applicationFiles()).getDirectoryHandle("assets", { create: false });
       const stylesheet = await assets.getFileHandle("product-settings.css", { create: false });
       const content = await (await stylesheet.getFile()).text();
       if (baseComparisonVersion === "0.10.6" && content.endsWith(betaMarker)) {
@@ -70,7 +75,7 @@
       }
     } catch (_) { /* The baseline version remains authoritative if the marker cannot be read. */ }
     try {
-      const assets = await root.getDirectoryHandle("assets", { create: false });
+      const assets = await (await applicationFiles()).getDirectoryHandle("assets", { create: false });
       const script = await assets.getFileHandle("daily-ops.js", { create: false });
       if (baseComparisonVersion === "0.10.6" && (await (await script.getFile()).text()).endsWith(beta2Marker)) {
         installedVersion = "0.10.7-beta.2";
@@ -88,7 +93,7 @@
   const card = document.createElement("section");
   card.className = "card settings-card";
   card.id = "settings-update";
-  card.innerHTML = '<h2>System Updates</h2><p>Service Operations Hub checks its public update source. Installation always requires your approval.</p>' +
+  card.innerHTML = '<h2>System Updates</h2><p>Service Operations Dashboard checks its public update source. Installation always requires your approval.</p>' +
     '<div><strong>Installed version:</strong> <span id="updateInstalledVersion"></span></div>' +
     '<div><strong>Installed channel:</strong> <span id="updateInstalledChannel"></span></div>' +
     '<label>Update channel <select id="updateChannel"><option value="stable">Stable</option><option value="beta">Beta (opt in)</option></select></label>' +
@@ -98,7 +103,7 @@
     '<div class="button-row"><button type="button" id="checkMoonDogUpdate">Check for Updates</button>' +
     '<button type="button" id="installMoonDogUpdate" class="primary" disabled>Install Update</button>' +
     '<button type="button" id="recoverMoonDogUpdate" hidden>Recover interrupted update</button></div>' +
-    '<p id="updateFolders" class="settings-note">Connect Service Operations Hub before installation. Update rollback backups are saved in backups/system-updates/ inside the connected workspace.</p>' +
+    '<p id="updateFolders" class="settings-note">Connect Service Operations Dashboard before installation. Update rollback backups are saved in System Files/Workspace/backups/system-updates/ inside the connected workspace.</p>' +
     '<div id="updateProgress" class="update-progress" hidden aria-live="polite"><div class="update-progress-head"><strong id="updateProgressLabel">Preparing update</strong><span id="updateProgressPercent">0%</span></div><div id="updateProgressTrack" class="update-progress-track" role="progressbar" aria-label="Update progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="updateProgressBar"></span></div><small id="updateProgressDetail">Please keep this window open.</small></div>' +
     '<pre id="updatePlan" hidden></pre><p id="updateStatus" role="status" aria-live="polite"></p>';
   const settingsSections = host.querySelector(".settings-sections");
@@ -156,7 +161,7 @@
       result?.status === "unavailable" ? "GitHub unavailable" :
       result?.status === "invalid-input" ? "Installed version cannot be compared" :
       installedChannel === state.channel ? `Installed ${installedChannel === "beta" ? "Beta" : "Stable"} ${installedVersion}; check for newer builds` : "Not checked";
-    field("updateFolders").textContent = `Connected application folder: ${appRoot()?.name || "not connected"}. Update rollback backups: backups/system-updates/.`;
+    field("updateFolders").textContent = `Connected workspace: ${appRoot()?.name || "not connected"}. Application files: System Files/. Update rollback backups: System Files/Workspace/backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
       state.channel === "beta" ? "Install Beta" : "Install Update";
     installButton.disabled = state.busy || state.recoveryRequired || !currentOffer();
@@ -223,7 +228,7 @@
       await setProgress({ phase: "verify-package", percent: 15, label: "Update package verified", detail: "Package integrity confirmed" });
       await setProgress({ phase: "plan", percent: 20, label: "Preparing file changes", detail: "Building a safe installation plan" });
       const plan = await global.MoonDogPackagePlan.dryRun({ verifiedPackage: verified,
-        appDirectoryHandle: appRoot(), trustedAllowlist: catalog });
+        appDirectoryHandle: await applicationFiles(), trustedAllowlist: catalog });
       await setProgress({ phase: "plan", percent: 25, label: "File changes ready", detail: "Review the planned application changes" });
       const summary = ["Add", "Replace", "Delete", "Unchanged", "Rejected"].map(label =>
         `${label}: ${plan[label.toLowerCase()].length ? plan[label.toLowerCase()].map(item =>
@@ -232,20 +237,20 @@
       planText.hidden = false;
       if (plan.rejected.length) throw new Error("Update rejected. No application files changed.");
       status.textContent = "Review the file changes before confirming.";
-      if (!global.confirm(`Install Service Operations Hub ${verified.version}?\n\n${summary}\n\nA rollback backup in backups/system-updates/ will be verified before any application file is changed.`)) {
+      if (!global.confirm(`Install Service Operations Dashboard ${verified.version}?\n\n${summary}\n\nA rollback backup in System Files/Workspace/backups/system-updates/ will be verified before any application file is changed.`)) {
         status.textContent = "Installation cancelled. No application files changed.";
         clearProgress();
         return;
       }
       await setProgress({ phase: "install", percent: 28, label: "Starting installation", detail: "Please keep this window open" });
       const outcome = await global.MoonDogUpdateInstall.apply({ verifiedPackage: verified,
-        appDirectoryHandle: appRoot(),
+        appDirectoryHandle: await applicationFiles(), workspaceDirectoryHandle: appRoot(),
         trustedAllowlist: catalog, expectedPlan: plan, confirmed: true,
         onProgress: event => setProgress({ ...event, percent: Math.round(28 + (Math.max(0, Math.min(100, Number(event.percent) || 0)) * .72)) }) });
       status.textContent = outcome.status === "installed" ?
-        `Update verified. Restart Service Operations Hub to use version ${outcome.version}. Rollback backup saved in backups/system-updates/.` :
-        outcome.status === "rolled-back" ? "Update failed and original app files were verified restored. Rollback backup saved in backups/system-updates/." :
-        outcome.status === "recovery-required" ? `Update stopped. Recovery is required from backups/system-updates/; do not retry installation. ${outcome.reason}` :
+        `Update verified. Restart Service Operations Dashboard to use version ${outcome.version}. Rollback backup saved in System Files/Workspace/backups/system-updates/.` :
+        outcome.status === "rolled-back" ? "Update failed and original app files were verified restored. Rollback backup saved in System Files/Workspace/backups/system-updates/." :
+        outcome.status === "recovery-required" ? `Update stopped. Recovery is required from System Files/Workspace/backups/system-updates/; do not retry installation. ${outcome.reason}` :
         `Update stopped without a verified installation. ${outcome.reason || outcome.status}`;
       if (outcome.status === "recovery-required") { state.recoveryRequired = true; save(); await setProgress({ phase: "error", percent: state.progress?.percent || 90, label: "Recovery required", detail: "Installation stopped. Use the recovery action before trying another update." }); }
       else if (outcome.status === "rolled-back") await setProgress({ phase: "rolled-back", percent: 100, label: "Previous version restored", detail: "The update failed, but rollback completed and was verified." });
@@ -259,7 +264,7 @@
         installedChannel = verified.channel;
         field("updateInstalledVersion").textContent = installedVersion;
         field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
-        await setProgress({ phase: "complete", percent: 100, label: "Update installed", detail: "Installation verified. Restart Service Operations Hub to load the new version." });
+        await setProgress({ phase: "complete", percent: 100, label: "Update installed", detail: "Installation verified. Restart Service Operations Dashboard to load the new version." });
       }
     } catch (error) {
       status.textContent = error.message || "Update stopped before installation.";
@@ -269,27 +274,27 @@
   field("recoverMoonDogUpdate").addEventListener("click", async () => {
     if (state.busy) return;
     if (!appRoot()) {
-      status.textContent = "Connect Service Operations Hub in a browser with folder access first.";
+      status.textContent = "Connect Service Operations Dashboard in a browser with folder access first.";
       return;
     }
     try {
       const backups = await global.MoonDogUpdateInstall.listBackups(appRoot());
-      if (!backups.length) { status.textContent = "No update rollback backups were found in backups/system-updates/."; return; }
-      const selection = backups.length === 1 ? "1" : global.prompt(`Select an update backup number from backups/system-updates/:\n\n${backups.map((_, index) => `Backup ${index + 1}`).join("\n")}`, "1");
+      if (!backups.length) { status.textContent = "No update rollback backups were found in System Files/Workspace/backups/system-updates/."; return; }
+      const selection = backups.length === 1 ? "1" : global.prompt(`Select an update backup number from System Files/Workspace/backups/system-updates/:\n\n${backups.map((_, index) => `Backup ${index + 1}`).join("\n")}`, "1");
       const backupName = /^\d+$/.test(selection || "") ? backups[Number(selection) - 1] : null;
       if (!backupName) { status.textContent = "Recovery cancelled or backup not found."; return; }
-      if (!global.confirm(`Restore Service Operations Hub application files from update backup ${selection} in backups/system-updates/?`)) return;
+      if (!global.confirm(`Restore Service Operations Dashboard application files from update backup ${selection} in System Files/Workspace/backups/system-updates/?`)) return;
       state.busy = true; render();
       await setProgress({ phase: "recovery", percent: 5, label: "Preparing recovery", detail: "Checking the selected rollback backup" });
       const catalog = [...new Set([...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
         "assets/moondog-update-verify.js", "assets/moondog-update-plan.js",
         "assets/moondog-update-model.js", "assets/moondog-update-install.js",
         "assets/moondog-update-settings.js"])];
-      const outcome = await global.MoonDogUpdateInstall.recover({ appDirectoryHandle: appRoot(),
+      const outcome = await global.MoonDogUpdateInstall.recover({ appDirectoryHandle: await applicationFiles(), workspaceDirectoryHandle: appRoot(),
         backupName, trustedAllowlist: catalog, confirmed: true,
         onProgress: event => setProgress(event) });
       status.textContent = outcome.status === "restored" ?
-        "Original application files were verified restored. Restart Service Operations Hub." :
+        "Original application files were verified restored. Restart Service Operations Dashboard." :
         `Recovery could not be verified. Keep the backup intact. ${outcome.reason || ""}`;
       if (outcome.status === "restored") { state.recoveryRequired = false; save(); await setProgress({ phase: "complete", percent: 100, label: "Recovery complete", detail: "Original application files were verified restored." }); await refreshRecovery(); }
       else await setProgress({ phase: "error", percent: state.progress?.percent || 15, label: "Recovery could not be verified", detail: outcome.reason || "Keep the rollback backup intact." });

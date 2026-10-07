@@ -2,67 +2,75 @@
 
 ## Authority and direction
 
-This public repository is the development and release authority for the generic Service Operations Hub application core, update logic, tests, and release metadata. The installed Hub runs from local files and owns its local operational state, reports, settings, history, and recovery records.
+This repository is the public source and update authority for the generic Service Operations Dashboard application. The installed Dashboard runs from local files and owns its protected local operational state.
 
 ```text
 GitHub: generic source + verified update packages
                     |
-                    | user-approved update only
+                    | user-approved update
                     v
-Local Service Operations Hub: application + protected store configuration + operational data
+Dashboard Interface/
+├── 00 - OPEN DASHBOARD.html
+├── index.html                  (hidden compatibility document when required)
+└── System Files/
+    ├── index.html
+    ├── assets/
+    ├── vendor/
+    └── Workspace/             (protected operational data)
 ```
 
-There is no automatic application path that uploads dealership operational data to GitHub.
+No application path uploads dealership operational data to GitHub.
 
 ## Client runtime
 
-The end-user application is browser-only: HTML, CSS, JavaScript, and JSON. Normal operation requires no Python, Node, PowerShell, EXE, service, or registry change on end-user PCs. Python and Node in this repository are used only for CI, tests, and release validation.
+The end-user application is browser-only HTML, CSS, and JavaScript. Normal operation requires no Python, Node, PowerShell, EXE, service, registry change, or public runtime service.
 
-The installed Hub remains offline-capable. Internet access is used for update checks/downloads and is separate from normal OneDrive synchronization.
+A migrated installation preserves the original root `index.html` document path so Edge can retain the browser-local storage context used for the saved folder handle and authoritative-computer identity. The visible launcher is `00 - OPEN DASHBOARD.html`; maintained application files are under `System Files/`.
 
-## Public source vs local configuration
+## Operational workspace
 
-GitHub-authoritative application source includes `index.html`, `assets/app.js`, reviewed application modules, updater code, tests, schemas, and release packages.
+Protected state is under `System Files/Workspace/`, including data, history, reports/inbox material, Files To Learn, imports/exports, support records, and backups.
 
-Store identity, advisor/employee mappings, report-specific aliases, source-adapter parameters, operational state, reports, history, backups, and machine/browser state stay local. The source transition uses protected local configuration, including `data/settings.json` and the one-time `data/source-adapter-bootstrap.json` handoff described in [SOURCE-OF-TRUTH.md](SOURCE-OF-TRUTH.md).
+Application updates target `System Files/` but must reject the protected `Workspace/` subtree.
 
-Missing or invalid required local adapter configuration stops connection before normal application writes.
+One store has one designated authoritative writer. Browser-local authority plus a non-secret workspace marker is required before durable writes are enabled. Copied or independently synchronized workspace copies do not inherit authority and remain read-only. OneDrive synchronization is not treated as a distributed lock.
+
+Durable changes are guarded by authority and revision checks and use persistent recovery journals. Failed or interrupted writes/deletes must not falsely advance the store revision.
 
 ## Update contract
 
-`updates/manifest.json` publishes independent Stable and Beta channels. Each channel declares its version, package URL, SHA-256, minimum compatible version, migration flag, and release notes.
+`updates/manifest.json` publishes Stable and Beta channels.
 
 Current channels:
 
-- Stable: `0.10.8`
+- Stable: `0.10.10`
 - Beta: `0.10.9-beta.8`
 
-Beta is opt-in. Installation is never automatic.
+Stable 0.10.10 requires `0.10.9` or later. This is intentional: the 0.10.8-era updater cannot safely perform the application/workspace layout separation.
 
-The installed **Tools → Change how Service Operations Hub works → System Updates** page uses the browser-native updater modules under `assets/`. A user-triggered install:
+The installed **Tools → Change how Service Operations Dashboard works → System Updates** workflow:
 
-1. checks the selected channel,
+1. checks the selected public channel,
 2. downloads the package in memory,
-3. verifies the package SHA-256 and release contract,
-4. performs a dry run against the approved application-file allowlist,
-5. requires explicit confirmation,
-6. creates and verifies a rollback backup under `backups/system-updates/`,
-7. writes only approved application files,
-8. reads installed bytes back for verification, and
-9. rolls back or exposes explicit recovery when verification cannot complete.
+3. verifies package identity and SHA-256,
+4. performs a dry run against the approved application allowlist,
+5. rejects protected workspace targets,
+6. requires explicit confirmation,
+7. creates and verifies rollback material under `System Files/Workspace/backups/system-updates/`,
+8. writes approved application files,
+9. verifies written bytes, and
+10. rolls back or exposes explicit recovery when verification cannot complete.
 
-Update packages cannot contain operational data or target protected local paths. Stable coverage must be able to restore every application file touched by the active or retained Beta path. Beta releases cannot require irreversible migrations.
+When the package updates application `index.html`, the layout-aware updater also maintains the root compatibility document required by migrated installs.
 
-## Update backup isolation
+## Public source vs local configuration
 
-`backups/system-updates/` belongs only to updater and recovery logic. Normal maintenance and housekeeping skip that subtree completely. Disaster/full-system backups remain separate.
+Generic first-party runtime source, updater logic, tests, release metadata, and third-party notices may be public.
 
-## Offline operation
+Store identity, advisor/employee mappings, source-adapter values, targets, operational state, source reports, history, backups, browser authority credentials, and other dealership-specific information remain local.
 
-After installation, Service Operations Hub runs from local application files and local data. GitHub is not a runtime host. If GitHub is unavailable, normal already-local Hub operation continues; only update availability/download functions are affected.
+Pinned vendor binaries for JSZip, PDF.js, and SheetJS remain installed dependencies but are not currently mirrored in this public repository.
 
-## Repository validation
+## Validation
 
-Every pull request and push to `main` runs `.github/workflows/publication-check.yml`. The workflow runs Python release/publication tests, Node updater tests, and the tracked-publication boundary check.
-
-The local production workspace remains the authoritative operational environment. Multi-device write coordination remains out of scope until a real shared transactional coordination layer exists.
+Every pull request and push to `main` runs the publication workflow. Release changes must keep update-package bytes deterministic and protect the public/private boundary.

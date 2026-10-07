@@ -10,18 +10,21 @@ async function safeWrite(io,path,bytes,options={}){
   bytes=new Uint8Array(bytes);if(path.endsWith('.json')&&options.validateJson!==false)json(bytes);
   let old=null;try{old=await io.read(path)}catch(e){if(e.name!=='NotFoundError')throw e;}
   const tmp=path.slice(0,path.lastIndexOf('/')+1)+'.moondog-txn-'+crypto.randomUUID()+'.json';
-  const txn={format:'moondog-write-v1',target:path,at:new Date().toISOString(),before:old?Array.from(old):null,after:Array.from(bytes)};
-  let prepared=false,touched=false;
+  let prepared=false,touched=false,token=await io.beginMutation?.();
+  const txn={format:'moondog-write-v1',target:path,at:new Date().toISOString(),before:old?Array.from(old):null,after:Array.from(bytes),revisionBefore:Number.isSafeInteger(token?.expected)?token.expected:null};
   try{
-   await io.rawWrite(tmp,encode(JSON.stringify(txn)));if(!equal(await io.read(tmp),encode(JSON.stringify(txn))))throw Error('Temporary write verification failed');prepared=true;
+   await io.rawWrite(tmp,encode(JSON.stringify(txn)),token);if(!equal(await io.read(tmp),encode(JSON.stringify(txn))))throw Error('Temporary write verification failed');prepared=true;
    let current=null;try{current=await io.read(path)}catch(e){if(e.name!=='NotFoundError')throw e;}
    if((old===null)!==(current===null)||(old&&!equal(old,current)))throw Error('File changed during write');
-   touched=true;await io.rawWrite(path,bytes);if(!equal(await io.read(path),bytes))throw Error('Durable read-back mismatch');
-   await io.remove(tmp);return true;
+   touched=true;await io.rawWrite(path,bytes,token);if(!equal(await io.read(path),bytes))throw Error('Durable read-back mismatch');
+   await io.completeMutation?.(token);token=null;
+   if(io.cleanupJournal)try{await io.cleanupJournal(tmp)}catch(_){}else await io.remove(tmp);
+   return true;
   }catch(error){
    let recovered=!touched;
-   if(touched)try{if(old){await io.rawWrite(path,old);recovered=equal(await io.read(path),old);}else{await io.remove(path);recovered=true;}}catch(_){}
-   if(recovered)try{await io.remove(tmp)}catch(_){}
+   if(touched)try{if(old){await io.rawWrite(path,old,token,true);recovered=equal(await io.read(path),old);}else{await io.remove(path,token,true);recovered=true;}}catch(_){}
+   if(recovered)try{await io.remove(tmp,token,true)}catch(_){}
+   io.cancelMutation?.(token);token=null;
    // A failed rollback retains the verified journal; it is never garbage-collected as clutter.
    io.failure?.({kind:'DURABLE WRITE FAILED',recovered,prepared});throw error;
   }
@@ -90,7 +93,7 @@ function create(io,api){
     // Invalid empty history/pre-change files are not events or recovery points.
     for(const p of [...history,...backups].filter(p=>p.endsWith('.json'))){try{const f=await inspect(p);try{json(f.bytes)}catch(_){if(!f.size&&(/data\/history\/(?:\d{4}-|daily-)/.test(p)||family(p)))await remove(f,'INVALID ZERO BYTE ARTIFACT REMOVED');else issue(p,'Invalid JSON requires review');}}catch(_){issue(p,'Could not inspect file');}}
     for(const p of (options.repairOnly?[]:[...roots,...history,...backups,...await io.list("exports",false),...await io.list("",false)]).filter(p=>p.endsWith('.json')&&!canonical.includes(p))){
-     if(p.split('/').at(-1).startsWith('.moondog-txn-')){try{const f=await inspect(p),t=json(f.bytes),b=await io.read(t.target);if(t.format==='moondog-write-v1'&&(equal(b,new Uint8Array(t.after))||(t.before&&equal(b,new Uint8Array(t.before)))))await remove(f,'COMPLETED WRITE JOURNAL REMOVED');else issue(p,'Interrupted durable write journal requires review');}catch(_){issue(p,'Interrupted durable write journal requires review');}continue;}
+     if(p.split('/').at(-1).startsWith('.moondog-txn-')){try{const f=await inspect(p),t=json(f.bytes),b=await io.read(t.target);let completed=t.format==='moondog-write-v1'&&t.before&&equal(b,new Uint8Array(t.before));if(t.format==='moondog-write-v1'&&equal(b,new Uint8Array(t.after))){if(Number.isSafeInteger(t.revisionBefore)){const revision=json(await io.read('data/store-revision.json'));completed=revision.revision===t.revisionBefore+1;}else completed=true;}if(completed)await remove(f,'COMPLETED WRITE JOURNAL REMOVED');else issue(p,'Interrupted durable write journal requires review');}catch(_){issue(p,'Interrupted durable write journal requires review');}continue;}
      const target=canonical.find(c=>p.startsWith(c.slice(0,-5)+'-'));if(!target)continue;
      try{const f=await inspect(p),b=await io.read(target);if(equal(f.bytes,b)||semanticSame(json(f.bytes),json(b))||superseded(json(f.bytes),json(b)))await remove(f,'CONFLICT COPY REMOVED');else issue(p,'Conflict copy contains unique or uncertain state');}catch(_){issue(p,'Conflict copy could not be compared');}
     }

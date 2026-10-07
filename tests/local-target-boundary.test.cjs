@@ -15,7 +15,7 @@ assert.doesNotMatch(app, publicGoalText);
 assert.match(app, /performanceStandards:\s*\{\s*vir:\s*null/);
 assert.match(app, /grossMinimum:\s*null,\s*grossStretch:\s*null/);
 assert.match(html, /Local Performance Targets/);
-assert.match(html, /Private to this Service Operations Hub copy/);
+assert.match(html, /Private to this Service Operations Dashboard copy/);
 
 for (const channel of ["stable", "beta"]) {
   const release = manifest[channel];

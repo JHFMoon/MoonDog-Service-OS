@@ -5,7 +5,7 @@
   const $=id=>document.getElementById(id), model=api.model;
   const state={current:null,events:[],loadedRoot:null,loading:false,busy:false,editing:false,searchToken:0,searchResults:[],history:[],error:'',pending:false,selectedPhase:''};
   const names={performance:'SAPR','open-ro':'Open RO',appointments:'Appointments / pre-RO','next-appointments':'Next Appointments',vir:'VIR','menu-sales':'Menu Sales',csi:'CSI',sor:'SOR','appointment-activity':'Appointment Activity',efficiency:'Efficiency','media-asr':'Media ASR — Advisor','media-asr-tech':'Media ASR — Technician','open-ro-summary':'Aggregate WIP','ro-update':'Returned supervisor workbook'};
-  const toolNames={home:'Home','assign-next':'Assign Next','open-ro':'Open RO Control',performance:'Advisor Performance',meeting:'Advisor Meeting',tools:'Tools',overview:'Store overview',arrivals:"Today's Arrivals",imports:'Supervisor workbook and detailed imports',settings:'Change how Service Operations Hub works',setup:'Reports and setup'};
+  const toolNames={home:'Home','assign-next':'Assign Next','open-ro':'Open RO Control',performance:'Advisor Performance',meeting:'Advisor Meeting',tools:'Tools',overview:'Store overview',arrivals:"Today's Arrivals",imports:'Supervisor workbook and detailed imports',settings:'Change how Service Operations Dashboard works',setup:'Reports and setup'};
   const settingsFeatures=Object.freeze([
     {key:'advisors',label:'Advisors',targets:['advisorSettingsList']},
     {key:'meeting',label:'Meeting',targets:['meetingDay','meetingVoiceSurvey','csiPeriodStart']},
@@ -111,13 +111,13 @@
     state.operatingDate=today();
     state.selectedPhase=engine.phase(now());
     const task=engine.choose(allTasks(),state.events,now());state.current=task;state.editing=false;state.pending=false;state.error='';renderHome();
-    if(task&&active()==='home'&&!(model.settings.setup?.newStorePrepared&&!model.settings.setup?.completedAt))try{await log('surfaced',task);}catch(error){say('This task is available, but its activity could not be recorded. Check folder access before continuing.');}
+    if(globalThis.MoonDogWriteAuthority?.canWrite&&task&&active()==='home'&&!(model.settings.setup?.newStorePrepared&&!model.settings.setup?.completedAt))try{await log('surfaced',task);}catch(error){say('This task is available, but its activity could not be recorded. Check folder access before continuing.');}
   }
   async function ready(){
     if(!model.root||model.connectionState!=='CONNECTED'){if(!state.current)renderHome();return;}
     if(state.loadedRoot===model.root){await checkOperatingDate();refreshCurrent();return;}
     if(state.loading)return;state.loading=true;
-    try{await loadHistory();state.loadedRoot=model.root;await selectNext();}catch(error){say('Service Operations Hub could not read its task history. Check folder access and reconnect.');}finally{state.loading=false;}
+    try{await loadHistory();state.loadedRoot=model.root;await selectNext();}catch(error){say('Service Operations Dashboard could not read its task history. Check folder access and reconnect.');}finally{state.loading=false;}
   }
   async function checkOperatingDate(){
     if(!model.root||model.connectionState!=='CONNECTED'||state.loading||state.busy)return;
@@ -181,11 +181,11 @@
     const choose=button(task?`Import ${names[task.source]}`:'Choose a report',()=>input.click(),'primary daily-primary');
     input.addEventListener('change',()=>{const file=input.files[0];if(!file)return;action(async()=>{const imported=await api.importFile(file);if(task&&imported===task.source)await log('completed',task,{until:new Date(now()+60000).toISOString()});await selectNext();if(active()==='tools')renderTools('imports');});});
     host.append(input,choose);
-    const hint=document.createElement('p');hint.className='daily-hint';hint.textContent='Or place reports in “01 - DROP REPORTS HERE”. Service Operations Hub checks them automatically.';host.append(hint);
+    const hint=document.createElement('p');hint.className='daily-hint';hint.textContent='Or place reports in “01 - DROP REPORTS HERE”. Service Operations Dashboard checks them automatically.';host.append(hint);
   }
   function renderHome(){
     const host=$('dailyTask');host.replaceChildren();
-    if(!model.root){host.innerHTML='<p class="eyebrow">Your daily workspace</p><h2>Connect Service Operations Hub to begin</h2><p>Your saved work stays in the connected working folder.</p>';host.append(button('Connect working folder',()=>api.connect(),'primary'));return;}
+    if(!model.root){host.innerHTML='<p class="eyebrow">Your daily workspace</p><h2>Connect Service Operations Dashboard to begin</h2><p>Your saved work stays in the connected working folder.</p>';host.append(button('Connect working folder',()=>api.connect(),'primary'));return;}
     if(!state.loadedRoot&&!state.current){host.innerHTML='<h2>Loading your saved work…</h2>';return;}
     const task=state.current;
     if(!task){host.innerHTML='<p class="eyebrow">Home</p><h2>No other task is ready right now</h2><p>Deferred work is still saved. You can check the drive or find any item above.</p>';host.append(button('Check priorities',()=>action(selectNext),'primary'),button('Open RO Control',()=>go('open-ro')));return;}
@@ -215,7 +215,7 @@
     if(!targets.length){goTools('settings');say(`${feature.label} is unavailable in this application copy.`);return;}
     go('settings');
     host.querySelectorAll('.daily-settings-back').forEach(e=>e.remove());
-    const back=button('‹ Change how Service Operations Hub works',()=>goTools('settings'));back.classList.add('daily-settings-back');host.prepend(back);
+    const back=button('‹ Change how Service Operations Dashboard works',()=>goTools('settings'));back.classList.add('daily-settings-back');host.prepend(back);
     const selected=new Set(targets.map(el=>el.closest('.card')).filter(Boolean));
     const cards=host.querySelectorAll('.card');cards.forEach(card=>card.classList.toggle('daily-settings-hidden',!selected.has(card)));
     if(category==='advanced')cards.forEach(card=>{if(/diagnostic|new.store|handoff/i.test(card.id+' '+card.className))card.classList.remove('daily-settings-hidden');});
@@ -225,10 +225,10 @@
   function goTools(category){go('tools');renderTools(category);}
   function renderTools(category=''){
     const host=$('dailyTools');host.dataset.category=category;host.replaceChildren();
-    const title=document.createElement('h2');title.textContent=category?({imports:'Import or refresh data',settings:'Change how Service Operations Hub works',recovery:'Back up or recover Service Operations Hub',more:'More tools'})[category]:'What are you trying to do?';host.append(title);
+    const title=document.createElement('h2');title.textContent=category?({imports:'Import or refresh data',settings:'Change how Service Operations Dashboard works',recovery:'Back up or recover Service Operations Dashboard',more:'More tools'})[category]:'What are you trying to do?';host.append(title);
     if(category)host.append(button('‹ Tools',()=>renderTools()));
     const options=document.createElement('div');options.className='daily-tool-choices';host.append(options);
-    if(!category){[['Import or refresh data','imports'],['Change how Service Operations Hub works','settings'],['Back up or recover Service Operations Hub','recovery']].forEach(([label,key])=>options.append(button(label,()=>renderTools(key))));host.append(button('More',()=>renderTools('more'),'link-button'));}
+    if(!category){[['Import or refresh data','imports'],['Change how Service Operations Dashboard works','settings'],['Back up or recover Service Operations Dashboard','recovery']].forEach(([label,key])=>options.append(button(label,()=>renderTools(key))));host.append(button('More',()=>renderTools('more'),'link-button'));}
     if(category==='imports'){
       importer(options);
       const rows=api.imports(),groups=[['WHAT YOU NEED NOW',row=>row.need.state==='NEED NOW'],['USEFUL SOON / OPTIONAL',row=>!['NEED NOW','REFERENCE','ON DEMAND'].includes(row.need.state)],['REFERENCE / ON DEMAND',row=>['REFERENCE','ON DEMAND'].includes(row.need.state)]];
@@ -291,7 +291,7 @@
     model.state.records.forEach(r=>addRo(r));
     for(const [day,value] of Object.entries(model.appointments.days||{}))for(const a of value.appointments||[])if(matches(a,q))add(`arrival:${day}:${a.id}`,`${a.guest||a.customer||'Arrival'} · ${day}`,`${a.time||''} · ${a.vehicle||''}`,()=>showReadOnly('Appointment',a));
     for(const [view,label] of Object.entries(toolNames))if(matches([view,label],q))add(`page:${view}`,label,'Open this area',()=>go(view));
-    for(const [key,label,terms] of [["imports","Import or refresh data","reports import upload"],["settings","Change how Service Operations Hub works","settings configuration"],["recovery","Back up or recover Service Operations Hub","backup restore recovery support"],["updates","System Updates","stable beta update release"]])if(matches([label,terms],q))add(`tool:${key}`,label,"Tools",()=>key==="updates"?settingsCategory("updates"):goTools(key));
+    for(const [key,label,terms] of [["imports","Import or refresh data","reports import upload"],["settings","Change how Service Operations Dashboard works","settings configuration"],["recovery","Back up or recover Service Operations Dashboard","backup restore recovery support"],["updates","System Updates","stable beta update release"]])if(matches([label,terms],q))add(`tool:${key}`,label,"Tools",()=>key==="updates"?settingsCategory("updates"):goTools(key));
     for(const a of Object.values(model.settings.advisors||{}))if(matches(a,q))add(`advisor:${a.number}`,`${a.name} · Advisor ${a.number}`,'Advisor settings',()=>settingsCategory('advisors'));
     for(const [key,value] of Object.entries(model.settings))if(matches({[key]:value},q))add(`setting:${key}`,`Setting: ${key.replace(/([a-z])([A-Z])/g,'$1 $2')}`,'Saved configuration',()=>showReadOnly('Saved setting',{[key]:value}));
     for(const row of api.imports())if(matches(row,q))add(`source:${row.source}`,`${row.source} report`,row.status,()=>goTools('imports'));
@@ -323,4 +323,4 @@
   installThemeToggle();installShell();renderHome();ready();
   globalThis.__moondogDailyUI=Object.freeze({state,candidates:allTasks,selectNext,renderHome,renderTools,searchAll,settingsCategory,ready});
 })();
-/* Service Operations Hub theme Beta 0.10.7-beta.2. */
+/* Service Operations Dashboard theme Beta 0.10.7-beta.2. */
