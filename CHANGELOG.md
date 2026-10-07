@@ -9,6 +9,7 @@
 - Publishes the reviewed first-party runtime source and third-party license notices required by the current installation.
 - Requires updater version `0.10.9` or later; 0.10.8-era installs are intentionally rejected rather than exposed to an unsafe layout migration.
 - Uses neutral Service Operations Dashboard wording while retaining legacy internal identifiers where compatibility requires them.
+- Establishes the Stable publication contract: public Stable versions are formal GitHub Releases with matching `v<version>` tags and verified updater package assets; the Stable manifest points to that Release asset.
 
 This file summarizes user-relevant release milestones. The Git commit history remains the detailed engineering record.
 
