@@ -111,7 +111,7 @@ test("Packaged modules stay byte-for-byte synchronized with canonical source",()
   const src=name=>fs.readFileSync(path.join(rootDir,"src",name),"utf8").trimEnd();
   const between=(text,start,end)=>text.split(start)[1]?.split(end)[0]?.trim();
   assert.equal(between(freshness,"// BEGIN GENERATED REFRESH INTELLIGENCE (see src/refresh-intelligence.js)","// END GENERATED REFRESH INTELLIGENCE"),
-    src("refresh-intelligence.js").replace('  if(typeof module!=="undefined")module.exports=api;',"").trim());
+    src("refresh-intelligence.js").replace('  if(typeof module!=="undefined")module.exports=api;\\n',"").trim());
   assert.equal(between(daily,"// BEGIN GENERATED MEETING PRESENTER (see src/meeting-presenter.js)","// END GENERATED MEETING PRESENTER"),
     src("meeting-presenter.js").trim());
   assert.equal(between(meeting,"/* BEGIN GENERATED MEETING LAYOUT (see src/meeting-presenter.css) */","/* END GENERATED MEETING LAYOUT */"),
