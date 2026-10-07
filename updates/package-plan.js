@@ -4,7 +4,7 @@
   const HASH = /^[0-9a-fA-F]{64}$/;
   const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?$/;
   const BLOCKED_DIRS = new Set([
-    "data", "history", "backup", "backups", "reports", "exports", "logs", "temp", "tmp",
+    "data", "history", "backup", "backups", "reports", "exports", "logs", "temp", "tmp", "workspace",
     "settings", "state", "local-state", "customers", "employees", "contacts", "repair-orders",
     "ro-data", "store-data", "operational-data"
   ]);
