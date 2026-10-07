@@ -27,10 +27,12 @@ class UpdateManifestTests(unittest.TestCase):
         version = release["version"]
         package_path = PACKAGES / f"moondog-{version}.json"
         self.assertTrue(package_path.is_file(), f"Missing {channel} package {package_path.name}")
-        self.assertEqual(
-            release["packageUrl"],
-            f"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/{package_path.name}",
+        expected_url = (
+            f"https://github.com/JHFMoon/MoonDog-Service-OS/releases/download/v{version}/{package_path.name}"
+            if channel == "stable"
+            else f"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/{package_path.name}"
         )
+        self.assertEqual(release["packageUrl"], expected_url)
 
         package_bytes = package_path.read_bytes()
         self.assertEqual(release["sha256"], hashlib.sha256(package_bytes).hexdigest())
