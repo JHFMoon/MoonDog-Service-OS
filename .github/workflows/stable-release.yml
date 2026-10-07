@@ -113,7 +113,10 @@ jobs:
           trap 'git worktree remove --force .stable-source >/dev/null 2>&1 || true' EXIT
 
           ZIP="dist/service-operations-dashboard-clean-$VERSION.zip"
-          python3 scripts/build_clean_install.py             --source-root .stable-source             --vendor-dir .distribution-vendor             --output "$ZIP"
+          python3 scripts/build_clean_install.py \
+            --source-root .stable-source \
+            --vendor-dir .distribution-vendor \
+            --output "$ZIP"
 
           CLEAN_SHA="$(sha256sum "$ZIP" | awk '{print $1}')"
           python3 - "$ZIP" "$VERSION" <<'PY'
@@ -176,7 +179,7 @@ jobs:
                 --notes-file stable-release-notes.md \
                 --latest
             else
-              gh release create "$TAG" "$PACKAGE#Verified updater package" \
+              gh release create "$TAG" "$PACKAGE#Verified updater package" "$CLEAN_PACKAGE#Verified offline clean install" \
                 --repo "$GITHUB_REPOSITORY" \
                 --target "$HEAD_SHA" \
                 --title "Service Operations Dashboard $VERSION" \
