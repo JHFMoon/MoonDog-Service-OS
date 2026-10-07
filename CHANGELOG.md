@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.10 — current Stable
+
+- Promotes the locally validated single-store architecture with one authoritative writable computer and read-only synchronized copies.
+- Keeps maintained application files under `System Files/` and protected operational state under `System Files/Workspace/`.
+- Preserves the root browser-origin compatibility document used by migrated Edge installations while keeping `00 - OPEN DASHBOARD.html` as the normal launcher.
+- Adds revision-safe durable writes, persistent write/delete recovery, protected updater paths, and verified rollback behavior.
+- Publishes the reviewed first-party runtime source and third-party license notices required by the current installation.
+- Requires updater version `0.10.9` or later; 0.10.8-era installs are intentionally rejected rather than exposed to an unsafe layout migration.
+- Uses neutral Service Operations Dashboard wording while retaining legacy internal identifiers where compatibility requires them.
+
 This file summarizes user-relevant release milestones. The Git commit history remains the detailed engineering record.
 
 ## 0.10.9-beta.8 — current Beta
@@ -62,7 +72,7 @@ This file summarizes user-relevant release milestones. The Git commit history re
 - Adds publication checks that reject numeric literals in protected target keys and public goal/target text.
 - Uses sanitized Stable 0.10.8 as the reversible return baseline.
 
-## 0.10.8 — current Stable
+## 0.10.8
 
 - Sanitized restoration baseline with store performance targets removed from public defaults.
 - Preserves protected local operational data and locally saved settings during updates and rollback.
