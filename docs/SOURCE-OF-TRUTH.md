@@ -42,6 +42,8 @@ The browser-local authority credential is intentionally not synchronized with th
 
 Stable 0.10.10 updates are explicitly user-applied. The updater verifies the manifest/package, performs a protected-path dry run, creates rollback material under `System Files/Workspace/backups/system-updates/`, verifies writes, and restores or exposes recovery if installation cannot be verified.
 
+Stable is not considered published by a manifest change alone. The matching formal GitHub Release at tag `v<version>` and the exact package asset must also exist, and the Stable manifest must point to that Release asset.
+
 Pinned JSZip, PDF.js, and SheetJS binary bundles remain installed dependencies. Their notices/licenses are tracked publicly, but the binary bundles are not currently mirrored in this repository. The current 0.10.9 → 0.10.10 update does not need to replace those vendor binaries.
 
 GitHub may contain the product. GitHub may never contain the dealership.
