@@ -1,11 +1,11 @@
 {
   "stable": {
-    "version": "0.10.8",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.8.json",
-    "sha256": "c596cc17a7c71f3f1b02a5230ad7d8c7972f34a2ee66f8cf2c68dc59835f4c04",
-    "minimumCompatibleVersion": "0.10.6",
+    "version": "0.10.10",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.10.json",
+    "sha256": "084374f0d7f0d0fff8df684d6b7646c63758d8dbe2b3520498536e9e7d6a3839",
+    "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Sanitized restoration baseline. Store performance targets and dollar goals are local-only configuration; protected operational data remains untouched. Stable return also restores the verified updater runtime."
+    "releaseNotes": "Promotes the locally validated single-store architecture: System Files runtime, protected Workspace data, authoritative-computer write control, revision-safe durable writes, origin-compatible launcher support, and neutral Service Operations Dashboard naming."
   },
   "beta": {
     "version": "0.10.9-beta.8",
