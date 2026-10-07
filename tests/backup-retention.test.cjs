@@ -7,11 +7,11 @@ const R=maintenance.retention;
 assert.deepEqual(
   {
     automaticDays:R.automaticDays,automaticMax:R.automaticMax,
-    fullDays:R.fullDays,fullMax:R.fullMax,fullRefreshDays:R.fullRefreshDays,
+    fullRecentDays:R.fullRecentDays,fullMonthlyMonths:R.fullMonthlyMonths,fullMax:R.fullMax,fullRefreshDays:R.fullRefreshDays,
     restoreSafetyDays:R.restoreSafetyDays,restoreSafetyMax:R.restoreSafetyMax,
     systemUpdateDays:R.systemUpdateDays,systemUpdateMax:R.systemUpdateMax
   },
-  {automaticDays:30,automaticMax:50,fullDays:90,fullMax:3,fullRefreshDays:30,restoreSafetyDays:30,restoreSafetyMax:2,systemUpdateDays:30,systemUpdateMax:3}
+  {automaticDays:30,automaticMax:50,fullRecentDays:30,fullMonthlyMonths:12,fullMax:3,fullRefreshDays:30,restoreSafetyDays:30,restoreSafetyMax:2,systemUpdateDays:30,systemUpdateMax:3}
 );
 
 const now=Date.parse("2026-10-07T12:00:00Z");
@@ -25,14 +25,36 @@ const file=(pathName,area,daysAgo,extra={})=>({
 const ctx={now,day,references:[],currentValid:true,restoreBusy:false,currentWorkbookValid:true,fullBackups:[]};
 
 {
-  const full=[0,1,2,3].map((n)=>file(`backups/MoonDog Full Backup - 2026-10-0${7-n}.zip`,"manager-full",n,{family:"manager-full"}));
-  const removed=maintenance.policy(full,ctx).map(x=>x.path);
-  assert.equal(removed.length,1,"manager full backups must be capped at three");
-  assert.equal(removed[0],full[3].path);
+  const recent=[1,5,10,15,20,25,29].map((n)=>file(`backups/MoonDog Full Backup - recent-${n}.zip`,"manager-full",n,{family:"manager-full",createdAt:now-n*86400000}));
+  assert.equal(maintenance.policy(recent,ctx).length,0,"all validated full backups from the last 30 days must be retained");
 }
 {
-  const stale=file("backups/MoonDog Full Backup - old.zip","manager-full",91,{family:"manager-full"});
-  assert.deepEqual(maintenance.policy([stale],ctx).map(x=>x.path),[stale.path],"full backups older than 90 days must expire when unpinned");
+  const full=[
+    file("backups/MoonDog Full Backup - 2026-10-06.zip","manager-full",1,{family:"manager-full",createdAt:Date.parse("2026-10-06T12:00:00Z")}),
+    file("backups/MoonDog Full Backup - 2026-10-05.zip","manager-full",2,{family:"manager-full",createdAt:Date.parse("2026-10-05T12:00:00Z")}),
+    file("backups/MoonDog Full Backup - 2026-10-04.zip","manager-full",3,{family:"manager-full",createdAt:Date.parse("2026-10-04T12:00:00Z")}),
+    file("backups/MoonDog Full Backup - 2026-08-25.zip","manager-full",43,{family:"manager-full",createdAt:Date.parse("2026-08-25T12:00:00Z")}),
+    file("backups/MoonDog Full Backup - 2026-08-05.zip","manager-full",63,{family:"manager-full",createdAt:Date.parse("2026-08-05T12:00:00Z")})
+  ];
+  const removed=maintenance.policy(full,ctx).map(x=>x.path);
+  assert(!removed.includes(full[3].path),"the newest validated full backup in a retained month must be kept");
+  assert(removed.includes(full[4].path),"older same-month full backups may be pruned after 30 days");
+}
+{
+  const lone=file("backups/MoonDog Full Backup - lone-old.zip","manager-full",500,{family:"manager-full",createdAt:now-500*86400000});
+  assert.equal(maintenance.policy([lone],ctx).length,0,"the only validated full backup must never be pruned");
+}
+{
+  const full=[
+    file("backups/MoonDog Full Backup - newest-1.zip","manager-full",1,{family:"manager-full",createdAt:now-1*86400000}),
+    file("backups/MoonDog Full Backup - newest-2.zip","manager-full",2,{family:"manager-full",createdAt:now-2*86400000}),
+    file("backups/MoonDog Full Backup - newest-3.zip","manager-full",3,{family:"manager-full",createdAt:now-3*86400000}),
+    file("backups/MoonDog Full Backup - eleven-month-anchor.zip","manager-full",330,{family:"manager-full",createdAt:now-330*86400000}),
+    file("backups/MoonDog Full Backup - outside-window.zip","manager-full",400,{family:"manager-full",createdAt:now-400*86400000})
+  ];
+  const removed=maintenance.policy(full,ctx).map(x=>x.path);
+  assert(!removed.includes(full[3].path),"one monthly full-backup recovery point must be retained through the 12-month window");
+  assert(removed.includes(full[4].path),"full backups outside the 12-month monthly window may expire when newer validated full backups exist");
 }
 {
   const updates=[0,1,2,3].map((n)=>file(`backups/system-updates/update-${n}`,"system-update",n));
