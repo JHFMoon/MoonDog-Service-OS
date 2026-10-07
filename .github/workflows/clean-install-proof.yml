@@ -1,0 +1,57 @@
+name: Clean Install Proof
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove-clean-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run repository safety checks
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          node --test tests/*.test.cjs
+          python3 scripts/build_operating_modules.py --check
+          python3 scripts/check_publication.py
+          python3 scripts/build_distribution.py --check-source
+
+      - name: Recreate and verify pinned browser dependencies
+        run: bash scripts/prepare_distribution_vendor.sh .distribution-vendor
+
+      - name: Build twice and prove deterministic output
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist .clean-install-smoke
+          mkdir -p dist .clean-install-smoke
+          python3 scripts/build_distribution.py --vendor-dir .distribution-vendor --output dist/Service-Operations-Dashboard.zip
+          python3 scripts/build_distribution.py --vendor-dir .distribution-vendor --output dist/reproducibility-check.zip
+          cmp dist/Service-Operations-Dashboard.zip dist/reproducibility-check.zip
+          (cd dist && sha256sum --check Service-Operations-Dashboard.zip.sha256)
+          unzip -q dist/Service-Operations-Dashboard.zip -d .clean-install-smoke
+
+      - name: Install browser smoke-test dependency
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Smoke-test extracted file application
+        run: |
+          node scripts/smoke_distribution.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
+
+      - name: Upload proof artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: clean-install-proof
+          path: |
+            dist/Service-Operations-Dashboard.zip
+            dist/Service-Operations-Dashboard.zip.sha256
+            dist/Service-Operations-Dashboard.manifest.json
+          if-no-files-found: error
+          retention-days: 7

@@ -67,26 +67,32 @@ jobs:
               output.write(f"tag=v{version}\n")
           PY
 
-      - name: Prepare pinned offline vendor libraries
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf .vendor-build .vendor-node
-          mkdir -p .vendor-build .vendor-node
-          cd .vendor-node
-          npm init -y >/dev/null
-          npm install --no-save --ignore-scripts jszip@3.10.1 pdfjs-dist@5.6.205 esbuild@0.25.10
-          cp node_modules/jszip/dist/jszip.min.js ../.vendor-build/jszip.min.js
-          npx esbuild node_modules/pdfjs-dist/build/pdf.mjs             --bundle --format=iife --global-name=pdfjsLib --platform=browser --target=es2022             --minify --legal-comments=none --outfile=../.vendor-build/pdf.min.js
-          npx esbuild node_modules/pdfjs-dist/build/pdf.worker.mjs             --bundle --format=iife --global-name=pdfjsWorker --platform=browser --target=es2022             --minify --legal-comments=none --outfile=../.vendor-build/pdf.worker.min.js
-          cd ..
-          curl --fail --location --retry 3             https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js             --output .vendor-build/xlsx.full.min.js
+      - name: Recreate and verify pinned browser dependencies
+        run: bash scripts/prepare_distribution_vendor.sh .vendor-build
 
       - name: Build deterministic clean-install ZIP
         run: |
-          rm -rf dist
-          python3 scripts/build_distribution.py             --vendor-dir .vendor-build             --output dist/Service-Operations-Dashboard.zip
-          sha256sum --check dist/Service-Operations-Dashboard.zip.sha256
+          rm -rf dist .clean-install-smoke
+          mkdir -p .clean-install-smoke
+          python3 scripts/build_distribution.py \
+            --vendor-dir .vendor-build \
+            --output dist/Service-Operations-Dashboard.zip
+          python3 scripts/build_distribution.py \
+            --vendor-dir .vendor-build \
+            --output dist/reproducibility-check.zip
+          cmp dist/Service-Operations-Dashboard.zip dist/reproducibility-check.zip
+          rm dist/reproducibility-check.zip dist/reproducibility-check.manifest.json dist/reproducibility-check.zip.sha256
+          (cd dist && sha256sum --check Service-Operations-Dashboard.zip.sha256)
+          unzip -q dist/Service-Operations-Dashboard.zip -d .clean-install-smoke
+
+      - name: Install browser smoke-test dependency
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Smoke-test extracted local application
+        run: |
+          node scripts/smoke_distribution.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
 
       - name: Wait for matching Stable GitHub Release
         shell: bash
