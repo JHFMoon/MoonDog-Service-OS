@@ -41,10 +41,10 @@ class LayoutHotfixTests(unittest.TestCase):
 
     def test_current_release_packages_contain_layout_fix(self):
         manifest = json.loads((ROOT / "updates" / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual("0.10.13", manifest["stable"]["version"])
-        self.assertEqual("0.10.14-beta.1", manifest["beta"]["version"])
-        self.assert_package(manifest["stable"], "0.10.13")
-        self.assert_package(manifest["beta"], "0.10.14-beta.1")
+        self.assertEqual("0.10.14", manifest["stable"]["version"])
+        self.assertEqual("0.10.15-beta.1", manifest["beta"]["version"])
+        self.assert_package(manifest["stable"], "0.10.14")
+        self.assert_package(manifest["beta"], "0.10.15-beta.1")
 
 
 if __name__ == "__main__":

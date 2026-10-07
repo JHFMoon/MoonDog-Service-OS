@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.10.13 — current Stable
+## 0.10.14 — current Stable
+
+- Keeps every validated full backup for the first 30 days.
+- After 30 days, compacts full backups to one validated recovery point per calendar month across a 12-month window.
+- Always preserves the newest three validated full backups, even when they are older than the monthly window.
+- Never prunes a full backup unless a newer validated full backup exists.
+- Updates the Backup & Recovery policy text and regression coverage for monthly retention.
+
+## 0.10.15-beta.1 — next Beta
+
+- Carries forward Stable 0.10.14 as the next optional Beta baseline.
+
+## 0.10.13 — previous Stable
 
 - Replaces indefinite backup accumulation with bounded rolling retention across all normal recovery families.
 - Keeps at most 3 validated full backups for 90 days and automatically refreshes a full backup every 30 days when current durable state validates.
@@ -9,7 +21,7 @@
 - Prunes nested resolved system-update rollback folders safely only after their files are unchanged and verified for removal.
 - Shows the rolling retention limits directly in Backup & Recovery.
 
-## 0.10.14-beta.1 — next Beta
+## 0.10.14-beta.1
 
 - Carries forward Stable 0.10.13 as the next optional Beta baseline.
 

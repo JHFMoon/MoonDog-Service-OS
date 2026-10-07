@@ -31,7 +31,7 @@ A migrated installation preserves the original root `index.html` document path s
 
 Protected state is under `System Files/Workspace/`, including data, history, reports/inbox material, Files To Learn, imports/exports, support records, and backups.
 
-Backup storage is managed by bounded automatic retention. Normal recovery artifacts are never allowed to accumulate without a count/age limit: validated full backups are refreshed every 30 days and retained at most 3 / 90 days; resolved system-update rollbacks at most 3 / 30 days; restore-safety backups at most 2 / 30 days; automatic pre-change backups at most 50 / 30 days. An interrupted update recovery artifact is treated as active recovery state rather than ordinary backup inventory and blocks another software installation until resolved.
+Backup storage is managed by bounded automatic retention. Validated full backups are refreshed every 30 days, all are retained for the first 30 days, then one validated monthly recovery point is retained for 12 months, and the newest three full backups are always preserved. A full backup is never pruned unless a newer validated full backup exists. Resolved system-update rollbacks are retained at most 3 / 30 days; restore-safety backups at most 2 / 30 days; automatic pre-change backups at most 50 / 30 days. An interrupted update recovery artifact is treated as active recovery state rather than ordinary backup inventory and blocks another software installation until resolved.
 
 Application updates target `System Files/` but must reject the protected `Workspace/` subtree.
 
@@ -45,10 +45,10 @@ Durable changes are guarded by authority and revision checks and use persistent 
 
 Current channels:
 
-- Stable: `0.10.11`
-- Beta: `0.10.12-beta.1`
+- Stable: `0.10.14`
+- Beta: `0.10.15-beta.1`
 
-Stable 0.10.11 requires `0.10.9` or later. This is intentional: the 0.10.8-era updater cannot safely perform the application/workspace layout separation.
+Stable 0.10.14 requires `0.10.9` or later. This is intentional: the 0.10.8-era updater cannot safely perform the application/workspace layout separation.
 
 A Stable version is considered published only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package asset whose SHA-256 is declared by `updates/manifest.json`. The Stable manifest points to the **same tagged package** through GitHub's CORS-compatible raw file endpoint because browser-based local `file://` apps cannot fetch GitHub Release assets directly. The tag, manifest SHA-256, and formal Release asset must match. After the `Publication check` succeeds on `main`, `.github/workflows/stable-release.yml` creates or verifies the matching release automatically.
 
