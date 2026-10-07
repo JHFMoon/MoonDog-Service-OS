@@ -1,18 +1,18 @@
 {
   "stable": {
-    "version": "0.10.11",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v0.10.11/updates/packages/moondog-0.10.11.json",
-    "sha256": "ce1853b6e57f69ba4f60aa10e4e8f782fa13a8d9e526db57a161923dbde68fd1",
+    "version": "0.10.12",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v0.10.12/updates/packages/moondog-0.10.12.json",
+    "sha256": "30ddd6b518366849a44f7eacb804a03d461cdea49592274e021732bdf8e69f3a",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Adds source-aware Data Needed requests with locally learned cadence and report locations, five prioritized actionable Home items, in-progress half-day SAPR pacing and closest-working-day year-over-year comparison, and 30-second alphabetical Store/advisor meeting cards that automatically recompose for 16:9 or 9:16. Includes protected local settings and updater-safe approved runtime files."
+    "releaseNotes": "Promotes the validated layout hotfix: Advisor Meeting presentation mode is isolated to the Meeting tab, and System Updates long paths/file-plan text remain contained on narrow and portrait screens. Carries forward the 0.10.11 operating-intelligence feature set with no workspace migration."
   },
   "beta": {
-    "version": "0.10.12-beta.2",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.12-beta.2.json",
-    "sha256": "76d44268a66fcf36fb9345551703fa456dd179d536fb3afabcc8879f7080ec8c",
+    "version": "0.10.13-beta.1",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.13-beta.1.json",
+    "sha256": "fb274409c7ffde17ebf934de3bf6f5cc25372a95fddd6ba3b21599e16b8c158a",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Hotfixes Advisor Meeting so presentation mode is isolated to the Meeting tab and contains System Updates paths/file-plan text inside the settings layout on narrow or portrait screens. No workspace migration or operational-data changes."
+    "releaseNotes": "Next Beta baseline carrying forward Stable 0.10.12, including Advisor Meeting tab isolation and contained System Updates text. No workspace migration."
   }
 }

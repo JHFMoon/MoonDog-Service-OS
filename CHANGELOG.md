@@ -1,6 +1,17 @@
 # Changelog
 
-## 0.10.11 — current Stable
+## 0.10.12 — current Stable
+
+- Promotes the validated Advisor Meeting navigation hotfix so presentation mode cannot remain visible on other tabs.
+- Keeps long System Updates workspace paths, file plans, status text, and buttons contained on portrait and narrow layouts.
+- Carries forward the full 0.10.11 operating-intelligence feature set with no Workspace migration.
+- Publishes through the formal GitHub Stable Release contract with the protected rollback/update path unchanged.
+
+## 0.10.13-beta.1 — next Beta
+
+- Carries forward Stable 0.10.12 as the next optional Beta baseline for future testing.
+
+## 0.10.11 — previous Stable
 
 - Adds a compact Home **Data needed** strip with report/source, date, location, purpose, Update, and Not now, using existing validated freshness evidence.
 - Learns typical report arrival times and deferrals in protected local settings; repeated uploads improve scheduling without writing operational data to GitHub.
@@ -10,7 +21,7 @@
 - Bundles new generic modules into existing updater-approved runtime paths for a normal protected update; preserves browser-origin compatibility and all Workspace data.
 - Publishes a formal GitHub Stable Release and an opt-in next-version Beta from the same verified baseline.
 
-## 0.10.12-beta.2 — current Beta
+## 0.10.12-beta.2
 
 - Keeps Advisor Meeting presentation mode isolated to the Meeting tab; switching tabs immediately restores the normal page layout.
 - Wraps long System Updates workspace paths, plan details, and status text so portrait/narrow screens do not overflow the card.
@@ -33,7 +44,7 @@
 
 This file summarizes user-relevant release milestones. The Git commit history remains the detailed engineering record.
 
-## 0.10.9-beta.8 — current Beta
+## 0.10.9-beta.8
 
 - Shows live installation progress, including percentage, current step, file count, verified completion, and rollback or recovery progress in System Updates.
 

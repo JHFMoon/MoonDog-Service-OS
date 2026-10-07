@@ -26,20 +26,25 @@ class LayoutHotfixTests(unittest.TestCase):
         self.assertIn('overflow-wrap:anywhere', css)
         self.assertIn('#settings-update .button-row{flex-wrap:wrap}', css)
 
-    def test_beta_hotfix_package_contains_layout_fix(self):
-        manifest = json.loads((ROOT / "updates" / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual("0.10.12-beta.2", manifest["beta"]["version"])
-        package_path = ROOT / "updates" / "packages" / "moondog-0.10.12-beta.2.json"
+    def assert_package(self, release, expected_version):
+        package_path = ROOT / "updates" / "packages" / f"moondog-{expected_version}.json"
         raw = package_path.read_bytes()
-        self.assertEqual(manifest["beta"]["sha256"], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(release["sha256"], hashlib.sha256(raw).hexdigest())
         package = json.loads(raw)
-        self.assertEqual("0.10.12-beta.2", package["version"])
+        self.assertEqual(expected_version, package["version"])
         files = {entry["path"]: base64.b64decode(entry["contentBase64"]).decode("utf-8")
                  for entry in package["files"]}
-        self.assertIn('const VERSION = "0.10.12-beta.2";', files["assets/app.js"])
+        self.assertIn(f'const VERSION = "{expected_version}";', files["assets/app.js"])
         self.assertIn('#view-meeting.meeting-scoreboard.presentation-active:not(.active){display:none!important}',
                       files["assets/meeting.css"])
         self.assertIn('white-space:pre-wrap', files["assets/product-settings.css"])
+
+    def test_current_release_packages_contain_layout_fix(self):
+        manifest = json.loads((ROOT / "updates" / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual("0.10.12", manifest["stable"]["version"])
+        self.assertEqual("0.10.13-beta.1", manifest["beta"]["version"])
+        self.assert_package(manifest["stable"], "0.10.12")
+        self.assert_package(manifest["beta"], "0.10.13-beta.1")
 
 
 if __name__ == "__main__":
