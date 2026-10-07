@@ -337,9 +337,9 @@
   function workbookHasReturnSchema(book) { return book.SheetNames.some((sheetName) => { const rows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { header: 1, defval: "", raw: false }); return rows.some((row) => row.includes(RETURN_ID_HEADER) && row.includes("Next action") && row.includes("Commitment date")); }); }
   function workbookDate(value) { if (value instanceof Date && !Number.isNaN(value.valueOf())) return localDateKey(value); const source = text(value).trim(); if (!source) return ""; if (/^\d{4}-\d{2}-\d{2}$/.test(source)) return source; const match = source.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); if (!match) return null; const year = match[3].length === 2 ? `20${match[3]}` : match[3]; return `${year}-${match[1].padStart(2, "0")}-${match[2].padStart(2, "0")}`; }
 
-  async function permission(handle, ask) { const options = { mode: writeAuthority.canWrite ? "readwrite" : "read" }; let value = await handle.queryPermission(options); if (value !== "granted" && ask) value = await handle.requestPermission(options); return value; }
+  async function permission(handle, ask) { const options = { mode: "read" }; let value = await handle.queryPermission(options); if (value !== "granted" && ask) value = await handle.requestPermission(options); return value; }
   function openHandleDb() { return new Promise((resolve, reject) => { const request = indexedDB.open(DB_NAME, 1); request.onupgradeneeded = () => request.result.createObjectStore("handles"); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
-  async function rememberRoot(handle) { const db = await openHandleDb(); await new Promise((resolve, reject) => { const tx = db.transaction("handles", "readwrite"); tx.objectStore("handles").put(handle, HANDLE_KEY); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); db.close(); }
+  async function rememberRoot(handle) { let db; try { db = await openHandleDb(); await new Promise((resolve, reject) => { const tx = db.transaction("handles", "readwrite"); tx.objectStore("handles").put(handle, HANDLE_KEY); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); return true; } catch (_) { return false; } finally { db?.close(); } }
   async function recallRoot() { const db = await openHandleDb(); const handle = await new Promise((resolve, reject) => { const tx = db.transaction("handles", "readonly"); const request = tx.objectStore("handles").get(HANDLE_KEY); request.onsuccess = () => resolve(request.result || null); request.onerror = () => reject(request.error); }); db.close(); return handle; }
   const WORKSPACE_PREFIX = ["System Files", "Workspace"];
   async function operationalRoot(handle) { return (await handle.getDirectoryHandle(WORKSPACE_PREFIX[0])).getDirectoryHandle(WORKSPACE_PREFIX[1]); }
@@ -407,7 +407,7 @@
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)throw new Error("Service Operations Dashboard is finishing an import. Reconnect after it finishes.");
     const permissionWasPending=model.pendingRoot===handle;
     if (await permission(handle, ask) !== "granted") throw new Error("Folder access was not granted.");
-    await writeAuthority.validate(handle, ask);
+    await writeAuthority.validate(handle, false);
     if (!writeAuthority.canWrite) return finishReadOnlyConnection(handle);
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot; model.root = wrapOperationalRoot(await operationalRoot(handle)); model.applicationRoot = handle;
     try {
@@ -454,9 +454,23 @@
   }
   async function connect() {
     if (!window.showDirectoryPicker) throw new Error("This Edge version does not support local folder access from this page.");
-    if (model.pendingRoot) { setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(model.pendingRoot, true); } catch (error) { writeAuthority.disable(); setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder."); throw error; } }
-    const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: writeAuthority.canWrite ? "readwrite" : "read" });
-    try { return await finishConnection(handle, true); } catch (error) { writeAuthority.disable(); throw error; }
+    if (model.pendingRoot) {
+      const handle = model.pendingRoot;
+      let permissionPromise;
+      try { permissionPromise = handle.requestPermission({ mode: "read" }); }
+      catch (error) { setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Click restore folder access again."); throw error; }
+      setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…");
+      try {
+        if ((await permissionPromise) !== "granted") throw new Error("Folder access was not granted.");
+        return await finishConnection(handle, false);
+      } catch (error) {
+        writeAuthority.disable();
+        setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder.");
+        throw error;
+      }
+    }
+    const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "read" });
+    try { return await finishConnection(handle, false); } catch (error) { writeAuthority.disable(); throw error; }
   }
   async function restoreConnection() {
     setConnectionState("RESTORING SAVED CONNECTION", "RECONNECTING TO SERVICE OPERATIONS DASHBOARD DATA");
@@ -2065,9 +2079,16 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function run(action) { try { await action(); } catch (error) { console.error(error); recordDiagnostic("APPLICATION ERROR", `An operation failed (${error.name || "Error"})`); status(error.message || String(error), "error"); } }
 
   ensurePhase2SettingsUi();ensurePhase3Ui();ensureRecoveryUi();ensureFolderWatchUi();ensureManagerEntryCues();ensureNewStoreUi();ui.setupSettingsSummary=document.getElementById("setupSettingsSummary");
-  const authoritySetupButton=document.createElement("button");authoritySetupButton.type="button";authoritySetupButton.textContent="Designate this computer for store editing";authoritySetupButton.className="secondary";authoritySetupButton.style.cssText="margin-left:10px;padding:3px 7px;font-size:11px;letter-spacing:normal;text-transform:none";authoritySetupButton.hidden=true;document.querySelector(".topbar .eyebrow").append(authoritySetupButton);
-  authoritySetupButton.addEventListener("click",()=>run(async()=>{if(!connectedNativeRoot||!await writeAuthority.canProvision(connectedNativeRoot))throw new Error("This workspace already has an authoritative computer.");if(await connectedNativeRoot.requestPermission({mode:"readwrite"})!=="granted")throw new Error("Folder write access was not granted.");await writeAuthority.provision(connectedNativeRoot);await finishConnection(connectedNativeRoot,false);renderSetup();}));
-  const renderSetupWithAuthority=renderSetup;renderSetup=function(){renderSetupWithAuthority();const root=connectedNativeRoot;authoritySetupButton.hidden=true;if(root&&!writeAuthority.canWrite)writeAuthority.canProvision(root).then(eligible=>{if(root===connectedNativeRoot)authoritySetupButton.hidden=!eligible;}).catch(()=>{});};
+  const authorityHost=document.querySelector(".topbar .eyebrow");
+  const authoritySetupButton=document.createElement("button");authoritySetupButton.type="button";authoritySetupButton.textContent="Designate this computer for store editing";authoritySetupButton.className="secondary";authoritySetupButton.style.cssText="margin-left:10px;padding:3px 7px;font-size:11px;letter-spacing:normal;text-transform:none";authoritySetupButton.hidden=true;authorityHost.append(authoritySetupButton);
+  const authorityRecoveryButton=document.createElement("button");authorityRecoveryButton.type="button";authorityRecoveryButton.textContent="Recover owner editing";authorityRecoveryButton.className="secondary";authorityRecoveryButton.style.cssText=authoritySetupButton.style.cssText;authorityRecoveryButton.hidden=true;authorityHost.append(authorityRecoveryButton);
+  const authorityRecoveryPanel=document.createElement("span");authorityRecoveryPanel.hidden=true;authorityRecoveryPanel.style.cssText="display:inline-flex;align-items:center;gap:6px;margin-left:10px";authorityRecoveryPanel.innerHTML='<input type="text" aria-label="Type RECOVER EDITING to confirm" placeholder="RECOVER EDITING" autocomplete="off" style="width:150px;padding:4px 6px;font-size:11px"><button type="button" class="secondary" style="padding:3px 7px;font-size:11px;letter-spacing:normal;text-transform:none" disabled>Grant folder access &amp; recover editing</button>';authorityHost.append(authorityRecoveryPanel);
+  const authorityRecoveryInput=authorityRecoveryPanel.querySelector("input"),authorityRecoveryGrant=authorityRecoveryPanel.querySelector("button");let authorityRecoveryRoot=null;
+  authorityRecoveryInput.addEventListener("input",()=>{authorityRecoveryGrant.disabled=authorityRecoveryInput.value.trim()!=="RECOVER EDITING";});
+  authoritySetupButton.addEventListener("click",()=>{const root=connectedNativeRoot;if(!root){status("Connect the Service Operations Dashboard folder first.","error");return;}let permissionPromise;try{permissionPromise=root.requestPermission({mode:"readwrite"});}catch(error){status(error.message||String(error),"error");return;}run(async()=>{if((await permissionPromise)!=="granted")throw new Error("Folder write access was not granted.");if(!await writeAuthority.canProvision(root))throw new Error("This workspace already has an authoritative computer.");await writeAuthority.provision(root);await finishConnection(root,false);renderSetup();});});
+  authorityRecoveryButton.addEventListener("click",()=>{authorityRecoveryRoot=connectedNativeRoot;authorityRecoveryInput.value="";authorityRecoveryGrant.disabled=true;authorityRecoveryPanel.hidden=!authorityRecoveryRoot;if(authorityRecoveryRoot)authorityRecoveryInput.focus();});
+  authorityRecoveryGrant.addEventListener("click",()=>{const root=authorityRecoveryRoot;if(!root||root!==connectedNativeRoot){status("Reconnect the Service Operations Dashboard folder, then try owner recovery again.","error");return;}if(authorityRecoveryInput.value.trim()!=="RECOVER EDITING"){status('Type "RECOVER EDITING" exactly to continue.',"error");return;}let permissionPromise;try{permissionPromise=root.requestPermission({mode:"readwrite"});}catch(error){status(error.name==="NotAllowedError"?"Folder permission could not be requested. Click the recovery button again to grant access.":error.message||String(error),"error");return;}run(async()=>{let access;try{access=await permissionPromise;}catch(error){if(error.name==="NotAllowedError")throw new Error("Folder permission could not be requested. Click the recovery button again to grant access.");throw error;}if(access!=="granted")throw new Error("Folder write access was not granted. Editing remains read-only.");const recovered=await writeAuthority.recoverOwner(root);await finishConnection(root,false);authorityRecoveryPanel.hidden=true;authorityRecoveryRoot=null;renderSetup();status(recovered?.persistent===false?"Owner editing recovered for this session. Browser storage is unavailable; repeat recovery after reopening.":"Owner editing recovered.","success");});});
+  const renderSetupWithAuthority=renderSetup;renderSetup=function(){renderSetupWithAuthority();const root=connectedNativeRoot;authoritySetupButton.hidden=true;authorityRecoveryButton.hidden=true;if(!root||writeAuthority.canWrite){authorityRecoveryPanel.hidden=true;authorityRecoveryRoot=null;return;}writeAuthority.canProvision(root).then(eligible=>{if(root!==connectedNativeRoot||writeAuthority.canWrite)return;authoritySetupButton.hidden=!eligible;authorityRecoveryButton.hidden=eligible;if(eligible){authorityRecoveryPanel.hidden=true;authorityRecoveryRoot=null;}}).catch(()=>{if(root===connectedNativeRoot&&!writeAuthority.canWrite)authorityRecoveryButton.hidden=false;});};
   ui.worksheetOrderSettings.addEventListener("click",(event)=>{const button=event.target.closest("button[data-worksheet-move]");if(!button)return;const codes=supervisorAdvisorCodes(),index=codes.indexOf(button.dataset.worksheetMove),moved=moveArrayItem(codes,index,Number(button.dataset.direction));model.settings.supervisorWorkbook.worksheetOrder=moved;queueSettingsAutosave();renderPhase2Settings();});
   ui.dailyWalkCount.addEventListener("change",()=>{const value=Number(ui.dailyWalkCount.value);if(Number.isInteger(value)&&value>=1&&value<=10)model.settings.dailyWalk.rosPerAdvisor=value;queueSettingsAutosave();setTimeout(()=>run(ensureDailyFocus),260);});
   document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => navigateTo(button.dataset.view)));

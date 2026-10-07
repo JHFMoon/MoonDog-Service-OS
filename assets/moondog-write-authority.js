@@ -6,6 +6,7 @@
   let editable = false;
   let nativeRoot = null;
   let loadedRevision = null;
+  let sessionIdentity = null;
   const ID_KEY = "authoritative-computer-v1";
   const DB_NAME = "moondog-operations-local";
   const WORKSPACE = ["System Files", "Workspace"];
@@ -15,28 +16,36 @@
   const notify = () => global.dispatchEvent?.(new Event("moondog-write-authority"));
   function setEditable(value) { editable = value; notify(); }
   async function localIdentity(markerDigest) {
-    const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, 1);
-      request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains("handles")) request.result.createObjectStore("handles"); };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    try { return await new Promise((resolve, reject) => {
-      const tx = db.transaction("handles", "readonly"), request = tx.objectStore("handles").get(`${ID_KEY}:${markerDigest}`);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    }); } finally { db.close(); }
+    if (sessionIdentity?.markerDigest === markerDigest) return sessionIdentity.secret;
+    try {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains("handles")) request.result.createObjectStore("handles"); };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try { return await new Promise((resolve, reject) => {
+        const tx = db.transaction("handles", "readonly"), request = tx.objectStore("handles").get(`${ID_KEY}:${markerDigest}`);
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+      }); } finally { db.close(); }
+    } catch (_) { return null; }
   }
   async function saveLocalIdentity(secret, markerDigest) {
-    const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, 1);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    try { await new Promise((resolve, reject) => {
-      const tx = db.transaction("handles", "readwrite"); tx.objectStore("handles").put(secret, `${ID_KEY}:${markerDigest}`);
-      tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
-    }); } finally { db.close(); }
+    sessionIdentity = { secret, markerDigest };
+    try {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains("handles")) request.result.createObjectStore("handles"); };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try { await new Promise((resolve, reject) => {
+        const tx = db.transaction("handles", "readwrite"); tx.objectStore("handles").put(secret, `${ID_KEY}:${markerDigest}`);
+        tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+      }); } finally { db.close(); }
+      return true;
+    } catch (_) { return false; }
   }
   async function at(root, path, create = false) {
     let dir = root;
@@ -172,6 +181,44 @@
     if (!root) return false;
     try { await at(root, MARKER); return false; }
     catch (error) { return error.name === "NotFoundError"; }
+  }
+  async function recoverOwner(root) {
+    root = originals.get(root) || root;
+    if (!root) throw new Error("Connect the Service Operations Dashboard folder first.");
+    if (activeToken) throw new Error("Finish the current operation before recovering owner editing.");
+    if (await root.queryPermission({ mode: "readwrite" }) !== "granted")
+      throw new DOMException("Folder write access is required before owner recovery.", "NotAllowedError");
+    let revision;
+    try { revision = await read(root, REVISION); }
+    catch (error) {
+      if (error.name === "NotFoundError") throw new Error("The selected folder is not the connected Service Operations Dashboard folder.");
+      throw error;
+    }
+    if (!validRevision(revision)) throw new Error("Store revision is invalid; owner recovery stopped.");
+    const previousMarker = await readBytes(root, MARKER);
+    const secret = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    const markerDigest = await digest(secret);
+    let markerWritten = false;
+    try {
+      await recoverPending(root, revision);
+      await write(root, MARKER, { schemaVersion: 1, digest: markerDigest });
+      markerWritten = true;
+      const persistent = await saveLocalIdentity(secret, markerDigest);
+      const marker = await read(root, MARKER);
+      if (marker?.schemaVersion !== 1 || marker.digest !== markerDigest) throw new Error("Recovered authority marker did not verify.");
+      nativeRoot = root; loadedRevision = revision.revision;
+      if (!await validate(root, false)) throw new Error("Recovered owner editing did not verify.");
+      return { persistent };
+    } catch (error) {
+      if (markerWritten) {
+        try {
+          if (previousMarker === null) await removeRaw(root, MARKER);
+          else await writeBytesRaw(root, MARKER, previousMarker);
+        } catch (_) {}
+      }
+      setEditable(false); loadedRevision = null;
+      throw error;
+    }
   }
   let tail = Promise.resolve(), activeToken = null;
   async function beginMutation() {
@@ -384,6 +431,7 @@
     // A test build must opt in before loading this module. Normal builds cannot enable writes.
     provision,
     canProvision,
+    recoverOwner,
     validate,
     mutation,
     journaledDelete,
