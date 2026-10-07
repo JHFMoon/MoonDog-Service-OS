@@ -11,7 +11,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 BINARY_VENDOR = {
     "vendor/jszip.min.js",
     "vendor/pdf.min.js",
@@ -28,8 +28,8 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def runtime_paths() -> list[str]:
-    content = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+def runtime_paths(source_root: Path) -> list[str]:
+    content = (source_root / "assets" / "app.js").read_text(encoding="utf-8")
     match = HANDOFF_RE.search(content)
     if not match:
         raise RuntimeError("HANDOFF_RUNTIME_PATHS was not found in assets/app.js")
@@ -41,8 +41,8 @@ def runtime_paths() -> list[str]:
     return paths
 
 
-def app_version() -> str:
-    content = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+def app_version(source_root: Path) -> str:
+    content = (source_root / "assets" / "app.js").read_text(encoding="utf-8")
     match = VERSION_RE.search(content)
     if not match:
         raise RuntimeError("Application version was not found")
@@ -91,19 +91,20 @@ Do not run the dashboard from inside the ZIP.
 """.encode("utf-8")
 
 
-def build(vendor_dir: Path, output: Path) -> dict:
-    paths = runtime_paths()
-    version = app_version()
+def build(source_root: Path, vendor_dir: Path, output: Path) -> dict:
+    source_root = source_root.resolve()
+    paths = runtime_paths(source_root)
+    version = app_version(source_root)
     payload: dict[str, bytes] = {}
 
     for path in paths:
-        source = vendor_dir / Path(path).name if path in BINARY_VENDOR else ROOT / path
+        source = vendor_dir / Path(path).name if path in BINARY_VENDOR else source_root / path
         if not source.is_file():
             raise RuntimeError(f"Required clean-install file is missing: {path} ({source})")
         payload[f"{ARCHIVE_ROOT}/System Files/{path}"] = source.read_bytes()
 
     runtime_html = payload[f"{ARCHIVE_ROOT}/System Files/index.html"]
-    payload[f"{ARCHIVE_ROOT}/00 - OPEN DASHBOARD.html"] = (ROOT / "00 - OPEN DASHBOARD.html").read_bytes()
+    payload[f"{ARCHIVE_ROOT}/00 - OPEN DASHBOARD.html"] = (source_root / "00 - OPEN DASHBOARD.html").read_bytes()
     payload[f"{ARCHIVE_ROOT}/index.html"] = compatibility_index(runtime_html)
     payload[f"{ARCHIVE_ROOT}/START HERE.txt"] = clean_install_readme(version)
 
@@ -168,6 +169,8 @@ def verify(archive_path: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--source-root", type=Path, default=DEFAULT_ROOT,
+                        help="Application source tree to package; defaults to the current checkout")
     parser.add_argument("--vendor-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--verify-only", type=Path)
@@ -178,7 +181,7 @@ def main() -> int:
         print(f"Verified {args.verify_only}")
         return 0
 
-    result = build(args.vendor_dir, args.output)
+    result = build(args.source_root, args.vendor_dir, args.output)
     print(json.dumps(result, indent=2))
     return 0
 
