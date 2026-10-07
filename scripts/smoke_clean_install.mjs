@@ -13,6 +13,7 @@ page.on("pageerror", error => pageErrors.push(String(error?.stack || error)));
 
 try {
   await page.goto(pathToFileURL(path.resolve(index)).href, { waitUntil: "load", timeout: 30000 });
+  await page.waitForURL(url => url.protocol === "file:" && url.pathname.endsWith("/index.html"), { timeout: 10000 });
   await page.waitForFunction(() =>
     typeof globalThis.JSZip === "function" &&
     globalThis.XLSX &&
