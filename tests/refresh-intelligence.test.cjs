@@ -14,7 +14,7 @@ test("Known sources have local instructions without store identity",()=>{
   assert.equal(R.catalog.performance.label,"SAPR");
   assert.match(R.catalog.performance.location,/DealerCentral/);
   assert.equal(R.catalog.csi.facts.includes("Dealer NPS"),true);
-  assert.deepEqual(R.plan([{source:"unknown",description:"missing"}],R.empty(),{at,today:"2026-10-06"}),[]);
+  assert.equal(R.plan([{source:"unknown",description:"missing"}],R.empty(),{at,today:"2026-10-06"}).length,0);
 });
 test("One source provides one compact request even if repeated",()=>{
   const requests=[
@@ -92,9 +92,9 @@ test("New presentation and refresh logic is included in runtime",()=>{
   const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
   const daily=fs.readFileSync(path.join(__dirname,"..","assets","daily-ops.js"),"utf8");
   const presenter=daily;
-  assert.match(index,/assets\/refresh-intelligence.js/);
-  assert.match(index,/assets\/meeting-presenter.js/);
-  assert.match(index,/assets\/meeting-presenter.css/);
+  assert.match(index,/assets\/freshness.js/);
+  assert.match(index,/assets\/daily-ops.js/);
+  assert.match(index,/assets\/meeting.css/);
   assert.match(app,/recordRefreshLearning/);
   assert.match(app,/writeJson\(SETTINGS_PATH, nextSettings\)/);
   assert.match(daily,/renderOtherPriorities/);
