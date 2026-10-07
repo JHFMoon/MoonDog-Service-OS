@@ -8,11 +8,11 @@
     "releaseNotes": "Adds source-aware Data Needed requests with locally learned cadence and report locations, five prioritized actionable Home items, in-progress half-day SAPR pacing and closest-working-day year-over-year comparison, and 30-second alphabetical Store/advisor meeting cards that automatically recompose for 16:9 or 9:16. Includes protected local settings and updater-safe approved runtime files."
   },
   "beta": {
-    "version": "0.10.12-beta.1",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.12-beta.1.json",
-    "sha256": "0b721e9c0a723dd0b5c452f9606ed27b20548710226b8b00bb365bcd3ecc0c80",
+    "version": "0.10.12-beta.2",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.12-beta.2.json",
+    "sha256": "af07dbf9a8bd894288aad4e65187444a6eb4d99ffdc92707b950fd0260422eff",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Optional next-version Beta containing the full Stable 0.10.11 feature set: source-aware refresh intelligence, private learned cadence, five-item Home, half-day SAPR pacing and 16:9/9:16 meeting cards. Can install directly from a validated 0.10.9+ layout-aware installation; no intermediate Stable update or workspace migration required."
+    "releaseNotes": "Hotfixes Advisor Meeting so presentation mode is isolated to the Meeting tab and contains System Updates paths/file-plan text inside the settings layout on narrow or portrait screens. No workspace migration or operational-data changes."
   }
 }
