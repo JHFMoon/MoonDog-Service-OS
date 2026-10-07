@@ -13,8 +13,13 @@
   const REVISION = [...WORKSPACE, "data", "store-revision.json"];
   const encoder = new TextEncoder();
   const sessionIdentities = new Map();
+  let transientValidation = false;
+  const transientValidationDelays = [0, 150, 400, 900, 1800];
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  function transientInterfaceState(error) { return ["AbortError","InvalidStateError","NotReadableError","UnknownError","TimeoutError"].includes(error?.name) || /state cached in an interface object|state had changed since it was read from disk|changed since it was read from disk/i.test(String(error?.message || "")); }
   const notify = () => global.dispatchEvent?.(new Event("moondog-write-authority"));
   function setEditable(value) { editable = value; notify(); }
+  function setTransientValidation(value) { value = Boolean(value); if (transientValidation === value) return; transientValidation = value; notify(); }
   async function localIdentity(markerDigest) {
     if (sessionIdentities.has(markerDigest)) return sessionIdentities.get(markerDigest);
     try {
@@ -147,18 +152,26 @@
   }
   async function validate(root = nativeRoot, ask = false) {
     root = originals.get(root) || root;
-    if (!root) { setEditable(false); return false; }
-    try {
-      const marker = await read(root, MARKER), revision = await read(root, REVISION);
-      const secret = await localIdentity(marker?.digest);
-      if (typeof secret !== "string" || secret.length < 32) throw denied();
-      if (marker?.schemaVersion !== 1 || marker.digest !== await digest(secret) || !validRevision(revision)) throw denied();
-      let permission = await root.queryPermission({ mode: "readwrite" });
-      if (permission !== "granted" && ask) permission = await root.requestPermission({ mode: "readwrite" });
-      if (permission !== "granted") throw denied();
-      if (!activeToken) await recoverPending(root, revision);
-      nativeRoot = root; loadedRevision = revision.revision; setEditable(true); return true;
-    } catch (_) { setEditable(false); loadedRevision = null; return false; }
+    if (!root) { setTransientValidation(false); setEditable(false); loadedRevision = null; return false; }
+    let lastTransient = false;
+    for (let attempt = 0; attempt < transientValidationDelays.length; attempt += 1) {
+      if (transientValidationDelays[attempt]) await sleep(transientValidationDelays[attempt]);
+      try {
+        const marker = await read(root, MARKER), revision = await read(root, REVISION);
+        const secret = await localIdentity(marker?.digest);
+        if (typeof secret !== "string" || secret.length < 32) throw denied();
+        if (marker?.schemaVersion !== 1 || marker.digest !== await digest(secret) || !validRevision(revision)) throw denied();
+        let permission = await root.queryPermission({ mode: "readwrite" });
+        if (permission !== "granted" && ask && attempt === 0) permission = await root.requestPermission({ mode: "readwrite" });
+        if (permission !== "granted") throw denied();
+        if (!activeToken) await recoverPending(root, revision);
+        nativeRoot = root; loadedRevision = revision.revision; setTransientValidation(false); setEditable(true); return true;
+      } catch (error) {
+        lastTransient = transientInterfaceState(error);
+        if (!lastTransient) { setTransientValidation(false); break; }
+      }
+    }
+    setTransientValidation(lastTransient); setEditable(false); loadedRevision = null; return false;
   }
   async function provision(root) {
     // One-time controlled setup on the designated computer. Never runs at startup.
@@ -428,6 +441,7 @@
   const authority = {
     get canWrite() { return editable; },
     get mode() { return editable ? "EDITABLE" : "READ ONLY"; },
+    get transientValidation() { return transientValidation; },
     requireWrite,
     wrapDirectory,
     // A test build must opt in before loading this module. Normal builds cannot enable writes.
@@ -446,7 +460,7 @@
       if (!testEnabled) throw denied();
       setEditable(true);
     },
-    disable() { setEditable(false); loadedRevision = null; nativeRoot = null; }
+    disable() { setTransientValidation(false); setEditable(false); loadedRevision = null; nativeRoot = null; }
   };
   global.MoonDogWriteAuthority = Object.freeze(authority);
 })(globalThis);
