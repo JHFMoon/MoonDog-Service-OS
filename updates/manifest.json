@@ -1,11 +1,11 @@
 {
   "stable": {
-    "version": "0.10.16",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v0.10.16/updates/packages/moondog-0.10.16.json",
-    "sha256": "842a7154e14676f687b61c216d91c5b698c0a8751855a26f5a6ad7c5191a0cad",
+    "version": "0.10.17",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v0.10.17/updates/packages/moondog-0.10.17.json",
+    "sha256": "10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Prevents temporary OneDrive/file-ingestion synchronization conflicts from appearing as lost owner editing. Transient File System Access state changes now retry automatically, show a neutral workspace-updating message, and only expose owner recovery for a real persistent authority problem. No workspace migration."
+    "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
     "version": "0.10.15-beta.1",
