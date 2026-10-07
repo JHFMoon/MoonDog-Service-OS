@@ -1,13 +1,26 @@
 # Changelog
 
-## 0.10.12 — current Stable
+## 0.10.13 — current Stable
+
+- Replaces indefinite backup accumulation with bounded rolling retention across all normal recovery families.
+- Keeps at most 3 validated full backups for 90 days and automatically refreshes a full backup every 30 days when current durable state validates.
+- Keeps at most 3 resolved system-update rollback backups for 30 days, 2 restore-safety backups for 30 days, and 50 automatic pre-change backups for 30 days.
+- Keeps active interrupted-update recovery artifacts out of ordinary pruning, but blocks another software install until that recovery is resolved so the exception cannot multiply.
+- Prunes nested resolved system-update rollback folders safely only after their files are unchanged and verified for removal.
+- Shows the rolling retention limits directly in Backup & Recovery.
+
+## 0.10.14-beta.1 — next Beta
+
+- Carries forward Stable 0.10.13 as the next optional Beta baseline.
+
+## 0.10.12 — previous Stable
 
 - Promotes the validated Advisor Meeting navigation hotfix so presentation mode cannot remain visible on other tabs.
 - Keeps long System Updates workspace paths, file plans, status text, and buttons contained on portrait and narrow layouts.
 - Carries forward the full 0.10.11 operating-intelligence feature set with no Workspace migration.
 - Publishes through the formal GitHub Stable Release contract with the protected rollback/update path unchanged.
 
-## 0.10.13-beta.1 — next Beta
+## 0.10.13-beta.1
 
 - Carries forward Stable 0.10.12 as the next optional Beta baseline for future testing.
 

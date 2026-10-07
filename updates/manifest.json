@@ -1,18 +1,18 @@
 {
   "stable": {
-    "version": "0.10.12",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v0.10.12/updates/packages/moondog-0.10.12.json",
-    "sha256": "30ddd6b518366849a44f7eacb804a03d461cdea49592274e021732bdf8e69f3a",
+    "version": "0.10.13",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v0.10.13/updates/packages/moondog-0.10.13.json",
+    "sha256": "831c90b6bc26ab1333ee1c9bba11f768db504a1ac8dce4408a8499938d806b91",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Promotes the validated layout hotfix: Advisor Meeting presentation mode is isolated to the Meeting tab, and System Updates long paths/file-plan text remain contained on narrow and portrait screens. Carries forward the 0.10.11 operating-intelligence feature set with no workspace migration."
+    "releaseNotes": "Adds bounded rolling backup retention: full backups max 3 / 90 days with automatic 30-day refresh, resolved system-update rollbacks max 3 / 30 days, restore-safety max 2 / 30 days, and automatic pre-change backups max 50 / 30 days. Interrupted update recovery blocks another install until resolved. No workspace migration."
   },
   "beta": {
-    "version": "0.10.13-beta.1",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.13-beta.1.json",
-    "sha256": "fb274409c7ffde17ebf934de3bf6f5cc25372a95fddd6ba3b21599e16b8c158a",
+    "version": "0.10.14-beta.1",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.14-beta.1.json",
+    "sha256": "f561282cc5f0c017853b52d37501b2db2ca725f2b20c37bf706b02118e1fd722",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Next Beta baseline carrying forward Stable 0.10.12, including Advisor Meeting tab isolation and contained System Updates text. No workspace migration."
+    "releaseNotes": "Next Beta baseline carrying forward Stable 0.10.13 bounded backup retention and update-recovery install guard. No workspace migration."
   }
 }

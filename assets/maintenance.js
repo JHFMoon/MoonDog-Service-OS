@@ -1,5 +1,6 @@
 (function(root){'use strict';
 const DAY=86400000,canonical=['current-state','settings','appointments','advisor-performance','assign-next','auto-import','operational-metrics','meeting-cycle','recovery'].map(n=>'data/'+n+'.json');
+const RETENTION=Object.freeze({automaticDays:30,automaticMax:50,fullDays:90,fullMax:3,fullRefreshDays:30,restoreSafetyDays:30,restoreSafetyMax:2,deploymentDays:90,deploymentMax:3,systemUpdateDays:30,systemUpdateMax:3,supportDays:30,supportMax:2,revisionDays:30,revisionMax:3,importDays:90});
 const encode=s=>new TextEncoder().encode(s),decode=b=>new TextDecoder().decode(b),equal=(a,b)=>a?.length===b?.length&&a.every((v,i)=>v===b[i]);
 const json=b=>JSON.parse(decode(b).replace(/^\uFEFF/,''));
 const stable=v=>JSON.stringify(v&&typeof v==='object'?Array.isArray(v)?v.map(x=>JSON.parse(stable(x))):Object.fromEntries(Object.keys(v).sort().map(k=>[k,JSON.parse(stable(v[k]))])):v);
@@ -32,18 +33,20 @@ async function safeWrite(io,path,bytes,options={}){
 }
 function family(path){const n=path.split('/').at(-1);if(/^MoonDog Full Backup - .*\.zip$/i.test(n))return 'manager-full';if(/^MoonDog Restore Safety - .*\.zip$/i.test(n))return 'restore-safety';if(!/^\d{4}-\d{2}-\d{2}/.test(n)||!n.endsWith('.json'))return null;const label=n.replace(/^\d{4}-\d{2}-\d{2}(?:T[\d:-]+Z)?-/,'').replace(/\.json$/,'');if(/^Updated-RO-\d+$/i.test(label))return 'ro-update';if(/^(before-|appointments-before-|advisor-performance-before-|meeting-cycle-)/.test(label))return label.replace(/\d{4}-\d{2}-\d{2}/g,'date');return null;}
 function policy(files,ctx){
- const remove=[],keep=new Set(ctx.references||[]),now=ctx.now,day=ctx.day,age=f=>Math.floor((Date.parse(day+'T12:00:00Z')-Date.parse((f.day||f.path.match(/\d{4}-\d{2}-\d{2}/)?.[0]||new Date(f.modified).toISOString().slice(0,10))+'T12:00:00Z'))/DAY);
+ const remove=[],keep=new Set(ctx.references||[]),day=ctx.day,age=f=>Math.max(0,Math.floor((Date.parse(day+'T12:00:00Z')-Date.parse((f.day||f.path.match(/\d{4}-\d{2}-\d{2}/)?.[0]||new Date(f.modified).toISOString().slice(0,10))+'T12:00:00Z'))/DAY));
  const pinned=f=>keep.has(f.path)||[...keep].some(p=>p.startsWith(f.path+'/')||f.path.startsWith(p+'/'))||f.unresolved;
  const safe=f=>f.valid&&!pinned(f)&&ctx.currentValid&&!ctx.restoreBusy;
- const newerFull=f=>ctx.fullBackups?.some(b=>b.valid&&b.createdAt>f.modified);
- const auto=files.filter(f=>f.area==='automatic'&&safe(f));const newest=new Map();for(const f of auto){const k=f.family+':'+(f.day||f.path.slice(8,18));if(!newest.has(k)||newest.get(k).modified<f.modified)newest.set(k,f);}
- for(const f of auto){const a=age(f);if(a<=7)continue;if(a<=30){if(newest.get(f.family+':'+(f.day||f.path.slice(8,18)))!==f&&newerFull(f))remove.push(f);}else if(newerFull(f))remove.push(f);}
- for(const area of ['deployment','restore-safety','support','revision']){
-  const all=files.filter(f=>f.area===area&&f.valid).sort((a,b)=>b.modified-a.modified||b.path.localeCompare(a.path)),retain=new Set(all.slice(0,area==='deployment'||area==='revision'?3:2).map(f=>f.path));
-  if(area==='deployment'){for(let n=1;n<=3;n++){const d=new Date(day+'T12:00:00Z');d.setUTCDate(1);d.setUTCMonth(d.getUTCMonth()-n);const month=d.toISOString().slice(0,7),f=all.find(f=>(f.day||new Date(f.modified).toISOString().slice(0,10)).startsWith(month));if(f)retain.add(f.path);}}
-  for(const f of all)if(!retain.has(f.path)&&safe(f)&&newerFull(f)&&(area==='deployment'||area==='restore-safety'||age(f)>30)&&(area!=='revision'||ctx.currentWorkbookValid))remove.push(f);
+ const add=f=>{if(safe(f)&&!remove.some(x=>x.path===f.path))remove.push(f);};
+ const automatic=files.filter(f=>f.area==='automatic'&&f.valid).sort((a,b)=>b.modified-a.modified||b.path.localeCompare(a.path));
+ const automaticCap=new Set(automatic.slice(0,RETENTION.automaticMax).map(f=>f.path)),newest=new Map();
+ for(const f of automatic){const k=f.family+':'+(f.day||f.path.slice(8,18));if(!newest.has(k))newest.set(k,f);}
+ for(const f of automatic){const a=age(f),k=f.family+':'+(f.day||f.path.slice(8,18));if(a>RETENTION.automaticDays||!automaticCap.has(f.path)||(a>7&&newest.get(k)!==f))add(f);}
+ const specs={'manager-full':[RETENTION.fullMax,RETENTION.fullDays],'restore-safety':[RETENTION.restoreSafetyMax,RETENTION.restoreSafetyDays],deployment:[RETENTION.deploymentMax,RETENTION.deploymentDays],'system-update':[RETENTION.systemUpdateMax,RETENTION.systemUpdateDays],support:[RETENTION.supportMax,RETENTION.supportDays],revision:[RETENTION.revisionMax,RETENTION.revisionDays]};
+ for(const [area,[maxCount,maxDays]] of Object.entries(specs)){
+  const all=files.filter(f=>f.area===area&&f.valid&&!f.unresolved).sort((a,b)=>b.modified-a.modified||b.path.localeCompare(a.path));
+  all.forEach((f,index)=>{if(index>=maxCount||age(f)>maxDays)add(f);});
  }
- for(const f of files.filter(f=>f.area==='import'))if(safe(f)&&age(f)>90&&f.importProven&&newerFull(f))remove.push(f);
+ for(const f of files.filter(f=>f.area==='import'))if(age(f)>RETENTION.importDays&&f.importProven)add(f);
  return remove;
 }
 function semanticSame(a,b){return stable(a)===stable(b);}
@@ -89,7 +92,7 @@ function create(io,api){
    }
    try{
     await api.ensureFolders();
-    const roots=await io.list('data',false),backups=(await io.list('backups',deep)).filter(p=>!p.startsWith('backups/system-updates/')),history=await io.list('data/history',false);
+    const roots=await io.list('data',false),allBackups=await io.list('backups',deep),backups=allBackups.filter(p=>!p.startsWith('backups/system-updates/')),systemUpdateFiles=allBackups.filter(p=>p.startsWith('backups/system-updates/')),history=await io.list('data/history',false);
     // Invalid empty history/pre-change files are not events or recovery points.
     for(const p of [...history,...backups].filter(p=>p.endsWith('.json'))){try{const f=await inspect(p);try{json(f.bytes)}catch(_){if(!f.size&&(/data\/history\/(?:\d{4}-|daily-)/.test(p)||family(p)))await remove(f,'INVALID ZERO BYTE ARTIFACT REMOVED');else issue(p,'Invalid JSON requires review');}}catch(_){issue(p,'Could not inspect file');}}
     for(const p of (options.repairOnly?[]:[...roots,...history,...backups,...await io.list("exports",false),...await io.list("",false)]).filter(p=>p.endsWith('.json')&&!canonical.includes(p))){
@@ -102,20 +105,34 @@ function create(io,api){
     if(await io.exists('TEMP - MOONDOG COMPLETE FILE INVENTORY.csv')){const f=await inspect('TEMP - MOONDOG COMPLETE FILE INVENTORY.csv');if(api.inventoryComplete&&/path/i.test(decode(f.bytes).split(/\r?\n/)[0]))await remove(f,'COMPLETED INVENTORY REMOVED');}
     if(deep){
      let currentValid=false;try{await api.validateCurrent();currentValid=true;}catch(_){issue('data','Current durable validation failed; retention blocked');}
-     const full=[],classified=[],deployment=new Map();
-     for(const p of backups){try{const f=await inspect(p),fam=family(p);if(p.endsWith('.zip')){try{const v=await api.validateBackup(f.bytes);full.push({...f,valid:true,createdAt:Date.parse(v.manifest.createdAt)});if(fam==='restore-safety')classified.push({...f,valid:true,area:fam});}catch(_){issue(p,'Backup validation failed; kept');}continue;}
+     const full=[],classified=[],deployment=new Map(),systemUpdates=new Map();
+     for(const p of backups){try{const f=await inspect(p),fam=family(p);if(p.endsWith('.zip')){try{const v=await api.validateBackup(f.bytes),entry={...f,valid:true,createdAt:Date.parse(v.manifest.createdAt),family:fam};full.push(entry);if(fam==='restore-safety'||fam==='manager-full')classified.push({...entry,area:fam});}catch(_){issue(p,'Backup validation failed; kept');}continue;}
        if(p.slice(8).includes('/')){const dir='backups/'+p.slice(8).split('/')[0];if(/deployment|before-.*(?:fix|coverage|availability)/.test(dir)){if(!deployment.has(dir))deployment.set(dir,[]);deployment.get(dir).push(f);}continue;}
        if(fam){let v;try{v=json(f.bytes)}catch(_){continue;}classified.push({...f,valid:!!v&&typeof v==='object',family:fam,area:'automatic',day:p.slice(8,18),unresolved:/migration/i.test(fam)&&!(await api.migrationResolved?.(fam,v))});}
       }catch(_){issue(p,'Backup inspection unavailable');}}
      for(const [p,items] of deployment){let valid=true;for(const f of items){if(!/\.(js|css|html|json|md|txt)$/i.test(f.path)||!f.size){valid=false;break;}if(f.path.endsWith('.json'))try{json(f.bytes)}catch(_){valid=false;}}
       if(valid)classified.push({path:p,area:'deployment',valid:true,modified:Math.max(...items.map(f=>f.modified)),day:new Date(Math.max(...items.map(f=>f.modified))).toISOString().slice(0,10),items});else issue(p,'Recovery directory cannot be verified; kept');}
+     for(const p of systemUpdateFiles){try{const f=await inspect(p),parts=p.split('/'),dir=parts.slice(0,3).join('/');if(parts.length<4)continue;if(!systemUpdates.has(dir))systemUpdates.set(dir,[]);systemUpdates.get(dir).push(f);}catch(_){issue(p,'Update rollback file could not be inspected');}}
+     for(const [p,items] of systemUpdates){
+      const journal=items.find(f=>f.path===p+'/journal.json');let record=null;try{record=journal?json(journal.bytes):null;}catch(_){}
+      const status=record?.status,valid=Array.isArray(record?.inventory)&&['verified','restored','prepared','applying'].includes(status);
+      if(!valid){issue(p,'Update rollback backup is invalid or incomplete; kept for review');continue;}
+      const unresolved=['prepared','applying'].includes(status),modified=Math.max(...items.map(f=>f.modified));
+      if(unresolved)issue(p,'Interrupted update recovery is still active; resolve it before this safety artifact can expire.');
+      classified.push({path:p,area:'system-update',valid:true,unresolved,modified,day:new Date(modified).toISOString().slice(0,10),items});
+     }
+     const newestFull=full.filter(f=>f.family==='manager-full').sort((a,b)=>b.createdAt-a.createdAt)[0];
+     if(currentValid&&(!newestFull||at-newestFull.createdAt>RETENTION.fullRefreshDays*DAY)){
+      try{const created=await api.createRetentionBackup?.();if(created?.path){const fresh=await inspect(created.path),validated=await api.validateBackup(fresh.bytes),entry={...fresh,valid:true,createdAt:Date.parse(validated.manifest.createdAt),family:'manager-full',area:'manager-full'};full.push(entry);classified.push(entry);}}
+      catch(_){issue('backups','Automatic rolling full backup could not be created; stale recovery points are held only until a fresh verified backup can replace them.');}
+     }
      for(const p of await io.list('support',true)){if(!/^support\/MoonDog Support (?:Package|Recovery Copy) - .+\.zip$/.test(p))continue;const f=await inspect(p);classified.push({...f,area:'support',valid:await api.validateSupport(f.bytes)});}
      let workbookValid=false;try{workbookValid=await api.validateWorkbook(await io.read(api.currentWorkbook()));}catch(_){}
      for(const p of await io.list('exports',false)){if(/-revision\.xlsx$/.test(p)){const f=await inspect(p);classified.push({...f,area:'revision',valid:await api.validateWorkbook(f.bytes)});}}
      for(const p of await io.list('imports',false)){const f=await inspect(p);classified.push({...f,area:'import',valid:true,importProven:await api.importEvidence?.(p,f.bytes)===true});}
      const candidates=policy(classified,{now:at,day,references:refs,currentValid,restoreBusy:api.busy?.(),currentWorkbookValid:workbookValid,fullBackups:full});
-     if(!full.length)issue('backups','Retention waits for a validated full recovery backup');
-     for(const f of candidates){if(f.items){let unchanged=true;for(const i of f.items){const c=await inspect(i.path);if(c.hash!==i.hash||c.modified!==i.modified)unchanged=false;}if(!unchanged){issue(f.path,'Recovery directory changed; kept');continue;}for(const i of f.items)await remove(i,'DEPLOYMENT RECOVERY PRUNED');await io.removeEmpty?.(f.path);}else await remove(f,'RETENTION PRUNED');}
+     async function removeEmptyTree(p){if(!io.directoryEntries||!io.removeEmpty)return;let entries;try{entries=await io.directoryEntries(p);}catch(_){return;}for(const e of entries)if(e.kind==='directory')await removeEmptyTree(p+'/'+e.name);try{await io.removeEmpty(p);}catch(_){}}
+     for(const f of candidates){if(f.items){let unchanged=true;for(const i of f.items){const c=await inspect(i.path);if(c.hash!==i.hash||c.modified!==i.modified)unchanged=false;}if(!unchanged){issue(f.path,'Recovery directory changed; kept');continue;}for(const i of f.items)await remove(i,f.area==='system-update'?'SYSTEM UPDATE ROLLBACK PRUNED':'DEPLOYMENT RECOVERY PRUNED');await removeEmptyTree(f.path);}else await remove(f,'RETENTION PRUNED');}
 
      // Directory entries (including empty child directories) must be absent twice.
      for(const p of await io.listDirectories?.('backups')||[]){
@@ -139,5 +156,5 @@ function create(io,api){
  return {run,schedule,backupReady(){if(metadata().issues?.some(i=>i.reason==='Retention waits for a validated full recovery backup')){retryDeep=true;schedule('validated backup');}},get running(){return !!running}};
 }
 const knownNonReportHashes=new Set(["0a3cc9952b9620efd2a437c75c2f16f1f1304d8d85dc55043068a65686784e59","21020c28c76cf7ccf6f1447591dfff92b749bac8a14d18ecb5c0fbee7e78d787","bafc10c2e8e38ea80574b919ac4cbef64f5636f22922107c769b0e3bcbeb390e","6c795a4a6b506787265f73753cf33e780a9ca2d8b0817586362b01b08b31f233","3399e6b3467d562dd9c20ba6aced4b636688113129529d4476d99b6a713b10ff","b85a6613184d33df9487fdd0b6a2687dd999aec8a429d8a4d9bc2ce85f0d5ccf","75bc1ce7f4b2421f84ff37e664c4f25c8eb6149cbcfe616500230fcb9d32a2e6"]);
-root.MoonDogMaintenance={knownNonReportHash:h=>knownNonReportHashes.has(String(h).toLowerCase()),safeWrite,policy,family,semanticSame,superseded,migrationResolved,retiredRecoveryDirectory,create,canonical};if(typeof module!=='undefined')module.exports=root.MoonDogMaintenance;
+root.MoonDogMaintenance={knownNonReportHash:h=>knownNonReportHashes.has(String(h).toLowerCase()),safeWrite,policy,family,semanticSame,superseded,migrationResolved,retiredRecoveryDirectory,create,canonical,retention:RETENTION};if(typeof module!=='undefined')module.exports=root.MoonDogMaintenance;
 })(globalThis);

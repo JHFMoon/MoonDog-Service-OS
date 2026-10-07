@@ -31,6 +31,8 @@ A migrated installation preserves the original root `index.html` document path s
 
 Protected state is under `System Files/Workspace/`, including data, history, reports/inbox material, Files To Learn, imports/exports, support records, and backups.
 
+Backup storage is managed by bounded automatic retention. Normal recovery artifacts are never allowed to accumulate without a count/age limit: validated full backups are refreshed every 30 days and retained at most 3 / 90 days; resolved system-update rollbacks at most 3 / 30 days; restore-safety backups at most 2 / 30 days; automatic pre-change backups at most 50 / 30 days. An interrupted update recovery artifact is treated as active recovery state rather than ordinary backup inventory and blocks another software installation until resolved.
+
 Application updates target `System Files/` but must reject the protected `Workspace/` subtree.
 
 One store has one designated authoritative writer. Browser-local authority plus a non-secret workspace marker is required before durable writes are enabled. Copied or independently synchronized workspace copies do not inherit authority and remain read-only. OneDrive synchronization is not treated as a distributed lock.
