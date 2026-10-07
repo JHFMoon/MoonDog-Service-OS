@@ -2096,15 +2096,55 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function installScheduleSafeAutosave(){const base=saveSettingsAutosave;saveSettingsAutosave=async function(){const priorSchedule=JSON.stringify(model.settings.meeting);await base();if(JSON.stringify(model.settings.meeting)!==priorSchedule)await ensureMeetingCycleBaseline();};}
   ui.previousMonthTotals?.addEventListener("click",(event)=>{const button=event.target.closest("button[data-apply-month-correction]");if(button)run(()=>applyMonthEndCorrection(button.dataset.applyMonthCorrection));});globalThis.__moondogSettingsModel=model;globalThis.__moondogFolderWatch={state:folderWatch,scan:folderWatchScan,start:startFolderWatch,stop:stopFolderWatch,watchedInboxFile,watchCandidates,reportInbox:REPORT_INBOX};globalThis.__moondogIntake={classifyImportFile,isMoonDogGreeterOutput,pdfSignatureText,reconcileLearnedFiles,parseNextAppointmentsCsv,latestNextAppointmentsSnapshot,normalizeOperationalCoverage,parseVirCsv,parseMenuSalesWorkbook,importMenuSalesFile,latestVirObservation,virObservationDate,virObservationIsStale,shouldStoreVir,parseCdkRepairOrdersDocx,parseSupplementalPdfReport,parseSupplementalDocxReport,referenceOnlyDocumentType,supplementalManagerAttention,canonicalCdkStatus,canonicalReviewStatus,statusDetailsFor,mergeCompleteOpenRoRecords,pruneClosedRecords};globalThis.__moondogFreshness={sourceFreshness,sourceStatusLabel,metricDependencyEvidence,latestImportSummary,timeZone:businessTimeZone};globalThis.__moondogTrendCoverage={dailySourceCoverage,dailyEvidenceDate,validCoverageDate,internalObservationDate,retainDailyReport,SOURCE_COVERAGE_RULES,currentMonthWindow,operatingDateKeys,saprTrendCoverage,trendCoverageAudit,trendCoverageAttention,managerAttentionRequests,sourceAvailable,sourceTemporarilyUnavailable,priorMonthKey,lastDayOfMonth,monthFinalOperatingDate,monthEndSourceReadiness,buildMonthEndSummary,monthEndCorrectionCandidate};globalThis.__moondogAssignNext={storeDateKey,workloadDate,canonicalWorkloadRecords,openRoWorkloadSnapshot,saveOpenRoWorkload,activeWorkloadSnapshot,assignNextRows,sourceRecordIsOpen};globalThis.__moondogAdvisorIdentity={validAdvisorIdentity,advisorDisplayName};globalThis.__moondogMeetingActions={meetingActionBandData,controllableNextThreshold,storeMeetingNextOpportunity,virCompletenessEvidence,virMeetingWindowComparison,meetingVirRosterCodes};installProductizedParser();installProductizedImport();installProductizedRuntime();installConfiguredMeetingRender();installScheduleSafeAutosave();
   globalThis.__moondogSapr = { currentSaprSnapshot, latestVerifiedMeetingSnapshot };
-  const developerSourcePaths = Object.freeze(["assets/maintenance.js","assets/maintenance-tests.js","index.html","assets/freshness.js","assets/app.js","assets/styles.css","assets/queue.css","assets/arrivals.css","assets/performance.css","assets/meeting.css","assets/assign-next.css","assets/assign-next-controls.css","assets/worklist.css","assets/operational.css","assets/clarity.css","assets/product-settings.css","assets/developer-center.js","assets/developer-center.css","assets/daily-engine.js","assets/daily-ops.js","assets/daily-ops.css","assets/tests.js","PROJECT_CONTEXT.md","README.txt","TEST_STATUS.md","AGENTS.md","test-harness.html"]);
+  const developerSourcePaths = Object.freeze(["assets/maintenance.js","assets/maintenance-tests.js","index.html","assets/freshness.js","assets/app.js","assets/styles.css","assets/queue.css","assets/arrivals.css","assets/performance.css","assets/meeting.css","assets/assign-next.css","assets/assign-next-controls.css","assets/worklist.css","assets/operational.css","assets/clarity.css","assets/product-settings.css","assets/developer-center.js","assets/developer-center.css","assets/daily-engine.js","assets/refresh-intelligence.js","assets/meeting-presenter.js","assets/meeting-presenter.css","assets/daily-ops.js","assets/daily-ops.css","assets/tests.js","PROJECT_CONTEXT.md","README.txt","TEST_STATUS.md","AGENTS.md","test-harness.html"]);
   globalThis.__moondogDeveloperRead = Object.freeze({ allowedPaths: developerSourcePaths, isConnected: () => Boolean(model.root), rootName: () => model.root?.name || "connected Service Operations Dashboard folder", readSourceFile: async path => { if (!developerSourcePaths.includes(path)) throw new Error("Developer Center is limited to approved project source and documentation files."); if (!model.root) throw new Error("Connect the Service Operations Dashboard working folder first."); const bytes = await readFileBytes(path.split("/")); return Object.freeze({ path, size: bytes.byteLength, text: decodeUtf8(bytes) }); } });
+
+  // Learned refresh behavior and TV preferences are private settings data. Keep
+  // them in the existing guarded settings artifact so backup/restore preserves
+  // them without adding a new untracked state file.
+  async function updateLocalFuture(mutator) {
+    writeAuthority.requireWrite();
+    const future = { ...(model.settings.future || {}) };
+    mutator(future);
+    const nextSettings = { ...model.settings, future, updatedAt:now() };
+    await writeJson(SETTINGS_PATH, nextSettings);
+    model.settings.future = future;
+    model.settings.updatedAt = nextSettings.updatedAt;
+    return future;
+  }
+  async function recordRefreshLearning(source,kind,details={}) {
+    const planner=globalThis.ServiceRefreshIntelligence;
+    if(!planner?.catalog?.[source]||!writeAuthority.canWrite)return;
+    await updateLocalFuture(future=>{
+      future.refreshCadence=planner.learn(future.refreshCadence,source,kind,{
+        ...details,at:details.at||now(),
+        hour:freshness.timeParts(new Date(),businessTimeZone())?.hour
+      });
+    });
+  }
+  const REFRESH_IMPORT_KINDS=Object.freeze({
+    performance:"performance",sapr:"performance","open-ro":"open-ro",
+    appointments:"appointments","next-appointments":"next-appointments",
+    csi:"csi",vir:"vir","menu-sales":"menu-sales",menu:"menu-sales",
+    "media-asr":"media-asr","media-asr-tech":"media-asr-tech",
+    efficiency:"efficiency",sor:"sor"
+  });
+  async function rememberVerifiedImport(kind) {
+    const source=REFRESH_IMPORT_KINDS[kind];
+    if(!source)return;
+    try {
+      const key=source==="performance"?"sapr":source==="open-ro"?"openRo":source==="menu-sales"?"menu":source.replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase());
+      const evidence=sourceFreshness(key,{today:localDateKey()});
+      await recordRefreshLearning(source,"imported",{periodEnd:evidence?.periodEnd||evidence?.sourceDate||""});
+    } catch(error) { recordDiagnostic("REFRESH LEARNING", "Import succeeded; cadence observation could not be saved"); }
+  }
 
   // Daily operating UI uses the existing model and persistence paths exclusively.
   const dailyNotify = (type, detail = {}) => document.dispatchEvent(new CustomEvent(type, { detail }));
   const renderBeforeDaily = renderAll;
   renderAll = function () { renderBeforeDaily(); dailyNotify('moondog-data'); };
   const processBeforeDaily = processClassifiedCandidate;
-  processClassifiedCandidate = async function(...args) { const result=await processBeforeDaily(...args); dailyNotify('moondog-imported',{kind:args[1]});return result; };
+  processClassifiedCandidate = async function(...args) { const result=await processBeforeDaily(...args); await rememberVerifiedImport(args[1]); dailyNotify('moondog-imported',{kind:args[1]});return result; };
   const restoreBeforeDaily=restoreSelectedBackup;
   restoreSelectedBackup=async function(){await restoreBeforeDaily();dailyNotify('moondog-recovered');};
   const prepareBeforeDaily=prepareForNewStore;
@@ -2131,7 +2171,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     reportNeeds,
     reportRefreshRequests(todayKey=localDateKey()) {
       const types={openRo:'open-ro',sapr:'performance',csi:'csi',menu:'menu-sales',appointments:'appointments',nextAppointments:'next-appointments',vir:'vir',mediaAsr:'media-asr',mediaAsrTech:'media-asr-tech',efficiency:'efficiency',sor:'sor'},ranks={openRo:3.5,appointments:4.5,sapr:5.5};
-      return Object.values(reportNeeds(todayKey)).filter(need=>need.actionable).map(need=>{const evidence=sourceFreshness(need.key,{today:todayKey});return {source:types[need.key],description:need.actions.join(' '),rank:ranks[need.key]||7,fingerprint:JSON.stringify([todayKey,evidence.status,evidence.sourceTimestamp,evidence.periodEnd,need.reason])};});
+      return Object.values(reportNeeds(todayKey)).filter(need=>need.actionable).map(need=>{const evidence=sourceFreshness(need.key,{today:todayKey});return {source:types[need.key],description:need.actions.join(' '),period:evidence.expectedPeriod||'',rank:ranks[need.key]||7,fingerprint:JSON.stringify([todayKey,evidence.status,evidence.sourceTimestamp,evidence.periodEnd,need.reason])};});
     },
     date: localDateKey, priority: dailyFocusPriority, closed: isClosedManagement,
     clarification: clarificationFor, status: statusForRecord, statuses: selectableStatusesFor, statusDetails: statusDetailsFor, statusDetail: reviewStatusDetail, statusDetailLabel: reviewStatusDetailLabel, cdkIndicator: cdkStatusIndicator,
@@ -2140,6 +2180,28 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     openEdit, updateArrivalStatus, classify: classifyImportFile,
     latestSapr: currentSaprSnapshot, nextWin: configuredMeetingNextWin,
     readJson: async path => readJson(path.split('/'), null),
+    refreshHistory: () => model.settings.future?.refreshCadence || globalThis.ServiceRefreshIntelligence?.empty(),
+    sourceLocations: () => model.settings.future?.sourceLocations || {},
+    recordRefresh: (source,kind,details={}) => recordRefreshLearning(source,kind,details),
+    saveSourceLocation: async (source,location) => {
+      if(!globalThis.ServiceRefreshIntelligence?.catalog?.[source]||typeof location!=="string"||location.length>200)
+        throw Error("Choose a valid source and short location description.");
+      return updateLocalFuture(future=>{ future.sourceLocations={...(future.sourceLocations||{}),[source]:location.trim()}; });
+    },
+    priorYearSapr: () => globalThis.ServiceRefreshIntelligence?.matchPriorYear(
+      currentSaprSnapshot(),Object.values(model.performance?.snapshots||{}),{
+        today:localDateKey(),hour:freshness.timeParts(new Date(),businessTimeZone())?.hour??19
+      }),
+    presentationSettings: () => ({
+      seconds:model.settings.future?.presentation?.seconds||30,
+      orientation:model.settings.future?.presentation?.orientation||"auto"
+    }),
+    savePresentationSettings: async ({seconds,orientation}) => {
+      const interval=Number(seconds);
+      if(!Number.isInteger(interval)||interval<10||interval>120||!["auto","landscape","portrait"].includes(orientation))
+        throw Error("Choose 10–120 seconds and Auto, 16:9, or 9:16.");
+      return updateLocalFuture(future=>{future.presentation={seconds:interval,orientation};});
+    },
     readEntries: async function(path) {
       const result = []; let folder;
       try { folder = await directory(path.split('/'), false); }
