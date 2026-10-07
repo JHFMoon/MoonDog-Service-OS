@@ -17,6 +17,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Verify updater-compatible generated runtime
         run: python3 scripts/build_operating_modules.py --check
+      - name: Verify clean-install source contract
+        run: python3 scripts/build_distribution.py --check-source
       - name: Test browser update check
         run: node --test tests/*.test.cjs
       - name: Check tracked publication contents
