@@ -32,7 +32,7 @@ fi
 
 echo "Producing file://-compatible classic PDF.js bundles..."
 npx --yes esbuild@0.25.10 "$PDF_MAIN"   --bundle --platform=browser --format=iife --global-name=pdfjsLib   --target=chrome120 --minify --outfile="$OUT/pdf.min.js"
-npx --yes esbuild@0.25.10 "$PDF_WORKER"   --bundle --platform=browser --format=iife   --target=chrome120 --minify --outfile="$OUT/pdf.worker.min.js"
+npx --yes esbuild@0.25.10 "$PDF_WORKER"   --bundle --platform=browser --format=iife --global-name=pdfjsWorker   --target=chrome120 --minify --outfile="$OUT/pdf.worker.min.js"
 
 for file in jszip.min.js pdf.min.js pdf.worker.min.js xlsx.full.min.js; do
   test -s "$OUT/$file"
