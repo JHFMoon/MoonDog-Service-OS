@@ -48,7 +48,7 @@ Current channels:
 
 Stable 0.10.11 requires `0.10.9` or later. This is intentional: the 0.10.8-era updater cannot safely perform the application/workspace layout separation.
 
-A Stable version is considered published only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package asset whose SHA-256 is declared by `updates/manifest.json`. The Stable manifest points to that Release asset. After the `Publication check` succeeds on `main`, `.github/workflows/stable-release.yml` creates or verifies the matching release automatically.
+A Stable version is considered published only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package asset whose SHA-256 is declared by `updates/manifest.json`. The Stable manifest points to the **same tagged package** through GitHub's CORS-compatible raw file endpoint because browser-based local `file://` apps cannot fetch GitHub Release assets directly. The tag, manifest SHA-256, and formal Release asset must match. After the `Publication check` succeeds on `main`, `.github/workflows/stable-release.yml` creates or verifies the matching release automatically.
 
 The installed **Tools → Change how Service Operations Dashboard works → System Updates** workflow:
 

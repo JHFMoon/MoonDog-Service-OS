@@ -81,9 +81,12 @@ def release_contract_errors(root):
             filename = f"moondog-{version}.json"
             relative = f"updates/packages/{filename}"
             if channel == "stable":
+                # A formal GitHub Release is still required. Its tagged raw mirror
+                # is the only supported browser-friendly way to fetch its bytes
+                # from a local file:// application (Release assets do not serve CORS).
                 expected_url = (
-                    f"https://github.com/JHFMoon/MoonDog-Service-OS/releases/download/"
-                    f"v{version}/{filename}"
+                    f"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/"
+                    f"v{version}/{relative}"
                 )
             else:
                 expected_url = f"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/{relative}"

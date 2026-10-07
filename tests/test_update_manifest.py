@@ -28,7 +28,7 @@ class UpdateManifestTests(unittest.TestCase):
         package_path = PACKAGES / f"moondog-{version}.json"
         self.assertTrue(package_path.is_file(), f"Missing {channel} package {package_path.name}")
         expected_url = (
-            f"https://github.com/JHFMoon/MoonDog-Service-OS/releases/download/v{version}/{package_path.name}"
+            f"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v{version}/updates/packages/{package_path.name}"
             if channel == "stable"
             else f"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/{package_path.name}"
         )

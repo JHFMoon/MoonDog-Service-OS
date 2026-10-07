@@ -52,7 +52,7 @@ test("Format contract is JSON and the live manifest advertises the Beta package"
   assert.equal(schema.properties.formatVersion.const, 1);
   assert.deepEqual(schema.required, ["formatVersion", "version", "approvedFiles", "files"]);
   assert.match(manifest.stable.version, /^\d+\.\d+\.\d+$/);
-  assert.equal(manifest.stable.packageUrl, `https://github.com/JHFMoon/MoonDog-Service-OS/releases/download/v${manifest.stable.version}/moondog-${manifest.stable.version}.json`);
+  assert.equal(manifest.stable.packageUrl, `https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v${manifest.stable.version}/updates/packages/moondog-${manifest.stable.version}.json`);
   assert.match(manifest.stable.sha256, /^[0-9a-f]{64}$/);
   assert.match(manifest.beta.version, /^\d+\.\d+\.\d+-beta\.\d+$/);
   assert.ok(manifest.beta.packageUrl.endsWith(`/updates/packages/moondog-${manifest.beta.version}.json`));

@@ -67,6 +67,30 @@ test("Current manifest verifies independent Stable and Beta packages in memory",
   assert.deepEqual(calls.map(call => call.url), [manifestUrl, current.stable.packageUrl, manifestUrl, current.beta.packageUrl]);
 });
 
+test("Local-file browser can verify Stable through the release-tag CORS-safe mirror", async () => {
+  const current = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.json"), "utf8"));
+  const stable = current.stable, version = stable.version;
+  const expectedTagMirror = `https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v${version}/updates/packages/moondog-${version}.json`;
+  assert.equal(stable.packageUrl, expectedTagMirror);
+  const bytes = fs.readFileSync(path.join(__dirname, "..", "updates", "packages", `moondog-${version}.json`));
+  const called = [];
+  const fetcher = async (url, options) => {
+    called.push(url);
+    assert.equal(options.credentials, "omit");
+    assert.equal(options.cache, "no-store");
+    if (url === manifestUrl) return {ok:true,json:async()=>current};
+    // GitHub Releases assets are not browser-CORS readable from file://.
+    // Fail closed in this simulation unless the package uses tagged raw GitHub.
+    if (url === expectedTagMirror) return packageResponse(bytes);
+    throw new Error("Cross-origin package endpoint blocked");
+  };
+  const result = await verify({channel:"stable",fetcher,subtle:webcrypto.subtle});
+  assert.equal(result.status, "verified");
+  assert.equal(result.sha256, stable.sha256);
+  assert.deepEqual(called, [manifestUrl,expectedTagMirror]);
+  assert.deepEqual(Buffer.from(result.bytes), bytes);
+});
+
 test("Matching SHA-256 returns only verified in-memory bytes", async () => {
   const { fetcher, calls } = fetcherFor(metadata);
   const result = await verify({ fetcher, subtle: webcrypto.subtle });
