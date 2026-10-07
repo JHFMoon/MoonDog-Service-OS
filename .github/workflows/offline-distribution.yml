@@ -36,12 +36,16 @@ jobs:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || env.HEAD_SHA }}
           fetch-depth: 0
 
+      - name: Fetch all public refs for history audit
+        run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
+
       - name: Re-run public safety checks
         run: |
           python3 -m unittest discover -s tests -p 'test_*.py'
           node --test tests/*.test.cjs
           python3 scripts/build_operating_modules.py --check
           python3 scripts/check_publication.py
+          python3 scripts/audit_git_history.py
           python3 scripts/build_distribution.py --check-source
 
       - name: Resolve Stable release
