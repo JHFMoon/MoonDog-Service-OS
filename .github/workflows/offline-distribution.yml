@@ -82,7 +82,7 @@ jobs:
             --output dist/reproducibility-check.zip
           cmp dist/Service-Operations-Dashboard.zip dist/reproducibility-check.zip
           rm dist/reproducibility-check.zip dist/reproducibility-check.manifest.json dist/reproducibility-check.zip.sha256
-          sha256sum --check dist/Service-Operations-Dashboard.zip.sha256
+          (cd dist && sha256sum --check Service-Operations-Dashboard.zip.sha256)
           unzip -q dist/Service-Operations-Dashboard.zip -d .clean-install-smoke
 
       - name: Install browser smoke-test dependency
