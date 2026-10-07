@@ -10,7 +10,7 @@
   "beta": {
     "version": "0.10.12-beta.2",
     "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.12-beta.2.json",
-    "sha256": "af07dbf9a8bd894288aad4e65187444a6eb4d99ffdc92707b950fd0260422eff",
+    "sha256": "76d44268a66fcf36fb9345551703fa456dd179d536fb3afabcc8879f7080ec8c",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
     "releaseNotes": "Hotfixes Advisor Meeting so presentation mode is isolated to the Meeting tab and contains System Updates paths/file-plan text inside the settings layout on narrow or portrait screens. No workspace migration or operational-data changes."
