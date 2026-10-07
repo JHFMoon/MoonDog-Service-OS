@@ -41,6 +41,23 @@ done
 python3 - "$OUT" <<'PY'
 import hashlib, json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
+contract = json.loads(pathlib.Path("distribution/dependencies.json").read_text(encoding="utf-8"))
+libraries = contract["runtimeLibraries"]
+expected = {
+    "jszip.min.js": libraries["jszip"]["outputSha256"],
+    "pdf.min.js": libraries["pdfjs"]["mainOutputSha256"],
+    "pdf.worker.min.js": libraries["pdfjs"]["workerOutputSha256"],
+    "xlsx.full.min.js": libraries["sheetjs"]["outputSha256"],
+}
+for name, digest in expected.items():
+    actual = hashlib.sha256((root / name).read_bytes()).hexdigest()
+    if actual != digest:
+        raise SystemExit(f"Rebuilt dependency hash mismatch: {name} {actual} != {digest}")
+PY
+
+python3 - "$OUT" <<'PY'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
 result = {}
 for path in sorted(root.iterdir()):
     if path.is_file():
