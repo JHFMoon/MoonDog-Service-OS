@@ -26,7 +26,7 @@ class BackupRetentionReleaseTests(unittest.TestCase):
     def test_current_channels_publish_bounded_retention(self):
         stable, stable_files = self.package("stable")
         beta, beta_files = self.package("beta")
-        self.assertEqual("0.10.14", stable["version"])
+        self.assertEqual("0.10.15", stable["version"])
         self.assertEqual("0.10.15-beta.1", beta["version"])
         self.assertEqual("0.10.9", stable["minimumCompatibleVersion"])
         self.assertFalse(stable["migrationRequired"])
@@ -35,7 +35,10 @@ class BackupRetentionReleaseTests(unittest.TestCase):
         self.assertIn('automaticDays:30,automaticMax:50', stable_files["assets/maintenance.js"])
         self.assertIn("Automatic rolling retention backup", stable_files["assets/app.js"])
         self.assertIn("state.hasRecoverable || !currentOffer()", stable_files["assets/moondog-update-settings.js"])
-        self.assertIn('const VERSION = "0.10.14";', stable_files["assets/app.js"])
+        self.assertIn('const VERSION = "0.10.15";', stable_files["assets/app.js"])
+        self.assertIn("Recover owner editing", stable_files["assets/app.js"])
+        self.assertIn('permissionPromise=root.requestPermission({mode:"readwrite"})', stable_files["assets/app.js"])
+        self.assertIn("recoverOwner", stable_files["assets/moondog-write-authority.js"])
         self.assertIn('const VERSION = "0.10.15-beta.1";', beta_files["assets/app.js"])
 
     def test_retention_policy_is_visible_in_runtime(self):
