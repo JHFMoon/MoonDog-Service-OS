@@ -13,7 +13,7 @@ See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DA
 
 Stable 0.10.11 builds on the validated local architecture and requires the layout-aware updater from version `0.10.9` or later. Older 0.10.8-era installations remain intentionally incompatible.
 
-A version is considered **Stable** only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package declared by the Stable manifest. The Stable manifest points to that GitHub Release asset; a manifest-only version is not a completed Stable publication.
+A version is considered **Stable** only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package declared by the Stable manifest. The Stable manifest points to the SHA-256-verified file under the matching GitHub Release **tag** using GitHub's browser-compatible raw service. The matching formal GitHub Release and its verified asset are still required; a manifest-only version is not a completed Stable publication.
 
 ## Installed layout
 
