@@ -3,15 +3,22 @@ name: Publication check
 on:
   pull_request:
   push:
-    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '23 11 * * 1'
 
 permissions:
   contents: read
+
+concurrency:
+  group: publication-check-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   public-boundary:
     name: Publication Check
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
