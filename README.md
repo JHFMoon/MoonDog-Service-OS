@@ -2,9 +2,9 @@
 
 [![Publication check](https://github.com/JHFMoon/MoonDog-Service-OS/actions/workflows/publication-check.yml/badge.svg)](https://github.com/JHFMoon/MoonDog-Service-OS/actions/workflows/publication-check.yml)
 
-This repository is the public source and update authority for the generic **Service Operations Dashboard**. The installed application runs locally in the browser and remains offline-capable for normal operations. GitHub is used only for source control and software update distribution; dealership operational data stays in the connected local/company-controlled workspace.
+This repository is the public source, clean-install distribution authority, and update authority for the generic **Service Operations Dashboard**. The installed application runs locally in the browser and remains offline-capable for normal operations. GitHub is used only for source control and software distribution; dealership operational data stays in the connected local/company-controlled workspace.
 
-See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DATA-BOUNDARY.md), [Architecture](docs/ARCHITECTURE.md), [Stable release process](docs/RELEASE-PROCESS.md), and [CHANGELOG.md](CHANGELOG.md).
+See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DATA-BOUNDARY.md), [Architecture](docs/ARCHITECTURE.md), [Offline distribution](docs/DISTRIBUTION.md), [Stable release process](docs/RELEASE-PROCESS.md), and [CHANGELOG.md](CHANGELOG.md).
 
 ## Current channels
 
@@ -14,6 +14,26 @@ See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DA
 Stable 0.10.14 refines bounded rolling backup retention: every validated full backup is kept for 30 days, then one validated monthly recovery point is retained across a 12-month window, while the newest three full backups are always preserved. It requires the layout-aware updater from version `0.10.9` or later. Older 0.10.8-era installations remain intentionally incompatible.
 
 A version is considered **Stable** only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package declared by the Stable manifest. The Stable manifest points to the SHA-256-verified file under the matching GitHub Release **tag** using GitHub's browser-compatible raw service. The matching formal GitHub Release and its verified asset are still required; a manifest-only version is not a completed Stable publication.
+
+## Clean offline install
+
+Each Stable release can publish a complete clean-install asset named:
+
+`Service-Operations-Dashboard.zip`
+
+The ZIP is built by GitHub Actions from the explicit reviewed runtime catalog. It contains the complete browser runtime, pinned third-party browser libraries, a launcher, an installation manifest, and an empty protected Workspace. It contains **no initialized store configuration or dealership operational data**.
+
+End-user flow:
+
+1. Download the Stable ZIP.
+2. Extract it to a normal folder.
+3. Open `00 - OPEN DASHBOARD.html` in Microsoft Edge.
+4. Choose the extracted folder as the working folder.
+5. Designate the authoritative editing computer.
+6. Complete Guided Setup.
+7. Use Settings → System Updates for future verified updates.
+
+The GitHub Pages site is only a download storefront. It does not process or store dealership data and does not build the package in the browser.
 
 ## Installed layout
 
@@ -32,7 +52,7 @@ Inside `System Files/`:
 - application/runtime files live at the top level, under `assets/`, and under `vendor/`;
 - protected operational state lives under `Workspace/`;
 - System Updates changes only approved application/runtime files;
-- rollback backups live under `Workspace/backups/system-updates/`.
+- rollback backups live under `Workspace/backups/system-updates/`;
 - backup retention is automatic and bounded: validated full backups are kept densely for 30 days, then one per month for 12 months, with the newest three always preserved and a fresh rolling backup every 30 days; resolved system-update rollbacks keep at most 3 for 30 days; restore-safety backups keep at most 2 for 30 days; automatic pre-change backups keep at most 50 for 30 days.
 
 The connected workspace is not a multi-writer database. One browser installation is designated as the authoritative writer. A copied or independently synchronized workspace does not inherit write authority and remains read-only.
@@ -45,9 +65,9 @@ Stable 0.10.14 publishes only generic application changes. It does not publish o
 
 ## Repository boundary
 
-All reviewed first-party browser runtime files used by the current application are tracked here. Third-party license notices are also tracked. The pinned JSZip, PDF.js, and SheetJS browser binary bundles remain installed runtime dependencies and are not currently mirrored in this public repository, so this repository by itself is not yet a complete clean-install archive.
+All reviewed first-party browser runtime files used by the current application are tracked here. Third-party license notices are tracked here. The clean-install release workflow obtains the pinned JSZip, PDF.js, and SheetJS browser libraries from their versioned upstream distributions, converts PDF.js to the classic local browser format required by the `file://` runtime, and embeds the resulting verified runtime files in the release ZIP.
 
-That limitation does **not** affect the validated 0.10.9 → 0.10.13 update path because the migrated 0.10.9 installation already contains the pinned vendor bundles.
+Generated clean-install ZIP files are release artifacts, not tracked source. The build is deterministic and produces a SHA-256 checksum plus a per-file installation manifest.
 
 **GitHub may contain the product. GitHub may never contain the dealership.**
 

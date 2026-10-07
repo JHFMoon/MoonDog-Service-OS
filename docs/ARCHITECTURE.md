@@ -2,13 +2,20 @@
 
 ## Authority and direction
 
-This repository is the public source and update authority for the generic Service Operations Dashboard application. The installed Dashboard runs from local files and owns its protected local operational state.
+This repository is the public source, clean-install distribution authority, and update authority for the generic Service Operations Dashboard application. The installed Dashboard runs from local files and owns its protected local operational state.
 
 ```text
-GitHub: generic source + verified update packages
-                    |
-                    | user-approved update
-                    v
+GitHub source
+   |
+   +-- Publication check
+   |
+   +-- Stable updater package --------------------+
+   |                                              |
+   +-- clean-install build -> Release ZIP          |
+   |                         -> Pages storefront   |
+   |                                              v
+   +--------------------------------------> local installation
+
 Dashboard Interface/
 ├── 00 - OPEN DASHBOARD.html
 ├── index.html                  (hidden compatibility document when required)
@@ -27,6 +34,8 @@ The end-user application is browser-only HTML, CSS, and JavaScript. Normal opera
 
 A migrated installation preserves the original root `index.html` document path so Edge can retain the browser-local storage context used for the saved folder handle and authoritative-computer identity. The visible launcher is `00 - OPEN DASHBOARD.html`; maintained application files are under `System Files/`.
 
+A fresh clean installation launches directly into `System Files/index.html` and uses the extracted installation root as its selected working folder.
+
 ## Operational workspace
 
 Protected state is under `System Files/Workspace/`, including data, history, reports/inbox material, Files To Learn, imports/exports, support records, and backups.
@@ -38,6 +47,27 @@ Application updates target `System Files/` but must reject the protected `Worksp
 One store has one designated authoritative writer. Browser-local authority plus a non-secret workspace marker is required before durable writes are enabled. Copied or independently synchronized workspace copies do not inherit authority and remain read-only. OneDrive synchronization is not treated as a distributed lock.
 
 Durable changes are guarded by authority and revision checks and use persistent recovery journals. Failed or interrupted writes/deletes must not falsely advance the store revision.
+
+## Clean-install distribution contract
+
+`scripts/build_distribution.py` reads the same `HANDOFF_RUNTIME_PATHS` catalog used by application handoff/runtime integrity checks. The builder:
+
+1. requires the application source version to equal the Stable manifest version;
+2. rejects protected or traversal runtime paths;
+3. includes only cataloged application/runtime files;
+4. obtains the four pinned third-party browser runtime files from the release workflow;
+5. creates only an empty Workspace folder structure;
+6. rejects initialized operational-state files from the package;
+7. writes a deterministic ZIP, a SHA-256 checksum, and a per-file manifest; and
+8. verifies all required runtime paths before publication.
+
+The third-party browser libraries are pinned at release-build time:
+
+- JSZip 3.10.1;
+- PDF.js 5.6.205, converted from the upstream module distribution into the classic browser bundles required by the local `file://` runtime; and
+- SheetJS CE 0.20.3 from the authoritative SheetJS distribution.
+
+The GitHub Pages site is a static storefront pointing to the current Stable release asset. It never receives local operational data.
 
 ## Update contract
 
@@ -69,14 +99,12 @@ When the package updates application `index.html`, the layout-aware updater also
 
 ## Public source vs local configuration
 
-Generic first-party runtime source, updater logic, tests, release metadata, and third-party notices may be public.
+Generic first-party runtime source, distribution/build logic, updater logic, tests, release metadata, and reviewed third-party notices may be public.
 
 Store identity, advisor/employee mappings, source-adapter values, targets, operational state, source reports, history, backups, browser authority credentials, and other dealership-specific information remain local.
 
-Pinned vendor binaries for JSZip, PDF.js, and SheetJS remain installed dependencies but are not currently mirrored in this public repository.
-
 ## Validation
 
-Every pull request and push to `main` runs the publication workflow. Release changes must keep update-package bytes deterministic and protect the public/private boundary.
+Every pull request and push to `main` runs the publication workflow. It also verifies the clean-install source contract. Stable distribution publication reruns those checks, builds the complete ZIP, verifies the checksum, attaches immutable-matching assets to the Stable GitHub Release, and deploys the Pages storefront.
 
-See [Operating Intelligence](OPERATING-INTELLIGENCE.md) for protected cadence settings, source-aware refresh requests, in-progress SAPR working-day pacing, and adaptive Advisor Meeting cards.
+See [Offline distribution](DISTRIBUTION.md) and [Operating Intelligence](OPERATING-INTELLIGENCE.md).
