@@ -90,6 +90,52 @@ jobs:
               output.write(f"sha256={digest}\n")
           PY
 
+      - name: Recreate pinned browser dependencies
+        run: bash scripts/prepare_distribution_vendor.sh .distribution-vendor
+
+      - name: Build exact Stable clean-install archive
+        id: clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.stable.outputs.tag }}"
+          VERSION="${{ steps.stable.outputs.version }}"
+          SOURCE_REF="$HEAD_SHA"
+
+          # Existing Stable releases are rebuilt from their immutable Stable tag.
+          # A brand-new release uses the exact validated commit that will become the tag.
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            SOURCE_REF="$TAG"
+          fi
+
+          rm -rf .stable-source
+          git worktree add --detach .stable-source "$SOURCE_REF"
+          trap 'git worktree remove --force .stable-source >/dev/null 2>&1 || true' EXIT
+
+          ZIP="dist/service-operations-dashboard-clean-$VERSION.zip"
+          python3 scripts/build_clean_install.py             --source-root .stable-source             --vendor-dir .distribution-vendor             --output "$ZIP"
+
+          CLEAN_SHA="$(sha256sum "$ZIP" | awk '{print $1}')"
+          python3 - "$ZIP" "$VERSION" <<'PY'
+          import json, sys, zipfile
+          archive, expected = sys.argv[1:]
+          with zipfile.ZipFile(archive) as z:
+              manifest = json.loads(z.read("Service Operations Dashboard/INSTALL-MANIFEST.json"))
+          if manifest.get("version") != expected:
+              raise SystemExit("Clean-install version does not match the Stable release")
+          PY
+
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "asset=$(basename "$ZIP")" >> "$GITHUB_OUTPUT"
+          echo "sha256=$CLEAN_SHA" >> "$GITHUB_OUTPUT"
+
+          {
+            echo
+            echo "Clean install: $(basename "$ZIP")"
+            echo "Clean-install SHA-256: $CLEAN_SHA"
+            echo "The clean archive contains an empty System Files/Workspace and user-owned operational data is not packaged."
+          } >> stable-release-notes.md
+
       - name: Create or verify the formal Stable GitHub Release
         shell: bash
         run: |
@@ -99,6 +145,9 @@ jobs:
           PACKAGE="${{ steps.stable.outputs.package }}"
           ASSET="${{ steps.stable.outputs.asset }}"
           SHA256="${{ steps.stable.outputs.sha256 }}"
+          CLEAN_PACKAGE="${{ steps.clean.outputs.zip }}"
+          CLEAN_ASSET="${{ steps.clean.outputs.asset }}"
+          CLEAN_SHA256="${{ steps.clean.outputs.sha256 }}"
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$ASSET"; then
@@ -109,10 +158,19 @@ jobs:
             else
               gh release upload "$TAG" "$PACKAGE#Verified updater package" --repo "$GITHUB_REPOSITORY"
             fi
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --latest
+
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$CLEAN_ASSET"; then
+              rm -rf .clean-release-check
+              mkdir .clean-release-check
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$CLEAN_ASSET" --dir .clean-release-check
+              printf '%s  %s\n' "$CLEAN_SHA256" ".clean-release-check/$CLEAN_ASSET" | sha256sum -c -
+            else
+              gh release upload "$TAG" "$CLEAN_PACKAGE#Verified offline clean install" --repo "$GITHUB_REPOSITORY"
+            fi
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file stable-release-notes.md --latest
           else
             if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-              gh release create "$TAG" "$PACKAGE#Verified updater package" \
+              gh release create "$TAG" "$PACKAGE#Verified updater package" "$CLEAN_PACKAGE#Verified offline clean install" \
                 --repo "$GITHUB_REPOSITORY" \
                 --title "Service Operations Dashboard $VERSION" \
                 --notes-file stable-release-notes.md \
