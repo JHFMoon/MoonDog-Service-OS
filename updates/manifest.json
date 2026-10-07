@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.15-beta.1",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.15-beta.1.json",
-    "sha256": "246c8190edb4af6fff6c2c09ba0d70390915d56d9ddb6a7b735010c9ac2dd2a6",
+    "version": "0.10.18-beta.1",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.1.json",
+    "sha256": "f78576864385b2250e78cb0a366d42b401335818e793d9b2dc50a226dbae5a4e",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Legacy optional Beta snapshot based on the 0.10.14 line. Stable users should remain on 0.10.16 unless specifically testing this older preview. No workspace migration."
+    "releaseNotes": "Beta operational-control audit: adds a compact manager control pulse for overdue, due-today, missing-plan, long-vehicle, customer-update, and comeback work; puts Open RO Control ahead of Assign Next; corrects Monday Daily Walk behavior; adds direct long-vehicle/customer-update/comeback filters; protects unsaved Home and RO drafts; fixes the overview open-RO count to exclude manually closed ROs; prioritizes CSI refresh needs; improves keyboard focus/navigation semantics; and decouples software updates from the retired owner-editing policy. No Workspace migration."
   }
 }
