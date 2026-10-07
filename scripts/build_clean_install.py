@@ -21,7 +21,7 @@ BINARY_VENDOR = {
 ARCHIVE_ROOT = "Service Operations Dashboard"
 HANDOFF_RE = re.compile(r"const HANDOFF_RUNTIME_PATHS=\[(.*?)\];", re.S)
 STRING_RE = re.compile(r'"([^"]+)"')
-VERSION_RE = re.compile(r'const\\s+VERSION\\s*=\\s*"([^"]+)"')
+VERSION_RE = re.compile(r'const\s+VERSION\s*=\s*"([^"]+)"')
 
 
 def sha256(data: bytes) -> str:
