@@ -33,7 +33,7 @@ jobs:
           python3 scripts/build_distribution.py --vendor-dir .distribution-vendor --output dist/Service-Operations-Dashboard.zip
           python3 scripts/build_distribution.py --vendor-dir .distribution-vendor --output dist/reproducibility-check.zip
           cmp dist/Service-Operations-Dashboard.zip dist/reproducibility-check.zip
-          sha256sum --check dist/Service-Operations-Dashboard.zip.sha256
+          (cd dist && sha256sum --check Service-Operations-Dashboard.zip.sha256)
           unzip -q dist/Service-Operations-Dashboard.zip -d .clean-install-smoke
 
       - name: Install browser smoke-test dependency
