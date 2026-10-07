@@ -10,7 +10,13 @@
 - Bundles new generic modules into existing updater-approved runtime paths for a normal protected update; preserves browser-origin compatibility and all Workspace data.
 - Publishes a formal GitHub Stable Release and an opt-in next-version Beta from the same verified baseline.
 
-## 0.10.12-beta.1 — next Beta
+## 0.10.12-beta.2 — current Beta
+
+- Keeps Advisor Meeting presentation mode isolated to the Meeting tab; switching tabs immediately restores the normal page layout.
+- Wraps long System Updates workspace paths, plan details, and status text so portrait/narrow screens do not overflow the card.
+- Preserves the protected update, rollback, and Workspace-data boundaries with no migration required.
+
+## 0.10.12-beta.1
 
 - Carries forward the validated 0.10.11 experience as the new optional Beta baseline for future testing.
 
