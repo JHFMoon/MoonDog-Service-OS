@@ -67,6 +67,19 @@ def safe_archive_name(name: str) -> str:
     return name.replace("\\", "/")
 
 
+def write_deterministic(archive: zipfile.ZipFile, name: str, data: bytes, *, directory: bool = False) -> None:
+    info = zipfile.ZipInfo(safe_archive_name(name))
+    info.date_time = (1980, 1, 1, 0, 0, 0)
+    info.create_system = 3
+    info.external_attr = ((0o755 if directory else 0o644) & 0xFFFF) << 16
+    if directory:
+        info.external_attr |= 0x10
+        info.compress_type = zipfile.ZIP_STORED
+    else:
+        info.compress_type = zipfile.ZIP_DEFLATED
+    archive.writestr(info, data, compress_type=info.compress_type, compresslevel=9 if not directory else None)
+
+
 def clean_install_readme(version: str) -> bytes:
     return f"""SERVICE OPERATIONS DASHBOARD {version}
 
@@ -121,10 +134,10 @@ def build(source_root: Path, vendor_dir: Path, output: Path) -> dict:
     ).encode("utf-8")
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-        archive.writestr(f"{ARCHIVE_ROOT}/System Files/Workspace/", b"")
+    with zipfile.ZipFile(output, "w") as archive:
+        write_deterministic(archive, f"{ARCHIVE_ROOT}/System Files/Workspace/", b"", directory=True)
         for name, data in sorted(payload.items()):
-            archive.writestr(safe_archive_name(name), data)
+            write_deterministic(archive, name, data)
 
     verify(output)
     return {
