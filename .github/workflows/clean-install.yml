@@ -1,0 +1,63 @@
+name: Clean install build
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-clean-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run repository safety checks
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          node --test tests/*.test.cjs
+          python3 scripts/check_publication.py
+
+      - name: Recreate pinned browser dependencies
+        run: bash scripts/prepare_distribution_vendor.sh .distribution-vendor
+
+      - name: Build and verify clean-install archive
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("assets/app.js").read_text(encoding="utf-8")
+          print(re.search(r'const VERSION="([^"]+)"', text).group(1))
+          PY
+          )"
+          ZIP="dist/service-operations-dashboard-clean-$VERSION.zip"
+          python3 scripts/build_clean_install.py --vendor-dir .distribution-vendor --output "$ZIP"
+          SHA="$(sha256sum "$ZIP" | awk '{print $1}')"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          rm -rf .clean-install-smoke
+          mkdir .clean-install-smoke
+          unzip -q "$ZIP" -d .clean-install-smoke
+
+      - name: Install browser smoke-test dependency
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Smoke-test extracted file:// application
+        run: |
+          node scripts/smoke_clean_install.mjs             ".clean-install-smoke/Service Operations Dashboard/index.html"
+
+      - name: Upload clean-install proof artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: clean-install-${{ steps.build.outputs.version }}
+          path: |
+            ${{ steps.build.outputs.zip }}
+          if-no-files-found: error
+          retention-days: 7
