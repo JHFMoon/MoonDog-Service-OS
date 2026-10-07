@@ -54,16 +54,16 @@ test("Compares versions and reports incompatibility without applying", async () 
   assert.equal(prerelease.status, "newer-version");
 });
 
-test("Beta channel selects the newer Stable when Stable has passed the retained Beta", async () => {
+test("Beta channel selects the current newer Beta when it is ahead of Stable", async () => {
   const activeManifest=JSON.parse(fs.readFileSync(path.join(__dirname, "..", "updates", "manifest.json"), "utf8"));
   assert.equal(activeManifest.stable.migrationRequired, false);
   assert.equal(activeManifest.beta.migrationRequired, false);
   const fromLocal=await check({currentVersion:"0.10.9",channel:"beta",manual:true,
     fetcher:fetchManifest(activeManifest)});
   assert.equal(fromLocal.status,"newer-version");
-  assert.equal(fromLocal.channel,"stable");
-  assert.equal(fromLocal.version,activeManifest.stable.version);
-  assert.equal(fromLocal.packageUrl,activeManifest.stable.packageUrl);
+  assert.equal(fromLocal.channel,"beta");
+  assert.equal(fromLocal.version,activeManifest.beta.version);
+  assert.equal(fromLocal.packageUrl,activeManifest.beta.packageUrl);
 
   const unsupported=await check({currentVersion:"0.10.8",channel:"beta",manual:true,
     fetcher:fetchManifest(activeManifest)});

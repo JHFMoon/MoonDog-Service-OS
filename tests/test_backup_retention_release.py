@@ -27,7 +27,7 @@ class BackupRetentionReleaseTests(unittest.TestCase):
         stable, stable_files = self.package("stable")
         beta, beta_files = self.package("beta")
         self.assertEqual("0.10.17", stable["version"])
-        self.assertEqual("0.10.15-beta.1", beta["version"])
+        self.assertEqual("0.10.18-beta.1", beta["version"])
         self.assertEqual("0.10.9", stable["minimumCompatibleVersion"])
         self.assertFalse(stable["migrationRequired"])
         self.assertIn('fullRecentDays:30,fullMonthlyMonths:12,fullMax:3,fullRefreshDays:30', stable_files["assets/maintenance.js"])
@@ -41,7 +41,7 @@ class BackupRetentionReleaseTests(unittest.TestCase):
         self.assertIn("recoverOwner", stable_files["assets/moondog-write-authority.js"])
         self.assertIn("transientValidation", stable_files["assets/moondog-write-authority.js"])
         self.assertIn("Updating workspace files", stable_files["assets/app.js"])
-        self.assertIn('const VERSION = "0.10.15-beta.1";', beta_files["assets/app.js"])
+        self.assertIn('const VERSION = "0.10.18-beta.1";', beta_files["assets/app.js"])
 
     def test_retention_policy_is_visible_in_runtime(self):
         app = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
