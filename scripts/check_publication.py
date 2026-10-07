@@ -16,7 +16,8 @@ BLOCKED_DIRS = {
     "repair-orders", "ro-data", "store-data", "operational-data",
 }
 BLOCKED_EXTENSIONS = {
-    ".xlsx", ".xls", ".csv", ".pdf", ".zip", ".7z", ".rar",
+    ".xlsx", ".xls", ".csv", ".pdf", ".doc", ".docx", ".ppt", ".pptx",
+    ".png", ".jpg", ".jpeg", ".webp", ".heic", ".zip", ".7z", ".rar",
     ".log", ".tmp", ".bak",
 }
 BLOCKED_LOCAL_STATE = {
