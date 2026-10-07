@@ -1,11 +1,47 @@
 # Source and data boundary
 
-This public repository is the development and release authority for the reviewed application core, including `index.html` and `assets/app.js`, the browser-native updater, approved packages, tests, and release metadata. Installed Service Operations Hub files run locally and remain usable offline. GitHub is contacted only for user-requested update checks and downloads, plus the existing silent availability check. OneDrive synchronization is separate from application runtime.
+## Public authority
 
-This source tree is not a standalone installation: `index.html` also loads installed styles, freshness/daily engines, and bundled vendor libraries that are not tracked here. Those existing local runtime files remain required. Public source migration of those dependencies needs a separate privacy and licensing review.
+This repository is the public authority for the generic Service Operations Dashboard source, browser-native updater, approved update packages, tests, release metadata, and reviewed third-party notices.
 
-The connected local workspace remains the authority for operational and store-specific state. Never commit customer, employee, advisor, technician, RO, VIN, contact, report, history, settings, backup, Files To Learn, conflict-copy, transaction-journal, or machine-specific data. Update packages contain application-core files only. Every `backups/` path is forbidden in a package. `backups/system-updates/` is reserved for updater rollback records and excluded from ordinary housekeeping. Disaster and full-system backups remain separate.
+The current public Stable channel is `0.10.10`. Stable 0.10.10 is intended for installations already on the validated `0.10.9` layout-aware updater. Older 0.10.8-era installs are intentionally rejected as incompatible rather than being exposed to an unsafe layout migration.
 
-Store identity lives in protected local `data/settings.json` under `store`; current advisor identities live under `advisors`. Legacy mappings, source aliases, and store-specific parser parameters live under `sourceAdapters`. For this source transition, the prepared private `data/source-adapter-bootstrap.json` supplies those adapter values once; the application writes a settings backup, saves `sourceAdapters`, and verifies settings readback before removing the bootstrap. Neither file is part of this repository or an update package. Missing or invalid configuration stops connection before normal application writes.
+## Installed authority
 
-The installed workspace root, saved folder handle, and all data paths remain unchanged. The generic source is installed only by an explicit user-applied update with dry-run, package hash verification, protected-path checks, backup-before-write, readback verification, and rollback. The current Stable package restores every file touched by the current and retained Beta packages. Beta releases cannot include irreversible migrations.
+The installed Dashboard remains authoritative for operational/store-specific state.
+
+The migrated layout is:
+
+```text
+Dashboard Interface/
+├── 00 - OPEN DASHBOARD.html
+├── index.html                  (hidden compatibility infrastructure when required)
+└── System Files/
+    ├── application runtime
+    └── Workspace/             (protected operational state)
+```
+
+The root compatibility document preserves the existing Edge `file://` document path and browser-local storage context. The application runtime is maintained under `System Files/`. Operational paths are rooted under `System Files/Workspace/`.
+
+System Updates may change approved application files but must not publish, package, or overwrite protected Workspace data.
+
+## Local-only information
+
+Never commit or package:
+
+- customer, employee, advisor, or technician identities;
+- VINs, repair-order narratives, contacts, or source reports;
+- operational state, history, settings, exports, or backups;
+- Files To Learn or report-inbox contents;
+- store-specific source-adapter configuration or performance targets;
+- transaction journals, browser authority credentials, tokens, or machine-specific state.
+
+The browser-local authority credential is intentionally not synchronized with the Workspace. A copied/synchronized Workspace alone cannot become an authoritative writer.
+
+## Update and recovery boundary
+
+Stable 0.10.10 updates are explicitly user-applied. The updater verifies the manifest/package, performs a protected-path dry run, creates rollback material under `System Files/Workspace/backups/system-updates/`, verifies writes, and restores or exposes recovery if installation cannot be verified.
+
+Pinned JSZip, PDF.js, and SheetJS binary bundles remain installed dependencies. Their notices/licenses are tracked publicly, but the binary bundles are not currently mirrored in this repository. The current 0.10.9 → 0.10.10 update does not need to replace those vendor binaries.
+
+GitHub may contain the product. GitHub may never contain the dealership.
