@@ -228,7 +228,7 @@
     const input=document.createElement('input');input.type='file';input.id='dailyRefreshPicker';
     input.accept='.xlsx,.xls,.csv,.pdf,.docx';input.hidden=true;
     input.addEventListener('change',()=>{const file=input.files?.[0];if(!file)return;
-      actionWrap(async()=>{await api.importFile(file);await selectNext();});
+      actionWrap(async()=>{if(input.dataset.source)await api.recordRefresh(input.dataset.source,'requested');await api.importFile(file);await selectNext();});
     });
     host.append(section,input);
   }
