@@ -58,7 +58,7 @@ jobs:
 
       - name: Smoke-test extracted file:// application
         run: |
-          node scripts/smoke_clean_install.mjs             ".clean-install-smoke/Service Operations Dashboard/index.html"
+          node scripts/smoke_clean_install.mjs             ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
 
       - name: Upload clean-install proof artifact
         uses: actions/upload-artifact@v6
