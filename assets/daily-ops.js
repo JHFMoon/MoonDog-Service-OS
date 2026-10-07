@@ -337,7 +337,22 @@
           for(const line of lines.filter(Boolean)){const p=document.createElement('p');p.textContent=line;coverage.append(p);}
           const actions=['REQUIRED TREND','CUMULATIVE / RECOVERABLE','WEEKLY'].includes(row.need.purpose)?row.coverage.actions:row.need.actions;
           if(actions.length){const list=document.createElement('ul');for(const line of actions){const item=document.createElement('li');item.textContent=line;list.append(item);}coverage.append(list);}
-          details.append(coverage);entry.append(details,button(row.need.state==='ON DEMAND'?'Generate / workbook tools':'Import',()=>row.need.state==='ON DEMAND'?go('imports'):options.querySelector('input[type="file"]').click()));group.append(entry);
+          details.append(coverage);
+          const key=({openRo:'open-ro',sapr:'performance',menu:'menu-sales',nextAppointments:'next-appointments',
+            mediaAsr:'media-asr',mediaAsrTech:'media-asr-tech'})[row.key]||
+            row.key.replace(/[A-Z]/g,letter=>'-'+letter.toLowerCase());
+          const sourceInfo=globalThis.ServiceRefreshIntelligence?.catalog?.[key];
+          if(sourceInfo){
+            const where=document.createElement('div');where.className='daily-source-location';
+            const label=document.createElement('small');label.textContent='Get it from: '+(api.sourceLocations?.()?.[key]||sourceInfo.location);
+            where.append(label,button('Change location',()=>action(async()=>{
+              const prior=api.sourceLocations?.()?.[key]||sourceInfo.location;
+              const location=prompt('Where do you get '+sourceInfo.label+'?',prior);
+              if(location===null||!location.trim()||location.length>200)return;
+              await api.saveSourceLocation(key,location);renderTools('imports');
+            }),'link-button'));entry.append(where);
+          }
+          entry.append(details,button(row.need.state==='ON DEMAND'?'Generate / workbook tools':'Import',()=>row.need.state==='ON DEMAND'?go('imports'):options.querySelector('input[type="file"]').click()));group.append(entry);
         }
         if(label==='WHAT YOU NEED NOW'){
           const plan=document.createElement('section');plan.className='daily-trend-plan daily-report-needs';plan.innerHTML='<h3>TREND MAINTENANCE</h3>';
