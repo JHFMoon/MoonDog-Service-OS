@@ -35,3 +35,5 @@ If the release asset exists but its SHA-256 differs from the manifest, the workf
 ## Beta
 
 Beta remains an opt-in test channel. Beta packages may continue to use the repository package path while under test. A Beta becomes public Stable only when the exact validated build is promoted to a Stable version and the formal GitHub Release contract above is satisfied.
+
+When the Beta package is self-contained and requires no migration, it must support the same oldest compatible installed architecture as Stable. Do not force users to install an intermediate Stable release without a verified technical dependency. The current 0.10.12-beta.1 is installable directly from the 0.10.9 layout-aware updater; 0.10.8 remains unsupported. A documented Beta-only migration can justify a different minimum, but it requires an explicit compatibility and rollback test before promotion.
