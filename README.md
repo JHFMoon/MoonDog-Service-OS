@@ -9,7 +9,7 @@ See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DA
 ## Current channels
 
 - **Stable:** `0.10.16` ([GitHub Release](https://github.com/JHFMoon/MoonDog-Service-OS/releases/tag/v0.10.16))
-- **Beta:** `0.10.15-beta.1` (optional next-version preview carrying forward Stable 0.10.14)
+- **Beta:** `0.10.15-beta.1` (legacy optional preview based on the 0.10.14 line; Stable users should remain on 0.10.16)
 
 Stable 0.10.16 prevents temporary OneDrive/file-ingestion synchronization conflicts from being mistaken for lost owner editing authority. Transient File System Access state changes are retried automatically, the UI shows a neutral workspace-updating state, and owner recovery remains reserved for a persistent authority problem. It requires the layout-aware updater from version `0.10.9` or later. Older 0.10.8-era installations remain intentionally incompatible.
 

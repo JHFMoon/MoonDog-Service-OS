@@ -13,6 +13,6 @@
     "sha256": "246c8190edb4af6fff6c2c09ba0d70390915d56d9ddb6a7b735010c9ac2dd2a6",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Next Beta baseline carrying forward Stable 0.10.14 monthly full-backup retention. No workspace migration."
+    "releaseNotes": "Legacy optional Beta snapshot based on the 0.10.14 line. Stable users should remain on 0.10.16 unless specifically testing this older preview. No workspace migration."
   }
 }
