@@ -3,7 +3,7 @@ const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
 const vm=require("node:vm");
-const source=fs.readFileSync(path.join(__dirname,"..","assets","refresh-intelligence.js"),"utf8");
+const source=fs.readFileSync(path.join(__dirname,"..","assets","freshness.js"),"utf8");
 const context=vm.createContext({Date,Intl});
 vm.runInContext(source,context);
 const R=context.ServiceRefreshIntelligence;
@@ -91,7 +91,7 @@ test("New presentation and refresh logic is included in runtime",()=>{
   const index=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
   const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
   const daily=fs.readFileSync(path.join(__dirname,"..","assets","daily-ops.js"),"utf8");
-  const presenter=fs.readFileSync(path.join(__dirname,"..","assets","meeting-presenter.js"),"utf8");
+  const presenter=daily;
   assert.match(index,/assets\/refresh-intelligence.js/);
   assert.match(index,/assets\/meeting-presenter.js/);
   assert.match(index,/assets\/meeting-presenter.css/);
@@ -101,4 +101,19 @@ test("New presentation and refresh logic is included in runtime",()=>{
   assert.match(daily,/renderRefreshStrip/);
   assert.match(presenter,/setInterval/);
   assert.match(presenter,/meeting-v3-advisor/);
+});
+
+test("Packaged modules stay byte-for-byte synchronized with canonical source",()=>{
+  const rootDir=path.join(__dirname,"..");
+  const freshness=fs.readFileSync(path.join(rootDir,"assets/freshness.js"),"utf8");
+  const daily=fs.readFileSync(path.join(rootDir,"assets/daily-ops.js"),"utf8");
+  const meeting=fs.readFileSync(path.join(rootDir,"assets/meeting.css"),"utf8");
+  const src=name=>fs.readFileSync(path.join(rootDir,"src",name),"utf8").trimEnd();
+  const between=(text,start,end)=>text.split(start)[1]?.split(end)[0]?.trim();
+  assert.equal(between(freshness,"// BEGIN GENERATED REFRESH INTELLIGENCE (see src/refresh-intelligence.js)","// END GENERATED REFRESH INTELLIGENCE"),
+    src("refresh-intelligence.js").replace('  if(typeof module!=="undefined")module.exports=api;',"").trim());
+  assert.equal(between(daily,"// BEGIN GENERATED MEETING PRESENTER (see src/meeting-presenter.js)","// END GENERATED MEETING PRESENTER"),
+    src("meeting-presenter.js").trim());
+  assert.equal(between(meeting,"/* BEGIN GENERATED MEETING LAYOUT (see src/meeting-presenter.css) */","/* END GENERATED MEETING LAYOUT */"),
+    src("meeting-presenter.css").trim());
 });
