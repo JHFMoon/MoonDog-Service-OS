@@ -8,10 +8,10 @@ See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DA
 
 ## Current channels
 
-- **Stable:** `0.10.16` ([GitHub Release](https://github.com/JHFMoon/MoonDog-Service-OS/releases/tag/v0.10.16))
-- **Beta:** `0.10.15-beta.1` (legacy optional preview based on the 0.10.14 line; Stable users should remain on 0.10.16)
+- **Stable:** `0.10.17` ([GitHub Release](https://github.com/JHFMoon/MoonDog-Service-OS/releases/tag/v0.10.17))
+- **Beta:** `0.10.15-beta.1` (legacy optional preview based on the 0.10.14 line; Stable users should remain on 0.10.17)
 
-Stable 0.10.16 prevents temporary OneDrive/file-ingestion synchronization conflicts from being mistaken for lost owner editing authority. Transient File System Access state changes are retried automatically, the UI shows a neutral workspace-updating state, and owner recovery remains reserved for a persistent authority problem. It requires the layout-aware updater from version `0.10.9` or later. Older 0.10.8-era installations remain intentionally incompatible.
+Stable 0.10.17 temporarily removes the single-computer owner-editing designation. Any connected dashboard folder with browser-granted read/write access can edit, while file journaling, revision checks, protected Workspace paths, verified updates, and rollback safeguards remain in place. The owner designation/recovery controls are removed. It requires the layout-aware updater from version `0.10.9` or later. Older 0.10.8-era installations remain intentionally incompatible.
 
 A version is considered **Stable** only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package declared by the Stable manifest. The Stable manifest points to the SHA-256-verified file under the matching GitHub Release **tag** using GitHub's browser-compatible raw service. The matching formal GitHub Release and its verified asset are still required; a manifest-only version is not a completed Stable publication.
 
@@ -61,7 +61,7 @@ The connected workspace is not a multi-writer database. One browser installation
 
 System Updates verifies the public manifest and package SHA-256, performs a protected-path dry run, requires explicit installation approval, creates and verifies a rollback backup before writes, verifies installed bytes, and rolls back or exposes recovery if verification cannot complete.
 
-Stable 0.10.16 publishes only generic application changes. It does not publish or overwrite customer, employee, advisor, technician, RO, VIN, report, history, settings, backup, or store-specific source-adapter data.
+Stable 0.10.17 publishes only generic application changes. It does not publish or overwrite customer, employee, advisor, technician, RO, VIN, report, history, settings, backup, or store-specific source-adapter data.
 
 ## Repository boundary
 

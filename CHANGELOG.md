@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.10.16 — current Stable
+## 0.10.17 — current Stable
+
+- Removes the single-computer owner-editing designation requirement.
+- Allows editing from any connected dashboard folder when Edge has read/write permission.
+- Removes the owner designation and Recover owner editing UI.
+- Keeps transaction journaling, revision checks, protected Workspace paths, update verification, and rollback protections.
+- Does not let stale legacy transaction journals force the entire dashboard into read-only mode.
+- No Workspace migration.
+
+## 0.10.16 — previous Stable
 
 - Treats temporary OneDrive/file-ingestion File System Access conflicts as transient workspace synchronization instead of lost owner authority.
 - Retries owner-authority validation automatically while synchronized files settle.
