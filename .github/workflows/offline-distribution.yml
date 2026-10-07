@@ -1,0 +1,151 @@
+name: Publish Offline Distribution
+
+on:
+  workflow_run:
+    workflows: ["Publication check"]
+    types: [completed]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: offline-distribution
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'release' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+    steps:
+      - name: Check out validated source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || env.HEAD_SHA }}
+          fetch-depth: 0
+
+      - name: Re-run public safety checks
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          node --test tests/*.test.cjs
+          python3 scripts/build_operating_modules.py --check
+          python3 scripts/check_publication.py
+          python3 scripts/build_distribution.py --check-source
+
+      - name: Resolve Stable release
+        id: stable
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          manifest = json.loads(Path("updates/manifest.json").read_text(encoding="utf-8"))
+          version = manifest["stable"]["version"]
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+              raise SystemExit("Invalid Stable version")
+          app = Path("assets/app.js").read_text(encoding="utf-8")
+          match = re.search(r'const VERSION = "([^"]+)";', app)
+          if not match or match.group(1) != version:
+              raise SystemExit("Application source is not the Stable version")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+              output.write(f"tag=v{version}\n")
+          PY
+
+      - name: Prepare pinned offline vendor libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .vendor-build .vendor-node
+          mkdir -p .vendor-build .vendor-node
+          cd .vendor-node
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts jszip@3.10.1 pdfjs-dist@5.6.205 esbuild@0.25.10
+          cp node_modules/jszip/dist/jszip.min.js ../.vendor-build/jszip.min.js
+          npx esbuild node_modules/pdfjs-dist/build/pdf.mjs             --bundle --format=iife --global-name=pdfjsLib --platform=browser --target=es2022             --minify --legal-comments=none --outfile=../.vendor-build/pdf.min.js
+          npx esbuild node_modules/pdfjs-dist/build/pdf.worker.mjs             --bundle --format=iife --global-name=pdfjsWorker --platform=browser --target=es2022             --minify --legal-comments=none --outfile=../.vendor-build/pdf.worker.min.js
+          cd ..
+          curl --fail --location --retry 3             https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js             --output .vendor-build/xlsx.full.min.js
+
+      - name: Build deterministic clean-install ZIP
+        run: |
+          rm -rf dist
+          python3 scripts/build_distribution.py             --vendor-dir .vendor-build             --output dist/Service-Operations-Dashboard.zip
+          sha256sum --check dist/Service-Operations-Dashboard.zip.sha256
+
+      - name: Wait for matching Stable GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..24}; do
+            if gh release view "${{ steps.stable.outputs.tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Matching Stable GitHub Release was not available." >&2
+          exit 1
+
+      - name: Publish or verify clean-install assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.stable.outputs.tag }}"
+          rm -rf .release-check
+          mkdir .release-check
+          for asset in             Service-Operations-Dashboard.zip             Service-Operations-Dashboard.zip.sha256             Service-Operations-Dashboard.manifest.json
+          do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$asset"; then
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir .release-check
+              cmp "dist/$asset" ".release-check/$asset"
+            else
+              gh release upload "$TAG" "dist/$asset" --repo "$GITHUB_REPOSITORY"
+            fi
+          done
+
+      - name: Prepare GitHub Pages storefront
+        shell: bash
+        run: |
+          rm -rf .pages
+          cp -R distribution/site .pages
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          release = json.loads(Path("dist/Service-Operations-Dashboard.manifest.json").read_text(encoding="utf-8"))
+          latest = {
+              "version": release["version"],
+              "sha256": release["sha256"],
+              "asset": "https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip",
+              "release": f"https://github.com/JHFMoon/MoonDog-Service-OS/releases/tag/v{release['version']}",
+          }
+          Path(".pages/latest.json").write_text(json.dumps(latest, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: .pages
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
