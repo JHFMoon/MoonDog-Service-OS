@@ -122,7 +122,7 @@ function create(io,api){
       classified.push({path:p,area:'system-update',valid:true,unresolved,modified,day:new Date(modified).toISOString().slice(0,10),items});
      }
      const newestFull=full.filter(f=>f.family==='manager-full').sort((a,b)=>b.createdAt-a.createdAt)[0];
-     if(!newestFull||at-newestFull.createdAt>RETENTION.fullRefreshDays*DAY){
+     if(currentValid&&(!newestFull||at-newestFull.createdAt>RETENTION.fullRefreshDays*DAY)){
       try{const created=await api.createRetentionBackup?.();if(created?.path){const fresh=await inspect(created.path),validated=await api.validateBackup(fresh.bytes),entry={...fresh,valid:true,createdAt:Date.parse(validated.manifest.createdAt),family:'manager-full',area:'manager-full'};full.push(entry);classified.push(entry);}}
       catch(_){issue('backups','Automatic rolling full backup could not be created; stale recovery points are held only until a fresh verified backup can replace them.');}
      }
