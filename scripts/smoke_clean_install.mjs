@@ -32,7 +32,8 @@ try {
   if (versions.pdfjs !== "5.6.205") throw new Error("PDF.js version mismatch: " + JSON.stringify(versions));
   if (!/^\d+\.\d+\.\d+/.test(String(versions.app || ""))) throw new Error("Application version was not exposed: " + JSON.stringify(versions));
 
-  const pdfText = await page.evaluate(async () => {
+  const pdfResult = await page.evaluate(async () => {
+    try {
     const stream = "BT /F1 18 Tf 72 720 Td (MOONDOG) Tj ET\\n";
     const objects = [
       "<< /Type /Catalog /Pages 2 0 R >>",
@@ -58,12 +59,21 @@ try {
       const document = await task.promise;
       const firstPage = await document.getPage(1);
       const content = await firstPage.getTextContent();
-      return content.items.map(item => item.str || "").join(" ");
+      return { ok: true, text: content.items.map(item => item.str || "").join(" ") };
     } finally {
       await task.destroy();
     }
+    } catch (error) {
+      return {
+        ok: false,
+        name: String(error?.name || ""),
+        message: String(error?.message || error || ""),
+        stack: String(error?.stack || "")
+      };
+    }
   });
-  if (!/MOONDOG/.test(pdfText)) throw new Error("PDF.js could not extract text from a local in-memory PDF: " + pdfText);
+  if (!pdfResult.ok) throw new Error("PDF.js parse failed: " + JSON.stringify(pdfResult));
+  if (!/MOONDOG/.test(pdfResult.text)) throw new Error("PDF.js could not extract text from a local in-memory PDF: " + pdfResult.text);
 
   const relevant = pageErrors.filter(message =>
     /pdf|jszip|xlsx|syntaxerror|referenceerror/i.test(message)
