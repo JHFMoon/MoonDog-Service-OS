@@ -13,7 +13,7 @@
 - Do NOT edit `updates/manifest.json` `stable.version`, corresponding Stable package URL/digest or Stable release tag without James saying to promote/push to Stable.
 - On explicit approval, agent selects the tested Beta package and runs the final full audit: updater compatibility, migration plan, Workspace preservation, backup/rollback, version/digest integrity and formal release package validation.
 - Commit the new Stable version in a reviewed main PR **only after** the approval and checks. Document James's approval and the precise version in PR description; don't copy confidential conversations into the public repository.
-- The GitHub Stable workflow automatically reacts to successful validated main pushes *only if* `stable.version` changed on that commit; ordinary Beta changes do not re-release Stable. It does not decide to promote Beta.
+- The GitHub Stable workflow checks each successful validated main push against the **already-approved** Stable manifest version. It only publishes when the matching formal non-prerelease GitHub Release, SHA-256-verified asset, or Latest designation is missing. This allows a subsequent ordinary main/Beta push to retry an incomplete previously authorized Stable publication; it does **not** approve or initiate a new Stable version promotion. Completed Stable releases are not republished on ordinary changes.
 - A manual emergency Stable workflow dispatch must provide an approval reference. The input is an operator assertion, not identity proof; grant dispatch permissions only to trusted maintainers.
 - Publish immutable versioned release asset and clean-install package, verify SHA-256 and update discovery; if any gate fails, keep prior Stable.
 
