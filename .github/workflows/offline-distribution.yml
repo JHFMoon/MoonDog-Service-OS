@@ -64,17 +64,6 @@ jobs:
               output.write(f"tag=v{version}\n")
           PY
 
-      - name: Check out immutable Stable source
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${{ steps.stable.outputs.tag }}"
-          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
-          git checkout --detach "$TAG"
-          test "$(git tag --points-at HEAD | grep -Fx "$TAG")" = "$TAG"
-          python3 scripts/check_publication.py
-          python3 scripts/build_distribution.py --check-source
-
       - name: Recreate and verify pinned browser dependencies
         run: bash scripts/prepare_distribution_vendor.sh .vendor-build
 
@@ -106,14 +95,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          TAG="${{ steps.stable.outputs.tag }}"
           for attempt in {1..24}; do
-            if gh release view "${{ steps.stable.outputs.tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               exit 0
             fi
             sleep 5
           done
           echo "Matching Stable GitHub Release was not available." >&2
           exit 1
+
+      - name: Check out immutable Stable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.stable.outputs.tag }}"
+          FOUND=false
+          for attempt in {1..24}; do
+            if git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"; then
+              FOUND=true
+              break
+            fi
+            sleep 5
+          done
+          [ "$FOUND" = "true" ] || {
+            echo "Stable tag $TAG was not fetchable after retry window." >&2
+            exit 1
+          }
+          git checkout --detach "$TAG"
+          test "$(git tag --points-at HEAD | grep -Fx "$TAG")" = "$TAG"
+          python3 scripts/check_publication.py
+          python3 scripts/build_distribution.py --check-source
 
       - name: Publish or verify clean-install assets
         shell: bash
