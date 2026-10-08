@@ -7,7 +7,7 @@
   const SOURCE_DEFINITIONS = Object.freeze({
     openRo: Object.freeze({ label: "Open RO", cadence: "same-business-day" }),
     sapr: Object.freeze({ label: "SAPR", cadence: "prior-operating-day" }),
-    csi: Object.freeze({ label: "CSI", cadence: "same-business-day" }),
+    csi: Object.freeze({ label: "CSI", cadence: "cumulative-observation" }),
     nextAppointments: Object.freeze({ label: "Next Appointments", cadence: "prior-operating-day" }),
     vir: Object.freeze({ label: "VIR", cadence: "prior-operating-day" }),
     menu: Object.freeze({ label: "Menu Sales", cadence: "weekly-monday" }),
@@ -153,6 +153,25 @@
       const sourceDate = input.sourceDate || dateKey(input.sourceTimestamp, input.timeZone || DEFAULT_TIME_ZONE);
       expectedPeriod = today; current = sourceDate === today;
       reason = current ? "Imported during the current store business date." : `Last source date is ${sourceDate || "unknown"}; expected ${today}.`;
+    } else if (cadence === "cumulative-observation") {
+      // CSI can legitimately contain no new surveys. Freshness is about a validated
+      // report observation or verified report scope, never its response count.
+      const expected = previousOperatingDay(today);
+      const scopeVerified = input.scopeVerified === true;
+      const observed = input.observationVerified === true
+        ? (input.sourceDate || (input.sourceTimestamp ? dateKey(input.sourceTimestamp, input.timeZone || DEFAULT_TIME_ZONE) : ""))
+        : "";
+      const covered = scopeVerified ? (input.scopeEnd || input.periodEnd || "") : "";
+      expectedPeriod = expected;
+      // A verified cumulative scope is authoritative. Re-importing an old report today
+      // must never make that old scope current. Without verified scope, only a report-
+      // supplied/validated observation date may establish currentness.
+      current = scopeVerified
+        ? (validDateKey(covered) && covered >= expected && covered <= today)
+        : (validDateKey(observed) && observed >= expected && observed <= today);
+      reason = current
+        ? "A recent validated CSI report is available; zero new responses is valid."
+        : `Last verified CSI observation ${observed || "unknown"}; expected a report observed since ${expected}. Survey event dates do not determine freshness.`;
     } else if (cadence === "same-business-day-period") {
       expectedPeriod = today; current = input.periodStart === today || input.periodEnd === today;
       reason = current ? "The source represents the current store business date." : `Loaded period does not represent ${today}.`;
@@ -201,7 +220,7 @@
     if (key === 'appointments' && !input.arrivalPlanning) return finish(current ? 'CURRENT' : 'OPTIONAL', 'Today’s arrival planning does not currently require a report. Historical arrivals are not requested.');
     if (isSunday(today)) return finish(current ? 'CURRENT' : 'OPTIONAL', 'Sunday: no report pull required. Retained evidence and unknowns remain unchanged.');
     let action = evidence.requiredAction || `Import one current valid ${label} report.`;
-    if (key === 'csi') action = 'Import one current Dealer Dashboard CSI Store / Responses report.';
+    if (key === 'csi') action = 'Import the latest available validated Dealer Dashboard CSI Store / Responses report (zero responses is valid).';
     if (key === 'openRo') action = `Pull a fresh Open RO report for ${today}.`;
     if (key === 'appointments') action = `Load today's appointments or pre-RO packet for ${today}.`;
     if (key === 'nextAppointments') action = 'Import one current valid Next Appointments report or the approved service-only substitute; either satisfies the same NSA authority.';
@@ -210,7 +229,7 @@
       return finish(optional && soon && !active ? 'NEED SOON' : 'NEED NOW', reason, [action]);
     }
     if (key === 'sapr' && missing.length) return finish('NEED SOON', 'Current SAPR is usable; missing completed operating-day snapshots limit the required month trend.', missing.map(date => `Run SAPR ${today.slice(0,7)}-01 through ${date}.`));
-    if (key === 'csi' && missing.length) return finish('NEED SOON', 'Current CSI is usable; verified cumulative scope is needed to establish missing month history.', [action]);
+    // CSI has no required daily response events. Empty survey days are not gaps.
     return finish('CURRENT', key === 'menu' ? 'Weekly report current. Historical release gaps are evidence details, not daily tasks.' : 'Evidence is sufficient for the current purpose.');
   }
   function evaluateMetric(dependencies = []) {
