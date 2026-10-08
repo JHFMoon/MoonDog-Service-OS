@@ -16,6 +16,16 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("python3 scripts/audit_git_history.py", text)
         self.assertIn("name: Publication Check", text)
 
+    def test_stable_release_directly_dispatches_offline_distribution(self):
+        stable = (ROOT / ".github/workflows/stable-release.yml").read_text(encoding="utf-8")
+        offline = (ROOT / ".github/workflows/offline-distribution.yml").read_text(encoding="utf-8")
+        self.assertIn("actions: write", stable)
+        self.assertIn("Dispatch verified Stable offline distribution", stable)
+        self.assertIn("gh workflow run offline-distribution.yml", stable)
+        self.assertNotIn('workflows: ["Publication check"]', offline)
+        self.assertIn("  release:\n", offline)
+        self.assertIn("  workflow_dispatch:\n", offline)
+
     def test_release_and_pages_recheck_full_history(self):
         for path in (
             ".github/workflows/stable-release.yml",
