@@ -1880,8 +1880,28 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if (!ui.moondogNeeds || !ui.nextAppointmentsSummary) return;
     const snapshots = model.operationalMetrics?.nextAppointments?.snapshots || {}, dates = Object.keys(snapshots).sort(), latest = latestNextAppointmentsSnapshot(), latestVir = latestVirObservation(), menuSnapshots = model.operationalMetrics?.menu?.snapshots || {}, menuWeeks = Object.keys(menuSnapshots).sort(), latestMenu = menuSnapshots[menuWeeks.at(-1)], allCsiSurveys = model.operationalMetrics?.csi?.surveys || {}, csiSurveys = currentCsiSurveys(), csiDates = Object.values(allCsiSurveys).map((survey) => survey.surveyDate).sort(), csiCoverage = csiDates.at(-1), actions = managerAttentionRequests(), coverageAudit = trendCoverageAudit(), csiRefreshDate = latestCsiRefreshDate();
     if(latest?.identityConflicts?.length)actions.push(`Resolve ${latest.identityConflicts.length} advisor name/number conflict${latest.identityConflicts.length===1?"":"s"} in Next Appointments`);
-    ui.moondogNeeds.replaceChildren(); const needsTitle = document.createElement("strong"); needsTitle.textContent = actions.length ? `${actions.length} UPDATE${actions.length === 1 ? "" : "S"} NEEDED` : "ALL EXPECTED REPORTING IS CURRENT"; ui.moondogNeeds.append(needsTitle);
-    if (actions.length) { const list = document.createElement("ul"); actions.forEach((action) => { const item = document.createElement("li"); item.textContent = action; list.append(item); }); ui.moondogNeeds.append(list); }
+    ui.moondogNeeds.replaceChildren();
+    const needsTitle = document.createElement("strong");
+    needsTitle.textContent = actions.length ? `${actions.length} ACTION${actions.length === 1 ? "" : "S"} NEEDED` : "NO REPORT UPDATES CURRENTLY REQUIRED";
+    ui.moondogNeeds.append(needsTitle);
+    if (actions.length) {
+      const list = document.createElement("ul");
+      actions.forEach((action) => { const item = document.createElement("li"); item.textContent = action; list.append(item); });
+      ui.moondogNeeds.append(list);
+    }
+    // A short action strip alone cannot communicate the status of every configured source.
+    // Show all source evaluations on demand without generating extra report obligations.
+    const reportChecks = reportNeeds(), fullChecks = document.createElement("details"),
+      checksTitle = document.createElement("summary"), checksList = document.createElement("ul");
+    checksTitle.textContent = `Full data health · ${Object.keys(reportChecks).length} source checks`;
+    for (const [key, need] of Object.entries(reportChecks)) {
+      const item = document.createElement("li"), evidence = sourceFreshness(key);
+      const observed = evidence.periodEnd || evidence.sourceTimestamp || "No verified observation";
+      item.textContent = `${need.label}: ${need.state} · ${sourceStatusLabel(evidence)} · ${need.reason} · Last/period: ${observed}${need.actions.length ? " · Next: " + need.actions.join("; ") : ""}`;
+      checksList.append(item);
+    }
+    fullChecks.append(checksTitle, checksList);
+    ui.moondogNeeds.append(fullChecks);
     renderTrendCoverageSummary(coverageAudit);renderPreviousMonthTotals();
     ui.nextAppointmentsSummary.replaceChildren();
     if (!latest) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No verified Next Appointments snapshot loaded."; ui.nextAppointmentsSummary.append(empty); ui.nextAppointmentsCoverage.textContent = "No verified source loaded"; }
