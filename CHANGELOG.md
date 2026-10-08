@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.3 — current Beta
+
+- Proof: fully hands-off Beta 0.10.18-beta.3. Verified automated Beta; no Workspace migration.
+- Automatically layered onto the previous Beta so existing preview features are preserved.
+
+
 ## 0.10.18-beta.2 — current Beta
 
 - Uses validated CSI report coverage, not survey response dates or local import time, to determine freshness.
