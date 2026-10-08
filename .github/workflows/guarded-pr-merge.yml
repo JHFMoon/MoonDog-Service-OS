@@ -18,12 +18,14 @@ jobs:
   merge:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'pull_request'
+      (github.event.workflow_run.event == 'pull_request' ||
+       github.event.workflow_run.event == 'workflow_dispatch')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
       PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
     steps:
       - name: Verify automation authorization and PR safety
@@ -31,7 +33,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$PR_NUMBER" || { echo "No pull request attached to workflow run; nothing to merge."; exit 0; }
+          if [ -z "$PR_NUMBER" ]; then
+            OWNER="${REPO%%/*}"
+            PR_NUMBER="$(gh api "repos/$REPO/pulls?state=open&head=$OWNER:$HEAD_BRANCH" --jq '.[0].number // empty')"
+            test -n "$PR_NUMBER" || { echo "No open automation PR matches $HEAD_BRANCH; nothing to merge."; exit 0; }
+            echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
+          fi
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.json
           python3 - <<'PY'
           import json, os, sys
@@ -74,9 +81,9 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in {1..36}; do
-            RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=50")"
-            PUB="$(jq -r '[.workflow_runs[] | select(.name=="Publication check")][0].conclusion // ""' <<<"$RUNS")"
-            CLEAN="$(jq -r '[.workflow_runs[] | select(.name=="Clean Install Proof")][0].conclusion // ""' <<<"$RUNS")"
+            RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=50")"
+            PUB="$(jq -r '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")][0].conclusion // ""' <<<"$RUNS")"
+            CLEAN="$(jq -r '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")][0].conclusion // ""' <<<"$RUNS")"
             if [ "$PUB" = "failure" ] || [ "$PUB" = "cancelled" ] || [ "$CLEAN" = "failure" ] || [ "$CLEAN" = "cancelled" ]; then
               echo "Required verification failed: Publication=$PUB CleanInstall=$CLEAN" >&2
               exit 1
