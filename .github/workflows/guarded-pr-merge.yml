@@ -1,0 +1,116 @@
+name: Guarded PR Merge
+
+on:
+  workflow_run:
+    workflows: ["Publication check"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: guarded-pr-merge-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+    steps:
+      - name: Verify automation authorization and PR safety
+        id: guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PR_NUMBER" || { echo "No pull request attached to workflow run; nothing to merge."; exit 0; }
+          gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.json
+          python3 - <<'PY'
+          import json, os, sys
+          pr=json.load(open('/tmp/pr.json',encoding='utf-8'))
+          expected=os.environ['HEAD_SHA']
+          body=pr.get('body') or ''
+          if pr.get('state')!='open':
+              print('PR is no longer open; nothing to merge.')
+              sys.exit(0)
+          checks={
+              'draft': pr.get('draft') is False,
+              'base': pr.get('base',{}).get('ref')=='main',
+              'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
+              'head': pr.get('head',{}).get('sha')==expected,
+              'authorization': 'MoonDog-Auto-Merge: yes' in body,
+              'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('Guarded merge refused: '+', '.join(failed))
+          PY
+
+      - name: Keep Stable promotion explicit
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.sha)"
+          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$BASE_SHA" > /tmp/base-manifest.json
+          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$HEAD_SHA" > /tmp/head-manifest.json
+          python3 - <<'PY'
+          import json
+          base=json.load(open('/tmp/base-manifest.json',encoding='utf-8'))
+          head=json.load(open('/tmp/head-manifest.json',encoding='utf-8'))
+          if base.get('stable') != head.get('stable'):
+              raise SystemExit('Automatic merge refused: Stable manifest changed and requires James explicit approval.')
+          PY
+
+      - name: Wait for all required proof on this exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..36}; do
+            RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=50")"
+            PUB="$(jq -r '[.workflow_runs[] | select(.name=="Publication check")][0].conclusion // ""' <<<"$RUNS")"
+            CLEAN="$(jq -r '[.workflow_runs[] | select(.name=="Clean Install Proof")][0].conclusion // ""' <<<"$RUNS")"
+            if [ "$PUB" = "failure" ] || [ "$PUB" = "cancelled" ] || [ "$CLEAN" = "failure" ] || [ "$CLEAN" = "cancelled" ]; then
+              echo "Required verification failed: Publication=$PUB CleanInstall=$CLEAN" >&2
+              exit 1
+            fi
+            if [ "$PUB" = "success" ] && [ "$CLEAN" = "success" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for Publication Check and Clean Install Proof." >&2
+          exit 1
+
+      - name: Bring branch current with main if needed
+        id: current
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="$(gh api "repos/$REPO/compare/main...$HEAD_SHA" --jq .status)"
+          if [ "$STATUS" = "diverged" ] || [ "$STATUS" = "behind" ]; then
+            gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/update-branch"               -f expected_head_sha="$HEAD_SHA"
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            echo "Branch was updated from main. New checks will gate the new head."
+          else
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Squash merge verified current PR
+        if: steps.current.outputs.updated != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_HEAD="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)"
+          test "$CURRENT_HEAD" = "$HEAD_SHA" || {
+            echo "PR head changed after verification; refusing stale merge." >&2
+            exit 1
+          }
+          gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"             -f merge_method=squash             -f sha="$HEAD_SHA"             --jq '{merged:.merged,message:.message,sha:.sha}'
