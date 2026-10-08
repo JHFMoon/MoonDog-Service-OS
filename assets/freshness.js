@@ -157,11 +157,18 @@
       // CSI can legitimately contain no new surveys. Freshness is about a validated
       // report observation or verified report scope, never its response count.
       const expected = previousOperatingDay(today);
-      const observed = input.sourceDate || (input.sourceTimestamp ? dateKey(input.sourceTimestamp, input.timeZone || DEFAULT_TIME_ZONE) : "");
-      const covered = input.scopeVerified === true ? (input.scopeEnd || input.periodEnd || "") : "";
+      const scopeVerified = input.scopeVerified === true;
+      const observed = input.observationVerified === true
+        ? (input.sourceDate || (input.sourceTimestamp ? dateKey(input.sourceTimestamp, input.timeZone || DEFAULT_TIME_ZONE) : ""))
+        : "";
+      const covered = scopeVerified ? (input.scopeEnd || input.periodEnd || "") : "";
       expectedPeriod = expected;
-      current = (validDateKey(observed) && observed >= expected && observed <= today)
-        || (validDateKey(covered) && covered >= expected && covered <= today);
+      // A verified cumulative scope is authoritative. Re-importing an old report today
+      // must never make that old scope current. Without verified scope, only a report-
+      // supplied/validated observation date may establish currentness.
+      current = scopeVerified
+        ? (validDateKey(covered) && covered >= expected && covered <= today)
+        : (validDateKey(observed) && observed >= expected && observed <= today);
       reason = current
         ? "A recent validated CSI report is available; zero new responses is valid."
         : `Last verified CSI observation ${observed || "unknown"}; expected a report observed since ${expected}. Survey event dates do not determine freshness.`;
