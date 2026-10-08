@@ -98,18 +98,19 @@ jobs:
           export CURRENT_HEAD
           for attempt in {1..42}; do
             RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$CURRENT_HEAD&per_page=50")"
-            PUB="$(jq -r '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")][0].conclusion // ""' <<<"$RUNS")"
-            CLEAN="$(jq -r '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")][0].conclusion // ""' <<<"$RUNS")"
-            FAIL="$(jq -r '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled"))] | length' <<<"$RUNS")"
-            if [ "$FAIL" != "0" ]; then
+            PUB_OK="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")] | length' <<<"$RUNS")"
+            CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")] | length' <<<"$RUNS")"
+            PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .status!="completed")] | length' <<<"$RUNS")"
+            HARD_FAIL="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out"))] | length' <<<"$RUNS")"
+            if [ "$HARD_FAIL" != "0" ]; then
               echo "Generated-head verification failed." >&2
               exit 1
             fi
-            if [ "$PUB" = "success" ] && [ "$CLEAN" = "success" ]; then
+            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ]; then
               break
             fi
             if [ "$attempt" = "42" ]; then
-              echo "Timed out waiting for generated-head verification." >&2
+              echo "Timed out waiting for all generated-head checks to settle." >&2
               exit 1
             fi
             sleep 10
@@ -150,4 +151,17 @@ jobs:
               raise SystemExit('Generated-head merge refused: Stable changed.')
           PY
 
-          gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"             -f merge_method=squash             -f sha="$CURRENT_HEAD"             --jq '{merged:.merged,message:.message,sha:.sha}'
+          for attempt in {1..12}; do
+            if RESULT="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$CURRENT_HEAD" 2>&1)"; then
+              jq '{merged:.merged,message:.message,sha:.sha}' <<<"$RESULT"
+              exit 0
+            fi
+            if grep -q 'Required status check.*in progress' <<<"$RESULT"; then
+              sleep 5
+              continue
+            fi
+            echo "$RESULT" >&2
+            exit 1
+          done
+          echo "GitHub did not settle the generated-head status context in time." >&2
+          exit 1
