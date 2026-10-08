@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.10.18-beta.1 — current Beta
+## 0.10.18-beta.2 — current Beta
+
+- Uses validated CSI report coverage, not survey response dates or local import time, to determine freshness.
+- Imports valid CSI reports with zero scored responses without erasing retained survey history.
+- Keeps old CSI report scopes stale even when reimported today.
+- Adds parser-to-ingestion and Beta package/runtime regression coverage.
+- No Workspace migration; Stable stays 0.10.17.
+
+## 0.10.18-beta.1 — previous Beta
 
 - Adds a compact Home control pulse for overdue commitments, due-today work, missing plans, long vehicles, customer updates, and comebacks.
 - Puts Open RO Control ahead of Assign Next so finishing work is visually prioritized before starting more.
