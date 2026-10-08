@@ -27,6 +27,22 @@ class SecurityWorkflowTests(unittest.TestCase):
             self.assertIn("python3 scripts/check_publication.py", text)
             self.assertIn("python3 scripts/audit_git_history.py", text)
 
+    def test_guarded_merge_and_offline_distribution_are_hands_off_safe(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        self.assertIn('workflows: ["Publication check"]', merge)
+        self.assertIn("MoonDog-Auto-Merge: yes", merge)
+        self.assertIn("Clean Install Proof", merge)
+        self.assertIn("Stable manifest changed and requires James explicit approval", merge)
+        self.assertIn('pulls/$PR_NUMBER/update-branch', merge)
+        self.assertIn('pulls/$PR_NUMBER/merge', merge)
+        self.assertIn("-f merge_method=squash", merge)
+
+        offline = (ROOT / ".github/workflows/offline-distribution.yml").read_text(encoding="utf-8")
+        self.assertIn("Check out immutable Stable source", offline)
+        self.assertIn('git checkout --detach "$TAG"', offline)
+        self.assertIn("python3 scripts/build_distribution.py --check-source", offline)
+        self.assertLess(offline.index("Check out immutable Stable source"), offline.index("Build deterministic clean-install ZIP"))
+
     def test_public_boundary_blocks_common_sensitive_binary_formats(self):
         text = (ROOT / "scripts/check_publication.py").read_text(encoding="utf-8")
         for suffix in ('.doc', '.docx', '.ppt', '.pptx', '.png', '.jpg', '.jpeg', '.webp', '.heic'):
