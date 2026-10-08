@@ -10,6 +10,7 @@ permissions:
   actions: write
   contents: write
   pull-requests: write
+  statuses: write
 
 concurrency:
   group: prepare-beta-${{ github.event.pull_request.number }}
@@ -116,6 +117,13 @@ jobs:
             sleep 10
           done
 
+          PUB_RUN_ID="$(jq -r '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")][0].id // empty' <<<"$RUNS")"
+          test -n "$PUB_RUN_ID" || {
+            echo "Could not identify the successful Publication Check run." >&2
+            exit 1
+          }
+          gh api -X POST "repos/$REPO/statuses/$CURRENT_HEAD"             -f state=success             -f context="Publication Check"             -f description="Exact-head Publication Check and Clean Install Proof passed"             -f target_url="https://github.com/$REPO/actions/runs/$PUB_RUN_ID"
+
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/generated-pr.json
           python3 - <<'PY'
           import json, os
@@ -156,7 +164,7 @@ jobs:
               jq '{merged:.merged,message:.message,sha:.sha}' <<<"$RESULT"
               exit 0
             fi
-            if grep -q 'Required status check.*in progress' <<<"$RESULT"; then
+            if grep -Eq 'Required status check.*(in progress|expected)' <<<"$RESULT"; then
               sleep 5
               continue
             fi
