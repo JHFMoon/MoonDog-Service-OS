@@ -10,7 +10,7 @@
   "beta": {
     "version": "0.10.18-beta.2",
     "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.2.json",
-    "sha256": "e646d308abd6363b4382b415f6847cc116f7759f77b3d1b714ce692c6917a334",
+    "sha256": "841b3756e3af4b98689ed3a855d37df0fcfbfd3a350eae1011fa2f22da9e51c1",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
     "releaseNotes": "Corrects CSI reporting freshness using verified report scope instead of survey-response dates, supports validated zero-response CSI exports through real ingestion, and prevents reimporting old CSI reports from appearing current. Adds parser-to-import and Beta package/runtime regression checks. No Workspace migration; Stable remains 0.10.17."

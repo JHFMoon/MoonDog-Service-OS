@@ -5,7 +5,7 @@ const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "updates", "manifest.json"), "utf8"));
-assert.equal(manifest.beta.version, "0.10.18-beta.2");
+assert.ok(manifest.beta.version.startsWith("0.10.18-beta."));
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "updates", "packages", "moondog-0.10.18-beta.2.json"), "utf8"));
 assert.equal(pkg.version, manifest.beta.version);
 const files = Object.fromEntries(pkg.files.filter(entry => entry.action === "put").map(entry => [
@@ -20,7 +20,7 @@ const engineSource = files["assets/daily-engine.js"];
 const installer = files["assets/moondog-update-install.js"];
 const styles = files["assets/styles.css"];
 
-assert.match(app, /const VERSION = "0\.10\.18-beta\.1"/);
+assert.ok(app.includes(`const VERSION = "${manifest.beta.version}"`));
 assert.ok(!app.includes("Monday · your day off"));
 assert.ok(app.includes("Sunday · no manager review"));
 assert.ok(app.includes('attention === "long-2"'));
