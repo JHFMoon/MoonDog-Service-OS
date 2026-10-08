@@ -46,6 +46,15 @@ jobs:
           path: candidate
           fetch-depth: 0
 
+      - name: Refuse automatic changes to trusted proof/automation files
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${{ github.repository }}/pulls/$PR_NUMBER/files?per_page=100"             --jq '.[].filename' > /tmp/pr-paths.txt
+          python3 trusted/scripts/pipeline_guard.py check-paths /tmp/pr-paths.txt
+
       - name: Prepare next Beta only when reviewed runtime changed
         shell: bash
         run: |
@@ -162,6 +171,18 @@ jobs:
           for attempt in {1..12}; do
             if RESULT="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$CURRENT_HEAD" 2>&1)"; then
               jq '{merged:.merged,message:.message,sha:.sha}' <<<"$RESULT"
+              test "$(jq -r '.merged' <<<"$RESULT")" = "true"
+              MERGED_SHA="$(jq -r '.sha' <<<"$RESULT")"
+              for settle in {1..12}; do
+                MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+                [ "$MAIN_SHA" = "$MERGED_SHA" ] && break
+                sleep 2
+              done
+              test "$MAIN_SHA" = "$MERGED_SHA" || {
+                echo "Merged commit did not become current main; refusing post-merge proof." >&2
+                exit 1
+              }
+              gh workflow run publication-check.yml --repo "$REPO" --ref main
               exit 0
             fi
             if grep -Eq 'Required status check.*(in progress|expected)' <<<"$RESULT"; then

@@ -65,15 +65,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BASE_SHA="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.sha)"
-          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$BASE_SHA" > /tmp/base-manifest.json
+          MERGE_BASE_SHA="$(gh api "repos/$REPO/compare/main...$HEAD_SHA" --jq .merge_base_commit.sha)"
+          test -n "$MERGE_BASE_SHA"
+          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$MERGE_BASE_SHA" > /tmp/base-manifest.json
           gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$HEAD_SHA" > /tmp/head-manifest.json
           python3 - <<'PY'
           import json
           base=json.load(open('/tmp/base-manifest.json',encoding='utf-8'))
           head=json.load(open('/tmp/head-manifest.json',encoding='utf-8'))
           if base.get('stable') != head.get('stable'):
-              raise SystemExit('Automatic merge refused: Stable manifest changed and requires James explicit approval.')
+              raise SystemExit('Automatic merge refused: this PR changes Stable and requires James explicit approval.')
           PY
 
       - name: Wait for all required proof on this exact head
@@ -117,17 +118,67 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          CURRENT_HEAD="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)"
-          test "$CURRENT_HEAD" = "$HEAD_SHA" || {
-            echo "PR head changed after verification; refusing stale merge." >&2
-            exit 1
-          }
           for attempt in {1..12}; do
+            gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/final-pr.json
+            MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+            CURRENT_HEAD="$(jq -r '.head.sha' /tmp/final-pr.json)"
+            test "$CURRENT_HEAD" = "$HEAD_SHA" || {
+              echo "PR head changed after verification; refusing stale merge." >&2
+              exit 1
+            }
+
+            python3 - <<'PY'
+          import json, os
+          pr=json.load(open('/tmp/final-pr.json',encoding='utf-8'))
+          checks={
+              'open': pr.get('state')=='open',
+              'draft': pr.get('draft') is False,
+              'base': pr.get('base',{}).get('ref')=='main',
+              'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
+              'head': pr.get('head',{}).get('sha')==os.environ['HEAD_SHA'],
+              'authorization': 'MoonDog-Auto-Merge: yes' in (pr.get('body') or ''),
+              'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('Final guarded merge refused: '+', '.join(failed))
+          PY
+
+            COMPARE="$(gh api "repos/$REPO/compare/$MAIN_SHA...$HEAD_SHA")"
+            STATUS="$(jq -r .status <<<"$COMPARE")"
+            MERGE_BASE="$(jq -r .merge_base_commit.sha <<<"$COMPARE")"
+            test "$STATUS" = "ahead" && test "$MERGE_BASE" = "$MAIN_SHA" || {
+              echo "PR is no longer based on current main; refusing merge until it updates and rechecks." >&2
+              exit 1
+            }
+
+            gh api -H "Accept: application/vnd.github.raw+json"               "repos/$REPO/contents/updates/manifest.json?ref=$MAIN_SHA" > /tmp/current-main-manifest.json
+            gh api -H "Accept: application/vnd.github.raw+json"               "repos/$REPO/contents/updates/manifest.json?ref=$HEAD_SHA" > /tmp/current-head-manifest.json
+            python3 - <<'PY'
+          import json
+          main=json.load(open('/tmp/current-main-manifest.json',encoding='utf-8'))
+          head=json.load(open('/tmp/current-head-manifest.json',encoding='utf-8'))
+          if main.get('stable') != head.get('stable'):
+              raise SystemExit('Final guarded merge refused: Stable invariant changed.')
+          PY
+
             if RESULT="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$HEAD_SHA" 2>&1)"; then
               jq '{merged:.merged,message:.message,sha:.sha}' <<<"$RESULT"
+              test "$(jq -r '.merged' <<<"$RESULT")" = "true"
+              MERGED_SHA="$(jq -r '.sha' <<<"$RESULT")"
+              for settle in {1..12}; do
+                MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+                [ "$MAIN_SHA" = "$MERGED_SHA" ] && break
+                sleep 2
+              done
+              test "$MAIN_SHA" = "$MERGED_SHA" || {
+                echo "Merged commit did not become current main." >&2
+                exit 1
+              }
+              gh workflow run publication-check.yml --repo "$REPO" --ref main
               exit 0
             fi
-            if grep -q 'Required status check.*in progress' <<<"$RESULT"; then
+            if grep -Eq 'Required status check.*(in progress|expected)' <<<"$RESULT"; then
               sleep 5
               continue
             fi

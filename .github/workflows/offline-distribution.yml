@@ -64,12 +64,37 @@ jobs:
               output.write(f"tag=v{version}\n")
           PY
 
+      - name: Wait for matching Stable GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.stable.outputs.tag }}"
+          for attempt in {1..24}; do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Matching Stable GitHub Release was not available." >&2
+          exit 1
+
       - name: Check out immutable Stable source
         shell: bash
         run: |
           set -euo pipefail
           TAG="${{ steps.stable.outputs.tag }}"
-          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          FOUND=false
+          for attempt in {1..24}; do
+            if git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"; then
+              FOUND=true
+              break
+            fi
+            sleep 5
+          done
+          [ "$FOUND" = "true" ] || {
+            echo "Stable tag $TAG was not fetchable after retry window." >&2
+            exit 1
+          }
           git checkout --detach "$TAG"
           test "$(git tag --points-at HEAD | grep -Fx "$TAG")" = "$TAG"
           python3 scripts/check_publication.py
@@ -101,19 +126,6 @@ jobs:
       - name: Smoke-test extracted local application
         run: |
           node scripts/smoke_distribution.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
-
-      - name: Wait for matching Stable GitHub Release
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in {1..24}; do
-            if gh release view "${{ steps.stable.outputs.tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Matching Stable GitHub Release was not available." >&2
-          exit 1
 
       - name: Publish or verify clean-install assets
         shell: bash
