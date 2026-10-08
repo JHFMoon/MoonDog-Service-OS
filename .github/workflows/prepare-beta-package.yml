@@ -1,0 +1,69 @@
+name: Prepare Beta Package
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: prepare-beta-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.body, 'MoonDog-Auto-Merge: yes') &&
+      (github.event.pull_request.author_association == 'OWNER' ||
+       github.event.pull_request.author_association == 'MEMBER' ||
+       github.event.pull_request.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+    steps:
+      - name: Check out trusted packaging logic from the reviewed base
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          fetch-depth: 1
+
+      - name: Check out candidate without executing candidate code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          fetch-depth: 0
+
+      - name: Prepare next Beta only when reviewed runtime changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 trusted/scripts/build_beta_package.py             --root candidate             --base-manifest trusted/updates/manifest.json             --release-notes "$PR_TITLE. Verified automated Beta; no Workspace migration."
+
+      - name: Commit generated Beta package back to the same PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          if git diff --quiet -- CHANGELOG.md README.md updates/manifest.json updates/packages &&              [ -z "$(git ls-files --others --exclude-standard updates/packages)" ]; then
+            echo "Reviewed runtime already matches the advertised Beta package."
+            exit 0
+          fi
+          CHANGED="$(git status --porcelain)"
+          if echo "$CHANGED" | grep -Ev '^( M|M |A |\?\?) (CHANGELOG\.md|README\.md|updates/manifest\.json|updates/packages/moondog-[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+\.json)$' | grep -q .; then
+            echo "Beta preparation attempted an unexpected file change:" >&2
+            echo "$CHANGED" >&2
+            exit 1
+          fi
+          git config user.name "MoonDog Automation"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md README.md updates/manifest.json updates/packages
+          git commit -m "Package next verified Beta"
+          git push origin "HEAD:$HEAD_BRANCH"
