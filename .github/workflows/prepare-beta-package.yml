@@ -4,6 +4,7 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Generated package commits use workflow_dispatch so their verification does not need manual approval.
 permissions:
   actions: write
   contents: write
