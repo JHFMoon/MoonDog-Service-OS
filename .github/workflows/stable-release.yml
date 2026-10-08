@@ -56,10 +56,11 @@ jobs:
   publish:
     needs: promotion-check
     if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      always() &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
        inputs.approval_reference != '') ||
       (needs.promotion-check.result == 'success' &&
-       needs.promotion-check.outputs.promoted == 'true')
+       needs.promotion-check.outputs.promoted == 'true'))
     runs-on: ubuntu-latest
     env:
       HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
