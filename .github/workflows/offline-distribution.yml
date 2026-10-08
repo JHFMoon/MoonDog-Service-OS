@@ -59,14 +59,21 @@ jobs:
           version = manifest["stable"]["version"]
           if not re.fullmatch(r"\d+\.\d+\.\d+", version):
               raise SystemExit("Invalid Stable version")
-          app = Path("assets/app.js").read_text(encoding="utf-8")
-          match = re.search(r'const VERSION = "([^"]+)";', app)
-          if not match or match.group(1) != version:
-              raise SystemExit("Application source is not the Stable version")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"version={version}\n")
               output.write(f"tag=v{version}\n")
           PY
+
+      - name: Check out immutable Stable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.stable.outputs.tag }}"
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          git checkout --detach "$TAG"
+          test "$(git tag --points-at HEAD | grep -Fx "$TAG")" = "$TAG"
+          python3 scripts/check_publication.py
+          python3 scripts/build_distribution.py --check-source
 
       - name: Recreate and verify pinned browser dependencies
         run: bash scripts/prepare_distribution_vendor.sh .vendor-build
