@@ -1,9 +1,6 @@
 name: Publish Offline Distribution
 
 on:
-  workflow_run:
-    workflows: ["Publication check"]
-    types: [completed]
   release:
     types: [published]
   workflow_dispatch:
@@ -19,15 +16,10 @@ concurrency:
 
 jobs:
   publish:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'release' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      HEAD_SHA: ${{ github.sha }}
 
     steps:
       - name: Check out validated source
