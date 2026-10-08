@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.3 — current Beta
+
+- Verify automation-generated Beta commits without manual approval. Verified automated Beta; no Workspace migration.
+- Automatically packaged from the reviewed runtime after required verification.
+
+
 ## 0.10.18-beta.2 — current Beta
 
 - Uses validated CSI report coverage, not survey response dates or local import time, to determine freshness.
