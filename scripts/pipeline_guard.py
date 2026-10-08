@@ -29,7 +29,9 @@ PROTECTED_FILES = {
 
 
 def protected_automation_path(path: str) -> bool:
-    normalized = str(path or "").replace("\\", "/").lstrip("./")
+    normalized = str(path or "").replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
     return normalized in PROTECTED_FILES or any(
         normalized.startswith(prefix) for prefix in PROTECTED_PREFIXES
     )
