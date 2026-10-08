@@ -37,6 +37,18 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('pulls/$PR_NUMBER/merge', merge)
         self.assertIn("-f merge_method=squash", merge)
 
+        prepare = (ROOT / ".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
+        self.assertIn("pull_request_target", prepare)
+        self.assertIn("MoonDog-Auto-Merge: yes", prepare)
+        self.assertIn("without executing candidate code", prepare)
+        self.assertIn("trusted/scripts/build_beta_package.py", prepare)
+        self.assertIn('git push origin "HEAD:$HEAD_BRANCH"', prepare)
+        builder = (ROOT / "scripts/build_beta_package.py").read_text(encoding="utf-8")
+        self.assertIn("Stable manifest changed; Beta preparation refuses Stable promotion", builder)
+        self.assertIn("Automatic Beta preparation refuses migrations", builder)
+        self.assertIn("current_package_matches", builder)
+        self.assertIn("next_beta", builder)
+
         offline = (ROOT / ".github/workflows/offline-distribution.yml").read_text(encoding="utf-8")
         self.assertIn("Check out immutable Stable source", offline)
         self.assertIn('git checkout --detach "$TAG"', offline)
