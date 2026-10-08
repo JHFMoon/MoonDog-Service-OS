@@ -93,7 +93,7 @@
   const card = document.createElement("section");
   card.className = "card settings-card";
   card.id = "settings-update";
-  card.innerHTML = '<h2>System Updates</h2><p>Service Operations Dashboard checks its public update source. Installation always requires your approval.</p>' +
+  card.innerHTML = '<h2>System Updates</h2><p>Service Operations Dashboard checks its verified public update source. Installing an update always requires your approval.</p>' +
     '<div><strong>Installed version:</strong> <span id="updateInstalledVersion"></span></div>' +
     '<div><strong>Installed channel:</strong> <span id="updateInstalledChannel"></span></div>' +
     '<label>Update channel <select id="updateChannel"><option value="stable">Stable</option><option value="beta">Beta (opt in)</option></select></label>' +
