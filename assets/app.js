@@ -728,8 +728,8 @@
       const rawAdvisor = norm(row[column("Service Advisor")]), advisorCode = CSI_ADVISOR_CODES[rawAdvisor] || null; if (rawAdvisor && !advisorCode) unresolvedAdvisors.add(rawAdvisor);
       surveys[inviteId] = { id: inviteId, surveyDate, pulseRecordId: text(row[column("_recordId")]).trim(), extensionRecordIds: group.filter((item) => text(item[column("SURVEY_STATUS")]).trim() === "Extension Completed").map((item) => text(item[column("_recordId")]).trim()).filter(Boolean), advisorCode, score: dealerScore, classification: dealerGroup, positiveComment: dealerGroup === "Promoter" ? optional(["Additional Comments about Service Experience", "Comments About Service Experience", "Additional Comments Verbatim (Service)"], row) : "", managerComment: dealerGroup === "Promoter" ? "" : optional(["Comments About Service Experience", "Low Satisfaction Verbatim (Service)", "Additional thoughts or Comments about Service", "Additional Comments about Service Experience"], row) };
     });
-    const dates = Object.values(surveys).map((survey) => survey.surveyDate).sort(); if (!dates.length) throw new Error("The CSI export contains no scoring surveys."); if(scopeVerified&&dates.some(date=>date<scopeStart||date>scopeEnd))throw new Error("CSI response dates fall outside the declared export scope.");
-    return { sourceFile: fileName, importedAt: now(), coverageStart: dates[0], coverageEnd: dates.at(-1), scopeStart, scopeEnd, scopeVerified, surveys, unresolvedAdvisorCount: unresolvedAdvisors.size, validation: { parser: `dealer-dashboard-csi-v2-${format}`, stableIdentity: "Invite_ID", scoringPopulation: "INCLUDE_IN_SCORING=Yes and SURVEY_STATUS=Pulse Completed", extensionRowsCountedAsResponses: false } };
+    const dates = Object.values(surveys).map((survey) => survey.surveyDate).sort(); if (!dates.length && !scopeVerified) throw new Error("The CSI export has no scoring surveys and no verified reporting scope."); if(scopeVerified&&dates.some(date=>date<scopeStart||date>scopeEnd))throw new Error("CSI response dates fall outside the declared export scope.");
+    return { sourceFile: fileName, importedAt: now(), coverageStart: dates[0] || scopeStart, coverageEnd: dates.at(-1) || scopeEnd, scopeStart, scopeEnd, scopeVerified, surveys, unresolvedAdvisorCount: unresolvedAdvisors.size, validation: { parser: `dealer-dashboard-csi-v2-${format}`, stableIdentity: "Invite_ID", scoringPopulation: "INCLUDE_IN_SCORING=Yes and SURVEY_STATUS=Pulse Completed", extensionRowsCountedAsResponses: false } };
   }
   function parseCsiCsv(source, fileName) { return parseCsiRows(parseCsv(source), fileName, "csv"); }
   function parseCsiWorkbook(bytes, fileName) { const book = XLSX.read(bytes, { type: "array", cellDates: true }), sheet = book.Sheets[book.SheetNames[0]]; if (!sheet) throw new Error("The Dealer Dashboard workbook has no readable worksheet."); return parseCsiRows(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false }), fileName, "xlsx"); }
@@ -737,7 +737,7 @@
   async function importCsiFile(name, deleteAfterSuccess = false) {
     const file = await (await sourceFileHandle(name)).getFile(), parsed = /\.xlsx$/i.test(name) ? parseCsiWorkbook(await file.arrayBuffer(), name) : parseCsiCsv(await file.text(), name), existing = model.operationalMetrics.csi.surveys || {}, refreshAt = now(), refreshDate = localDateKey();
     Object.values(parsed.surveys).forEach((survey) => { const prior = existing[survey.id]; existing[survey.id] = prior && prior.surveyDate > survey.surveyDate ? prior : { ...prior, ...survey, extensionRecordIds: [...new Set([...(prior?.extensionRecordIds || []), ...survey.extensionRecordIds])], lastSeenAt: now() }; });
-    const newest = Object.values(existing).map((survey) => survey.surveyDate).sort().at(-1), cutoff = freshness.addDays(newest,-730); Object.keys(existing).forEach((id) => { if (existing[id].surveyDate < cutoff) delete existing[id]; });
+    const newest = Object.values(existing).map((survey) => survey.surveyDate).sort().at(-1); if (newest) { const cutoff = freshness.addDays(newest,-730); Object.keys(existing).forEach((id) => { if (existing[id].surveyDate < cutoff) delete existing[id]; }); }
     model.operationalMetrics.csi.surveys = existing; model.operationalMetrics.csi.imports ||= []; model.operationalMetrics.csi.imports.push({ sourceFile: name, importedAt: refreshAt, refreshDate, coverageStart: parsed.coverageStart, coverageEnd: parsed.coverageEnd, scopeStart:parsed.scopeStart,scopeEnd:parsed.scopeEnd,scopeVerified:parsed.scopeVerified, dailySummary:npsSummary(parsed.surveys), rows: Object.keys(parsed.surveys).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount, format: /\.xlsx$/i.test(name) ? "xlsx" : "csv" }); model.operationalMetrics.csi.imports = model.operationalMetrics.csi.imports.slice(-250); model.operationalMetrics.csi.lastSuccessfulRefreshAt = refreshAt; model.operationalMetrics.csi.lastSuccessfulRefreshDate = refreshDate; model.operationalMetrics.updatedAt = refreshAt; await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics);
     const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (!Object.keys(parsed.surveys).every((id) => check?.csi?.surveys?.[id]) || check?.csi?.lastSuccessfulRefreshDate !== refreshDate) throw new Error("The CSI surveys or refresh metadata could not be verified after saving.");
     await addHistory("csi-import", `Merged CSI surveys through ${parsed.coverageEnd}`, { fileName: name, scoringSurveys: Object.keys(parsed.surveys).length, durableSurveys: Object.keys(existing).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount });
@@ -1407,14 +1407,14 @@
     if (key === "sapr") { const item = options.item || currentSaprSnapshot(true); return freshness.evaluateSource({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }); }
     if (key === "csi") {
       const branch = model.operationalMetrics?.csi || {}, imports = branch.imports || [],
-        item = options.item || imports.at(-1), refreshDate = options.refreshDate || latestCsiRefreshDate(),
+        item = options.item || imports.at(-1),
         scopeEnd = item?.scopeVerified ? validCoverageDate(item.scopeEnd) : "",
-        observedDate = validCoverageDate(refreshDate);
-      // The latest survey event is NOT a report observation. A validated zero-response
-      // export is meaningful evidence, while old surveys alone cannot establish currency.
-      return freshness.evaluateSource({ ...common, exists: Boolean(item || branch.lastSuccessfulRefreshAt || observedDate),
-        sourceTimestamp: branch.lastSuccessfulRefreshAt || item?.importedAt, sourceDate: observedDate,
-        scopeVerified: Boolean(item?.scopeVerified), scopeEnd,
+        // Local import/refresh time is not evidence of the report's covered dates.
+        // Only a verified report observation or a verified cumulative scope can be current.
+        observedDate = item?.reportObservationVerified ? validCoverageDate(item.reportObservationDate) : "";
+      return freshness.evaluateSource({ ...common, exists: Boolean(item),
+        sourceTimestamp: item?.importedAt, sourceDate: observedDate,
+        observationVerified: Boolean(observedDate), scopeVerified: Boolean(scopeEnd), scopeEnd,
         periodStart: model.settings.csiPeriodStart || "", periodEnd: scopeEnd || observedDate });
     }
     if (key === "nextAppointments") { const item = options.item || latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return freshness.evaluateSource({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }); }
