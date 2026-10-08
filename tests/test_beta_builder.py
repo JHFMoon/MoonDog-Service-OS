@@ -13,12 +13,12 @@ class BetaBuilderTests(unittest.TestCase):
         self.assertEqual(MODULE.next_beta("0.10.18-beta.2"), "0.10.18-beta.3")
 
     def test_three_way_merge_preserves_beta_only_and_reviewed_source_changes(self):
-        base = b"top\nshared\nbottom\n"
-        current = b"top\nbeta-only\nshared\nbottom\n"
-        candidate = b"top\nshared changed\nbottom\n"
+        base = b"a\nbeta-anchor\nx1\nx2\nx3\nsource-anchor\nz\n"
+        current = b"a\nbeta-anchor\nbeta-only\nx1\nx2\nx3\nsource-anchor\nz\n"
+        candidate = b"a\nbeta-anchor\nx1\nx2\nx3\nsource-anchor changed\nz\n"
         merged = MODULE.merge_text(current, base, candidate, "example.js").decode("utf-8")
         self.assertIn("beta-only", merged)
-        self.assertIn("shared changed", merged)
+        self.assertIn("source-anchor changed", merged)
         self.assertNotIn("<<<<<<<", merged)
 
 
