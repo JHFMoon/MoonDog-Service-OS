@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.1",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.1.json",
-    "sha256": "f78576864385b2250e78cb0a366d42b401335818e793d9b2dc50a226dbae5a4e",
+    "version": "0.10.18-beta.2",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.2.json",
+    "sha256": "841b3756e3af4b98689ed3a855d37df0fcfbfd3a350eae1011fa2f22da9e51c1",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Beta operational-control audit: adds a compact manager control pulse for overdue, due-today, missing-plan, long-vehicle, customer-update, and comeback work; puts Open RO Control ahead of Assign Next; corrects Monday Daily Walk behavior; adds direct long-vehicle/customer-update/comeback filters; protects unsaved Home and RO drafts; fixes the overview open-RO count to exclude manually closed ROs; prioritizes CSI refresh needs; improves keyboard focus/navigation semantics; and decouples software updates from the retired owner-editing policy. No Workspace migration."
+    "releaseNotes": "Corrects CSI reporting freshness using verified report scope instead of survey-response dates, supports validated zero-response CSI exports through real ingestion, and prevents reimporting old CSI reports from appearing current. Adds parser-to-import and Beta package/runtime regression checks. No Workspace migration; Stable remains 0.10.17."
   }
 }
