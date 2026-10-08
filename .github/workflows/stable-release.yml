@@ -12,6 +12,7 @@ on:
         type: string
 
 permissions:
+  actions: write
   contents: write
 
 concurrency:
@@ -220,3 +221,9 @@ jobs:
 
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
             --json tagName,name,isDraft,isPrerelease,assets,url
+
+      - name: Dispatch verified Stable offline distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run offline-distribution.yml --repo "$GITHUB_REPOSITORY" --ref main
