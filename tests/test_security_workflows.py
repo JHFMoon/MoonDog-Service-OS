@@ -44,7 +44,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('pulls/$PR_NUMBER/merge', merge)
         self.assertIn("-f merge_method=squash", merge)
         self.assertIn("all exact-head Publication and Clean Install runs to settle", merge)
-        self.assertIn("Required status check.*in progress", merge)
+        self.assertIn("Required status check.*(in progress|expected)", merge)
 
         prepare = (ROOT / ".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
         self.assertIn("pull_request_target", prepare)
