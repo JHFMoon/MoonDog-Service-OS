@@ -80,20 +80,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in {1..36}; do
+          for attempt in {1..42}; do
             RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=50")"
-            PUB="$(jq -r '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")][0].conclusion // ""' <<<"$RUNS")"
-            CLEAN="$(jq -r '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")][0].conclusion // ""' <<<"$RUNS")"
-            if [ "$PUB" = "failure" ] || [ "$PUB" = "cancelled" ] || [ "$CLEAN" = "failure" ] || [ "$CLEAN" = "cancelled" ]; then
-              echo "Required verification failed: Publication=$PUB CleanInstall=$CLEAN" >&2
+            PUB_OK="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")] | length' <<<"$RUNS")"
+            CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")] | length' <<<"$RUNS")"
+            PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .status!="completed")] | length' <<<"$RUNS")"
+            HARD_FAIL="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out"))] | length' <<<"$RUNS")"
+            if [ "$HARD_FAIL" != "0" ]; then
+              echo "Required verification failed on the exact PR head." >&2
               exit 1
             fi
-            if [ "$PUB" = "success" ] && [ "$CLEAN" = "success" ]; then
+            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ]; then
               exit 0
             fi
             sleep 10
           done
-          echo "Timed out waiting for Publication Check and Clean Install Proof." >&2
+          echo "Timed out waiting for all exact-head Publication and Clean Install runs to settle." >&2
           exit 1
 
       - name: Bring branch current with main if needed
@@ -120,4 +122,17 @@ jobs:
             echo "PR head changed after verification; refusing stale merge." >&2
             exit 1
           }
-          gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"             -f merge_method=squash             -f sha="$HEAD_SHA"             --jq '{merged:.merged,message:.message,sha:.sha}'
+          for attempt in {1..12}; do
+            if RESULT="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$HEAD_SHA" 2>&1)"; then
+              jq '{merged:.merged,message:.message,sha:.sha}' <<<"$RESULT"
+              exit 0
+            fi
+            if grep -q 'Required status check.*in progress' <<<"$RESULT"; then
+              sleep 5
+              continue
+            fi
+            echo "$RESULT" >&2
+            exit 1
+          done
+          echo "GitHub did not settle the required status context in time." >&2
+          exit 1
