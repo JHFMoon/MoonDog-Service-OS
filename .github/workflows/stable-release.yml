@@ -45,7 +45,9 @@ jobs:
           from urllib.error import HTTPError
           from urllib.request import Request, urlopen
 
-          version = json.loads(Path('updates/manifest.json').read_text())['stable']['version']
+          stable = json.loads(Path('updates/manifest.json').read_text())['stable']
+          version = stable['version']
+          expected_digest = f"sha256:{stable['sha256']}"
           tag = f'v{version}'
           asset = f'moondog-{version}.json'
           repo = os.environ['GITHUB_REPOSITORY']
@@ -63,12 +65,22 @@ jobs:
                   raise  # Fail closed on API/authorization errors.
               release = None
 
-          published = release is not None and any(
-              item.get('name') == asset and item.get('state') == 'uploaded'
+          # Do not treat an unverified or prerelease asset as a completed Stable.
+          # An absent digest deliberately re-enters the release job, which
+          # downloads and SHA-256-verifies the existing asset before success.
+          release_ready = (
+              release is not None
+              and not release.get('draft')
+              and not release.get('prerelease')
+          )
+          verified_asset = release_ready and any(
+              item.get('name') == asset
+              and item.get('state') == 'uploaded'
+              and item.get('digest') == expected_digest
               for item in release.get('assets', [])
           )
-          promoted = str(not published).lower()
-          print(f'Stable {tag}, formal release asset published={published}; publish={promoted}')
+          promoted = str(not verified_asset).lower()
+          print(f'Stable {tag}, verified completed release={verified_asset}; publish={promoted}')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'promoted={promoted}\n')
           PY
@@ -184,7 +196,7 @@ jobs:
             else
               gh release upload "$TAG" "$PACKAGE#Verified updater package" --repo "$GITHUB_REPOSITORY"
             fi
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --latest
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
           else
             if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
               gh release create "$TAG" "$PACKAGE#Verified updater package" \
