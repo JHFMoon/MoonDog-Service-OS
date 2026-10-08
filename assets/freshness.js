@@ -1,4 +1,4 @@
-/* Canonical MoonDog business-date, source-freshness, and metric-dependency rules. */
+// Trusted hands-off pipeline proof; no operational behavior change.\n/* Canonical MoonDog business-date, source-freshness, and metric-dependency rules. */
 (function (root) {
   "use strict";
 
