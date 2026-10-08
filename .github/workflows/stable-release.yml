@@ -5,6 +5,11 @@ on:
     workflows: ["Publication check"]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      approval_reference:
+        description: "James explicit Stable approval reference (e.g. requested in ChatGPT)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -16,13 +21,12 @@ concurrency:
 jobs:
   publish:
     if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_branch == 'main')
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.approval_reference != ''
     runs-on: ubuntu-latest
     env:
-      HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      HEAD_SHA: ${{ github.sha }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out validated main commit
@@ -39,6 +43,11 @@ jobs:
             echo 'Skipping stale validation: main advanced after the publication check.'
             exit 1
           }
+
+      - name: Confirm release approval reference
+        run: |
+          echo "Approval recorded for this run: ${{ inputs.approval_reference }}"
+          echo 'Stable publication requires prior explicit James authorization, verified by the invoking development agent.'
 
       - name: Fetch all public refs for history audit
         run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
