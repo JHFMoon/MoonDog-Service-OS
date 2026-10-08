@@ -4,7 +4,10 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Generated package commits explicitly dispatch their own verification because
+# GitHub marks pull-request runs authored by github-actions[bot] as action_required.
 permissions:
+  actions: write
   contents: write
   pull-requests: read
 
@@ -48,12 +51,14 @@ jobs:
           python3 trusted/scripts/build_beta_package.py             --root candidate             --base-manifest trusted/updates/manifest.json             --release-notes "$PR_TITLE. Verified automated Beta; no Workspace migration."
 
       - name: Commit generated Beta package back to the same PR branch
+        id: commit
         shell: bash
         run: |
           set -euo pipefail
           cd candidate
           if git diff --quiet -- CHANGELOG.md README.md updates/manifest.json updates/packages &&              [ -z "$(git ls-files --others --exclude-standard updates/packages)" ]; then
             echo "Reviewed runtime already matches the advertised Beta package."
+            echo "generated=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           CHANGED="$(git status --porcelain)"
@@ -67,3 +72,14 @@ jobs:
           git add CHANGELOG.md README.md updates/manifest.json updates/packages
           git commit -m "Package next verified Beta"
           git push origin "HEAD:$HEAD_BRANCH"
+          echo "generated=true" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch required checks for automation-generated head
+        if: steps.commit.outputs.generated == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run publication-check.yml --repo "${{ github.repository }}" --ref "$HEAD_BRANCH"
+          gh workflow run clean-install-proof.yml --repo "${{ github.repository }}" --ref "$HEAD_BRANCH"
