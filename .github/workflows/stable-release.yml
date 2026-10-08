@@ -18,6 +18,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     env:
@@ -29,6 +30,15 @@ jobs:
         with:
           ref: ${{ env.HEAD_SHA }}
           fetch-depth: 0
+
+      - name: Ensure validated commit is current main
+        shell: bash
+        run: |
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$HEAD_SHA" || {
+            echo 'Skipping stale validation: main advanced after the publication check.'
+            exit 1
+          }
 
       - name: Fetch all public refs for history audit
         run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
