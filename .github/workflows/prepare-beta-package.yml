@@ -29,6 +29,7 @@ jobs:
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
       PR_TITLE: ${{ github.event.pull_request.title }}
+
     steps:
       - name: Check out trusted packaging logic from the reviewed base
         uses: actions/checkout@v7
@@ -48,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 trusted/scripts/build_beta_package.py             --root candidate             --base-manifest trusted/updates/manifest.json             --release-notes "$PR_TITLE. Verified automated Beta; no Workspace migration."
+          python3 trusted/scripts/build_beta_package.py --root candidate --base-root trusted --base-manifest trusted/updates/manifest.json --release-notes "$PR_TITLE. Verified automated Beta; no Workspace migration."
 
       - name: Commit generated Beta package back to the same PR branch
         id: commit
@@ -56,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           cd candidate
-          if git diff --quiet -- CHANGELOG.md README.md updates/manifest.json updates/packages &&              [ -z "$(git ls-files --others --exclude-standard updates/packages)" ]; then
+          if git diff --quiet -- CHANGELOG.md README.md updates/manifest.json updates/packages && [ -z "$(git ls-files --others --exclude-standard updates/packages)" ]; then
             echo "Reviewed runtime already matches the advertised Beta package."
             echo "generated=false" >> "$GITHUB_OUTPUT"
             exit 0
