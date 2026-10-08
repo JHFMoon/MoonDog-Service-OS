@@ -15,7 +15,7 @@ class BetaRuntimeContract(unittest.TestCase):
         stable = manifest["stable"]
         version = beta["version"]
         self.assertEqual(stable["version"], "0.10.17")
-        self.assertRegex(version, r"^\\d+\\.\\d+\\.\\d+-beta\\.\\d+$")
+        self.assertRegex(version, r"^\d+\.\d+\.\d+-beta\.\d+$")
         relative = f"updates/packages/moondog-{version}.json"
         self.assertEqual(beta["packageUrl"], f"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/{relative}")
         raw = (ROOT / relative).read_bytes()
@@ -37,9 +37,9 @@ class BetaRuntimeContract(unittest.TestCase):
         source = (ROOT / "assets/app.js").read_text(encoding="utf-8")
         self.assertIn(f'const VERSION = "{version}";', app)
         source = source.replace(f'const VERSION = "{stable["version"]}";', f'const VERSION = "{version}";')
-        package_build = re.search(r'const BUILD_DATE = "(20\\d{2}-\\d{2}-\\d{2})";', app)
+        package_build = re.search(r'const BUILD_DATE = "(20\d{2}-\d{2}-\d{2})";', app)
         self.assertIsNotNone(package_build)
-        source = re.sub(r'const BUILD_DATE = "20\\d{2}-\\d{2}-\\d{2}";',
+        source = re.sub(r'const BUILD_DATE = "20\d{2}-\d{2}-\d{2}";',
                         f'const BUILD_DATE = "{package_build.group(1)}";', source)
         self.assertEqual(app, source, "Beta app.js differs from reviewed source beyond version/build date")
         self.assertEqual(
