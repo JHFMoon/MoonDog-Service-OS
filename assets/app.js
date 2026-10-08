@@ -1405,7 +1405,18 @@
     const today = options.today || localDateKey(), purpose = options.purpose || "current", expectation = sourceExpectation(key), common = { key, today, purpose, targetStart: options.targetStart, targetEnd: options.targetEnd, expectation, timeZone: businessTimeZone() };
     if (key === "openRo") { const item = options.item || model.state.source; return freshness.evaluateSource({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, sourceDate: item?.importedAt ? localDateKey(new Date(item.importedAt)) : "", periodStart: item?.reportDate || "", periodEnd: item?.reportDate || "" }); }
     if (key === "sapr") { const item = options.item || currentSaprSnapshot(true); return freshness.evaluateSource({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }); }
-    if (key === "csi") { const branch = model.operationalMetrics?.csi || {}, item = options.item || (branch.imports || []).at(-1), refreshDate = options.refreshDate || latestCsiRefreshDate(); return freshness.evaluateSource({ ...common, exists: Boolean(refreshDate || Object.keys(branch.surveys || {}).length), sourceTimestamp: branch.lastSuccessfulRefreshAt || item?.importedAt, sourceDate: refreshDate, periodStart: model.settings.csiPeriodStart || "", periodEnd: Object.values(branch.surveys || {}).map((survey) => survey.surveyDate).filter(Boolean).sort().at(-1) || refreshDate }); }
+    if (key === "csi") {
+      const branch = model.operationalMetrics?.csi || {}, imports = branch.imports || [],
+        item = options.item || imports.at(-1), refreshDate = options.refreshDate || latestCsiRefreshDate(),
+        scopeEnd = item?.scopeVerified ? validCoverageDate(item.scopeEnd) : "",
+        observedDate = validCoverageDate(refreshDate);
+      // The latest survey event is NOT a report observation. A validated zero-response
+      // export is meaningful evidence, while old surveys alone cannot establish currency.
+      return freshness.evaluateSource({ ...common, exists: Boolean(item || branch.lastSuccessfulRefreshAt || observedDate),
+        sourceTimestamp: branch.lastSuccessfulRefreshAt || item?.importedAt, sourceDate: observedDate,
+        scopeVerified: Boolean(item?.scopeVerified), scopeEnd,
+        periodStart: model.settings.csiPeriodStart || "", periodEnd: scopeEnd || observedDate });
+    }
     if (key === "nextAppointments") { const item = options.item || latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return freshness.evaluateSource({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }); }
     if (key === "vir") { const item = options.item || latestVirObservation(); return freshness.evaluateSource({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.sourceModifiedAt || item?.observationTimestamp, periodStart: virObservationDate(item), periodEnd: virObservationDate(item) }); }
     if (key === "menu") { const item = options.item || latestOperationalSnapshot("menu"); return freshness.evaluateSource({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd, releaseWeek: item?.releaseWeek }); }
