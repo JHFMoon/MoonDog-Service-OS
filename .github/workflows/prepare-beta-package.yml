@@ -9,7 +9,7 @@ on:
 permissions:
   actions: write
   contents: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: prepare-beta-${{ github.event.pull_request.number }}
@@ -84,3 +84,70 @@ jobs:
           set -euo pipefail
           gh workflow run publication-check.yml --repo "${{ github.repository }}" --ref "$HEAD_BRANCH"
           gh workflow run clean-install-proof.yml --repo "${{ github.repository }}" --ref "$HEAD_BRANCH"
+
+      - name: Wait for generated-head proof and merge
+        if: steps.commit.outputs.generated == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CURRENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          CURRENT_HEAD="$(git -C candidate rev-parse HEAD)"
+          export CURRENT_HEAD
+          for attempt in {1..42}; do
+            RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$CURRENT_HEAD&per_page=50")"
+            PUB="$(jq -r '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")][0].conclusion // ""' <<<"$RUNS")"
+            CLEAN="$(jq -r '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")][0].conclusion // ""' <<<"$RUNS")"
+            FAIL="$(jq -r '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled"))] | length' <<<"$RUNS")"
+            if [ "$FAIL" != "0" ]; then
+              echo "Generated-head verification failed." >&2
+              exit 1
+            fi
+            if [ "$PUB" = "success" ] && [ "$CLEAN" = "success" ]; then
+              break
+            fi
+            if [ "$attempt" = "42" ]; then
+              echo "Timed out waiting for generated-head verification." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+          gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/generated-pr.json
+          python3 - <<'PY'
+          import json, os
+          pr=json.load(open('/tmp/generated-pr.json',encoding='utf-8'))
+          checks={
+              'open': pr.get('state')=='open',
+              'draft': pr.get('draft') is False,
+              'base': pr.get('base',{}).get('ref')=='main',
+              'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
+              'head': pr.get('head',{}).get('sha')==os.environ['CURRENT_HEAD'],
+              'authorization': 'MoonDog-Auto-Merge: yes' in (pr.get('body') or ''),
+              'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('Generated-head merge refused: '+', '.join(failed))
+          PY
+
+          STATUS="$(gh api "repos/$REPO/compare/main...$CURRENT_HEAD" --jq .status)"
+          test "$STATUS" = "ahead" || {
+            echo "Main advanced while the Beta was verifying; refusing a stale merge." >&2
+            exit 1
+          }
+
+          MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$MAIN_SHA" > /tmp/main-manifest.json
+          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$CURRENT_HEAD" > /tmp/head-manifest.json
+          python3 - <<'PY'
+          import json
+          main=json.load(open('/tmp/main-manifest.json',encoding='utf-8'))
+          head=json.load(open('/tmp/head-manifest.json',encoding='utf-8'))
+          if main.get('stable') != head.get('stable'):
+              raise SystemExit('Generated-head merge refused: Stable changed.')
+          PY
+
+          gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"             -f merge_method=squash             -f sha="$CURRENT_HEAD"             --jq '{merged:.merged,message:.message,sha:.sha}'
