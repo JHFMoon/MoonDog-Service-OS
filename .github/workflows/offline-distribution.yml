@@ -64,33 +64,6 @@ jobs:
               output.write(f"tag=v{version}\n")
           PY
 
-      - name: Recreate and verify pinned browser dependencies
-        run: bash scripts/prepare_distribution_vendor.sh .vendor-build
-
-      - name: Build deterministic clean-install ZIP
-        run: |
-          rm -rf dist .clean-install-smoke
-          mkdir -p .clean-install-smoke
-          python3 scripts/build_distribution.py \
-            --vendor-dir .vendor-build \
-            --output dist/Service-Operations-Dashboard.zip
-          python3 scripts/build_distribution.py \
-            --vendor-dir .vendor-build \
-            --output dist/reproducibility-check.zip
-          cmp dist/Service-Operations-Dashboard.zip dist/reproducibility-check.zip
-          rm dist/reproducibility-check.zip dist/reproducibility-check.manifest.json dist/reproducibility-check.zip.sha256
-          (cd dist && sha256sum --check Service-Operations-Dashboard.zip.sha256)
-          unzip -q dist/Service-Operations-Dashboard.zip -d .clean-install-smoke
-
-      - name: Install browser smoke-test dependency
-        run: |
-          npm install --no-save --no-package-lock playwright@1.55.0
-          npx playwright install --with-deps chromium
-
-      - name: Smoke-test extracted local application
-        run: |
-          node scripts/smoke_distribution.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
-
       - name: Wait for matching Stable GitHub Release
         shell: bash
         run: |
@@ -126,6 +99,33 @@ jobs:
           test "$(git tag --points-at HEAD | grep -Fx "$TAG")" = "$TAG"
           python3 scripts/check_publication.py
           python3 scripts/build_distribution.py --check-source
+
+      - name: Recreate and verify pinned browser dependencies
+        run: bash scripts/prepare_distribution_vendor.sh .vendor-build
+
+      - name: Build deterministic clean-install ZIP
+        run: |
+          rm -rf dist .clean-install-smoke
+          mkdir -p .clean-install-smoke
+          python3 scripts/build_distribution.py \
+            --vendor-dir .vendor-build \
+            --output dist/Service-Operations-Dashboard.zip
+          python3 scripts/build_distribution.py \
+            --vendor-dir .vendor-build \
+            --output dist/reproducibility-check.zip
+          cmp dist/Service-Operations-Dashboard.zip dist/reproducibility-check.zip
+          rm dist/reproducibility-check.zip dist/reproducibility-check.manifest.json dist/reproducibility-check.zip.sha256
+          (cd dist && sha256sum --check Service-Operations-Dashboard.zip.sha256)
+          unzip -q dist/Service-Operations-Dashboard.zip -d .clean-install-smoke
+
+      - name: Install browser smoke-test dependency
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Smoke-test extracted local application
+        run: |
+          node scripts/smoke_distribution.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
 
       - name: Publish or verify clean-install assets
         shell: bash
