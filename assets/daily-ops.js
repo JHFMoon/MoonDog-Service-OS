@@ -453,7 +453,25 @@
     }
     if(category==='settings')for(const feature of settingsFeatures.filter(item=>item.key!=='recovery'))options.append(button(feature.label,()=>settingsCategory(feature.key)));
     if(category==='recovery'){options.append(button('Create backup / Restore from backup',()=>settingsCategory('recovery')),button('Create support / recovery copy',()=>settingsCategory('recovery')),button('Show recovery status',()=>settingsCategory('recovery')),button('Advanced recovery and new-store preparation',()=>settingsCategory('advanced')));}
-    if(category==='more')for(const key of ['arrivals','overview','imports','setup'])options.append(button(toolNames[key],()=>go(key)));
+    if(category==='more'){
+      const report=document.createElement('section');report.className='daily-mobile-snapshot';
+      const title=document.createElement('h3');title.textContent='Phone snapshot (read only)';
+      const explanation=document.createElement('p');explanation.textContent='Save a phone-friendly PDF of aggregate metrics. No customer or employee names, RO numbers, VINs, or notes. The snapshot is not live. Save it only to approved company storage.';
+      const feedback=document.createElement('p');feedback.setAttribute('role','status');
+      const saveButton=button('Save phone PDF',async()=>{
+        if(!model.root){feedback.textContent='Connect the desktop working folder first.';return;}
+        saveButton.disabled=true;feedback.textContent='Preparing read-only snapshot...';
+        try{
+          const result=await globalThis.MoonDogMobileSnapshot.save(model,api);
+          feedback.textContent=result.status==='saved'?'Saved. Open the PDF in your company OneDrive on your iPhone.':
+            result.status==='downloaded'?'Downloaded. Move the PDF to your approved OneDrive folder to view it on your iPhone.':
+            'Save cancelled. No files were changed.';
+        }catch(error){feedback.textContent='Unable to save PDF. '+(error?.message||'Try again.');}
+        finally{saveButton.disabled=false;}
+      },'primary');
+      report.append(title,explanation,saveButton,feedback);options.append(report);
+      for(const key of ['arrivals','overview','imports','setup'])options.append(button(toolNames[key],()=>go(key)));
+    }
   }
   function showReadOnly(title,data){$('dailyReadTitle').textContent=title;const host=$('dailyReadBody');host.replaceChildren();const list=document.createElement('dl');
     function fields(object,prefix=''){for(const [key,value] of Object.entries(object||{})){if(value===null||value===undefined||value==='')continue;if(typeof value==='object'){fields(value,prefix+key+' / ');continue;}const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=(prefix+key).replace(/([a-z])([A-Z])/g,'$1 $2');dd.textContent=String(value);list.append(dt,dd);}}
