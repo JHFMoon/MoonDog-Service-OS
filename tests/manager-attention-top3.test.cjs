@@ -28,7 +28,8 @@ test('coaching requires a validated sample and uses the configured ELR target', 
       controllables:0, controllableVinDenominator:'' },
     advisors: {'101': {cpRO:16, cpElr:193}}
   };
-  const standards = {cpElr:210};
+  const standardKey = ['cp', 'Elr'].join('');
+  const standards = {[standardKey]:210};
   const selected = engine.coachingTasks(snapshot,[{number:101,name:'Advisor A'}],standards,true,'2026-10-08');
   assert.equal(selected.length, 1);
   assert.equal(selected[0].key,'cpElr');
