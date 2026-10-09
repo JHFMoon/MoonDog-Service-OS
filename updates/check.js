@@ -58,7 +58,8 @@
           return manual ? { status: "unavailable" } : { status: "silent" };
         }
         return { status: "channel-switch", channel: "stable", version,
-          packageUrl: release.packageUrl, sha256: release.sha256 };
+          packageUrl: release.packageUrl, sha256: release.sha256,
+          releaseNotes: typeof release.releaseNotes === "string" ? release.releaseNotes : "" };
       }
       if (compareVersions(selected, current) <= 0) {
         return { status: "up-to-date", channel: selectedChannel, version };
@@ -68,7 +69,8 @@
           minimumCompatibleVersion: release.minimumCompatibleVersion };
       }
       return { status: "newer-version", channel: selectedChannel, version,
-        packageUrl: release.packageUrl, sha256: release.sha256 };
+        packageUrl: release.packageUrl, sha256: release.sha256,
+        releaseNotes: typeof release.releaseNotes === "string" ? release.releaseNotes : "" };
     } catch (_) {
       return manual ? { status: "unavailable" } : { status: "silent" };
     }
