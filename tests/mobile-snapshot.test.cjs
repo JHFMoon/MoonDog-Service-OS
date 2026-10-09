@@ -37,7 +37,8 @@ test('optional mobile PDF runtime is included in product installation and loaded
   assert.doesNotMatch(html, /<script src="assets\/mobile-snapshot\.js"><\/script>/);
   assert.match(ui,/root\.MoonDogMobileSnapshot=api/);
   assert.match(html, /<script src="assets\/daily-ops\.js"><\/script>/);
-  assert.match(ui,/Save phone PDF/);
+  assert.match(ui,/Save PDF instead/);
+  assert.match(ui,/Connect SharePoint page folder/);
   assert.match(ui,/category==='more'/);
 });
 
@@ -94,9 +95,11 @@ test('cancel is safe and does not use download fallback',async()=>{
   assert.equal((await mobile.save(sample(),helpers,env)).status,'cancelled');
 });
 
-test('mobile snapshot has no export automation or external endpoints',()=>{
+test('mobile exports have no external transport or Workspace mutation path',()=>{
   const source=read('assets/daily-ops.js').split('\n(function () {')[0];
   assert.doesNotMatch(source,/\bfetch\s*\(/);
-  assert.doesNotMatch(source,/XMLHttpRequest|sendBeacon|localStorage|indexedDB/);
+  assert.doesNotMatch(source,/XMLHttpRequest|sendBeacon|WebSocket/);
   assert.doesNotMatch(source,/writeJson|writeFile|removeEntry|Workspace\/data/);
+  assert.match(source,/sharepoint-mobile-page-folder/);
+  assert.match(source,/MoonDog-Mobile\.html/);
 });
