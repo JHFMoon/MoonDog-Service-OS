@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.5 — current Beta
+
+- Manager Top 3 and background noon update notification. Verified automated Beta; no Workspace migration.
+- Automatically layered onto the previous Beta so existing preview features are preserved.
+
+
 ## 0.10.18-beta.4 — current Beta
 
 - Proof hardened hands-off Beta delivery. Verified automated Beta; no Workspace migration.

@@ -21,10 +21,27 @@
     if(task.deadline){const remaining=(Date.parse(task.deadline)-at)/minutes;if(remaining>0)delay=Math.min(delay,Math.max(1,remaining/2));}
     return new Date(at+delay*minutes).toISOString();
   }
+  function followUpAt(at,days=3,scheduledDays) {
+    const working = Array.isArray(scheduledDays) && scheduledDays.length ? scheduledDays : [2,3,4,5,6];
+    const date=new Date(at); if (!Number.isFinite(date.valueOf())) return at;
+    date.setHours(12,0,0,0);
+    let count=0;
+    while(count<days){date.setDate(date.getDate()+1);if(working.includes(date.getDay()))count++;}
+    return date.getTime();
+  }
   function eligible(task,events,at) {
-    const event=events.filter(e=>e.details?.taskId===task.id&&['completed','deferred'].includes(e.details.action)).at(-1);
+    const event=events.filter(e=>e.details?.taskId===task.id&&['completed','deferred','not-an-issue'].includes(e.details.action)).at(-1);
     if(!event)return true;
     const d=event.details;
+    if(task.type==='coaching' && ['completed','not-an-issue'].includes(d.action)) {
+      const decline=Number.isFinite(task.actual)&&Number.isFinite(d.actual)&&task.actual<d.actual-(task.key==='cpElr'?5:3);
+      if(decline)return true; // Substantial deterioration overrides a prior acknowledgment.
+      if(d.action==='not-an-issue'&&d.fingerprint===task.fingerprint)return false;
+      const configured=root.__moondogSettingsModel?.settings?.future?.managementSchedule?.days;
+      const next=followUpAt(Date.parse(event.at||''),d.action==='not-an-issue'?7:3,configured);
+      if(at<next)return false;
+      return d.fingerprint!==task.fingerprint; // Requires new evidence before resurfacing.
+    }
     // A changed source or commitment is new work; a deferral never hides escalation.
     if(d.fingerprint!==task.fingerprint||Number(d.rank)>task.rank)return true;
     if(d.action==='deferred'&&Date.parse(d.until)>at)return false;
@@ -48,17 +65,21 @@
     ];
     return advisors.flatMap(advisor=>{
       const code=String(advisor.number),row=snapshot.advisors?.[code];
-      if(!row||!Number.isFinite(row.cpRO)||row.cpRO<=0)return [];
+      if(!row||!Number.isFinite(row.cpRO)||row.cpRO<8)return []; // Avoid tiny daily samples.
       const metrics=snapshot.validation.controllables===7&&snapshot.validation.controllableVinDenominator==='cp-ro'?snapshot.controllables?.advisors?.[code]:null;
       let opportunity;
+      const elrTarget=standards?.cpElr;
+      if(Number.isFinite(row.cpElr)&&Number.isFinite(elrTarget)&&elrTarget>0&&row.cpElr<elrTarget-8)
+        opportunity={key:'cpElr',label:'CP ELR',action:'review labor discounts, labor pricing, hours sold and repair mix; inspect two or three verified low-ELR ROs in the source system',benchmark:'configured CP ELR target',actual:row.cpElr,target:elrTarget};
       for(const [key,label,action] of definitions){
+        if(opportunity)break;
         const metric=metrics?.[key];
         if(metric&&Number.isFinite(metric.actual)&&Number.isFinite(metric.brandAverage)&&metric.actual>=0&&metric.brandAverage>0&&metric.brandAverage<=100&&metric.actual<metric.brandAverage&&metric.eligibleVins===row.cpRO){opportunity={key,label,action,benchmark:'SAPR Brand Average',actual:metric.actual,target:metric.brandAverage};break;}
       }
       const standard=standards?.mediaViewed;
       if(!opportunity&&Number.isFinite(row.mediaViewed)&&row.mediaViewed>=0&&row.mediaViewed<=100&&Number.isFinite(standard)&&standard>0&&standard<=100&&row.mediaViewed<standard)opportunity={key:'mediaViewed',label:'Media Viewed',action:'review media sharing and reinforce asking customers to view what was sent',benchmark:'current store standard',actual:row.mediaViewed,target:standard};
       if(!opportunity)return [];
-      return [{id:`coaching:${day}:${code}:${opportunity.key}`,type:'coaching',title:`Coach ${advisor.name}`,description:`${opportunity.label} is below the ${opportunity.benchmark}.`,next:`With ${advisor.name}, ${opportunity.action}.`,view:'performance',rank:13,once:true,advisor:code,fingerprint:JSON.stringify([snapshot.periodEnd,snapshot.importedAt,opportunity.key,opportunity.actual,opportunity.target])}];
+      return [{id:`coaching:${code}:${opportunity.key}`,type:'coaching',title:`${advisor.name} · ${opportunity.label} needs attention`,description:`${opportunity.label}: ${opportunity.actual.toFixed(opportunity.key==='cpElr'?2:1)} vs ${opportunity.target.toFixed(opportunity.key==='cpElr'?2:1)} (${opportunity.benchmark}).`,next:`With ${advisor.name}, ${opportunity.action}.`,view:'performance',rank:6,once:false,advisor:code,key:opportunity.key,actual:opportunity.actual,target:opportunity.target,fingerprint:JSON.stringify([snapshot.periodEnd,snapshot.importedAt,opportunity.key,opportunity.actual,opportunity.target])}];
     });
   }
   function coachingTurn(tasks,events,at) {
