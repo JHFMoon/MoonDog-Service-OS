@@ -9,7 +9,7 @@ See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DA
 ## Current channels
 
 - **Stable:** `0.10.17` ([GitHub Release](https://github.com/JHFMoon/MoonDog-Service-OS/releases/tag/v0.10.17))
-- **Beta:** `0.10.18-beta.6` (automated verified preview; Stable remains 0.10.17)
+- **Beta:** `0.10.18-beta.7` (automated verified preview; Stable remains 0.10.17)
 
 Stable 0.10.17 temporarily removes the single-computer owner-editing designation. Any connected dashboard folder with browser-granted read/write access can edit, while file journaling, revision checks, protected Workspace paths, verified updates, and rollback safeguards remain in place. The owner designation/recovery controls are removed. It requires the layout-aware updater from version `0.10.9` or later. Older 0.10.8-era installations remain intentionally incompatible.
 
