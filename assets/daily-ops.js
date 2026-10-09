@@ -3,7 +3,7 @@
   const api=globalThis.__moondogDaily,engine=globalThis.MoonDogDailyEngine;
   if(!api||!engine)return;
   const $=id=>document.getElementById(id), model=api.model;
-  const state={current:null,events:[],loadedRoot:null,loading:false,busy:false,editing:false,searchToken:0,searchResults:[],history:[],error:'',pending:false,selectedPhase:''};
+  const state={current:null,events:[],loadedRoot:null,loading:false,busy:false,editing:false,launched:null,searchToken:0,searchResults:[],history:[],error:'',pending:false,selectedPhase:''};
   const names={performance:'SAPR','open-ro':'Open RO',appointments:'Appointments / pre-RO','next-appointments':'Next Appointments',vir:'VIR','menu-sales':'Menu Sales',csi:'CSI',sor:'SOR','appointment-activity':'Appointment Activity',efficiency:'Efficiency','media-asr':'Media ASR — Advisor','media-asr-tech':'Media ASR — Technician','open-ro-summary':'Aggregate WIP','ro-update':'Returned supervisor workbook'};
   const toolNames={home:'Home','assign-next':'Assign Next','open-ro':'Open RO Control',performance:'Advisor Performance',meeting:'Advisor Meeting',tools:'Tools',overview:'Store overview',arrivals:"Today's Arrivals",imports:'Supervisor workbook and detailed imports',settings:'Change how Service Operations Dashboard works',setup:'Reports and setup'};
   const settingsFeatures=Object.freeze([
@@ -89,8 +89,8 @@
     if(parts.length>=3)items.push({id:`parts:${day}`,type:'parts',title:'Review the parts delays',description:`${parts.length} current ROs are waiting on parts. Confirm the next action and customer update with Parts.`,view:'open-ro',rank:8,once:true,fingerprint:day});
     const unresolved=open.filter(r=>r.management?.reviewDate===day||r.management?.communication==='Needs update'||Boolean(engine.stuckWork(r,day)));
     if(hour>=15&&unresolved.length)items.push({id:`tomorrow:${day}`,type:'tomorrow',title:'Make tomorrow ready',description:`Review ${unresolved.length} unresolved follow-up${unresolved.length===1?'':'s'}, customer update${unresolved.length===1?'':'s'}, or finish plan${unresolved.length===1?'':'s'} before closing.`,view:'open-ro',rank:5.5,once:true,fingerprint:JSON.stringify([day,unresolved.map(r=>[r.id,r.management?.updatedAt,r.management?.reviewDate])])});
-    const coaching=engine.coachingTurn(engine.coachingTasks(api.latestSapr(),api.advisors(),model.settings.performanceStandards,globalThis.__moondogFreshness.sourceFreshness('sapr',{today:day}).safeForCurrent,day),state.events,at);
-    if(coaching)items.push(coaching);
+    // All verified coaching opportunities compete with operational tasks; do not hide advisors in a separate rotation.
+    items.push(...engine.coachingTasks(api.latestSapr(),api.advisors(),model.settings.performanceStandards,globalThis.__moondogFreshness.sourceFreshness('sapr',{today:day}).safeForCurrent,day));
     return items;
   }
   async function loadHistory(){
@@ -107,11 +107,42 @@
   // Fingerprints in history are compact source/revision evidence, never customer text.
   function compactTask(task){if(task?.type==='ro')task.fingerprint=JSON.stringify([task.record.id,task.record.management?.updatedAt,task.record.sourceStatus,task.record.management?.reviewDate,task.record.management?.reviewTime,task.record.management?.nextAction?true:false,task.rank,model.state.source?.importedAt]);if(task?.type==='settings')task.fingerprint=Object.values(model.settings.advisors||{}).filter(a=>a.setupRequired).map(a=>a.number).sort().join(',');return task;}
   function allTasks(){return candidates().map(compactTask);}
+  function attentionTopThree(){
+    if(!model.root)return [];
+    const planner=globalThis.ServiceRefreshIntelligence;
+    const operational=planner?.topFive(allTasks(),state.events,engine,now()) || allTasks().filter(task=>engine.eligible(task,state.events,now()));
+    const needed=planner?.plan(api.reportRefreshRequests(today()),api.refreshHistory(),{at:new Date().toISOString(),today:today(),limit:8})||[];
+    const reports=needed.map(item=>({id:'report:'+item.source,type:'report',source:item.source,
+      title:'Gather '+item.label+' report',description:[item.range,item.instruction].filter(Boolean).join(' · '),
+      next:[item.location,item.instruction].filter(Boolean).join(' · '),view:'tools',rank:item.rank||7,
+      fingerprint:JSON.stringify([item.source,item.range,item.instruction])}));
+    // One request per source, one current RO per task. Source needs compete with operational risk.
+    return [...operational,...reports].sort((a,b)=>(a.rank||7)-(b.rank||7)||
+      String(a.deadline||'9999').localeCompare(String(b.deadline||'9999'))||String(a.id).localeCompare(String(b.id)))
+      .filter((item,index,items)=>items.findIndex(other=>other.id===item.id)===index).slice(0,3);
+  }
+  function openAttention(item){
+    if(item.type==='report'){goTools('imports');return;}
+    if(item.recordId){state.launched={id:item.id,recordId:item.recordId};api.openEdit(item.recordId);return;}
+    go(item.view,item.anchor);
+  }
+  async function acknowledge(item,kind){
+    await log(kind,item,{fingerprint:item.fingerprint,actual:item.actual,
+      until:new Date(now()+120*60000).toISOString()});
+    state.launched=null;await selectNext();
+  }
+  function refreshAttentionCount(items){
+    const node=document.querySelector('[data-view="home"]');if(!node)return;
+    let badge=node.querySelector('.manager-attention-count');
+    if(!badge){badge=document.createElement('span');badge.className='manager-attention-count';node.append(badge);}
+    badge.hidden=!items.length;badge.textContent=String(items.length);
+    node.title=items.length?items.length+' management priorit'+(items.length===1?'y':'ies')+' ready':'Home';
+  }
   async function selectNext(){
     state.operatingDate=today();
     state.selectedPhase=engine.phase(now());
-    const task=engine.choose(allTasks(),state.events,now());state.current=task;state.editing=false;state.pending=false;state.error='';renderHome();
-    if(globalThis.MoonDogWriteAuthority?.canWrite&&task&&active()==='home'&&!(model.settings.setup?.newStorePrepared&&!model.settings.setup?.completedAt))try{await log('surfaced',task);}catch(error){say('This task is available, but its activity could not be recorded. Check folder access before continuing.');}
+    const task=attentionTopThree()[0]||null,prior=state.current?.id;state.current=task;state.editing=false;state.pending=false;state.error='';renderHome();
+    if(globalThis.MoonDogWriteAuthority?.canWrite&&task&&task.id!==prior&&active()==='home'&&!(model.settings.setup?.newStorePrepared&&!model.settings.setup?.completedAt))try{await log('surfaced',task);}catch(error){say('This task is available, but its activity could not be recorded. Check folder access before continuing.');}
   }
   async function ready(){
     if(!model.root||model.connectionState!=='CONNECTED'){if(!state.current)renderHome();return;}
@@ -129,9 +160,13 @@
   }
   function refreshCurrent(){
     if(state.busy||state.loading)return;
-    if(!state.current){renderHome();return;}
-    const fresh=allTasks().find(t=>t.id===state.current.id);
-    if(!fresh||fresh.fingerprint!==state.current.fingerprint){state.pending=true;const target=$('dailyChanged');if(target)target.hidden=false;}
+    if(!state.editing){
+      const next=attentionTopThree()[0];
+      if(next?.id!==state.current?.id||next?.fingerprint!==state.current?.fingerprint){void action(selectNext);return;}
+      if(active()==='home')renderHome();return;
+    }
+    const fresh=allTasks().find(t=>t.id===state.current?.id);
+    if(!fresh||fresh.fingerprint!==state.current?.fingerprint){state.pending=true;const target=$('dailyChanged');if(target)target.hidden=false;}
   }
   async function action(fn){if(state.busy)return;state.busy=true;say('');$('dailyTask')?.setAttribute('aria-busy','true');try{await fn();}catch(error){say(error.message||'This could not be saved. Check folder access and try again.');}finally{state.busy=false;$('dailyTask')?.removeAttribute('aria-busy');}}
   function compactField(form,label,key,value,control,needs){
@@ -234,23 +269,24 @@
   }
   async function actionWrap(fn){await action(fn);}
   function renderOtherPriorities(task,host){
-    const planner=globalThis.ServiceRefreshIntelligence;
-    if(!planner||!model.root)return;
-    const all=planner.topFive(allTasks(),state.events,engine,now());
-    const extra=all.filter(item=>item.id!==task?.id).slice(0,task?4:5);
+    const extra=attentionTopThree().filter(item=>item.id!==task?.id).slice(0,2);
     if(!extra.length)return;
     const section=document.createElement('section');section.className='daily-next-priorities';
-    const h=document.createElement('h3');h.textContent='Also needs attention';section.append(h);
+    const heading=document.createElement('h3');heading.textContent='Up next';section.append(heading);
     for(const item of extra){
       const row=document.createElement('div');row.className='daily-priority-row';
       const copy=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('small');
       title.textContent=item.title;
-      detail.textContent=item.type==='ro'
-        ?`RO ${item.record?.ro||''} · ${item.record?.management?.nextAction||'Check the current status and agree on a next action'}`
-        :item.next||item.description||'Open to review';
-      copy.append(title,detail);
-      row.append(copy,button('Open',()=>item.recordId?api.openEdit(item.recordId):go(item.view,item.anchor),'secondary'),
-        button('Not now',()=>actionWrap(async()=>{await log('deferred',item,{until:engine.deferUntil(item,state.events,now()),fingerprint:item.fingerprint});await selectNext();}),'link-button'));
+      detail.textContent=item.type==='ro'?\`RO \${item.record?.ro||''} · \${item.record?.management?.nextAction||'Confirm next action'}\`:
+        item.next||item.description||'Review the source';
+      copy.append(title,detail);row.append(copy);
+      if(item.type==='coaching')row.append(button('Advisor Notified',()=>action(()=>acknowledge(item,'completed')),'secondary'));
+      else row.append(button(item.type==='report'?'Gather':'Open',()=>openAttention(item),'secondary'));
+      row.append(button('Not Now',()=>action(async()=>{
+        if(item.type==='report')await api.recordRefresh(item.source,'not-now');
+        else await log('deferred',item,{until:engine.deferUntil(item,state.events,now()),fingerprint:item.fingerprint});
+        await selectNext();
+      }),'link-button'));
       section.append(row);
     }
     host.append(section);
@@ -258,25 +294,30 @@
 
   function renderHome(){
     const host=$('dailyTask');host.replaceChildren();
-    if(model.root)renderRefreshStrip(host);
     if(!model.root){host.innerHTML='<p class="eyebrow">Your daily workspace</p><h2>Connect Service Operations Dashboard to begin</h2><p>Your saved work stays in the connected working folder.</p>';host.append(button('Connect working folder',()=>api.connect(),'primary'));return;}
     if(!state.loadedRoot&&!state.current){host.innerHTML='<h2>Loading your saved work…</h2>';return;}
+    const top=attentionTopThree();refreshAttentionCount(top);
     const task=state.current;
-    if(!task){const note=document.createElement('div');note.innerHTML='<p class="eyebrow">Home</p><h2>No other task is ready right now</h2><p>Deferred work is still saved. You can check the drive or find any item above.</p>';note.append(button('Check priorities',()=>action(selectNext),'primary'),button('Open RO Control',()=>go('open-ro')));host.append(note);renderOtherPriorities(null,host);return;}
-    const focus=document.createElement('div');focus.className='daily-main-priority';focus.innerHTML=`<p class="eyebrow">${task.type==='coaching'?'Coaching opportunity':'Do this next'}</p><h2>${esc(task.title)}</h2><p id="dailyError" role="alert" hidden></p><div id="dailyChanged" hidden>New information is available. Your draft is still here. <button type="button">Refresh this task</button></div>`;host.append(focus);
+    if(!task){host.replaceChildren();return;}
+    const focus=document.createElement('div');focus.className='daily-main-priority';focus.innerHTML=`<p class="eyebrow">Manager attention · 1 of ${top.length}</p><h2>${esc(task.title)}</h2><p id="dailyError" role="alert" hidden></p><div id="dailyChanged" hidden>New information is available. Your draft is still here. <button type="button">Refresh this task</button></div>`;host.append(focus);
     $('dailyChanged').querySelector('button').onclick=()=>action(selectNext);
     if(task.type==='ro')roForm(task,focus);
     else{
       if(task.description){const p=document.createElement('p');p.className='daily-description';p.textContent=task.description.replace(/TREND DATA NEEDED · SAPR · /,'').replace(/historical snapshot/g,'historical report');focus.append(p);}
-      if(task.type==='coaching'){const p=document.createElement('p');p.className='daily-description';p.textContent=`NEXT · ${task.next}`;focus.append(p);}
+      if(task.type==='coaching'){const p=document.createElement('p');p.className='daily-description';p.textContent=`NEXT · ${task.next}`;focus.append(p);
+        focus.append(button('View performance',()=>openAttention(task),'secondary'));}
       if(task.source)importer(focus,task);
       else{
         if(task.type==='questions')focus.append(button('View saved questions',()=>showReadOnly('Returned workbook questions',{questions:model.state.reviewQueue})));
         if(task.type!=='coaching')focus.append(button('Open '+(task.type==='settings'?'advisor settings':task.view==='open-ro'?'Open RO Control':task.view==='imports'?'workbook tools':task.view==='assign-next'?'Assign Next':'Advisor Performance'),()=>go(task.view,task.anchor),'primary'));
-        focus.append(button('Completed',()=>action(async()=>{await log('completed',task,{until:new Date(now()+120*60000).toISOString()});await selectNext();})));
+        focus.append(button(task.type==='coaching'?'Advisor Notified':'Addressed',()=>action(()=>acknowledge(task,'completed'))));
+        if(task.type==='coaching')focus.append(button('Not an Issue',()=>action(()=>acknowledge(task,'not-an-issue')),'link-button'));
       }
     }
-    const footer=document.createElement('div');footer.className='daily-task-footer';footer.append(button('Not Now',()=>action(async()=>{await log('deferred',task,{until:engine.deferUntil(task,state.events,now()),fingerprint:task.fingerprint});await selectNext();})));focus.append(footer);
+    const footer=document.createElement('div');footer.className='daily-task-footer';footer.append(button('Not Now',()=>action(async()=>{
+      if(task.type==='report')await api.recordRefresh(task.source,'not-now');
+      else await log('deferred',task,{until:engine.deferUntil(task,state.events,now()),fingerprint:task.fingerprint});
+      await selectNext();})));focus.append(footer);
     renderOtherPriorities(task,host);
     say(state.error);
   }
@@ -404,7 +445,15 @@
   document.addEventListener('moondog-imported',refreshImportCoverage);
   document.addEventListener('moondog-navigation',e=>{if(e.detail.view==='tools')renderTools();if(e.detail.view==='settings')$('view-settings').querySelectorAll('.daily-settings-hidden').forEach(el=>el.classList.remove('daily-settings-hidden'));if(e.detail.view==='home'&&!state.editing){refreshCurrent();renderHome();}if(e.detail.anchor){const el=$(e.detail.anchor);for(let parent=el;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;}});
   document.addEventListener('moondog-imported',()=>{if(!state.busy&&!state.editing)action(async()=>{await loadHistory();await selectNext();});else state.pending=true;});
-  document.addEventListener('moondog-saved',e=>{if(e.detail.origin!=='home'&&!state.busy){state.pending=true;if(!state.editing)action(selectNext);}});
+  document.addEventListener('moondog-saved',e=>{
+    if(state.launched?.recordId===e.detail.id && e.detail.origin!=='home'){
+      const launched=state.launched;state.launched=null;
+      void action(async()=>{const updated=allTasks().find(item=>item.id===launched.id)||launched;
+        await log('completed',updated,{fingerprint:updated.fingerprint,until:new Date(now()+120*60000).toISOString()});
+        go('home');await selectNext();});return;
+    }
+    if(e.detail.origin!=='home'&&!state.busy){state.pending=true;if(!state.editing)action(selectNext);}
+  });
   // Automatic intake completion is an allowed boundary, but never replaces a draft.
   const observer=new MutationObserver(()=>{if($('status').classList.contains('success'))refreshCurrent();});observer.observe($('status'),{childList:true,attributes:true});
   setInterval(checkOperatingDate,30000);
