@@ -25,7 +25,8 @@
   let saved = {};
   try { saved = JSON.parse(global.localStorage.getItem(key) || "{}"); } catch (_) {}
   const state = { channel: saved.channel === "beta" ? "beta" : "stable",
-    lastCheck: saved.lastCheck || null, check: null, checkFor: null,
+    lastCheck: saved.lastCheck || null, lastAutomatic: saved.lastAutomatic || "",
+    dismissed: saved.dismissed || null, check: null, checkFor: null,
     recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false, busy: false, progress: null };
   const appRoot = () => global.__moondogSettingsModel?.applicationRoot || null;
   const applicationFiles = async () => {
@@ -121,7 +122,42 @@
 
   function save() {
     try { global.localStorage.setItem(key, JSON.stringify({ channel: state.channel,
-      lastCheck: state.lastCheck, recoveryRequired: state.recoveryRequired })); } catch (_) {}
+      lastCheck: state.lastCheck, lastAutomatic: state.lastAutomatic,
+      dismissed: state.dismissed, recoveryRequired: state.recoveryRequired })); } catch (_) {}
+  }
+  // The dashboard only retrieves manifest metadata; full packages remain user-initiated.
+  const localDay = (at = new Date()) => [at.getFullYear(), String(at.getMonth() + 1).padStart(2, "0"), String(at.getDate()).padStart(2, "0")].join("-");
+  const main = typeof document.querySelector === "function" ? document.querySelector("main") : null;
+  let notice = null, note = null;
+  if (main && typeof main.insertBefore === "function") {
+    notice = document.createElement("aside");
+    notice.className = "moondog-update-notice"; notice.hidden = true;
+    notice.setAttribute("aria-label", "Available application update");
+    notice.innerHTML = '<div class="update-notice-row"><strong data-update-title></strong><div class="update-notice-actions"><button type="button" data-update-install>Install Update</button><button type="button" data-update-changes>View Changes</button><button type="button" data-update-later>Not Now</button></div></div><p data-update-notes hidden></p>';
+    main.insertBefore(notice, document.getElementById("status"));
+    note = notice.querySelector("[data-update-notes]");
+    const style = document.createElement("style");
+    style.textContent = '.moondog-update-notice{margin:8px 16px;padding:10px 14px;border:1px solid #b5c9d1;border-left:3px solid #3d7b9b;border-radius:8px;background:var(--surface,#f7fafb);color:var(--text,#24333d);font-size:13px}.moondog-update-notice[hidden],.moondog-update-notice [hidden]{display:none!important}.update-notice-row,.update-notice-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.update-notice-row{justify-content:space-between}.update-notice-actions button{padding:5px 9px;font-size:12px}.moondog-update-notice p{margin:8px 0 0;white-space:pre-wrap;line-height:1.4}';
+    document.head?.append(style);
+    notice.querySelector("[data-update-install]").addEventListener("click", () => { if (currentOffer()) installButton.click(); });
+    notice.querySelector("[data-update-changes]").addEventListener("click", () => {
+      note.hidden = !note.hidden;
+      notice.querySelector("[data-update-changes]").textContent = note.hidden ? "View Changes" : "Hide Changes";
+    });
+    notice.querySelector("[data-update-later]").addEventListener("click", () => {
+      state.dismissed = { day: localDay(), channel: state.channel, version: state.check?.version };
+      save(); paintNotice();
+    });
+  }
+  function paintNotice() {
+    if (!notice) return;
+    const offered = currentOffer(), value = state.check;
+    const dismissed = state.dismissed?.day === localDay() && state.dismissed?.channel === state.channel && state.dismissed?.version === value?.version;
+    notice.hidden = !offered || dismissed || state.recoveryRequired || state.hasRecoverable;
+    if (notice.hidden) return;
+    notice.querySelector("[data-update-title]").textContent = (value.status === "channel-switch" ? "Return to Stable " : value.channel === "beta" ? "Beta " : "Stable ") + value.version + " available";
+    notice.querySelector("[data-update-install]").textContent = value.status === "channel-switch" ? "Return to Stable" : "Install Update";
+    note.textContent = value.releaseNotes || "No release notes were provided for this update.";
   }
   function flushUi() {
     return new Promise(resolve => {
@@ -168,6 +204,7 @@
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
     field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable;
+    paintNotice();
   }
 
   async function check(manual) {
@@ -177,13 +214,15 @@
     state.checkFor = null;
     clearPlan();
     clearProgress();
-    state.busy = true; render();
+    state.busy = true;
+    if (manual) render(); // Automatic manifest checks never display checking state.
     try {
       const result = await global.MoonDogUpdateCheck.check({ currentVersion: checkedVersion,
         channel: checkedChannel, manual });
       if (checkedChannel !== state.channel || checkedVersion !== comparisonVersion || checkedRoot !== appRoot()) return;
       state.lastCheck = new Date().toISOString();
       state.check = result;
+      if (manual) state.dismissed = null;
       if (["newer-version", "channel-switch"].includes(result.status)) {
         state.checkFor = { channel: checkedChannel, version: checkedVersion, root: checkedRoot };
       }
@@ -201,6 +240,7 @@
     clearPlan();
     clearProgress();
     save(); render();
+    global.setTimeout?.(checkAfterNoon, 1500);
   });
   field("checkMoonDogUpdate").addEventListener("click", () => check(true));
   installButton.addEventListener("click", async () => {
@@ -258,6 +298,7 @@
       if (outcome.status === "installed") {
         state.check = null;
         state.checkFor = null;
+        state.dismissed = null;
         clearPlan();
         installedVersion = outcome.version;
         comparisonVersion = outcome.version;
@@ -303,9 +344,24 @@
       await setProgress({ phase: "error", percent: state.progress?.percent || 5, label: "Recovery stopped", detail: error.message || "Recovery could not continue." });
     } finally { state.busy = false; render(); }
   });
+  // Noon checks run only while open/visible. Missed checks are deferred until after load.
+  function checkAfterNoon() {
+    const current = new Date(), stamp = localDay(current) + ":" + state.channel;
+    if (current.getHours() < 12 || document.hidden || !appRoot() || state.busy || state.lastAutomatic === stamp) return;
+    state.lastAutomatic = stamp; save();
+    void check(false); // Network errors stay silent; a retry is available in Settings.
+  }
+  function scheduleNextNoon() {
+    const current = new Date(), next = new Date(current);
+    next.setHours(12, 0, 0, 0);
+    if (next <= current) next.setDate(next.getDate() + 1);
+    global.setTimeout(() => { checkAfterNoon(); scheduleNextNoon(); }, Math.max(1000, next.getTime() - current.getTime() + 100));
+  }
   render();
-  document.addEventListener("moondog-data", () => { render(); inspectInstalledTestVersion(); refreshRecovery(); });
+  document.addEventListener("moondog-data", () => { render(); inspectInstalledTestVersion(); refreshRecovery(); global.setTimeout?.(checkAfterNoon, 1500); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) global.setTimeout?.(checkAfterNoon, 1500); });
+  global.addEventListener?.("focus", () => global.setTimeout?.(checkAfterNoon, 1500));
   inspectInstalledTestVersion();
-  const today = new Date().toLocaleDateString("en-CA");
-  if (!state.lastCheck || new Date(state.lastCheck).toLocaleDateString("en-CA") !== today) check(false);
+  global.setTimeout?.(checkAfterNoon, 2000);
+  scheduleNextNoon();
 })(globalThis);
