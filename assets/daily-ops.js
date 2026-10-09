@@ -172,7 +172,220 @@
     return {status:"downloaded",mode:"download",filename};
   }
 
-  const api=Object.freeze({summarize,makePdf,save});
+
+  function htmlEscape(value) {
+    return String(value ?? "").replace(/[&<>"']/g, char => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    })[char]);
+  }
+  function displayDate(value) {
+    if (!value) return "—";
+    const text=String(value);
+    if (/^20\d\d-\d\d-\d\d$/.test(text.slice(0,10))) return text.slice(0,10);
+    const date=new Date(value);
+    return Number.isNaN(date.valueOf()) ? text : date.toLocaleString();
+  }
+  function latestVerifiedSapr(model) {
+    return Object.values(model.performance?.snapshots || {}).filter(validSnapshot)
+      .sort((a,b)=>String(a.periodEnd).localeCompare(String(b.periodEnd)) ||
+        String(a.importedAt||"").localeCompare(String(b.importedAt||""))).at(-1) || null;
+  }
+  function mobilePageData(model, api, priorities=[], at=new Date()) {
+    if (!model?.root || model.connectionState !== "CONNECTED")
+      throw new Error("Connect the desktop working folder before publishing the mobile page.");
+    const today=typeof api?.date==="function"?api.date():at.toISOString().slice(0,10);
+    const statusFor=record=>{
+      try { return typeof api?.status==="function" ? api.status(record) : record.management?.status||record.sourceStatus||""; }
+      catch(_) { return record.management?.status||record.sourceStatus||""; }
+    };
+    const closed=record=>{
+      try { return typeof api?.closed==="function" ? api.closed(record.management||{}) :
+        String(record.management?.status||"").toLowerCase()==="closed"; }
+      catch(_) { return false; }
+    };
+    const records=(model.state?.records||[]).filter(record=>!closed(record)).sort((a,b)=>{
+      const pa=a.management?.reviewDate&&a.management.reviewDate<today?0:a.management?.reviewDate===today?1:!a.management?.nextAction?2:3;
+      const pb=b.management?.reviewDate&&b.management.reviewDate<today?0:b.management?.reviewDate===today?1:!b.management?.nextAction?2:3;
+      return pa-pb||String(a.management?.reviewDate||"9999").localeCompare(String(b.management?.reviewDate||"9999"))||
+        Number(b.daysOpen||0)-Number(a.daysOpen||0)||String(a.ro||"").localeCompare(String(b.ro||""),undefined,{numeric:true});
+    });
+    const sapr=latestVerifiedSapr(model);
+    const advisors=sapr?Object.entries(sapr.advisors||{}).map(([code,row])=>{
+      const configured=model.settings?.advisors?.[code];
+      if(!configured||configured.removed||configured.active===false)return null;
+      return {code,name:configured.name||configured.displayName||row.name||code,gross:finite(row.totalGross),
+        cpRO:finite(row.cpRO),elr:finite(row.cpElr),hours:finite(row.cpHours)};
+    }).filter(Boolean).sort((a,b)=>(b.gross??-Infinity)-(a.gross??-Infinity)):[];
+
+    const reportRows=typeof api?.imports==="function" ? api.imports().map(item=>({
+      source:item.source||item.label||"Report",status:item.status||item.state||"",
+      period:item.period||item.coverage||item.date||"",updated:item.importedAt||item.updatedAt||item.lastSuccessfulRefreshAt||""
+    })) : [];
+    return {
+      generated:at.toISOString(),today,store:model.settings?.store?.name||"Service Operations",
+      openSource:model.state?.source?.sourceModifiedAt||model.state?.source?.importedAt||model.state?.updatedAt||"",
+      saprDate:sapr?.periodEnd||"", priorities:(priorities||[]).slice(0,3).map(item=>({
+        title:item.title||"Management attention",description:item.description||"",
+        next:item.next||item.record?.management?.nextAction||"",ro:item.record?.ro||""
+      })),
+      counts:{open:records.length,overdue:records.filter(r=>r.management?.reviewDate&&r.management.reviewDate<today).length,
+        due:records.filter(r=>r.management?.reviewDate===today).length,
+        needsUpdate:records.filter(r=>r.management?.communication==="Needs update").length,
+        noPlan:records.filter(r=>!String(r.management?.nextAction||"").trim()||!String(r.management?.reviewDate||"").trim()).length},
+      storePerformance:{gross:finite(sapr?.store?.totalGross),elr:finite(sapr?.store?.cpElr),
+        hours:finite(sapr?.store?.cpHours),ros:finite(sapr?.store?.totalRO)},
+      standards:{gross:finite(model.settings?.performanceStandards?.storeGrossTarget),
+        elr:finite(model.settings?.performanceStandards?.cpElr),
+        hours:finite(model.settings?.performanceStandards?.cpHoursPerRo)},
+      advisors,reportRows,
+      records:records.map(record=>({
+        ro:record.ro||"",customer:record.customer||"",vehicle:record.vehicle||record.tagNumber||"",
+        vin:record.vin||"",advisor:record.advisor||record.advisorCode||"",
+        technician:record.management?.currentTechnician||record.technician||record.technicianCode||"",
+        sourceStatus:record.sourceStatus||"",status:statusFor(record),
+        next:record.management?.nextAction||"",reviewDate:record.management?.reviewDate||"",
+        reviewTime:record.management?.reviewTime||"",communication:record.management?.communication||"",
+        owner:record.management?.owner||"",note:record.management?.note||"",
+        opened:record.opened||record.openedDate||"",daysOpen:record.daysOpen??""
+      }))
+    };
+  }
+  function metric(label,value,target,format="whole") {
+    const render=format==="money"?money:format==="fixed"?v=>fixed(v,2):whole;
+    const targetText=target===null?"":'<small>Target '+htmlEscape(render(target))+'</small>';
+    return '<article class="metric"><span>'+htmlEscape(label)+'</span><strong>'+htmlEscape(render(value))+
+      '</strong>'+targetText+'</article>';
+  }
+  function makeHtml(model, api, priorities=[], at=new Date()) {
+    const data=mobilePageData(model,api,priorities,at);
+    const priorityHtml=data.priorities.length?data.priorities.map((item,index)=>
+      '<article class="priority"><span class="rank">'+(index+1)+'</span><div><h3>'+htmlEscape(item.title)+'</h3>'+
+      (item.ro?'<p class="muted">RO '+htmlEscape(item.ro)+'</p>':'')+
+      (item.description?'<p>'+htmlEscape(item.description)+'</p>':'')+
+      (item.next?'<p class="next"><b>Next:</b> '+htmlEscape(item.next)+'</p>':'')+'</div></article>').join(""):
+      '<p class="empty">No management priority is currently ready.</p>';
+    const advisorHtml=data.advisors.length?data.advisors.map(row=>
+      '<tr><td><b>'+htmlEscape(row.name)+'</b><small>'+htmlEscape(row.code)+'</small></td>'+
+      '<td>'+htmlEscape(money(row.gross))+'</td><td>'+htmlEscape(whole(row.cpRO))+'</td>'+
+      '<td>'+htmlEscape(money(row.elr))+'</td><td>'+htmlEscape(fixed(row.hours,2))+'</td></tr>').join(""):
+      '<tr><td colspan="5">No verified advisor SAPR rows available.</td></tr>';
+    const reportHtml=data.reportRows.length?data.reportRows.map(row=>
+      '<tr><td><b>'+htmlEscape(row.source)+'</b></td><td>'+htmlEscape(row.status||"—")+'</td>'+
+      '<td>'+htmlEscape(row.period||"—")+'</td><td>'+htmlEscape(displayDate(row.updated))+'</td></tr>').join(""):
+      '<tr><td colspan="4">No report coverage rows available.</td></tr>';
+    const roHtml=data.records.length?data.records.map(record=>{
+      const due=record.reviewDate&&record.reviewDate<data.today?' overdue':record.reviewDate===data.today?' due':'';
+      return '<details class="ro'+due+'"><summary><span><b>RO '+htmlEscape(record.ro)+'</b> · '+htmlEscape(record.customer||"Customer")+
+        '</span><span>'+htmlEscape(record.advisor||"Unassigned")+'</span></summary><div class="robody">'+
+        '<div><span>Vehicle</span><b>'+htmlEscape(record.vehicle||"—")+'</b>'+(record.vin?'<small>'+htmlEscape(record.vin)+'</small>':'')+'</div>'+
+        '<div><span>Status</span><b>'+htmlEscape(record.status||"—")+'</b><small>'+htmlEscape(record.sourceStatus||"")+'</small></div>'+
+        '<div><span>Technician</span><b>'+htmlEscape(record.technician||"—")+'</b></div>'+
+        '<div><span>Owner</span><b>'+htmlEscape(record.owner||record.advisor||"—")+'</b></div>'+
+        '<div class="wide"><span>Next action</span><b>'+htmlEscape(record.next||"No next action")+'</b></div>'+
+        '<div><span>Follow-up</span><b>'+htmlEscape(record.reviewDate||"Not set")+(record.reviewTime?' · '+htmlEscape(record.reviewTime):'')+'</b></div>'+
+        '<div><span>Customer update</span><b>'+htmlEscape(record.communication||"—")+'</b></div>'+
+        '<div><span>Opened / age</span><b>'+htmlEscape(record.opened||"—")+(record.daysOpen!==""?' · '+htmlEscape(record.daysOpen)+' days':'')+'</b></div>'+
+        (record.note?'<div class="wide"><span>Manager note</span><p>'+htmlEscape(record.note)+'</p></div>':'')+
+        '</div></details>';
+    }).join(""):'<p class="empty">No current open ROs.</p>';
+    const generated=new Date(data.generated);
+    return '<!doctype html><html lang="en"><head><meta charset="utf-8">'+
+      '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'+
+      '<meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer">'+
+      '<meta http-equiv="refresh" content="300"><title>MoonDog Mobile · Read Only</title><style>'+
+      ':root{color-scheme:light dark;--bg:#f2f6f7;--card:#fff;--text:#17252d;--muted:#60737c;--line:#d5e0e4;--accent:#0e5e71;--warn:#a04f12;--bad:#a22727}'+
+      '@media(prefers-color-scheme:dark){:root{--bg:#0d1519;--card:#152126;--text:#eef6f8;--muted:#a7bbc2;--line:#2d424a;--accent:#63bdd0;--warn:#e4a25f;--bad:#f08585}}'+
+      '*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}'+
+      'header{padding:24px 18px 18px;background:#102f39;color:#fff}header h1{font-size:26px;margin:3px 0 5px}.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;opacity:.78}.stamp{font-size:12px;opacity:.8}.readonly{margin-top:12px;padding:8px 10px;border:1px solid #5b8996;border-radius:8px;font-size:12px}'+
+      'main{max-width:900px;margin:auto;padding:16px}.section{margin:0 0 22px}.section>h2{font-size:16px;letter-spacing:.06em;text-transform:uppercase;margin:0 0 10px}.muted,small{color:var(--muted)}'+
+      '.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.metric{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}.metric span,.metric small{display:block;font-size:11px}.metric strong{display:block;font-size:24px;margin:3px 0}'+
+      '.priority{display:grid;grid-template-columns:34px 1fr;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0}.priority h3{font-size:16px;margin:0 0 4px}.priority p{margin:4px 0}.rank{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700}.next{border-top:1px solid var(--line);padding-top:7px}'+
+      '.tablewrap{overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:12px}table{border-collapse:collapse;width:100%;min-width:560px}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--line);font-size:13px}th{font-size:11px;text-transform:uppercase;color:var(--muted)}td small{display:block}'+
+      '.ro{background:var(--card);border:1px solid var(--line);border-radius:12px;margin:8px 0;overflow:hidden}.ro.overdue{border-left:4px solid var(--bad)}.ro.due{border-left:4px solid var(--warn)}summary{display:flex;justify-content:space-between;gap:12px;padding:12px;cursor:pointer}.robody{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:0 12px 14px;border-top:1px solid var(--line)}.robody>div{padding-top:10px}.robody span,.robody small{display:block;font-size:11px;color:var(--muted)}.robody b{display:block}.wide{grid-column:1/-1}.wide p{margin:3px 0}.empty{padding:14px;background:var(--card);border:1px solid var(--line);border-radius:12px}footer{padding:14px 18px 26px;text-align:center;color:var(--muted);font-size:11px}'+
+      '@media(max-width:520px){main{padding:12px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.metric strong{font-size:21px}.robody{grid-template-columns:1fr}.wide{grid-column:auto}summary{display:block}summary>span{display:block}table{min-width:520px}}'+
+      '</style></head><body><header><div class="eyebrow">MOONDOG · PRIVATE MOBILE VIEW</div><h1>'+htmlEscape(data.store)+'</h1>'+
+      '<div class="stamp">Updated '+htmlEscape(generated.toLocaleString())+' · Open RO source '+htmlEscape(displayDate(data.openSource))+
+      ' · SAPR '+htmlEscape(data.saprDate||"Not verified")+'</div><div class="readonly"><b>READ ONLY</b> · This page is a snapshot generated by the desktop dashboard. It cannot change MoonDog data. Refreshes every 5 minutes while open.</div></header><main>'+
+      '<section class="section"><h2>Manager attention</h2>'+priorityHtml+'</section>'+
+      '<section class="section"><h2>Service drive now</h2><div class="grid">'+
+      metric("Open ROs",data.counts.open,null)+metric("Overdue",data.counts.overdue,null)+
+      metric("Due today",data.counts.due,null)+metric("Need customer update",data.counts.needsUpdate,null)+
+      metric("Missing plan",data.counts.noPlan,null)+'</div></section>'+
+      '<section class="section"><h2>Store performance</h2><p class="muted">Verified SAPR through '+htmlEscape(data.saprDate||"Not verified")+'</p><div class="grid">'+
+      metric("MTD gross",data.storePerformance.gross,data.standards.gross,"money")+
+      metric("CP ELR",data.storePerformance.elr,data.standards.elr,"money")+
+      metric("CP hours / RO",data.storePerformance.hours,data.standards.hours,"fixed")+
+      metric("Closed ROs",data.storePerformance.ros,null)+'</div></section>'+
+      '<section class="section"><h2>Advisor performance</h2><div class="tablewrap"><table><thead><tr><th>Advisor</th><th>Gross</th><th>CP ROs</th><th>CP ELR</th><th>CP Hrs/RO</th></tr></thead><tbody>'+advisorHtml+'</tbody></table></div></section>'+
+      '<section class="section"><h2>Open RO detail</h2><p class="muted">Tap an RO to expand. Current dashboard information only; no editing controls are included.</p>'+roHtml+'</section>'+
+      '<section class="section"><h2>Report coverage</h2><div class="tablewrap"><table><thead><tr><th>Source</th><th>Status</th><th>Period</th><th>Updated</th></tr></thead><tbody>'+reportHtml+'</tbody></table></div></section>'+
+      '</main><footer>Private operational information. Access is controlled by the SharePoint / Microsoft 365 permissions on the page location.</footer></body></html>';
+  }
+
+  const MOBILE_DB="moondog-operations-local", MOBILE_HANDLE_KEY="sharepoint-mobile-page-folder",
+    MOBILE_FILENAME="MoonDog-Mobile.html";
+  function publisherDb(environment=root) {
+    return new Promise((resolve,reject)=>{
+      if(!environment.indexedDB){reject(new Error("This browser cannot remember the SharePoint mobile folder."));return;}
+      const request=environment.indexedDB.open(MOBILE_DB,1);
+      request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains("handles"))request.result.createObjectStore("handles");};
+      request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+    });
+  }
+  async function rememberPublisher(handle,environment=root) {
+    const db=await publisherDb(environment);
+    await new Promise((resolve,reject)=>{const tx=db.transaction("handles","readwrite");
+      tx.objectStore("handles").put(handle,MOBILE_HANDLE_KEY);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
+    db.close();
+  }
+  async function recallPublisher(environment=root) {
+    const db=await publisherDb(environment);
+    const handle=await new Promise((resolve,reject)=>{const tx=db.transaction("handles","readonly");
+      const request=tx.objectStore("handles").get(MOBILE_HANDLE_KEY);
+      request.onsuccess=()=>resolve(request.result||null);request.onerror=()=>reject(request.error);});
+    db.close();return handle;
+  }
+  async function permission(handle,interactive=false) {
+    if(!handle)return "missing";
+    if(typeof handle.queryPermission!=="function")return "granted";
+    let state=await handle.queryPermission({mode:"readwrite"});
+    if(state==="prompt"&&interactive&&typeof handle.requestPermission==="function")
+      state=await handle.requestPermission({mode:"readwrite"});
+    return state;
+  }
+  async function publishToHandle(handle,html) {
+    if(await permission(handle,false)!=="granted")return {status:"permission-needed"};
+    const fileHandle=await handle.getFileHandle(MOBILE_FILENAME,{create:true});
+    const bytes=new TextEncoder().encode(html);
+    let writable;
+    try{writable=await fileHandle.createWritable();await writable.write(bytes);await writable.close();}
+    catch(error){try{await writable?.abort?.();}catch(_){}throw error;}
+    const actual=new Uint8Array(await(await fileHandle.getFile()).arrayBuffer());
+    if(actual.length!==bytes.length||actual.some((value,index)=>value!==bytes[index]))
+      throw new Error("The mobile HTML page did not verify after saving.");
+    return {status:"published",fileName:MOBILE_FILENAME,bytes:bytes.length,folder:handle.name||""};
+  }
+  async function connectPublisher(model,api,priorities=[],environment=root) {
+    if(typeof environment.showDirectoryPicker!=="function")
+      throw new Error("Use desktop Microsoft Edge to connect the SharePoint mobile page folder.");
+    let handle;
+    try{handle=await environment.showDirectoryPicker({mode:"readwrite",id:"moondog-sharepoint-mobile"});}
+    catch(error){if(error?.name==="AbortError")return {status:"cancelled"};throw error;}
+    if(await permission(handle,true)!=="granted")return {status:"permission-needed"};
+    await rememberPublisher(handle,environment);
+    const result=await publishToHandle(handle,makeHtml(model,api,priorities));
+    return {...result,connected:true};
+  }
+  async function autoPublish(model,api,priorities=[],environment=root) {
+    let handle;
+    try{handle=await recallPublisher(environment);}catch(_){return {status:"not-configured"};}
+    if(!handle)return {status:"not-configured"};
+    const access=await permission(handle,false);
+    if(access!=="granted")return {status:"permission-needed",folder:handle.name||""};
+    return publishToHandle(handle,makeHtml(model,api,priorities));
+  }
+
+  const api=Object.freeze({summarize,makePdf,save,mobilePageData,makeHtml,publishToHandle,connectPublisher,autoPublish});
   root.MoonDogMobileSnapshot=api;
   if(typeof module!=="undefined"&&module.exports)module.exports=api;
 })(globalThis);
@@ -182,7 +395,7 @@
   const api=globalThis.__moondogDaily,engine=globalThis.MoonDogDailyEngine;
   if(!api||!engine)return;
   const $=id=>document.getElementById(id), model=api.model;
-  const state={current:null,events:[],loadedRoot:null,loading:false,busy:false,editing:false,launched:null,searchToken:0,searchResults:[],history:[],error:'',pending:false,selectedPhase:''};
+  const state={current:null,events:[],loadedRoot:null,loading:false,busy:false,editing:false,launched:null,searchToken:0,searchResults:[],history:[],error:'',pending:false,selectedPhase:'',mobile:{timer:null,busy:false,status:'',folder:'',updatedAt:''}};
   const names={performance:'SAPR','open-ro':'Open RO',appointments:'Appointments / pre-RO','next-appointments':'Next Appointments',vir:'VIR','menu-sales':'Menu Sales',csi:'CSI',sor:'SOR','appointment-activity':'Appointment Activity',efficiency:'Efficiency','media-asr':'Media ASR — Advisor','media-asr-tech':'Media ASR — Technician','open-ro-summary':'Aggregate WIP','ro-update':'Returned supervisor workbook'};
   const toolNames={home:'Home','assign-next':'Assign Next','open-ro':'Open RO Control',performance:'Advisor Performance',meeting:'Advisor Meeting',tools:'Tools',overview:'Store overview',arrivals:"Today's Arrivals",imports:'Supervisor workbook and detailed imports',settings:'Change how Service Operations Dashboard works',setup:'Reports and setup'};
   const settingsFeatures=Object.freeze([
@@ -340,6 +553,40 @@
     return [...operational,...reports].sort((a,b)=>(a.rank||7)-(b.rank||7)||
       String(a.deadline||'9999').localeCompare(String(b.deadline||'9999'))||String(a.id).localeCompare(String(b.id)))
       .filter((item,index,items)=>items.findIndex(other=>other.id===item.id)===index).slice(0,3);
+  }
+  async function publishMobilePage(interactive=false){
+    if(!model.root||model.connectionState!=='CONNECTED')return {status:'not-connected'};
+    if(state.mobile.busy)return {status:'busy'};
+    state.mobile.busy=true;
+    try{
+      const mobile=globalThis.MoonDogMobileSnapshot;
+      if(!mobile)return {status:'unavailable'};
+      const result=interactive?
+        await mobile.connectPublisher(model,api,attentionTopThree()):
+        await mobile.autoPublish(model,api,attentionTopThree());
+      state.mobile.status=result.status||'';
+      state.mobile.folder=result.folder||state.mobile.folder||'';
+      if(result.status==='published')state.mobile.updatedAt=new Date().toISOString();
+      return result;
+    }catch(error){
+      state.mobile.status='error';
+      console.warn('Read-only mobile page publish failed:',error?.message||error);
+      return {status:'error',error};
+    }finally{state.mobile.busy=false;}
+  }
+  function queueMobilePublish(delay=2500){
+    if(state.mobile.timer)clearTimeout(state.mobile.timer);
+    state.mobile.timer=setTimeout(()=>{state.mobile.timer=null;void publishMobilePage(false).then(()=>{
+      if(active()==='tools'&&$('dailyTools')?.dataset.category==='more')renderTools('more');
+    });},delay);
+    state.mobile.timer?.unref?.();
+  }
+  function mobileStatusText(){
+    if(state.mobile.status==='published')return 'Auto-updating · last written '+new Date(state.mobile.updatedAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+(state.mobile.folder?' · '+state.mobile.folder:'');
+    if(state.mobile.status==='permission-needed')return 'Folder remembered · reopen desktop Edge and allow folder access to resume updates.';
+    if(state.mobile.status==='not-configured'||!state.mobile.status)return 'Not connected yet.';
+    if(state.mobile.status==='error')return 'Last mobile-page update failed. Reconnect the SharePoint page folder.';
+    return state.mobile.status.replace(/-/g,' ');
   }
   function openAttention(item){
     if(item.type==='report'){goTools('imports');return;}
@@ -634,21 +881,35 @@
     if(category==='recovery'){options.append(button('Create backup / Restore from backup',()=>settingsCategory('recovery')),button('Create support / recovery copy',()=>settingsCategory('recovery')),button('Show recovery status',()=>settingsCategory('recovery')),button('Advanced recovery and new-store preparation',()=>settingsCategory('advanced')));}
     if(category==='more'){
       const report=document.createElement('section');report.className='daily-mobile-snapshot';
-      const title=document.createElement('h3');title.textContent='Phone snapshot (read only)';
-      const explanation=document.createElement('p');explanation.textContent='Save a phone-friendly PDF of aggregate metrics. No customer or employee names, RO numbers, VINs, or notes. The snapshot is not live. Save it only to approved company storage.';
-      const feedback=document.createElement('p');feedback.setAttribute('role','status');
-      const saveButton=button('Save phone PDF',async()=>{
+      const title=document.createElement('h3');title.textContent='Phone view (SharePoint · read only)';
+      const explanation=document.createElement('p');
+      explanation.textContent='One-time setup: choose the local OneDrive-synced folder that holds your private SharePoint HTML page. MoonDog writes only “MoonDog-Mobile.html” there and refreshes it automatically when dashboard data changes. The phone page has no edit controls and cannot write back to MoonDog.';
+      const requirement=document.createElement('p');requirement.className='daily-hint';
+      requirement.textContent='SharePoint must allow HTML Pages in the Site Pages library. Access is controlled by your Microsoft 365 / SharePoint permissions, not by MoonDog.';
+      const feedback=document.createElement('p');feedback.setAttribute('role','status');feedback.textContent=mobileStatusText();
+      const connect=button(state.mobile.status==='published'?'Change SharePoint page folder':'Connect SharePoint page folder',async()=>{
         if(!model.root){feedback.textContent='Connect the desktop working folder first.';return;}
-        saveButton.disabled=true;feedback.textContent='Preparing read-only snapshot...';
-        try{
-          const result=await globalThis.MoonDogMobileSnapshot.save(model,api);
-          feedback.textContent=result.status==='saved'?'Saved. Open the PDF in your company OneDrive on your iPhone.':
-            result.status==='downloaded'?'Downloaded. Move the PDF to your approved OneDrive folder to view it on your iPhone.':
-            'Save cancelled. No files were changed.';
-        }catch(error){feedback.textContent='Unable to save PDF. '+(error?.message||'Try again.');}
-        finally{saveButton.disabled=false;}
+        connect.disabled=true;feedback.textContent='Choose the OneDrive-synced SharePoint page folder…';
+        const result=await publishMobilePage(true);
+        connect.disabled=false;
+        feedback.textContent=result.status==='published'?
+          'Connected and written. In SharePoint, copy the link to MoonDog-Mobile.html and bookmark that page in mobile Edge.':
+          result.status==='cancelled'?'Setup cancelled. Nothing changed.':
+          result.status==='permission-needed'?'Folder selected, but write permission was not granted.':
+          result.status==='error'?'Could not publish the mobile page. '+(result.error?.message||'Try again.'):mobileStatusText();
       },'primary');
-      report.append(title,explanation,saveButton,feedback);options.append(report);
+      const refresh=button('Refresh mobile HTML now',async()=>{
+        refresh.disabled=true;const result=await publishMobilePage(false);refresh.disabled=false;
+        feedback.textContent=result.status==='published'?'Mobile HTML refreshed.':mobileStatusText();
+      },'secondary');
+      const pdf=button('Save PDF instead',async()=>{
+        pdf.disabled=true;feedback.textContent='Preparing PDF…';
+        try{const result=await globalThis.MoonDogMobileSnapshot.save(model,api);
+          feedback.textContent=result.status==='cancelled'?'PDF save cancelled.':'PDF ready.';}
+        catch(error){feedback.textContent='Unable to save PDF. '+(error?.message||'Try again.');}
+        finally{pdf.disabled=false;}
+      },'link-button');
+      report.append(title,explanation,requirement,connect,refresh,pdf,feedback);options.append(report);
       for(const key of ['arrivals','overview','imports','setup'])options.append(button(toolNames[key],()=>go(key)));
     }
   }
@@ -682,13 +943,16 @@
   }
   document.addEventListener('moondog-recovered',async()=>{state.current=null;state.editing=false;state.loadedRoot=null;await ready();});
   document.addEventListener('moondog-data',ready);
+  document.addEventListener('moondog-data',()=>queueMobilePublish());
   document.addEventListener('moondog-data',()=>{const name=$('hubStoreName');if(name)name.textContent=model.settings.store?.code&&model.settings.store?.name?.trim()?model.settings.store.name.trim():'Offline operations';});
   function refreshImportCoverage(){if(active()==='tools'&&$('dailyTools').dataset.category==='imports')renderTools('imports');}
   document.addEventListener('moondog-data',refreshImportCoverage);
   document.addEventListener('moondog-imported',refreshImportCoverage);
+  document.addEventListener('moondog-imported',()=>queueMobilePublish(1200));
   document.addEventListener('moondog-navigation',e=>{if(e.detail.view==='tools')renderTools();if(e.detail.view==='settings')$('view-settings').querySelectorAll('.daily-settings-hidden').forEach(el=>el.classList.remove('daily-settings-hidden'));if(e.detail.view==='home'&&!state.editing){refreshCurrent();renderHome();}if(e.detail.anchor){const el=$(e.detail.anchor);for(let parent=el;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;}});
   document.addEventListener('moondog-imported',()=>{if(!state.busy&&!state.editing)action(async()=>{await loadHistory();await selectNext();});else state.pending=true;});
   document.addEventListener('moondog-saved',e=>{
+    queueMobilePublish(1200);
     if(state.launched?.recordId===e.detail.id && e.detail.origin!=='home'){
       const launched=state.launched;state.launched=null;
       void action(async()=>{const updated=allTasks().find(item=>item.id===launched.id)||launched;
@@ -700,9 +964,10 @@
   // Automatic intake completion is an allowed boundary, but never replaces a draft.
   const observer=new MutationObserver(()=>{if($('status').classList.contains('success'))refreshCurrent();});observer.observe($('status'),{childList:true,attributes:true});
   setInterval(checkOperatingDate,30000);
+  const mobileHeartbeat=setInterval(()=>queueMobilePublish(1000),300000);mobileHeartbeat?.unref?.();
   window.addEventListener('focus',checkOperatingDate);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkOperatingDate();});
-  installThemeToggle();installShell();renderHome();ready();
+  installThemeToggle();installShell();renderHome();ready();queueMobilePublish(3500);
   globalThis.__moondogDailyUI=Object.freeze({state,candidates:allTasks,selectNext,renderHome,renderTools,searchAll,settingsCategory,ready});
 })();
 /* Service Operations Dashboard theme Beta 0.10.7-beta.2. */
