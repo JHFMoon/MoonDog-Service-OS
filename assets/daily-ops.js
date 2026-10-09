@@ -45,7 +45,8 @@
   const now=()=>Date.now();
   const businessHour=()=>globalThis.MoonDogFreshness?.timeParts(new Date(),globalThis.__moondogFreshness?.timeZone?.()||'America/Los_Angeles')?.hour??new Date().getHours();
   function say(message){state.error=message;let target=active()==='home'?$('dailyError'):$('dailyToolError');if(!target&&message&&active()!=='home'){target=document.createElement('p');target.id='dailyToolError';target.setAttribute('role','alert');document.querySelector('.view.active')?.prepend(target);}if(target){target.hidden=!message;target.textContent=message;}}
-  function go(view,anchor=''){api.navigate(view,anchor);}
+  function discardDraftOk(){return !state.editing||globalThis.confirm('You have an unsaved Home update. Leave this task and discard the draft?');}
+  function go(view,anchor=''){if(active()==='home'&&!discardDraftOk())return;api.navigate(view,anchor);}
   function wrap(el,label){if(!el||el.closest('.daily-disclosure'))return;const detail=document.createElement('details');detail.className='daily-disclosure';const summary=document.createElement('summary');summary.textContent=label;el.before(detail);detail.append(summary,el);}
 
   function installShell(){
@@ -53,7 +54,7 @@
     const storeName=$('hubStoreName');if(storeName)storeName.textContent=model.settings.store?.code&&model.settings.store?.name?.trim()?model.settings.store.name.trim():'Offline operations';
     const nav=document.querySelector('nav[aria-label="Main navigation"]');
     for(const [key,label] of Object.entries(toolNames)){const el=nav.querySelector(`[data-view="${key}"]`);if(el&&key!=='home')el.textContent=label;}
-    const primary=['home','assign-next','open-ro','performance','meeting','tools'];
+    const primary=['home','open-ro','assign-next','performance','meeting','tools'];
     primary.forEach(key=>{const el=nav.querySelector(`[data-view="${key}"]`);if(el)nav.append(el);});
     nav.querySelectorAll('[data-view]').forEach(el=>el.classList.toggle('secondary-destination',!primary.includes(el.dataset.view)));
     const search=document.createElement('div');search.className='daily-search';search.innerHTML='<label for="findAnything">Find Anything</label><input id="findAnything" type="search" placeholder="RO, customer, task, report, or setting" autocomplete="off"><div id="findResults" class="find-results" hidden></div>';
@@ -72,6 +73,9 @@
     wrap($('performanceAdvisorTable')?.closest('section'),'Advisor comparison');
     wrap($('performanceChanges')?.closest('.performance-grid'),'Trends and daily changes');
     $('view-overview').querySelector('.manager-attention')?.classList.add('secondary-attention');
+    const navGuard=event=>{if(active()!=='home'||!state.editing)return;if(!discardDraftOk()){event.preventDefault();event.stopImmediatePropagation();}};
+    nav.addEventListener('click',navGuard,true);
+    globalThis.addEventListener('beforeunload',event=>{if(!state.editing)return;event.preventDefault();event.returnValue='';});
     renderTools();
   }
   function sourceTasks(){
@@ -106,6 +110,43 @@
   }
   // Fingerprints in history are compact source/revision evidence, never customer text.
   function compactTask(task){if(task?.type==='ro')task.fingerprint=JSON.stringify([task.record.id,task.record.management?.updatedAt,task.record.sourceStatus,task.record.management?.reviewDate,task.record.management?.reviewTime,task.record.management?.nextAction?true:false,task.rank,model.state.source?.importedAt]);if(task?.type==='settings')task.fingerprint=Object.values(model.settings.advisors||{}).filter(a=>a.setupRequired).map(a=>a.number).sort().join(',');return task;}
+  function managerPulseRows(){
+    const day=today(),open=(model.state.records||[]).filter(r=>!api.closed(r.management||{}));
+    const missing=open.filter(r=>!String(r.management?.nextAction||'').trim()||!String(r.management?.reviewDate||'').trim());
+    const rows=[
+      {key:'open',label:'Open ROs',value:open.length,filter:''},
+      {key:'overdue',label:'Overdue',value:open.filter(r=>r.management?.reviewDate&&r.management.reviewDate<day).length,filter:'overdue',urgent:true},
+      {key:'due-today',label:'Due today',value:open.filter(r=>r.management?.reviewDate===day).length,filter:'due-today'},
+      {key:'missing-action',label:'Missing plan',value:missing.length,filter:'missing-action',urgent:missing.length>0},
+      {key:'long-2',label:'2+ days',value:open.filter(r=>Number(r.daysOpen)>=2).length,filter:'long-2'},
+      {key:'long-5',label:'5+ days',value:open.filter(r=>Number(r.daysOpen)>=5).length,filter:'long-5',urgent:open.some(r=>Number(r.daysOpen)>=5)},
+      {key:'needs-update',label:'Customer update',value:open.filter(r=>r.management?.communication==='Needs update').length,filter:'needs-update',urgent:open.some(r=>r.management?.communication==='Needs update')},
+      {key:'comeback',label:'Comebacks',value:open.filter(r=>/comeback/i.test([api.status(r),r.sourceStatus,r.management?.statusDetail].join(' '))).length,filter:'comeback',urgent:open.some(r=>/comeback/i.test([api.status(r),r.sourceStatus,r.management?.statusDetail].join(' ')))}
+    ];
+    return rows;
+  }
+  function openPulseFilter(filter){
+    go('open-ro');
+    queueMicrotask(()=>{
+      const control=$('attentionFilter');
+      if(control){control.value=filter||'';control.dispatchEvent(new Event('change',{bubbles:true}));}
+    });
+  }
+  function renderManagerPulse(host){
+    if(!model.root)return;
+    const section=document.createElement('section');section.className='manager-control-pulse';section.setAttribute('aria-label','Manager control pulse');
+    const head=document.createElement('div');head.className='manager-control-pulse-head';head.innerHTML='<div><p class="eyebrow">CONTROL PULSE</p><strong>Finish work before starting more</strong></div>';
+    head.append(button('Open RO Control',()=>openPulseFilter(''),'link-button'));
+    section.append(head);
+    const grid=document.createElement('div');grid.className='manager-control-pulse-grid';
+    for(const row of managerPulseRows()){
+      const card=button('',()=>openPulseFilter(row.filter),'manager-pulse-card'+(row.urgent&&row.value?' urgent':''));
+      card.setAttribute('aria-label',row.label+': '+row.value);
+      card.innerHTML='<span>'+esc(row.label)+'</span><strong>'+esc(row.value)+'</strong>';
+      grid.append(card);
+    }
+    section.append(grid);host.append(section);
+  }
   function allTasks(){return candidates().map(compactTask);}
   function attentionTopThree(){
     if(!model.root)return [];
@@ -294,13 +335,18 @@
 
   function renderHome(){
     const host=$('dailyTask');host.replaceChildren();
+    if(model.root){renderRefreshStrip(host);renderManagerPulse(host);}
+    // The legacy pulse and data strip remain available in detailed tools, never compete with Top 3.
+    host.querySelector('.daily-data-needed')?.remove();
+    const pulse=host.querySelector('.manager-control-pulse');
+    if(pulse){pulse.querySelectorAll('.manager-pulse-card:not(.urgent)').forEach(card=>card.remove());if(!pulse.querySelector('.manager-pulse-card'))pulse.remove();}
     if(!model.root){host.innerHTML='<p class="eyebrow">Your daily workspace</p><h2>Connect Service Operations Dashboard to begin</h2><p>Your saved work stays in the connected working folder.</p>';host.append(button('Connect working folder',()=>api.connect(),'primary'));return;}
     if(!state.loadedRoot&&!state.current){host.innerHTML='<h2>Loading your saved work…</h2>';return;}
     const top=attentionTopThree();refreshAttentionCount(top);
     const task=state.current;
     if(!task){host.replaceChildren();return;}
     const focus=document.createElement('div');focus.className='daily-main-priority';focus.innerHTML=`<p class="eyebrow">Manager attention · 1 of ${top.length}</p><h2>${esc(task.title)}</h2><p id="dailyError" role="alert" hidden></p><div id="dailyChanged" hidden>New information is available. Your draft is still here. <button type="button">Refresh this task</button></div>`;host.append(focus);
-    $('dailyChanged').querySelector('button').onclick=()=>action(selectNext);
+    $('dailyChanged').querySelector('button').onclick=()=>{if(discardDraftOk())action(selectNext);};
     if(task.type==='ro')roForm(task,focus);
     else{
       if(task.description){const p=document.createElement('p');p.className='daily-description';p.textContent=task.description.replace(/TREND DATA NEEDED · SAPR · /,'').replace(/historical snapshot/g,'historical report');focus.append(p);}
