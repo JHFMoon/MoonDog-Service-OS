@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.6 — current Beta
+
+- Safe mobile read-only PDF snapshot without any new runtime paths. Verified automated Beta; no Workspace migration.
+- Automatically layered onto the previous Beta so existing preview features are preserved.
+
+
 ## 0.10.18-beta.5 — current Beta
 
 - Manager Top 3 and background noon update notification. Verified automated Beta; no Workspace migration.
