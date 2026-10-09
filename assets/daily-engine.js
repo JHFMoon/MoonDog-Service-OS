@@ -21,13 +21,50 @@
     if(task.deadline){const remaining=(Date.parse(task.deadline)-at)/minutes;if(remaining>0)delay=Math.min(delay,Math.max(1,remaining/2));}
     return new Date(at+delay*minutes).toISOString();
   }
-  function followUpAt(at,days=3,scheduledDays) {
-    const working = Array.isArray(scheduledDays) && scheduledDays.length ? scheduledDays : [2,3,4,5,6];
-    const date=new Date(at); if (!Number.isFinite(date.valueOf())) return at;
-    date.setHours(12,0,0,0);
-    let count=0;
-    while(count<days){date.setDate(date.getDate()+1);if(working.includes(date.getDay()))count++;}
-    return date.getTime();
+  // Manager coaching follow-up uses a local work schedule, never an RO promise or customer deadline.
+  const DEFAULT_MANAGEMENT_SCHEDULE=Object.freeze({days:[2,3,4,5,6],startTime:'07:30',endTime:'16:00'});
+  function managementSchedule(input) {
+    const source=Array.isArray(input)?{days:input}:input||{};
+    const validDays=Array.isArray(source.days)&&source.days.length>0&&
+      source.days.every(day=>Number.isInteger(day)&&day>=0&&day<=6);
+    const days=validDays?[...new Set(source.days)].sort((a,b)=>a-b):[...DEFAULT_MANAGEMENT_SCHEDULE.days];
+    const validTime=value=>typeof value==='string'&&/^([01]\\d|2[0-3]):[0-5]\\d$/.test(value);
+    const startTime=validTime(source.startTime)?source.startTime:DEFAULT_MANAGEMENT_SCHEDULE.startTime;
+    const endTime=validTime(source.endTime)?source.endTime:DEFAULT_MANAGEMENT_SCHEDULE.endTime;
+    const minute=value=>Number(value.slice(0,2))*60+Number(value.slice(3,5));
+    if(minute(endTime)<=minute(startTime))
+      return {days,startTime:DEFAULT_MANAGEMENT_SCHEDULE.startTime,endTime:DEFAULT_MANAGEMENT_SCHEDULE.endTime};
+    return {days,startTime,endTime};
+  }
+  function instantForBusinessClock(day,minute,zone) {
+    const targetMidnight=Date.parse(day+'T00:00:00Z');
+    let guess=targetMidnight+minute*minutes;
+    for(let attempt=0;attempt<5;attempt++){
+      const actualDate=freshness?.dateKey(new Date(guess),zone);
+      const actual=freshness?.timeParts(new Date(guess),zone);
+      if(!actualDate||!actual)break;
+      const dayDelta=(targetMidnight-Date.parse(actualDate+'T00:00:00Z'))/86400000;
+      const offset=dayDelta*1440+minute-(actual.hour*60+actual.minute);
+      if(offset===0)return guess;
+      guess+=offset*minutes;
+    }
+    return guess;
+  }
+  function followUpAt(at,days=3,scheduleInput) {
+    if(!Number.isFinite(at)||!Number.isInteger(days)||days<1)return at;
+    const schedule=managementSchedule(scheduleInput),zone=businessTimeZone();
+    const parts=freshness?.timeParts(new Date(at),zone);
+    const start=Number(schedule.startTime.slice(0,2))*60+Number(schedule.startTime.slice(3));
+    const end=Number(schedule.endTime.slice(0,2))*60+Number(schedule.endTime.slice(3));
+    const original=parts?parts.hour*60+parts.minute:new Date(at).getHours()*60+new Date(at).getMinutes();
+    const minute=original>=end?start:Math.max(start,original);
+    let day=businessDate(at),remaining=days;
+    for(let attempt=0;remaining&&attempt<days*8+8;attempt++){
+      day=freshness?.addDays(day,1)||new Date(Date.parse(day+'T00:00:00Z')+86400000).toISOString().slice(0,10);
+      const weekday=new Date(day+'T12:00:00Z').getUTCDay();
+      if(schedule.days.includes(weekday))remaining--;
+    }
+    return remaining?at:instantForBusinessClock(day,minute,zone);
   }
   function eligible(task,events,at) {
     const event=events.filter(e=>e.details?.taskId===task.id&&['completed','deferred','not-an-issue'].includes(e.details.action)).at(-1);
@@ -37,7 +74,7 @@
       const decline=Number.isFinite(task.actual)&&Number.isFinite(d.actual)&&task.actual<d.actual-(task.key==='cpElr'?5:3);
       if(decline)return true; // Substantial deterioration overrides a prior acknowledgment.
       if(d.action==='not-an-issue'&&d.fingerprint===task.fingerprint)return false;
-      const configured=root.__moondogSettingsModel?.settings?.future?.managementSchedule?.days;
+      const configured=root.__moondogSettingsModel?.settings?.future?.managementSchedule;
       const next=followUpAt(Date.parse(event.at||''),d.action==='not-an-issue'?7:3,configured);
       if(at<next)return false;
       return d.fingerprint!==task.fingerprint; // Requires new evidence before resurfacing.
@@ -155,6 +192,6 @@
     const rank=core===0?0:core===1||overdueTime?1:core===2?2:needsCustomerUpdate?2.25:comeback?2.5:(waiter||promisedToday)?3:stuck?.rank??(core===3?4:5);
     return {id:`ro:${record.id}`,type:'ro',title,recordId:record.id,advisor:String(record.advisorCode||record.advisor||'unassigned'),rank,hard:rank<=3,age:Number(record.daysOpen)||0,deadline:m.reviewDate?`${m.reviewDate}T${m.reviewTime||'23:59'}:00`:null,fingerprint:JSON.stringify(record),record};
   }
-  const api=Object.freeze({choose,eligible,preference,deferUntil,roTask,stuckWork,hasFuturePlan,phase,phaseWeight,compare,lastEvent,coachingTasks,coachingTurn});
+  const api=Object.freeze({choose,eligible,preference,deferUntil,roTask,stuckWork,hasFuturePlan,phase,phaseWeight,compare,lastEvent,coachingTasks,coachingTurn,followUpAt,managementSchedule});
   root.MoonDogDailyEngine=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);
