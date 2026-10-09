@@ -355,7 +355,8 @@
     const current = new Date(), next = new Date(current);
     next.setHours(12, 0, 0, 0);
     if (next <= current) next.setDate(next.getDate() + 1);
-    global.setTimeout(() => { checkAfterNoon(); scheduleNextNoon(); }, Math.max(1000, next.getTime() - current.getTime() + 100));
+    const timer = global.setTimeout(() => { checkAfterNoon(); scheduleNextNoon(); }, Math.max(1000, next.getTime() - current.getTime() + 100));
+    timer?.unref?.(); // Do not hold Node-based UI tests open; browsers use normal timers.
   }
   render();
   document.addEventListener("moondog-data", () => { render(); inspectInstalledTestVersion(); refreshRecovery(); global.setTimeout?.(checkAfterNoon, 1500); });
