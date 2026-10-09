@@ -277,7 +277,7 @@
       const row=document.createElement('div');row.className='daily-priority-row';
       const copy=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('small');
       title.textContent=item.title;
-      detail.textContent=item.type==='ro'?\`RO \${item.record?.ro||''} · \${item.record?.management?.nextAction||'Confirm next action'}\`:
+      detail.textContent=item.type==='ro'?`RO ${item.record?.ro||''} · ${item.record?.management?.nextAction||'Confirm next action'}`:
         item.next||item.description||'Review the source';
       copy.append(title,detail);row.append(copy);
       if(item.type==='coaching')row.append(button('Advisor Notified',()=>action(()=>acknowledge(item,'completed')),'secondary'));
