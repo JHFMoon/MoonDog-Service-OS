@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const mobile = require('../assets/mobile-snapshot.js');
+const mobile = require('../assets/daily-ops.js');
 const root = path.resolve(__dirname,'..');
 const read = file => fs.readFileSync(path.join(root,file),'utf8');
 
@@ -33,9 +33,10 @@ const helpers={date:()=> '2026-10-09',closed:m=>m.status==='Closed'};
 
 test('optional mobile PDF runtime is included in product installation and loaded after app', () => {
   const app=read('assets/app.js'),html=read('index.html'),ui=read('assets/daily-ops.js');
-  assert.match(app,/"assets\/mobile-snapshot\.js"/);
-  assert.match(html,/<script src="assets\/mobile-snapshot\.js"><\/script>/);
-  assert.ok(html.indexOf('assets/mobile-snapshot.js') < html.indexOf('assets/daily-ops.js'));
+  assert.doesNotMatch(app, /"assets\/mobile-snapshot\.js"/);
+  assert.doesNotMatch(html, /<script src="assets\/mobile-snapshot\.js"><\/script>/);
+  assert.match(ui,/root\.MoonDogMobileSnapshot=api/);
+  assert.match(html, /<script src="assets\/daily-ops\.js"><\/script>/);
   assert.match(ui,/Save phone PDF/);
   assert.match(ui,/category==='more'/);
 });
@@ -94,7 +95,7 @@ test('cancel is safe and does not use download fallback',async()=>{
 });
 
 test('mobile snapshot has no export automation or external endpoints',()=>{
-  const source=read('assets/mobile-snapshot.js');
+  const source=read('assets/daily-ops.js').split('\n(function () {')[0];
   assert.doesNotMatch(source,/\bfetch\s*\(/);
   assert.doesNotMatch(source,/XMLHttpRequest|sendBeacon|localStorage|indexedDB/);
   assert.doesNotMatch(source,/writeJson|writeFile|removeEntry|Workspace\/data/);
