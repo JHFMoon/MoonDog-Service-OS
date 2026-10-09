@@ -1,3 +1,4 @@
+// Mobile HTML verification suite.
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const mobile=require('../assets/daily-ops.js');
