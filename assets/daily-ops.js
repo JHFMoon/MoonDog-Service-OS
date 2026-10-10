@@ -823,6 +823,24 @@
     const host=$('dailyTools');host.dataset.category=category;host.replaceChildren();
     const title=document.createElement('h2');title.textContent=category?({imports:'Import or refresh data',settings:'Change how Service Operations Dashboard works',recovery:'Back up or recover Service Operations Dashboard',more:'More tools'})[category]:'What are you trying to do?';host.append(title);
     if(category)host.append(button('‹ Tools',()=>renderTools()));
+    if(category==='settings'){
+      const config=api.sharedSourceLearning?.();
+      if(config){
+        const pane=document.createElement('section');pane.className='daily-source-location';
+        const heading=document.createElement('h3');heading.textContent='Shared report-source learning';
+        const explanation=document.createElement('p');
+        explanation.textContent='Only “Get it from” can participate. Actual locations stay private to this Workspace. Cross-store submission stays OFF until a secure serverless endpoint is validated.';
+        const toggle=document.createElement('label'),check=document.createElement('input');
+        check.type='checkbox';check.checked=config.enabled;
+        check.addEventListener('change',()=>action(async()=>{
+          await api.setSharedSourceLearning(check.checked);
+          renderTools('settings');
+        }));
+        toggle.append(check,document.createTextNode(' Participate when secure sharing is available'));
+        const note=document.createElement('small');note.textContent=config.message;
+        pane.append(heading,explanation,toggle,note);host.append(pane);
+      }
+    }
     const options=document.createElement('div');options.className='daily-tool-choices';host.append(options);
     if(!category){[['Import or refresh data','imports'],['Change how Service Operations Dashboard works','settings'],['Back up or recover Service Operations Dashboard','recovery']].forEach(([label,key])=>options.append(button(label,()=>renderTools(key))));host.append(button('More',()=>renderTools('more'),'link-button'));}
     if(category==='imports'){
@@ -853,7 +871,7 @@
           lines.push(t.recovery,t.note);
           if(!['REFERENCE','ON DEMAND'].includes(row.need.state))lines.push(`Freshness: ${row.status} · Last successful update: ${row.lastSuccessfulImport}`);
           if(!['openRo','appointments','csi','sor'].includes(row.key))lines.push(`Represented period: ${row.period}`);
-          const historical=['REQUIRED TREND','CUMULATIVE / RECOVERABLE','WEEKLY'].includes(row.need.purpose)||row.need.purpose.startsWith('OPTIONAL TREND');
+          const historical=['REQUIRED TREND','CUMULATIVE / RECOVERABLE','WEEKLY'].includes(row.need.purpose)||String(row.need?.purpose||'').startsWith('OPTIONAL TREND');
           if(historical)lines.push(row.coverage.summary,...row.coverage.details);
           for(const line of lines.filter(Boolean)){const p=document.createElement('p');p.textContent=line;coverage.append(p);}
           const actions=['REQUIRED TREND','CUMULATIVE / RECOVERABLE','WEEKLY'].includes(row.need.purpose)?row.coverage.actions:row.need.actions;
