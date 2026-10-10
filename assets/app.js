@@ -505,10 +505,40 @@
     renderSettings();
     ui.homeConnect.hidden = true; openSetupIfRequired();
     ["scanFiles", "refreshAppointmentFiles", "refreshPerformanceFiles", "pinMeetingVoice", "clearMeetingVoice"].forEach((id) => { if (ui[id]) ui[id].disabled = false; });
-    await postConnectReconciliation(permissionWasPending); await folderWatchScan("connection"); await ensurePreviousMonthSummary(); await ensureDailyFocus(); await scanFiles(); await scanAppointmentFiles(); await scanPerformanceFiles(); await ensureMeetingCycleBaseline(); await scanRecoveryBackups(); renderAll(); renderSetup(); renderRecovery(); openSetupIfRequired(); startFolderWatch(); await recordDiagnostic("FOLDER CONNECTION", permissionWasPending ? "Automatic reconnect completed after folder permission restoration" : "Automatic reconnect completed with persistent folder permission already granted"); await recordDiagnostic("FRESHNESS", `Freshness evaluated for ${localDateKey()} using source-specific cadence rules`);
+    await postConnectReconciliation(permissionWasPending);
+    // Show usable Home immediately. Report scans and archive maintenance do not
+    // need to block the first frame; keep them ordered to avoid concurrent writes.
+    renderAll(); renderSetup(); renderRecovery(); openSetupIfRequired(); startFolderWatch();
+    const connectedRoot=model.root;
+    setTimeout(async()=>{
+      if(model.root!==connectedRoot||!writeAuthority.canWrite)return;
+      const jobs=[
+        ['Learning-file reconciliation',()=>reconcileLearnedFiles()],
+        ['Report inbox',()=>folderWatchScan('connection')],
+        ['Month-end summary',()=>ensurePreviousMonthSummary()],
+        ['Daily focus',()=>ensureDailyFocus()],
+        ['Learning files',()=>scanFiles()],
+        ['Appointment sources',()=>scanAppointmentFiles()],
+        ['Performance sources',()=>scanPerformanceFiles()],
+        ['Meeting baseline',()=>ensureMeetingCycleBaseline()],
+        ['Recovery backups',()=>scanRecoveryBackups()]
+      ];
+      for(const [label,run] of jobs){
+        if(model.root!==connectedRoot)break;
+        try{await run();}
+        catch(error){recordDiagnostic('POST-CONNECTION SCAN',label+': '+String(error?.message||error));}
+      }
+      if(model.root===connectedRoot){
+        renderAll();renderRecovery();
+        recordDiagnostic("FOLDER CONNECTION",permissionWasPending?
+          "Automatic reconnect completed after folder permission restoration":
+          "Automatic reconnect completed with persistent folder permission already granted");
+        recordDiagnostic("FRESHNESS",`Freshness evaluated for ${localDateKey()} using source-specific cadence rules`);
+      }
+    },100);
   }
   async function postConnectReconciliation(permissionWasPending = false) {
-    await reconcileLearnedFiles();
+    // Learning-file reconciliation runs after the first usable render.
     model.recovery.lastSuccessfulConnectionAt=now(); model.recovery.status="Ready"; await writeJson(RECOVERY_PATH,model.recovery);
     if(permissionWasPending) recordDiagnostic("FOLDER CONNECTION","Permission restored using the saved folder handle");
     setConnectionState("CONNECTED"); renderAll(); renderSetup(); renderRecovery(); openSetupIfRequired();
