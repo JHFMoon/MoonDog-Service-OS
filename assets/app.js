@@ -2263,6 +2263,17 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     readJson: async path => readJson(path.split('/'), null),
     refreshHistory: () => model.settings.future?.refreshCadence || globalThis.ServiceRefreshIntelligence?.empty(),
     sourceLocations: () => model.settings.future?.sourceLocations || {},
+    reportCadenceOverrides: () => model.settings.future?.reportCadenceOverrides || {},
+    saveReportCadence: async (source,cadence) => {
+      const accepted=['auto','daily','weekly','monthly','irregular','on-demand','unavailable'];
+      if(!SOURCE_COVERAGE_RULES[source]||!accepted.includes(cadence))
+        throw Error('Choose a valid report and cadence.');
+      return updateLocalFuture(future=>{
+        future.reportCadenceOverrides={...(future.reportCadenceOverrides||{})};
+        if(cadence==='auto')delete future.reportCadenceOverrides[source];
+        else future.reportCadenceOverrides[source]={value:cadence,updatedAt:now()};
+      });
+    },
     sharedSourceLearning: () => ({
       enabled:model.settings.future?.sharedSourceLearning?.enabled===true,
       deliveryConfigured:false,
