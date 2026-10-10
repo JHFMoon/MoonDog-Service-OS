@@ -732,7 +732,25 @@
     return { sourceFile: fileName, importedAt: now(), coverageStart: dates[0] || scopeStart, coverageEnd: dates.at(-1) || scopeEnd, scopeStart, scopeEnd, scopeVerified, surveys, unresolvedAdvisorCount: unresolvedAdvisors.size, validation: { parser: `dealer-dashboard-csi-v2-${format}`, stableIdentity: "Invite_ID", scoringPopulation: "INCLUDE_IN_SCORING=Yes and SURVEY_STATUS=Pulse Completed", extensionRowsCountedAsResponses: false } };
   }
   function parseCsiCsv(source, fileName) { return parseCsiRows(parseCsv(source), fileName, "csv"); }
-  function parseCsiWorkbook(bytes, fileName) { const book = XLSX.read(bytes, { type: "array", cellDates: true }), sheet = book.Sheets[book.SheetNames[0]]; if (!sheet) throw new Error("The Dealer Dashboard workbook has no readable worksheet."); return parseCsiRows(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false }), fileName, "xlsx"); }
+  function parseCsiWorkbook(bytes, fileName) {
+    const book = XLSX.read(bytes, { type: "array", cellDates: true }),
+      sheet = book.Sheets[book.SheetNames[0]];
+    if (!sheet) throw new Error("The Dealer Dashboard workbook has no readable worksheet.");
+    // Some Dealer Dashboard XLSX exports incorrectly declare only A1 as the
+    // worksheet dimension even though hundreds of columns and many rows exist.
+    // Infer the used range from parsed cells rather than trusting !ref.
+    let minRow = Infinity, minCol = Infinity, maxRow = -1, maxCol = -1;
+    for (const key of Object.keys(sheet)) {
+      if (key.startsWith("!")) continue;
+      if (!/^[A-Z]+[1-9][0-9]*$/.test(key)) continue;
+      const cell = XLSX.utils.decode_cell(key);
+      minRow = Math.min(minRow, cell.r); minCol = Math.min(minCol, cell.c);
+      maxRow = Math.max(maxRow, cell.r); maxCol = Math.max(maxCol, cell.c);
+    }
+    if (maxRow >= 0 && maxCol >= 0)
+      sheet["!ref"] = XLSX.utils.encode_range({s:{r:minRow,c:minCol},e:{r:maxRow,c:maxCol}});
+    return parseCsiRows(XLSX.utils.sheet_to_json(sheet, {header:1,defval:"",raw:false}), fileName, "xlsx");
+  }
   function npsSummary(surveys) { const rows = Object.values(surveys), promoters = rows.filter((row) => row.classification === "Promoter").length, passives = rows.filter((row) => row.classification === "Passive").length, detractors = rows.filter((row) => row.classification === "Detractor").length; return { responses: rows.length, promoters, passives, detractors, nps: rows.length ? (promoters - detractors) / rows.length * 100 : null }; }
   async function importCsiFile(name, deleteAfterSuccess = false) {
     const file = await (await sourceFileHandle(name)).getFile(), parsed = /\.xlsx$/i.test(name) ? parseCsiWorkbook(await file.arrayBuffer(), name) : parseCsiCsv(await file.text(), name), existing = model.operationalMetrics.csi.surveys || {}, refreshAt = now(), refreshDate = localDateKey();
