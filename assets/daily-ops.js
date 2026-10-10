@@ -680,7 +680,7 @@
       const needsOther=detail.value==='Other';otherField.hidden=!needsOther;
       if(needsOther&&(force||!m.statusDetailOther)){other.hidden=false;otherField.querySelector('.daily-field-context').hidden=true;}
     }
-    syncDetailFields(false);status.addEventListener('change',()=>syncDetailFields(true));detail.addEventListener('change',()=>syncDetailFields(true));
+    syncDetailFields(false);status.addEventListener('change',()=>syncDetailFields(true));detail.addEventListener('change',()=>{const needsOther=detail.value==='Other';otherField.hidden=!needsOther;if(needsOther){other.hidden=false;otherField.querySelector('.daily-field-context').hidden=true;}});
     const next=document.createElement('textarea');next.rows=2;next.required=true;compactField(form,'Next action','nextAction',m.nextAction,next,!m.nextAction||task.hard);
     const date=document.createElement('input');date.type='date';date.required=true;compactField(form,'Follow-up date','reviewDate',m.reviewDate,date,!m.reviewDate||m.reviewDate<=today());
     const time=document.createElement('input');time.type='time';compactField(form,'Follow-up time (optional)','reviewTime',m.reviewTime,time,false);
