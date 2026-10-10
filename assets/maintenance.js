@@ -135,7 +135,9 @@ function create(io,api){
      let workbookValid=false;try{workbookValid=await api.validateWorkbook(await io.read(api.currentWorkbook()));}catch(_){}
      for(const p of await io.list('exports',false)){if(/-revision\.xlsx$/.test(p)){const f=await inspect(p);classified.push({...f,area:'revision',valid:await api.validateWorkbook(f.bytes)});}}
      for(const p of await io.list('imports',false)){const f=await inspect(p);classified.push({...f,area:'import',valid:true,importProven:await api.importEvidence?.(p,f.bytes)===true});}
-     const candidates=policy(classified,{now:at,day,references:refs,currentValid,restoreBusy:api.busy?.(),currentWorkbookValid:workbookValid,fullBackups:full});
+     const candidates=full.some(f=>f.family==="manager-full"&&f.valid) ? policy(classified,{now:at,day,references:refs,currentValid,restoreBusy:api.busy?.(),currentWorkbookValid:workbookValid,fullBackups:full}).filter(f=>f.area!=="system-update") : [];
+     if(!full.some(f=>f.family==="manager-full"&&f.valid))issue("backups","Retention postponed: no validated full recovery backup");
+     // System-update rollback directories remain protected until all journal inventory hashes are validated.
      async function removeEmptyTree(p){if(!io.directoryEntries||!io.removeEmpty)return;let entries;try{entries=await io.directoryEntries(p);}catch(_){return;}for(const e of entries)if(e.kind==='directory')await removeEmptyTree(p+'/'+e.name);try{await io.removeEmpty(p);}catch(_){}}
      for(const f of candidates){if(f.items){let unchanged=true;for(const i of f.items){const c=await inspect(i.path);if(c.hash!==i.hash||c.modified!==i.modified)unchanged=false;}if(!unchanged){issue(f.path,'Recovery directory changed; kept');continue;}for(const i of f.items)await remove(i,f.area==='system-update'?'SYSTEM UPDATE ROLLBACK PRUNED':'DEPLOYMENT RECOVERY PRUNED');await removeEmptyTree(f.path);}else await remove(f,'RETENTION PRUNED');}
 
@@ -149,7 +151,7 @@ function create(io,api){
        result.directoriesRemoved||=[];result.directoriesRemoved.push(p);
       }catch(_){issue(p,'Recovery directory unavailable; kept');}
      }
-     for(const p of await io.list('Files To Learn',false)){try{const f=await inspect(p);const kind=await api.classifyLearn(f);if(kind==='disposable')await remove(f,'FILES TO LEARN NON-INPUT REMOVED');else if(kind==='supported'){if(at-f.modified<60000){issue(p,'Report still changing; kept');continue;}await api.importLearn(f);const current=await inspect(p);if(current.hash===f.hash)await remove(f,'FILES TO LEARN IMPORT VERIFIED');}else issue(p,'Unrecognized learning material retained');}catch(_){issue(p,'Learning material retained after validation failure');}}
+     // Files To Learn is user-owned source material. Never delete or ingest it as a side effect of maintenance.
      deepDate=day;retryDeep=false;
     }
     lastLight=at;await api.finish({...prior,lastLightHousekeepingAt:result.at,...(deep?{lastDeepHousekeepingDate:day,lastDeepHousekeepingAt:result.at,lastRetentionValidationAt:result.at}:{}),lastHousekeepingStatus:result.issues.length?'Needs attention':'All clear',filesRemoved:(prior.filesRemoved||0)+result.filesRemoved,bytesReclaimed:(prior.bytesReclaimed||0)+result.bytesReclaimed,unresolvedMaintenanceCount:result.issues.length,issues:result.issues.slice(0,50),events:[...(prior.events||[]),...result.events].slice(-60),...(result.removed.some(f=>f.path.startsWith('backups/'))?{lastBackupPruneAt:result.at}:{})});
