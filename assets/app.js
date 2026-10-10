@@ -704,7 +704,21 @@
     renderOverviewIntelligence();
   }
   const CSI_ADVISOR_CODES = {};
-  function csiDate(value) { const source = text(value).trim(), iso = source.match(/(20\d{2})-(\d{2})-(\d{2})/); if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`; const us = source.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s|$)/); if (!us) return null; const year = us[3].length === 2 ? `20${us[3]}` : us[3]; return `${year}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`; }
+  function csiDate(value) {
+    const source=text(value).trim();
+    const iso=source.match(/(20\d{2})-(\d{2})-(\d{2})/);
+    if(iso)return iso[1]+"-"+iso[2]+"-"+iso[3];
+    const us=source.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s|$)/);
+    if(us){const year=us[3].length===2?"20"+us[3]:us[3];return year+"-"+us[1].padStart(2,"0")+"-"+us[2].padStart(2,"0");}
+    // Dealer Dashboard XLSX uses numeric Excel dates on some exports.
+    // UTC arithmetic avoids locale-dependent off-by-one-day conversions.
+    const serial=Number(source);
+    if(source&&Number.isFinite(serial)&&serial>=36526&&serial<80000){
+      const date=new Date(Date.UTC(1899,11,30)+Math.floor(serial)*86400000);
+      return date.toISOString().slice(0,10);
+    }
+    return null;
+  }
   const CSI_REQUIRED_HEADERS = ["Invite_ID", "_recordId", "SURVEY_STATUS", "INCLUDE_IN_SCORING", "Date of Survey (-04:00 GMT)", "Service Advisor", "Dealer NPS (Service)", "Sales NPS Group (Service)", "NPS: ServPulse", "NPS Filter Group"];
   function parseCsiRows(rows, fileName, format) {
     const headerIndex=rows.findIndex(row=>row.includes('Invite_ID')&&row.includes('INCLUDE_IN_SCORING')), metadata=headerIndex>0?rows.slice(0,headerIndex):[];
