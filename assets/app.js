@@ -2263,11 +2263,28 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     readJson: async path => readJson(path.split('/'), null),
     refreshHistory: () => model.settings.future?.refreshCadence || globalThis.ServiceRefreshIntelligence?.empty(),
     sourceLocations: () => model.settings.future?.sourceLocations || {},
+    sharedSourceLearning: () => ({
+      enabled:model.settings.future?.sharedSourceLearning?.enabled===true,
+      deliveryConfigured:false,
+      message:'Local-only until a secure, validated submission endpoint is configured.'
+    }),
+    setSharedSourceLearning: async enabled => {
+      if(typeof enabled!=='boolean')throw Error('Choose enabled or disabled.');
+      return updateLocalFuture(future=>{
+        future.sharedSourceLearning={enabled,updatedAt:now()};
+      });
+    },
     recordRefresh: (source,kind,details={}) => recordRefreshLearning(source,kind,details),
     saveSourceLocation: async (source,location) => {
       if(!globalThis.ServiceRefreshIntelligence?.catalog?.[source]||typeof location!=="string"||location.length>200)
         throw Error("Choose a valid source and short location description.");
-      return updateLocalFuture(future=>{ future.sourceLocations={...(future.sourceLocations||{}),[source]:location.trim()}; });
+      const cleaned=location.trim();if(!cleaned)throw Error("Enter a report-source location.");
+      // Only private settings are persisted. The free-text location is never
+      // passed to telemetry, GitHub, or shared-learning transport.
+      const result=await updateLocalFuture(future=>{
+        future.sourceLocations={...(future.sourceLocations||{}),[source]:cleaned};
+      });
+      return result;
     },
     priorYearSapr: () => globalThis.ServiceRefreshIntelligence?.matchPriorYear(
       currentSaprSnapshot(),Object.values(model.performance?.snapshots||{}),{
