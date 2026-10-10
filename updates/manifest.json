@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.9",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.9.json",
-    "sha256": "5af9123b0b67a65fb4dc002c690aecea7bdef5d7385b8f5d83d7b0d288ebeb16",
+    "version": "0.10.18-beta.10",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.10.json",
+    "sha256": "3969f9b2aab08278d46ad376b2a4d61b878d64c7b419d33cc4afaea1daeb3706",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Reconcile Home Manager Attention immediately after automatic CSI/report imports; correctly read Dealer Dashboard Excel exports with malformed A1 worksheet dimensions. No Workspace migration."
+    "releaseNotes": "Show verified CSI import confirmation; prevent duplicate same-day CSI reminder while separately marking unverified reporting scope. Support Excel serial dates. No Workspace migration."
   }
 }
