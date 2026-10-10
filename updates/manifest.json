@@ -10,7 +10,7 @@
   "beta": {
     "version": "0.10.18-beta.10",
     "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.10.json",
-    "sha256": "3969f9b2aab08278d46ad376b2a4d61b878d64c7b419d33cc4afaea1daeb3706",
+    "sha256": "e4d9e3cdebb6471084b935bad38aa5ec6a537bafa46274475825ca1725ce545c",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
     "releaseNotes": "Show verified CSI import confirmation; prevent duplicate same-day CSI reminder while separately marking unverified reporting scope. Support Excel serial dates. No Workspace migration."
