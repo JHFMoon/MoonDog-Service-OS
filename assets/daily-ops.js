@@ -609,7 +609,9 @@
     state.operatingDate=today();
     state.selectedPhase=engine.phase(now());
     const task=attentionTopThree()[0]||null,prior=state.current?.id;state.current=task;state.editing=false;state.pending=false;state.error='';renderHome();
-    if(globalThis.MoonDogWriteAuthority?.canWrite&&task&&task.id!==prior&&active()==='home'&&!(model.settings.setup?.newStorePrepared&&!model.settings.setup?.completedAt))try{await log('surfaced',task);}catch(error){say('This task is available, but its activity could not be recorded. Check folder access before continuing.');}
+    // Rendering the next task must not block controls on an ancillary
+    // "surfaced" history write. User actions are persisted separately.
+    // Do not write a surfaced entry during a navigation action.
   }
   async function ready(){
     if(!model.root||model.connectionState!=='CONNECTED'){if(!state.current)renderHome();return;}
@@ -635,7 +637,22 @@
     const fresh=allTasks().find(t=>t.id===state.current?.id);
     if(!fresh||fresh.fingerprint!==state.current?.fingerprint){state.pending=true;const target=$('dailyChanged');if(target)target.hidden=false;}
   }
-  async function action(fn){if(state.busy)return;state.busy=true;say('');$('dailyTask')?.setAttribute('aria-busy','true');try{await fn();}catch(error){say(error.message||'This could not be saved. Check folder access and try again.');}finally{state.busy=false;$('dailyTask')?.removeAttribute('aria-busy');}}
+  async function action(fn){
+    if(state.busy){say('Finishing the previous action. Please wait a moment, then try again.');return;}
+    state.busy=true;say('');
+    const controls=$('dailyTask')?.querySelectorAll('button');
+    controls?.forEach(control=>{control.disabled=true;});
+    $('dailyTask')?.setAttribute('aria-busy','true');
+    try{await fn();}
+    catch(error){say(error?.message||'This could not be saved. Check folder access and try again.');}
+    finally{
+      state.busy=false;
+      $('dailyTask')?.removeAttribute('aria-busy');
+      // The task may have changed while the action ran. Re-enable only
+      // currently rendered controls, not detached prior task elements.
+      $('dailyTask')?.querySelectorAll('button').forEach(control=>{control.disabled=false;});
+    }
+  }
   function compactField(form,label,key,value,control,needs){
     const item=document.createElement('div');item.className='daily-field';
     const heading=document.createElement('label');heading.textContent=label;control.name=key;control.id=`daily-${key}`;heading.htmlFor=control.id;
