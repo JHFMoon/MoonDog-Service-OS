@@ -478,7 +478,10 @@
       if (pendingAdapter && pendingAdapter.schemaVersion !== 1) throw new Error("The protected local source adapter is invalid.");
     } catch (error) { model.root = previousRoot; model.applicationRoot = previousNativeRoot; connectedNativeRoot = previousNativeRoot; throw error; }
     connectedNativeRoot = handle;
-    model.pendingRoot = null; try { await rememberRoot(handle); } catch (_) { /* Manual folder reconnection remains available without browser storage. */ } await initializeFolders(); await recordDiagnostic("APPLICATION", `Service Operations Dashboard ${VERSION} connected; recent diagnostics rotated`);
+    model.pendingRoot = null; await initializeFolders();
+    // Browser persistence and diagnostics are not prerequisites for reading dashboard data.
+    void rememberRoot(handle).catch(() => {});
+    void recordDiagnostic("APPLICATION", `Service Operations Dashboard ${VERSION} connected; recent diagnostics rotated`);
     model.state = await readJson(STATE_PATH, model.state); model.state.closedRecords=pruneClosedRecords(model.state.closedRecords||[]); model.appointments = await readJson(APPOINTMENTS_PATH, model.appointments); model.performance = await readJson(PERFORMANCE_PATH, model.performance); const priorPerformance=JSON.parse(JSON.stringify(model.performance));if(normalizeControllableVinCounts(model.performance)){await writeJson(["backups",`${stamp()}-before-sapr-cp-ro-vin-denominator-migration.json`],priorPerformance);model.performance.updatedAt=now();await writeJson(PERFORMANCE_PATH,model.performance);await addHistory("sapr-controllable-migration","Applied SAPR CP RO as the controllable VIN denominator",{snapshots:Object.keys(model.performance.snapshots||{}).length});} model.operationalMetrics = await readJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics); model.meetingCycle = await readJson(MEETING_CYCLE_PATH, model.meetingCycle); model.operationalMetrics.nextAppointments ||= { snapshots: {} }; model.operationalMetrics.vir ||= { snapshots: {} }; model.operationalMetrics.menu ||= { snapshots: {} }; model.operationalMetrics.csi ||= { surveys: {}, imports: [] }; model.operationalMetrics.monthlySummaries ||= {}; model.operationalMetrics.supplementalReports ||= { snapshots: {} }; for (const family of ["sor", "appointmentActivity", "efficiency", "mediaAsr", "openRoSummary"]) model.operationalMetrics[family] ||= { snapshots: {} }; model.assignNext = await readJson(ASSIGN_NEXT_PATH, model.assignNext); model.assignNext.days||={};model.autoImport = await readJson(AUTO_IMPORT_PATH, model.autoImport); model.recovery = await readJson(RECOVERY_PATH, model.recovery); const rawSettings = await readJson(SETTINGS_PATH, {});
     const bootstrapAdapter = rawSettings.sourceAdapters ? null : await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
     const configuredAdapter = rawSettings.sourceAdapters || bootstrapAdapter;
@@ -539,9 +542,11 @@
   }
   async function postConnectReconciliation(permissionWasPending = false) {
     // Learning-file reconciliation runs after the first usable render.
-    model.recovery.lastSuccessfulConnectionAt=now(); model.recovery.status="Ready"; await writeJson(RECOVERY_PATH,model.recovery);
+    model.recovery.lastSuccessfulConnectionAt=now(); model.recovery.status="Ready";
     if(permissionWasPending) recordDiagnostic("FOLDER CONNECTION","Permission restored using the saved folder handle");
     setConnectionState("CONNECTED"); renderAll(); renderSetup(); renderRecovery(); openSetupIfRequired();
+    // Recovery timestamp persistence is not allowed to gate the first usable frame.
+    void writeJson(RECOVERY_PATH,model.recovery).catch(error => recordDiagnostic("CONNECTION METADATA",String(error?.message||error)));
   }
   async function connect() {
     if (!window.showDirectoryPicker) throw new Error("This Edge version does not support local folder access from this page.");
