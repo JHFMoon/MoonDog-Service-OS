@@ -1956,7 +1956,107 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const voice = meetingVoiceChoice(surveys); view.querySelector("#meetingV3VoiceLabel").textContent = voice.label || "CUSTOMER VOICE"; view.querySelector("#meetingV3Quote").textContent = voice.quote ? (voice.label === "TEAM MESSAGE" ? voice.quote : `“${voice.quote}”`) : voice.label === "TEAM MESSAGE" ? "A TEAM MESSAGE WILL APPEAR AFTER IT IS APPLIED." : "“A CUSTOMER VOICE MOMENT WILL APPEAR WHEN A QUALIFYING RESPONSE IS AVAILABLE.”"; renderCustomerVoiceManager(voice);
     const actions=meetingActionBandData({latest,grossWindow,grossChange,dealer,currentMetrics});view.querySelector("#meetingV3Momentum").innerHTML=actions.momentum;view.querySelector("#meetingV3Focus").innerHTML=actions.focus;view.querySelector("#meetingV3Next").innerHTML=actions.next;renderMeetingDataHealth(view,meetingDataHealthRows(latest,grossWindow,dealer,virEvidence,virComparison,menuPresentation,menuPenetration,advisorRows)); }
   function decorateMeetingCycle(view = document.querySelector("#view-meeting.meeting-v3")) { if (!view) return; const cycle = meetingCycleInfo(), valid = model.meetingCycle?.cycleStart === cycle.cycleStart, current = meetingCurrentMetrics(); let label = view.querySelector("#meetingV3Cycle"); if (!label) { label = document.createElement("b"); label.id = "meetingV3Cycle"; label.className = "meeting-cycle-label"; view.querySelector(".meeting-v3-head h2")?.after(label); } label.textContent = valid ? `SINCE LAST MEETING · DAY ${cycle.day} OF 7` : "SINCE LAST MEETING · BASELINE UNAVAILABLE"; const nps = view.querySelector("#meetingV3Nps"); if (nps) { let delta = nps.querySelector(".meeting-cycle-delta"); if (!delta) { delta = document.createElement("em"); delta.className = "meeting-cycle-delta"; nps.append(delta); } delta.textContent = valid ? meetingDelta("dealerNps", current.dealerNps) : "CHANGE UNAVAILABLE"; } const keys = ["vir", "menuPresentation", "menuPenetration", "mediaViewed", "controllables"]; view.querySelectorAll("#meetingV3Team .team-tile").forEach((card, index) => { let delta = card.querySelector(".meeting-cycle-delta"); if (!delta) { delta = document.createElement("em"); delta.className = "meeting-cycle-delta"; card.append(delta); } delta.textContent = valid ? meetingDelta(keys[index], current[keys[index]]) : "CHANGE UNAVAILABLE"; }); }
-  renderMeeting = function renderMeetingWithCycle() { renderMeetingV3Accurate(); decorateMeetingCycle(); };
+
+  // Advisor-facing TV presentation: one verified store/advisor story per 30 seconds.
+  const meetingTvState = { index: 0, timer: null, slideKeys: [] };
+  function renderMeetingTv() {
+    const view = document.querySelector("#view-meeting.meeting-scoreboard");
+    if (!view) return;
+    let stage = view.querySelector("#meetingTvStage");
+    if (!stage) {
+      stage = document.createElement("section");
+      stage.id = "meetingTvStage";
+      stage.className = "meeting-tv-stage";
+      stage.setAttribute("aria-label", "Service team meeting rotation");
+      view.querySelector(".meeting-scoreboard-head")?.after(stage);
+    }
+    const latest = latestVerifiedMeetingSnapshot();
+    const advisors = configuredAdvisors("advisorMeeting").filter(a => validAdvisorIdentity(a.number, advisorDisplayName(a.number,a)));
+    const slides = [{key:"store",title:"STORE RESULTS",type:"store"},...advisors.map(a=>({key:String(a.number),title:advisorDisplayName(a.number,a),type:"advisor",advisor:a}))];
+    const previous = meetingTvState.slideKeys[meetingTvState.index];
+    meetingTvState.slideKeys = slides.map(s=>s.key);
+    const retained = meetingTvState.slideKeys.indexOf(previous);
+    if (retained >= 0) meetingTvState.index = retained;
+    else meetingTvState.index = Math.min(meetingTvState.index, slides.length-1);
+    stage.replaceChildren();
+    const label = (title,value,note) => {
+      const card=document.createElement("article");card.className="meeting-tv-metric";
+      const heading=document.createElement("span");heading.textContent=title;
+      const number=document.createElement("strong");number.textContent=value ?? "—";
+      const detail=document.createElement("small");detail.textContent=note || "";
+      card.append(heading,number,detail);return card;
+    };
+    const format = (value,type="number") => Number.isFinite(value) ? performanceFormat(value,type) : "—";
+    for (const slide of slides) {
+      const panel=document.createElement("article");panel.className="meeting-tv-slide";panel.dataset.slideKey=slide.key;
+      const head=document.createElement("header");head.className="meeting-tv-head";
+      const title=document.createElement("div");const kicker=document.createElement("span");
+      kicker.textContent=slide.type==="store"?"SERVICE TEAM · LAST VERIFIED RESULTS":"INDIVIDUAL ADVISOR · VERIFIED RESULTS";
+      const h=document.createElement("h2");h.textContent=slide.title;title.append(kicker,h);
+      const index=document.createElement("b");index.textContent=(slides.indexOf(slide)+1)+" / "+slides.length;head.append(title,index);panel.append(head);
+      const metrics=document.createElement("div");metrics.className="meeting-tv-metrics";
+      if (slide.type==="store") {
+        const current=view.querySelector("#meetingV3Gross")?.textContent||"—";
+        const prior=view.querySelector("#meetingV3GrossPrior")?.textContent||"Prior week unavailable";
+        const change=view.querySelector("#meetingV3GrossChange")?.textContent||"Comparison unavailable";
+        metrics.append(label("GROSS · LAST 7 DAYS",current,prior+" · "+change));
+        metrics.append(label("TOTAL GROSS · MONTH",format(latest?.store?.totalGross,"money"),"Latest verified SAPR"));
+        const surveyed=sourceFreshness("csi").safeForCurrent?currentCsiSurveys():{};
+        const csi=npsSummary(surveyed);
+        metrics.append(label("DEALER NPS",csi.responses?format(csi.nps):"—",csi.responses+" verified response"+(csi.responses===1?"":"s")));
+        metrics.append(label("CP ELR",format(latest?.store?.cpElr,"money"),"Customer-pay effective labor rate"));
+        const virSource=latestOperationalSnapshot("vir")?.store,menuSource=latestOperationalSnapshot("menu")?.store;
+        metrics.append(label("VIR",virMeetingEvidence().verified?format(virSource?.utilization,"percent"):"—","Verified utilization"));
+        metrics.append(label("MENU PRESENTATION",menuMeetingEvidence("presentation").verified?format(menuSource?.presentation,"percent"):"—","Verified menu result"));
+        metrics.append(label("MENU PENETRATION",menuMeetingEvidence("penetration").verified?format(menuSource?.penetration,"percent"):"—","Verified menu result"));
+        metrics.append(label("MEDIA VIEWED",format(latest?.store?.mediaViewed,"percent"),"Latest verified SAPR"));
+      } else {
+        const code=slide.key,entity=latest?.advisors?.[code];
+        const end=latest?.periodEnd,week=end?meetingGrossWindow(end,code):null;
+        const movement=week?meetingChange(week.current.total,week.prior.total):null;
+        const csiSurveys=sourceFreshness("csi").safeForCurrent?currentCsiSurveys():{};
+        const scoped=Object.fromEntries(Object.entries(csiSurveys).filter(([,s])=>s.advisorCode===code));
+        const csi=npsSummary(scoped);
+        const goal=entity?meetingGrossGoal(latest,entity):null;
+        const vir=latestOperationalSnapshot("vir")?.advisors?.[code],menu=latestOperationalSnapshot("menu")?.advisors?.[code];
+        metrics.append(label("GROSS · LAST 7 DAYS",format(week?.current?.total,"money"),Number.isFinite(week?.prior?.total)?"Prior "+format(week.prior.total,"money")+" · "+(movement?.amount>0?"UP ":movement?.amount<0?"DOWN ":"CHANGE ")+format(Math.abs(movement?.amount),"money"):"Prior 7 days unavailable"));
+        metrics.append(label("MONTH GROSS",format(entity?.totalGross,"money"),"Month-to-date · SAPR"));
+        metrics.append(label("NEED PER DAY",format(goal?.roundedDaily,"money"),goal?.configured?"Remaining "+goal.remainingDays+" operating days":"Gross goal not configured"));
+        metrics.append(label("NPS",csi.responses?format(csi.nps):"—",csi.responses+" verified response"+(csi.responses===1?"":"s")));
+        metrics.append(label("CP ELR",format(entity?.cpElr,"money"),"Effective labor rate"));
+        metrics.append(label("CP HOURS / RO",format(entity?.cpHours),"Customer-pay productivity"));
+        metrics.append(label("VIR",virMeetingEvidence().verified?format(vir?.utilization,"percent"):"—","Verified utilization"));
+        metrics.append(label("MENU PRESENTATION",menuMeetingEvidence("presentation").verified?format(menu?.presentation,"percent"):"—","Verified menu result"));
+        metrics.append(label("MENU PENETRATION",menuMeetingEvidence("penetration").verified?format(menu?.penetration,"percent"):"—","Verified menu result"));
+        metrics.append(label("MEDIA VIEWED",format(entity?.mediaViewed,"percent"),"Latest verified SAPR"));
+        metrics.append(label("TEXTING",format(entity?.texting,"percent"),"Latest verified SAPR"));
+        const action=document.createElement("div");action.className="meeting-tv-action";
+        const next=entity?meetingNextWin(code,latest):null;
+        const a=document.createElement("span");a.textContent="YOUR NEXT WIN";
+        const b=document.createElement("strong");b.textContent=next?.text||next?.measure||"Awaiting verified advisor results";
+        action.append(a,b);panel.append(action);
+      }
+      panel.append(metrics);
+      const foot=document.createElement("footer");foot.className="meeting-tv-foot";foot.textContent=view.querySelector("#meetingV3Freshness")?.textContent||"SOURCE STATUS UNAVAILABLE";panel.append(foot);
+      stage.append(panel);
+    }
+    const show=()=>{
+      const cards=[...stage.querySelectorAll(".meeting-tv-slide")];
+      if(!cards.length)return;
+      meetingTvState.index%=cards.length;
+      cards.forEach((card,i)=>{card.hidden=i!==meetingTvState.index;card.setAttribute("aria-hidden",String(i!==meetingTvState.index));});
+    };
+    show();
+    view.classList.add("meeting-tv-rotation");
+    if (!meetingTvState.timer) meetingTvState.timer=setInterval(()=>{
+      if(document.hidden || !view.classList.contains("active"))return;
+      meetingTvState.index=(meetingTvState.index+1)%Math.max(1,meetingTvState.slideKeys.length);
+      const active=[...stage.querySelectorAll(".meeting-tv-slide")];
+      active.forEach((card,i)=>{card.hidden=i!==meetingTvState.index;card.setAttribute("aria-hidden",String(i!==meetingTvState.index));});
+    },30000);
+  }
+
+  renderMeeting = function renderMeetingWithCycle() { renderMeetingV3Accurate(); decorateMeetingCycle(); renderMeetingTv(); };
   function showMeetingPanel(panel) { const sapr = panel === "sapr"; ui.meetingSaprPanel.hidden = !sapr; ui.meetingCsiPanel.hidden = sapr; ui.meetingSapr.classList.toggle("active", sapr); ui.meetingCsi.classList.toggle("active", !sapr); ui.meetingPeriod.textContent = (sapr ? ui.meetingSaprPanel.dataset.period : ui.meetingCsiPanel.dataset.period) || `Waiting for verified ${sapr ? "SAPR" : "CSI"}`; }
   async function toggleMeetingFullscreen() { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); }
 
