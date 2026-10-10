@@ -810,6 +810,20 @@
     }
     const host=$('dailyTask');host.replaceChildren();
     if(model.root){renderRefreshStrip(host);renderManagerPulse(host);}
+    const skipped=skippedAdvisorsToday();
+    if(skipped.size){
+      const skipBar=document.createElement('div');skipBar.className='daily-advisor-skip-summary';
+      skipBar.style.cssText='display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0';
+      const label=document.createElement('span');
+      label.textContent=skipped.size+' advisor'+(skipped.size===1?'':'s')+' skipped today';
+      skipBar.append(label);
+      for(const code of skipped){
+        skipBar.append(button('Undo '+code,()=>action(async()=>{
+          await changeAdvisorRotation({advisor:code},false);
+        }),'link-button'));
+      }
+      host.append(skipBar);
+    }
     // The legacy pulse and data strip remain available in detailed tools, never compete with Top 3.
     host.querySelector('.daily-data-needed')?.remove();
     const pulse=host.querySelector('.manager-control-pulse');
@@ -830,7 +844,7 @@
           if(state.editing&&!discardDraftOk())return;
           await changeAdvisorRotation(task,true);
         }),'secondary'));
-        focus.insertBefore(control,focus.querySelector('.daily-ro-context'));
+        focus.append(control);
       }
       roForm(task,focus);
     }
