@@ -510,32 +510,36 @@
     // need to block the first frame; keep them ordered to avoid concurrent writes.
     renderAll(); renderSetup(); renderRecovery(); openSetupIfRequired(); startFolderWatch();
     const connectedRoot=model.root;
+    // Let the first interactive frame settle. Use one idle slice between
+    // independent tasks so users can keep using Home during source checks.
+    const sleepBetweenChecks=()=>new Promise(resolve=>setTimeout(resolve,350));
     setTimeout(async()=>{
       if(model.root!==connectedRoot||!writeAuthority.canWrite)return;
       const jobs=[
-        ['Learning-file reconciliation',()=>reconcileLearnedFiles()],
         ['Report inbox',()=>folderWatchScan('connection')],
         ['Month-end summary',()=>ensurePreviousMonthSummary()],
         ['Daily focus',()=>ensureDailyFocus()],
-        ['Learning files',()=>scanFiles()],
         ['Appointment sources',()=>scanAppointmentFiles()],
         ['Performance sources',()=>scanPerformanceFiles()],
         ['Meeting baseline',()=>ensureMeetingCycleBaseline()],
         ['Recovery backups',()=>scanRecoveryBackups()]
       ];
+      // The potentially large Files To Learn reconciliation is deliberately
+      // excluded from automatic reconnection. User-triggered import remains
+      // available; do not repeatedly parse historical learning files.
       for(const [label,run] of jobs){
-        if(model.root!==connectedRoot)break;
+        if(model.root!==connectedRoot||!writeAuthority.canWrite)break;
+        await sleepBetweenChecks();
         try{await run();}
         catch(error){recordDiagnostic('POST-CONNECTION SCAN',label+': '+String(error?.message||error));}
       }
       if(model.root===connectedRoot){
-        renderAll();renderRecovery();
+        renderRecovery();
         recordDiagnostic("FOLDER CONNECTION",permissionWasPending?
           "Automatic reconnect completed after folder permission restoration":
           "Automatic reconnect completed with persistent folder permission already granted");
-        recordDiagnostic("FRESHNESS",`Freshness evaluated for ${localDateKey()} using source-specific cadence rules`);
       }
-    },100);
+    },1200);
   }
   async function postConnectReconciliation(permissionWasPending = false) {
     // Learning-file reconciliation runs after the first usable render.
