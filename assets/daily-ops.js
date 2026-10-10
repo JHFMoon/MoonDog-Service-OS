@@ -539,7 +539,30 @@
     }
     section.append(grid);host.append(section);
   }
-  function allTasks(){return candidates().map(compactTask);}
+  function skippedAdvisorsToday(){
+    const skipped=new Map();
+    for(const event of state.events){
+      const detail=event.details||{};
+      if(detail.day!==today()||!['advisor-skip','advisor-unskip'].includes(detail.action))continue;
+      const code=String(detail.advisorCode||'').trim();
+      if(code)skipped.set(code,detail.action==='advisor-skip');
+    }
+    return new Set([...skipped].filter(([,value])=>value).map(([code])=>code));
+  }
+  function advisorCodeFor(task){
+    const record=task?.record||model.state.records.find(item=>item.id===task?.recordId);
+    return String(record?.advisorCode||record?.advisor||task?.advisor||'').trim();
+  }
+  async function changeAdvisorRotation(task,skipped){
+    const code=advisorCodeFor(task);
+    if(!code)throw Error('This RO does not have a recognized advisor.');
+    const event=await api.event({action:skipped?'advisor-skip':'advisor-unskip',taskId:'advisor:'+code,
+      taskType:'advisor-rotation',advisorCode:code,day:today(),hour:businessHour()});
+    state.history.push(event);state.events.push(event);
+    await selectNext();
+  }
+  function allTasks(){return candidates().map(compactTask).filter(task=>
+    task.type!=='ro'||!skippedAdvisorsToday().has(advisorCodeFor(task)));}
   function attentionTopThree(){
     if(!model.root)return [];
     const planner=globalThis.ServiceRefreshIntelligence;
@@ -787,6 +810,20 @@
     }
     const host=$('dailyTask');host.replaceChildren();
     if(model.root){renderRefreshStrip(host);renderManagerPulse(host);}
+    const skipped=skippedAdvisorsToday();
+    if(skipped.size){
+      const skipBar=document.createElement('div');skipBar.className='daily-advisor-skip-summary';
+      skipBar.style.cssText='display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0';
+      const label=document.createElement('span');
+      label.textContent=skipped.size+' advisor'+(skipped.size===1?'':'s')+' skipped today';
+      skipBar.append(label);
+      for(const code of skipped){
+        skipBar.append(button('Undo '+code,()=>action(async()=>{
+          await changeAdvisorRotation({advisor:code},false);
+        }),'link-button'));
+      }
+      host.append(skipBar);
+    }
     // The legacy pulse and data strip remain available in detailed tools, never compete with Top 3.
     host.querySelector('.daily-data-needed')?.remove();
     const pulse=host.querySelector('.manager-control-pulse');
@@ -798,7 +835,19 @@
     if(!task){host.replaceChildren();return;}
     const focus=document.createElement('div');focus.className='daily-main-priority';focus.innerHTML=`<p class="eyebrow">Manager attention · 1 of ${top.length}</p><h2>${esc(task.title)}</h2><p id="dailyError" role="alert" hidden></p><div id="dailyChanged" hidden>New information is available. Your draft is still here. <button type="button">Refresh this task</button></div>`;host.append(focus);
     $('dailyChanged').querySelector('button').onclick=()=>{if(discardDraftOk())action(selectNext);};
-    if(task.type==='ro')roForm(task,focus);
+    if(task.type==='ro'){
+      const code=advisorCodeFor(task);
+      if(code){
+        const control=document.createElement('div');control.className='daily-advisor-rotation';
+        control.style.cssText='display:flex;justify-content:flex-end;gap:8px;margin:6px 0 14px';
+        control.append(button("Skip advisor in today's rotation",()=>action(async()=>{
+          if(state.editing&&!discardDraftOk())return;
+          await changeAdvisorRotation(task,true);
+        }),'secondary'));
+        focus.append(control);
+      }
+      roForm(task,focus);
+    }
     else{
       if(task.description){const p=document.createElement('p');p.className='daily-description';p.textContent=task.description.replace(/TREND DATA NEEDED · SAPR · /,'').replace(/historical snapshot/g,'historical report');focus.append(p);}
       if(task.type==='coaching'){const p=document.createElement('p');p.className='daily-description';p.textContent=`NEXT · ${task.next}`;focus.append(p);
