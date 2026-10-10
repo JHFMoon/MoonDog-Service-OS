@@ -49,11 +49,12 @@
       const record=task.record||{};
       const management=record.management||{};
       const reviewDate=String(management.reviewDate||'');
-      const currentDay=new Date(at).toLocaleDateString('en-CA',{timeZone:'America/Los_Angeles'});
-      const planned=reviewDate && /^20\\d{2}-\\d{2}-\\d{2}$/.test(reviewDate);
+      const segments=new Intl.DateTimeFormat('en-US',{timeZone:'America/Los_Angeles',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(at));
+      const local=Object.fromEntries(segments.map(part=>[part.type,part.value]));
+      const currentDay=local.year+'-'+local.month+'-'+local.day;
+      const planned=Boolean(/^20[0-9]{2}-[0-9]{2}-[0-9]{2}$/.test(reviewDate));
       const reviewed=String(management.managerReviewedOn||'');
-      const newEscalation=Number(d.rank)>Number(task.rank) ||
-        (management.communication==='Needs update' && !String(d.fingerprint||'').includes('Needs update'));
+      const newEscalation=Number.isFinite(Number(d.rank))&&Number(task.rank)<Number(d.rank);
       if(planned && reviewDate>currentDay && !newEscalation)return false;
       if(reviewed===currentDay && !newEscalation && Date.parse(d.until)>at)return false;
     }
