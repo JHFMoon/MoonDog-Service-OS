@@ -13,6 +13,6 @@
     "sha256": "5e9e232a8d8b9650bcfa0656ef829d48891af04635dbfd416c94a4b9ac6f4506",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Fix report-source settings error; keep location guidance private and add opt-in preparation for future shared learning. Outbound sharing stays off until secure service is configured. No Workspace migration."
+    "releaseNotes": "Manager Attention button actions show a busy state, prevent duplicate writes, and advance without a blocking task-surfaced history entry. No Workspace migration."
   }
 }
