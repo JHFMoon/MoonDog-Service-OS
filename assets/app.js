@@ -513,6 +513,7 @@
     setTimeout(async()=>{
       if(model.root!==connectedRoot||!writeAuthority.canWrite)return;
       const jobs=[
+        ['Learning-file reconciliation',()=>reconcileLearnedFiles()],
         ['Report inbox',()=>folderWatchScan('connection')],
         ['Month-end summary',()=>ensurePreviousMonthSummary()],
         ['Daily focus',()=>ensureDailyFocus()],
@@ -534,10 +535,10 @@
           "Automatic reconnect completed with persistent folder permission already granted");
         recordDiagnostic("FRESHNESS",`Freshness evaluated for ${localDateKey()} using source-specific cadence rules`);
       }
-    },0);
+    },100);
   }
   async function postConnectReconciliation(permissionWasPending = false) {
-    await reconcileLearnedFiles();
+    // Learning-file reconciliation runs after the first usable render.
     model.recovery.lastSuccessfulConnectionAt=now(); model.recovery.status="Ready"; await writeJson(RECOVERY_PATH,model.recovery);
     if(permissionWasPending) recordDiagnostic("FOLDER CONNECTION","Permission restored using the saved folder handle");
     setConnectionState("CONNECTED"); renderAll(); renderSetup(); renderRecovery(); openSetupIfRequired();
