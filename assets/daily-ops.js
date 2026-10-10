@@ -874,6 +874,67 @@
           const trend=document.createElement('div');trend.className='daily-trend-compact';trend.innerHTML='<strong>SOURCE EVIDENCE</strong>';
           const quick=document.createElement('span');quick.textContent=`${row.trend.cadence}${row.trend.cadence?' · ':''}${trendLine(row)}`;trend.append(quick);entry.append(trend);
           if(['NEED NOW','NEED SOON'].includes(row.need.state)){const action=document.createElement('p');action.textContent=row.need.actions.length>1?'Recover the missing SAPR snapshots listed in Coverage details.':row.need.actions[0]||'';entry.append(action);}
+          // Explicit coverage requests, not generic freshness notices: the
+          // source report and each recoverable day/range must be visible.
+          const requests=Array.isArray(row.coverage?.actions)?row.coverage.actions:[];
+          const expected=['sapr','nextAppointments','vir','menu','sor','efficiency','mediaAsr','mediaAsrTech'].includes(row.key);
+          const cadenceSetting=api.reportCadenceOverrides?.()?.[row.key]?.value||'auto';
+          if(expected && requests.length){
+            const requestBox=document.createElement('section');requestBox.className='daily-trend-request';
+            const heading=document.createElement('strong');heading.textContent=
+              ['unavailable','on-demand','irregular'].includes(cadenceSetting)||row.need.state==='AWAITING RELEASE'
+                ? 'MISSING TREND COVERAGE — '+row.source
+                : 'RUN THIS REPORT — '+row.source;
+            requestBox.append(heading);
+            const list=document.createElement('ol');
+            for(const instruction of requests){
+              const li=document.createElement('li');li.textContent=instruction;list.append(li);
+            }
+            requestBox.append(list);
+            if(cadenceSetting!=='auto'){
+              const notice=document.createElement('p');
+              notice.textContent='Availability set to '+cadenceSetting+'. These dates remain gaps until verified reports cover them; no daily values will be estimated.';
+              requestBox.append(notice);
+            }
+            entry.append(requestBox);
+          }
+          if(expected){
+            const cadenceBox=document.createElement('div');cadenceBox.className='daily-source-cadence';
+            const caption=document.createElement('label');caption.textContent='Report availability';caption.htmlFor='daily-cadence-'+row.key;
+            const picker=document.createElement('select');picker.id='daily-cadence-'+row.key;
+            for(const [value,label] of [['auto','Auto — keep learning'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly'],['irregular','Irregular'],['on-demand','On demand'],['unavailable','Not available']])
+              picker.add(new Option(label,value));
+            picker.value=cadenceSetting;
+            const stored=api.reportCadenceOverrides?.()?.[row.key]||{};
+            const releasePicker=document.createElement('select');
+            releasePicker.setAttribute('aria-label','Release day for '+row.source);
+            const populateReleaseDays=()=>{
+              releasePicker.replaceChildren();
+              const weekly=picker.value==='weekly',monthly=picker.value==='monthly';
+              releasePicker.hidden=!(weekly||monthly);
+              if(weekly){
+                ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+                  .forEach((name,index)=>releasePicker.add(new Option(name,String(index))));
+                releasePicker.value=String(Number.isInteger(stored.releaseDay)?stored.releaseDay:1);
+              }else if(monthly){
+                for(let day=1;day<=31;day++)releasePicker.add(new Option('Day '+day,String(day)));
+                releasePicker.value=String(Number.isInteger(stored.releaseDay)?stored.releaseDay:1);
+              }
+            };
+            populateReleaseDays();
+            const applyCadence=()=>action(async()=>{
+              await api.saveReportCadence(row.key,picker.value,releasePicker.hidden?null:Number(releasePicker.value));
+              renderTools('imports');
+            });
+            picker.addEventListener('change',()=>{populateReleaseDays();applyCadence();});
+            releasePicker.addEventListener('change',applyCadence);
+            const info=document.createElement('small'),observed=api.reportCadenceEvidence?.(row.key);
+            info.textContent='Observed from '+(observed?.samples||0)+' imports: '+
+              (observed?.learned||'not enough evidence')+
+              '. Source rule: '+(row.trend?.cadence||'not established')+
+              '. Learning continues even when you set availability manually.';
+            cadenceBox.append(caption,picker,releasePicker,info);entry.append(cadenceBox);
+          }
           const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Trend details / Why?';details.append(summary);
           const coverage=document.createElement('div');coverage.className='daily-source-coverage';
           const t=row.trend,lines=[`Purpose: ${row.need.purpose}`,`Operational need: ${row.need.state} · ${row.need.reason}`,`Trend status: ${t.status}`,`Cadence: ${t.cadence||'None'}`];
