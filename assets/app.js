@@ -783,9 +783,9 @@
     const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (!Object.keys(parsed.surveys).every((id) => check?.csi?.surveys?.[id]) || check?.csi?.lastSuccessfulRefreshDate !== refreshDate) throw new Error("The CSI surveys or refresh metadata could not be verified after saving.");
     await addHistory("csi-import", `Merged CSI surveys through ${parsed.coverageEnd}`, { fileName: name, scoringSurveys: Object.keys(parsed.surveys).length, durableSurveys: Object.keys(existing).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount });
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported CSI source file ${name}`, { fileName: name, compactSurveysRetained: true }); }
-    status(`CSI imported and verified: ${Object.keys(parsed.surveys).length} scoring responses saved from ${name}. Report scope ${parsed.scopeVerified?'verified':'not supplied by export'}.`, "success");
-    renderAll();
-    renderMeeting();
+    if(typeof status==="function")status(`CSI imported and verified: ${Object.keys(parsed.surveys).length} scoring responses saved from ${name}. Report scope ${parsed.scopeVerified?'verified':'not supplied by export'}.`, "success");
+    if(typeof renderAll==="function")renderAll();
+    if(typeof renderMeeting==="function")renderMeeting();
   }
 
   const isoCell = (value) => value instanceof Date ? localDateKey(value) : workbookDate(value);
