@@ -10,9 +10,9 @@
   "beta": {
     "version": "0.10.18-beta.14",
     "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.14.json",
-    "sha256": "d9c0f4dc389cb08e2691f8b3ec705be9e739265bee2a637acd618d268ef95623",
+    "sha256": "d6a794c41f980d248d988440f6cb6e1310bee7cd0af94704da45dc078b9d6fe2",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Report Control displays exact missing month trend report dates/ranges and allows private per-source cadence settings. Automatic import cadence learning continues. No Workspace migration."
+    "releaseNotes": "Report Control gives exact missing daily report dates/ranges; per-source cadence and release-day overrides control requests while import history continues automatic cadence learning. No Workspace migration."
   }
 }
