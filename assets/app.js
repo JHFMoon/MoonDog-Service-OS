@@ -283,6 +283,50 @@
   function trendCoverageAttention(audit) { const output=[],sapr=audit?.sapr;if(sourceExpectation("sapr")!=="not-used"&&sapr?.missingDates?.length){const reports=sapr.requiredReports.map((request)=>`${reportDate(request.start)}–${reportDate(request.end)}`),missing=sapr.missingDates.map(shortDate).join(", ");output.push(`TREND DATA NEEDED · SAPR · Missing: ${missing} · ${reports.length} historical snapshot${reports.length===1?"":"s"} required · Provide: ${reports.join("; ")} · ${sapr.purpose}`);}return output; }
   // Transient review context survives the trip to Imports, never becomes durable state.
   let reportReviewView = '';
+  // Keep learned cadence observations independent of local overrides. An
+  // observed interval describes report evidence, not fabricated trend points.
+  function reportCadenceEvidence(key,todayKey=localDateKey()) {
+    const sourceKey={openRo:'open-ro',sapr:'performance',menu:'menu-sales',nextAppointments:'next-appointments',
+      mediaAsr:'media-asr',mediaAsrTech:'media-asr-tech'}[key]||key.replace(/[A-Z]/g,letter=>'-'+letter.toLowerCase());
+    const record=globalThis.ServiceRefreshIntelligence?.sourceRecord?.(
+      model.settings.future?.refreshCadence,sourceKey)||{};
+    const observed=[...new Set((record.observations||[]).map(item=>item.day)
+      .filter(day=>validCoverageDate(day)&&day<=todayKey))].sort();
+    const diffs=observed.slice(1).map((day,i)=>Math.round(
+      (Date.parse(day+'T12:00:00Z')-Date.parse(observed[i]+'T12:00:00Z'))/86400000))
+      .filter(days=>days>0);
+    const ordered=[...diffs].sort((a,b)=>a-b);
+    const median=ordered.length?ordered[Math.floor(ordered.length/2)]:0;
+    const learned=diffs.length>=3?(median<=2?'daily':median>=5&&median<=9?'weekly':
+      median>=24&&median<=35?'monthly':'irregular'):'';
+    const override=model.settings.future?.reportCadenceOverrides?.[key]||null;
+    const value=override?.value&&override.value!=='auto'?override.value:learned||'auto';
+    const automatic=!override||override.value==='auto';
+    return {value,automatic,learned,intervalDays:median,samples:observed.length,
+      lastObserved:observed.at(-1)||'',releaseDay:override?.releaseDay??null};
+  }
+  function reportCadenceDue(key,todayKey=localDateKey()){
+    const info=reportCadenceEvidence(key,todayKey);
+    const mode=info.value;
+    if(['unavailable','on-demand','irregular'].includes(mode))return false;
+    if(mode==='weekly'){
+      if(info.automatic){
+        if(!info.lastObserved)return true;
+        return freshness.addDays(info.lastObserved,7)<=todayKey;
+      }
+      const day=freshness.dayOfWeek(todayKey),weekDay=(day+6)%7;
+      const releaseWeekday=(Number(info.releaseDay)+6)%7;
+      return weekDay>=releaseWeekday;
+    }
+    if(mode==='monthly'){
+      if(info.automatic){
+        if(!info.lastObserved)return true;
+        return freshness.addDays(info.lastObserved,28)<=todayKey;
+      }
+      return Number(todayKey.slice(8,10))>=Number(info.releaseDay);
+    }
+    return true;
+  }
   function reportNeeds(todayKey=localDateKey()) {
     const audit=trendCoverageAudit(todayKey),view=document.querySelector('.view.active')?.id.replace('view-',''),
       review=['tools','imports'].includes(view)?reportReviewView:view,
@@ -310,6 +354,14 @@
         currentSnapshot:key==='openRo'&&Boolean(activeWorkloadSnapshot(todayKey)),
         arrivalPlanning:key==='appointments'&&(review==='arrivals'||(parts?.hour??0)<13),
         activeFeature,soonFeature,legacyUnsafe,cumulativeStart:validCoverageDate(model.settings.csiPeriodStart)});
+      // Never hide safety-critical Open RO/arrivals. For dated trend sources,
+      // preserve the gaps but wait until the report is actually expected.
+      if(!['openRo','appointments'].includes(key)&&
+          ['NEED NOW','NEED SOON'].includes(out[key].state)&&
+          !reportCadenceDue(key,todayKey)){
+        out[key]={...out[key],state:'AWAITING RELEASE',actionable:false,
+          actions:[],reason:'Report is not scheduled as available yet. Missing dates remain unfilled.'};
+      }
     }
     return out;
   }
@@ -2264,14 +2316,19 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     refreshHistory: () => model.settings.future?.refreshCadence || globalThis.ServiceRefreshIntelligence?.empty(),
     sourceLocations: () => model.settings.future?.sourceLocations || {},
     reportCadenceOverrides: () => model.settings.future?.reportCadenceOverrides || {},
-    saveReportCadence: async (source,cadence) => {
+    reportCadenceEvidence: source => reportCadenceEvidence(source),
+    saveReportCadence: async (source,cadence,releaseDay=null) => {
       const accepted=['auto','daily','weekly','monthly','irregular','on-demand','unavailable'];
       if(!SOURCE_COVERAGE_RULES[source]||!accepted.includes(cadence))
         throw Error('Choose a valid report and cadence.');
+      if(cadence==='weekly'&&(!Number.isInteger(Number(releaseDay))||Number(releaseDay)<0||Number(releaseDay)>6))
+        throw Error('Choose the day of the week this report becomes available.');
+      if(cadence==='monthly'&&(!Number.isInteger(Number(releaseDay))||Number(releaseDay)<1||Number(releaseDay)>31))
+        throw Error('Choose the day of the month this report becomes available.');
       return updateLocalFuture(future=>{
         future.reportCadenceOverrides={...(future.reportCadenceOverrides||{})};
         if(cadence==='auto')delete future.reportCadenceOverrides[source];
-        else future.reportCadenceOverrides[source]={value:cadence,updatedAt:now()};
+        else future.reportCadenceOverrides[source]={value:cadence,releaseDay:['weekly','monthly'].includes(cadence)?Number(releaseDay):null,updatedAt:now()};
       });
     },
     sharedSourceLearning: () => ({
