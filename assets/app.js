@@ -2284,7 +2284,6 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       const result=await updateLocalFuture(future=>{
         future.sourceLocations={...(future.sourceLocations||{}),[source]:cleaned};
       });
-      globalThis.dispatchEvent?.(new CustomEvent('moondog-source-location-changed',{detail:{source}}));
       return result;
     },
     priorYearSapr: () => globalThis.ServiceRefreshIntelligence?.matchPriorYear(
