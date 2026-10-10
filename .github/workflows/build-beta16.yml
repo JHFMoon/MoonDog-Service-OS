@@ -1,0 +1,21 @@
+name: Build Beta 16 package
+on:
+  push:
+    branches:
+      - beta/skip-advisor-rotation-20261010
+permissions:
+  contents: write
+jobs:
+  build:
+    if: "!contains(github.event.head_commit.message, '[beta16-package]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Build package
+        run: |
+          python3 scripts/build_beta16.py
+          git add updates/manifest.json updates/packages/moondog-0.10.18-beta.16.json
+          git -c user.name='MoonDog CI' -c user.email='ci@users.noreply.github.com' commit -m '[beta16-package] Candidate'
+          git push
