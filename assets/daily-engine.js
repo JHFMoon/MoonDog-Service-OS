@@ -42,6 +42,21 @@
       if(at<next)return false;
       return d.fingerprint!==task.fingerprint; // Requires new evidence before resurfacing.
     }
+    // A saved RO action plan is authoritative until its next review date.
+    // Reimporting Open ROs or refreshing source timestamps must not cause
+    // the same planned work to reappear merely because it is aged.
+    if(task.type==='ro' && d.action==='completed'){
+      const record=task.record||{};
+      const management=record.management||{};
+      const reviewDate=String(management.reviewDate||'');
+      const currentDay=new Date(at).toLocaleDateString('en-CA',{timeZone:'America/Los_Angeles'});
+      const planned=reviewDate && /^20\\d{2}-\\d{2}-\\d{2}$/.test(reviewDate);
+      const reviewed=String(management.managerReviewedOn||'');
+      const newEscalation=Number(d.rank)>Number(task.rank) ||
+        (management.communication==='Needs update' && !String(d.fingerprint||'').includes('Needs update'));
+      if(planned && reviewDate>currentDay && !newEscalation)return false;
+      if(reviewed===currentDay && !newEscalation && Date.parse(d.until)>at)return false;
+    }
     // A changed source or commitment is new work; a deferral never hides escalation.
     if(d.fingerprint!==task.fingerprint||Number(d.rank)>task.rank)return true;
     if(d.action==='deferred'&&Date.parse(d.until)>at)return false;
