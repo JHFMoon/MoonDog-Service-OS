@@ -760,6 +760,14 @@
   }
 
   function renderHome(){
+    // Automatic inbox ingestion can change the ranked tasks without a navigation.
+    // Never let a completed report request remain the visible primary action.
+    // Preserve any in-progress RO draft: only reconcile outside edit mode.
+    if(model.root&&state.loadedRoot&&!state.editing){
+      const leading=attentionTopThree()[0]||null;
+      if(leading?.id!==state.current?.id||leading?.fingerprint!==state.current?.fingerprint)
+        state.current=leading;
+    }
     const host=$('dailyTask');host.replaceChildren();
     if(model.root){renderRefreshStrip(host);renderManagerPulse(host);}
     // The legacy pulse and data strip remain available in detailed tools, never compete with Top 3.
@@ -948,6 +956,9 @@
   function refreshImportCoverage(){if(active()==='tools'&&$('dailyTools').dataset.category==='imports')renderTools('imports');}
   document.addEventListener('moondog-data',refreshImportCoverage);
   document.addEventListener('moondog-imported',refreshImportCoverage);
+  // Folder-watch updates publish moondog-data (not always moondog-imported).
+  // Re-select immediately when the authoritative source model changes.
+  document.addEventListener('moondog-data',()=>{if(!state.editing&&!state.loading&&!state.busy&&model.root)refreshCurrent();});
   document.addEventListener('moondog-imported',()=>queueMobilePublish(1200));
   document.addEventListener('moondog-navigation',e=>{if(e.detail.view==='tools')renderTools();if(e.detail.view==='settings')$('view-settings').querySelectorAll('.daily-settings-hidden').forEach(el=>el.classList.remove('daily-settings-hidden'));if(e.detail.view==='home'&&!state.editing){refreshCurrent();renderHome();}if(e.detail.anchor){const el=$(e.detail.anchor);for(let parent=el;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;}});
   document.addEventListener('moondog-imported',()=>{if(!state.busy&&!state.editing)action(async()=>{await loadHistory();await selectNext();});else state.pending=true;});
