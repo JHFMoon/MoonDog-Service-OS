@@ -296,6 +296,15 @@
         activeFeature=selected===key?'Selected Performance trend':review==='meeting'&&meetingSources.includes(key)?'Advisor Meeting':review==='arrivals'&&key==='appointments'?"Today's arrival planning":'',
         soonFeature=meetingSoon&&meetingSources.includes(key)?'Upcoming Advisor Meeting':'',
         legacyUnsafe=key==='efficiency'&&Boolean(item)&&item.validation?.parser!=='efficiency-v2-role-hierarchy';
+      // Record a successful import independently from verified report scope.
+      // Do not re-request the same CSI export during this business date.
+      if(key==='csi'&&sourceExpectation(key)==='recommended'&&
+         model.operationalMetrics?.csi?.lastSuccessfulRefreshDate===todayKey&&
+         (model.operationalMetrics.csi.imports||[]).length){
+        out[key]={key,label:'CSI',state:'RECEIVED',actionable:false,actions:[],
+          reason:'CSI import saved today; reporting scope not independently verified.'};
+        continue;
+      }
       out[key]=freshness.evaluateReportNeed({key,today:todayKey,evidence,expectation:sourceExpectation(key),
         missingDates:audit[key]?.missingDates||[],observationDate:dailyEvidenceDate(key,item),
         currentSnapshot:key==='openRo'&&Boolean(activeWorkloadSnapshot(todayKey)),
@@ -774,7 +783,9 @@
     const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (!Object.keys(parsed.surveys).every((id) => check?.csi?.surveys?.[id]) || check?.csi?.lastSuccessfulRefreshDate !== refreshDate) throw new Error("The CSI surveys or refresh metadata could not be verified after saving.");
     await addHistory("csi-import", `Merged CSI surveys through ${parsed.coverageEnd}`, { fileName: name, scoringSurveys: Object.keys(parsed.surveys).length, durableSurveys: Object.keys(existing).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount });
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported CSI source file ${name}`, { fileName: name, compactSurveysRetained: true }); }
-    renderOverviewIntelligence(); renderMeeting();
+    status(`CSI imported and verified: ${Object.keys(parsed.surveys).length} scoring responses saved from ${name}. Report scope ${parsed.scopeVerified?'verified':'not supplied by export'}.`, "success");
+    renderAll();
+    renderMeeting();
   }
 
   const isoCell = (value) => value instanceof Date ? localDateKey(value) : workbookDate(value);
