@@ -881,7 +881,10 @@
           const cadenceSetting=api.reportCadenceOverrides?.()?.[row.key]?.value||'auto';
           if(expected && requests.length){
             const requestBox=document.createElement('section');requestBox.className='daily-trend-request';
-            const heading=document.createElement('strong');heading.textContent='RUN THIS REPORT — '+row.source;
+            const heading=document.createElement('strong');heading.textContent=
+              ['unavailable','on-demand','irregular'].includes(cadenceSetting)||row.need.state==='AWAITING RELEASE'
+                ? 'MISSING TREND COVERAGE — '+row.source
+                : 'RUN THIS REPORT — '+row.source;
             requestBox.append(heading);
             const list=document.createElement('ol');
             for(const instruction of requests){
@@ -902,13 +905,35 @@
             for(const [value,label] of [['auto','Auto — keep learning'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly'],['irregular','Irregular'],['on-demand','On demand'],['unavailable','Not available']])
               picker.add(new Option(label,value));
             picker.value=cadenceSetting;
-            picker.addEventListener('change',()=>action(async()=>{
-              await api.saveReportCadence(row.key,picker.value);
+            const stored=api.reportCadenceOverrides?.()?.[row.key]||{};
+            const releasePicker=document.createElement('select');
+            releasePicker.setAttribute('aria-label','Release day for '+row.source);
+            const populateReleaseDays=()=>{
+              releasePicker.replaceChildren();
+              const weekly=picker.value==='weekly',monthly=picker.value==='monthly';
+              releasePicker.hidden=!(weekly||monthly);
+              if(weekly){
+                ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+                  .forEach((name,index)=>releasePicker.add(new Option(name,String(index))));
+                releasePicker.value=String(Number.isInteger(stored.releaseDay)?stored.releaseDay:1);
+              }else if(monthly){
+                for(let day=1;day<=31;day++)releasePicker.add(new Option('Day '+day,String(day)));
+                releasePicker.value=String(Number.isInteger(stored.releaseDay)?stored.releaseDay:1);
+              }
+            };
+            populateReleaseDays();
+            const applyCadence=()=>action(async()=>{
+              await api.saveReportCadence(row.key,picker.value,releasePicker.hidden?null:Number(releasePicker.value));
               renderTools('imports');
-            }));
-            const info=document.createElement('small');
-            info.textContent='Observed cadence: '+(row.trend?.cadence||'not established')+'. Import history continues to be learned regardless of this selection.';
-            cadenceBox.append(caption,picker,info);entry.append(cadenceBox);
+            });
+            picker.addEventListener('change',()=>{populateReleaseDays();applyCadence();});
+            releasePicker.addEventListener('change',applyCadence);
+            const info=document.createElement('small'),observed=api.reportCadenceEvidence?.(row.key);
+            info.textContent='Observed from '+(observed?.samples||0)+' imports: '+
+              (observed?.learned||'not enough evidence')+
+              '. Source rule: '+(row.trend?.cadence||'not established')+
+              '. Learning continues even when you set availability manually.';
+            cadenceBox.append(caption,picker,releasePicker,info);entry.append(cadenceBox);
           }
           const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Trend details / Why?';details.append(summary);
           const coverage=document.createElement('div');coverage.className='daily-source-coverage';
