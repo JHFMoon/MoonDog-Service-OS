@@ -57,7 +57,7 @@ test('update form and Open RO exception filters are manager-only; existing durab
   for(const id of ['editAdminBlocker','editAdminCloseDate','editAdminChangeReason']) assert.match(html,new RegExp('id="'+id+'"'));
   for(const filter of ['admin-closeout','admin-commitment-needed','admin-overdue']) assert.match(html,new RegExp('value="'+filter+'"'));
   assert.match(app,/adminCloseout=nextAdminCloseout\(/);
-  assert.match(app,/await saveState\\("Updated RO "\\+record\\.ro, priorState\\)/);
+  assert.ok(app.includes('await saveState("Updated RO "+record.ro, priorState)'));
   assert.match(app,/management=prior\?\.management\|\|defaultManagementFor\(raw\)/);
   assert.doesNotMatch(html,/data-view="advisor-closeout"/);
 });
