@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.22 — current Beta
+
+- Beta: manager RO administrative closeout commitments and overdue filters. Verified automated Beta; no Workspace migration.
+- Automatically layered onto the previous Beta so existing preview features are preserved.
+
+
 ## 0.10.18-beta.21 — current Beta
 
 - Keep verified update follow-up pending on unreadable learning files. Verified automated Beta; no Workspace migration.
