@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.21 — current Beta
+
+- Keep verified update follow-up pending on unreadable learning files. Verified automated Beta; no Workspace migration.
+- Automatically layered onto the previous Beta so existing preview features are preserved.
+
+
 ## 0.10.18-beta.20 — current Beta
 
 - Run local folder and Files To Learn checks after verified updates. Verified automated Beta; no Workspace migration.
