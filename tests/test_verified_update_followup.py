@@ -32,6 +32,12 @@ class VerifiedUpdateFollowupTests(unittest.TestCase):
         self.assertNotIn('create:true',section)
         self.assertNotIn('root.getFileHandle("index.html")',section)
 
+    def test_unreadable_learned_file_retains_followup_receipt(self):
+        section=APP[APP.index("async function reconcileLearnedFiles()"):APP.index("async function runVerifiedUpdateFollowup()")]
+        self.assertIn('failures++',section)
+        self.assertIn('Learned-source open deferred:',section)
+        self.assertIn('return {failures}',section)
+
     def test_no_unconditional_full_learning_scan_on_connection(self):
         connect=APP[APP.index('async function finishConnection('):APP.index('async function connect()',APP.index('async function finishConnection('))]
         self.assertIn("runVerifiedUpdateFollowup()",connect)
