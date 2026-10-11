@@ -545,7 +545,9 @@
     // Learning-file reconciliation runs after the first usable render.
     model.recovery.lastSuccessfulConnectionAt=now(); model.recovery.status="Ready"; await writeJson(RECOVERY_PATH,model.recovery);
     if(permissionWasPending) recordDiagnostic("FOLDER CONNECTION","Permission restored using the saved folder handle");
-    setConnectionState("CONNECTED"); renderAll(); renderSetup(); renderRecovery(); openSetupIfRequired();
+    // finishConnection performs the first UI paint immediately after reconciliation.
+    // Avoid rendering every view twice while the browser is reconnecting.
+    setConnectionState("CONNECTED");
   }
   async function connect() {
     if (!window.showDirectoryPicker) throw new Error("This Edge version does not support local folder access from this page.");
