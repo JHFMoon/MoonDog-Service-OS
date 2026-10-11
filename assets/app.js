@@ -1418,6 +1418,7 @@
         else if (!proposed.statusId) reason = "Management status is not recognized";
         else if (!COMMUNICATION_STATUSES.includes(proposed.communication)) reason = "Customer communication value is not recognized";
         else if (proposed.reviewDate === null) reason = "Commitment date could not be understood";
+        else if (current.adminCloseout?.blocker && proposed.reviewDate !== (current.adminCloseout.taskDate || "")) reason = "Administrative closeout promise changed in workbook: confirm the revised date and reason with the manager in Open RO Control.";
         else if (!isClosedManagement(proposed) && (!proposed.nextAction || !proposed.reviewDate)) reason = "Next action and commitment date must both be provided";
         else if (isClosedManagement(proposed) && Boolean(proposed.nextAction) !== Boolean(proposed.reviewDate)) reason = "Next action and commitment date must be provided together";
         if (reason) questions.push({ id, sheetName, row: rowIndex + 2, ro: record.ro, advisor: record.advisor, reason, proposed }); else clearUpdates.push({ record, proposed });
@@ -2150,7 +2151,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       if (attention === "comeback" && (isClosedManagement(record.management) || !/comeback/i.test([statusForRecord(record), record.sourceStatus, reviewStatusDetail(record)].join(" ")))) return false;
       if (attention === "reviewed" && !validManagerReviewDate(record)) return false;
       return true;
-    },records=(exactRos.length?exactRos:all.filter((record)=>passesActiveFilters(record))).sort((a, b) => { const priority = (record) => clarificationFor(record) ? 0 : isClosedManagement(record.management) ? 6 : adminCloseoutState(record,today).overdue ? 1 : adminCloseoutState(record,today).needsCommitment ? 2 : record.management.reviewDate && record.management.reviewDate < today ? 3 : record.management.reviewDate === today ? 4 : !record.management.nextAction ? 5 : 5; return priority(a) - priority(b) || String(a.management.reviewDate || "9999-12-31").localeCompare(String(b.management.reviewDate || "9999-12-31")) || String(a.advisor).localeCompare(String(b.advisor)) || String(a.ro).localeCompare(String(b.ro), undefined, { numeric: true }); });
+    },records=(exactRos.length?exactRos:all.filter((record)=>passesActiveFilters(record))).sort((a, b) => { const priority = (record) => clarificationFor(record) ? 0 : isClosedManagement(record.management) ? 7 : adminCloseoutState(record,today).overdue ? 1 : adminCloseoutState(record,today).needsCommitment ? 2 : record.management.reviewDate && record.management.reviewDate < today ? 3 : record.management.reviewDate === today ? 4 : !record.management.nextAction ? 5 : 6; return priority(a) - priority(b) || String(a.management.reviewDate || "9999-12-31").localeCompare(String(b.management.reviewDate || "9999-12-31")) || String(a.advisor).localeCompare(String(b.advisor)) || String(a.ro).localeCompare(String(b.ro), undefined, { numeric: true }); });
     const filtersBypassed=exactRos.some((record)=>!passesActiveFilters(record,false));ui.exactRoFilterNotice.hidden=!filtersBypassed;ui.exactRoFilterNotice.textContent=filtersBypassed?"Found outside current filters":"";renderRecentlyReviewed();
     const clarificationCount = all.filter((record) => clarificationFor(record)).length, unmatchedCount = (model.state.reviewQueue || []).length, questionCount = clarificationCount + unmatchedCount; ui.clarificationBanner.hidden = !questionCount; ui.clarificationBanner.replaceChildren(); if (questionCount) { const strong = document.createElement("strong"), detail = document.createElement("span"); strong.textContent = `${questionCount} update${questionCount === 1 ? " needs" : "s need"} an in-person question`; detail.textContent = unmatchedCount ? `${clarificationCount} matched to current ROs · ${unmatchedCount} could not be matched. Use the Ask in person filter and Activity history.` : "Use the Ask in person filter to work through them."; ui.clarificationBanner.append(strong, detail); }
     ui.recordCount.textContent = records.length === all.length ? `${all.length} records · select any row to update` : `Showing ${records.length} of ${all.length} records`;
@@ -2492,6 +2493,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       model.selectedId=id; model.editOrigin='home';
       populateSelect(ui.editStatus, selectableStatusesFor(record)); ui.editStatus.value=values.status; updateStatusDetailEditor(record); ui.editStatusDetail.value=values.statusDetail||''; ui.editStatusDetailOther.value=values.statusDetailOther||'';
       for (const [key, field] of Object.entries({owner:'editOwner',nextAction:'editNextAction',reviewDate:'editReviewDate',communication:'editCommunication',note:'editNote'})) ui[field].value=values[key]||'';
+      // Home does not expose admin-closeout fields; preserve the target RO's commitments.
+      ui.editAdminBlocker.value=record.management.adminCloseout?.blocker||'';
+      ui.editAdminCloseDate.value=record.management.adminCloseout?.expectedCloseDate||'';
+      ui.editAdminChangeReason.value='';
       const saved=await saveRecord(null,false,{currentTechnician:values.currentTechnician||'',reviewTime:values.reviewTime||''});
       if (!saved) throw new Error(ui.editValidation.textContent||'This RO could not be saved. Check folder access and try again.');
       return true;
