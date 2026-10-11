@@ -522,7 +522,8 @@
         ['Appointment sources',()=>scanAppointmentFiles()],
         ['Performance sources',()=>scanPerformanceFiles()],
         ['Meeting baseline',()=>ensureMeetingCycleBaseline()],
-        ['Recovery backups',()=>scanRecoveryBackups()]
+        ['Recovery backups',()=>scanRecoveryBackups()],
+        ['Verified update follow-up',()=>runVerifiedUpdateFollowup()]
       ];
       // The potentially large Files To Learn reconciliation is deliberately
       // excluded from automatic reconnection. User-triggered import remains
@@ -1271,8 +1272,9 @@
     await ensurePreviousMonthSummary(); renderAll();return appointmentOutcome;
   }
   async function reconcileLearnedFiles() {
-    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)return;dailyImportBusy=true;try{
-    let folder; try { folder = await directory(["Files To Learn"], false); } catch (error) { if (error.name === "NotFoundError") return; throw error; }
+    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)return {deferred:true};
+    let failures=0;dailyImportBusy=true;try{
+    let folder; try { folder = await directory(["Files To Learn"], false); } catch (error) { if (error.name === "NotFoundError") return {failures:0}; throw error; }
     const entries = []; for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && !/^~\$/.test(name)) { try { const file = await handle.getFile(); const relativePath=`Files To Learn/${name}`; entries.push({ name, location:"learn", relativePath, handle, file, signature:`${relativePath}|${file.size}|${file.lastModified}` }); } catch (_) {} }
     for (const entry of entries) { entry.structurePriority=10; if (/\.csv$/i.test(entry.name)) { const start=(await entry.file.slice(0,160).text()).trim().toLowerCase(); entry.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     entries.sort((a, b) => a.structurePriority - b.structurePriority || a.file.lastModified - b.file.lastModified || a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -1282,9 +1284,34 @@
         if (!kind) continue;
         const outcome=await processClassifiedCandidate(entry, kind, bytes, true);if(kind==="appointments"){model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,importedAt:now(),kind};await writeJson(AUTO_IMPORT_PATH,model.autoImport);}
         if(outcome?.retired){await addHistory("learned-file-retired","Verified a known non-service learned source and removed the Service OS copy",{sourceFamily:kind,retired:true});recordDiagnostic("FILES TO LEARN",`${kind} retired; no Service OS data retained`);}else{await addHistory("learned-file-recovered", "Verified a now-supported learned source through durable intake", { sourceFamily: kind, recovered: true });recordDiagnostic("FILES TO LEARN", `${kind} recovered after durable verification`);}
-      } catch (error) { recordDiagnostic("FILES TO LEARN", `Known-file reconciliation deferred: ${error.name}: ${error.message||error}`); }
+      } catch (error) { failures++;recordDiagnostic("FILES TO LEARN", `Known-file reconciliation deferred: ${error.name}: ${error.message||error}`); }
+      // Yield between files: version-triggered reconciliation must not freeze Home.
+      await new Promise(resolve=>setTimeout(resolve,0));
     }
+    return {failures};
     }finally{dailyImportBusy=false;}
+  }
+
+  async function runVerifiedUpdateFollowup() {
+    // A verified-install receipt is set by the updater only AFTER successful
+    // installation. Routine starts, failed installs and rollbacks never trigger
+    // a complete historical reclassification pass.
+    const key="moondog-verified-update-followup-v1";let receipt;
+    try{receipt=JSON.parse(localStorage.getItem(key)||"null");}catch(_){return;}
+    if(receipt?.version!==VERSION||!model.root||!writeAuthority.canWrite)return;
+    try{
+      // Read-only installation layout audit; protect the root compatibility
+      // index.html, every private Workspace file and all learning sources.
+      const root=model.applicationRoot,system=await root.getDirectoryHandle("System Files");
+      await root.getFileHandle("00 - OPEN DASHBOARD.html");
+      await system.getFileHandle("index.html");
+      for(const dir of ["assets","vendor","Workspace"])await system.getDirectoryHandle(dir);
+      recordDiagnostic("VERIFIED UPDATE LAYOUT","Required launcher, runtime and protected Workspace folders verified; no files changed");
+      const result=await reconcileLearnedFiles();
+      if(result?.deferred||result?.failures){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Learning-source retry deferred; receipt kept for a future connection");return;}
+      localStorage.removeItem(key);
+      recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Version "+VERSION+" learning-source retry completed; receipt cleared");
+    }catch(error){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.message||error));}
   }
 
   const folderWatch={timer:null,busy:false,pending:new Map(),lastChecked:"",state:"OFF",message:""};
