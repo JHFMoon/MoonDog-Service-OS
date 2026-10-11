@@ -1275,7 +1275,7 @@
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)return {deferred:true};
     let failures=0;dailyImportBusy=true;try{
     let folder; try { folder = await directory(["Files To Learn"], false); } catch (error) { if (error.name === "NotFoundError") return {failures:0}; throw error; }
-    const entries = []; for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && !/^~\$/.test(name)) { try { const file = await handle.getFile(); const relativePath=`Files To Learn/${name}`; entries.push({ name, location:"learn", relativePath, handle, file, signature:`${relativePath}|${file.size}|${file.lastModified}` }); } catch (_) {} }
+    const entries = []; for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && !/^~\$/.test(name)) { try { const file = await handle.getFile(); const relativePath=`Files To Learn/${name}`; entries.push({ name, location:"learn", relativePath, handle, file, signature:`${relativePath}|${file.size}|${file.lastModified}` }); } catch (error) { failures++; recordDiagnostic("FILES TO LEARN", `Learned-source open deferred: ${error?.name||"Error"}`); } }
     for (const entry of entries) { entry.structurePriority=10; if (/\.csv$/i.test(entry.name)) { const start=(await entry.file.slice(0,160).text()).trim().toLowerCase(); entry.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     entries.sort((a, b) => a.structurePriority - b.structurePriority || a.file.lastModified - b.file.lastModified || a.name.localeCompare(b.name, undefined, { numeric: true }));
     for (const entry of entries) {
