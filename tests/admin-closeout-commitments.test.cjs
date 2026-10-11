@@ -61,3 +61,15 @@ test('update form and Open RO exception filters are manager-only; existing durab
   assert.match(app,/management=prior\?\.management\|\|defaultManagementFor\(raw\)/);
   assert.doesNotMatch(html,/data-view="advisor-closeout"/);
 });
+
+test('Home save does not clear or transfer administrative fields between ROs', () => {
+  assert.ok(app.includes("ui.editAdminBlocker.value=record.management.adminCloseout?.blocker||''"));
+  assert.ok(app.includes("ui.editAdminCloseDate.value=record.management.adminCloseout?.expectedCloseDate||''"));
+  assert.ok(app.includes("ui.editAdminChangeReason.value=''"));
+});
+
+test('Supervisor Workbook updates do not silently replace an existing admin commitment', () => {
+  assert.ok(app.includes('Administrative closeout promise changed in workbook: confirm the revised date and reason'));
+  assert.ok(app.includes('proposed.reviewDate !== (current.adminCloseout.taskDate || "")'));
+  assert.ok(app.includes('!record.management.nextAction ? 5 : 6'));
+});
