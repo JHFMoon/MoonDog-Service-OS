@@ -54,8 +54,8 @@ test('revising an advisor promise requires reason and preserves previous dates',
 });
 
 test('update form and Open RO exception filters are manager-only; existing durable state is reused',()=>{
-  for(const id of ['editAdminBlocker','editAdminCloseDate','editAdminChangeReason']) assert.match(html,new RegExp('id="'+id+'"'));
-  for(const filter of ['admin-closeout','admin-commitment-needed','admin-overdue']) assert.match(html,new RegExp('value="'+filter+'"'));
+  for(const id of ['editAdminBlocker','editAdminCloseDate','editAdminChangeReason']) assert.ok(app.includes('id="'+id+'"'));
+  for(const filter of ['admin-closeout','admin-commitment-needed','admin-overdue']) assert.ok(app.includes('value="'+filter+'"'));
   assert.match(app,/adminCloseout=nextAdminCloseout\(/);
   assert.ok(app.includes('await saveState("Updated RO "+record.ro, priorState)'));
   assert.match(app,/management=prior\?\.management\|\|defaultManagementFor\(raw\)/);
