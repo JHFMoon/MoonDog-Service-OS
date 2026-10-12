@@ -128,8 +128,18 @@ try{
   const openMs=await presentationAction(true);
   const overlay=await page.evaluate(()=>{
     const v=document.getElementById("view-meeting"),r=v.getBoundingClientRect();
+    const probe=document.createElement("div");
+    probe.style.cssText="position:fixed;inset:0 auto auto 0;width:1px;height:100dvh;pointer-events:none";
+    document.body.append(probe);
+    const cssDvh=probe.getBoundingClientRect().height;
+    probe.remove();
+    const computed=getComputedStyle(v);
     return {top:r.top,left:r.left,width:r.width,height:r.height,
-      vw:innerWidth,vh:innerHeight,position:getComputedStyle(v).position,
+      vw:innerWidth,vh:innerHeight,cssDvh,
+      computedHeight:computed.height,computedMinHeight:computed.minHeight,
+      inlineHeight:v.style.height,matchedOverlay:v.matches(".presentation-overlay.active"),
+      visualViewport:window.visualViewport?.height,
+      position:computed.position,
       native:Boolean(document.fullscreenElement),
       topElement:document.elementFromPoint(innerWidth/2,innerHeight/2)?.closest("#view-meeting")===v};
   });
