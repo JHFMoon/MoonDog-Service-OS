@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   audit:
@@ -26,4 +27,41 @@ jobs:
         run: |
           git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
       - name: Audit all reachable blobs without disclosing findings
+        id: audit
+        continue-on-error: true
+        env:
+          PUBLIC_HISTORY_AUDIT_STATUS: /tmp/public-history-audit.json
         run: python3 scripts/audit_public_git_history.py
+      - name: Publish redacted commit status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$AUDIT_OUTCOME" = "success" ]; then
+            STATE=success
+            DESC="Redacted full-history scan passed"
+          else
+            STATE=failure
+            if [ -f /tmp/public-history-audit.json ]; then
+              DESC="$(python3 - <<'PY'
+import json
+data=json.load(open('/tmp/public-history-audit.json',encoding='utf-8'))
+counts=data.get('counts') or {}
+parts=[f"{k}={counts[k]}" for k in sorted(counts)]
+text="Review: " + (", ".join(parts) if parts else "audit failed before counts")
+print(text[:135])
+PY
+)"
+            else
+              DESC="Audit failed before redacted counts were produced"
+            fi
+          fi
+          gh api -X POST "repos/$REPO/statuses/$SHA"             -f state="$STATE"             -f context="Public History Audit"             -f description="$DESC"             -f target_url="https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
+      - name: Enforce audit result
+        if: steps.audit.outcome != 'success'
+        run: exit 1

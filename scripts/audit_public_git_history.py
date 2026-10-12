@@ -116,6 +116,12 @@ if os.environ.get("GITHUB_STEP_SUMMARY"):
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as report:
         report.write("\n".join(summary) + "\n")
 
+status_path = os.environ.get("PUBLIC_HISTORY_AUDIT_STATUS")
+if status_path:
+    import json
+    with open(status_path, "w", encoding="utf-8") as report:
+        json.dump({"counts": dict(counts), "objects": len(blobs)}, report, sort_keys=True)
+
 if counts:
     print("REVIEW REQUIRED: candidates detected; no sensitive values were printed.")
     sys.exit(1)
