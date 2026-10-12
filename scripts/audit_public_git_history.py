@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Conservative, redacted Git-history data-boundary audit. Never prints matches."""
 import collections
+import os
 import re
 import subprocess
 import sys
@@ -39,10 +40,17 @@ for line in objects:
     for kind, rx in patterns.items():
         if rx.search(data):
             counts[kind] += 1
-print("Git history objects inspected:", len(blobs))
+print("Git history objects inspected:", len(blobs), flush=True)
+print("Audit scope: all reachable refs; findings are redacted.", flush=True)
 print("Redacted candidate categories (counts only):")
 for kind in sorted(counts):
     print(f"  {kind}: {counts[kind]}")
+summary = ["## Public history audit", "", f"Reachable objects inspected: {len(blobs)}", "", "| Candidate category | Count |", "|---|---:|"]
+summary += [f"| {kind} | {counts[kind]} |" for kind in sorted(counts)]
+summary.append("\\n**Review required** — candidate matches are not proof of exposure." if counts else "\\nNo candidates detected within the scanned scope.")
+if os.environ.get("GITHUB_STEP_SUMMARY"):
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as report:
+        report.write("\\n".join(summary) + "\\n")
 if counts:
     print("REVIEW REQUIRED: candidates detected; no sensitive values were printed.")
     sys.exit(1)
