@@ -561,8 +561,12 @@
     state.history.push(event);state.events.push(event);
     await selectNext();
   }
-  function allTasks(){return candidates().map(compactTask).filter(task=>
-    task.type!=='ro'||!skippedAdvisorsToday().has(advisorCodeFor(task)));}
+  function allTasks(){
+    // Skip decisions depend on today's history, not on each individual RO.
+    const skipped=skippedAdvisorsToday();
+    return candidates().map(compactTask).filter(task=>
+      task.type!=='ro'||!skipped.has(advisorCodeFor(task)));
+  }
   function attentionTopThree(){
     if(!model.root)return [];
     const planner=globalThis.ServiceRefreshIntelligence;
@@ -803,8 +807,10 @@
     // Automatic inbox ingestion can change the ranked tasks without a navigation.
     // Never let a completed report request remain the visible primary action.
     // Preserve any in-progress RO draft: only reconcile outside edit mode.
+    let top;
     if(model.root&&state.loadedRoot&&!state.editing){
-      const leading=attentionTopThree()[0]||null;
+      top=attentionTopThree();
+      const leading=top[0]||null;
       if(leading?.id!==state.current?.id||leading?.fingerprint!==state.current?.fingerprint)
         state.current=leading;
     }
@@ -830,7 +836,7 @@
     if(pulse){pulse.querySelectorAll('.manager-pulse-card:not(.urgent)').forEach(card=>card.remove());if(!pulse.querySelector('.manager-pulse-card'))pulse.remove();}
     if(!model.root){host.innerHTML='<p class="eyebrow">Your daily workspace</p><h2>Connect Service Operations Dashboard to begin</h2><p>Your saved work stays in the connected working folder.</p>';host.append(button('Connect working folder',()=>api.connect(),'primary'));return;}
     if(!state.loadedRoot&&!state.current){host.innerHTML='<h2>Loading your saved work…</h2>';return;}
-    const top=attentionTopThree();refreshAttentionCount(top);
+    top ||= attentionTopThree();refreshAttentionCount(top);
     const task=state.current;
     if(!task){host.replaceChildren();return;}
     const focus=document.createElement('div');focus.className='daily-main-priority';focus.innerHTML=`<p class="eyebrow">Manager attention · 1 of ${top.length}</p><h2>${esc(task.title)}</h2><p id="dailyError" role="alert" hidden></p><div id="dailyChanged" hidden>New information is available. Your draft is still here. <button type="button">Refresh this task</button></div>`;host.append(focus);
@@ -1103,9 +1109,9 @@
   document.addEventListener('moondog-imported',refreshImportCoverage);
   // Folder-watch updates publish moondog-data (not always moondog-imported).
   // Re-select immediately when the authoritative source model changes.
-  document.addEventListener('moondog-data',()=>{if(!state.editing&&!state.loading&&!state.busy&&model.root)refreshCurrent();});
+  // The 'ready' listener already reconciles changed data; avoid a duplicate selection pass.
   document.addEventListener('moondog-imported',()=>queueMobilePublish(1200));
-  document.addEventListener('moondog-navigation',e=>{if(e.detail.view==='tools')renderTools();if(e.detail.view==='settings')$('view-settings').querySelectorAll('.daily-settings-hidden').forEach(el=>el.classList.remove('daily-settings-hidden'));if(e.detail.view==='home'&&!state.editing){refreshCurrent();renderHome();}if(e.detail.anchor){const el=$(e.detail.anchor);for(let parent=el;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;}});
+  document.addEventListener('moondog-navigation',e=>{if(e.detail.view==='tools')renderTools();if(e.detail.view==='settings')$('view-settings').querySelectorAll('.daily-settings-hidden').forEach(el=>el.classList.remove('daily-settings-hidden'));if(e.detail.view==='home'&&!state.editing){if(state.busy||state.loading)renderHome();else refreshCurrent();}if(e.detail.anchor){const el=$(e.detail.anchor);for(let parent=el;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;}});
   document.addEventListener('moondog-imported',()=>{if(!state.busy&&!state.editing)action(async()=>{await loadHistory();await selectNext();});else state.pending=true;});
   document.addEventListener('moondog-saved',e=>{
     queueMobilePublish(1200);
