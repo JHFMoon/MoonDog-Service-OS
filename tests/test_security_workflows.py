@@ -43,6 +43,23 @@ class SecurityWorkflowTests(unittest.TestCase):
             "Co-authored-by: Example Contributor <contributor@example.com>\n"
         ))
 
+    def test_owner_bootstrap_status_requires_independent_proof(self):
+        workflow = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
+        self.assertIn("  actions: read", workflow)
+        self.assertIn("  statuses: write", workflow)
+        status_step = workflow.index("Publish owner bootstrap status only after clean-install proof")
+        history_audit = workflow.index("python3 scripts/audit_git_history.py")
+        self.assertLess(history_audit, status_step)
+        bridge = workflow[status_step:]
+        self.assertIn("github.event.pull_request.author_association == 'OWNER'", bridge)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", bridge)
+        self.assertIn("github.event.pull_request.base.ref == 'main'", bridge)
+        self.assertIn("repos/$REPO/commits/$HEAD_SHA/check-runs", bridge)
+        self.assertIn('select(.name=="prove-clean-install")', bridge)
+        self.assertIn('if [ "$CLEAN" = "success" ]; then', bridge)
+        self.assertIn('-f context="Publication Check"', bridge)
+        self.assertIn('statuses/$HEAD_SHA', bridge)
+
     def test_stable_release_directly_dispatches_offline_distribution(self):
         stable = (ROOT / ".github/workflows/stable-release.yml").read_text(encoding="utf-8")
         offline = (ROOT / ".github/workflows/offline-distribution.yml").read_text(encoding="utf-8")
