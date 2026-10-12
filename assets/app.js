@@ -93,7 +93,7 @@
   const ui = Object.fromEntries([...document.querySelectorAll("[id]")].map((x) => [x.id, x]));
   function installAdminCloseoutUi() {
     const filter = ui.attentionFilter;
-    if (!filter.querySelector('[value="admin-closeout"]')) filter.insertAdjacentHTML("beforeend", '<option value="admin-closeout">Administrative closeout</option><option value="admin-commitment-needed">Admin commitment needed</option><option value="admin-overdue">Admin overdue</option>');
+    if (!filter.querySelector('[value="admin-closeout"]')) filter.insertAdjacentHTML("beforeend", '<option value="admin-closeout">Administrative closeout</option><option value="admin-commitment-needed">Admin commitment needed</option><option value="admin-due-today">Admin due today</option><option value="admin-overdue">Admin overdue</option>');
     const section = document.createElement("div");
     section.className = "wide";
     section.id = "adminCloseoutEditor";
@@ -123,10 +123,23 @@
   const ADMIN_CLOSEOUT_BLOCKERS = Object.freeze(["", "Customer pickup", "MaxCare / extended-warranty claim", "Warranty approval or processing", "Billing / paperwork", "Other administrative blocker"]);
   function adminCloseoutState(record, today = localDateKey()) {
     const closeout = record?.management?.adminCloseout;
-    if (!closeout?.blocker) return { active: false, overdue: false, needsCommitment: false };
+    // Never resurface administrative follow-ups once the RO is verified closed.
+    if (!closeout?.blocker || isClosedManagement(record?.management)) {
+      return { active: false, overdue: false, dueToday: false, needsCommitment: false };
+    }
     const taskDate = closeout.taskDate || record.management?.reviewDate || "";
     const closeDate = closeout.expectedCloseDate || "";
-    return { active: true, blocker: closeout.blocker, taskDate, closeDate, needsCommitment: !taskDate || !closeDate, overdue: Boolean((taskDate && taskDate < today) || (closeDate && closeDate < today)) };
+    const taskOverdue = Boolean(taskDate && taskDate < today);
+    const closeOverdue = Boolean(closeDate && closeDate < today);
+    const taskDueToday = taskDate === today;
+    const closeDueToday = closeDate === today;
+    return {
+      active: true, blocker: closeout.blocker, taskDate, closeDate,
+      needsCommitment: !taskDate || !closeDate,
+      taskOverdue, closeOverdue, overdue: taskOverdue || closeOverdue,
+      taskDueToday, closeDueToday, dueToday: taskDueToday || closeDueToday,
+      revisionCount: Array.isArray(closeout.revisions) ? closeout.revisions.length : 0
+    };
   }
   function nextAdminCloseout(prior, blocker, taskDate, expectedCloseDate, reason, at) {
     if (!ADMIN_CLOSEOUT_BLOCKERS.includes(blocker)) throw new Error("Select a recognized administrative blocker.");
@@ -2143,6 +2156,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       if (attention === "has-action" && !record.management.nextAction) return false;
       if (attention === "admin-closeout" && !adminCloseoutState(record,today).active) return false;
       if (attention === "admin-commitment-needed" && !adminCloseoutState(record,today).needsCommitment) return false;
+      if (attention === "admin-due-today" && !adminCloseoutState(record,today).dueToday) return false;
       if (attention === "admin-overdue" && !adminCloseoutState(record,today).overdue) return false;
       if (attention === "due-today" && (isClosedManagement(record.management) || record.management.reviewDate !== today)) return false;
       if (attention === "overdue" && (isClosedManagement(record.management) || !record.management.reviewDate || record.management.reviewDate >= today)) return false;
@@ -2152,7 +2166,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       if (attention === "comeback" && (isClosedManagement(record.management) || !/comeback/i.test([statusForRecord(record), record.sourceStatus, reviewStatusDetail(record)].join(" ")))) return false;
       if (attention === "reviewed" && !validManagerReviewDate(record)) return false;
       return true;
-    },records=(exactRos.length?exactRos:all.filter((record)=>passesActiveFilters(record))).sort((a, b) => { const priority = (record) => clarificationFor(record) ? 0 : isClosedManagement(record.management) ? 7 : adminCloseoutState(record,today).overdue ? 1 : adminCloseoutState(record,today).needsCommitment ? 2 : record.management.reviewDate && record.management.reviewDate < today ? 3 : record.management.reviewDate === today ? 4 : !record.management.nextAction ? 5 : 6; return priority(a) - priority(b) || String(a.management.reviewDate || "9999-12-31").localeCompare(String(b.management.reviewDate || "9999-12-31")) || String(a.advisor).localeCompare(String(b.advisor)) || String(a.ro).localeCompare(String(b.ro), undefined, { numeric: true }); });
+    },records=(exactRos.length?exactRos:all.filter((record)=>passesActiveFilters(record))).sort((a, b) => { const priority = (record) => clarificationFor(record) ? 0 : isClosedManagement(record.management) ? 8 : adminCloseoutState(record,today).overdue ? 1 : adminCloseoutState(record,today).needsCommitment ? 2 : adminCloseoutState(record,today).dueToday ? 3 : record.management.reviewDate && record.management.reviewDate < today ? 4 : record.management.reviewDate === today ? 5 : !record.management.nextAction ? 6 : 7; return priority(a) - priority(b) || String(a.management.reviewDate || "9999-12-31").localeCompare(String(b.management.reviewDate || "9999-12-31")) || String(a.advisor).localeCompare(String(b.advisor)) || String(a.ro).localeCompare(String(b.ro), undefined, { numeric: true }); });
     const filtersBypassed=exactRos.some((record)=>!passesActiveFilters(record,false));ui.exactRoFilterNotice.hidden=!filtersBypassed;ui.exactRoFilterNotice.textContent=filtersBypassed?"Found outside current filters":"";renderRecentlyReviewed();
     const clarificationCount = all.filter((record) => clarificationFor(record)).length, unmatchedCount = (model.state.reviewQueue || []).length, questionCount = clarificationCount + unmatchedCount; ui.clarificationBanner.hidden = !questionCount; ui.clarificationBanner.replaceChildren(); if (questionCount) { const strong = document.createElement("strong"), detail = document.createElement("span"); strong.textContent = `${questionCount} update${questionCount === 1 ? " needs" : "s need"} an in-person question`; detail.textContent = unmatchedCount ? `${clarificationCount} matched to current ROs · ${unmatchedCount} could not be matched. Use the Ask in person filter and Activity history.` : "Use the Ask in person filter to work through them."; ui.clarificationBanner.append(strong, detail); }
     ui.recordCount.textContent = records.length === all.length ? `${all.length} records · select any row to update` : `Showing ${records.length} of ${all.length} records`;
@@ -2160,13 +2174,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.roTable.replaceChildren();
     if (!records.length) { const row = document.createElement("tr"), cell = document.createElement("td"); cell.colSpan = 7; cell.className = "empty"; cell.textContent = all.length ? "No records match the current filters." : "Connect a folder and import an XLSX."; row.append(cell); ui.roTable.append(row); return; }
     for (const record of records) {
-      const row = document.createElement("tr"), clarification = clarificationFor(record), closed = isClosedManagement(record.management), admin = adminCloseoutState(record,today), overdue = !closed && (admin.overdue || (record.management.reviewDate && record.management.reviewDate < today)), due = !closed && record.management.reviewDate === today; row.dataset.id = record.id; row.tabIndex = 0; row.className = `${clarification ? "needs-clarification " : ""}${overdue ? "commitment-overdue" : due ? "commitment-due" : ""}`.trim();
+      const row = document.createElement("tr"), clarification = clarificationFor(record), closed = isClosedManagement(record.management), admin = adminCloseoutState(record,today), overdue = !closed && (admin.overdue || (record.management.reviewDate && record.management.reviewDate < today)), due = !closed && (admin.dueToday || record.management.reviewDate === today); row.dataset.id = record.id; row.tabIndex = 0; row.className = `${clarification ? "needs-clarification " : ""}${overdue ? "commitment-overdue" : due ? "commitment-due" : ""}`.trim();
       const ro = document.createElement("td"); ro.textContent = record.ro;
       const advisor = document.createElement("td"), advisorStack = document.createElement("div"), advisorName = document.createElement("strong"), advisorCode = document.createElement("small"); advisorStack.className = "ro-cell-stack"; advisorName.textContent = record.advisor || "—"; advisorCode.textContent = record.advisorCode || ""; advisorStack.append(advisorName, advisorCode); advisor.append(advisorStack);
       const customer = document.createElement("td"), customerStack = document.createElement("div"), customerName = document.createElement("strong"), vehicle = document.createElement("small"); customerStack.className = "ro-cell-stack"; customerName.textContent = record.customer || "—"; vehicle.textContent = record.vehicle || record.tagNumber || "—"; customerStack.append(customerName, vehicle); customer.append(customerStack);
       const source = document.createElement("td"), sourcePill = document.createElement("span"); sourcePill.className = "status-pill source-pill"; sourcePill.textContent = record.sourceStatus || "—"; source.append(sourcePill);
       const management = document.createElement("td"), managementPill = document.createElement("span"); managementPill.className = "status-pill"; managementPill.textContent = statusForRecord(record); management.append(managementPill); if (clarification) { const ask = document.createElement("small"); ask.className = "ask-label"; ask.textContent = "Ask in person"; management.append(ask); }
-      const action = document.createElement("td"), actionStack = document.createElement("div"), actionText = document.createElement("strong"), review = document.createElement("time"); action.className = "ro-action-cell"; actionStack.className = "ro-cell-stack"; actionText.textContent = record.management.nextAction || "No next action"; review.className = `commitment-label${overdue ? " overdue" : due ? " due" : ""}`; review.textContent = closed ? "Closed" : record.management.reviewDate ? `${overdue ? "OVERDUE" : due ? "DUE TODAY" : "Committed"} · ${record.management.reviewDate}` : "Commitment date required"; actionStack.append(actionText, review); if(admin.active){const closeout=document.createElement("small");closeout.textContent="Admin: "+admin.blocker+" · RO close: "+(admin.closeDate||"Commitment needed")+(admin.overdue?" · OVERDUE":"");actionStack.append(closeout);} action.append(actionStack);
+      const action = document.createElement("td"), actionStack = document.createElement("div"), actionText = document.createElement("strong"), review = document.createElement("time"); action.className = "ro-action-cell"; actionStack.className = "ro-cell-stack"; actionText.textContent = record.management.nextAction || "No next action"; review.className = `commitment-label${record.management.reviewDate && record.management.reviewDate < today ? " overdue" : record.management.reviewDate === today ? " due" : ""}`; review.textContent = closed ? "Closed" : record.management.reviewDate ? `${record.management.reviewDate < today ? "OVERDUE" : record.management.reviewDate === today ? "DUE TODAY" : "Committed"} · ${record.management.reviewDate}` : "Commitment date required"; actionStack.append(actionText, review); if(admin.active){const closeout=document.createElement("small");closeout.textContent="Admin: "+admin.blocker+" · Task: "+(admin.taskDate||"Commitment needed")+(admin.taskOverdue?" · MISSED":admin.taskDueToday?" · DUE TODAY":"")+" · RO close: "+(admin.closeDate||"Commitment needed")+(admin.closeOverdue?" · MISSED":admin.closeDueToday?" · DUE TODAY":"");actionStack.append(closeout);} action.append(actionStack);
       const control = document.createElement("td"), button = document.createElement("button"); button.className = "link-button"; button.textContent = "Update"; button.dataset.id = record.id; control.append(button); row.append(ro, advisor, customer, source, management, action, control); ui.roTable.append(row);
     }
   }
