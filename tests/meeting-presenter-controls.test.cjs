@@ -29,7 +29,7 @@ test("only one accessible fullscreen control, with native success and failure ha
  assert.match(source,/current\.requestFullscreen\(\)/);
  assert.match(source,/document\.exitFullscreen\(\)/);
  assert.match(source,/button\.disabled=true/);
- assert.match(source,/finally\{button\.disabled=false;button\.removeAttribute\("aria-busy"\);syncFullscreenLabel\(\);\}/);
+ assert.match(source,/finally\{button\.disabled=false;button\.removeAttribute\("aria-busy"\);syncFullscreenLabel\(\);restartTimer\(\);\}/);
  assert.match(source,/document\.addEventListener\("fullscreenchange",onFullscreenChange\)/);
  assert.match(css,/#view-meeting\.meeting-scoreboard \.meeting-scoreboard-actions #meetingFullscreen\[hidden\]/);
 });
