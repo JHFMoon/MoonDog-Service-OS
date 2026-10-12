@@ -1229,3 +1229,21 @@ html[data-theme="dark"] body #view-settings :is(input:not([type="checkbox"]),sel
 }
 
 /* END PREMIUM EXPERIENCE FINISH */
+
+/* Edge root-fullscreen isolation: the Arena remains an ordinary size-container. The
+ * browser promotes the document root instead of lifting the layout container
+ * into (and back out of) the top layer. Never change the dashboard BODY grid. */
+:root:fullscreen #view-meeting.meeting-scoreboard.presentation-active.active {
+  position:fixed!important;inset:0!important;
+  width:100vw!important;max-width:none!important;margin:0!important;
+  height:100dvh!important;min-height:100dvh!important;max-height:100dvh!important;
+  overflow:hidden!important;z-index:2147483646!important;box-sizing:border-box!important;
+}
+:root:fullscreen{background:#031521!important;}
+/* Avoid a hover transform creating another composited layer during the exit click. */
+:root:fullscreen #view-meeting.meeting-scoreboard .meeting-presenter-controls button {
+  transition:none!important;transform:none!important;
+}
+:root:fullscreen #view-meeting.meeting-scoreboard .meeting-presenter-controls button:hover {
+  transform:none!important;
+}
