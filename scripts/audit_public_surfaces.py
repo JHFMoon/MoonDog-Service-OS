@@ -3,6 +3,7 @@
 from __future__ import annotations
 import collections, io, json, os, re, subprocess, sys, tempfile, zipfile
 from pathlib import Path
+import hashlib
 
 from build_distribution import WORKSPACE_README
 
@@ -22,6 +23,7 @@ patterns={
     "credential_assignment": re.compile(rb"(?im)^.{0,100}(?:password|client_secret|api[_-]?key|access[_-]?token)\s*[:=]\s*['\"]?[A-Za-z0-9+/=_-]{16,}"),
 }
 email_rx=re.compile(rb"(?i)\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b")
+safe_email_addresses={b"web-flow@github.com",b"noreply@github.com"}
 safe_email_domains={b"noreply.github.com",b"users.noreply.github.com",b"example.com",b"example.org",b"example.net"}
 vin_rx=re.compile(rb"\b[A-HJ-NPR-Z0-9]{17}\b")
 ssn_rx=re.compile(rb"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
@@ -46,7 +48,18 @@ def valid_vin(raw: bytes)->bool:
     check="X" if total%11==10 else str(total%11)
     return vin[8]==check
 
-def scan_bytes(data: bytes, label: str):
+# One exact, independently inspected pinned PDF.js worker bundle. This only
+# exempts its already-public vendor attribution, never arbitrary vendor paths.
+VETTED_PDF_WORKER_SHA256="df20aeb7d05ee7246889f25f1e2bc882c6264b042a8b4148cdc563dc3c553691"
+
+def is_vetted_pdf_vendor_attribution(name: str, data: bytes) -> bool:
+    normalized=name.replace("\\\\","/")
+    return (
+        normalized.endswith("/System Files/vendor/pdf.worker.min.js")
+        and hashlib.sha256(data).hexdigest()==VETTED_PDF_WORKER_SHA256
+    )
+
+def scan_bytes(data: bytes, label: str, approved_vendor_attribution: bool=False):
     # Only fixed source categories enter public summaries, never release names,
     # archive paths, issue bodies, comment text, or other untrusted labels.
     label=label.split(":",1)[0]
@@ -60,9 +73,11 @@ def scan_bytes(data: bytes, label: str):
             counts[kind]+=1
     matched_emails={
         m.group(0).lower() for m in email_rx.finditer(data)
-        if m.group(1).lower() not in safe_email_domains
+        if m.group(1).lower() not in safe_email_domains and m.group(0).lower() not in safe_email_addresses
     }
-    if matched_emails:
+    if matched_emails and approved_vendor_attribution:
+        safe["verified_public_pdfjs_attribution"]+=1
+    elif matched_emails:
         counts["unsafe_email"]+=1
         email_source_item_count[label]+=1
         for email in matched_emails:
@@ -111,7 +126,7 @@ def scan_zip_bytes(data: bytes, source: str, depth: int=0):
         if zipfile.is_zipfile(io.BytesIO(body)):
             scan_zip_bytes(body,f"{source}!{name}",depth+1)
         else:
-            scan_bytes(body,f"{source}!{name}")
+            scan_bytes(body,f"{source}!{name}",approved_vendor_attribution=is_vetted_pdf_vendor_attribution(name,body))
 
 def gh_json(endpoint: str):
     proc=subprocess.run(["gh","api","--paginate",endpoint],stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True)

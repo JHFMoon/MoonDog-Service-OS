@@ -40,6 +40,8 @@ SAFE_EMAIL_SUFFIXES = (
     b"@users.noreply.github.com",
     b"@noreply.github.com",
 )
+# Exact GitHub platform-generated commit identities; do not allow all github.com.
+SAFE_GITHUB_SYSTEM_EMAILS = {b"web-flow@github.com", b"noreply@github.com"}
 
 def run(*args: str, input_bytes: bytes | None = None) -> bytes:
     return subprocess.check_output(args, cwd=ROOT, input=input_bytes)
@@ -92,7 +94,7 @@ def pii_categories(data: bytes) -> list[str]:
     if DEALER_CODE_PATTERN.search(data):
         categories.append("dealer code")
     emails = [m.group(0).lower() for m in EMAIL_PATTERN.finditer(data)]
-    unsafe_emails = [e for e in emails if not e.endswith(SAFE_EMAIL_SUFFIXES)]
+    unsafe_emails = [e for e in emails if not e.endswith(SAFE_EMAIL_SUFFIXES) and e not in SAFE_GITHUB_SYSTEM_EMAILS]
     if unsafe_emails:
         categories.append("non-example email address")
     return categories
