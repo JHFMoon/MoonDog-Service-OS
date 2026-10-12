@@ -1,0 +1,27 @@
+name: Public Repository History Safety Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-history-safety-audit.yml'
+      - 'scripts/audit_public_git_history.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full reachable history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch all advertised refs and tags
+        run: |
+          git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+      - name: Audit all reachable blobs without disclosing findings
+        run: python3 scripts/audit_public_git_history.py
