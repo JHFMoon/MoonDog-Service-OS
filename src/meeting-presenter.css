@@ -392,3 +392,79 @@ body.meeting-fullscreen .meeting-scoreboard-actions>#meetingFullscreen{display:n
 @media(prefers-reduced-motion:reduce){
   #view-meeting.meeting-scoreboard.presentation-active *{animation:none!important;transition:none!important}
 }
+
+/* Pit Wall intelligence: metric truth and 30-second coaching, not decoration. */
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-metric>em,
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-insight>em{
+  font-style:normal;font-size:clamp(11px,.91cqw,16px);font-weight:850;line-height:1.16;
+  color:#dbeaf2;white-space:normal;overflow-wrap:anywhere;
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-metric.needs>em{color:#ffc37c}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-metric.historical{
+  border-left-color:#65778a!important;border-color:#365064!important;
+  background:linear-gradient(140deg,#112b3c,#092335)!important;
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-metric.historical>strong{
+  color:#d0dbe3!important
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-metric.historical>small{
+  color:#ffd08a!important;font-size:clamp(10px,.86cqw,15px);font-weight:850
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-pace-signal.behind{
+  background:rgba(251,157,57,.12);border-left:4px solid #fbb366;
+  border-radius:3px;padding:clamp(5px,.58cqw,9px) clamp(8px,.84cqw,13px);
+  color:#ffce86!important;letter-spacing:.005em;line-height:1.22;
+  font-size:clamp(13px,1.13cqw,19px);font-weight:950
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-pace-signal.on-track{color:#55efae}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-week.incomplete{
+  border-color:#33556c!important;background:linear-gradient(135deg,#122d40,#081f32)!important
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-week.incomplete>strong.pending{
+  font-size:clamp(21px,2cqw,34px)!important;color:#ffcb80;letter-spacing:.005em;
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-week.incomplete>small{
+  color:#d7c6ae;font-size:clamp(12px,1.06cqw,17px);line-height:1.25;
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-insight{
+  display:flex;flex-direction:column;justify-content:space-between;min-width:0;min-height:0;
+  padding:clamp(8px,.93cqw,15px);border-radius:8px;
+  border:1px solid #9c7145;border-left:4px solid #ffb468;
+  background:linear-gradient(135deg,#3f2c28,#1b2632)
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-insight>span{
+  color:#ffc486;font-size:clamp(11px,.96cqw,16px);font-weight:900;letter-spacing:.055em
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-insight>strong{
+  color:#fff;font-size:clamp(22px,2.2cqw,38px);line-height:1.05;font-weight:950;overflow-wrap:anywhere
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-insight>small{
+  color:#e7c9a7;font-size:clamp(10px,.86cqw,14px)
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-insight.positive{
+  background:linear-gradient(140deg,#153d37,#0b2a32);
+  border-left-color:#4ee3af;border-color:#2d8668
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-insight.positive>span{
+  color:#89f0cb
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-focus .tv-coaching{
+  display:flex;flex-direction:column;justify-content:center;gap:clamp(5px,.75cqw,10px);
+  min-width:0;line-height:1.22
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-focus .tv-coaching>small{
+  color:#65d7ff;font-size:clamp(12px,.95cqw,16px);font-weight:950
+}
+#view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-focus .tv-coaching>span{
+  color:#f1f7fc;font-size:clamp(12px,1.08cqw,18px);font-weight:720;
+  text-wrap:balance;overflow-wrap:anywhere
+}
+@media(max-height:800px) and (orientation:landscape){
+  #view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-metric>em,
+  #view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-insight>em{
+    font-size:clamp(10px,.82cqw,14px)
+  }
+  #view-meeting.meeting-scoreboard.presentation-active .advisor-tv .tv-focus .tv-coaching>span{
+    font-size:clamp(11px,1cqw,15px)
+  }
+}

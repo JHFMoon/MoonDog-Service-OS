@@ -14,14 +14,15 @@ const end = app.indexOf("  function renderMeetingV3()", begin);
 assert.ok(begin > 0 && end > begin, "TV renderer must sit next to the actual meeting source");
 const functions = app.slice(begin, end);
 
-function renderScenario({current = true, week = false, responses = 0, value = 94} = {}) {
+function renderScenario({current = true, week = false, responses = 0, value = 94, historical = false, missingDates = []} = {}) {
   const context = {
     Number, Math, Intl,
     sourceFreshness: key => ({verified: current, safeForCurrent: current}),
-    virMeetingEvidence: () => ({verified: current}),
-    menuMeetingEvidence: () => ({verified: current}),
+    virMeetingEvidence: () => ({verified: current && !historical, status: historical ? "stale" : current ? "verified" : "missing-source"}),
+    virObservationDate: () => "2026-10-08",
+    menuMeetingEvidence: () => ({verified: current && !historical, status: historical ? "stale" : current ? "verified" : "missing-source"}),
     csiMetricEvidence: () => ({verified: current && responses > 0}),
-    latestOperationalSnapshot: key => ({advisors: {"test": key === "vir" ? {utilization:value} : {presentation:81, penetration:43}}}),
+    latestOperationalSnapshot: key => ({releaseWeek:"2026-10-05",advisors: {"test": key === "vir" ? {utilization:value} : {presentation:81, penetration:43}}}),
     standard: key => {
       const metrics = ["cpElr","cpHoursPerRo","mediaViewed","texting","vir","menuPresentation","menuPenetration","dealerNps"];
       const testValues = [230,2.1,86,98,92,78,42,95];
@@ -29,7 +30,7 @@ function renderScenario({current = true, week = false, responses = 0, value = 94
     },
     performanceFormat: (n, kind) => kind === "money" ? "$" + Math.round(n).toLocaleString("en-US") : "" + Math.round(n),
     compactMoney: n => "$" + (n / 1000).toFixed(1) + "K",
-    shortDate: () => "Oct 11",
+    shortDate: date => date === "2026-10-08" ? "Oct 8" : date === "2026-10-05" ? "Oct 5" : date === "2026-10-09" ? "Oct 9" : "Oct 11",
     meetingChange: (a,b) => ({amount:a-b,percent: (a-b)/b*100}),
     signedValue: n => n >= 0 ? "+" + n : "" + n
   };
@@ -41,7 +42,7 @@ function renderScenario({current = true, week = false, responses = 0, value = 94
     {periodEnd:"2026-10-11", validation:{saprDaysVerified:true,finalTotalsVerified:true}, saprDaysCompleted:7, saprTotalDays:23, advisors:{test:{}}},
     entity,
     {configured:true, target:Math.round(67000 + 1000), achieved:false, roundedDaily:3100, remainingDays:15},
-    {current:{total:week ? 10200 : null}, prior:{total:week ? 8900 : null}},
+    {current:{total:week ? 10200 : null, missingDates, reconciled:week}, prior:{total:week ? 8900 : null}},
     {label:"BRAKES", measure:"Need 1 more sale", action:"BY NEXT MEETING", achieved:false},
     {responses,nps:responses ? 100 : null});
 }
@@ -56,17 +57,19 @@ test("30-second TV card displays pace, eight metrics, one action and verified we
   assert.match(html, /<div class="tv-metrics" data-metric-count="8">/);
   assert.equal((html.match(/class="tv-metric /g)||[]).length,8);
   assert.match(html, /PERFORMANCE TELEMETRY/);
-  assert.match(html, /RUN RATE/);
+  assert.match(html, /AT CURRENT PACE/);
   for(const label of ["CP ELR","CP HRS / RO","MEDIA VIEWED","TEXTING","VIR","MENU SHOWN","MENU SOLD","CSI NPS"])assert.ok(html.includes(label),label);
   assert.match(html, /Need 1 more sale/);
   assert.match(html, /BY NEXT MEETING/);
   assert.match(html, /2 responses/);
+  assert.match(html, /\$15 below/);
+  assert.match(html, /Goal 2\.10 · 0\.20 below/);
 });
 
 test("missing weekly data stays small; no surveys are not scored as NPS zero",()=>{
   const html=renderScenario({current:true,week:false,responses:0});
-  assert.match(html, /<strong class="pending">PENDING<\/strong>/);
-  assert.match(html, /Verified daily history incomplete/);
+  assert.match(html, /<strong class="pending">NOT VERIFIED<\/strong>/);
+  assert.match(html, /Daily SAPR totals need reconciliation/);
   assert.match(html, /0 RESPONSES/);
   assert.doesNotMatch(html, /<span>CSI NPS<\/span>/);
   assert.match(html, /0 RESPONSES/);
@@ -152,4 +155,47 @@ test("Overdrive responsive source/runtime design parity remains exact",()=>{
   const start="/* BEGIN GENERATED MEETING LAYOUT (see src/meeting-presenter.css) */";
   const end="/* END GENERATED MEETING LAYOUT */";
   assert.equal(runtime.split(start)[1].split(end)[0].trim(),css.trim());
+});
+test("historical VIR and Menu results show dates and never receive green-met treatment",()=>{
+  const html=renderScenario({current:true,responses:0,historical:true});
+  assert.match(html,/tv-metric historical" data-as-of="historical"><span>VIR/);
+  assert.match(html,/HISTORICAL · As of Oct 8/);
+  assert.match(html,/HISTORICAL · As of Oct 5/);
+  assert.doesNotMatch(html,/tv-metric met"><span>VIR/);
+  assert.doesNotMatch(html,/tv-metric met"><span>MENU/);
+  assert.match(html,/7 OF 8 VERIFIED OR DATED METRICS/);
+  assert.match(html,/BIGGEST KPI GAP/);
+  assert.match(html,/CP HRS \/ RO/);
+});
+
+test("seven tiles fill eighth slot with computed SAPR KPI miss, not invented data",()=>{
+  const html=renderScenario({current:true,responses:0});
+  assert.equal((html.match(/class="tv-metric /g)||[]).length,7);
+  assert.equal((html.match(/class="tv-insight /g)||[]).length,1);
+  assert.match(html,/BIGGEST KPI GAP/);
+  assert.match(html,/below configured goal/);
+  assert.match(html,/Review measured brake condition/);
+});
+
+test("missing SAPR dates and cautious run-rate are prominent but do not assert reconciled week",()=>{
+  const html=renderScenario({current:true,responses:0,missingDates:["2026-10-09","2026-10-11"]});
+  assert.match(html,/2 DAYS MISSING/);
+  assert.match(html,/Missing SAPR: Oct 9, Oct 11/);
+  assert.match(html,/tv-pace-signal on-track/);
+  assert.doesNotMatch(html,/<strong class="">\$10\.2K<\/strong>/);
+});
+
+test("projected below-target run-rate shows an explicit gap without inventing gross",()=>{
+  const html=renderScenario({current:true,responses:0});
+  assert.match(html,/AT CURRENT PACE/);
+  assert.match(html,/PROJECTED/);
+  assert.match(html,/RUN RATE|CURRENT PACE/);
+});
+
+test("focused CSS has historical, scarcity, coaching, and insight responsive rules",()=>{
+  assert.match(css,/\.tv-metric\.historical/);
+  assert.match(css,/\.tv-pace-signal\.behind/);
+  assert.match(css,/\.tv-week\.incomplete/);
+  assert.match(css,/\.tv-insight/);
+  assert.match(css,/\.tv-coaching/);
 });
