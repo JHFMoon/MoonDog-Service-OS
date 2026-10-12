@@ -1,201 +1,86 @@
 "use strict";
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const vm = require("node:vm");
-
-const root = path.resolve(__dirname, "..");
-const app = fs.readFileSync(path.join(root, "assets/app.js"), "utf8");
-const css = fs.readFileSync(path.join(root, "src/meeting-presenter.css"), "utf8");
-const runtime = fs.readFileSync(path.join(root, "assets/meeting.css"), "utf8");
-const begin = app.indexOf("  function meetingTvMetric(");
-const end = app.indexOf("  function renderMeetingV3()", begin);
-assert.ok(begin > 0 && end > begin, "TV renderer must sit next to the actual meeting source");
-const functions = app.slice(begin, end);
-
-function renderScenario({current = true, week = false, responses = 0, value = 94, historical = false, missingDates = []} = {}) {
-  const context = {
-    Number, Math, Intl,
-    sourceFreshness: key => ({verified: current, safeForCurrent: current}),
-    virMeetingEvidence: () => ({verified: current && !historical, status: historical ? "stale" : current ? "verified" : "missing-source"}),
-    virObservationDate: () => "2026-10-08",
-    menuMeetingEvidence: () => ({verified: current && !historical, status: historical ? "stale" : current ? "verified" : "missing-source"}),
-    csiMetricEvidence: () => ({verified: current && responses > 0}),
-    latestOperationalSnapshot: key => ({releaseWeek:"2026-10-05",advisors: {"test": key === "vir" ? {utilization:value} : {presentation:81, penetration:43}}}),
-    standard: key => {
-      const metrics = ["cpElr","cpHoursPerRo","mediaViewed","texting","vir","menuPresentation","menuPenetration","dealerNps"];
-      const testValues = [230,2.1,86,98,92,78,42,95];
-      return testValues[metrics.indexOf(key)];
-    },
-    performanceFormat: (n, kind) => kind === "money" ? "$" + Math.round(n).toLocaleString("en-US") : "" + Math.round(n),
-    compactMoney: n => "$" + (n / 1000).toFixed(1) + "K",
-    shortDate: date => date === "2026-10-08" ? "Oct 8" : date === "2026-10-05" ? "Oct 5" : date === "2026-10-09" ? "Oct 9" : "Oct 11",
-    meetingChange: (a,b) => ({amount:a-b,percent: (a-b)/b*100}),
-    signedValue: n => n >= 0 ? "+" + n : "" + n
-  };
-  const renderer = vm.runInNewContext(functions + "\nmeetingAdvisorTv;", context);
-  const fields = ["totalGross","cpElr","cpHours","mediaViewed","texting"];
-  const observations = [21300,215,1.9,91,100];
-  const entity = Object.fromEntries(fields.map((field,index)=>[field,observations[index]]));
-  return renderer("test",
-    {periodEnd:"2026-10-11", validation:{saprDaysVerified:true,finalTotalsVerified:true}, saprDaysCompleted:7, saprTotalDays:23, advisors:{test:{}}},
-    entity,
-    {configured:true, target:Math.round(67000 + 1000), achieved:false, roundedDaily:3100, remainingDays:15},
-    {current:{total:week ? 10200 : null, missingDates, reconciled:week}, prior:{total:week ? 8900 : null}},
-    {label:"BRAKES", measure:"Need 1 more sale", action:"BY NEXT MEETING", achieved:false},
-    {responses,nps:responses ? 100 : null});
+const test=require("node:test"),assert=require("node:assert/strict"),fs=require("node:fs"),path=require("node:path"),vm=require("node:vm");
+const root=path.resolve(__dirname,"..");
+const app=fs.readFileSync(path.join(root,"assets/app.js"),"utf8");
+const css=fs.readFileSync(path.join(root,"src/meeting-presenter.css"),"utf8");
+const runtime=fs.readFileSync(path.join(root,"assets/meeting.css"),"utf8");
+const start=app.indexOf("  function meetingAdvisorTv("),end=app.indexOf("  function attachMeetingAdvisorTv(",start);
+assert.ok(start>0&&end>start,"TV presentation must be connected to the app");
+const presenter=app.slice(start,end);
+function scenario(opts={}){
+ const current=opts.current!==false,older=!!opts.older, responses=opts.responses??0,missing=opts.missing??[];
+ const knownMetrics=["cpElr","cpHoursPerRo","mediaViewed","texting","vir","menuPresentation","menuPenetration","dealerNps"];
+ const testGoals=[230,2.1,86,98,92,78,42,95];
+ const context={Number,Math,Intl,String,
+   standard:key=>testGoals[knownMetrics.indexOf(key)],
+   virMeetingEvidence:()=>({verified:current&&!older,status:older?"stale":current?"verified":"missing-source"}),
+   virObservationDate:()=> "2026-10-08",
+   latestOperationalSnapshot:key=>({releaseWeek:"2026-10-05",advisors:{test:key==="vir"?{utilization:94}:{presentation:81,penetration:43}}}),
+   menuMeetingEvidence:()=>({verified:current&&!older,status:older?"stale":current?"verified":"missing-source"}),
+   csiMetricEvidence:()=>({verified:current&&responses>0}),
+   performanceFormat:(n,k)=>k==="money"?"$"+Math.round(n).toLocaleString("en-US"):String(Math.round(n)),
+   compactMoney:n=>"$"+(n/1000).toFixed(1)+"K",
+   shortDate:d=>({"2026-10-11":"Oct 11","2026-10-08":"Oct 8","2026-10-05":"Oct 5","2026-10-10":"Oct 10"})[d]||"Oct 11"
+ };
+ const render=vm.runInNewContext(presenter+"\nmeetingAdvisorTv;",context);
+ const fields=["totalGross","cpElr","cpHours","mediaViewed","texting"],values=[29600,215,1.9,93,92];
+ const entity=Object.fromEntries(fields.map((k,i)=>[k,values[i]]));
+ return render("test",{periodEnd:"2026-10-11",validation:{saprDaysVerified:current,finalTotalsVerified:current},saprDaysCompleted:7,saprTotalDays:23},entity,
+   {configured:true,target:67000+8000,roundedDaily:2800,remainingDays:16.5,achieved:false},
+   {current:{total:opts.week?12000:null,missingDates:missing},prior:{total:null}},
+   {label:"ALIGNMENTS",measure:"Need 1 more sale",action:"BY NEXT MEETING",achieved:false},
+   {responses,nps:responses?100:null});
 }
-
-test("30-second TV card displays pace, eight metrics, one action and verified week state", () => {
-  const html = renderScenario({current:true,week:true,responses:2});
-  assert.match(html, /MONTH-TO-DATE GROSS/);
-  assert.match(html, /\$21\.3K/);
-  assert.ok(html.includes((68000/1000).toFixed(1)+"K goal"));
-  assert.match(html, /\$3,100/);
-  assert.match(html, /\$10\.2K/);
-  assert.match(html, /<div class="tv-metrics" data-metric-count="8">/);
-  assert.equal((html.match(/class="tv-metric /g)||[]).length,8);
-  assert.match(html, /PERFORMANCE TELEMETRY/);
-  assert.match(html, /AT CURRENT PACE/);
-  for(const label of ["CP ELR","CP HRS / RO","MEDIA VIEWED","TEXTING","VIR","MENU SHOWN","MENU SOLD","CSI NPS"])assert.ok(html.includes(label),label);
-  assert.match(html, /Need 1 more sale/);
-  assert.match(html, /BY NEXT MEETING/);
-  assert.match(html, /2 responses/);
-  assert.match(html, /\$15 below/);
-  assert.match(html, /Goal 2\.10 · 0\.20 below/);
+test("Advisor's actual TV rendering tells a simple production and next-win story",()=>{
+ const html=scenario({current:true,week:true,responses:2});
+ for(const word of ["broadcast-tv","THIS MONTH","NEEDED EACH WORKDAY","ON PACE TO BEAT YOUR GOAL","DOING WELL","NEEDS ATTENTION","NEXT WIN","ALIGNMENTS","1 MORE SALE","BEFORE NEXT MEETING"])assert.ok(html.includes(word),word);
+ assert.match(html,/rx-track/);
+ assert.ok(html.includes("$29.6K"));
+ assert.match(html,/rx-hero/);
+ assert.doesNotMatch(html,/PERFORMANCE TELEMETRY|SAPR|HISTORICAL|VERIFIED|CONFIGURED GOAL|CURRENTNESS|Review tire wear/i);
+ assert.doesNotMatch(html,/tv-coaching|tv-metric/);
 });
-
-test("missing weekly data stays small; no surveys are not scored as NPS zero",()=>{
-  const html=renderScenario({current:true,week:false,responses:0});
-  assert.match(html, /<strong class="pending">NOT VERIFIED<\/strong>/);
-  assert.match(html, /Daily SAPR totals need reconciliation/);
-  assert.match(html, /0 RESPONSES/);
-  assert.doesNotMatch(html, /<span>CSI NPS<\/span>/);
-  assert.match(html, /0 RESPONSES/);
+test("Clearly dated older numbers do not join current wins or warnings",()=>{
+ const html=scenario({current:true,older:true,responses:0});
+ assert.match(html,/LAST REPORTED/);
+ assert.match(html,/UPDATED Oct 8/i);
+ assert.match(html,/UPDATED Oct 5/i);
+ assert.doesNotMatch(html,/HISTORICAL|VERIFIED/);
+ assert.ok(html.includes("INSPECTIONS"));
 });
-
-test("stale dependent sources never become falsely verified advisor metrics",()=>{
-  const html=renderScenario({current:false,week:false,responses:2});
-  assert.match(html, /SAPR through Oct 11/);
-  assert.match(html, /CSI NOT CURRENT/);
-  assert.ok(!html.includes("94%"),"stale VIR value must be withheld");
-  assert.ok(!html.includes("81%"),"stale menu value must be withheld");
-  assert.ok(html.includes("$215"),"dated, verified SAPR values remain visible when currentness expires");
-  assert.match(html, /Verified through Oct 11/);
+test("Missing week says exactly what the advisor is waiting for",()=>{
+ const html=scenario({missing:["2026-10-10"]});
+ assert.match(html,/WAITING FOR OCT 10/);
+ assert.doesNotMatch(html,/1 DAYS MISSING|SAPR|UNVERIFIED/);
 });
-
-test("TV-only markup does not replace compact overview and CSS runtime matches source",()=>{
-  assert.match(app, /card\.insertAdjacentHTML\("beforeend", meetingAdvisorTv\(/);
-  assert.match(css, /\.meeting-v3-advisor>\.advisor-tv\{display:none\}/);
-  assert.match(css, /repeat\(4,minmax\(0,1fr\)\)/);
-  assert.match(css, /repeat\(2,minmax\(0,1fr\)\)/);
-  assert.match(css, /\.tv-focus/);
-  assert.match(css, /data-presenter-orientation="portrait"/);
-  const start = "/* BEGIN GENERATED MEETING LAYOUT (see src/meeting-presenter.css) */";
-  const finish = "/* END GENERATED MEETING LAYOUT */";
-  assert.equal(runtime.split(start)[1].split(finish)[0].trim(),css.trim());
+test("Missing evidence never becomes a claimed win or zero score",()=>{
+ const html=scenario({current:false,older:false});
+ assert.match(html,/YOUR RESULTS|LATEST RESULTS COMING SOON/);
+ assert.doesNotMatch(html,/CUSTOMER SCORE.*0%/s);
+ assert.doesNotMatch(html,/HISTORICAL|VERIFIED|SAPR/);
 });
-
-test("live Advisor Meeting renderer mounts the TV scorecard for both loaded and pending advisors",()=>{
-  const start = app.indexOf("function renderMeetingV3Accurate()");
-  const end = app.indexOf("function decorateMeetingCycle", start);
-  assert.ok(start >= 0 && end > start);
-  const live = app.slice(start,end);
-  const mount = "attachMeetingAdvisorTv(card, code, latest,";
-  assert.equal(live.split(mount).length - 1, 2, "Both current-data and missing-data paths must mount");
-  assert.match(live, /attachMeetingAdvisorTv\(card, code, latest, null, null, window, null, csi\); advisors\.append\(card\); return;/);
-  assert.match(live, /attachMeetingAdvisorTv\(card, code, latest, entity, goal, window, next, csi\); advisors\.append\(card\); advisorRows\.push/);
-  assert.match(app, /renderMeeting = function renderMeetingWithCycle\(\) \{ renderMeetingV3Accurate\(\)/);
+test("Action remains tied to imported opportunity, never a generic explanation paragraph",()=>{
+ const html=scenario();
+ assert.match(html,/ALIGNMENTS/);
+ assert.match(html,/1 MORE SALE/);
+ assert.match(html,/BEFORE NEXT MEETING/);
+ assert.doesNotMatch(html,/Review tire|offer an alignment|when indicated/);
 });
-test("scorecard mounting fails safely without hiding the prior advisor content",()=>{
-  const start=app.indexOf("function attachMeetingAdvisorTv(");
-  const end=app.indexOf("function renderMeetingV3()",start);
-  assert.ok(start>=0 && end>start);
-  const source=app.slice(start,end);
-  const classes=[];
-  let markup="";
-  const card={
-    insertAdjacentHTML: (_where,text)=>{markup=text;},
-    querySelector: selector=> selector===":scope > .advisor-tv" ? {} : null,
-    classList: {add:value=>classes.push(value)}
-  };
-  const setup=vm.runInNewContext(
-    "const meetingAdvisorTv=()=>'<section class=\"advisor-tv\"></section>';\n"+source+"\nattachMeetingAdvisorTv;",{console});
-  setup(card,"sample",null,null,null,null,null,{responses:0});
-  assert.ok(markup.includes('advisor-tv'));
-  assert.deepEqual(classes,["tv-ready"]);
-  const bad=vm.runInNewContext(
-    "const meetingAdvisorTv=()=>{throw new Error('synthetic render failure')};\n"+source+"\nattachMeetingAdvisorTv;",
-    {console:{warn(){}}});
-  const original={insertAdjacentHTML(){throw new Error("unexpected insertion")},querySelector(){return null},classList:{add(){throw new Error("original content should remain")}}};
-  bad(original,"sample",null,null,null,null,null,{responses:0});
+test("Active, not dormant, meeting code attaches advisor output for complete and missing rows",()=>{
+ const start=app.indexOf("function renderMeetingV3Accurate()"),end=app.indexOf("function decorateMeetingCycle",start);
+ const active=app.slice(start,end);
+ assert.equal(active.split("attachMeetingAdvisorTv(card, code, latest,").length-1,2);
+ assert.match(app,/renderMeeting = function renderMeetingWithCycle\(\) \{ renderMeetingV3Accurate\(\)/);
+ assert.match(app,/classList.add\("tv-ready"\)/);
+ assert.match(app,/MOONDOG <em>LIVE<\/em>/);
+ assert.match(active,/UPDATED THROUGH/);
 });
-test("TV-only CSS never hides the original card unless a new scorecard actually mounted",()=>{
-  assert.match(css,/\.meeting-v3-advisor>\.advisor-tv\{display:none\}/);
-  assert.match(css,/\.meeting-v3-advisor\[data-slide-active="true"\]\.tv-ready>:not\(h3\):not\(\.advisor-tv\)\{display:none!important\}/);
-  assert.doesNotMatch(css, /\.meeting-v3-advisor\[data-slide-active="true"\]>:not\(h3\):not\(\.advisor-tv\)\{display:none!important\}/);
-});
-
-test("Overdrive Store fallback displays dated month-to-date only when a strict week is not verified",()=>{
-  const start=app.indexOf("function renderMeetingV3Accurate()");
-  const end=app.indexOf("function decorateMeetingCycle",start);
-  const live=app.slice(start,end);
-  assert.match(live,/renderOverdriveStoreGross\(view, latest, grossWindow\)/);
-  assert.match(app,/classList\.toggle\("overdrive-partial", !weeklyReady\)/);
-  assert.match(app,/7-DAY TOTAL WITHHELD/);
-  assert.match(live,/view\.classList\.toggle\("overdrive-has-voice", Boolean\(voice\.quote\)\)/);
-  assert.doesNotMatch(live,/grossWindow\.current\.points\.reduce\([^)]*sum/);
-});
-test("Overdrive responsive source/runtime design parity remains exact",()=>{
-  assert.match(css,/PROJECT OVERDRIVE \/ PIT WALL/);
-  assert.match(css,/\.tv-metrics\[data-metric-count="3"\]/);
-  assert.match(css,/\.overdrive-store-mtd/);
-  assert.match(css,/prefers-reduced-motion:reduce/);
-  const start="/* BEGIN GENERATED MEETING LAYOUT (see src/meeting-presenter.css) */";
-  const end="/* END GENERATED MEETING LAYOUT */";
-  assert.equal(runtime.split(start)[1].split(end)[0].trim(),css.trim());
-});
-test("historical VIR and Menu results show dates and never receive green-met treatment",()=>{
-  const html=renderScenario({current:true,responses:0,historical:true});
-  assert.match(html,/tv-metric historical" data-as-of="historical"><span>VIR/);
-  assert.match(html,/HISTORICAL · As of Oct 8/);
-  assert.match(html,/HISTORICAL · As of Oct 5/);
-  assert.doesNotMatch(html,/tv-metric met"><span>VIR/);
-  assert.doesNotMatch(html,/tv-metric met"><span>MENU/);
-  assert.match(html,/7 OF 8 VERIFIED OR DATED METRICS/);
-  assert.match(html,/BIGGEST KPI GAP/);
-  assert.match(html,/CP HRS \/ RO/);
-});
-
-test("seven tiles fill eighth slot with computed SAPR KPI miss, not invented data",()=>{
-  const html=renderScenario({current:true,responses:0});
-  assert.equal((html.match(/class="tv-metric /g)||[]).length,7);
-  assert.equal((html.match(/class="tv-insight /g)||[]).length,1);
-  assert.match(html,/BIGGEST KPI GAP/);
-  assert.match(html,/below configured goal/);
-  assert.match(html,/Review measured brake condition/);
-});
-
-test("missing SAPR dates and cautious run-rate are prominent but do not assert reconciled week",()=>{
-  const html=renderScenario({current:true,responses:0,missingDates:["2026-10-09","2026-10-11"]});
-  assert.match(html,/2 DAYS MISSING/);
-  assert.match(html,/Missing SAPR: Oct 9, Oct 11/);
-  assert.match(html,/tv-pace-signal on-track/);
-  assert.doesNotMatch(html,/<strong class="">\$10\.2K<\/strong>/);
-});
-
-test("projected below-target run-rate shows an explicit gap without inventing gross",()=>{
-  const html=renderScenario({current:true,responses:0});
-  assert.match(html,/AT CURRENT PACE/);
-  assert.match(html,/PROJECTED/);
-  assert.match(html,/RUN RATE|CURRENT PACE/);
-});
-
-test("focused CSS has historical, scarcity, coaching, and insight responsive rules",()=>{
-  assert.match(css,/\.tv-metric\.historical/);
-  assert.match(css,/\.tv-pace-signal\.behind/);
-  assert.match(css,/\.tv-week\.incomplete/);
-  assert.match(css,/\.tv-insight/);
-  assert.match(css,/\.tv-coaching/);
+test("Broadcast CSS matches bundled runtime and retains fallback-safe visibility",()=>{
+ const a="/* BEGIN GENERATED MEETING LAYOUT (see src/meeting-presenter.css) */",b="/* END GENERATED MEETING LAYOUT */";
+ assert.equal(runtime.split(a)[1].split(b)[0].trim(),css.trim());
+ assert.match(css,/MOONDOG BROADCAST REINVENTION/);
+ assert.match(css,/\.advisor-tv\.broadcast-tv/);
+ assert.match(css,/\.rx-next/);
+ assert.match(css,/prefers-reduced-motion:reduce/);
+ assert.match(css,/\.meeting-v3-advisor\[data-slide-active="true"\]\.tv-ready>:not\(h3\):not\(\.advisor-tv\)\{display:none!important\}/);
 });

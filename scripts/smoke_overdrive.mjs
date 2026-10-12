@@ -23,23 +23,23 @@ try {
       view.className="view active meeting-view meeting-v3 meeting-scoreboard";
       view.hidden=false;
       // Synthetic fixture only; neither identities nor local reports are accessed.
-      const metric=(n)=>'<article class="tv-metric met"><span>PERFORMANCE '+n+
-        '</span><strong>'+String(70+n)+'%</strong><small>Verified demonstration</small></article>';
+      const metric=(n)=>'<div class="rx-result win"><span>RESULT '+n+'</span><strong>'+String(70+n)+'%</strong><small>ON GOAL</small></div>';
       const card=(n)=>'<article class="meeting-v3-advisor tv-ready" data-advisor-code="demo-'+n+'"><h3>DEMO ADVISOR '+n+'</h3>'+
-        '<section class="advisor-tv" aria-label="Synthetic advisor performance">'+
-        '<div class="tv-top"><div class="tv-month"><span class="tv-kicker">01 / MONTH-TO-DATE GROSS</span>'+
-        '<div class="tv-month-number"><strong>$23.1K</strong><span>demonstration benchmark</span></div>'+
-        '<div class="tv-track"><i style="width:55%"></i></div>'+
-        '<div class="tv-month-foot"><span>55% COMPLETE</span><strong>$18.8K REMAINING</strong></div>'+
-        '<div class="tv-pace-signal">RUN RATE · $41.9K PROJECTED</div><small class="tv-source">SYNTHETIC REPORT COVERAGE</small></div>'+
-        '<div class="tv-side"><div class="tv-need"><span class="tv-kicker">02 / REQUIRED DAILY PACE</span>'+
-        '<strong>$1,200</strong><small>Several workdays remain</small></div>'+
-        '<div class="tv-week"><span class="tv-kicker">03 / LAST 7 DAYS</span>'+
-        '<strong class="pending">UNVERIFIED</strong><small>Coverage incomplete</small></div></div></div>'+
-        '<section class="tv-scorecard"><div class="tv-signal-header"><strong>PERFORMANCE TELEMETRY</strong><span>8 MEASURES VERIFIED</span></div>'+
-        '<div class="tv-metrics" data-metric-count="8">'+Array.from({length:8},(_,i)=>metric(i+1)).join("")+'</div></section>'+
-        '<section class="tv-focus"><span class="tv-kicker">04 / YOUR NEXT MOVE</span>'+
-        '<strong>TEST OPPORTUNITY</strong><b>One measurable step</b><small>BY NEXT MEETING</small></section></section></article>';
+        '<section class="advisor-tv broadcast-tv" aria-label="Synthetic TV demo">'+
+        '<div class="rx-hero ahead"><div class="rx-hero-main"><span class="rx-cap">THIS MONTH</span>'+
+        '<div class="rx-gross"><strong>$23.1K</strong><span>DEMONSTRATION BENCHMARK</span></div>'+
+        '<div class="rx-track"><i style="width:55%"></i><b></b></div>'+
+        '<div class="rx-progress-note"><span>55% COMPLETE</span><strong>$18.8K LEFT</strong></div>'+
+        '<div class="rx-forecast"><b>ON PACE</b><span>$45.9K AT THIS PACE</span></div></div>'+
+        '<div class="rx-hero-side"><span class="rx-cap">NEEDED EACH WORKDAY</span><strong>$1,200</strong>'+
+        '<small>SEVERAL WORKDAYS LEFT</small><div class="rx-weekly">LAST 7 DAYS · WAITING FOR OCT 10</div></div></div>'+
+        '<div class="rx-groups">'+
+        '<section class="rx-group win"><h4>DOING WELL</h4><div class="rx-result-list">'+metric(1)+metric(2)+'</div></section>'+
+        '<section class="rx-group watch"><h4>NEEDS ATTENTION</h4><div class="rx-result-list">'+metric(3)+metric(4)+'</div></section>'+
+        '<section class="rx-group older"><h4>LAST REPORTED</h4><div class="rx-result-list">'+metric(5)+metric(6)+'</div></section></div>'+
+        '<div class="rx-next"><div class="rx-next-title">NEXT WIN ↗</div><strong>ALIGNMENTS</strong>'+
+        '<div class="rx-next-action"><b>1 MORE SALE</b><small>BEFORE NEXT MEETING</small></div></div>'+
+        '<div class="rx-footnote">MONTHLY NUMBERS UPDATED OCT 11</div></section></article>';
       view.innerHTML='<header class="meeting-scoreboard-head"><div><h2>Advisor Meeting</h2><span>SERVICE TEAM</span></div>'+
         '<div class="meeting-scoreboard-period"><strong>DEMONSTRATION</strong><span>LAST 7 DAYS</span><small>SYNTHETIC ONLY</small></div>'+
         '<div class="meeting-scoreboard-actions"></div></header>'+
@@ -79,14 +79,14 @@ try {
       const view=document.querySelector("#view-meeting"),card=view.querySelector('.meeting-v3-advisor[data-slide-active="true"]');
       const rect=el=>el?.getBoundingClientRect();
       if(!card)return {failed:"no selected live advisor"};
-      const blocks=[card.querySelector(".tv-top"),card.querySelector(".tv-scorecard"),card.querySelector(".tv-focus")];
+      const blocks=[card.querySelector(".rx-hero"),card.querySelector(".rx-groups"),card.querySelector(".rx-next")];
       const outer=rect(card.querySelector(".advisor-tv"));
-      return {slide:view.dataset.presenterSlide,metric:card.querySelectorAll(".tv-metric").length,
+      return {slide:view.dataset.presenterSlide,metric:card.querySelectorAll(".rx-result").length,
         stacked:blocks.every((el,i)=>i===0||rect(blocks[i-1]).bottom<=rect(el).top+4),
         inside:blocks.every(el=>rect(el).left>=outer.left-4&&rect(el).right<=outer.right+4&&rect(el).bottom<=outer.bottom+4),
         text:card.querySelector("h3")?.textContent};
     });
-    if(advisor.slide!=="advisor"||advisor.metric!==8||!advisor.stacked||!advisor.inside)
+    if(advisor.slide!=="advisor"||advisor.metric!==6||!advisor.stacked||!advisor.inside)
       throw new Error("Advisor layout "+width+"x"+height+": "+JSON.stringify(advisor));
     await page.screenshot({path:path.join(output,"advisor-"+width+".png")});
     // Six advisors + Store must rotate through seven positions without losing order.
