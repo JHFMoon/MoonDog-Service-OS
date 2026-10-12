@@ -1,20 +1,12 @@
-# Shared report-source learning (Beta design)
+# Shared report-source learning — retired
 
-## Safety and lifecycle
+This proposed cross-store sharing feature was explicitly retired and is not part of MoonDog Service OS.
 
-MoonDog remains local-first. Store-specific `Get it from` strings are persisted only under the connected Workspace's existing settings. No free-text strings, customer information, paths, or Workspace files are transmitted by this feature.
+- No opt-in control for cross-store report-source sharing appears in Tools or Settings.
+- No cross-store upload, submission, network endpoint, or opt-in settings API is provided.
+- MoonDog may check GitHub for application updates and download verified application packages. No Workspace files, customer records, locally entered report-source locations, or correction history are transmitted by this process.
+- The private **Get it from** descriptions remain local to each Workspace and help staff retrieve source reports. They are not shared.
+- Files To Learn remains a separate, local ingestion/triage workflow. It is not a correction-learning database, not a cross-store sharing channel, and must not upload local Workspace content.
+- Report adapters and interpreter behavior change only through reviewed source updates and instructions, not by silently accumulating a local correction database.
 
-This Beta stage exposes store-scoped consent in Tools > Settings; consent does **not** activate network requests. `deliveryConfigured` remains false until a separately reviewed secure submission endpoint is provisioned and verified. The user can disable consent at any time.
-
-## Serverless implementation gate
-
-Before enabling outbound submission, implement and test a managed HTTPS endpoint (e.g., Cloudflare Worker or Azure Function) with:
-- A restricted schema containing only source type identifiers and reviewed navigation tokens; never send arbitrary strings.
-- Deny-by-default tokenization. Private paths, hostnames, emails, account/store names, URLs, arbitrary notes and unknown values are not eligible.
-- Authentication, rate limits, anti-abuse controls, bounded storage, deletion policy and tamper-resistant audit.
-- An independent review/validation step before publishing suggestions as shared guidance.
-- Opt-in default false, no background work on startup, fail-open for UI operation **but fail-closed for sending**.
-- Test that opt-out and offline mode send zero requests.
-- Keep any shared suggestions advisory; never overwrite individual Workspace locations.
-
-Do not configure a generic webhook or public anonymous write endpoint: it would leak user-written data or allow spam. This feature is intentionally staged until a secure endpoint exists.
+Any future external sharing capability would require a new explicit user decision and separate security review. This retired design must not be re-enabled through an existing settings flag.
