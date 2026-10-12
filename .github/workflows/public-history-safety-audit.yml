@@ -54,14 +54,14 @@ jobs:
             STATE=failure
             if [ -f /tmp/public-history-audit.json ]; then
               DESC="$(python3 - <<'PY'
-import json
-data=json.load(open('/tmp/public-history-audit.json',encoding='utf-8'))
-counts=data.get('counts') or {}
-parts=[f"{k}={counts[k]}" for k in sorted(counts)]
-text="Review: " + (", ".join(parts) if parts else "audit failed before counts")
-print(text[:135])
-PY
-)"
+          import json
+          data=json.load(open('/tmp/public-history-audit.json',encoding='utf-8'))
+          counts=data.get('counts') or {}
+          parts=[f"{k}={counts[k]}" for k in sorted(counts)]
+          text="Review: " + (", ".join(parts) if parts else "audit failed before counts")
+          print(text[:135])
+          PY
+          )"
             else
               DESC="Audit failed before redacted counts were produced"
             fi
@@ -122,13 +122,13 @@ PY
             STATE=failure
             if [ -f /tmp/public-surface-audit.json ]; then
               DESC="$(python3 - <<'PY'
-import json
-data=json.load(open('/tmp/public-surface-audit.json',encoding='utf-8'))
-counts=data.get('counts') or {}
-parts=[f"{k}={counts[k]}" for k in sorted(counts)]
-print(("Review: "+(", ".join(parts) if parts else "surface audit failed before counts"))[:135])
-PY
-)"
+          import json
+          data=json.load(open('/tmp/public-surface-audit.json',encoding='utf-8'))
+          counts=data.get('counts') or {}
+          parts=[f"{k}={counts[k]}" for k in sorted(counts)]
+          print(("Review: "+(", ".join(parts) if parts else "surface audit failed before counts"))[:135])
+          PY
+          )"
             else
               DESC="Public-surface audit failed before redacted counts"
             fi

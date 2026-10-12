@@ -2,7 +2,7 @@
 
 ## Scope and trust boundary
 
-This is the public source and software-update repository for the user-facing **Service Operations Hub**. The installed Hub and its dealership data remain local to the end user's machine. GitHub is not an operational data store and is not a destination for application uploads.
+This is the public source and software-update repository for the user-facing **Service Operations Dashboard**. The installed Dashboard and its dealership data remain local to the end user's machine. GitHub is not an operational data store and is not a destination for application uploads.
 
 Customer, employee, advisor, technician, repair order, VIN, contact, report, history, settings, backup, Files To Learn, credentials, and diagnostics containing real dealership data must never be committed or included in update packages. Examples and tests must use synthetic data.
 
@@ -24,9 +24,11 @@ Customer, employee, advisor, technician, repair order, VIN, contact, report, his
 
 ## Continuous public-data guard
 
-The repository is public, so every branch and tag must be treated as public the moment it is pushed. The Publication Check therefore runs on every push, every pull request, on manual request, and on a weekly schedule. It scans the current tree and all reachable public Git history. Stable releases and the GitHub Pages/offline-distribution workflow independently re-run the current-tree and full-history sanitization gates before publishing.
+The repository is public, so every branch and tag must be treated as public the moment it is pushed. Publication Check validates the current source/package boundary on pull requests and `main`. The separate **Public Repository History Safety Audit** scans all reachable branch/tag history, commit and tag messages, commit identities, historical paths, and supported secret/PII indicators. It runs on pull requests, every `main` push, daily, and on manual request.
 
-The guard fails closed for blocked operational paths, local state, common report/document/image formats, credentials/secrets, store target values, and contextual PII indicators. Matched sensitive values are never printed in CI logs.
+After changes reach `main`, the same safety workflow also audits public GitHub surfaces outside ordinary Git blobs, including release metadata/assets, retained Actions artifacts, issue/PR bodies, issue comments, and PR review comments. The audit records only redacted category counts; matched sensitive values are never printed or persisted by the audit.
+
+The guards fail closed for blocked operational paths, local state, common report/document/image formats, credentials/secrets, unsafe email addresses, valid VIN-shaped identifiers, SSN-shaped identifiers, and other defined exposure candidates. Findings require review; a match is not automatically proof that real dealership data was exposed.
 
 ## Reporting a problem
 
