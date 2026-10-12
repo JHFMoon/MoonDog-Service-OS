@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.37",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.37.json",
-    "sha256": "4ea70069d6eb5bebc4adfdab8c0329a908f7f6f11a1ee215bceec1f40231306e",
+    "version": "0.10.18-beta.38",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.38.json",
+    "sha256": "e2aad7c75613017311dd8c9a2e6e2f3baf84f8e38089ed496f8d920a494c457d",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Premium finish for Settings and Meeting Arena. Verified automated Beta; no Workspace migration."
+    "releaseNotes": "Refine Arena trust cues and remove branded meeting title. Verified automated Beta; no Workspace migration."
   }
 }
