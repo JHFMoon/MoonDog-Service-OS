@@ -2132,9 +2132,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function managerWorkSchedule() {
     const custom = model.settings?.future?.managerSchedule || DEFAULTS.future.managerSchedule;
     const days = Array.isArray(custom?.days) ? [...new Set(custom.days.filter((day)=>Number.isInteger(day)&&day>=0&&day<=6))] : MANAGER_WORK_DAYS.slice();
-    const validTime = (value) => typeof value === "string" && /^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(value);
-    const startTime = validTime(custom?.startTime) ? custom.startTime : "07:30";
-    const endTime = validTime(custom?.endTime) && custom.endTime > startTime ? custom.endTime : "16:00";
+    const validTime = (value) => typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+    const proposedStart = validTime(custom?.startTime) ? custom.startTime : "07:30";
+    const proposedEnd = validTime(custom?.endTime) ? custom.endTime : "16:00";
+    const [startTime, endTime] = proposedEnd > proposedStart ? [proposedStart, proposedEnd] : ["07:30", "16:00"];
     return {days: days.length ? days : MANAGER_WORK_DAYS.slice(), startTime, endTime};
   }
   function isDailyFocusDay(dateKey = localDateKey(), schedule = managerWorkSchedule()) {
@@ -2315,7 +2316,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     model.settings.store={...model.settings.store,name:ui.storeName.value.trim()||"MoonDog",code:ui.storeCode.value.trim(),brand:ui.storeBrand.value.trim(),timeZone:ui.storeTimeZone.value,confirmed:{name:true,code:true,brand:true,timeZone:true}};model.settings.storeName=model.settings.store.name;model.settings.csiPeriodStart=csiPeriodStart;if(voiceMode)model.settings.meetingVoiceMode=voiceMode;if(voiceMethod)model.settings.meetingCustomerVoiceSourceMethod=voiceMethod;
     const managerDays=[...ui["view-settings"].querySelectorAll('input[name="managerWorkday"]:checked')].map((input)=>Number(input.value)).sort((a,b)=>a-b);
     const managerStart=ui.managerWorkStart.value,managerEnd=ui.managerWorkEnd.value;
-    const timeValid=(value)=>/^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(value);
+    const timeValid=(value)=>/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
     if(!managerDays.length||managerDays.some((day)=>!Number.isInteger(day)||day<0||day>6))throw new Error("Select at least one valid manager working day.");
     if(!timeValid(managerStart)||!timeValid(managerEnd)||managerEnd<=managerStart)throw new Error("Manager end time must be later than start time.");
     model.settings.future={...model.settings.future,managerSchedule:{days:managerDays,startTime:managerStart,endTime:managerEnd}};
