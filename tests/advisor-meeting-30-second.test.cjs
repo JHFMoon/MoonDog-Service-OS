@@ -89,3 +89,43 @@ test("TV-only markup does not replace compact overview and CSS runtime matches s
   const finish = "/* END GENERATED MEETING LAYOUT */";
   assert.equal(runtime.split(start)[1].split(finish)[0].trim(),css.trim());
 });
+
+test("live Advisor Meeting renderer mounts the TV scorecard for both loaded and pending advisors",()=>{
+  const start = app.indexOf("function renderMeetingV3Accurate()");
+  const end = app.indexOf("function decorateMeetingCycle", start);
+  assert.ok(start >= 0 && end > start);
+  const live = app.slice(start,end);
+  const mount = "attachMeetingAdvisorTv(card, code, latest,";
+  assert.equal(live.split(mount).length - 1, 2, "Both current-data and missing-data paths must mount");
+  assert.match(live, /attachMeetingAdvisorTv\(card, code, latest, null, null, window, null, csi\); advisors\.append\(card\); return;/);
+  assert.match(live, /attachMeetingAdvisorTv\(card, code, latest, entity, goal, window, next, csi\); advisors\.append\(card\); advisorRows\.push/);
+  assert.match(app, /renderMeeting = function renderMeetingWithCycle\(\) \{ renderMeetingV3Accurate\(\)/);
+});
+test("scorecard mounting fails safely without hiding the prior advisor content",()=>{
+  const start=app.indexOf("function attachMeetingAdvisorTv(");
+  const end=app.indexOf("function renderMeetingV3()",start);
+  assert.ok(start>=0 && end>start);
+  const source=app.slice(start,end);
+  const classes=[];
+  let markup="";
+  const card={
+    insertAdjacentHTML: (_where,text)=>{markup=text;},
+    querySelector: selector=> selector===":scope > .advisor-tv" ? {} : null,
+    classList: {add:value=>classes.push(value)}
+  };
+  const setup=vm.runInNewContext(
+    "const meetingAdvisorTv=()=>'<section class=\"advisor-tv\"></section>';\n"+source+"\nattachMeetingAdvisorTv;",{console});
+  setup(card,"sample",null,null,null,null,null,{responses:0});
+  assert.ok(markup.includes('advisor-tv'));
+  assert.deepEqual(classes,["tv-ready"]);
+  const bad=vm.runInNewContext(
+    "const meetingAdvisorTv=()=>{throw new Error('synthetic render failure')};\n"+source+"\nattachMeetingAdvisorTv;",
+    {console:{warn(){}}});
+  const original={insertAdjacentHTML(){throw new Error("unexpected insertion")},querySelector(){return null},classList:{add(){throw new Error("original content should remain")}}};
+  bad(original,"sample",null,null,null,null,null,{responses:0});
+});
+test("TV-only CSS never hides the original card unless a new scorecard actually mounted",()=>{
+  assert.match(css,/\.meeting-v3-advisor>\.advisor-tv\{display:none\}/);
+  assert.match(css,/\.meeting-v3-advisor\[data-slide-active="true"\]\.tv-ready>:not\(h3\):not\(\.advisor-tv\)\{display:none!important\}/);
+  assert.doesNotMatch(css, /\.meeting-v3-advisor\[data-slide-active="true"\]>:not\(h3\):not\(\.advisor-tv\)\{display:none!important\}/);
+});
