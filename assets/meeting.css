@@ -858,4 +858,19 @@ body.meeting-fullscreen .meeting-scoreboard-actions>#meetingFullscreen{display:n
 #view-meeting.meeting-scoreboard.presentation-active .arena-store .as-bar.closed i{
  background:transparent!important;box-shadow:none!important;height:0!important
 }
+
+/* Edge-safe Service Arena: ordinary fixed viewport overlay, never native fullscreen. */
+body.moondog-presentation-mode{overflow:hidden!important;}
+#view-meeting.meeting-scoreboard.presentation-active.presentation-overlay.active{
+  position:fixed!important;inset:0!important;
+  z-index:2147483000!important;
+  width:100vw!important;max-width:none!important;min-width:0!important;
+  height:auto!important;min-height:0!important;max-height:none!important;
+  margin:0!important;box-sizing:border-box!important;
+  overflow:hidden!important;isolation:isolate;
+  background:#031521!important;
+}
+#view-meeting.meeting-scoreboard.presentation-overlay .meeting-presenter-controls [data-presentation]{
+  outline-offset:2px;
+}
 /* END GENERATED MEETING LAYOUT */
