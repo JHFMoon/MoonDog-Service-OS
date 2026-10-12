@@ -71,9 +71,9 @@ try{
   if(store.slide!=="store"||!store.visible||!store.inside||!store.separated)
     throw Error("Store TV geometry "+width+"x"+height+": "+JSON.stringify(store));
   await page.screenshot({path:path.join(out,"store-"+width+".png")});
-  const visibleFullscreen=await page.locator(".meeting-scoreboard-actions button").evaluateAll(buttons=>
-    buttons.filter(b=>b.getClientRects().length&&getComputedStyle(b).display!=="none"&&/full screen/i.test(b.textContent)).length);
-  if(visibleFullscreen!==1)throw Error("Expected one fullscreen control, got "+visibleFullscreen);
+  const visiblePresentation=await page.locator(".meeting-scoreboard-actions button").evaluateAll(buttons=>
+    buttons.filter(b=>b.getClientRects().length&&getComputedStyle(b).display!=="none"&&/^present$/i.test(b.textContent.trim())).length);
+  if(visiblePresentation!==1)throw Error("Expected one safe presentation control, got "+visiblePresentation);
   await page.evaluate(()=>{
     globalThis.__arenaDomMoves=0;
     const host=document.getElementById("meetingV3Advisors");
@@ -96,80 +96,61 @@ try{
   await page.locator(".meeting-presenter-controls [data-pause]").click();
   if((await page.locator(".meeting-presenter-controls [data-pause]").textContent()).trim()!=="Pause")
     throw Error("Resume button did not restart presentation");
-  // Same real Full screen button, now timed under a synthetic background
-  // workload to catch accidental whole-dashboard stylesheet invalidation.
-  if(await page.evaluate(()=>document.fullscreenEnabled)){
-    await page.evaluate(()=>{
-      const main=document.querySelector("main");
-      const hidden=document.createElement("section");hidden.id="syntheticNonMeetingView";
-      hidden.className="view";
-      hidden.innerHTML=Array.from({length:1600},(_,i)=>'<article class="card"><strong>DEMO ITEM '+i+'</strong><span>SYNTHETIC BACKGROUND CONTENT</span></article>').join("");
-      main.append(hidden);
-    });
-    await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
-    await page.waitForFunction(()=>Boolean(document.fullscreenElement),null,{timeout:2000});
-    await page.waitForFunction(()=>Number.isFinite(globalThis.__serviceMeetingPresenter?.fullscreenTiming()?.frameMs),null,{timeout:2800});
-    // The fullscreen event can precede viewport style settling by one frame.
-    // Require actual full-viewport bounds promptly; an event alone is not success.
-    await page.waitForFunction(()=>{
-      const rect=document.querySelector("#view-meeting")?.getBoundingClientRect();
-      return Boolean(rect&&document.fullscreenElement===document.documentElement&&
-        Math.abs(rect.left)<3&&Math.abs(rect.top)<3&&
-        Math.abs(rect.width-innerWidth)<3&&Math.abs(rect.height-innerHeight)<3);
-    },null,{timeout:650});
-    const entry=await page.evaluate(()=>({
-      timing:globalThis.__serviceMeetingPresenter.fullscreenTiming(),
-      globallyRestyled:document.body.classList.contains("meeting-fullscreen"),
-      fullscreenView:document.fullscreenElement?.tagName,
-      arenaBounds:(()=>{const r=document.querySelector("#view-meeting").getBoundingClientRect();return {top:r.top,left:r.left,width:r.width,height:r.height};})(),
-      viewport:{width:innerWidth,height:innerHeight}
-    }));
-    if(entry.fullscreenView!=="HTML"||entry.globallyRestyled||
-       Math.abs(entry.arenaBounds.left)>2||Math.abs(entry.arenaBounds.top)>2||
-       Math.abs(entry.arenaBounds.width-entry.viewport.width)>3||
-       Math.abs(entry.arenaBounds.height-entry.viewport.height)>3||
-       entry.timing.failed||entry.timing.kind!=="enter"||
-       entry.timing.eventMs>2200||entry.timing.frameMs>3300)
-      throw Error("Fullscreen entry latency or global restyle "+width+"x"+height+": "+JSON.stringify(entry));
-    await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
-    await page.waitForFunction(()=>!document.fullscreenElement,null,{timeout:2000});
-    await page.waitForFunction(()=>{
-      const m=globalThis.__serviceMeetingPresenter?.fullscreenTiming();
-      return m?.kind==="exit"&&Number.isFinite(m.restoredMs)&&
-        !document.fullscreenElement;
-    },null,{timeout:4300});
-    const exit=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
-    if(exit.failed||exit.eventMs>2200||exit.frameMs>3300||exit.restoredMs>4300)
-      throw Error("Fullscreen exit repaint latency "+width+"x"+height+": "+JSON.stringify(exit));
-    // The failure reported in Edge is the tab becoming unresponsive *after* Exit.
-    // Prove the next user interaction is handled before accepting exit success.
-    const beforeNext=await page.locator(".meeting-presenter-controls [data-slide-label]").textContent();
-    await page.locator(".meeting-presenter-controls [data-next]").click({timeout:3000});
-    const afterNext=await page.locator(".meeting-presenter-controls [data-slide-label]").textContent();
-    if(afterNext===beforeNext)throw Error("Presenter is unresponsive after leaving fullscreen");
-    // Return the seven-slide cycle to its previous position before the existing rotation proof.
-    for(let i=0;i<6;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter.next());
-    // Repeat fullscreen exit with animations enabled and synthetic offscreen
-    // content still mounted. Regression must not emerge on the second exit.
-    if(width===1600){
-      for(let retry=0;retry<2;retry++){
-        await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
-        await page.waitForFunction(()=>Boolean(document.fullscreenElement),null,{timeout:2200});
-        await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
-        await page.waitForFunction(()=>{
-          const m=globalThis.__serviceMeetingPresenter?.fullscreenTiming();
-          return !document.fullscreenElement&&m?.kind==="exit"&&Number.isFinite(m.restoredMs);
-        },null,{timeout:4300});
-        const repeat=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
-        if(repeat.failed||repeat.restoredMs>4300)
-          throw Error("Repeat fullscreen exit slow or staged content stuck: "+JSON.stringify(repeat));
-      }
-    }
-    console.log("Fullscreen latency proof",width,height,
-      "enter",entry.timing.eventMs+"ms event / "+entry.timing.frameMs+"ms frame",
-      "exit",exit.eventMs+"ms event / "+exit.frameMs+"ms frame / "+exit.restoredMs+"ms restored");
-    await page.evaluate(()=>document.getElementById("syntheticNonMeetingView")?.remove());
+  // Guard against the exact API responsible for the repeated Windows Edge freeze.
+  // The application's safe Present control must never call either method.
+  await page.evaluate(()=>{
+    globalThis.__arenaNativeCalls=0;
+    Object.defineProperty(document.documentElement,"requestFullscreen",{configurable:true,
+      value:()=>{globalThis.__arenaNativeCalls++;throw Error("Native fullscreen must not be used");}});
+    Object.defineProperty(document,"exitFullscreen",{configurable:true,
+      value:()=>{globalThis.__arenaNativeCalls++;throw Error("Native fullscreen exit must not be used");}});
+    const main=document.querySelector("main"),hidden=document.createElement("section");
+    hidden.id="syntheticNonMeetingView";hidden.className="view";
+    hidden.innerHTML=Array.from({length:1600},(_,i)=>'<article class="card"><strong>DEMO ITEM '+i+'</strong><span>SYNTHETIC BACKGROUND CONTENT</span></article>').join("");
+    main.append(hidden);
+  });
+  async function presentationAction(entering){
+    const started=performance.now();
+    await page.locator(".meeting-presenter-controls [data-presentation]").click({timeout:2500});
+    await page.waitForFunction(expected=>{
+      const v=document.getElementById("view-meeting");
+      return v.classList.contains("presentation-overlay")===expected&&
+        document.body.classList.contains("moondog-presentation-mode")===expected;
+    },entering,{timeout:1000});
+    // Judge click-to-interactive, including a rendered animation frame.
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));
+    const elapsed=Math.round(performance.now()-started);
+    if(elapsed>500)throw Error("Safe presentation toggle exceeded 500ms: "+elapsed+"ms");
+    if(await page.evaluate(()=>globalThis.__arenaNativeCalls)!==0)
+      throw Error("The safe presentation invoked the native Fullscreen API");
+    return elapsed;
   }
+  const openMs=await presentationAction(true);
+  const overlay=await page.evaluate(()=>{
+    const v=document.getElementById("view-meeting"),r=v.getBoundingClientRect();
+    return {top:r.top,left:r.left,width:r.width,height:r.height,
+      vw:innerWidth,vh:innerHeight,position:getComputedStyle(v).position,
+      native:Boolean(document.fullscreenElement),
+      topElement:document.elementFromPoint(innerWidth/2,innerHeight/2)?.closest("#view-meeting")===v};
+  });
+  if(Math.abs(overlay.top)>2||Math.abs(overlay.left)>2||
+     Math.abs(overlay.width-overlay.vw)>3||Math.abs(overlay.height-overlay.vh)>3||
+     overlay.position!=="fixed"||overlay.native||!overlay.topElement)
+    throw Error("Safe presentation is not a true interactive viewport overlay "+JSON.stringify(overlay));
+  await page.screenshot({path:path.join(out,"presentation-"+width+".png")});
+  const exitMs=await presentationAction(false);
+  const beforeNext=await page.locator(".meeting-presenter-controls [data-slide-label]").textContent();
+  await page.locator(".meeting-presenter-controls [data-next]").click({timeout:1500});
+  const afterNext=await page.locator(".meeting-presenter-controls [data-slide-label]").textContent();
+  if(afterNext===beforeNext)throw Error("Next was unresponsive after safe presentation exit");
+  for(let i=0;i<6;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter.next());
+  // Escape is an independent, keyboard-only exit. No native fullscreen event.
+  await presentationAction(true);
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(()=>!document.body.classList.contains("moondog-presentation-mode"),null,{timeout:1000});
+  if(await page.evaluate(()=>globalThis.__arenaNativeCalls)!==0)throw Error("Escape called native fullscreen");
+  console.log("Safe presentation viewport proof",width,height,"enter",openMs+"ms","exit",exitMs+"ms");
+  await page.evaluate(()=>document.getElementById("syntheticNonMeetingView")?.remove());
   for(let i=0;i<5;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter?.next());
   const cycle=await geom();
   if(cycle.slide!=="store")throw Error("Seven-slide rotation did not return to Store "+JSON.stringify(cycle));
