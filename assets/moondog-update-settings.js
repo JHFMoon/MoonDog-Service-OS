@@ -245,7 +245,7 @@
     clearPlan();
     clearProgress();
     save(); render();
-    global.setTimeout?.(checkAfterNoon, 1500);
+    global.setTimeout?.(checkInBackground, 1500);
   });
   field("checkMoonDogUpdate").addEventListener("click", () => check(true));
   installButton.addEventListener("click", async () => {
