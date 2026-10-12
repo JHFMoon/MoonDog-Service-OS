@@ -133,8 +133,24 @@ try{
     document.body.append(probe);
     const cssDvh=probe.getBoundingClientRect().height;
     probe.remove();
-    const computed=getComputedStyle(v);
-    return {top:r.top,left:r.left,width:r.width,height:r.height,
+    const computed=getComputedStyle(v),heightRules=[];
+    function walkRules(rules,sheet){
+      for(const rule of rules){
+        if(rule.selectorText&&rule.style?.length){
+          try{
+            if(v.matches(rule.selectorText)&&(rule.style.height||rule.style.minHeight))
+              heightRules.push({sheet,selector:rule.selectorText,height:rule.style.height,
+                heightPriority:rule.style.getPropertyPriority("height"),minHeight:rule.style.minHeight});
+          }catch(_){}
+        }else if(rule.cssRules){
+          try{if(!rule.conditionText||matchMedia(rule.conditionText).matches)walkRules(rule.cssRules,sheet);}catch(_){}
+        }
+      }
+    }
+    for(const sheet of document.styleSheets){
+      try{walkRules(sheet.cssRules,sheet.href?.split("/").at(-1)||"inline");}catch(_){}
+    }
+    return {top:r.top,left:r.left,width:r.width,height:r.height,heightRules:heightRules.slice(-22),
       vw:innerWidth,vh:innerHeight,cssDvh,
       computedHeight:computed.height,computedMinHeight:computed.minHeight,
       inlineHeight:v.style.height,matchedOverlay:v.matches(".presentation-overlay.active"),
