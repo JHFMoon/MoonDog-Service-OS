@@ -8,9 +8,9 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.60",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.60.json",
-    "sha256": "b17fb11281fd2330b0fa866437e04702c01703834387318ca73d7a3686225ae1",
+    "version": "0.10.18-beta.61",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.61.json",
+    "sha256": "542343abed1045922f07d67585f78fe2c4f5d20c71ee05c79c82eca3154f8cdf",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
     "releaseNotes": "Replace native Service Arena fullscreen with safe in-app presentation. Verified automated Beta; no Workspace migration."
