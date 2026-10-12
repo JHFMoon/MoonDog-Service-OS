@@ -102,7 +102,7 @@ test("Uses only the fixed public manifest URL and sends no credentials", async (
     const parsed = new URL(url);
     assert.equal(parsed.origin, "https://raw.githubusercontent.com");
     assert.equal(parsed.pathname, "/JHFMoon/MoonDog-Service-OS/main/updates/manifest.json");
-    assert.match(parsed.search, /^\\?check=\\d+$/);
+    assert.equal(parsed.searchParams.size, 1);
     assert.equal(Number(parsed.searchParams.get("check")) > 0, true);
     assert.equal(options.credentials, "omit");
     assert.equal(options.referrerPolicy, "no-referrer");
