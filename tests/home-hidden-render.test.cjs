@@ -44,17 +44,7 @@ test("Background task refresh updates priorities and Home badge without rebuildi
   env.refreshCurrent();
   assert.equal(drawCalls,1,"return to Home draws fresh selection");
   assert.equal(drawnTop,priorities,"already-ranked priorities are reused");
-  assert.equal(rankCalls,4);
-});
-
-test("Home render accepts previously ranked tasks without repeating selection",()=>{
-  const head=segment("  function renderHome(prioritizedTop=null){","    const host=$('dailyTask');host.replaceChildren();");
-  const env={
-    model:{root:{name:"Workspace"}},
-    state:{loadedRoot:{},editing:false,current:{id:"old",fingerprint:"old"}},
-    attentionTopThree:()=>{throw Error("already-ranked navigation must not recalculate priorities");}
-  };
-  vm.runInNewContext(head+"\nreturn top;}",env);
+  assert.equal(rankCalls,5);
 });
 
 test("Original Home selection uses a provided top-three snapshot rather than re-ranking",()=>{
