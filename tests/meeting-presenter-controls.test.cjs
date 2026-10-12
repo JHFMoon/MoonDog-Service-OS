@@ -64,3 +64,18 @@ test("Real Chrome smoke bounds enter/exit latency and tests with no-reduction mo
  assert.match(browser,/exit\.eventMs>2200\|\|exit\.frameMs>3300/);
  assert.match(browser,/reducedMotion:width===1600\?"no-preference":"reduce"/);
 });
+
+test("Exiting fullscreen stages a lightweight view and restores performance metrics after repaint",()=>{
+ assert.match(source,/current\.classList\.add\("arena-exiting-fullscreen"\)/);
+ assert.match(source,/await new Promise\(resolve=>requestAnimationFrame\(resolve\)\)/);
+ assert.match(source,/if\(document\.fullscreenElement\)await document\.exitFullscreen\(\)/);
+ assert.match(source,/function restoreArenaAfterExit\(transition\)/);
+ assert.match(source,/transition\.view\?\.classList\.remove\("arena-exiting-fullscreen"\)/);
+ assert.match(source,/transition\.restoredMs=Math\.round\(performance\.now\(\)-transition\.startedAt\)/);
+ assert.match(source,/stopTimer\(\);\s*current\.classList\.add\("arena-exiting-fullscreen"\)/);
+ assert.match(css,/contain:size layout style paint/);
+ assert.match(css,/\.arena-exiting-fullscreen :is\(\.arena-store,\.meeting-scoreboard-advisors\)/);
+ assert.match(css,/content-visibility:hidden!important/);
+ assert.match(browser,/m\?\.kind==="exit"&&Number\.isFinite\(m\.restoredMs\)/);
+ assert.match(browser,/retry<2/);
+});
