@@ -30,7 +30,7 @@ test("visible presentation control never invokes the native Fullscreen API",()=>
  assert.match(source,/setPresentationMode\(!state\.presentationMode\)/);
  assert.match(source,/event\.key==="Escape"&&state\.presentationMode/);
  assert.match(source,/view\.classList\.toggle\("presentation-overlay",enabled\)/);
- assert.match(source,/view\.style\.setProperty\(property,"100dvh","important"\)/);
+ assert.match(source,/view\.style\.setProperty\(property,value,"important"\)/);
  assert.match(source,/view\.style\.removeProperty\(property\)/);
  assert.match(source,/document\.body\.classList\.toggle\("moondog-presentation-mode",enabled\)/);
  assert.doesNotMatch(source,/\.requestFullscreen\(|\.exitFullscreen\(/);
@@ -55,7 +55,7 @@ test("safe overlay uses a fixed viewport and leaves all dashboard navigation int
  const meetingCss=fs.readFileSync(path.join(root,"assets/meeting.css"),"utf8");
  assert.match(meetingCss,/#view-meeting\.meeting-scoreboard\.presentation-active\.presentation-overlay\.active/);
  assert.match(meetingCss,/position:fixed!important;inset:0!important/);
- assert.match(meetingCss,/height:100dvh!important/);
+ assert.match(meetingCss,/height:auto!important;min-height:0!important;max-height:none!important/);
  assert.match(source,/presentationTiming:\(\)=>/);
  assert.match(source,/requestAnimationFrame\(\(\)=>/);
  assert.doesNotMatch(source,/document\.addEventListener\("fullscreenchange"/);
