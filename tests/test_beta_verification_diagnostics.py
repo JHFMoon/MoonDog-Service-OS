@@ -9,6 +9,8 @@ class BetaVerificationDiagnosticsTests(unittest.TestCase):
         workflow=(ROOT/".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
         self.assertIn("Generated Beta verification failed. Exact-head workflow IDs and failed jobs follow.",workflow)
         self.assertIn("actions/runs/$FAILED_ID/jobs?per_page=100",workflow)
+        self.assertEqual(workflow.count("actions/runs/$FAILED_ID/jobs?per_page=100"),2)
+        self.assertIn("Generated-head verification failed; exact-head run IDs and failed job names:",workflow)
         self.assertIn("select(.conclusion==\"failure\" or .conclusion==\"cancelled\" or .conclusion==\"timed_out\")",workflow)
         self.assertIn("done <<<\"$FAILED_IDS\"",workflow)
         self.assertIn('echo "Generated-head verification failed; failed run IDs and job names:"',workflow)
