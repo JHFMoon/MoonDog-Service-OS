@@ -22,6 +22,7 @@ vin_rx = re.compile(rb"\b[A-HJ-NPR-Z0-9]{17}\b")
 ssn_rx = re.compile(rb"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
 safe_email_domains = {
     b"users.noreply.github.com",
+    b"noreply.github.com",
     b"example.com",
     b"example.org",
     b"example.net",
@@ -72,10 +73,6 @@ def scan_payload(data, prefix=""):
 
 for line in objects:
     oid, _, path = line.partition(" ")
-    if path and restricted.search(path):
-        counts["restricted_path"] += 1
-    if path:
-        scan_payload(path.encode("utf-8","replace"), "path")
     if oid in blobs:
         continue
     blobs.add(oid)
@@ -87,6 +84,20 @@ for line in objects:
         continue
     data = git("cat-file", "blob", oid)
     scan_payload(data)
+
+# Enumerate complete tree snapshots, not just git rev-list --objects names.
+# The latter prints only one possible pathname for a blob reused at many paths.
+# Deduplicate paths across commits to avoid multiplying findings by commit count.
+seen_paths = set()
+for commit_id in git("rev-list", "--all").splitlines():
+    for raw_path in git("ls-tree", "-r", "-z", "--name-only", commit_id.decode("ascii")).split(b"\x00"):
+        if not raw_path or raw_path in seen_paths:
+            continue
+        seen_paths.add(raw_path)
+        pathname = raw_path.decode("utf-8", "replace")
+        if restricted.search(pathname):
+            counts["restricted_path"] += 1
+        scan_payload(raw_path, "path")
 
 # Commit messages, annotated tag messages, and identity metadata are part of
 # public history too; scan them without printing values.
@@ -108,7 +119,7 @@ for email in commit_emails:
     else:
         counts["commit_identity_email"] += 1
 
-print("Git history objects inspected:", len(blobs), flush=True)
+print("Git history objects inspected:", len(blobs), "distinct historical paths:", len(seen_paths), flush=True)
 print("Audit scope: reachable blobs/paths, commit and tag messages, and commit identities; findings are redacted.", flush=True)
 print("Redacted candidate categories (counts only):")
 for kind in sorted(counts):
