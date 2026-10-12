@@ -9,6 +9,12 @@ from build_distribution import WORKSPACE_README
 REPO=os.environ["GITHUB_REPOSITORY"]
 counts=collections.Counter()
 safe=collections.Counter()
+diagnostics=collections.Counter()
+email_sources=collections.Counter()
+email_unique=set()
+email_unique_by_source=collections.defaultdict(set)
+email_source_item_count=collections.Counter()
+email_personal_domains={b"gmail.com",b"googlemail.com",b"yahoo.com",b"hotmail.com",b"outlook.com",b"live.com",b"icloud.com",b"aol.com"}
 
 patterns={
     "private_key": re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
@@ -41,16 +47,30 @@ def valid_vin(raw: bytes)->bool:
     return vin[8]==check
 
 def scan_bytes(data: bytes, label: str):
+    # Only fixed source categories enter public summaries, never release names,
+    # archive paths, issue bodies, comment text, or other untrusted labels.
+    label=label.split(":",1)[0]
+    if label not in {
+        "release-metadata","release-asset-name","release","artifact",
+        "action-artifact-name","issue","issue-comment","pr-review-comment","pr-review",
+    }:
+        label="other"
     for kind,rx in patterns.items():
         if rx.search(data):
             counts[kind]+=1
-    bad_email=False
-    for m in email_rx.finditer(data):
-        if m.group(1).lower() not in safe_email_domains:
-            bad_email=True
-            break
-    if bad_email:
+    matched_emails={
+        m.group(0).lower() for m in email_rx.finditer(data)
+        if m.group(1).lower() not in safe_email_domains
+    }
+    if matched_emails:
         counts["unsafe_email"]+=1
+        email_source_item_count[label]+=1
+        for email in matched_emails:
+            email_unique.add(email)
+            email_unique_by_source[label].add(email)
+            domain=email.split(b"@",1)[1]
+            category="personal_provider" if domain in email_personal_domains else "other_domain"
+            email_sources[label+"_"+category+"_occurrences"]+=1
     elif email_rx.search(data):
         safe["known_public_or_synthetic_email"]+=1
     if any(valid_vin(m.group(0)) for m in vin_rx.finditer(data)):
@@ -236,7 +256,17 @@ for issue in issues:
             scan_bytes(str(review["body"]).encode(),"pr-review")
 
 
-report={"counts":dict(counts),"safe_counts":dict(safe),"releases":len(releases),"artifacts":len(artifacts),"issues":len(issues),"issueComments":len(issue_comments),"reviewComments":len(review_comments),"reviewSubmissions":review_submission_count}
+# Redacted provenance: no addresses, domains, paths or match excerpts are emitted.
+diagnostics["distinct_candidate_email_addresses"]=len(email_unique)
+diagnostics["candidate_email_sources"]=len(email_unique_by_source)
+for label, items in email_unique_by_source.items():
+    diagnostics["email_distinct_"+label]=len(items)
+for label, n in email_source_item_count.items():
+    diagnostics["email_items_"+label]=n
+for label, n in email_sources.items():
+    diagnostics["email_"+label]=n
+
+report={"counts":dict(counts),"safe_counts":dict(safe),"diagnostics":dict(diagnostics),"releases":len(releases),"artifacts":len(artifacts),"issues":len(issues),"issueComments":len(issue_comments),"reviewComments":len(review_comments),"reviewSubmissions":review_submission_count}
 status_path=os.environ.get("PUBLIC_SURFACE_AUDIT_STATUS")
 if status_path:
     Path(status_path).write_text(json.dumps(report,sort_keys=True),encoding="utf-8")
@@ -253,6 +283,8 @@ if os.environ.get("GITHUB_STEP_SUMMARY"):
 print(f"Public surfaces scanned: releases={len(releases)} artifacts={len(artifacts)} issues={len(issues)} issue_comments={len(issue_comments)} review_comments={len(review_comments)} review_submissions={review_submission_count}")
 for k in sorted(counts):
     print(f"  {k}: {counts[k]}")
+for k in sorted(diagnostics):
+    print(f"  diagnostic_{k}: {diagnostics[k]}")
 if counts:
     print("REVIEW REQUIRED: public-surface candidates detected; values were not printed.")
     sys.exit(1)
