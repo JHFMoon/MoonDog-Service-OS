@@ -7,6 +7,8 @@ on:
       - '.github/workflows/public-history-safety-audit.yml'
       - 'scripts/audit_public_git_history.py'
   workflow_dispatch:
+  schedule:
+    - cron: '23 9 * * *'
 
 permissions:
   contents: read
