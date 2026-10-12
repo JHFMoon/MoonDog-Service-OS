@@ -520,4 +520,42 @@ html[data-theme="dark"] body #view-settings :is(input:not([type="checkbox"]),sel
   }
 }
 
+
+/* SERVICE ARENA — measured, source-aware TV finish. */
+#view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-head h2{
+  font-size:clamp(27px,2.5cqw,44px)!important;
+  letter-spacing:-.048em!important;
+  white-space:nowrap;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-head h2 em{
+  color:#7de6bd!important;
+  font-size:.83em;
+  letter-spacing:.04em;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-head>div:first-child>span{
+  letter-spacing:.16em;
+  font-size:clamp(10px,.78cqw,13px);
+}
+.arena-advisor .aa-lane.neutral .aa-lane-title{color:#a8cddd}
+.arena-advisor .aa-lane.neutral .aa-item{border-left-color:#587b8e}
+.arena-advisor .aa-lane.neutral .aa-item>small{color:#d2be8f}
+.arena-store .as-signal.pending{
+  justify-content:center;
+  gap:9px;
+  border-left:3px solid rgba(245,197,126,.6);
+  padding-left:clamp(9px,.9cqw,16px);
+}
+.arena-store .as-signal.pending b{color:#c6d9e2}
+.arena-store .as-signal.pending small{
+  max-width:210px;
+  line-height:1.35;
+  font-weight:850;
+  color:#f4c99b;
+}
+@media(max-width:760px){
+ #view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-head h2{
+   font-size:clamp(23px,4.1vw,37px)!important;
+ }
+}
+
 /* END PREMIUM EXPERIENCE FINISH */

@@ -14,7 +14,7 @@ function render(opts={}){
  const metricNames=["cpElr","cpHoursPerRo","mediaViewed","texting","vir","menuPresentation","menuPenetration","dealerNps"];
  const sampleTargets=[230,2.1,86,98,92,78,42,95];
  const context={Math,Number,Intl,Date,console,
-  standard:key=>sampleTargets[metricNames.indexOf(key)],
+  standard:key=>opts.unsetTargets?.includes(key)?null:opts.targetOverrides?.[key]??sampleTargets[metricNames.indexOf(key)],
   performanceFormat:(n,kind)=>kind==="money"?"$"+Math.round(n).toLocaleString("en-US"):String(Math.round(n)),
   compactMoney:n=>"$"+(n/1000).toFixed(1)+"K",
   shortDate:d=>({"2026-10-11":"Oct 11","2026-10-08":"Oct 8","2026-10-05":"Oct 5","2026-10-10":"Oct 10","2026-10-12":"Oct 12"})[d]||"Oct 11",
@@ -26,7 +26,7 @@ function render(opts={}){
   csiMetricEvidence:()=>({verified:current&&nps>0}),
  };
  const functionBody=vm.runInNewContext(source+"\nmeetingAdvisorTv;",context);
- const values=[29600,215,1.9,93,92];
+ const values=[29600,opts.cpElrValue??215,opts.cpHoursValue??1.9,93,92];
  const entity=Object.fromEntries(["totalGross","cpElr","cpHours","mediaViewed","texting"].map((key,i)=>[key,values[i]]));
  return functionBody("test",
  {periodEnd:"2026-10-11",validation:{saprDaysVerified:current,finalTotalsVerified:current},saprDaysCompleted:7,saprTotalDays:23},
@@ -57,15 +57,15 @@ test("Incomplete week is human-readable, without pretending a weekly total exist
 test("Arena title removes the store brand without changing broadcast identity",()=>{
  const start=app.indexOf("  function ensureMeetingV3Shell("),end=app.indexOf("  function meetingTvMetric(",start);
  const header=app.slice(start,end);
- assert.match(header,/<h2>TEAM <em>LIVE<\/em><\/h2>/);
- assert.match(header,/SERVICE TEAM PERFORMANCE/);
+ assert.match(header,/<h2>SERVICE <em>ARENA<\/em><\/h2>/);
+ assert.match(header,/WEEKLY TEAM PERFORMANCE/);
  assert.doesNotMatch(header,/<h2>MOONDOG /);
 });
 test("Month outlook is clearly labeled as a forecast; incomplete weekly evidence is disclosed separately",()=>{
  const incomplete=render({missing:["2026-10-10"]});
  assert.match(incomplete,/PROJECTED \(EST\.\)/);
- assert.match(incomplete,/7-DAY VIEW INCOMPLETE · WAITING FOR OCT 10/);
- assert.match(incomplete,/aa-confidence/);
+ assert.equal((incomplete.match(/WAITING FOR OCT 10/g)||[]).length,1,"Never duplicate weekly missing day in advisor slide");
+ assert.doesNotMatch(incomplete,/7-DAY VIEW INCOMPLETE|aa-confidence/);
  const complete=render({missing:[]});
  assert.match(complete,/PROJECTED \(EST\.\)/);
  assert.doesNotMatch(complete,/7-DAY VIEW INCOMPLETE/);
@@ -75,6 +75,24 @@ test("A menu report dated after the displayed weekly period is not a current adv
  assert.doesNotMatch(html,/>MENUS SHOWN<\/b>/);
  assert.doesNotMatch(html,/>MENUS SOLD<\/b>/);
  assert.doesNotMatch(html,/WEEK OF OCT 12/);
+});
+test("Unconfigured local scorecard targets are explicitly unscored, never treated as compliant",()=>{
+ const html=render({unsetTargets:["cpElr","cpHoursPerRo","mediaViewed","texting","vir","menuPresentation","menuPenetration","dealerNps"]});
+ assert.match(html,/UNSCORED/);
+ assert.match(html,/TARGET NOT SET · UPDATED OCT 11/);
+ assert.match(html,/TARGETS NOT CONFIGURED/);
+ assert.doesNotMatch(html,/>YOUR NUMBERS</);
+ assert.doesNotMatch(html,/GOAL MET/);
+});
+test("Configured generic standards put below-target labor measures into Room to Grow",()=>{
+ const html=render({cpElrValue:191,cpHoursValue:1.25,
+  unsetTargets:["mediaViewed","texting","vir","menuPresentation","menuPenetration","dealerNps"]});
+ const grow=html.slice(html.indexOf(">ROOM TO GROW<"),html.indexOf(">LAST REPORTED<"));
+ assert.match(grow,/LABOR RATE<\/b><strong>\$191<\/strong>/);
+ assert.match(grow,/HOURS PER VISIT<\/b><strong>1\.25<\/strong>/);
+ assert.match(grow,/\$39 TO GO/);
+ assert.match(grow,/0\.85 TO GO/);
+ assert.doesNotMatch(grow,/TARGETS NOT CONFIGURED/);
 });
 test("No survey result is never presented as zero or achievement",()=>{
  const html=render({nps:0});
@@ -178,7 +196,9 @@ test("A Store menu report dated after the displayed week is context, not an achi
    {current:{points,missingDates:["2026-10-10"],total:null}},
    {verified:true,value:77},{verified:true,period:"2026-10-12"},{verified:true,period:"2026-10-12"},{responses:0});
  const html=inserted?.innerHTML||"";
- assert.match(html,/REPORT DATED OCT 12 · AFTER PERIOD/);
+ assert.match(html,/MENU REPORT<\/b><small>DATED OCT 12 · PERIOD NOT CONFIRMED/);
+ assert.doesNotMatch(html,/<strong>—<\/strong>/);
  assert.doesNotMatch(html,/WEEK OF OCT 12|MENUS SHOWN<\/b><strong>77%|MENUS SOLD<\/b><strong>47%/);
+ assert.match(html,/class="as-signal pending"/);
  assert.match(html,/UPDATED OCT 8/);
 });
