@@ -53,7 +53,6 @@ test("Original Home selection uses a provided top-three snapshot rather than re-
   const provided=[{id:"ro:two",fingerprint:"two"}];
   const env={model:{root:{},},state:{loadedRoot:{},editing:false,current:null},
     attentionTopThree:()=>{extraRanks++;return [{id:"other"}];}};
-  vm.runInNewContext(head+"\nthis.preview=renderHome;",env);
   // Use a no-DOM test helper composed from the exact production pre-render block.
   vm.runInNewContext("this.beforePaint=function(prioritizedTop){"+head.slice(head.indexOf("{")+1)+"return top;};",env);
   const top=env.beforePaint(provided);
