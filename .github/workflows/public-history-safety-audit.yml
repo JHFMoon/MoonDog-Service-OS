@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/public-history-safety-audit.yml'
       - 'scripts/audit_public_git_history.py'
+      - 'scripts/audit_public_surfaces.py'
   workflow_dispatch:
   schedule:
     - cron: '23 9 * * *'
@@ -13,6 +14,9 @@ on:
 permissions:
   contents: read
   statuses: write
+  actions: read
+  issues: read
+  pull-requests: read
 
 jobs:
   audit:
@@ -64,4 +68,52 @@ PY
           gh api -X POST "repos/$REPO/statuses/$SHA"             -f state="$STATE"             -f context="Public History Audit"             -f description="$DESC"             -f target_url="https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
       - name: Enforce audit result
         if: steps.audit.outcome != 'success'
+        run: exit 1
+
+  public-surfaces:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout audit logic only
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Audit releases, Actions artifacts, and public discussions
+        id: surface
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLIC_SURFACE_AUDIT_STATUS: /tmp/public-surface-audit.json
+        run: python3 scripts/audit_public_surfaces.py
+      - name: Publish redacted public-surface status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          AUDIT_OUTCOME: ${{ steps.surface.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$AUDIT_OUTCOME" = "success" ]; then
+            STATE=success
+            DESC="Releases, artifacts and public discussions passed"
+          else
+            STATE=failure
+            if [ -f /tmp/public-surface-audit.json ]; then
+              DESC="$(python3 - <<'PY'
+import json
+data=json.load(open('/tmp/public-surface-audit.json',encoding='utf-8'))
+counts=data.get('counts') or {}
+parts=[f"{k}={counts[k]}" for k in sorted(counts)]
+print(("Review: "+(", ".join(parts) if parts else "surface audit failed before counts"))[:135])
+PY
+)"
+            else
+              DESC="Public-surface audit failed before redacted counts"
+            fi
+          fi
+          gh api -X POST "repos/$REPO/statuses/$SHA"             -f state="$STATE"             -f context="Public Surface Audit"             -f description="$DESC"             -f target_url="https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
+      - name: Enforce public-surface audit result
+        if: steps.surface.outcome != 'success'
         run: exit 1
