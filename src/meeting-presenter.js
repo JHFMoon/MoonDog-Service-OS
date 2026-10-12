@@ -3,7 +3,7 @@
   "use strict";
   const api=root.__moondogDaily,model=api?.model;
   if(!api||!model)return;
-  const state={enabled:false,paused:false,index:0,timer:null,view:null,controls:null,seconds:30,cardHost:null,cardNodes:[],fullscreenTransition:null};
+  const state={enabled:false,paused:false,index:0,timer:null,view:null,controls:null,seconds:30,cardHost:null,cardNodes:[],presentationMode:false,presentationTransition:null};
   const $=id=>document.getElementById(id);
   function setting(){const prefs=api.presentationSettings?.()||{};return {
     seconds:Number.isInteger(prefs.seconds)&&prefs.seconds>=10&&prefs.seconds<=120?prefs.seconds:30,
@@ -57,7 +57,7 @@
   function next(){const count=1+cards().length;if(!count)return;
     state.index=(state.index+1)%count;paint();
   }
-  function toggle(){state.enabled=!state.enabled;state.paused=false;state.index=0;paint();restartTimer();}
+  function toggle(){if(state.presentationMode)setPresentationMode(false);state.enabled=!state.enabled;state.paused=false;state.index=0;paint();restartTimer();}
   function pause(){if(!state.enabled)return;state.paused=!state.paused;paint();restartTimer();}
   function activate(){
     const view=viewReady();if(!view)return;
@@ -65,27 +65,30 @@
     if(!state.enabled){state.enabled=true;state.paused=false;state.index=0;}
     state.seconds=setting().seconds;paint();restartTimer();
   }
-  function onFullscreenChange(){
-    const transition=state.fullscreenTransition;
-    if(transition){
-      transition.eventMs=Math.round(performance.now()-transition.startedAt);
-      requestAnimationFrame(()=>{
-        if(state.fullscreenTransition!==transition)return;
+  // Safe presentation mode uses ordinary CSS, never the browser Fullscreen API.
+  // Unlike native fullscreen, toggling this mode does not dispatch fullscreenchange
+  // or promote a large layout container into the browser's top layer.
+  function setPresentationMode(enabled){
+    const view=viewReady();if(!view)return;
+    if(enabled&&!state.enabled)activate();
+    if(state.presentationMode===enabled)return;
+    const transition={kind:enabled?"enter":"exit",startedAt:performance.now(),frameMs:null};
+    state.presentationTransition=transition;
+    state.presentationMode=enabled;
+    view.classList.toggle("presentation-overlay",enabled);
+    document.body.classList.toggle("moondog-presentation-mode",enabled);
+    syncPresentationLabel();
+    requestAnimationFrame(()=>{
+      if(state.presentationTransition===transition)
         transition.frameMs=Math.round(performance.now()-transition.startedAt);
-        requestAnimationFrame(()=>{
-          if(state.fullscreenTransition===transition)
-            transition.restoredMs=Math.round(performance.now()-transition.startedAt);
-        });
-      });
-    }
-    syncFullscreenLabel();
+    });
   }
-  function syncFullscreenLabel(){
-    const button=state.controls?.querySelector("[data-fullscreen]");
+  function syncPresentationLabel(){
+    const button=state.controls?.querySelector("[data-presentation]");
     if(!button)return;
-    const active=Boolean(document.fullscreenElement);
-    button.textContent=active?"Exit full screen":"Full screen";
-    button.setAttribute("aria-pressed",String(active));
+    button.textContent=state.presentationMode?"Exit Presentation":"Present";
+    button.setAttribute("aria-pressed",String(state.presentationMode));
+    button.title=state.presentationMode?"Exit the in-app presentation (Esc also works)":"Use F11 in Edge if you also want to hide the browser toolbar";
   }
   function ensureControls(){
     const view=viewReady();if(!view)return;
@@ -100,49 +103,18 @@
       controls=document.createElement("div");controls.className="meeting-presenter-controls";
       controls.innerHTML=`<strong data-slide-label>Store · 1 of 1</strong>
         <button type="button" data-pause>Pause</button><button type="button" data-next>Next</button>
-        <button type="button" data-fullscreen>Full screen</button>
-        <button type="button" data-overview>Show overview</button><small role="status" aria-live="polite" data-fullscreen-help hidden></small>`;
+        <button type="button" data-presentation>Present</button>
+        <button type="button" data-overview>Show overview</button><small role="status" aria-live="polite" data-presentation-help hidden></small>`;
       controls.querySelector("[data-pause]").addEventListener("click",pause);
       controls.querySelector("[data-next]").addEventListener("click",()=>{if(!state.enabled)state.enabled=true;next();restartTimer();});
       controls.querySelector("[data-overview]").addEventListener("click",toggle);
-      controls.querySelector("[data-fullscreen]").addEventListener("click",async()=>{
-        const current=viewReady();
-        if(!current)return;
-        const button=controls.querySelector("[data-fullscreen]");
-        if(button.disabled)return;
-        const entering=!document.fullscreenElement;
-        state.fullscreenTransition={kind:entering?"enter":"exit",startedAt:performance.now(),eventMs:null,frameMs:null,restoredMs:null};
-        button.disabled=true;
-        button.setAttribute("aria-busy","true");
-        button.textContent=entering?"Opening…":"Exiting…";
-        const help=controls.querySelector("[data-fullscreen-help]");
-        if(help){help.hidden=true;help.textContent="";}
-        try{
-          if(document.fullscreenElement){
-            // The previous staging workaround triggered Edge renderer hangs.
-            // Exit directly; do not hide or reconstitute expensive slide DOM.
-            stopTimer();
-            await document.exitFullscreen();
-          }else if(!document.fullscreenEnabled)throw new Error("fullscreen unavailable");
-          else {
-            // Fullscreen the stable document root, not the size-contained Arena.
-            // Edge can stall when restoring a complex size-container from the fullscreen top layer.
-            await document.documentElement.requestFullscreen();
-          }
-        }catch(_){
-          state.fullscreenTransition.failed=true;
-          // A Split Screen pane or browser policy can deny fullscreen.
-          // Never leave the manager with a silent button.
-          if(help){
-            help.textContent="Full screen was blocked by Edge. Exit Split Screen or try F11.";
-            help.hidden=false;
-          }
-        }finally{button.disabled=false;button.removeAttribute("aria-busy");syncFullscreenLabel();restartTimer();}
+      controls.querySelector("[data-presentation]").addEventListener("click",()=>{
+        setPresentationMode(!state.presentationMode);
       });
       host.prepend(controls);
     }
     state.controls=controls;
-    syncFullscreenLabel();
+    syncPresentationLabel();
   }
   function installPreferences(){
     const area=[...document.querySelectorAll("#view-settings .settings-card")].find(card=>
@@ -174,15 +146,14 @@
   }
   document.addEventListener("moondog-navigation",event=>{
     if(event.detail?.view==="meeting")queueMicrotask(activate);
-    else if(event.detail?.view){stopTimer();paint();}
+    else if(event.detail?.view){setPresentationMode(false);stopTimer();paint();}
   });
   document.addEventListener("moondog-data",()=>{installPreferences();ensureControls();paint();});
-  document.addEventListener("moondog-recovered",()=>{stopTimer();state.index=0;state.enabled=false;paint();});
+  document.addEventListener("moondog-recovered",()=>{setPresentationMode(false);stopTimer();state.index=0;state.enabled=false;paint();});
   document.addEventListener("visibilitychange",()=>{if(document.hidden)stopTimer();else restartTimer();});
-  // Fullscreen resize must not rebuild the meeting or reorder advisor cards.
-  document.addEventListener("fullscreenchange",onFullscreenChange);
+  document.addEventListener("keydown",event=>{if(event.key==="Escape"&&state.presentationMode){event.preventDefault();setPresentationMode(false);}},true);
   window.addEventListener("beforeunload",stopTimer);
   installPreferences();ensureControls();
   if(viewReady()?.classList.contains("active"))activate();
-  root.__serviceMeetingPresenter=Object.freeze({next,paint,setting,cards,activate,fullscreenTiming:()=>{const t=state.fullscreenTransition;return t?{kind:t.kind,eventMs:t.eventMs,frameMs:t.frameMs,restoredMs:t.restoredMs,failed:!!t.failed}:null;}});
+  root.__serviceMeetingPresenter=Object.freeze({next,paint,setting,cards,activate,togglePresentation:()=>setPresentationMode(!state.presentationMode),presentationActive:()=>state.presentationMode,presentationTiming:()=>{const t=state.presentationTransition;return t?{kind:t.kind,frameMs:t.frameMs}:null;}});
 })(globalThis);
