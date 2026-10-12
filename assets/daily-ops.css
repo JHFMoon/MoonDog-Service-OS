@@ -459,4 +459,65 @@ html[data-theme="dark"] body #view-settings>.customer-voice-manager label{color:
 html[data-theme="dark"] body #view-settings :is(input:not([type="checkbox"]),select,textarea){
   background:#0e2534;color:#f0faff;border-color:#507184;
 }
+
+/* Broadcast final pass: tighter, intentional masthead and explicit forecast caveat. */
+#view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-head{
+  min-height:100px!important;
+  padding:9px clamp(13px,1.25cqw,23px) 34px!important;
+  column-gap:clamp(12px,2cqw,30px);
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-head h2{
+  font-size:clamp(29px,2.75cqw,46px)!important;
+  line-height:.96!important;letter-spacing:-.052em!important;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-head>div:first-child>span{
+  margin-top:7px;color:#95d5e9;font-size:clamp(10px,.82cqw,14px);
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-period{
+  padding-top:0;line-height:1.04;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-period strong{
+  font-size:clamp(19px,1.6cqw,27px);font-variant-numeric:tabular-nums;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-period>span{
+  font-size:clamp(10px,.9cqw,15px);letter-spacing:.13em;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-actions{
+  right:clamp(13px,1.25cqw,23px);bottom:5px!important;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-presenter-controls{
+  gap:6px;align-items:center;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-presenter-controls strong{
+  font-size:clamp(11px,.85cqw,14px);white-space:nowrap;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-presenter-controls button{
+  padding:5px 9px!important;font-size:clamp(11px,.82cqw,14px)!important;
+  min-height:28px;border-radius:6px!important;
+}
+.arena-advisor .aa-race-caption .aa-confidence{
+  flex:1 1 100%;padding-top:3px;
+  font-size:clamp(11px,.96cqw,17px);font-weight:850;
+  line-height:1.18;letter-spacing:.04em;color:#ffdda5;
+}
+@media(max-height:800px) and (orientation:landscape){
+  #view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-head{
+    min-height:82px!important;padding-bottom:28px!important;
+  }
+  .arena-advisor .aa-race-caption .aa-confidence{
+    padding-top:0;font-size:clamp(10px,.77cqw,13px);
+  }
+}
+@media(orientation:portrait){
+  #view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-head{
+    min-height:118px!important;
+  }
+  #view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-actions{
+    left:13px;right:13px;
+  }
+  #view-meeting.meeting-scoreboard.presentation-active .meeting-presenter-controls{
+    flex-wrap:wrap;
+  }
+}
+
 /* END PREMIUM EXPERIENCE FINISH */

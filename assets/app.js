@@ -2022,7 +2022,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function signedValue(value, type = "number") { if (!Number.isFinite(value)) return "CHANGE UNAVAILABLE"; const sign = value > 0 ? "+" : value < 0 ? "−" : ""; const absolute = Math.abs(value); return type === "money" ? `${sign}${compactMoney(absolute)}` : `${sign}${Number.isInteger(absolute) ? absolute : absolute.toFixed(1)}`; }
   function meetingMetricComparison(key, current) { const baseline = model.meetingCycle?.metrics?.[key], valid = model.meetingCycle?.cycleStart === meetingCycleInfo().cycleStart && baseline && current && baseline.period === current.period && Number.isFinite(baseline.value) && Number.isFinite(current.value); return { previous: valid ? baseline.value : null, change: valid ? current.value - baseline.value : null }; }
   function meetingRangeLabel(endDate) { if (!endDate) return "WAITING FOR VERIFIED SAPR"; return `${shortDate(freshness.addDays(endDate,-6))} – ${shortDate(endDate)}, ${endDate.slice(0,4)}`; }
-  function ensureMeetingV3Shell() { const view = document.querySelector("#view-meeting"), fullscreen = ui.meetingFullscreen; if (!view.classList.contains("meeting-scoreboard")) { view.className = "view meeting-view meeting-v3 meeting-scoreboard"; view.replaceChildren(); view.innerHTML = `<header class="meeting-scoreboard-head"><div><h2>MOONDOG <em>LIVE</em></h2><span>SERVICE TEAM PERFORMANCE</span></div><div class="meeting-scoreboard-period"><strong id="meetingV3Range">WAITING FOR VERIFIED SAPR</strong><span>LAST 7 DAYS</span><small id="meetingV3Freshness">WAITING FOR VERIFIED SOURCES</small></div><div class="meeting-scoreboard-actions"></div></header><section class="meeting-team-story"><article class="meeting-gross-story"><span>TEAM SCOREBOARD</span><strong id="meetingV3Gross">—</strong><small>CLOSED GROSS</small><p id="meetingV3GrossPrior">PRIOR 7 DAYS UNAVAILABLE</p><b id="meetingV3GrossChange">CHANGE UNAVAILABLE</b></article><article class="meeting-daily-story"><span>DAILY RESULTS</span><div id="meetingV3Daily" class="meeting-daily-bars"></div></article><article class="meeting-health-story"><span>TEAM HIGHLIGHTS</span><div id="meetingV3Team" class="meeting-health-grid"></div></article></section><section class="meeting-scoreboard-advisors" id="meetingV3Advisors"></section><section class="meeting-scoreboard-voice"><div><span id="meetingV3VoiceLabel">CUSTOMER VOICE</span><small>REAL FEEDBACK · REAL IMPACT</small></div><strong id="meetingV3Quote">“A CUSTOMER VOICE MOMENT WILL APPEAR WHEN A QUALIFYING RESPONSE IS AVAILABLE.”</strong></section><footer class="meeting-action-band"><article><span>OUR MOMENTUM</span><div id="meetingV3Momentum"></div></article><article><span>WHAT NEEDS WORK</span><div id="meetingV3Focus"></div></article><article><span>TEAM CHALLENGE</span><div id="meetingV3Next"></div></article></footer>`; view.querySelector(".meeting-scoreboard-actions").append(fullscreen); } return view; }
+  function ensureMeetingV3Shell() { const view = document.querySelector("#view-meeting"), fullscreen = ui.meetingFullscreen; if (!view.classList.contains("meeting-scoreboard")) { view.className = "view meeting-view meeting-v3 meeting-scoreboard"; view.replaceChildren(); view.innerHTML = `<header class="meeting-scoreboard-head"><div><h2>TEAM <em>LIVE</em></h2><span>SERVICE TEAM PERFORMANCE</span></div><div class="meeting-scoreboard-period"><strong id="meetingV3Range">WAITING FOR VERIFIED SAPR</strong><span>LAST 7 DAYS</span><small id="meetingV3Freshness">WAITING FOR VERIFIED SOURCES</small></div><div class="meeting-scoreboard-actions"></div></header><section class="meeting-team-story"><article class="meeting-gross-story"><span>TEAM SCOREBOARD</span><strong id="meetingV3Gross">—</strong><small>CLOSED GROSS</small><p id="meetingV3GrossPrior">PRIOR 7 DAYS UNAVAILABLE</p><b id="meetingV3GrossChange">CHANGE UNAVAILABLE</b></article><article class="meeting-daily-story"><span>DAILY RESULTS</span><div id="meetingV3Daily" class="meeting-daily-bars"></div></article><article class="meeting-health-story"><span>TEAM HIGHLIGHTS</span><div id="meetingV3Team" class="meeting-health-grid"></div></article></section><section class="meeting-scoreboard-advisors" id="meetingV3Advisors"></section><section class="meeting-scoreboard-voice"><div><span id="meetingV3VoiceLabel">CUSTOMER VOICE</span><small>REAL FEEDBACK · REAL IMPACT</small></div><strong id="meetingV3Quote">“A CUSTOMER VOICE MOMENT WILL APPEAR WHEN A QUALIFYING RESPONSE IS AVAILABLE.”</strong></section><footer class="meeting-action-band"><article><span>OUR MOMENTUM</span><div id="meetingV3Momentum"></div></article><article><span>WHAT NEEDS WORK</span><div id="meetingV3Focus"></div></article><article><span>TEAM CHALLENGE</span><div id="meetingV3Next"></div></article></footer>`; view.querySelector(".meeting-scoreboard-actions").append(fullscreen); } return view; }
 
   // Advisor-facing 30-second scorecard. Values come from verified imported sources;
   // unavailable data stays unavailable rather than becoming zero or an invented goal.
@@ -2093,9 +2093,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   const virStale=virEvidence.status==="stale" && /^\d{4}-\d{2}-\d{2}$/.test(virDate||"");
   metric("VEHICLE INSPECTIONS",virSnapshot?.advisors?.[code]?.utilization,standard("vir"),"percent",virEvidence.verified||virStale,virStale,virDate);
   const menuShow=menuMeetingEvidence("presentation"),menuPen=menuMeetingEvidence("penetration"),menuSnapshot=latestOperationalSnapshot("menu"),menuDate=menuSnapshot?.releaseWeek||menuSnapshot?.periodEnd||"";
+  // Do not present a menu report dated after the displayed SAPR period as that period's result.
+  const menuAfterPeriod=/^\d{4}-\d{2}-\d{2}$/.test(menuDate)&&/^\d{4}-\d{2}-\d{2}$/.test(end||"")&&menuDate>end;
   const menuStale=menuShow.status==="stale"&&menuPen.status==="stale"&&/^\d{4}-\d{2}-\d{2}$/.test(menuDate);
-  metric("MENUS SHOWN",menuSnapshot?.advisors?.[code]?.presentation,standard("menuPresentation"),"percent",menuShow.verified||menuStale,menuStale,menuDate);
-  metric("MENUS SOLD",menuSnapshot?.advisors?.[code]?.penetration,standard("menuPenetration"),"percent",menuPen.verified||menuStale,menuStale,menuDate);
+  metric("MENUS SHOWN",menuSnapshot?.advisors?.[code]?.presentation,standard("menuPresentation"),"percent",!menuAfterPeriod&&(menuShow.verified||menuStale),menuStale,menuDate);
+  metric("MENUS SOLD",menuSnapshot?.advisors?.[code]?.penetration,standard("menuPenetration"),"percent",!menuAfterPeriod&&(menuPen.verified||menuStale),menuStale,menuDate);
   const npsEvidence=csiMetricEvidence(csi);
   metric("CUSTOMER SCORE",csi?.responses&&npsEvidence.verified?csi.nps:null,standard("dealerNps"),"score",!!(csi?.responses&&npsEvidence.verified),false,end);
   const best=metrics.filter(m=>m.status==="good").sort((a,b)=>(b.delta||0)-(a.delta||0));
@@ -2112,10 +2114,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   const forecast=Number.isFinite(gross)&&latest?.saprDaysCompleted>0&&latest?.saprTotalDays>0?gross/latest.saprDaysCompleted*latest.saprTotalDays:null;
   const difference=Number.isFinite(forecast)&&target?forecast-target:null;
   const ahead=difference===null?"unknown":difference>=0?"ahead":"behind";
-  const status=difference===null?"MONTHLY OUTLOOK":difference>=0?"ON PACE":"NEEDS A STRONGER FINISH";
-  const statusSub=difference===null?"PROJECTION NOT READY":`${compactMoney(forecast)} PROJECTED · ${compactMoney(Math.abs(difference))} ${difference>=0?"ABOVE":"BELOW"} GOAL`;
-  const daily=goal?.configured&&Number.isFinite(goal.roundedDaily)?performanceFormat(goal.roundedDaily,"money"):goal?.achieved?"GOAL REACHED":"—";
   const missing=Array.isArray(week?.current?.missingDates)?week.current.missingDates:[];
+  // A verified MTD snapshot can support a run-rate estimate even when the seven-day chart is incomplete.
+  // Label the forecast as an estimate and disclose the unrelated weekly coverage gap separately.
+  const status=difference===null?"MONTHLY OUTLOOK":difference>=0?"ON PACE":"NEEDS A STRONGER FINISH";
+  const statusSub=difference===null?"PROJECTION NOT READY":`${compactMoney(forecast)} PROJECTED (EST.) · ${compactMoney(Math.abs(difference))} ${difference>=0?"ABOVE":"BELOW"} GOAL`;
+  const coverageNote=Number.isFinite(forecast)&&missing.length?`7-DAY VIEW INCOMPLETE · WAITING FOR ${missing.slice(0,2).map(shortDate).join(", ").toUpperCase()}${missing.length>2?" +MORE":""}`:"";
+  const daily=goal?.configured&&Number.isFinite(goal.roundedDaily)?performanceFormat(goal.roundedDaily,"money"):goal?.achieved?"GOAL REACHED":"—";
   const weekNum=Number.isFinite(week?.current?.total)?compactMoney(week.current.total):null;
   const weekLabel=weekNum?"LAST 7 DAYS: "+weekNum:missing.length?"LAST 7 DAYS: WAITING FOR "+missing.slice(0,2).map(shortDate).join(", ").toUpperCase()+(missing.length>2?" +MORE":""):"LAST 7 DAYS: NOT READY";
   const label=meetingEscape(next?.label&&next.label!=="NEXT WIN"?next.label:"NEXT OPPORTUNITY");
@@ -2129,7 +2134,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       <div class="aa-money">${Number.isFinite(gross)?compactMoney(gross):"—"}</div>
       <div class="aa-goal"><b>${pct===null?"LATEST NUMBERS PENDING":pct+"% OF MONTHLY GOAL"}</b><span>${target?"GOAL "+compactMoney(target):"MONTHLY GOAL NOT SET"}</span></div>
       <div class="aa-race-line"><i style="width:${fill}%"></i><b></b></div>
-      <div class="aa-race-caption">${status}<small>${statusSub}</small></div>
+      <div class="aa-race-caption">${status}<small>${statusSub}</small>${coverageNote?`<small class="aa-confidence">${meetingEscape(coverageNote)}</small>`:""}</div>
     </div>
     <div class="aa-target">
       <div class="aa-circle">
@@ -2174,16 +2179,21 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const virDate=virObservationDate(latestOperationalSnapshot("vir"));
     const virStamp=/^\d{4}-\d{2}-\d{2}$/.test(virDate||"")?"UPDATED "+shortDate(virDate).toUpperCase():"LATEST REPORT";
     if(Number.isFinite(vir))health.push({label:"VEHICLE INSPECTIONS",value:Math.round(vir)+"%",status:virStamp});
-    const menu=latestOperationalSnapshot("menu")?.store;
-    const menuUpdated=latestOperationalSnapshot("menu")?.releaseWeek||latestOperationalSnapshot("menu")?.periodEnd||menuPresentation?.period||"";
+    const menuSnapshot=latestOperationalSnapshot("menu");
+    const menu=menuSnapshot?.store;
+    const menuUpdated=menuSnapshot?.releaseWeek||menuSnapshot?.periodEnd||menuPresentation?.period||"";
     const menuDates=String(menuUpdated).match(/\d{4}-\d{2}-\d{2}/g);
-    const menuStamp=menuDates?.length?"WEEK OF "+shortDate(menuDates[0]).toUpperCase():"LATEST REPORT";
-    if(menuPresentation?.verified&&Number.isFinite(menu?.presentation))health.push({label:"MENUS SHOWN",value:Math.round(menu.presentation)+"%",status:menuStamp});
-    if(menuPenetration?.verified&&Number.isFinite(menu?.penetration))health.push({label:"MENUS SOLD",value:Math.round(menu.penetration)+"%",status:menuStamp});
+    const menuDate=menuDates?.[0]||"";
+    const menuAfterPeriod=/^\d{4}-\d{2}-\d{2}$/.test(menuDate)&&/^\d{4}-\d{2}-\d{2}$/.test(latest?.periodEnd||"")&&menuDate>latest.periodEnd;
+    const menuStamp=menuDate?"WEEK OF "+shortDate(menuDate).toUpperCase():"LATEST REPORT";
+    if(!menuAfterPeriod&&menuPresentation?.verified&&Number.isFinite(menu?.presentation))health.push({label:"MENUS SHOWN",value:Math.round(menu.presentation)+"%",status:menuStamp});
+    if(!menuAfterPeriod&&menuPenetration?.verified&&Number.isFinite(menu?.penetration))health.push({label:"MENUS SOLD",value:Math.round(menu.penetration)+"%",status:menuStamp});
     if(dealer?.responses>0&&Number.isFinite(dealer.nps))health.push({label:"CUSTOMER SCORE",value:Math.round(dealer.nps).toString(),status:dealer.responses+" RESPONSES"});
-    if(!health.length&&menuPresentation?.status==="stale"&&/^\d{4}-\d{2}-\d{2}$/.test(menuUpdated||"")&&Number.isFinite(menu?.presentation)){
+    if(!menuAfterPeriod&&!health.length&&menuPresentation?.status==="stale"&&/^\d{4}-\d{2}-\d{2}$/.test(menuUpdated||"")&&Number.isFinite(menu?.presentation)){
       health.push({label:"MENUS SHOWN",value:Math.round(menu.presentation)+"%",status:"UPDATED "+shortDate(menuUpdated)});
     }
+    // A newer-dated menu file must not masquerade as an October 5-11 achievement.
+    if(menuAfterPeriod&&health.length<2)health.push({label:"MENUS SHOWN",value:"—",status:"REPORT DATED "+shortDate(menuDate).toUpperCase()+" · AFTER PERIOD"});
     const signal=health.slice(0,2).map(h=>`<span class="as-signal"><b>${h.label}</b><strong>${h.value}</strong><small>${h.status}</small></span>`).join("");
     const opportunity=sourceFreshness("sapr").safeForCurrent?storeMeetingNextOpportunity(latest):null;
     const challenge=opportunity?meetingEscape(String(opportunity.label||"NEXT OPPORTUNITY").toUpperCase()):"NEXT TEAM WIN";

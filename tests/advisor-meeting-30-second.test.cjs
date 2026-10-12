@@ -17,11 +17,11 @@ function render(opts={}){
   standard:key=>sampleTargets[metricNames.indexOf(key)],
   performanceFormat:(n,kind)=>kind==="money"?"$"+Math.round(n).toLocaleString("en-US"):String(Math.round(n)),
   compactMoney:n=>"$"+(n/1000).toFixed(1)+"K",
-  shortDate:d=>({"2026-10-11":"Oct 11","2026-10-08":"Oct 8","2026-10-05":"Oct 5","2026-10-10":"Oct 10"})[d]||"Oct 11",
+  shortDate:d=>({"2026-10-11":"Oct 11","2026-10-08":"Oct 8","2026-10-05":"Oct 5","2026-10-10":"Oct 10","2026-10-12":"Oct 12"})[d]||"Oct 11",
   meetingEscape:s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"),
   virMeetingEvidence:()=>({verified:current&&!older,status:older?"stale":current?"verified":"missing-source"}),
   virObservationDate:()=> "2026-10-08",
-  latestOperationalSnapshot:key=>({releaseWeek:"2026-10-05",advisors:{test:key==="vir"?{utilization:94}:{presentation:81,penetration:43}}}),
+  latestOperationalSnapshot:key=>({releaseWeek:key==="menu"?(opts.menuWeek||"2026-10-05"):"2026-10-05",advisors:{test:key==="vir"?{utilization:94}:{presentation:81,penetration:43}}}),
   menuMeetingEvidence:()=>({verified:current&&!older,status:older?"stale":current?"verified":"missing-source"}),
   csiMetricEvidence:()=>({verified:current&&nps>0}),
  };
@@ -53,6 +53,28 @@ test("Incomplete week is human-readable, without pretending a weekly total exist
  const html=render({missing:["2026-10-10"]});
  assert.match(html,/WAITING FOR OCT 10/);
  assert.doesNotMatch(html,/1 DAYS MISSING|SAPR|WEEKLY TOTAL WITHHELD/);
+});
+test("Arena title removes the store brand without changing broadcast identity",()=>{
+ const start=app.indexOf("  function ensureMeetingV3Shell("),end=app.indexOf("  function meetingTvMetric(",start);
+ const header=app.slice(start,end);
+ assert.match(header,/<h2>TEAM <em>LIVE<\/em><\/h2>/);
+ assert.match(header,/SERVICE TEAM PERFORMANCE/);
+ assert.doesNotMatch(header,/<h2>MOONDOG /);
+});
+test("Month outlook is clearly labeled as a forecast; incomplete weekly evidence is disclosed separately",()=>{
+ const incomplete=render({missing:["2026-10-10"]});
+ assert.match(incomplete,/PROJECTED \(EST\.\)/);
+ assert.match(incomplete,/7-DAY VIEW INCOMPLETE · WAITING FOR OCT 10/);
+ assert.match(incomplete,/aa-confidence/);
+ const complete=render({missing:[]});
+ assert.match(complete,/PROJECTED \(EST\.\)/);
+ assert.doesNotMatch(complete,/7-DAY VIEW INCOMPLETE/);
+});
+test("A menu report dated after the displayed weekly period is not a current advisor win",()=>{
+ const html=render({menuWeek:"2026-10-12",missing:[]});
+ assert.doesNotMatch(html,/>MENUS SHOWN<\/b>/);
+ assert.doesNotMatch(html,/>MENUS SOLD<\/b>/);
+ assert.doesNotMatch(html,/WEEK OF OCT 12/);
 });
 test("No survey result is never presented as zero or achievement",()=>{
  const html=render({nps:0});
@@ -127,4 +149,36 @@ test("Store chart never counts a closed Sunday as a reported operating day",()=>
  assert.match(html,/UPDATED OCT 8/);
  assert.match(html,/WEEK OF OCT 5/);
  assert.doesNotMatch(html,/>CURRENT<\/small>/);
+});
+
+
+test("A Store menu report dated after the displayed week is context, not an achievement",()=>{
+ const start=app.indexOf("  function renderMeetingArenaStore(");
+ const end=app.indexOf("  function attachMeetingAdvisorTv(",start);
+ assert.ok(start>0&&end>start);
+ const presenter=app.slice(start,end);
+ let inserted=null;
+ const context={
+  Number,Math,Date,console,document:{createElement(){return {className:"",innerHTML:"",setAttribute(){}};}},
+  compactMoney:n=>"$"+(n/1000).toFixed(1)+"K",
+  shortDate:d=>({"2026-10-08":"Oct 8","2026-10-11":"Oct 11","2026-10-12":"Oct 12"})[d]||"Oct 5",
+  meetingEscape:String,sourceFreshness:()=>({safeForCurrent:false}),
+  virObservationDate:()=> "2026-10-08",
+  latestOperationalSnapshot:key=>key==="vir"?{observationTimestamp:"2026-10-08"}:
+     {releaseWeek:"2026-10-12",store:{presentation:77,penetration:47}},
+  storeMeetingNextOpportunity:()=>null
+ };
+ const show=vm.runInNewContext(presenter+"\nrenderMeetingArenaStore;",context);
+ const view={querySelector:selector=>selector===".arena-store"?null:selector===".meeting-scoreboard-head"?{after(x){inserted=x;}}:null,
+  classList:{add(){},remove(){}}};
+ const points=["2026-10-05","2026-10-06","2026-10-07","2026-10-08","2026-10-09","2026-10-10","2026-10-11"]
+  .map((date,i)=>({date,available:i!==5,closed:i===6,value:i===5?null:1000}));
+ show(view,
+   {periodEnd:"2026-10-11",validation:{finalTotalsVerified:true},store:{totalGross:85000}},
+   {current:{points,missingDates:["2026-10-10"],total:null}},
+   {verified:true,value:77},{verified:true,period:"2026-10-12"},{verified:true,period:"2026-10-12"},{responses:0});
+ const html=inserted?.innerHTML||"";
+ assert.match(html,/REPORT DATED OCT 12 · AFTER PERIOD/);
+ assert.doesNotMatch(html,/WEEK OF OCT 12|MENUS SHOWN<\/b><strong>77%|MENUS SOLD<\/b><strong>47%/);
+ assert.match(html,/UPDATED OCT 8/);
 });

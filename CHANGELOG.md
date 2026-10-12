@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.38 — current Beta
+
+- Refine Arena trust cues and remove branded meeting title. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.37 — current Beta
 
 - Premium finish for Settings and Meeting Arena. Verified automated Beta; no Workspace migration.
