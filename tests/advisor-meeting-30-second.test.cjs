@@ -88,3 +88,43 @@ test("Original overview remains available, CSS generated bundle stays identical"
  assert.equal(bundle.split(start)[1].split(stop)[0].trim(),css.trim());
  assert.match(css,/\.tv-ready>:not\(h3\):not\(\.advisor-tv\)\{display:none!important\}/);
 });
+
+test("Store chart never counts a closed Sunday as a reported operating day",()=>{
+ const first=app.indexOf("  function renderMeetingArenaStore("),last=app.indexOf("  function attachMeetingAdvisorTv(",first);
+ assert.ok(first>=0&&last>first,"Live Arena store renderer required");
+ const presenter=app.slice(first,last);
+ let inserted=null,ready=false;
+ const context={Number,Math,Date,console,
+   document:{createElement(){return {className:"",innerHTML:"",setAttribute(){}};}},
+   compactMoney:n=>Math.round(n).toLocaleString("en-US"),
+   shortDate:d=>({"2026-10-11":"Oct 11","2026-10-10":"Oct 10","2026-10-08":"Oct 8","2026-10-05":"Oct 5"})[d]||"DAY",
+   meetingEscape:v=>String(v),
+   sourceFreshness:()=>({safeForCurrent:false}),
+   virObservationDate:()=> "2026-10-08",
+   latestOperationalSnapshot:k=>k==="vir"?{observationTimestamp:"2026-10-08T12:00:00Z"}:
+     {releaseWeek:"2026-10-05",store:{presentation:77,penetration:33}},
+   storeMeetingNextOpportunity:()=>null
+ };
+ const show=vm.runInNewContext(presenter+"\nrenderMeetingArenaStore;",context);
+ const view={
+   querySelector:selector=>selector===".arena-store"?null:selector===".meeting-scoreboard-head"?{after(el){inserted=el;}}:null,
+   classList:{add(name){if(name==="arena-ready")ready=true;},remove(){ready=false;}}
+ };
+ const days=["2026-10-05","2026-10-06","2026-10-07","2026-10-08","2026-10-09","2026-10-10","2026-10-11"];
+ const points=days.map((date,i)=>({date,value:i===5?null:i===6?0:(i+1)*1000,available:i!==5,closed:i===6}));
+ show(view,{periodEnd:"2026-10-11",validation:{finalTotalsVerified:true},store:{totalGross:85000}},
+   {current:{points,missingDates:["2026-10-10"],total:null}},
+   {verified:true,value:77},
+   {verified:true,period:"2026-10-05"},
+   {verified:false},
+   {responses:0});
+ assert.ok(ready,"Arena Store should render");
+ const html=inserted?.innerHTML||"";
+ assert.match(html,/5 OF 6 OPEN DAYS REPORTED/);
+ assert.match(html,/WAITING FOR OCT 10/);
+ assert.match(html,/class="as-bar closed"><b>CLOSED/);
+ assert.doesNotMatch(html,/6 DAYS REPORTED|\$0<\/b>/);
+ assert.match(html,/UPDATED OCT 8/);
+ assert.match(html,/WEEK OF OCT 5/);
+ assert.doesNotMatch(html,/>CURRENT<\/small>/);
+});
