@@ -4,6 +4,8 @@ from __future__ import annotations
 import collections, io, json, os, re, subprocess, sys, tempfile, zipfile
 from pathlib import Path
 
+from build_distribution import WORKSPACE_README
+
 REPO=os.environ["GITHUB_REPOSITORY"]
 counts=collections.Counter()
 safe=collections.Counter()
@@ -71,19 +73,21 @@ def scan_zip_bytes(data: bytes, source: str, depth: int=0):
             continue
         if restricted_name.search(name):
             counts["restricted_path_in_archive"]+=1
+        if info.file_size>20_000_000:
+            counts["oversize_archive_member"]+=1
+            continue
+        body=zf.read(info)
         if workspace_name.search(name):
             if info.file_size==0 and Path(name).name in {".gitkeep",".keep",".empty"}:
                 safe["empty_workspace_placeholder"]+=1
+            elif name.endswith("/System Files/Workspace/README.txt") and body == WORKSPACE_README.encode("utf-8"):
+                safe["verified_distribution_workspace_readme"]+=1
             else:
                 counts["workspace_file_in_archive"]+=1
                 if info.file_size==0:
                     counts["empty_workspace_file_requires_review"]+=1
                 else:
                     counts["nonempty_workspace_file_requires_review"]+=1
-        if info.file_size>20_000_000:
-            counts["oversize_archive_member"]+=1
-            continue
-        body=zf.read(info)
         if zipfile.is_zipfile(io.BytesIO(body)):
             scan_zip_bytes(body,f"{source}!{name}",depth+1)
         else:
@@ -209,12 +213,27 @@ for comment in review_comments:
     if comment.get("body"):
         scan_bytes(str(comment["body"]).encode(),"pr-review-comment")
 
-report={"counts":dict(counts),"safe_counts":dict(safe),"releases":len(releases),"artifacts":len(artifacts),"issues":len(issues),"issueComments":len(issue_comments),"reviewComments":len(review_comments)}
+# Review submissions are separate from review comments and can contain
+# public text. List each PR's reviews via a bounded API request per PR.
+review_submission_count=0
+for issue in issues:
+    if "pull_request" not in issue:
+        continue
+    number=issue.get("number")
+    if not number:
+        continue
+    for review in gh_json(f"repos/{REPO}/pulls/{number}/reviews?per_page=100"):
+        review_submission_count+=1
+        if review.get("body"):
+            scan_bytes(str(review["body"]).encode(),"pr-review")
+
+
+report={"counts":dict(counts),"safe_counts":dict(safe),"releases":len(releases),"artifacts":len(artifacts),"issues":len(issues),"issueComments":len(issue_comments),"reviewComments":len(review_comments),"reviewSubmissions":review_submission_count}
 status_path=os.environ.get("PUBLIC_SURFACE_AUDIT_STATUS")
 if status_path:
     Path(status_path).write_text(json.dumps(report,sort_keys=True),encoding="utf-8")
 
-summary=["## Public GitHub surface audit","",f"Releases scanned: {len(releases)}",f"Actions artifacts enumerated: {len(artifacts)}",f"Issues/PRs enumerated: {len(issues)}",f"Issue comments enumerated: {len(issue_comments)}",f"PR review comments enumerated: {len(review_comments)}","", "| Candidate category | Count |","|---|---:|"]
+summary=["## Public GitHub surface audit","",f"Releases scanned: {len(releases)}",f"Actions artifacts enumerated: {len(artifacts)}",f"Issues/PRs enumerated: {len(issues)}",f"Issue comments enumerated: {len(issue_comments)}",f"PR review comments enumerated: {len(review_comments)}",f"PR review submissions enumerated: {review_submission_count}","", "| Candidate category | Count |","|---|---:|"]
 summary += [f"| {k} | {counts[k]} |" for k in sorted(counts)]
 summary += ["", "**Review required** — candidates are redacted and are not proof of exposure." if counts else "No blocking candidates detected on scanned public surfaces."]
 if safe:
@@ -223,7 +242,7 @@ if os.environ.get("GITHUB_STEP_SUMMARY"):
     with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
         f.write("\n".join(summary)+"\n")
 
-print(f"Public surfaces scanned: releases={len(releases)} artifacts={len(artifacts)} issues={len(issues)} issue_comments={len(issue_comments)} review_comments={len(review_comments)}")
+print(f"Public surfaces scanned: releases={len(releases)} artifacts={len(artifacts)} issues={len(issues)} issue_comments={len(issue_comments)} review_comments={len(review_comments)} review_submissions={review_submission_count}")
 for k in sorted(counts):
     print(f"  {k}: {counts[k]}")
 if counts:
