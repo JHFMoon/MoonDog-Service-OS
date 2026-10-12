@@ -51,6 +51,8 @@ test('revising an advisor promise requires reason and preserves previous dates',
   assert.equal(next.revisions[0].reason,'Advisor awaiting warranty claim number');
   const savedAgain=nextAdminCloseout(next,next.blocker,next.taskDate,next.expectedCloseDate,'','2026-10-13T12:00:00Z');
   assert.equal(savedAgain.revisions.length,1);
+  assert.strictEqual(savedAgain,next,'Unchanged promise should retain the existing object');
+  assert.equal(savedAgain.updatedAt,'2026-10-12T12:00:00Z');
 });
 
 test('update form and Open RO exception filters are manager-only; existing durable state is reused',()=>{
@@ -70,6 +72,6 @@ test('Home save does not clear or transfer administrative fields between ROs', (
 
 test('Supervisor Workbook updates do not silently replace an existing admin commitment', () => {
   assert.ok(app.includes('Administrative closeout promise changed in workbook: confirm the revised date and reason'));
-  assert.ok(app.includes('proposed.reviewDate !== (current.adminCloseout.taskDate || "")'));
+  assert.ok(app.includes('proposed.reviewDate !== (current.adminCloseout.taskDate || "") || proposed.nextAction !== (current.nextAction || "")'));
   assert.ok(app.includes('!record.management.nextAction ? 5 : 6'));
 });
