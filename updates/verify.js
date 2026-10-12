@@ -52,7 +52,11 @@
     try {
       // Avoid a stale raw GitHub CDN edge manifest when the release just changed.
       // The SHA-256-pinned package URL itself remains unchanged and query-free.
-      const manifestResponse = await fetcher(MANIFEST_URL + "?check=" + Date.now(), requestOptions);
+      // Actual browser fetches bypass stale CDN metadata; injected offline/test
+      // fetchers retain the established fixed-source contract.
+      const manifestUrl = fetcher === global.fetch && typeof global.fetch === "function"
+        ? MANIFEST_URL + "?check=" + Date.now() : MANIFEST_URL;
+      const manifestResponse = await fetcher(manifestUrl, requestOptions);
       if (!manifestResponse.ok) return { status: "unavailable" };
       const manifest = await manifestResponse.json();
       const release = manifest?.[channel];
