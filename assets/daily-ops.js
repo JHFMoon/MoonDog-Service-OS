@@ -1216,7 +1216,7 @@
       controls.innerHTML=`<strong data-slide-label>Store · 1 of 1</strong>
         <button type="button" data-pause>Pause</button><button type="button" data-next>Next</button>
         <button type="button" data-fullscreen>Full screen</button>
-        <button type="button" data-overview>Show overview</button>`;
+        <button type="button" data-overview>Show overview</button><small role="status" aria-live="polite" data-fullscreen-help hidden></small>`;
       controls.querySelector("[data-pause]").addEventListener("click",pause);
       controls.querySelector("[data-next]").addEventListener("click",()=>{if(!state.enabled)state.enabled=true;next();restartTimer();});
       controls.querySelector("[data-overview]").addEventListener("click",toggle);
@@ -1226,11 +1226,20 @@
         const button=controls.querySelector("[data-fullscreen]");
         if(button.disabled)return;
         button.disabled=true;
+        const help=controls.querySelector("[data-fullscreen-help]");
+        if(help){help.hidden=true;help.textContent="";}
         try{
           if(document.fullscreenElement)await document.exitFullscreen();
+          else if(!document.fullscreenEnabled)throw new Error("fullscreen unavailable");
           else await current.requestFullscreen();
-        }catch(_){/* Browser denied fullscreen; inline presentation remains usable. */}
-        finally{button.disabled=false;syncFullscreenLabel();}
+        }catch(_){
+          // A Split Screen pane or browser policy can deny fullscreen.
+          // Never leave the manager with a silent button.
+          if(help){
+            help.textContent="Full screen was blocked by Edge. Exit Split Screen or try F11.";
+            help.hidden=false;
+          }
+        }finally{button.disabled=false;syncFullscreenLabel();}
       });
       host.prepend(controls);
     }
