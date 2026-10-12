@@ -76,6 +76,12 @@
     state.presentationTransition=transition;
     state.presentationMode=enabled;
     view.classList.toggle("presentation-overlay",enabled);
+    // Inline priority isolates the full viewport from older TV/embedded height rules.
+    // These overrides are temporary and removed completely when presentation exits.
+    for(const property of ["height","min-height","max-height"]){
+      if(enabled)view.style.setProperty(property,"100dvh","important");
+      else view.style.removeProperty(property);
+    }
     document.body.classList.toggle("moondog-presentation-mode",enabled);
     syncPresentationLabel();
     requestAnimationFrame(()=>{
