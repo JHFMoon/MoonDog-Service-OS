@@ -30,6 +30,8 @@ test("visible presentation control never invokes the native Fullscreen API",()=>
  assert.match(source,/setPresentationMode\(!state\.presentationMode\)/);
  assert.match(source,/event\.key==="Escape"&&state\.presentationMode/);
  assert.match(source,/view\.classList\.toggle\("presentation-overlay",enabled\)/);
+ assert.match(source,/view\.style\.setProperty\(property,"100dvh","important"\)/);
+ assert.match(source,/view\.style\.removeProperty\(property\)/);
  assert.match(source,/document\.body\.classList\.toggle\("moondog-presentation-mode",enabled\)/);
  assert.doesNotMatch(source,/\.requestFullscreen\(|\.exitFullscreen\(/);
  assert.doesNotMatch(app,/async function toggleMeetingFullscreen\(\).*requestFullscreen\(/);
