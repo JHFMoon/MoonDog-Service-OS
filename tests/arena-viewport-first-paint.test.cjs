@@ -51,7 +51,7 @@ test("Open RO table is rendered only when active and refreshed on navigation",()
  const start=app.indexOf("  function renderAll() {");
  const end=app.indexOf("  const renderAllWithCanonicalSourceLabels=",start);
  const content=app.slice(start,end);
- assert.match(content,/if\\(ui\\["view-open-ro"\\]\\?\\.classList\\.contains\\("active"\\)\\)renderTable\\(\\)/);
+ assert.ok(content.includes('if(ui["view-open-ro"]?.classList.contains("active"))renderTable();'));
  const nav=app.slice(app.indexOf("  function navigateTo(view,anchor="),app.indexOf("  function ensurePhase3Ui()"));
- assert.match(nav,/if\\(view==="open-ro"\\)renderTable\\(\\)/);
+ assert.ok(nav.includes('if(view==="open-ro")renderTable();'));
 });
