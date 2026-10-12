@@ -87,3 +87,22 @@ html[data-theme="dark"] body.daily-operating :is(svg,canvas,img){color:inherit}
 .daily-close-ro{margin-right:auto}
 .daily-field[hidden]{display:none!important}
 @media(max-width:640px){.daily-ro-actions{align-items:stretch;flex-direction:column-reverse}.daily-close-ro,.daily-ro-actions .daily-primary{width:100%}}
+
+/* Manager control pulse: compact Home control board, not another dashboard. */
+.manager-control-pulse{margin:8px 0 24px;padding:14px 16px;border:1px solid #cfdcdf;border-radius:14px;background:#f8fbfc}
+.manager-control-pulse-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:10px}
+.manager-control-pulse-head .eyebrow{margin:0 0 2px!important;font-size:10px!important}
+.manager-control-pulse-head strong{font-size:16px}
+.manager-control-pulse-grid{display:grid;grid-template-columns:repeat(8,minmax(76px,1fr));gap:8px}
+.manager-pulse-card{display:grid;gap:3px;min-width:0;padding:10px 11px;border:1px solid #d6e1e4;border-radius:10px;background:#fff;color:#24434d;text-align:left;cursor:pointer}
+.manager-pulse-card span{font-size:11px;line-height:1.2;color:#60747b}
+.manager-pulse-card strong{font-size:22px;line-height:1;font-variant-numeric:tabular-nums}
+.manager-pulse-card.urgent{border-color:#dfb0a8;background:#fff7f4;color:#7b3028}
+.manager-pulse-card.urgent span{color:#7b4b45}
+.manager-pulse-card:focus-visible{outline:3px solid #49a8ce;outline-offset:2px}
+html[data-theme="dark"] body.daily-operating .manager-control-pulse{background:#12232e;border-color:#34505c}
+html[data-theme="dark"] body.daily-operating .manager-pulse-card{background:#182937;color:#e8f1f7;border-color:#3a5262}
+html[data-theme="dark"] body.daily-operating .manager-pulse-card span{color:#b8cbd5}
+html[data-theme="dark"] body.daily-operating .manager-pulse-card.urgent{background:#3c2828;border-color:#8f5757;color:#ffd9d5}
+@media(max-width:900px){.manager-control-pulse-grid{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:600px){.manager-control-pulse-head{align-items:flex-start;flex-direction:column}.manager-control-pulse-grid{grid-template-columns:repeat(2,1fr)}}
