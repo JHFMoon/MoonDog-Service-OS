@@ -109,6 +109,14 @@ try{
     await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
     await page.waitForFunction(()=>Boolean(document.fullscreenElement),null,{timeout:2000});
     await page.waitForFunction(()=>Number.isFinite(globalThis.__serviceMeetingPresenter?.fullscreenTiming()?.frameMs),null,{timeout:2800});
+    // The fullscreen event can precede viewport style settling by one frame.
+    // Require actual full-viewport bounds promptly; an event alone is not success.
+    await page.waitForFunction(()=>{
+      const rect=document.querySelector("#view-meeting")?.getBoundingClientRect();
+      return Boolean(rect&&document.fullscreenElement===document.documentElement&&
+        Math.abs(rect.left)<3&&Math.abs(rect.top)<3&&
+        Math.abs(rect.width-innerWidth)<3&&Math.abs(rect.height-innerHeight)<3);
+    },null,{timeout:650});
     const entry=await page.evaluate(()=>({
       timing:globalThis.__serviceMeetingPresenter.fullscreenTiming(),
       globallyRestyled:document.body.classList.contains("meeting-fullscreen"),
