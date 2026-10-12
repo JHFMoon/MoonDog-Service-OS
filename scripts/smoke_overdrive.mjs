@@ -165,6 +165,11 @@ try{
     throw Error("Safe presentation is not a true interactive viewport overlay "+JSON.stringify(overlay));
   await page.screenshot({path:path.join(out,"presentation-"+width+".png")});
   const exitMs=await presentationAction(false);
+  const restoredInlineStyles=await page.evaluate(()=>{
+    const style=document.getElementById("view-meeting").style;
+    return !style.height&&!style.minHeight&&!style.maxHeight;
+  });
+  if(!restoredInlineStyles)throw Error("Safe presentation left inline viewport sizing behind");
   const beforeNext=await page.locator(".meeting-presenter-controls [data-slide-label]").textContent();
   await page.locator(".meeting-presenter-controls [data-next]").click({timeout:1500});
   const afterNext=await page.locator(".meeting-presenter-controls [data-slide-label]").textContent();
