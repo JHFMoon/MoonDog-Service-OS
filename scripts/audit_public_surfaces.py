@@ -9,6 +9,7 @@ from build_distribution import WORKSPACE_README
 REPO=os.environ["GITHUB_REPOSITORY"]
 counts=collections.Counter()
 safe=collections.Counter()
+diagnostics=collections.Counter()
 email_sources=collections.Counter()
 email_unique=set()
 email_unique_by_source=collections.defaultdict(set)
@@ -256,16 +257,16 @@ for issue in issues:
 
 
 # Redacted provenance: no addresses, domains, paths or match excerpts are emitted.
-safe["distinct_candidate_email_addresses"]=len(email_unique)
-safe["candidate_email_sources"]=len(email_unique_by_source)
+diagnostics["distinct_candidate_email_addresses"]=len(email_unique)
+diagnostics["candidate_email_sources"]=len(email_unique_by_source)
 for label, items in email_unique_by_source.items():
-    safe["email_distinct_"+label]=len(items)
+    diagnostics["email_distinct_"+label]=len(items)
 for label, n in email_source_item_count.items():
-    safe["email_items_"+label]=n
+    diagnostics["email_items_"+label]=n
 for label, n in email_sources.items():
-    safe["email_"+label]=n
+    diagnostics["email_"+label]=n
 
-report={"counts":dict(counts),"safe_counts":dict(safe),"releases":len(releases),"artifacts":len(artifacts),"issues":len(issues),"issueComments":len(issue_comments),"reviewComments":len(review_comments),"reviewSubmissions":review_submission_count}
+report={"counts":dict(counts),"safe_counts":dict(safe),"diagnostics":dict(diagnostics),"releases":len(releases),"artifacts":len(artifacts),"issues":len(issues),"issueComments":len(issue_comments),"reviewComments":len(review_comments),"reviewSubmissions":review_submission_count}
 status_path=os.environ.get("PUBLIC_SURFACE_AUDIT_STATUS")
 if status_path:
     Path(status_path).write_text(json.dumps(report,sort_keys=True),encoding="utf-8")
@@ -282,6 +283,8 @@ if os.environ.get("GITHUB_STEP_SUMMARY"):
 print(f"Public surfaces scanned: releases={len(releases)} artifacts={len(artifacts)} issues={len(issues)} issue_comments={len(issue_comments)} review_comments={len(review_comments)} review_submissions={review_submission_count}")
 for k in sorted(counts):
     print(f"  {k}: {counts[k]}")
+for k in sorted(diagnostics):
+    print(f"  diagnostic_{k}: {diagnostics[k]}")
 if counts:
     print("REVIEW REQUIRED: public-surface candidates detected; values were not printed.")
     sys.exit(1)
