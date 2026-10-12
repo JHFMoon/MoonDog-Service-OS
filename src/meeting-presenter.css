@@ -113,15 +113,15 @@ body.meeting-fullscreen .meeting-scoreboard-actions>#meetingFullscreen{display:n
 
 /* 30-second advisor card: dense, readable, source-aware; overview retains original cards. */
 .meeting-v3-advisor>.advisor-tv{display:none}
-#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"]{
+#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"].tv-ready{
   grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto minmax(0,1fr)!important;
   align-content:stretch!important;align-items:stretch!important;overflow:hidden;padding:clamp(14px,1.7cqw,28px)!important;gap:clamp(8px,1cqh,14px)!important
 }
-#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"]>:not(h3):not(.advisor-tv){display:none!important}
-#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"]>h3{
+#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"].tv-ready>:not(h3):not(.advisor-tv){display:none!important}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"].tv-ready>h3{
   grid-column:1!important;grid-row:1!important;font-size:clamp(38px,4.1cqw,68px)!important;line-height:1!important
 }
-#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"]>.advisor-tv{
+#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"].tv-ready>.advisor-tv{
   display:grid!important;grid-column:1!important;grid-row:2!important;grid-template-columns:minmax(0,1fr);
   grid-template-rows:minmax(0,1.17fr) minmax(0,1fr) minmax(0,.56fr);
   gap:clamp(9px,1.2cqh,17px);min-height:0;height:100%;min-width:0
@@ -170,20 +170,20 @@ body.meeting-fullscreen .meeting-scoreboard-actions>#meetingFullscreen{display:n
 .presentation-active .advisor-tv .tv-focus>small{font-size:clamp(12px,1.2cqw,19px);line-height:1.15;font-weight:850;color:#c9e6f7}
 .presentation-active .advisor-tv .tv-focus.achieved{border-color:#15966b;background:#0b392d}
 @media (max-height:800px) and (orientation:landscape){
-  #view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"]{padding:12px!important;gap:8px!important}
+  #view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"].tv-ready{padding:12px!important;gap:8px!important}
   .presentation-active .advisor-tv .tv-month,.presentation-active .advisor-tv .tv-need,.presentation-active .advisor-tv .tv-week{padding:10px 13px}
   .presentation-active .advisor-tv .tv-metric{padding:7px 10px}
   .presentation-active .advisor-tv .tv-focus{padding:9px 13px}
 }
 @media (orientation:portrait){
-  #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .meeting-v3-advisor[data-slide-active="true"]{grid-template-rows:auto auto!important;align-content:start!important;overflow-y:auto!important}
-  #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .meeting-v3-advisor[data-slide-active="true"]>.advisor-tv{height:auto!important;grid-template-rows:auto auto auto!important}
+  #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .meeting-v3-advisor[data-slide-active="true"].tv-ready{grid-template-rows:auto auto!important;align-content:start!important;overflow-y:auto!important}
+  #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .meeting-v3-advisor[data-slide-active="true"].tv-ready>.advisor-tv{height:auto!important;grid-template-rows:auto auto auto!important}
   #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .advisor-tv .tv-top{grid-template-columns:1fr!important}
   #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .advisor-tv .tv-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:repeat(4,minmax(100px,auto))!important}
   #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .advisor-tv .tv-focus{display:flex!important;flex-wrap:wrap!important;gap:12px!important}
 }
-#view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .meeting-v3-advisor[data-slide-active="true"]{grid-template-rows:auto auto!important;align-content:start!important;overflow-y:auto!important}
-#view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .meeting-v3-advisor[data-slide-active="true"]>.advisor-tv{height:auto!important;grid-template-rows:auto auto auto!important}
+#view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .meeting-v3-advisor[data-slide-active="true"].tv-ready{grid-template-rows:auto auto!important;align-content:start!important;overflow-y:auto!important}
+#view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .meeting-v3-advisor[data-slide-active="true"].tv-ready>.advisor-tv{height:auto!important;grid-template-rows:auto auto auto!important}
 #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .advisor-tv .tv-top{grid-template-columns:1fr!important}
 #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .advisor-tv .tv-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:repeat(4,minmax(100px,auto))!important}
 #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .advisor-tv .tv-focus{display:flex!important;flex-wrap:wrap!important;gap:12px!important}
