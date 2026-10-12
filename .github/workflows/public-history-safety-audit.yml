@@ -17,6 +17,9 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
+    outputs:
+      report: ${{ steps.capture.outputs.report }}
+      outcome: ${{ steps.capture.outputs.outcome }}
     steps:
       - name: Checkout full reachable history
         uses: actions/checkout@v4
@@ -62,12 +65,30 @@ PY
             fi
           fi
           gh api -X POST "repos/$REPO/statuses/$SHA"             -f state="$STATE"             -f context="Public History Audit"             -f description="$DESC"             -f target_url="https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
+      - name: Capture redacted history result
+        id: capture
+        if: always()
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          set -euo pipefail
+          if [ -f /tmp/public-history-audit.json ]; then
+            REPORT="$(base64 -w0 /tmp/public-history-audit.json)"
+          else
+            REPORT="$(printf '%s' '{"counts":{"audit_execution_failure":1}}' | base64 -w0)"
+          fi
+          echo "report=$REPORT" >> "$GITHUB_OUTPUT"
+          echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
       - name: Enforce audit result
         if: steps.audit.outcome != 'success'
         run: exit 1
 
   public-surfaces:
     runs-on: ubuntu-latest
+    outputs:
+      report: ${{ steps.capture.outputs.report }}
+      outcome: ${{ steps.capture.outputs.outcome }}
     steps:
       - name: Checkout audit logic only
         uses: actions/checkout@v4
@@ -110,6 +131,72 @@ PY
             fi
           fi
           gh api -X POST "repos/$REPO/statuses/$SHA"             -f state="$STATE"             -f context="Public Surface Audit"             -f description="$DESC"             -f target_url="https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
+      - name: Capture redacted public-surface result
+        id: capture
+        if: always()
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.surface.outcome }}
+        run: |
+          set -euo pipefail
+          if [ -f /tmp/public-surface-audit.json ]; then
+            REPORT="$(base64 -w0 /tmp/public-surface-audit.json)"
+          else
+            REPORT="$(printf '%s' '{"counts":{"audit_execution_failure":1}}' | base64 -w0)"
+          fi
+          echo "report=$REPORT" >> "$GITHUB_OUTPUT"
+          echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
       - name: Enforce public-surface audit result
         if: steps.surface.outcome != 'success'
         run: exit 1
+
+  publish-redacted-result:
+    needs: [audit, public-surfaces]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out audit status branch
+        uses: actions/checkout@v4
+        with:
+          ref: audit/status
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Write redacted machine-readable audit result
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          HISTORY_REPORT: ${{ needs.audit.outputs.report }}
+          HISTORY_OUTCOME: ${{ needs.audit.outputs.outcome }}
+          SURFACE_REPORT: ${{ needs.public-surfaces.outputs.report }}
+          SURFACE_OUTCOME: ${{ needs.public-surfaces.outputs.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          def decode(value):
+              if not value:
+                  return {"counts":{"missing_job_output":1}}
+              return json.loads(base64.b64decode(value).decode("utf-8"))
+          payload={
+              "sourceCommit": os.environ["SOURCE_SHA"],
+              "historyOutcome": os.environ.get("HISTORY_OUTCOME") or "unknown",
+              "history": decode(os.environ.get("HISTORY_REPORT","")),
+              "publicSurfaceOutcome": os.environ.get("SURFACE_OUTCOME") or "unknown",
+              "publicSurfaces": decode(os.environ.get("SURFACE_REPORT","")),
+              "redacted": True,
+          }
+          with open("audit-status.json","w",encoding="utf-8") as f:
+              json.dump(payload,f,indent=2,sort_keys=True)
+              f.write("\n")
+          PY
+          git config user.name "MoonDog Audit Automation"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add audit-status.json
+          if git diff --cached --quiet; then
+            echo "Audit status unchanged."
+            exit 0
+          fi
+          git commit -m "Update redacted public repository audit status"
+          git push origin HEAD:audit/status
