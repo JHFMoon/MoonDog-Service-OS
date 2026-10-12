@@ -11,6 +11,9 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  issues: read
+  pull-requests: read
 
 concurrency:
   group: publication-check-${{ github.ref }}
@@ -40,3 +43,13 @@ jobs:
         run: python3 scripts/check_publication.py
       - name: Audit reachable Git history for sensitive material
         run: python3 scripts/audit_git_history.py
+      - name: Diagnostic redacted strict-history category counts
+        shell: bash
+        run: |
+          python3 scripts/audit_public_git_history.py || true
+      - name: Diagnostic redacted public-surface category counts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/audit_public_surfaces.py || true
