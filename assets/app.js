@@ -2026,30 +2026,67 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
 
   // Advisor-facing 30-second scorecard. Values come from verified imported sources;
   // unavailable data stays unavailable rather than becoming zero or an invented goal.
-  function meetingTvMetric(label, value, target, kind, ready = true, detail = "") {
-    const known = ready && Number.isFinite(value), goal = Number.isFinite(target) && target > 0;
-    if (!known) return "";
-    const printable = amount => kind === "money" ? performanceFormat(amount, "money")
-      : kind === "decimal" ? amount.toFixed(2)
-      : kind === "count" ? Math.round(amount).toLocaleString()
-      : Math.round(amount) + "%";
-    const state = !goal ? "neutral" : value >= target ? "met" : "needs";
-    const shown = known ? printable(value) : "—";
-    const context = !known ? (detail || "Verified result pending")
-      : (goal ? "Goal " + printable(target) + (detail ? " · " + detail : "") : (detail || "No goal set"));
-    return `<article class="tv-metric ${state}"><span>${label}</span><strong>${shown}</strong><small>${context}</small></article>`;
-  }
+  function meetingTvMetric(label,value,target,kind,ready=true,detail="",historical=false){
+  if(!ready||!Number.isFinite(value))return "";
+  const hasGoal=Number.isFinite(target)&&target>0;
+  const display=amount=>kind==="money"?performanceFormat(amount,"money"):
+    kind==="decimal"?amount.toFixed(2):kind==="count"?Math.round(amount).toLocaleString():Math.round(amount)+"%";
+  const shortfall=hasGoal?Math.max(0,target-value):0;
+  const gap=kind==="percent"?(Number.isInteger(shortfall)?shortfall:shortfall.toFixed(1))+" pts":display(shortfall);
+  const state=historical?"historical":!hasGoal?"neutral":value>=target?"met":"needs";
+  const context=hasGoal?`Goal ${display(target)} · ${shortfall>0?gap+" below":"met"}`:"No configured goal";
+  return `<article class="tv-metric ${state}"${historical?' data-as-of="historical"':""}><span>${label}</span><strong>${display(value)}</strong><em>${context}</em><small>${historical?"HISTORICAL · ":""}${detail||"Verified"}</small></article>`;
+}
+  function meetingTvInsight(entity,saprReady,period){
+  if(!saprReady)return "";
+  const rows=[["CP ELR",entity?.cpElr,standard("cpElr"),"money"],
+    ["CP HRS / RO",entity?.cpHours,standard("cpHoursPerRo"),"decimal"],
+    ["MEDIA VIEWED",entity?.mediaViewed,standard("mediaViewed"),"percent"],
+    ["TEXTING",entity?.texting,standard("texting"),"percent"]]
+    .filter((row)=>Number.isFinite(row[1])&&Number.isFinite(row[2])&&row[2]>0);
+  if(!rows.length)return "";
+  const misses=rows.filter(row=>row[1]<row[2]).sort((a,b)=>(b[2]-b[1])/b[2]-(a[2]-a[1])/a[2]);
+  const focus=misses[0];
+  const count=rows.length-misses.length;
+  const delta=focus?focus[3]==="percent"?
+    `${Math.round((focus[2]-focus[1])*10)/10} pts`:
+    focus[3]==="money"?performanceFormat(focus[2]-focus[1],"money"):
+    (focus[2]-focus[1]).toFixed(2):"";
+  return `<article class="tv-insight ${focus?"attention":"positive"}"><span>${focus?"BIGGEST KPI GAP":"STANDARDS ON TRACK"}</span><strong>${focus?focus[0]:count+" / "+rows.length}</strong><em>${focus?delta+" below configured goal":"Measured SAPR benchmarks met"}</em><small>${period||"Verified SAPR"}</small></article>`;
+}
+  function meetingTvCoach(label){
+  const hints={
+    ALIGNMENTS:"Review tire wear and steering findings; offer an alignment when indicated.",
+    BRAKES:"Review measured brake condition; explain needed work with inspection evidence.",
+    TIRES:"Use tread measurements to explain qualifying tire recommendations.",
+    FILTERS:"Show inspection findings and offer qualifying filter service.",
+    BATTERIES:"Review battery test results with the customer before recommending.",
+    WIPERS:"Use inspection findings to demonstrate worn blades.",
+    CHEMICALS:"Review maintenance needs; recommend only applicable services.",
+    VIR:"Document each eligible vehicle consistently.",
+    "MENU PRESENTATION":"Present the full maintenance menu on eligible visits.",
+    "MENU PENETRATION":"Explain the relevant maintenance choices and record decisions.",
+    "MEDIA VIEWED":"Send usable inspection photos and explain what they show.",
+    TEXTING:"Confirm the preferred contact method and keep updates on schedule.",
+    "CP ELR":"Review labor discounting, op coding, and sold hours.",
+    "CP HOURS / RO":"Review inspection opportunities and approved work per RO."
+  };
+  return hints[String(label||"").toUpperCase()]||"Discuss one specific, verified opportunity at the next meeting.";
+}
   function meetingAdvisorTv(code, latest, entity, goal, week, next, csi) {
     const saprReady = Boolean(entity && latest?.validation?.saprDaysVerified === true && latest?.validation?.finalTotalsVerified === true);
     const saprStamp = saprReady ? "Verified through " + shortDate(latest.periodEnd) : "";
     const virState = virMeetingEvidence();
     const virSnapshot = latestOperationalSnapshot("vir");
-    const virReady = virState.verified || (virState.status === "stale" && Number.isFinite(virSnapshot?.advisors?.[code]?.utilization));
+    const virAsOf = virObservationDate(virSnapshot);
+    const virHistorical = virState.status === "stale" && /^\d{4}-\d{2}-\d{2}$/.test(virAsOf);
+    const virReady = virState.verified || (virHistorical && Number.isFinite(virSnapshot?.advisors?.[code]?.utilization));
     const menuPresentation = menuMeetingEvidence("presentation");
     const menuPenetration = menuMeetingEvidence("penetration");
     const vir = virReady ? latestOperationalSnapshot("vir")?.advisors?.[code] : null;
     const menuSnapshot = latestOperationalSnapshot("menu");
-    const historicMenu = menuPresentation.status === "stale" && menuPenetration.status === "stale";
+    const menuAsOf = menuSnapshot?.releaseWeek || menuSnapshot?.periodEnd || "";
+    const historicMenu = menuPresentation.status === "stale" && menuPenetration.status === "stale" && /^\d{4}-\d{2}-\d{2}$/.test(menuAsOf);
     const menu = menuPresentation.verified && menuPenetration.verified || historicMenu ? menuSnapshot?.advisors?.[code] : null;
     const csiEvidence = csiMetricEvidence(csi);
     const csiReady = csiEvidence.verified || (!csi.responses && sourceFreshness("csi").safeForCurrent);
@@ -2059,12 +2096,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       meetingTvMetric("CP HRS / RO", entity?.cpHours, standard("cpHoursPerRo"), "decimal", saprReady, saprStamp),
       meetingTvMetric("MEDIA VIEWED", entity?.mediaViewed, standard("mediaViewed"), "percent", saprReady, saprStamp),
       meetingTvMetric("TEXTING", entity?.texting, standard("texting"), "percent", saprReady, saprStamp),
-      meetingTvMetric("VIR", vir?.utilization, standard("vir"), "percent", virReady, virState.verified ? "" : "Last verified · historical"),
-      meetingTvMetric("MENU SHOWN", menu?.presentation, standard("menuPresentation"), "percent", menuPresentation.verified || historicMenu, historicMenu ? "Last verified · historical" : ""),
-      meetingTvMetric("MENU SOLD", menu?.penetration, standard("menuPenetration"), "percent", menuPenetration.verified || historicMenu, historicMenu ? "Last verified · historical" : ""),
+      meetingTvMetric("VIR", vir?.utilization, standard("vir"), "percent", virReady, virState.verified ? "Current verified observation" : "As of " + shortDate(virAsOf), virHistorical),
+      meetingTvMetric("MENU SHOWN", menu?.presentation, standard("menuPresentation"), "percent", menuPresentation.verified || historicMenu, historicMenu ? "As of " + shortDate(menuAsOf) : "Current verified week", historicMenu),
+      meetingTvMetric("MENU SOLD", menu?.penetration, standard("menuPenetration"), "percent", menuPenetration.verified || historicMenu, historicMenu ? "As of " + shortDate(menuAsOf) : "Current verified week", historicMenu),
       meetingTvMetric("CSI NPS", csi.responses ? csi.nps : null, standard("dealerNps"), "count", csiReady, csiNote)
     ].filter(Boolean).join("");
     const metricCount = (metrics.match(/class="tv-metric /g) || []).length;
+    const insight = metricCount === 7 ? meetingTvInsight(entity,saprReady,saprStamp) : "";
     const gross = Number.isFinite(entity?.totalGross) ? entity.totalGross : null;
     const monthlyGoal = goal?.configured && Number.isFinite(goal.target) ? goal.target : null;
     const monthlyProgress = Number.isFinite(gross) && monthlyGoal
@@ -2080,13 +2118,21 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const weekCurrent = Number.isFinite(week?.current?.total) ? week.current.total : null;
     const weekPrevious = Number.isFinite(week?.prior?.total) ? week.prior.total : null;
     const weekMove = meetingChange(weekCurrent, weekPrevious);
+    const missingDates = Array.isArray(week?.current?.missingDates) ? week.current.missingDates : [];
+    const missingSummary = missingDates.length
+      ? missingDates.slice(0,3).map(shortDate).join(", ") + (missingDates.length > 3 ? " +" + (missingDates.length-3) + " more" : "")
+      : "";
     const weekDetail = Number.isFinite(weekCurrent) && Number.isFinite(weekPrevious)
-      ? `vs ${compactMoney(weekPrevious)} · ${signedValue(weekMove.amount, "money")} ${Number.isFinite(weekMove.percent) ? "(" + signedValue(weekMove.percent) + "%)" : ""}`
-      : Number.isFinite(weekCurrent) ? "Prior 7 days unavailable" : "Verified daily history incomplete";
-    const weekValue = Number.isFinite(weekCurrent) ? compactMoney(weekCurrent) : "PENDING";
+      ? `vs ${compactMoney(weekPrevious)} · ${signedValue(weekMove.amount,"money")} ${Number.isFinite(weekMove.percent)?"("+signedValue(weekMove.percent)+"%)":""}`
+      : Number.isFinite(weekCurrent) ? "Prior seven-day comparison unavailable"
+      : missingDates.length ? "Missing SAPR: " + missingSummary
+      : week?.current?.reconciled === false ? "Daily SAPR totals need reconciliation"
+      : "Current SAPR freshness needs review";
+    const weekValue = Number.isFinite(weekCurrent) ? compactMoney(weekCurrent) : missingDates.length ? missingDates.length + " DAYS MISSING" : "NOT VERIFIED";
     const nextLabel = next?.label || "NEXT WIN";
     const nextMeasure = next?.measure || "Waiting for verified advisor results";
     const nextAction = next?.action || "REVIEW AT NEXT MEETING";
+    const coaching = meetingTvCoach(next?.label);
     return `<section class="advisor-tv" aria-label="Advisor performance at a glance">
       <div class="tv-top">
         <div class="tv-month">
@@ -2094,18 +2140,18 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           <div class="tv-month-number"><strong>${Number.isFinite(gross) ? compactMoney(gross) : "—"}</strong><span>${monthDetail}</span></div>
           <div class="tv-track" role="progressbar" aria-label="Monthly gross goal progress" aria-valuenow="${Math.round(monthlyProgress)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${monthlyProgress.toFixed(1)}%"></i></div>
           <div class="tv-month-foot"><span>${monthlyGoal && Number.isFinite(gross) ? Math.round(monthlyProgress) + "% of goal" : "Progress not available"}</span><strong>${Number.isFinite(moneyLeft) ? compactMoney(moneyLeft) + " to go" : "—"}</strong></div>
-          <div class="tv-pace-signal">${Number.isFinite(gross) && Number.isFinite(latest?.saprDaysCompleted) && latest.saprDaysCompleted > 0 && Number.isFinite(latest?.saprTotalDays) ? "RUN RATE · " + compactMoney(gross / latest.saprDaysCompleted * latest.saprTotalDays) + " PROJECTED" : "RUN RATE · AWAITING VERIFIED DAYS"}</div>
+          <div class="tv-pace-signal ${Number.isFinite(gross) && Number.isFinite(latest?.saprDaysCompleted) && latest.saprDaysCompleted > 0 && Number.isFinite(latest?.saprTotalDays) && monthlyGoal && gross / latest.saprDaysCompleted * latest.saprTotalDays < monthlyGoal ? "behind" : "on-track"}">${Number.isFinite(gross) && Number.isFinite(latest?.saprDaysCompleted) && latest.saprDaysCompleted > 0 && Number.isFinite(latest?.saprTotalDays) ? "AT CURRENT PACE · " + compactMoney(gross / latest.saprDaysCompleted * latest.saprTotalDays) + " PROJECTED" + (monthlyGoal && gross / latest.saprDaysCompleted * latest.saprTotalDays < monthlyGoal ? " · " + compactMoney(monthlyGoal - gross / latest.saprDaysCompleted * latest.saprTotalDays) + " BELOW GOAL" : monthlyGoal ? " · ON TRACK" : "") : "RUN RATE · AWAITING VERIFIED DAYS"}</div>
           <small class="tv-source">SAPR through ${latest?.periodEnd ? shortDate(latest.periodEnd) : "unavailable"} · ${csiReady && csi.responses ? csi.responses + " VERIFIED CSI RESPONSES" : csi.responses ? "CSI NOT CURRENT" : "CSI REFRESH PENDING / 0 RESPONSES"}</small>
         </div>
         <div class="tv-side">
           <div class="tv-need"><span class="tv-kicker">02 / REQUIRED DAILY PACE</span><strong>${pace}</strong><small>${paceDetail}</small></div>
-          <div class="tv-week"><span class="tv-kicker">03 / LAST 7 DAYS · CLOSED GROSS</span><strong class="${Number.isFinite(weekCurrent) ? "" : "pending"}">${weekValue}</strong><small>${weekDetail}</small></div>
+          <div class="tv-week ${Number.isFinite(weekCurrent) ? "verified" : "incomplete"}"><span class="tv-kicker">03 / LAST 7 DAYS · CLOSED GROSS</span><strong class="${Number.isFinite(weekCurrent) ? "" : "pending"}">${weekValue}</strong><small>${weekDetail}</small></div>
         </div>
       </div>
-      <section class="tv-scorecard" aria-label="Advisor performance measures"><div class="tv-signal-header"><strong>PERFORMANCE TELEMETRY</strong><span>${metricCount} OF 8 VERIFIED OR DATED METRICS</span></div><div class="tv-metrics" data-metric-count="${metricCount}">${metrics || '<div class="tv-missing-signal">NO CURRENT ADVISOR KPIS · IMPORT VERIFIED PERFORMANCE REPORTS</div>'}</div></section>
+      <section class="tv-scorecard" aria-label="Advisor performance measures"><div class="tv-signal-header"><strong>PERFORMANCE TELEMETRY</strong><span>${metricCount} OF 8 VERIFIED OR DATED METRICS</span></div><div class="tv-metrics" data-metric-count="${metricCount}">${metrics + insight || '<div class="tv-missing-signal">NO VERIFIED ADVISOR KPIS · IMPORT PERFORMANCE REPORTS</div>'}</div></section>
       <section class="tv-focus${next?.achieved ? " achieved" : ""}" aria-label="Next opportunity">
         <span class="tv-kicker">04 / YOUR NEXT MOVE</span>
-        <strong>${nextLabel}</strong><b>${nextMeasure}</b><small>${nextAction}</small>
+        <strong>${nextLabel}</strong><b>${nextMeasure}</b><div class="tv-coaching"><small>${nextAction}</small><span>${coaching}</span></div>
       </section>
     </section>`;
   }
