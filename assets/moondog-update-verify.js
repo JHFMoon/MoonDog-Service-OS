@@ -50,7 +50,9 @@
     if (!["stable", "beta"].includes(channel)) return { status: "rejected", reason: "invalid-channel" };
     const requestOptions = { cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer" };
     try {
-      const manifestResponse = await fetcher(MANIFEST_URL, requestOptions);
+      // Avoid a stale raw GitHub CDN edge manifest when the release just changed.
+      // The SHA-256-pinned package URL itself remains unchanged and query-free.
+      const manifestResponse = await fetcher(MANIFEST_URL + "?check=" + Date.now(), requestOptions);
       if (!manifestResponse.ok) return { status: "unavailable" };
       const manifest = await manifestResponse.json();
       const release = manifest?.[channel];
