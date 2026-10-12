@@ -635,13 +635,17 @@
   async function selectNext(){
     state.operatingDate=today();
     state.selectedPhase=engine.phase(now());
-    const task=attentionTopThree()[0]||null,prior=state.current?.id;state.current=task;state.editing=false;state.pending=false;state.error='';renderHome();
+    const top=attentionTopThree(),task=top[0]||null;
+    state.current=task;state.editing=false;state.pending=false;state.error='';
+    refreshAttentionCount(top);
+    // Keep current priorities ready in the background without rebuilding hidden Home controls.
+    if(active()==='home')renderHome(top);
     // Rendering the next task must not block controls on an ancillary
     // "surfaced" history write. User actions are persisted separately.
     // Do not write a surfaced entry during a navigation action.
   }
   async function ready(){
-    if(!model.root||model.connectionState!=='CONNECTED'){if(!state.current)renderHome();return;}
+    if(!model.root||model.connectionState!=='CONNECTED'){if(!state.current&&active()==='home')renderHome();return;}
     if(state.loadedRoot===model.root){await checkOperatingDate();refreshCurrent();return;}
     if(state.loading)return;state.loading=true;
     try{await loadHistory();state.loadedRoot=model.root;await selectNext();}catch(error){say('Service Operations Dashboard could not read its task history. Check folder access and reconnect.');}finally{state.loading=false;}
@@ -657,9 +661,13 @@
   function refreshCurrent(){
     if(state.busy||state.loading)return;
     if(!state.editing){
-      const next=attentionTopThree()[0];
-      if(next?.id!==state.current?.id||next?.fingerprint!==state.current?.fingerprint){void action(selectNext);return;}
-      if(active()==='home')renderHome();return;
+      const top=attentionTopThree(),next=top[0];
+      if(next?.id!==state.current?.id||next?.fingerprint!==state.current?.fingerprint){
+        if(active()==='home')void action(selectNext);else void selectNext();
+        return;
+      }
+      if(active()==='home')renderHome(top);else refreshAttentionCount(top);
+      return;
     }
     const fresh=allTasks().find(t=>t.id===state.current?.id);
     if(!fresh||fresh.fingerprint!==state.current?.fingerprint){state.pending=true;const target=$('dailyChanged');if(target)target.hidden=false;}
@@ -803,13 +811,13 @@
     host.append(section);
   }
 
-  function renderHome(){
+  function renderHome(prioritizedTop=null){
     // Automatic inbox ingestion can change the ranked tasks without a navigation.
     // Never let a completed report request remain the visible primary action.
     // Preserve any in-progress RO draft: only reconcile outside edit mode.
-    let top;
+    let top=prioritizedTop;
     if(model.root&&state.loadedRoot&&!state.editing){
-      top=attentionTopThree();
+      top ||= attentionTopThree();
       const leading=top[0]||null;
       if(leading?.id!==state.current?.id||leading?.fingerprint!==state.current?.fingerprint)
         state.current=leading;
