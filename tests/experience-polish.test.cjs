@@ -6,6 +6,7 @@ const path=require("node:path");
 const root=path.resolve(__dirname,"..");
 const html=fs.readFileSync(path.join(root,"index.html"),"utf8");
 const css=fs.readFileSync(path.join(root,"assets/experience-polish.css"),"utf8");
+const app=fs.readFileSync(path.join(root,"assets/app.js"),"utf8");
 const source=fs.readFileSync(path.join(root,"src/meeting-presenter.css"),"utf8");
 const bundle=fs.readFileSync(path.join(root,"assets/meeting.css"),"utf8");
 
@@ -16,6 +17,9 @@ test("premium finish is part of the installed runtime, loaded after base and dai
  const app=html.indexOf('src="assets/app.js"');
  assert.ok(base>=0&&daily>base&&finish>daily&&app>finish);
  assert.equal(html.split('href="assets/experience-polish.css"').length,2);
+});
+test("offline update includes the premium stylesheet in its explicit runtime catalog",()=>{
+ assert.match(app,/const HANDOFF_RUNTIME_PATHS=\[[^;]*"assets\/experience-polish\.css"/);
 });
 test("meeting configuration remains real editable settings and other panels remain available",()=>{
  assert.match(html,/class="card settings-card meeting-config-premium"/);
