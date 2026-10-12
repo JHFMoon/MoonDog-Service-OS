@@ -125,4 +125,81 @@ body.meeting-fullscreen .meeting-scoreboard-actions>#meetingFullscreen{display:n
   .meeting-presenter-controls{gap:3px}
   .meeting-presenter-controls button{padding:4px!important}
 }
+
+/* 30-second advisor card: dense, readable, source-aware; overview retains original cards. */
+.meeting-v3-advisor>.advisor-tv{display:none}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"]{
+  grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto minmax(0,1fr)!important;
+  align-content:stretch!important;align-items:stretch!important;overflow:hidden;padding:clamp(14px,1.7cqw,28px)!important;gap:clamp(8px,1cqh,14px)!important
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"]>:not(h3):not(.advisor-tv){display:none!important}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"]>h3{
+  grid-column:1!important;grid-row:1!important;font-size:clamp(38px,4.1cqw,68px)!important;line-height:1!important
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"]>.advisor-tv{
+  display:grid!important;grid-column:1!important;grid-row:2!important;grid-template-columns:minmax(0,1fr);
+  grid-template-rows:minmax(0,1.17fr) minmax(0,1fr) minmax(0,.56fr);
+  gap:clamp(9px,1.2cqh,17px);min-height:0;height:100%;min-width:0
+}
+.presentation-active .advisor-tv .tv-kicker{color:#5dd3ff;font-weight:900;letter-spacing:.065em;font-size:clamp(12px,1cqw,17px)}
+.presentation-active .advisor-tv .tv-top{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,.95fr);gap:clamp(10px,1.4cqw,22px);min-height:0}
+.presentation-active .advisor-tv .tv-month,.presentation-active .advisor-tv .tv-need,.presentation-active .advisor-tv .tv-week{
+  display:flex;flex-direction:column;justify-content:space-between;min-width:0;min-height:0;
+  border:1px solid #286080;border-radius:9px;background:linear-gradient(145deg,#0c3551,#082338);
+  padding:clamp(11px,1.2cqw,20px)
+}
+.presentation-active .advisor-tv .tv-month-number{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 14px}
+.presentation-active .advisor-tv .tv-month-number strong{font-size:clamp(46px,5cqw,84px);line-height:1;font-weight:950}
+.presentation-active .advisor-tv .tv-month-number span{font-size:clamp(15px,1.3cqw,21px);color:#cbe4f2}
+.presentation-active .advisor-tv .tv-track{height:clamp(12px,1.15cqh,19px);width:100%;border-radius:99px;background:#22516e;overflow:hidden}
+.presentation-active .advisor-tv .tv-track i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#29d9d0,#27ee9c)}
+.presentation-active .advisor-tv .tv-month-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;color:#d9effa;font-size:clamp(14px,1.2cqw,20px)}
+.presentation-active .advisor-tv .tv-month-foot strong{font-size:clamp(16px,1.3cqw,22px);white-space:nowrap}
+.presentation-active .advisor-tv .tv-source{color:#a0c1d4;font-size:clamp(11px,.9cqw,15px)}
+.presentation-active .advisor-tv .tv-side{display:grid;grid-template-rows:minmax(0,1fr) minmax(0,1fr);min-height:0;gap:clamp(9px,1cqh,14px)}
+.presentation-active .advisor-tv .tv-need>strong{font-size:clamp(38px,4.1cqw,68px);line-height:1;font-weight:950}
+.presentation-active .advisor-tv .tv-week>strong{font-size:clamp(26px,2.6cqw,44px);line-height:1;font-weight:900}
+.presentation-active .advisor-tv .tv-week>strong.pending{color:#ffd17c}
+.presentation-active .advisor-tv .tv-need>small,.presentation-active .advisor-tv .tv-week>small{font-size:clamp(12px,1.06cqw,18px);color:#c2deee;line-height:1.25}
+.presentation-active .advisor-tv .tv-scorecard{min-height:0}
+.presentation-active .advisor-tv .tv-metrics{height:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:clamp(8px,1.1cqw,16px)}
+.presentation-active .advisor-tv .tv-metric{
+  display:flex;flex-direction:column;justify-content:space-between;min-width:0;min-height:0;
+  border:1px solid #235471;border-left:5px solid #618298;border-radius:8px;
+  background:linear-gradient(140deg,#0b324b,#071e31);padding:clamp(8px,.93cqw,15px)
+}
+.presentation-active .advisor-tv .tv-metric.met{border-left-color:#22dd9c}
+.presentation-active .advisor-tv .tv-metric.needs{border-left-color:#f2bd62}
+.presentation-active .advisor-tv .tv-metric>span{color:#85dbfa;font-size:clamp(11px,.95cqw,16px);font-weight:900;letter-spacing:.05em}
+.presentation-active .advisor-tv .tv-metric>strong{font-size:clamp(24px,2.55cqw,42px);font-weight:950;line-height:1.05}
+.presentation-active .advisor-tv .tv-metric>small{font-size:clamp(10px,.89cqw,16px);color:#bed8e8;line-height:1.15;overflow-wrap:anywhere}
+.presentation-active .advisor-tv .tv-focus{
+  display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.5fr) minmax(0,1fr);
+  grid-template-rows:auto minmax(0,1fr);align-items:center;column-gap:clamp(12px,1.5cqw,24px);
+  min-height:0;border:1px solid #2d8fb8;border-radius:9px;background:linear-gradient(100deg,#0b3b5b,#08263d);
+  padding:clamp(10px,1.15cqw,18px)
+}
+.presentation-active .advisor-tv .tv-focus>.tv-kicker{grid-column:1/-1;grid-row:1}
+.presentation-active .advisor-tv .tv-focus>strong{font-size:clamp(21px,2cqw,35px);font-weight:950;line-height:1.05;overflow-wrap:anywhere}
+.presentation-active .advisor-tv .tv-focus>b{font-size:clamp(22px,2.5cqw,44px);line-height:1.06;overflow-wrap:anywhere}
+.presentation-active .advisor-tv .tv-focus>small{font-size:clamp(12px,1.2cqw,19px);line-height:1.15;font-weight:850;color:#c9e6f7}
+.presentation-active .advisor-tv .tv-focus.achieved{border-color:#15966b;background:#0b392d}
+@media (max-height:800px) and (orientation:landscape){
+  #view-meeting.meeting-scoreboard.presentation-active .meeting-v3-advisor[data-slide-active="true"]{padding:12px!important;gap:8px!important}
+  .presentation-active .advisor-tv .tv-month,.presentation-active .advisor-tv .tv-need,.presentation-active .advisor-tv .tv-week{padding:10px 13px}
+  .presentation-active .advisor-tv .tv-metric{padding:7px 10px}
+  .presentation-active .advisor-tv .tv-focus{padding:9px 13px}
+}
+@media (orientation:portrait){
+  #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .meeting-v3-advisor[data-slide-active="true"]{grid-template-rows:auto auto!important;align-content:start!important;overflow-y:auto!important}
+  #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .meeting-v3-advisor[data-slide-active="true"]>.advisor-tv{height:auto!important;grid-template-rows:auto auto auto!important}
+  #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .advisor-tv .tv-top{grid-template-columns:1fr!important}
+  #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .advisor-tv .tv-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:repeat(4,minmax(100px,auto))!important}
+  #view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="auto"] .advisor-tv .tv-focus{display:flex!important;flex-wrap:wrap!important;gap:12px!important}
+}
+#view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .meeting-v3-advisor[data-slide-active="true"]{grid-template-rows:auto auto!important;align-content:start!important;overflow-y:auto!important}
+#view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .meeting-v3-advisor[data-slide-active="true"]>.advisor-tv{height:auto!important;grid-template-rows:auto auto auto!important}
+#view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .advisor-tv .tv-top{grid-template-columns:1fr!important}
+#view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .advisor-tv .tv-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:repeat(4,minmax(100px,auto))!important}
+#view-meeting.meeting-scoreboard.presentation-active[data-presenter-orientation="portrait"] .advisor-tv .tv-focus{display:flex!important;flex-wrap:wrap!important;gap:12px!important}
 /* END GENERATED MEETING LAYOUT */
