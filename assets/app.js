@@ -2906,7 +2906,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function initializeHousekeeping(){
     maintenanceEngine=MoonDogMaintenance.create(maintenanceIO,{
       recovery:()=>model.recovery,day:storeDateKey,inventoryComplete:true,
-      busy:()=>!writeAuthority.canWrite||!model.root||model.connectionState!=='CONNECTED'||maintenanceOperations>0||folderWatch.busy||dailyImportBusy||/Creating|Restoring/i.test(model.recovery.status||''),
+      busy:()=>!writeAuthority.canWrite||!model.root||model.connectionState!=='CONNECTED'||maintenanceOperations>0||folderWatch.busy||dailyImportBusy||Boolean(document.fullscreenElement)||/Creating|Restoring/i.test(model.recovery.status||''),
       references:maintenanceReferences,currentWorkbook:()=>`exports/${model.settings.supervisorWorkbook?.filename||model.settings.exportName}`,
       ensureFolders:initializeFolders,
       checkpoint:async events=>{model.recovery.housekeeping={...(model.recovery.housekeeping||{}),events};await MoonDogMaintenance.safeWrite(maintenanceIO,'data/recovery.json',utf8(JSON.stringify(model.recovery,null,2)));},
@@ -2926,6 +2926,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const notify=()=>{if(writeAuthority.canWrite&&model.root&&model.connectionState==='CONNECTED')maintenanceEngine.schedule('successful operation');};
     for(const event of ['moondog-data','moondog-imported','moondog-saved','moondog-recovered'])document.addEventListener(event,notify);
     window.addEventListener('focus',notify);document.addEventListener('visibilitychange',()=>{if(!document.hidden)notify();});
+    // Resume deferred housekeeping after presentation exits, never during fullscreen.
+    document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)notify();});
     const previousRecovery=renderRecovery;renderRecovery=function(){previousRecovery();renderHousekeeping();};
     const previousDiagnostic=recordDiagnostic;recordDiagnostic=function(kind,message){const result=previousDiagnostic(kind,message);if(!/HOUSEKEEPING|DURABLE WRITE/.test(kind))notify();return result;};
     const previousBackup=writeValidatedBackup;writeValidatedBackup=async function(...args){const value=await previousBackup(...args);maintenanceEngine.backupReady();return value;};
