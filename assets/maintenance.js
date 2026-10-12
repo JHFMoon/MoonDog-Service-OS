@@ -125,11 +125,13 @@ function create(io,api){
       let valid=Array.isArray(entries)&&entries.length>0&&entries.length<=128&&['verified','restored','prepared','applying'].includes(status);
       const expected=new Set(['journal.json']);
       if(valid)for(const entry of entries){
+       if(!entry||typeof entry.path!=='string'){valid=false;break;}
        const rel=entry.scope==='workspace'?(entry.path==='index.html'?'origin-compatibility/index.html':''):entry.path;
        if(!rel||entry.scope!==undefined&&entry.scope!=='workspace'||!(/^(?:index\.html|(?:assets|vendor)\/[A-Za-z0-9._/-]+)$/.test(rel))||rel.split('/').some(x=>x==='..'||x==='.')||typeof entry.existed!=='boolean'||entry.existed&&!/^[0-9a-f]{64}$/.test(entry.sha256||'')){valid=false;break;}
        if(entry.existed){if(expected.has(rel)){valid=false;break;}expected.add(rel);}
       }
       if(valid)valid=items.length===expected.size&&items.every(f=>expected.has(f.path.slice(p.length+1)));
+      if(valid)valid=entries.every(e=>!e.existed||items.some(f=>f.path===p+'/'+(e.scope==='workspace'?'origin-compatibility/index.html':e.path)&&f.hash===e.sha256));
       if(!valid){issue(p,'Update rollback backup is invalid or incomplete; kept for review');continue;}
       const unresolved=['prepared','applying'].includes(status),modified=Math.max(...items.map(f=>f.modified));
       if(unresolved)issue(p,'Interrupted update recovery is still active; resolve it before this safety artifact can expire.');
@@ -152,6 +154,9 @@ function create(io,api){
        try{
         if(api.busy?.()||referenced(f.path))continue;
         result.events.push({path:f.path,at:result.at,size,reason});await api.checkpoint([...(prior.events||[]),...result.events].slice(-60));
+        if(api.busy?.()||referenced(f.path))continue;
+        const same=await Promise.all(f.items.map(async i=>{const current=await inspect(i.path);return current.hash===i.hash&&current.modified===i.modified;}));
+        if(!same.every(Boolean)){issue(f.path,'Recovery directory changed during cleanup; kept');continue;}
         await io.removeTree(f.path);result.filesRemoved+=f.items.length;result.bytesReclaimed+=size;result.removed.push({path:f.path,size,reason});
        }catch(_){issue(f.path,'Verified rollback directory could not be removed; retry later');}
        continue;
