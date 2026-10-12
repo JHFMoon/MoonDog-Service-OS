@@ -14,7 +14,7 @@ patterns={
     "credential_assignment": re.compile(rb"(?im)^.{0,100}(?:password|client_secret|api[_-]?key|access[_-]?token)\s*[:=]\s*['\"]?[A-Za-z0-9+/=_-]{16,}"),
 }
 email_rx=re.compile(rb"(?i)\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b")
-safe_email_domains={b"users.noreply.github.com",b"example.com",b"example.org",b"example.net"}
+safe_email_domains={b"noreply.github.com",b"users.noreply.github.com",b"example.com",b"example.org",b"example.net"}
 vin_rx=re.compile(rb"\b[A-HJ-NPR-Z0-9]{17}\b")
 ssn_rx=re.compile(rb"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
 restricted_name=re.compile(r"(?i)(?:^|/)(?:customers?|employees?|contacts?|reports?|exports?|repair.orders?|store.data|operational.data|files to learn|drop reports here)(?:/|$)")
@@ -72,7 +72,14 @@ def scan_zip_bytes(data: bytes, source: str, depth: int=0):
         if restricted_name.search(name):
             counts["restricted_path_in_archive"]+=1
         if workspace_name.search(name):
-            counts["workspace_file_in_archive"]+=1
+            if info.file_size==0 and Path(name).name in {".gitkeep",".keep",".empty"}:
+                safe["empty_workspace_placeholder"]+=1
+            else:
+                counts["workspace_file_in_archive"]+=1
+                if info.file_size==0:
+                    counts["empty_workspace_file_requires_review"]+=1
+                else:
+                    counts["nonempty_workspace_file_requires_review"]+=1
         if info.file_size>20_000_000:
             counts["oversize_archive_member"]+=1
             continue
@@ -98,9 +105,34 @@ def gh_json(endpoint: str):
         items.extend(value if isinstance(value,list) else [value])
     return items
 
+class DownloadFailure(Exception):
+    def __init__(self, status):
+        self.status=status
+        super().__init__("asset download returned HTTP status "+status)
+
 def gh_download(endpoint: str, target: Path):
-    with target.open("wb") as out:
-        subprocess.run(["gh","api","-H","Accept: application/octet-stream",endpoint],stdout=out,stderr=subprocess.DEVNULL,check=True)
+    """Follow release/artifact redirects without writing API errors as ZIPs.
+
+    GitHub CLI's gh api does not reliably stream these binary redirects.
+    Never log the token, response body, matched values, or signed URLs.
+    """
+    token=os.environ.get("GH_TOKEN","")
+    if not token:
+        raise DownloadFailure("auth_missing")
+    result=subprocess.run(
+        ["curl","--silent","--location","--output",str(target),
+         "--write-out","%{http_code}","--connect-timeout","20","--max-time","120",
+         "--header","Accept: application/vnd.github+json",
+         "--header","X-GitHub-Api-Version: 2022-11-28",
+         "--header","Authorization: Bearer "+token,
+         "https://api.github.com/"+endpoint],
+        stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=False
+    )
+    code=result.stdout.decode("ascii","replace").strip()
+    if result.returncode!=0 or code!="200":
+        raise DownloadFailure(code if code.isdigit() else "transport_failure")
+    if not target.is_file():
+        raise DownloadFailure("missing_file")
 
 # Release metadata and assets.
 releases=gh_json(f"repos/{REPO}/releases?per_page=100")
@@ -117,8 +149,9 @@ for release in releases:
             path=Path(td)/"asset"
             try:
                 gh_download(f"repos/{REPO}/releases/assets/{asset['id']}",path)
-            except subprocess.CalledProcessError:
+            except DownloadFailure as error:
                 counts["release_asset_download_failure"]+=1
+                counts["release_asset_http_"+error.status]+=1
                 continue
             data=path.read_bytes()
             if len(data)>100_000_000:
@@ -148,8 +181,9 @@ for artifact in artifacts:
         path=Path(td)/"artifact.zip"
         try:
             gh_download(f"repos/{REPO}/actions/artifacts/{artifact['id']}/zip",path)
-        except subprocess.CalledProcessError:
+        except DownloadFailure as error:
             counts["action_artifact_download_failure"]+=1
+            counts["action_artifact_http_"+error.status]+=1
             continue
         data=path.read_bytes()
         if len(data)>100_000_000:
