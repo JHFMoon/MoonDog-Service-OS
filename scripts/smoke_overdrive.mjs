@@ -16,7 +16,7 @@ try {
     page.on("pageerror",err=>errors.push(err.message));
     await page.goto(pathToFileURL(path.resolve(launcher)).href,{waitUntil:"load",timeout:30000});
     await page.waitForURL(url=>url.protocol==="file:"&&url.pathname.endsWith("/index.html"),{timeout:15000});
-    await page.waitForSelector("#view-meeting",{timeout:15000});
+    await page.waitForSelector("#view-meeting",{state:"attached",timeout:15000});
 
     await page.evaluate(()=>{
       const view=document.querySelector("#view-meeting");
