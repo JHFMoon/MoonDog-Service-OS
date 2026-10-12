@@ -46,6 +46,14 @@ def valid_vin(raw: bytes)->bool:
     return vin[8]==check
 
 def scan_bytes(data: bytes, label: str):
+    # Only fixed source categories enter public summaries, never release names,
+    # archive paths, issue bodies, comment text, or other untrusted labels.
+    label=label.split(":",1)[0]
+    if label not in {
+        "release-metadata","release-asset-name","release","artifact",
+        "action-artifact-name","issue","issue-comment","pr-review-comment","pr-review",
+    }:
+        label="other"
     for kind,rx in patterns.items():
         if rx.search(data):
             counts[kind]+=1
