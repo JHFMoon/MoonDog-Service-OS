@@ -145,6 +145,18 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertLess(offline.index("Wait for matching Stable GitHub Release"), offline.index("Check out immutable Stable source"))
         self.assertLess(offline.index("Check out immutable Stable source"), offline.index("Build deterministic clean-install ZIP"))
 
+    def test_generated_beta_merge_dispatches_post_merge_main_proof(self):
+        workflow = (ROOT / ".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
+        package_job = workflow.split("  package-unadvertised-main-runtime:", 1)[1]
+        self.assertIn('test "$(jq -r \'.merged\' <<<"$RESULT")" = "true"', package_job)
+        self.assertIn('MERGED_SHA="$(jq -r \'.sha\' <<<"$RESULT")"', package_job)
+        self.assertIn('test "$CURRENT_MAIN" = "$MERGED_SHA"', package_job)
+        self.assertIn('gh workflow run publication-check.yml --repo "$REPO" --ref main', package_job)
+        self.assertLess(
+            package_job.rfind('test "$CURRENT_MAIN" = "$MERGED_SHA"'),
+            package_job.rfind('gh workflow run publication-check.yml --repo "$REPO" --ref main'),
+        )
+
     def test_public_boundary_blocks_common_sensitive_binary_formats(self):
         text = (ROOT / "scripts/check_publication.py").read_text(encoding="utf-8")
         for suffix in ('.doc', '.docx', '.ppt', '.pptx', '.png', '.jpg', '.jpeg', '.webp', '.heic'):
