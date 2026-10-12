@@ -242,6 +242,16 @@ try{
     throw Error("Main thread stalled during repeated fullscreen exit "+JSON.stringify(heartbeat));
   console.log("Repeated exit and Edge-window heartbeat",width,height,JSON.stringify(heartbeat));
   await page.setViewportSize({width,height});
+  if(width===1600){
+    // Edge repro: after exiting native fullscreen, the WHOLE dashboard must still navigate.
+    const navigationStarted=Date.now();
+    await page.locator('.nav-item[data-view="home"]').click({timeout:3500});
+    await page.waitForFunction(()=>document.getElementById("view-home").classList.contains("active"),null,{timeout:3500});
+    await page.locator('.nav-item[data-view="meeting"]').click({timeout:3500});
+    await page.waitForFunction(()=>document.getElementById("view-meeting").classList.contains("active"),null,{timeout:3500});
+    if(Date.now()-navigationStarted>6500)throw Error("Dashboard navigation stalled after fullscreen exit");
+    console.log("Post-exit dashboard navigation proof PASS",Date.now()-navigationStarted+"ms");
+  }
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
   console.log("Arena TV visual and 7-slide rotation proof PASS",width,height);
   await page.close();
