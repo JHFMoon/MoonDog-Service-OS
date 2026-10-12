@@ -10,9 +10,6 @@ const context = vm.createContext({ URL });
 vm.runInContext(source, context);
 const verify = context.MoonDogPackageVerification.verify;
 const manifestUrl = "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/manifest.json";
-const isManifestRequest = url => url.startsWith(manifestUrl + "?check=") &&
-  Number.isSafeInteger(Number(url.slice((manifestUrl + "?check=").length))) && url.length > (manifestUrl + "?check=").length;
-const normalizeManifestUrl = url => isManifestRequest(url) ? manifestUrl : url;
 const packageUrl = "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/example.bundle";
 const payload = Buffer.from("synthetic package bytes");
 const sha256 = createHash("sha256").update(payload).digest("hex");
@@ -37,7 +34,7 @@ function fetcherFor(manifest, response = packageResponse()) {
   const calls = [];
   const fetcher = async (url, options) => {
     calls.push({ url, options });
-    if (isManifestRequest(url)) return { ok: true, json: async () => manifest };
+    if (url === manifestUrl) return { ok: true, json: async () => manifest };
     if (url === packageUrl) return response;
     throw new Error("Unexpected URL");
   };
@@ -53,7 +50,7 @@ test("Current manifest verifies independent Stable and Beta packages in memory",
   const calls = [];
   const fetcher = async (url, options) => {
     calls.push({ url, options });
-    if (isManifestRequest(url)) return { ok: true, json: async () => current };
+    if (url === manifestUrl) return { ok: true, json: async () => current };
     if (url === current.beta.packageUrl) return packageResponse(betaBytes);
     if (url === current.stable.packageUrl) return packageResponse(stableBytes);
     throw new Error("Unexpected URL");
@@ -67,7 +64,7 @@ test("Current manifest verifies independent Stable and Beta packages in memory",
   assert.equal(result.version, current.beta.version);
   assert.equal(result.sha256, current.beta.sha256);
   assert.deepEqual(Buffer.from(result.bytes), betaBytes);
-  assert.deepEqual(calls.map(call => normalizeManifestUrl(call.url)), [manifestUrl, current.stable.packageUrl, manifestUrl, current.beta.packageUrl]);
+  assert.deepEqual(calls.map(call => call.url), [manifestUrl, current.stable.packageUrl, manifestUrl, current.beta.packageUrl]);
 });
 
 test("Local-file browser can verify Stable through the release-tag CORS-safe mirror", async () => {
@@ -81,7 +78,7 @@ test("Local-file browser can verify Stable through the release-tag CORS-safe mir
     called.push(url);
     assert.equal(options.credentials, "omit");
     assert.equal(options.cache, "no-store");
-    if (isManifestRequest(url)) return {ok:true,json:async()=>current};
+    if (url === manifestUrl) return {ok:true,json:async()=>current};
     // GitHub Releases assets are not browser-CORS readable from file://.
     // Fail closed in this simulation unless the package uses tagged raw GitHub.
     if (url === expectedTagMirror) return packageResponse(bytes);
@@ -90,7 +87,7 @@ test("Local-file browser can verify Stable through the release-tag CORS-safe mir
   const result = await verify({channel:"stable",fetcher,subtle:webcrypto.subtle});
   assert.equal(result.status, "verified");
   assert.equal(result.sha256, stable.sha256);
-  assert.deepEqual(called.map(normalizeManifestUrl), [manifestUrl,expectedTagMirror]);
+  assert.deepEqual(called, [manifestUrl,expectedTagMirror]);
   assert.deepEqual(Buffer.from(result.bytes), bytes);
 });
 
@@ -101,7 +98,7 @@ test("Matching SHA-256 returns only verified in-memory bytes", async () => {
   assert.equal(result.sha256, sha256);
   assert.deepEqual(Buffer.from(result.bytes), payload);
   assert.equal(result.version, "1.0.0");
-  assert.deepEqual(calls.map(call => normalizeManifestUrl(call.url)), [manifestUrl, packageUrl]);
+  assert.deepEqual(calls.map(call => call.url), [manifestUrl, packageUrl]);
   for (const call of calls) {
     assert.equal(call.options.credentials, "omit");
     assert.equal(call.options.referrerPolicy, "no-referrer");
