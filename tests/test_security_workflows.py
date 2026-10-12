@@ -36,6 +36,9 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIsNotNone(pattern.search(
             "Publish Beta\n\nCo-authored-by: MoonDog CI <ci@users.noreply.github.com>\n"
         ))
+        self.assertIsNotNone(pattern.search(
+            "Co-Authored-By: CI <CI@USERS.NOREPLY.GITHUB.COM>\n"
+        ))
         self.assertIsNone(pattern.search(
             "Co-authored-by: MoonDog Automation <41898282+github-actions[bot]@users.noreply.github.com>\n"
         ))
