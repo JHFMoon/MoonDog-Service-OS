@@ -4,7 +4,7 @@
 
 This repository is the public authority for the generic Service Operations Dashboard source, clean-install build, browser-native updater, approved update packages, tests, release metadata, and reviewed third-party notices.
 
-The current public Stable channel is `0.10.14`. Stable 0.10.14 is intended for installations on the validated `0.10.9` or later layout-aware updater. Older 0.10.8-era installs are intentionally rejected as incompatible rather than being exposed to an unsafe layout migration.
+The current public Stable channel is `0.10.17`. Stable 0.10.17 is intended for installations on the validated `0.10.9` or later layout-aware updater. Older 0.10.8-era installs are intentionally rejected as incompatible rather than being exposed to an unsafe layout migration.
 
 A fresh user may instead start from the complete clean-install Stable ZIP published with the GitHub Release.
 
@@ -39,7 +39,7 @@ It must not contain:
 - operational history, settings, exports, diagnostics from a real store, or backups;
 - write-authority credentials, browser identity, tokens, or machine-specific state.
 
-The user creates their own operational state after extracting the ZIP, selecting the installation folder, designating the authoritative editing computer, and completing Guided Setup.
+The user creates their own operational state after extracting the ZIP, selecting the installation folder, granting the browser read/write access to that folder, and completing Guided Setup.
 
 ## Local-only information
 
@@ -52,11 +52,11 @@ Never commit or package:
 - store-specific source-adapter configuration or performance targets;
 - transaction journals, browser authority credentials, tokens, or machine-specific state.
 
-The browser-local authority credential is intentionally not synchronized with the Workspace. A copied/synchronized Workspace alone cannot become an authoritative writer.
+Stable 0.10.17 has no owner-designation credential. Durable writes still require browser-granted folder access, protected-path checks, journaling, and revision safeguards. Synchronization is not treated as a distributed multi-writer lock.
 
 ## Update and recovery boundary
 
-Stable 0.10.14 updates are explicitly user-applied. The updater verifies the manifest/package, performs a protected-path dry run, creates rollback material under `System Files/Workspace/backups/system-updates/`, verifies writes, and restores or exposes recovery if installation cannot be verified.
+Stable 0.10.17 updates are explicitly user-applied. The updater verifies the manifest/package, performs a protected-path dry run, creates rollback material under `System Files/Workspace/backups/system-updates/`, verifies writes, and restores or exposes recovery if installation cannot be verified.
 
 Stable is not considered published by a manifest change alone. The matching formal GitHub Release at tag `v<version>` and the exact package asset must also exist, and the Stable manifest must point to the matching GitHub Release **tag** through the browser-accessible raw file service. The manifest SHA-256 is verified against the exact package and formal Release asset.
 
