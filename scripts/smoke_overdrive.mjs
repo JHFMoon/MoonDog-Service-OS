@@ -122,12 +122,32 @@ try{
     await page.waitForFunction(()=>!document.fullscreenElement,null,{timeout:2000});
     await page.waitForFunction(()=>{
       const m=globalThis.__serviceMeetingPresenter?.fullscreenTiming();
-      return m?.kind==="exit"&&Number.isFinite(m.frameMs);
-    },null,{timeout:2800});
+      return m?.kind==="exit"&&Number.isFinite(m.restoredMs)&&
+        !document.getElementById("view-meeting")?.classList.contains("arena-exiting-fullscreen");
+    },null,{timeout:4300});
     const exit=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
-    if(exit.failed||exit.eventMs>2200||exit.frameMs>3300)
-      throw Error("Fullscreen exit latency "+width+"x"+height+": "+JSON.stringify(exit));
-    console.log("Fullscreen latency proof",width,height,"enter",entry.timing.eventMs+"ms event / "+entry.timing.frameMs+"ms frame","exit",exit.eventMs+"ms event / "+exit.frameMs+"ms frame");
+    if(exit.failed||exit.eventMs>2200||exit.frameMs>3300||exit.restoredMs>4300)
+      throw Error("Fullscreen exit repaint latency "+width+"x"+height+": "+JSON.stringify(exit));
+    // Repeat fullscreen exit with animations enabled and synthetic offscreen
+    // content still mounted. Regression must not emerge on the second exit.
+    if(width===1600){
+      for(let retry=0;retry<2;retry++){
+        await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
+        await page.waitForFunction(()=>Boolean(document.fullscreenElement),null,{timeout:2200});
+        await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
+        await page.waitForFunction(()=>{
+          const m=globalThis.__serviceMeetingPresenter?.fullscreenTiming();
+          return !document.fullscreenElement&&m?.kind==="exit"&&Number.isFinite(m.restoredMs)&&
+            !document.getElementById("view-meeting").classList.contains("arena-exiting-fullscreen");
+        },null,{timeout:4300});
+        const repeat=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
+        if(repeat.failed||repeat.restoredMs>4300)
+          throw Error("Repeat fullscreen exit slow or staged content stuck: "+JSON.stringify(repeat));
+      }
+    }
+    console.log("Fullscreen latency proof",width,height,
+      "enter",entry.timing.eventMs+"ms event / "+entry.timing.frameMs+"ms frame",
+      "exit",exit.eventMs+"ms event / "+exit.frameMs+"ms frame / "+exit.restoredMs+"ms restored");
     await page.evaluate(()=>document.getElementById("syntheticNonMeetingView")?.remove());
   }
   for(let i=0;i<5;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter?.next());
