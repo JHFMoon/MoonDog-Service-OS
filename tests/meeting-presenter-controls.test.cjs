@@ -26,7 +26,7 @@ test("only one accessible fullscreen control, with native success and failure ha
  assert.match(source,/legacy\.hidden=true/);
  assert.match(source,/legacy\.tabIndex=-1/);
  assert.match(source,/legacy\.setAttribute\("aria-hidden","true"\)/);
- assert.match(source,/current\.requestFullscreen\(\)/);
+ assert.match(source,/document\.documentElement\.requestFullscreen\(\)/);
  assert.match(source,/document\.exitFullscreen\(\)/);
  assert.match(source,/button\.disabled=true/);
  assert.match(source,/finally\{button\.disabled=false;button\.removeAttribute\("aria-busy"\);syncFullscreenLabel\(\);restartTimer\(\);\}/);
@@ -48,9 +48,10 @@ test("browser proof physically exercises presentation controls and percent bound
 
 test("Arena fullscreen leaves entire dashboard CSS alone and keeps runtime diagnostics local",()=>{
  const app=fs.readFileSync(path.join(root,"assets/app.js"),"utf8");
- assert.match(app,/classList\.toggle\("meeting-fullscreen", document\.fullscreenElement === document\.documentElement\)/);
+ assert.match(app,/classList\.toggle\("meeting-fullscreen", document\.fullscreenElement === document\.documentElement && !arenaIsPresenting\)/);
  assert.doesNotMatch(app,/classList\.toggle\("meeting-fullscreen", active\)/);
  assert.match(css,/#view-meeting\.meeting-scoreboard\.presentation-active:fullscreen/);
+ assert.match(css,/:root:fullscreen #view-meeting\.meeting-scoreboard\.presentation-active\.active/);
  assert.match(css,/contain:layout style paint/);
  assert.match(source,/fullscreenTiming:\(\)=>/);
  assert.match(source,/transition\.eventMs=Math\.round\(performance\.now\(\)-transition\.startedAt\)/);

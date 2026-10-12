@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.54",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.54.json",
-    "sha256": "c86c769c6428555e09ae6f9ae06856d3290132269c1bf56007409aa7558e39b6",
+    "version": "0.10.18-beta.58",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.58.json",
+    "sha256": "b3e82be6729d1821f5509ffa79ad0d2c5dec9670c8a1096efb4ec94ea6a5ebec",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Keep routine housekeeping off history and fullscreen presentation. Verified automated Beta; no Workspace migration."
+    "releaseNotes": "Avoid restoring the size-contained Arena fullscreen element in Edge. Verified automated Beta; no Workspace migration."
   }
 }

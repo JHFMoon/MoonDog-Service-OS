@@ -109,12 +109,25 @@ try{
     await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
     await page.waitForFunction(()=>Boolean(document.fullscreenElement),null,{timeout:2000});
     await page.waitForFunction(()=>Number.isFinite(globalThis.__serviceMeetingPresenter?.fullscreenTiming()?.frameMs),null,{timeout:2800});
+    // The fullscreen event can precede viewport style settling by one frame.
+    // Require actual full-viewport bounds promptly; an event alone is not success.
+    await page.waitForFunction(()=>{
+      const rect=document.querySelector("#view-meeting")?.getBoundingClientRect();
+      return Boolean(rect&&document.fullscreenElement===document.documentElement&&
+        Math.abs(rect.left)<3&&Math.abs(rect.top)<3&&
+        Math.abs(rect.width-innerWidth)<3&&Math.abs(rect.height-innerHeight)<3);
+    },null,{timeout:650});
     const entry=await page.evaluate(()=>({
       timing:globalThis.__serviceMeetingPresenter.fullscreenTiming(),
       globallyRestyled:document.body.classList.contains("meeting-fullscreen"),
-      fullscreenView:document.fullscreenElement?.id
+      fullscreenView:document.fullscreenElement?.tagName,
+      arenaBounds:(()=>{const r=document.querySelector("#view-meeting").getBoundingClientRect();return {top:r.top,left:r.left,width:r.width,height:r.height};})(),
+      viewport:{width:innerWidth,height:innerHeight}
     }));
-    if(entry.fullscreenView!=="view-meeting"||entry.globallyRestyled||
+    if(entry.fullscreenView!=="HTML"||entry.globallyRestyled||
+       Math.abs(entry.arenaBounds.left)>2||Math.abs(entry.arenaBounds.top)>2||
+       Math.abs(entry.arenaBounds.width-entry.viewport.width)>3||
+       Math.abs(entry.arenaBounds.height-entry.viewport.height)>3||
        entry.timing.failed||entry.timing.kind!=="enter"||
        entry.timing.eventMs>2200||entry.timing.frameMs>3300)
       throw Error("Fullscreen entry latency or global restyle "+width+"x"+height+": "+JSON.stringify(entry));
@@ -128,6 +141,14 @@ try{
     const exit=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
     if(exit.failed||exit.eventMs>2200||exit.frameMs>3300||exit.restoredMs>4300)
       throw Error("Fullscreen exit repaint latency "+width+"x"+height+": "+JSON.stringify(exit));
+    // The failure reported in Edge is the tab becoming unresponsive *after* Exit.
+    // Prove the next user interaction is handled before accepting exit success.
+    const beforeNext=await page.locator(".meeting-presenter-controls [data-slide-label]").textContent();
+    await page.locator(".meeting-presenter-controls [data-next]").click({timeout:3000});
+    const afterNext=await page.locator(".meeting-presenter-controls [data-slide-label]").textContent();
+    if(afterNext===beforeNext)throw Error("Presenter is unresponsive after leaving fullscreen");
+    // Return the seven-slide cycle to its previous position before the existing rotation proof.
+    for(let i=0;i<6;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter.next());
     // Repeat fullscreen exit with animations enabled and synthetic offscreen
     // content still mounted. Regression must not emerge on the second exit.
     if(width===1600){
@@ -231,6 +252,16 @@ try{
     throw Error("Main thread stalled during repeated fullscreen exit "+JSON.stringify(heartbeat));
   console.log("Repeated exit and Edge-window heartbeat",width,height,JSON.stringify(heartbeat));
   await page.setViewportSize({width,height});
+  if(width===1600){
+    // Edge repro: after exiting native fullscreen, the WHOLE dashboard must still navigate.
+    const navigationStarted=Date.now();
+    await page.locator('.nav-item[data-view="home"]').click({timeout:3500});
+    await page.waitForFunction(()=>document.getElementById("view-home").classList.contains("active"),null,{timeout:3500});
+    await page.locator('.nav-item[data-view="meeting"]').click({timeout:3500});
+    await page.waitForFunction(()=>document.getElementById("view-meeting").classList.contains("active"),null,{timeout:3500});
+    if(Date.now()-navigationStarted>6500)throw Error("Dashboard navigation stalled after fullscreen exit");
+    console.log("Post-exit dashboard navigation proof PASS",Date.now()-navigationStarted+"ms");
+  }
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
   console.log("Arena TV visual and 7-slide rotation proof PASS",width,height);
   await page.close();
