@@ -35,7 +35,7 @@ function family(path){const n=path.split('/').at(-1);if(/^MoonDog Full Backup - 
 function policy(files,ctx){
  const remove=[],keep=new Set(ctx.references||[]),day=ctx.day,age=f=>Math.max(0,Math.floor((Date.parse(day+'T12:00:00Z')-Date.parse((f.day||f.path.match(/\d{4}-\d{2}-\d{2}/)?.[0]||new Date(f.modified).toISOString().slice(0,10))+'T12:00:00Z'))/DAY));
  const pinned=f=>keep.has(f.path)||[...keep].some(p=>p.startsWith(f.path+'/')||f.path.startsWith(p+'/'))||f.unresolved;
- const safe=f=>f.valid&&!pinned(f)&&ctx.currentValid&&!ctx.restoreBusy;
+ const safe=f=>f.valid&&!pinned(f)&&(ctx.currentValid||f.area==='system-update')&&!ctx.restoreBusy;
  const add=f=>{if(safe(f)&&!remove.some(x=>x.path===f.path))remove.push(f);};
  const automatic=files.filter(f=>f.area==='automatic'&&f.valid).sort((a,b)=>b.modified-a.modified||b.path.localeCompare(a.path));
  const automaticCap=new Set(automatic.slice(0,RETENTION.automaticMax).map(f=>f.path)),newest=new Map();
@@ -120,7 +120,16 @@ function create(io,api){
      for(const p of systemUpdateFiles){try{const f=await inspect(p),parts=p.split('/'),dir=parts.slice(0,3).join('/');if(parts.length<4)continue;if(!systemUpdates.has(dir))systemUpdates.set(dir,[]);systemUpdates.get(dir).push(f);}catch(_){issue(p,'Update rollback file could not be inspected');}}
      for(const [p,items] of systemUpdates){
       const journal=items.find(f=>f.path===p+'/journal.json');let record=null;try{record=journal?json(journal.bytes):null;}catch(_){}
-      const status=record?.status,valid=Array.isArray(record?.inventory)&&['verified','restored','prepared','applying'].includes(status);
+      const status=record?.status;
+      const entries=record?.inventory;
+      let valid=Array.isArray(entries)&&entries.length>0&&entries.length<=128&&['verified','restored','prepared','applying'].includes(status);
+      const expected=new Set(['journal.json']);
+      if(valid)for(const entry of entries){
+       const rel=entry.scope==='workspace'?(entry.path==='index.html'?'origin-compatibility/index.html':''):entry.path;
+       if(!rel||entry.scope!==undefined&&entry.scope!=='workspace'||!(/^(?:index\.html|(?:assets|vendor)\/[A-Za-z0-9._/-]+)$/.test(rel))||rel.split('/').some(x=>x==='..'||x==='.')||typeof entry.existed!=='boolean'||entry.existed&&!/^[0-9a-f]{64}$/.test(entry.sha256||'')){valid=false;break;}
+       if(entry.existed){if(expected.has(rel)){valid=false;break;}expected.add(rel);}
+      }
+      if(valid)valid=items.length===expected.size&&items.every(f=>expected.has(f.path.slice(p.length+1)));
       if(!valid){issue(p,'Update rollback backup is invalid or incomplete; kept for review');continue;}
       const unresolved=['prepared','applying'].includes(status),modified=Math.max(...items.map(f=>f.modified));
       if(unresolved)issue(p,'Interrupted update recovery is still active; resolve it before this safety artifact can expire.');
@@ -137,7 +146,18 @@ function create(io,api){
      for(const p of await io.list('imports',false)){const f=await inspect(p);classified.push({...f,area:'import',valid:true,importProven:await api.importEvidence?.(p,f.bytes)===true});}
      const candidates=policy(classified,{now:at,day,references:refs,currentValid,restoreBusy:api.busy?.(),currentWorkbookValid:workbookValid,fullBackups:full});
      async function removeEmptyTree(p){if(!io.directoryEntries||!io.removeEmpty)return;let entries;try{entries=await io.directoryEntries(p);}catch(_){return;}for(const e of entries)if(e.kind==='directory')await removeEmptyTree(p+'/'+e.name);try{await io.removeEmpty(p);}catch(_){}}
-     for(const f of candidates){if(f.items){let unchanged=true;for(const i of f.items){const c=await inspect(i.path);if(c.hash!==i.hash||c.modified!==i.modified)unchanged=false;}if(!unchanged){issue(f.path,'Recovery directory changed; kept');continue;}for(const i of f.items)await remove(i,f.area==='system-update'?'SYSTEM UPDATE ROLLBACK PRUNED':'DEPLOYMENT RECOVERY PRUNED');await removeEmptyTree(f.path);}else await remove(f,'RETENTION PRUNED');}
+     for(const f of candidates){if(f.items){let unchanged=true;for(const i of f.items){const c=await inspect(i.path);if(c.hash!==i.hash||c.modified!==i.modified)unchanged=false;}if(!unchanged){issue(f.path,'Recovery directory changed; kept');continue;}
+      if(f.area==='system-update'&&typeof io.removeTree==='function'){
+       const size=f.items.reduce((n,i)=>n+i.size,0),reason='SYSTEM UPDATE ROLLBACK PRUNED';
+       try{
+        if(api.busy?.()||referenced(f.path))continue;
+        result.events.push({path:f.path,at:result.at,size,reason});await api.checkpoint([...(prior.events||[]),...result.events].slice(-60));
+        await io.removeTree(f.path);result.filesRemoved+=f.items.length;result.bytesReclaimed+=size;result.removed.push({path:f.path,size,reason});
+       }catch(_){issue(f.path,'Verified rollback directory could not be removed; retry later');}
+       continue;
+      }
+      for(const i of f.items)await remove(i,f.area==='system-update'?'SYSTEM UPDATE ROLLBACK PRUNED':'DEPLOYMENT RECOVERY PRUNED');await removeEmptyTree(f.path);
+     }else await remove(f,'RETENTION PRUNED');}
 
      // Directory entries (including empty child directories) must be absent twice.
      for(const p of await io.listDirectories?.('backups')||[]){
