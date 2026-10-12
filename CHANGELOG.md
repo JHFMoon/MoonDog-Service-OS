@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.53 — current Beta
+
+- Skip hidden Home DOM rebuilds and reuse priority selection. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.52 — current Beta
 
 - Reduce Home event-history scans and duplicate rendering. Verified automated Beta; no Workspace migration.
