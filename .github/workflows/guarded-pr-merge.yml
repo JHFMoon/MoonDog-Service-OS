@@ -43,8 +43,16 @@ jobs:
             fi
             echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
           fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.json
+          # A newer candidate or completed merge makes this workflow_run obsolete.
+          # Skip it without weakening the checks for the current head.
+          CURRENT_PR_HEAD="$(jq -r '.head.sha' /tmp/pr.json)"
+          if [ "$CURRENT_PR_HEAD" != "$HEAD_SHA" ]; then
+            echo "PR advanced from $HEAD_SHA to $CURRENT_PR_HEAD; skipping stale verification."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
           if [ "$(jq -r '.state' /tmp/pr.json)" != "open" ] || ! jq -e '.body // "" | contains("MoonDog-Auto-Merge: yes")' /tmp/pr.json >/dev/null; then
             echo "PR is closed or not authorized for automatic merge; skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
