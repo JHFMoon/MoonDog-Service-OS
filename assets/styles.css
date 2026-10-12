@@ -5,3 +5,16 @@
 /* Keyboard visibility and motion safety */
 :is(button,a,input,select,textarea,summary,[tabindex]):focus-visible{outline:3px solid #2d8fbd;outline-offset:2px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}}
+
+/* Layout foundations: allow children to shrink by wrapping, never by masking data. */
+main,main>.view,.card,.table-card,.table-wrap,.toolbar,.topbar,.section-head{
+  min-width:0;max-width:100%
+}
+main .view :is(h1,h2,h3,p,small,span,strong,button,label){
+  overflow-wrap:anywhere
+}
+@media screen and (max-width:440px){
+  .sidebar nav{grid-template-columns:minmax(0,1fr)}
+  .top-actions{min-width:0;max-width:100%}
+  .top-actions button{max-width:100%;white-space:normal}
+}
