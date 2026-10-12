@@ -1222,8 +1222,10 @@
     view.classList.toggle("presentation-overlay",enabled);
     // Inline priority isolates the full viewport from older TV/embedded height rules.
     // These overrides are temporary and removed completely when presentation exits.
-    for(const property of ["height","min-height","max-height"]){
-      if(enabled)view.style.setProperty(property,"100dvh","important");
+    // With fixed inset:0, auto height stretches between the viewport edges.
+    // This avoids the legacy embedded 98px offset and any vh/dvh calculation.
+    for(const [property,value] of [["height","auto"],["min-height","0"],["max-height","none"]]){
+      if(enabled)view.style.setProperty(property,value,"important");
       else view.style.removeProperty(property);
     }
     document.body.classList.toggle("moondog-presentation-mode",enabled);
