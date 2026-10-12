@@ -74,7 +74,7 @@ test("synthetic folder: check, fetch, verify, plan, backup, apply, verify, fail,
       beta: { version: "1.2.0-beta.1", minimumCompatibleVersion: "1.1.0",
         migrationRequired: false, packageUrl: null, sha256: null, releaseNotes: "No Beta test" } };
     const fetcher = async url => {
-      if (url.startsWith("https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/manifest.json?check=")) return { ok: true, json: async () => manifest };
+      if (url.startsWith("https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/manifest.json")) return { ok: true, json: async () => manifest };
       assert.equal(url, packageUrl);
       return { ok: true, headers: { get: () => String(packageBytes.length) },
         body: { getReader: () => {
