@@ -34,13 +34,13 @@ class SecurityWorkflowTests(unittest.TestCase):
         )
         pattern = re.compile(ast.literal_eval(pattern_source))
         self.assertIsNotNone(pattern.search(
-            "Publish Beta\\n\\nCo-authored-by: MoonDog CI <ci@users.noreply.github.com>\\n"
+            "Publish Beta\n\nCo-authored-by: MoonDog CI <ci@users.noreply.github.com>\n"
         ))
         self.assertIsNone(pattern.search(
-            "Co-authored-by: MoonDog Automation <41898282+github-actions[bot]@users.noreply.github.com>\\n"
+            "Co-authored-by: MoonDog Automation <41898282+github-actions[bot]@users.noreply.github.com>\n"
         ))
         self.assertIsNone(pattern.search(
-            "Co-authored-by: Example Contributor <contributor@example.com>\\n"
+            "Co-authored-by: Example Contributor <contributor@example.com>\n"
         ))
 
     def test_stable_release_directly_dispatches_offline_distribution(self):
