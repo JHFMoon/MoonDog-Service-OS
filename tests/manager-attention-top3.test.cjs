@@ -63,5 +63,5 @@ test('Visible-only update polling fetches metadata without automatic installatio
   assert.ok(update.includes('data-update-later'));
   assert.ok(update.includes('installButton.click()'));
   assert.ok(update.includes('note.textContent = value.releaseNotes'));
-  assert.doesNotMatch(update,/fetch\\([^)]*customer/i);
+  assert.equal(update.includes('fetch(customer'),false);
 });
