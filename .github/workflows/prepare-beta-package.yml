@@ -126,8 +126,14 @@ jobs:
             PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .status!="completed")] | length' <<<"$RUNS")"
             HARD_FAIL="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out"))] | length' <<<"$RUNS")"
             if [ "$HARD_FAIL" != "0" ]; then
-              echo "Generated-head verification failed; failed run IDs and job names:" >&2
-              jq -r '.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out")) | [.name, (.id|tostring), .conclusion] | @tsv' <<<"$RUNS" >&2
+              echo "Generated-head verification failed; exact-head run IDs and failed job names:" >&2
+              FAILED_IDS="$(jq -r '.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out")) | .id' <<<"$RUNS")"
+              while IFS= read -r FAILED_ID; do
+                [ -n "$FAILED_ID" ] || continue
+                echo "Failed verification: https://github.com/$REPO/actions/runs/$FAILED_ID" >&2
+                gh api "repos/$REPO/actions/runs/$FAILED_ID/jobs?per_page=100" \
+                  --jq '.jobs[] | select(.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out") | [.name, .conclusion, (.id|tostring)] | @tsv' >&2
+              done <<<"$FAILED_IDS"
               exit 1
             fi
             if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ]; then
