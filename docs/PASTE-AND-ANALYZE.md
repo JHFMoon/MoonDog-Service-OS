@@ -1,0 +1,13 @@
+# Local Paste & Analyze interpreter — Beta contract
+
+Paste & Analyze runs **entirely on the user's computer**, from the installed Dashboard Interface. GitHub only distributes reviewed update packages. No AI API, cloud interpreter, web page, service worker, webhook, telemetry upload, or internet access is required to interpret a technician story.
+
+**Installed runtime:** The interpreter source is maintained in `src/work-order-interpreter.js` for review, but embedded in the already-approved `assets/daily-ops.js` runtime file during publishing. The browser-native updater downloads and installs that file under the Dashboard Interface's existing local `System Files` application runtime. Once installed it keeps running locally, including offline. This deliberately avoids adding a new runtime path that old installed updaters may reject. It does not change or replace protected Workspace data.
+
+**Workflow:** Tools → Paste & Analyze work orders → analyze text locally → show cited technician findings, reported customer concerns, holds and proposed next action → select exactly one currently open RO → open existing RO editor with draft suggestions → review workflow status, owner, customer communication and follow-up date → Save using existing durable protected writes.
+
+**Safety:** Analyze itself cannot save. Multiple distinct RO IDs block application. A status inference is opt-in. Incomplete or unclear stories require human review. Customer statements do not prove that repairs were completed. An earlier parts hold is not current if later notes say parts arrived. Never silently close or replace open records based on partial work-order text.
+
+**Raw source retention:** The pasted source text remains only in the current browser session until the associated management update is confirmed saved; then the field and results are cleared. Cancelled or failed updates do not clear it. Unknown text is not automatically saved, but a user may explicitly choose to copy it to their **local** Files To Learn folder for future parser support. Never commit actual work orders, VINs, employee/customer details, or private Workspace material to the public repository.
+
+This first deterministic parser is an accuracy-first foundation, not general artificial intelligence. Broader language tests, low-confidence abstention, and direct user testing with local synthetic examples are needed before claiming universal comprehension.

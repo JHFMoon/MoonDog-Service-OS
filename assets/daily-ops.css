@@ -106,3 +106,18 @@ html[data-theme="dark"] body.daily-operating .manager-pulse-card span{color:#b8c
 html[data-theme="dark"] body.daily-operating .manager-pulse-card.urgent{background:#3c2828;border-color:#8f5757;color:#ffd9d5}
 @media(max-width:900px){.manager-control-pulse-grid{grid-template-columns:repeat(4,1fr)}}
 @media(max-width:600px){.manager-control-pulse-head{align-items:flex-start;flex-direction:column}.manager-control-pulse-grid{grid-template-columns:repeat(2,1fr)}}
+
+
+/* Local work-order text review: no horizontal scrolling. */
+.paste-ro-tool{display:grid;gap:14px;max-width:960px;min-width:0}
+.paste-ro-tool>label{display:grid;gap:8px;font-weight:800}
+.paste-ro-tool textarea{box-sizing:border-box;width:100%;max-width:100%;min-width:0;min-height:250px;resize:vertical;padding:14px;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.5}
+.paste-ro-progress,.paste-ro-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;min-width:0}
+.paste-ro-progress progress{flex:1 1 210px;max-width:470px}
+.paste-ro-progress span{flex:1 1 210px;overflow-wrap:anywhere}
+.paste-ro-results{min-width:0;display:grid;gap:9px}
+.paste-ro-results p{overflow-wrap:anywhere;margin:3px 0}
+.paste-ro-results select{width:100%;max-width:100%;min-width:0;min-height:42px}
+.paste-ro-results details{min-width:0;max-width:100%;padding:12px;border:1px solid #c9d7de;border-radius:10px}
+.paste-ro-warning{border-left:3px solid #a86714;padding:9px;background:#fff7e9}
+@media(max-width:560px){.paste-ro-actions button,.paste-ro-results>button{width:100%}}
