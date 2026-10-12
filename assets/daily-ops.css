@@ -1137,4 +1137,14 @@ html[data-theme="dark"] body #view-settings :is(input:not([type="checkbox"]),sel
  .arena-advisor .aa-lane{min-height:125px}
 }
 
+
+#view-meeting.meeting-scoreboard.presentation-active .meeting-presenter-controls [data-fullscreen-help]:not([hidden]){
+  flex:1 0 100%;max-width:100%;font-size:12px;line-height:1.3;
+  color:#ffcf93;text-align:right;font-weight:750;
+}
+@media(max-width:1080px){
+ #view-meeting.meeting-scoreboard.presentation-active .meeting-presenter-controls [data-fullscreen-help]:not([hidden]){
+  text-align:left;
+ }
+}
 /* END PREMIUM EXPERIENCE FINISH */
