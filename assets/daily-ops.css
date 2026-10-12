@@ -1162,4 +1162,35 @@ html[data-theme="dark"] body #view-settings :is(input:not([type="checkbox"]),sel
   }
 }
 
+
+/* Keep fullscreen and inline Arena on the SAME containment model. A previous
+ * fullscreen override dropped size containment on entry and recreated it on
+ * exit, forcing expensive new layout under Edge/multi-monitor changes. */
+@media(min-width:1081px){
+ #view-meeting.meeting-scoreboard.presentation-active,
+ #view-meeting.meeting-scoreboard.presentation-active:fullscreen{
+   contain:size layout style paint;
+ }
+}
+@media(max-width:1080px){
+ #view-meeting.meeting-scoreboard.presentation-active,
+ #view-meeting.meeting-scoreboard.presentation-active:fullscreen{
+   contain:inline-size layout style;
+ }
+}
+/* During the fullscreen EXIT only, bypass rendering the complex broadcast
+ * descendants while Edge restores the normal tab size. The familiar Arena
+ * returns after two animation frames. All underlying numbers stay untouched. */
+#view-meeting.meeting-scoreboard.arena-exiting-fullscreen :is(.arena-store,.meeting-scoreboard-advisors){
+ content-visibility:hidden!important;
+ contain-intrinsic-size:auto 650px;
+}
+#view-meeting.meeting-scoreboard.arena-exiting-fullscreen:after{
+ content:"RETURNING TO MEETING";
+ position:absolute;inset:0;display:grid;place-items:center;
+ z-index:20;pointer-events:none;
+ font-size:clamp(19px,2.1vw,34px);font-weight:900;letter-spacing:.11em;
+ color:#a8f5cf;background:#061b2a;
+}
+
 /* END PREMIUM EXPERIENCE FINISH */
