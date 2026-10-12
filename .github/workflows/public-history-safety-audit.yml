@@ -3,8 +3,6 @@ name: Public Repository History Safety Audit
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: '23 9 * * *'
@@ -87,7 +85,6 @@ jobs:
         run: exit 1
 
   public-surfaces:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       report: ${{ steps.capture.outputs.report }}
@@ -155,7 +152,7 @@ jobs:
 
   publish-redacted-result:
     needs: [audit, public-surfaces]
-    if: always() && github.event_name != 'pull_request'
+    if: always()
     runs-on: ubuntu-latest
     permissions:
       issues: write
