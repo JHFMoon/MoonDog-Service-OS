@@ -110,14 +110,32 @@ for message in git("for-each-ref", "refs/tags", "--format=%(contents)%00").split
         scan_payload(message, "tag_message")
 
 commit_emails = git("log", "--all", "--format=%ae%n%ce").splitlines()
+commit_email_providers = collections.Counter()
+candidate_commit_addresses = set()
+candidate_commit_domains = set()
+personal_domains = {
+    b"gmail.com", b"googlemail.com", b"yahoo.com", b"hotmail.com",
+    b"outlook.com", b"live.com", b"icloud.com", b"aol.com",
+}
 for email in commit_emails:
-    m = email_rx.fullmatch(email.strip())
+    email = email.strip().lower()
+    m = email_rx.fullmatch(email)
     if not m:
         continue
-    if m.group(1).lower() in safe_email_domains:
+    domain = m.group(1).lower()
+    if domain in safe_email_domains:
         safe_counts["known_public_commit_email"] += 1
     else:
         counts["commit_identity_email"] += 1
+        candidate_commit_addresses.add(email)
+        candidate_commit_domains.add(domain)
+        commit_email_providers[
+            "personal_provider" if domain in personal_domains else "other_domain"
+        ] += 1
+safe_counts["distinct_candidate_commit_email_addresses"] = len(candidate_commit_addresses)
+safe_counts["distinct_candidate_commit_email_domains"] = len(candidate_commit_domains)
+for provider, total in commit_email_providers.items():
+    safe_counts["candidate_commit_email_" + provider + "_entries"] = total
 
 print("Git history objects inspected:", len(blobs), "distinct historical paths:", len(seen_paths), flush=True)
 print("Audit scope: reachable blobs/paths, commit and tag messages, and commit identities; findings are redacted.", flush=True)
