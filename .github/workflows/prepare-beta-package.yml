@@ -441,6 +441,21 @@ jobs:
           for attempt in {1..12}; do
             if RESULT="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$PACKAGE_HEAD" 2>&1)"; then
               test "$(jq -r '.merged' <<<"$RESULT")" = "true"
+              MERGED_SHA="$(jq -r '.sha' <<<"$RESULT")"
+              test -n "$MERGED_SHA" && test "$MERGED_SHA" != "null"
+              for settle in {1..12}; do
+                CURRENT_MAIN="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+                [ "$CURRENT_MAIN" = "$MERGED_SHA" ] && break
+                sleep 2
+              done
+              test "$CURRENT_MAIN" = "$MERGED_SHA" || {
+                echo "Generated Beta merge is not verified as current main; refusing stale proof." >&2
+                exit 1
+              }
+              # GITHUB_TOKEN merges do not trigger new push workflows. Dispatch
+              # verification on the merged main SHA so the public badge and
+              # post-merge release checks reflect the actual current source.
+              gh workflow run publication-check.yml --repo "$REPO" --ref main
               exit 0
             fi
             if grep -Eq 'Required status check.*(in progress|expected)' <<<"$RESULT"; then
