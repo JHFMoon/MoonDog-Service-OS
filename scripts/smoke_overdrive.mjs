@@ -108,6 +108,41 @@ try{
   for(let i=0;i<5;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter?.next());
   const cycle=await geom();
   if(cycle.slide!=="store")throw Error("Seven-slide rotation did not return to Store "+JSON.stringify(cycle));
+  // Moving from a wide monitor into an ~830px Edge Split Screen pane must
+  // reflow the entire stage without clipping the Store cards or breaking controls.
+  await page.setViewportSize({width:830,height:820});
+  await page.waitForTimeout(110);
+  const narrowStore=await page.evaluate(()=>{
+    const view=document.querySelector("#view-meeting"),store=view.querySelector(".arena-store");
+    const lower=store.querySelector(".as-lower"),bounds=e=>e.getBoundingClientRect();
+    return {windowWidth:innerWidth,viewportWidth:bounds(view).width,overflow:getComputedStyle(view).overflow,
+      lowerInside:bounds(lower).bottom<=bounds(view).bottom+7,
+      horizontalOverflow:document.documentElement.scrollWidth>innerWidth+9};
+  });
+  if(narrowStore.viewportWidth>narrowStore.windowWidth+8||!narrowStore.lowerInside||narrowStore.horizontalOverflow)
+    throw Error("Split-pane Store is clipped: "+JSON.stringify(narrowStore));
+  await page.locator(".meeting-presenter-controls [data-next]").click();
+  await page.waitForTimeout(100);
+  const narrowAdvisor=await page.evaluate(()=>{
+    const view=document.querySelector("#view-meeting"),card=view.querySelector('.meeting-v3-advisor[data-slide-active="true"]'),
+      ring=card?.querySelector(".aa-circle"),pct=ring?.querySelector("b"),next=card?.querySelector(".aa-next");
+    if(!pct||!next)return {error:"Advisor stage did not render after resize"};
+    const r=e=>e.getBoundingClientRect();
+    return {pctText:pct.textContent,pctOneLine:getComputedStyle(pct).whiteSpace==="nowrap",
+      pctWithinRing:r(pct).left>=r(ring).left-4&&r(pct).right<=r(ring).right+4,
+      nextVisible:r(next).width>120,
+      nextBelowTop:r(next).top>=r(card).top,
+      horizontalOverflow:document.documentElement.scrollWidth>innerWidth+9};
+  });
+  if(!narrowAdvisor.pctOneLine||!narrowAdvisor.pctWithinRing||!narrowAdvisor.nextVisible||
+      !narrowAdvisor.nextBelowTop||narrowAdvisor.horizontalOverflow)
+    throw Error("Split-pane Advisor geometry "+JSON.stringify(narrowAdvisor));
+  await page.setViewportSize({width,height});
+  await page.waitForTimeout(90);
+  const wideAgain=await geom();
+  if(wideAgain.slide!=="advisor"||!wideAgain.percentFits||!wideAgain.separated)
+    throw Error("Return-to-wide-monitor geometry failed "+JSON.stringify(wideAgain));
+
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
   console.log("Arena TV visual and 7-slide rotation proof PASS",width,height);
   await page.close();
