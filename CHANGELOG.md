@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.25 — current Beta
+
+- Automatically packaged merged runtime from current main; Stable unchanged.
+- Automatically layered onto the previous Beta so existing preview features are preserved.
+
+
 ## 0.10.18-beta.24 — current Beta
 
 - Backfill merged RO closeout fixes into verified Beta; Stable unchanged.
