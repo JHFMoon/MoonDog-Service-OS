@@ -139,6 +139,8 @@ try{
     await page.locator(".meeting-presenter-controls [data-next]").click({timeout:3000});
     const afterNext=await page.locator(".meeting-presenter-controls [data-slide-label]").textContent();
     if(afterNext===beforeNext)throw Error("Presenter is unresponsive after leaving fullscreen");
+    // Return the seven-slide cycle to its previous position before the existing rotation proof.
+    for(let i=0;i<6;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter.next());
     // Repeat fullscreen exit with animations enabled and synthetic offscreen
     // content still mounted. Regression must not emerge on the second exit.
     if(width===1600){
