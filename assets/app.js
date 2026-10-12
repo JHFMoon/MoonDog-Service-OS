@@ -2784,17 +2784,6 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         else future.reportCadenceOverrides[source]={value:cadence,releaseDay:['weekly','monthly'].includes(cadence)?Number(releaseDay):null,updatedAt:now()};
       });
     },
-    sharedSourceLearning: () => ({
-      enabled:model.settings.future?.sharedSourceLearning?.enabled===true,
-      deliveryConfigured:false,
-      message:'Local-only until a secure, validated submission endpoint is configured.'
-    }),
-    setSharedSourceLearning: async enabled => {
-      if(typeof enabled!=='boolean')throw Error('Choose enabled or disabled.');
-      return updateLocalFuture(future=>{
-        future.sharedSourceLearning={enabled,updatedAt:now()};
-      });
-    },
     recordRefresh: (source,kind,details={}) => recordRefreshLearning(source,kind,details),
     saveSourceLocation: async (source,location) => {
       if(!globalThis.ServiceRefreshIntelligence?.catalog?.[source]||typeof location!=="string"||location.length>200)
