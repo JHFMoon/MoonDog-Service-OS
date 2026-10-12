@@ -123,7 +123,7 @@ try{
     await page.waitForFunction(()=>{
       const m=globalThis.__serviceMeetingPresenter?.fullscreenTiming();
       return m?.kind==="exit"&&Number.isFinite(m.restoredMs)&&
-        !document.getElementById("view-meeting")?.classList.contains("arena-exiting-fullscreen");
+        !document.fullscreenElement;
     },null,{timeout:4300});
     const exit=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
     if(exit.failed||exit.eventMs>2200||exit.frameMs>3300||exit.restoredMs>4300)
@@ -137,8 +137,7 @@ try{
         await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
         await page.waitForFunction(()=>{
           const m=globalThis.__serviceMeetingPresenter?.fullscreenTiming();
-          return !document.fullscreenElement&&m?.kind==="exit"&&Number.isFinite(m.restoredMs)&&
-            !document.getElementById("view-meeting").classList.contains("arena-exiting-fullscreen");
+          return !document.fullscreenElement&&m?.kind==="exit"&&Number.isFinite(m.restoredMs);
         },null,{timeout:4300});
         const repeat=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
         if(repeat.failed||repeat.restoredMs>4300)
@@ -188,6 +187,50 @@ try{
   if(wideAgain.slide!=="advisor"||!wideAgain.percentFits||!wideAgain.separated)
     throw Error("Return-to-wide-monitor geometry failed "+JSON.stringify(wideAgain));
 
+  // Stress the browser case from the actual user screenshot: a maximized
+  // ~1000px Edge window repeatedly returning from presentation fullscreen.
+  // Measure event-loop stalls, not only fullscreenchange and the next frame.
+  const repeatExitCycles=8;
+  await page.setViewportSize({width:1000,height:950});
+  await page.evaluate(()=>{
+    const hb={last:performance.now(),maxDrift:0,samples:0,handle:null};
+    hb.handle=setInterval(()=>{
+      const now=performance.now();
+      hb.maxDrift=Math.max(hb.maxDrift,now-hb.last-75);
+      hb.last=now;
+      hb.samples++;
+    },75);
+    globalThis.__arenaHeartbeat=hb;
+  });
+  for(let repeat=0;repeat<repeatExitCycles;repeat++){
+    await page.locator(".meeting-presenter-controls [data-fullscreen]").click({timeout:5000});
+    await page.waitForFunction(()=>!!document.fullscreenElement,null,{timeout:2800});
+    if(repeat===3){
+      await page.setViewportSize({width:1600,height:900});
+      await page.waitForTimeout(60);
+      await page.setViewportSize({width:1000,height:950});
+    }
+    await page.locator(".meeting-presenter-controls [data-fullscreen]").click({timeout:5000});
+    await page.waitForFunction(()=>{
+      const t=globalThis.__serviceMeetingPresenter?.fullscreenTiming();
+      return !document.fullscreenElement&&t?.kind==="exit"&&Number.isFinite(t.restoredMs);
+    },null,{timeout:4000});
+    const timing=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
+    if(timing.failed||timing.restoredMs>4000)
+      throw Error("Repeated fullscreen exit hung on round "+repeat+": "+JSON.stringify(timing));
+    if(await page.evaluate(()=>document.getElementById("view-meeting").classList.contains("arena-exiting-fullscreen")))
+      throw Error("Staged exit class resurrected");
+  }
+  const heartbeat=await page.evaluate(()=>{
+    const hb=globalThis.__arenaHeartbeat;
+    clearInterval(hb.handle);
+    return {maxDrift:Math.round(hb.maxDrift),samples:hb.samples};
+  });
+  // A main thread blocked for seconds is the user's actual failure mode.
+  if(heartbeat.maxDrift>1900||heartbeat.samples<7)
+    throw Error("Main thread stalled during repeated fullscreen exit "+JSON.stringify(heartbeat));
+  console.log("Repeated exit and Edge-window heartbeat",width,height,JSON.stringify(heartbeat));
+  await page.setViewportSize({width,height});
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
   console.log("Arena TV visual and 7-slide rotation proof PASS",width,height);
   await page.close();
