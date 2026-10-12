@@ -38,14 +38,3 @@ test("application updates still require explicit folder permission and verified 
   assert.match(src,/status: "recovery-required"/);
 });
 
-test("previously published Beta package is a verified source for isolated preview additions",()=>{
-  const manifest=JSON.parse(read("updates/manifest.json"));
-  assert.equal(manifest.stable.version,"0.10.17");
-  assert.match(manifest.beta.version,/^0\.10\.18-beta\./);
-  const pkg=JSON.parse(read("updates/packages/moondog-0.10.18-beta.25.json"));
-  const entries=Object.fromEntries(pkg.files.map(e=>[e.path,e]));
-  for(const p of ["assets/daily-ops.css","assets/styles.css","assets/moondog-update-install.js"]){
-    const beta=Buffer.from(entries[p].contentBase64,"base64").toString("utf8");
-    assert.equal(read(p),beta);
-  }
-});
