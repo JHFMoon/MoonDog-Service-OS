@@ -123,13 +123,27 @@ test("verified workspace backup precedes approved writes and preserves protected
   assert.equal(setup.workspace.store.files.get(base + "origin-compatibility/index.html").toString(), compatibility(setup.oldHtml));
 });
 
-test("editing authority fails closed before an update can mutate files", async () => {
+test("removed operational editing designation does not block verified application-only updates", async () => {
   const setup = await fixture();
   context.MoonDogWriteAuthority = { canWrite: false, validate: async () => false };
+  let result;
+  try { result = await apply(setup); }
+  finally { delete context.MoonDogWriteAuthority; }
+  assert.equal(result.status, "installed");
+  assert.equal(setup.workspace.store.files.get("System Files/index.html").toString(), setup.newHtml);
+  assert.equal(setup.workspace.store.files.get("System Files/Workspace/data/current-state.json").toString(), "synthetic private state");
+});
+
+test("denied browser folder write permission stops before mutating application or Workspace", async () => {
+  const setup = await fixture();
+  setup.app.queryPermission = async () => "denied";
+  setup.app.requestPermission = async () => "denied";
   const result = await apply(setup);
-  delete context.MoonDogWriteAuthority;
-  assert.equal(result.status, "read-only");
+  assert.notEqual(result.status, "installed");
+  assert.match(String(result.reason || ""), /permission/i);
   assert.equal(setup.workspace.store.files.get("System Files/index.html").toString(), setup.oldHtml);
+  assert.equal(setup.workspace.store.files.get("System Files/Workspace/data/current-state.json").toString(), "synthetic private state");
+  assert.deepEqual(setup.workspace.store.writes, []);
 });
 
 test("a package targeting protected or unknown paths is rejected", async () => {
