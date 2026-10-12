@@ -97,7 +97,7 @@ function create(io,api){
    }
    try{
     await api.ensureFolders();
-    const roots=await io.list('data',false),allBackups=await io.list('backups',deep),backups=allBackups.filter(p=>!p.startsWith('backups/system-updates/')),systemUpdateFiles=allBackups.filter(p=>p.startsWith('backups/system-updates/')),history=await io.list('data/history',false);
+    const roots=await io.list('data',false),allBackups=await io.list('backups',deep),backups=allBackups.filter(p=>!p.startsWith('backups/system-updates/')),systemUpdateFiles=allBackups.filter(p=>p.startsWith('backups/system-updates/')),history=deep?await io.list('data/history',false):[];
     // Invalid empty history/pre-change files are not events or recovery points.
     for(const p of [...history,...backups].filter(p=>p.endsWith('.json'))){try{const f=await inspect(p);try{json(f.bytes)}catch(_){if(!f.size&&(/data\/history\/(?:\d{4}-|daily-)/.test(p)||family(p)))await remove(f,'INVALID ZERO BYTE ARTIFACT REMOVED');else issue(p,'Invalid JSON requires review');}}catch(_){issue(p,'Could not inspect file');}}
     for(const p of (options.repairOnly?[]:[...roots,...history,...backups,...await io.list("exports",false),...await io.list("",false)]).filter(p=>p.endsWith('.json')&&!canonical.includes(p))){
