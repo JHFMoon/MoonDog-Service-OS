@@ -220,7 +220,9 @@
       const result = await global.MoonDogUpdateCheck.check({ currentVersion: checkedVersion,
         channel: checkedChannel, manual });
       if (checkedChannel !== state.channel || checkedVersion !== comparisonVersion || checkedRoot !== appRoot()) return;
-      state.lastCheck = new Date().toISOString();
+      // An offline/invalid automatic result is not a completed check. Retry later.
+      if(!["silent","unavailable","invalid-input"].includes(result.status))
+        state.lastCheck = new Date().toISOString();
       state.check = result;
       if (manual) state.dismissed = null;
       if (["newer-version", "channel-switch"].includes(result.status)) {
@@ -235,6 +237,9 @@
 
   channel.addEventListener("change", () => {
     state.channel = channel.value === "beta" ? "beta" : "stable";
+    // A successful check of the old channel must not delay checking this one.
+    state.lastCheck = null;
+    state.lastAutomatic = "";
     state.check = null;
     state.checkFor = null;
     clearPlan();
@@ -351,25 +356,30 @@
       await setProgress({ phase: "error", percent: state.progress?.percent || 5, label: "Recovery stopped", detail: error.message || "Recovery could not continue." });
     } finally { state.busy = false; render(); }
   });
-  // Noon checks run only while open/visible. Missed checks are deferred until after load.
-  function checkAfterNoon() {
-    const current = new Date(), stamp = localDay(current) + ":" + state.channel;
-    if (current.getHours() < 12 || document.hidden || !appRoot() || state.busy || state.lastAutomatic === stamp) return;
-    state.lastAutomatic = stamp; save();
-    void check(false); // Network errors stay silent; a retry is available in Settings.
+  // Lightweight visible-only metadata checks. Newly published Betas should
+  // not wait until tomorrow; unavailable manifests get a bounded retry.
+  const AUTOMATIC_RECHECK_MS = 30 * 60 * 1000;
+  const AUTOMATIC_RETRY_MS = 5 * 60 * 1000;
+  function checkInBackground() {
+    if (document.hidden || !appRoot() || state.busy) return;
+    const at = Date.now();
+    const checkedAt = Date.parse(state.lastCheck || "") || 0;
+    const attemptedAt = Date.parse(state.lastAutomatic || "") || 0;
+    if (checkedAt > 0 && at >= checkedAt && at - checkedAt < AUTOMATIC_RECHECK_MS) return;
+    if (attemptedAt > 0 && at >= attemptedAt && at - attemptedAt < AUTOMATIC_RETRY_MS) return;
+    state.lastAutomatic = new Date(at).toISOString();
+    save();
+    void check(false); // No package download or user-visible error on automatic checks.
   }
-  function scheduleNextNoon() {
-    const current = new Date(), next = new Date(current);
-    next.setHours(12, 0, 0, 0);
-    if (next <= current) next.setDate(next.getDate() + 1);
-    const timer = global.setTimeout(() => { checkAfterNoon(); scheduleNextNoon(); }, Math.max(1000, next.getTime() - current.getTime() + 100));
-    timer?.unref?.(); // Do not hold Node-based UI tests open; browsers use normal timers.
+  function scheduleNextCheck() {
+    const timer = global.setTimeout?.(() => { checkInBackground(); scheduleNextCheck(); }, AUTOMATIC_RETRY_MS);
+    timer?.unref?.(); // Node UI tests must not remain open; browsers use normal timers.
   }
   render();
-  document.addEventListener("moondog-data", () => { render(); inspectInstalledTestVersion(); refreshRecovery(); global.setTimeout?.(checkAfterNoon, 1500); });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) global.setTimeout?.(checkAfterNoon, 1500); });
-  global.addEventListener?.("focus", () => global.setTimeout?.(checkAfterNoon, 1500));
+  document.addEventListener("moondog-data", () => { render(); inspectInstalledTestVersion(); refreshRecovery(); global.setTimeout?.(checkInBackground, 1500); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) global.setTimeout?.(checkInBackground, 1500); });
+  global.addEventListener?.("focus", () => global.setTimeout?.(checkInBackground, 1500));
   inspectInstalledTestVersion();
-  global.setTimeout?.(checkAfterNoon, 2000);
-  scheduleNextNoon();
+  global.setTimeout?.(checkInBackground, 2000);
+  scheduleNextCheck();
 })(globalThis);
