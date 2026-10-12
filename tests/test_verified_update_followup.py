@@ -24,13 +24,14 @@ class VerifiedUpdateFollowupTests(unittest.TestCase):
         self.assertIn('localStorage.removeItem(key)',section)
 
     def test_layout_audit_is_read_only_and_preserves_legacy_origin(self):
-        section=APP[APP.index("async function runVerifiedUpdateFollowup()"):APP.index("const folderWatch=",APP.index("async function runVerifiedUpdateFollowup()"))]
-        self.assertIn('getDirectoryHandle("System Files")',section)
-        self.assertIn('getFileHandle("00 - OPEN DASHBOARD.html")',section)
-        self.assertIn('["assets","vendor","Workspace"]',section)
-        self.assertNotIn('removeEntry(',section)
-        self.assertNotIn('create:true',section)
-        self.assertNotIn('root.getFileHandle("index.html")',section)
+        helper=APP[APP.index("async function auditInstalledRuntimeLayout("):APP.index("async function runVerifiedUpdateFollowup()",APP.index("async function auditInstalledRuntimeLayout("))]
+        self.assertIn('hasDirectory(root, "System Files")',helper)
+        self.assertIn('hasFile(root, "00 - OPEN DASHBOARD.html")',helper)
+        self.assertIn('hasDirectory(system, "Workspace")',helper)
+        self.assertIn('hasFile(root, "index.html")',helper)
+        self.assertNotIn('await examine(workspace',helper)
+        self.assertNotIn('removeEntry(',helper)
+        self.assertNotIn('create:true',helper)
 
     def test_no_unconditional_full_learning_scan_on_connection(self):
         connect=APP[APP.index('async function finishConnection('):APP.index('async function connect()',APP.index('async function finishConnection('))]
