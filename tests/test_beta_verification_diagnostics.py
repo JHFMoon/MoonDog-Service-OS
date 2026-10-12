@@ -13,7 +13,7 @@ class BetaVerificationDiagnosticsTests(unittest.TestCase):
         self.assertIn("Generated-head verification failed; exact-head run IDs and failed job names:",workflow)
         self.assertIn("select(.conclusion==\"failure\" or .conclusion==\"cancelled\" or .conclusion==\"timed_out\")",workflow)
         self.assertIn("done <<<\"$FAILED_IDS\"",workflow)
-        self.assertIn('echo "Generated-head verification failed; failed run IDs and job names:"',workflow)
+        self.assertIn('echo "Generated-head verification failed; exact-head run IDs and failed job names:"',workflow)
         self.assertIn("exit 1",workflow)
 
     def test_proof_remains_strict_and_never_touches_stable(self):
