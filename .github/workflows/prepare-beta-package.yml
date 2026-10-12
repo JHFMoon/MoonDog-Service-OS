@@ -7,6 +7,8 @@ on:
         description: 'Merged runtime commit to backfill (full SHA)'
         required: true
         type: string
+  push:
+    branches: [main]
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
 
@@ -19,7 +21,7 @@ permissions:
   statuses: write
 
 concurrency:
-  group: prepare-beta-${{ github.event.pull_request.number }}
+  group: prepare-beta-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -202,7 +204,7 @@ jobs:
           exit 1
 
   backfill-merged-beta:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Check out trusted main and history
@@ -214,10 +216,17 @@ jobs:
       - name: Validate merged commit and prepare Beta on isolated branch
         shell: bash
         env:
-          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit || '136857458c1dcdbd9e81222435c33781c400eda7' }}
         run: |
           set -euo pipefail
           git fetch origin main
+          if [ "${{ github.event_name }}" = "push" ]; then
+            CURRENT_BETA="$(python3 -c 'import json; print(json.load(open("updates/manifest.json"))["beta"]["version"])')"
+            if [ "$CURRENT_BETA" != "0.10.18-beta.23" ]; then
+              echo "Bootstrap Beta backfill already completed; skipping."
+              exit 0
+            fi
+          fi
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo "Main moved; retry on fresh main" >&2; exit 1; }
           git cat-file -e "$REVIEWED_COMMIT^{commit}"
           git merge-base --is-ancestor "$REVIEWED_COMMIT" HEAD || { echo "Commit is not merged into main" >&2; exit 1; }
