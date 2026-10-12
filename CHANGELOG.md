@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.36 — current Beta
+
+- Automatically packaged merged runtime from current main; Stable unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.35 — current Beta
 
 - Automatically packaged merged runtime from current main; Stable unchanged.
