@@ -123,9 +123,17 @@
       reason:"No prior-year SAPR with a close working-day match. The suggested date is approximate; verify days worked on the report."};
   }
   function topFive(tasks,events,engine,at=Date.now()) {
+    // Index task acknowledgments once; engine.eligible otherwise scans all events
+    // for every candidate, causing quadratic work as RO history grows.
+    const latestActionByTask=new Map();
+    if(engine?.eligible)for(const entry of (Array.isArray(events)?events:[])){
+      const details=entry?.details;
+      if(details&&['completed','deferred','not-an-issue'].includes(details.action))
+        latestActionByTask.set(details.taskId,entry);
+    }
     const ranked=(Array.isArray(tasks)?tasks:[])
       .filter(item=>item&&item.type!=="import"&&!String(item.type||"").startsWith("import:")&&
-        (!engine?.eligible||engine.eligible(item,events||[],at)))
+        (!engine?.eligible||engine.eligible(item,events||[],at,latestActionByTask)))
       .map(item=>({item,weight:(Number(item.rank)||7)-
         (item.type==="ro"&&Number(item.age)>0?Math.min(0.75,Number(item.age)/14):0)}))
       .sort((a,b)=>a.weight-b.weight||String(a.item.deadline||"9999").localeCompare(String(b.item.deadline||"9999"))||String(a.item.id).localeCompare(String(b.item.id)));
