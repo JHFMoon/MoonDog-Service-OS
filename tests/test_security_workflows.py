@@ -1,4 +1,6 @@
+import ast
 from pathlib import Path
+import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +17,31 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'", text)
         self.assertIn("python3 scripts/audit_git_history.py", text)
         self.assertIn("name: Publication Check", text)
+
+
+    def test_ci_attribution_guard_blocks_misleading_trailer_only_in_new_commits(self):
+        text = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
+        name = "Reject falsely attributed CI co-authors in new commits"
+        self.assertIn(name, text)
+        section = text.split(name, 1)[1].split("      - name:", 1)[0]
+        self.assertIn("PR_BASE_SHA:", section)
+        self.assertIn("PR_HEAD_SHA:", section)
+        self.assertIn('revision = f"{base}..{head}" if base and head else os.environ["GITHUB_SHA"]', section)
+        self.assertIn('["git", "log", "--format=%B%x00", revision]', section)
+        pattern_source = next(
+            line.strip() for line in section.splitlines()
+            if line.strip().startswith('r"(?im)^Co-authored-by:')
+        )
+        pattern = re.compile(ast.literal_eval(pattern_source))
+        self.assertIsNotNone(pattern.search(
+            "Publish Beta\\n\\nCo-authored-by: MoonDog CI <ci@users.noreply.github.com>\\n"
+        ))
+        self.assertIsNone(pattern.search(
+            "Co-authored-by: MoonDog Automation <41898282+github-actions[bot]@users.noreply.github.com>\\n"
+        ))
+        self.assertIsNone(pattern.search(
+            "Co-authored-by: Example Contributor <contributor@example.com>\\n"
+        ))
 
     def test_stable_release_directly_dispatches_offline_distribution(self):
         stable = (ROOT / ".github/workflows/stable-release.yml").read_text(encoding="utf-8")
