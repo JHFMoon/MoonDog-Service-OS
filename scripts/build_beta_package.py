@@ -107,6 +107,31 @@ def merge_text(current: bytes, base: bytes, candidate: bytes, path: str) -> byte
         return result.stdout
 
 
+def normalized_runtime_content(path: str, content: bytes) -> bytes:
+    """Ignore the two approved app identity markers when comparing Beta to source."""
+    if path != "assets/app.js":
+        return content
+    text = content.decode("utf-8")
+    if not VERSION_RE.search(text) or not BUILD_RE.search(text):
+        raise SystemExit("Beta app.js is missing a required identity marker")
+    text = VERSION_RE.sub('const VERSION = "<version>";', text, count=1)
+    text = BUILD_RE.sub('const BUILD_DATE = "<date>";', text, count=1)
+    return text.encode("utf-8")
+
+
+def source_runtime_mismatches(root: Path, current_files: dict[str, bytes], paths: list[str]) -> list[str]:
+    """Find missing/stale Beta paths against the full reviewed source catalog."""
+    mismatches = []
+    for path in paths:
+        source_path = root / path
+        if not source_path.is_file():
+            raise SystemExit(f"Reviewed runtime path is missing: {path}")
+        current = current_files.get(path)
+        if current is None or normalized_runtime_content(path, current) != normalized_runtime_content(path, source_path.read_bytes()):
+            mismatches.append(path)
+    return mismatches
+
+
 def changed_runtime_paths(base_root: Path, candidate_root: Path, paths: list[str]) -> list[str]:
     changed = []
     for path in paths:
@@ -173,7 +198,8 @@ def main() -> int:
 
     changed = changed_runtime_paths(base_root, root, paths)
     added = [path for path in paths if path not in current_files]
-    if not changed and not added:
+    mismatches = source_runtime_mismatches(root, current_files, paths)
+    if not changed and not added and not mismatches:
         print(json.dumps({
             "changed": False,
             "betaVersion": beta["version"],
@@ -185,19 +211,10 @@ def main() -> int:
     build_date = git_value(root, "%cs")
     files = []
     for path in paths:
-        candidate_path = root / path
-        base_path = base_root / path
-        if path in current_files and path not in changed:
-            content = current_files[path]
-        elif path in current_files and base_path.is_file():
-            content = merge_text(
-                current_files[path],
-                base_path.read_bytes(),
-                candidate_path.read_bytes(),
-                path,
-            )
-        else:
-            content = candidate_path.read_bytes()
+        # Canonical source is the published runtime authority. Reusing an
+        # older Beta file here could silently omit earlier merged improvements.
+        # A Beta-only preview must first be reconciled into reviewed source.
+        content = (root / path).read_bytes()
 
         if path == "assets/app.js":
             content = update_app_identity(
@@ -258,7 +275,7 @@ def main() -> int:
         block = (
             f"\n## {version} — current Beta\n\n"
             f"- {notes}\n"
-            f"- Automatically layered onto the previous Beta so existing preview features are preserved.\n\n"
+            f"- Snapshot verified canonical runtime; previously missing reviewed changes are restored.\n\n"
         )
         if marker in text and f"## {version} " not in text:
             text = text.replace(marker, marker + block, 1)
@@ -268,6 +285,7 @@ def main() -> int:
         "changed": True,
         "betaVersion": version,
         "changedRuntime": changed,
+        "repairedStaleRuntime": mismatches,
         "addedRuntime": added,
         "package": package_path.relative_to(root).as_posix(),
         "sha256": beta["sha256"],
