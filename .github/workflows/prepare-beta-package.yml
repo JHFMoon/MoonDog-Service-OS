@@ -1,6 +1,12 @@
 name: Prepare Beta Package
 
 on:
+  workflow_dispatch:
+    inputs:
+      reviewed_commit:
+        description: 'Merged runtime commit to backfill (full SHA)'
+        required: true
+        type: string
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
 
@@ -194,3 +200,44 @@ jobs:
           done
           echo "GitHub did not settle the generated-head status context in time." >&2
           exit 1
+
+  backfill-merged-beta:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted main and history
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Validate merged commit and prepare Beta on isolated branch
+        shell: bash
+        env:
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo "Main moved; retry on fresh main" >&2; exit 1; }
+          git cat-file -e "$REVIEWED_COMMIT^{commit}"
+          git merge-base --is-ancestor "$REVIEWED_COMMIT" HEAD || { echo "Commit is not merged into main" >&2; exit 1; }
+          BASE="$(git rev-parse "$REVIEWED_COMMIT^")"
+          mkdir -p /tmp/moondog-beta-backfill-base
+          git archive "$BASE" | tar -x -C /tmp/moondog-beta-backfill-base
+          cp updates/manifest.json /tmp/moondog-beta-backfill-base-manifest.json
+          python3 scripts/build_beta_package.py --root . --base-root /tmp/moondog-beta-backfill-base --base-manifest /tmp/moondog-beta-backfill-base-manifest.json --release-notes "Backfill merged RO closeout fixes into verified Beta; Stable unchanged."
+          test -n "$(git status --porcelain -- updates/manifest.json updates/packages)" || { echo "No un-packaged runtime changes; no release needed"; exit 0; }
+          BRANCH="beta/backfill-$GITHUB_RUN_ID"
+          git switch -c "$BRANCH"
+          git config user.name "MoonDog Automation"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add updates/manifest.json updates/packages README.md CHANGELOG.md
+          git commit -m "Backfill merged runtime into next Beta package"
+          git push origin "$BRANCH"
+          echo "BACKFILL_BRANCH=$BRANCH" >> "$GITHUB_ENV"
+      - name: Open verified Beta PR (never push package directly to main)
+        if: env.BACKFILL_BRANCH != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr create --base main --head "$BACKFILL_BRANCH" --title "Backfill merged RO fixes into next Beta" --body "Reviewed merged runtime packaged with the trusted builder. Required Publication Check and Clean Install Proof must pass before guarded merge. Stable is unchanged."
