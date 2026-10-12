@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.55 — current Beta
+
+- Avoid restoring the size-contained Arena fullscreen element in Edge. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.54 — current Beta
 
 - Keep routine housekeeping off history and fullscreen presentation. Verified automated Beta; no Workspace migration.
