@@ -155,17 +155,13 @@ PY
     if: always()
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      issues: write
     steps:
-      - name: Check out audit status branch
-        uses: actions/checkout@v4
-        with:
-          ref: audit/status
-          fetch-depth: 1
-          persist-credentials: true
-      - name: Write redacted machine-readable audit result
+      - name: Update closed redacted audit status issue
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.sha }}
           HISTORY_REPORT: ${{ needs.audit.outputs.report }}
           HISTORY_OUTCOME: ${{ needs.audit.outputs.outcome }}
@@ -173,12 +169,15 @@ PY
           SURFACE_OUTCOME: ${{ needs.public-surfaces.outputs.outcome }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          python3 - <<'PY' > /tmp/audit-status.md
           import base64, json, os
           def decode(value):
               if not value:
                   return {"counts":{"missing_job_output":1}}
-              return json.loads(base64.b64decode(value).decode("utf-8"))
+              try:
+                  return json.loads(base64.b64decode(value).decode("utf-8"))
+              except Exception:
+                  return {"counts":{"invalid_job_output":1}}
           payload={
               "sourceCommit": os.environ["SOURCE_SHA"],
               "historyOutcome": os.environ.get("HISTORY_OUTCOME") or "unknown",
@@ -187,16 +186,12 @@ PY
               "publicSurfaces": decode(os.environ.get("SURFACE_REPORT","")),
               "redacted": True,
           }
-          with open("audit-status.json","w",encoding="utf-8") as f:
-              json.dump(payload,f,indent=2,sort_keys=True)
-              f.write("\n")
+          print("<!-- automation-managed-redacted-audit -->")
+          print("# Public repository safety audit status")
+          print()
+          print("This issue is automation-managed. It contains category counts only; matched values are never written here.")
+          print()
+          for line in json.dumps(payload,indent=2,sort_keys=True).splitlines():
+              print("    "+line)
           PY
-          git config user.name "MoonDog Audit Automation"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add audit-status.json
-          if git diff --cached --quiet; then
-            echo "Audit status unchanged."
-            exit 0
-          fi
-          git commit -m "Update redacted public repository audit status"
-          git push origin HEAD:audit/status
+          gh issue edit 100 --repo "$REPO" --body-file /tmp/audit-status.md
