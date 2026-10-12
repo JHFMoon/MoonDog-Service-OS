@@ -1178,19 +1178,54 @@ html[data-theme="dark"] body #view-settings :is(input:not([type="checkbox"]),sel
    contain:inline-size layout style;
  }
 }
-/* During the fullscreen EXIT only, bypass rendering the complex broadcast
- * descendants while Edge restores the normal tab size. The familiar Arena
- * returns after two animation frames. All underlying numbers stay untouched. */
-#view-meeting.meeting-scoreboard.arena-exiting-fullscreen :is(.arena-store,.meeting-scoreboard-advisors){
- content-visibility:hidden!important;
- contain-intrinsic-size:auto 650px;
+/* Avoid the costly fullscreen-exit staging/content-visibility sequence that
+ * produced a real Edge tab hang. Keep the current slide in the render tree.
+ * In a narrow embedded browser only, simplify decorative paint work. */
+@media(max-width:1080px){
+ #view-meeting.meeting-scoreboard.presentation-active:not(:fullscreen) :is(
+   .arena-store .as-tally:before,
+   .arena-store .as-story:after,
+   .arena-store .as-challenge:before,
+   .arena-advisor:before,
+   .arena-advisor .aa-earnings:before,
+   .arena-advisor .aa-next:before,
+   .arena-advisor .aa-next:after
+ ){display:none!important}
+ #view-meeting.meeting-scoreboard.presentation-active:not(:fullscreen) :is(
+   .arena-store .as-tally,
+   .arena-store .as-chart,
+   .arena-store .as-story,
+   .arena-store .as-challenge,
+   .arena-advisor .aa-next,
+   .arena-advisor .aa-pulse
+ ){box-shadow:none!important;filter:none!important;clip-path:none!important}
+ #view-meeting.meeting-scoreboard.presentation-active:not(:fullscreen) .arena-advisor .aa-next{
+   background:linear-gradient(135deg,#d6ff52,#6fe4b3)!important
+ }
+ #view-meeting.meeting-scoreboard.presentation-active:not(:fullscreen) .arena-store .as-tally{
+   background:linear-gradient(135deg,#082b42,#0b4153)!important
+ }
 }
-#view-meeting.meeting-scoreboard.arena-exiting-fullscreen:after{
- content:"RETURNING TO MEETING";
- position:absolute;inset:0;display:grid;place-items:center;
- z-index:20;pointer-events:none;
- font-size:clamp(19px,2.1vw,34px);font-weight:900;letter-spacing:.11em;
- color:#a8f5cf;background:#061b2a;
+@media(min-width:800px) and (max-width:1080px){
+ /* Keep the report compact when returning to a ~1000px Edge window, instead
+  * of rebuilding a 1600px-tall broadcast stage on the exit frame. */
+ #view-meeting.meeting-scoreboard.presentation-active:not(:fullscreen) .arena-store .as-upper{
+  display:grid!important;grid-template-columns:minmax(0,.9fr) minmax(0,1.25fr)!important;
+  gap:10px
+ }
+ #view-meeting.meeting-scoreboard.presentation-active:not(:fullscreen) .arena-store .as-lower{
+  display:grid!important;grid-template-columns:minmax(0,.8fr) minmax(0,1fr) minmax(0,1fr)!important;
+  gap:8px
+ }
+ #view-meeting.meeting-scoreboard.presentation-active:not(:fullscreen) .arena-store :is(.as-tally,.as-chart){
+  min-height:300px
+ }
+ #view-meeting.meeting-scoreboard.presentation-active:not(:fullscreen) .arena-store :is(.as-story,.as-signal-bank,.as-challenge){
+  min-height:185px
+ }
+ #view-meeting.meeting-scoreboard.presentation-active:not(:fullscreen) .arena-store .as-tally>strong{
+  font-size:clamp(49px,7cqw,79px)
+ }
 }
 
 /* END PREMIUM EXPERIENCE FINISH */
