@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.65 — current Beta
+
+- Replace native Service Arena fullscreen with safe in-app presentation. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.64 — current Beta
 
 - Replace native Service Arena fullscreen with safe in-app presentation. Verified automated Beta; no Workspace migration.
