@@ -189,10 +189,8 @@ try{
   if(wideAgain.slide!=="advisor"||!wideAgain.percentFits||!wideAgain.separated)
     throw Error("Return-to-wide-monitor geometry failed "+JSON.stringify(wideAgain));
 
-  // Stress the browser case from the actual user screenshot: a maximized
-  // ~1000px Edge window repeatedly returning from presentation fullscreen.
-  // Measure event-loop stalls, not only fullscreenchange and the next frame.
-  const repeatExitCycles=8;
+  // Stress a 1000px Edge-sized window with repeated CSS-only presentation exits.
+  const repeatPresentationCycles=8;
   await page.setViewportSize({width:1000,height:950});
   await page.evaluate(()=>{
     const hb={last:performance.now(),maxDrift:0,samples:0,handle:null};
@@ -204,24 +202,17 @@ try{
     },75);
     globalThis.__arenaHeartbeat=hb;
   });
-  for(let repeat=0;repeat<repeatExitCycles;repeat++){
-    await page.locator(".meeting-presenter-controls [data-fullscreen]").click({timeout:5000});
-    await page.waitForFunction(()=>!!document.fullscreenElement,null,{timeout:2800});
+  for(let repeat=0;repeat<repeatPresentationCycles;repeat++){
+    await presentationAction(true);
     if(repeat===3){
       await page.setViewportSize({width:1600,height:900});
       await page.waitForTimeout(60);
       await page.setViewportSize({width:1000,height:950});
     }
-    await page.locator(".meeting-presenter-controls [data-fullscreen]").click({timeout:5000});
-    await page.waitForFunction(()=>{
-      const t=globalThis.__serviceMeetingPresenter?.fullscreenTiming();
-      return !document.fullscreenElement&&t?.kind==="exit"&&Number.isFinite(t.restoredMs);
-    },null,{timeout:4000});
-    const timing=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
-    if(timing.failed||timing.restoredMs>4000)
-      throw Error("Repeated fullscreen exit hung on round "+repeat+": "+JSON.stringify(timing));
-    if(await page.evaluate(()=>document.getElementById("view-meeting").classList.contains("arena-exiting-fullscreen")))
-      throw Error("Staged exit class resurrected");
+    await presentationAction(false);
+    const responsive=await page.evaluate(()=>!document.body.classList.contains("moondog-presentation-mode")&&
+      !document.getElementById("view-meeting").classList.contains("presentation-overlay"));
+    if(!responsive)throw Error("Dashboard remained blocked after safe presentation exit "+repeat);
   }
   const heartbeat=await page.evaluate(()=>{
     const hb=globalThis.__arenaHeartbeat;
@@ -229,15 +220,17 @@ try{
     return {maxDrift:Math.round(hb.maxDrift),samples:hb.samples};
   });
   // A main thread blocked for seconds is the user's actual failure mode.
-  if(heartbeat.maxDrift>1900||heartbeat.samples<7)
+  if(heartbeat.maxDrift>1200||heartbeat.samples<7)
     throw Error("Main thread stalled during repeated fullscreen exit "+JSON.stringify(heartbeat));
   console.log("Repeated exit and Edge-window heartbeat",width,height,JSON.stringify(heartbeat));
   await page.setViewportSize({width,height});
   if(width===1600){
-    // Edge repro: after exiting native fullscreen, the WHOLE dashboard must still navigate.
+    // Edge repro: after exiting safe presentation, every dashboard view must still navigate.
     const navigationStarted=Date.now();
     await page.locator('.nav-item[data-view="home"]').click({timeout:3500});
     await page.waitForFunction(()=>document.getElementById("view-home").classList.contains("active"),null,{timeout:3500});
+    await page.locator('.nav-item[data-view="performance"]').click({timeout:3500});
+    await page.waitForFunction(()=>document.getElementById("view-performance").classList.contains("active"),null,{timeout:3500});
     await page.locator('.nav-item[data-view="meeting"]').click({timeout:3500});
     await page.waitForFunction(()=>document.getElementById("view-meeting").classList.contains("active"),null,{timeout:3500});
     if(Date.now()-navigationStarted>6500)throw Error("Dashboard navigation stalled after fullscreen exit");
