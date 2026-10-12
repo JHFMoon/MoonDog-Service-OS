@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -42,9 +43,21 @@ class BetaRuntimeContract(unittest.TestCase):
         self.assertIsNotNone(package_build)
         source = re.sub(r'const BUILD_DATE = "20\d{2}-\d{2}-\d{2}";',
                         f'const BUILD_DATE = "{package_build.group(1)}";', source)
-        if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
+        # A normal feature PR may legitimately change runtime before post-merge
+        # packaging. But an actual package/manifest PR MUST already contain
+        # the complete reviewed runtime. Previously all PRs skipped this check.
+        package_change_in_pr = False
+        if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
+            changed = subprocess.check_output(
+                ["git", "diff", "--name-only", "HEAD^", "HEAD"], cwd=ROOT, text=True
+            ).splitlines()
+            package_change_in_pr = (
+                "updates/manifest.json" in changed
+                and any(path.startswith("updates/packages/moondog-") and path.endswith(".json") for path in changed)
+            )
+        verify_runtime = os.environ.get("GITHUB_EVENT_NAME") != "pull_request" or package_change_in_pr
+        if verify_runtime:
             self.assertEqual(app, source, "Beta app.js differs from reviewed source beyond version/build date")
-        if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
             self.assertEqual(
                 base64.b64decode(entries["assets/freshness.js"]["contentBase64"]).decode("utf-8"),
                 (ROOT / "assets/freshness.js").read_text(encoding="utf-8"),
