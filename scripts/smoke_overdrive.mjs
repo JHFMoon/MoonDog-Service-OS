@@ -8,7 +8,7 @@ fs.mkdirSync(out,{recursive:true});
 const browser=await chromium.launch({headless:true});
 try{
  for(const [width,height] of [[1920,1080],[1600,900],[1366,768]]){
-  const page=await browser.newPage({viewport:{width,height},reducedMotion:"reduce"});
+  const page=await browser.newPage({viewport:{width,height},reducedMotion:width===1600?"no-preference":"reduce"});
   const errors=[];page.on("pageerror",e=>errors.push(e.message));
   await page.goto(pathToFileURL(path.resolve(launcher)).href,{waitUntil:"load",timeout:30000});
   await page.waitForURL(u=>u.protocol==="file:"&&u.pathname.endsWith("/index.html"),{timeout:15000});
@@ -96,14 +96,39 @@ try{
   await page.locator(".meeting-presenter-controls [data-pause]").click();
   if((await page.locator(".meeting-presenter-controls [data-pause]").textContent()).trim()!=="Pause")
     throw Error("Resume button did not restart presentation");
-  // The same control enters and exits real browser fullscreen.
+  // Same real Full screen button, now timed under a synthetic background
+  // workload to catch accidental whole-dashboard stylesheet invalidation.
   if(await page.evaluate(()=>document.fullscreenEnabled)){
+    await page.evaluate(()=>{
+      const main=document.querySelector("main");
+      const hidden=document.createElement("section");hidden.id="syntheticNonMeetingView";
+      hidden.className="view";
+      hidden.innerHTML=Array.from({length:1600},(_,i)=>'<article class="card"><strong>DEMO ITEM '+i+'</strong><span>SYNTHETIC BACKGROUND CONTENT</span></article>').join("");
+      main.append(hidden);
+    });
     await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
-    await page.waitForFunction(()=>Boolean(document.fullscreenElement),null,{timeout:1500});
-    if((await page.locator(".meeting-presenter-controls [data-fullscreen]").textContent()).trim()!=="Exit full screen")
-      throw Error("Fullscreen control failed to update label");
+    await page.waitForFunction(()=>Boolean(document.fullscreenElement),null,{timeout:2000});
+    await page.waitForFunction(()=>Number.isFinite(globalThis.__serviceMeetingPresenter?.fullscreenTiming()?.frameMs),null,{timeout:2800});
+    const entry=await page.evaluate(()=>({
+      timing:globalThis.__serviceMeetingPresenter.fullscreenTiming(),
+      globallyRestyled:document.body.classList.contains("meeting-fullscreen"),
+      fullscreenView:document.fullscreenElement?.id
+    }));
+    if(entry.fullscreenView!=="view-meeting"||entry.globallyRestyled||
+       entry.timing.failed||entry.timing.kind!=="enter"||
+       entry.timing.eventMs>2200||entry.timing.frameMs>3300)
+      throw Error("Fullscreen entry latency or global restyle "+width+"x"+height+": "+JSON.stringify(entry));
     await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
-    await page.waitForFunction(()=>!document.fullscreenElement,null,{timeout:1500});
+    await page.waitForFunction(()=>!document.fullscreenElement,null,{timeout:2000});
+    await page.waitForFunction(()=>{
+      const m=globalThis.__serviceMeetingPresenter?.fullscreenTiming();
+      return m?.kind==="exit"&&Number.isFinite(m.frameMs);
+    },null,{timeout:2800});
+    const exit=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
+    if(exit.failed||exit.eventMs>2200||exit.frameMs>3300)
+      throw Error("Fullscreen exit latency "+width+"x"+height+": "+JSON.stringify(exit));
+    console.log("Fullscreen latency proof",width,height,"enter",entry.timing.eventMs+"ms event / "+entry.timing.frameMs+"ms frame","exit",exit.eventMs+"ms event / "+exit.frameMs+"ms frame");
+    await page.evaluate(()=>document.getElementById("syntheticNonMeetingView")?.remove());
   }
   for(let i=0;i<5;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter?.next());
   const cycle=await geom();
