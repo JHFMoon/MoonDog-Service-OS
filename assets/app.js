@@ -2632,6 +2632,18 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     communication: COMMUNICATION_STATUSES, requests: managerAttentionRequests, closeRo,
     sourceAvailable, imports: latestImportSummary, advisors: configuredAdvisors,
     openEdit, updateArrivalStatus, classify: classifyImportFile,
+    savePastedUnknownText: async function(value){
+      const source=String(value||"").trim();
+      if(!source)throw new Error("Paste text before saving it for future recognition.");
+      if(!model.root)throw new Error("Connect the local Workspace first.");
+      const dir=await directory(["Files To Learn"],true);
+      const name="Pasted-Unknown-"+new Date().toISOString().replace(/[:.]/g,"-")+"-"+crypto.randomUUID().slice(0,8)+".txt";
+      const bytes=new TextEncoder().encode(source);
+      await writeBytes(["Files To Learn",name],bytes);
+      const check=await(await dir.getFileHandle(name)).getFile();
+      if(check.size!==bytes.length)throw new Error("The saved source could not be verified; retain your pasted copy.");
+      return {name};
+    },
     latestSapr: currentSaprSnapshot, nextWin: configuredMeetingNextWin,
     readJson: async path => readJson(path.split('/'), null),
     refreshHistory: () => model.settings.future?.refreshCadence || globalThis.ServiceRefreshIntelligence?.empty(),
