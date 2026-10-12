@@ -2074,68 +2074,131 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   return hints[String(label||"").toUpperCase()]||"Discuss one specific, verified opportunity at the next meeting.";
 }
   function meetingAdvisorTv(code,latest,entity,goal,week,next,csi){
-  const ready=Boolean(entity&&latest?.validation?.saprDaysVerified&&latest?.validation?.finalTotalsVerified);
-  const updateDate=latest?.periodEnd?shortDate(latest.periodEnd):"THE LAST REPORT";
-  const vState=virMeetingEvidence(),vSnap=latestOperationalSnapshot("vir"),vDate=virObservationDate(vSnap);
-  const vOld=vState.status==="stale"&&/^\d{4}-\d{2}-\d{2}$/.test(vDate||""),vReady=vState.verified||vOld;
-  const mPresent=menuMeetingEvidence("presentation"),mPen=menuMeetingEvidence("penetration"),mSnap=latestOperationalSnapshot("menu");
-  const mDate=mSnap?.releaseWeek||mSnap?.periodEnd||"",mOld=mPresent.status==="stale"&&mPen.status==="stale"&&/^\d{4}-\d{2}-\d{2}$/.test(mDate);
-  const vir=vReady?vSnap?.advisors?.[code]:null,menu=(mPresent.verified&&mPen.verified)||mOld?mSnap?.advisors?.[code]:null;
-  const results=[],format=(n,type)=>type==="money"?performanceFormat(n,"money"):type==="decimal"?n.toFixed(2):type==="count"?Math.round(n).toLocaleString():Math.round(n)+"%";
-  const record=(name,value,target,type,known,historical=false,date="")=>{
-    if(!known||!Number.isFinite(value))return;
-    const goalKnown=Number.isFinite(target)&&target>0;
-    const gap=goalKnown?(value-target)/target:null;
-    results.push({name,value:format(value,type),gap,state:historical?"older":!goalKnown?"plain":value>=target?"win":"miss",
-      detail:!goalKnown?"UPDATED "+(date?shortDate(date):updateDate):value>=target?"ON GOAL":
-       type==="percent"?Number((target-value).toFixed(1))+" PTS TO GO":format(Number((target-value).toFixed(2)),type)+" TO GO",
-      asOf:date?shortDate(date):updateDate});
+  const verified=Boolean(entity && latest?.validation?.saprDaysVerified===true && latest?.validation?.finalTotalsVerified===true);
+  const end=latest?.periodEnd,asOf=end?shortDate(end):"LATEST REPORT";
+  const metrics=[];
+  const fmt=(v,k)=>k==="money"?performanceFormat(v,"money"):k==="dec"?v.toFixed(2):k==="score"?Math.round(v).toString():Math.round(v)+"%";
+  const metric=(label,value,target,kind,available,stale,date)=>{
+    if(!available||!Number.isFinite(value))return;
+    const configured=Number.isFinite(target)&&target>0;
+    const status=stale?"past":!configured?"neutral":value>=target?"good":"low";
+    const gap=configured&&value<target ? (kind==="percent"?Number((target-value).toFixed(1))+" POINTS TO GO":fmt(Number((target-value).toFixed(2)),kind)+" TO GO"):"";
+    metrics.push({label,value:fmt(value,kind),status,detail:stale?"UPDATED "+shortDate(date):gap|| (configured?"GOAL MET":"UPDATED "+(date?shortDate(date):asOf)),delta:configured?(value-target)/target:null});
   };
-  record("LABOR RATE",entity?.cpElr,standard("cpElr"),"money",ready,false,latest?.periodEnd);
-  record("HOURS / VISIT",entity?.cpHours,standard("cpHoursPerRo"),"decimal",ready,false,latest?.periodEnd);
-  record("INSPECTION MEDIA",entity?.mediaViewed,standard("mediaViewed"),"percent",ready,false,latest?.periodEnd);
-  record("CUSTOMER TEXTS",entity?.texting,standard("texting"),"percent",ready,false,latest?.periodEnd);
-  record("VEHICLE INSPECTIONS",vir?.utilization,standard("vir"),"percent",vReady,vOld,vDate);
-  record("MENUS SHOWN",menu?.presentation,standard("menuPresentation"),"percent",mPresent.verified||mOld,mOld,mDate);
-  record("MENUS SOLD",menu?.penetration,standard("menuPenetration"),"percent",mPen.verified||mOld,mOld,mDate);
-  const nps=csiMetricEvidence(csi);record("CUSTOMER SCORE",csi?.responses&&nps.verified?csi.nps:null,standard("dealerNps"),"count",!!(csi?.responses&&nps.verified));
-  const wins=results.filter(x=>x.state==="win").sort((a,b)=>(b.gap||0)-(a.gap||0));
-  const misses=results.filter(x=>x.state==="miss").sort((a,b)=>(a.gap||0)-(b.gap||0));
-  const plains=results.filter(x=>x.state==="plain"),older=results.filter(x=>x.state==="older");
-  const bright=wins.length?wins.slice(0,3):plains.slice(0,3);
-  const watch=misses.length?misses.slice(0,3):plains.filter(x=>!bright.includes(x)).slice(0,3);
-  const row=x=>`<div class="rx-result ${x.state}"><span>${x.name}</span><strong>${x.value}</strong><small>${x.state==="older"?"UPDATED "+x.asOf.toUpperCase():x.detail}</small></div>`;
-  const section=(heading,tone,arr,empty)=>`<section class="rx-group ${tone}"><h4>${heading}</h4><div class="rx-result-list">${arr.length?arr.map(row).join(""):`<p>${empty}</p>`}</div></section>`;
-  const gross=ready&&Number.isFinite(entity?.totalGross)?entity.totalGross:null,target=goal?.configured&&Number.isFinite(goal.target)?goal.target:null;
-  const progress=target&&Number.isFinite(gross)?Math.round(gross/target*100):null,left=target&&Number.isFinite(gross)?Math.max(0,target-gross):null;
-  const projected=ready&&Number.isFinite(gross)&&latest?.saprDaysCompleted>0&&latest?.saprTotalDays>0?gross/latest.saprDaysCompleted*latest.saprTotalDays:null;
-  const difference=Number.isFinite(projected)&&target?projected-target:null;
-  const pStatus=difference===null?"YOUR MONTHLY PACE":difference>=0?"ON PACE TO BEAT YOUR GOAL":"LET'S PICK UP THE PACE";
-  const pDetail=difference===null?"":difference>=0?compactMoney(difference)+" ABOVE GOAL":compactMoney(-difference)+" SHORT OF GOAL";
-  const need=goal?.configured&&Number.isFinite(goal.roundedDaily)?performanceFormat(goal.roundedDaily,"money"):goal?.achieved?"GOAL REACHED":"—";
-  const missing=Array.isArray(week?.current?.missingDates)?week.current.missingDates:[],seven=Number.isFinite(week?.current?.total)?compactMoney(week.current.total):null;
-  const weekly=seven?"LAST 7 DAYS · "+seven:missing.length?"LAST 7 DAYS · WAITING FOR "+missing.slice(0,2).map(shortDate).join(" & ").toUpperCase()+(missing.length>2?" +MORE":""):"LAST 7 DAYS · UPDATE NOT READY";
-  const item=next?.label&&next.label!=="NEXT WIN"?next.label:"YOUR OPPORTUNITY";
-  const task=String(next?.measure||"YOUR NEXT STEP").replace(/^Need (\d+) more sales?$/i,(_m,n)=>n+" MORE "+(n==="1"?"SALE":"SALES")).toUpperCase();
-  return `<section class="advisor-tv broadcast-tv" aria-label="Advisor results">
-   <div class="rx-hero ${difference===null?"unknown":difference>=0?"ahead":"behind"}">
-    <div class="rx-hero-main"><span class="rx-cap">THIS MONTH</span><div class="rx-gross"><strong>${Number.isFinite(gross)?compactMoney(gross):"—"}</strong><span>${target?"GOAL "+compactMoney(target):"MONTHLY GOAL NOT SET"}</span></div>
-    <div class="rx-track" role="progressbar" aria-label="Monthly progress" aria-valuenow="${progress||0}" aria-valuemin="0" aria-valuemax="100"><i style="width:${progress===null?0:Math.max(0,Math.min(100,progress))}%"></i></div>
-    <div class="rx-progress-note"><span>${progress===null?"RESULTS NOT READY":progress+"% OF GOAL"}</span><strong>${left===null?"":compactMoney(left)+" LEFT"}</strong></div>
-    <div class="rx-forecast"><b>${pStatus}</b><span>${Number.isFinite(projected)?compactMoney(projected)+" AT THIS PACE":"FORECAST NOT READY"}</span><small>${pDetail}</small></div>
+  metric("LABOR RATE",entity?.cpElr,standard("cpElr"),"money",verified,false,end);
+  metric("HOURS PER VISIT",entity?.cpHours,standard("cpHoursPerRo"),"dec",verified,false,end);
+  metric("INSPECTION MEDIA",entity?.mediaViewed,standard("mediaViewed"),"percent",verified,false,end);
+  metric("CUSTOMER TEXTS",entity?.texting,standard("texting"),"percent",verified,false,end);
+  const virEvidence=virMeetingEvidence(),virSnapshot=latestOperationalSnapshot("vir"),virDate=virObservationDate(virSnapshot);
+  const virStale=virEvidence.status==="stale" && /^\d{4}-\d{2}-\d{2}$/.test(virDate||"");
+  metric("VEHICLE INSPECTIONS",virSnapshot?.advisors?.[code]?.utilization,standard("vir"),"percent",virEvidence.verified||virStale,virStale,virDate);
+  const menuShow=menuMeetingEvidence("presentation"),menuPen=menuMeetingEvidence("penetration"),menuSnapshot=latestOperationalSnapshot("menu"),menuDate=menuSnapshot?.releaseWeek||menuSnapshot?.periodEnd||"";
+  const menuStale=menuShow.status==="stale"&&menuPen.status==="stale"&&/^\d{4}-\d{2}-\d{2}$/.test(menuDate);
+  metric("MENUS SHOWN",menuSnapshot?.advisors?.[code]?.presentation,standard("menuPresentation"),"percent",menuShow.verified||menuStale,menuStale,menuDate);
+  metric("MENUS SOLD",menuSnapshot?.advisors?.[code]?.penetration,standard("menuPenetration"),"percent",menuPen.verified||menuStale,menuStale,menuDate);
+  const npsEvidence=csiMetricEvidence(csi);
+  metric("CUSTOMER SCORE",csi?.responses&&npsEvidence.verified?csi.nps:null,standard("dealerNps"),"score",!!(csi?.responses&&npsEvidence.verified),false,end);
+  const best=metrics.filter(m=>m.status==="good").sort((a,b)=>(b.delta||0)-(a.delta||0));
+  const gaps=metrics.filter(m=>m.status==="low").sort((a,b)=>(a.delta||0)-(b.delta||0));
+  const past=metrics.filter(m=>m.status==="past");
+  const others=metrics.filter(m=>m.status==="neutral");
+  const row=m=>`<span class="aa-item ${m.status}"><b>${meetingEscape(m.label)}</b><strong>${m.value}</strong><small>${meetingEscape(m.detail)}</small></span>`;
+  const strip=(label,rank,array,empty)=>`<div class="aa-lane ${rank}"><span class="aa-lane-title">${label}</span><div class="aa-lane-items">${array.length?array.slice(0,2).map(row).join(""):`<span class="aa-lane-empty">${empty}</span>`}</div></div>`;
+  const gross=verified&&Number.isFinite(entity?.totalGross)?entity.totalGross:null;
+  const target=goal?.configured&&Number.isFinite(goal.target)&&goal.target>0?goal.target:null;
+  const progress=Number.isFinite(gross)&&target?gross/target:null;
+  const pct=progress===null?null:Math.round(progress*100);
+  const fill=pct===null?0:Math.min(100,Math.max(0,pct));
+  const forecast=Number.isFinite(gross)&&latest?.saprDaysCompleted>0&&latest?.saprTotalDays>0?gross/latest.saprDaysCompleted*latest.saprTotalDays:null;
+  const difference=Number.isFinite(forecast)&&target?forecast-target:null;
+  const ahead=difference===null?"unknown":difference>=0?"ahead":"behind";
+  const status=difference===null?"MONTHLY OUTLOOK":difference>=0?"ON PACE":"NEEDS A STRONGER FINISH";
+  const statusSub=difference===null?"PROJECTION NOT READY":`${compactMoney(forecast)} PROJECTED · ${compactMoney(Math.abs(difference))} ${difference>=0?"ABOVE":"BELOW"} GOAL`;
+  const daily=goal?.configured&&Number.isFinite(goal.roundedDaily)?performanceFormat(goal.roundedDaily,"money"):goal?.achieved?"GOAL REACHED":"—";
+  const missing=Array.isArray(week?.current?.missingDates)?week.current.missingDates:[];
+  const weekNum=Number.isFinite(week?.current?.total)?compactMoney(week.current.total):null;
+  const weekLabel=weekNum?"LAST 7 DAYS: "+weekNum:missing.length?"LAST 7 DAYS: WAITING FOR "+missing.slice(0,2).map(shortDate).join(", ").toUpperCase()+(missing.length>2?" +MORE":""):"LAST 7 DAYS: NOT READY";
+  const label=meetingEscape(next?.label&&next.label!=="NEXT WIN"?next.label:"NEXT OPPORTUNITY");
+  const measure=meetingEscape(String(next?.measure||"REPORT UPDATE NEEDED").replace(/^Need (\d+) more sales?$/i,(_all,num)=>num+" MORE "+(num==="1"?"SALE":"SALES")).toUpperCase());
+  // 2πr with r=86: a real goal arc, not an artificial speedometer.
+  const arc=(Math.max(0,Math.min(100,fill))/100*540.35).toFixed(1);
+  return `<section class="advisor-tv arena-advisor ${ahead}" aria-label="Advisor performance broadcast">
+   <div class="aa-lead">
+    <div class="aa-earnings">
+      <span class="aa-kicker">MONTH TO DATE <i> / ${meetingEscape(asOf.toUpperCase())}</i></span>
+      <div class="aa-money">${Number.isFinite(gross)?compactMoney(gross):"—"}</div>
+      <div class="aa-goal"><b>${pct===null?"LATEST NUMBERS PENDING":pct+"% OF MONTHLY GOAL"}</b><span>${target?"GOAL "+compactMoney(target):"MONTHLY GOAL NOT SET"}</span></div>
+      <div class="aa-race-line"><i style="width:${fill}%"></i><b></b></div>
+      <div class="aa-race-caption">${status}<small>${statusSub}</small></div>
     </div>
-    <div class="rx-hero-side"><span class="rx-cap">NEEDED EACH WORKDAY</span><strong>${need}</strong><small>${Number.isFinite(goal?.remainingDays)?goal.remainingDays+" WORKDAYS LEFT":"UNTIL MONTH END"}</small><div class="rx-weekly">${weekly}</div></div>
+    <div class="aa-target">
+      <div class="aa-circle">
+        <svg viewBox="0 0 220 220" aria-hidden="true"><circle cx="110" cy="110" r="86" class="aa-ring-bg"/><circle cx="110" cy="110" r="86" class="aa-ring-value" stroke-dasharray="${arc} 540.35" transform="rotate(-90 110 110)"/></svg>
+        <span><b>${pct===null?"—":pct+"%"}</b><small>OF GOAL</small></span>
+      </div>
+      <div class="aa-daily"><span>NEEDED EACH WORKDAY</span><strong>${daily}</strong><small>${Number.isFinite(goal?.remainingDays)?goal.remainingDays+" WORKDAYS REMAIN":"UNTIL MONTH END"}</small></div>
+      <div class="aa-week">${weekLabel}</div>
+    </div>
    </div>
-   <div class="rx-groups">
-     ${section(wins.length?"DOING WELL":"YOUR RESULTS","win",bright,"LATEST RESULTS COMING SOON")}
-     ${section(misses.length?"NEEDS ATTENTION":"KEEP IT GOING","watch",watch,"NO OTHER MISSED GOALS")}
-     ${section("LAST REPORTED","older",older,results.length?"YOUR OTHER NUMBERS ARE CURRENT":"WAITING FOR NEW REPORTS")}
+   <div class="aa-bottom">
+      <div class="aa-pulse">
+        ${strip(best.length?"WINNING":"YOUR NUMBERS","good",best.length?best:others,"NEW RESULTS COMING SOON")}
+        ${strip("ROOM TO GROW","low",gaps,gaps.length?"":"NO CURRENT GOAL GAPS")}
+        ${strip("LAST REPORTED","past",past,past.length?"":"UPDATES ARE CURRENT")}
+      </div>
+      <div class="aa-next"><span>NEXT WIN <i>↗</i></span><strong>${label}</strong><div><b>${measure}</b><small>${next?.achieved?"GOAL ACHIEVED":"BY NEXT MEETING"}</small></div></div>
    </div>
-   <div class="rx-next ${next?.achieved?"achieved":""}"><div class="rx-next-title">NEXT WIN <i>↗</i></div><strong>${item}</strong><div class="rx-next-action"><b>${task}</b><small>${next?.achieved?"NICE WORK":"BEFORE NEXT MEETING"}</small></div></div>
-   <div class="rx-footnote">MONTHLY NUMBERS UPDATED ${updateDate.toUpperCase()}</div>
   </section>`;
 }
-  function attachMeetingAdvisorTv(card, code, latest, entity, goal, window, next, csi) {
+  function renderMeetingArenaStore(view,latest,grossWindow,virEvidence,menuPresentation,menuPenetration,dealer){
+  try{
+    const existing=view.querySelector(".arena-store");
+    if(existing)existing.remove();
+    const verified=latest?.validation?.finalTotalsVerified===true&&Number.isFinite(latest?.store?.totalGross);
+    const gross=verified?latest.store.totalGross:null,updated=latest?.periodEnd?shortDate(latest.periodEnd):"LATEST REPORT";
+    const points=Array.isArray(grossWindow?.current?.points)?grossWindow.current.points:[];
+    const known=points.filter(p=>p.available&&Number.isFinite(p.value));
+    const max=Math.max(1,...known.map(p=>Math.max(0,p.value)));
+    const date=p=>new Date(p.date+"T12:00:00").toLocaleDateString(undefined,{weekday:"short"}).toUpperCase();
+    const bars=points.map(p=>`<div class="as-bar ${p.available?"present":"absent"}"><b>${p.available&&Number.isFinite(p.value)?compactMoney(p.value):"—"}</b><div><i style="height:${p.available&&Number.isFinite(p.value)?Math.max(4,Math.max(0,p.value)/max*100):2}%"></i></div><span>${date(p)}</span></div>`).join("");
+    const best=known.length?known.reduce((winner,p)=>p.value>winner.value?p:winner):null;
+    const missing=Array.isArray(grossWindow?.current?.missingDates)?grossWindow.current.missingDates:[];
+    const weekly=Number.isFinite(grossWindow?.current?.total)?`LAST 7 DAYS ${compactMoney(grossWindow.current.total)}`:missing.length?`WAITING FOR ${missing.slice(0,2).map(shortDate).join(", ").toUpperCase()}${missing.length>2?" +MORE":""}`:"WEEKLY TOTAL NOT READY";
+    const health=[];
+    const vir=virEvidence?.verified?virEvidence.value:null;
+    if(Number.isFinite(vir))health.push({label:"VEHICLE INSPECTIONS",value:Math.round(vir)+"%",status:"CURRENT"});
+    const menu=latestOperationalSnapshot("menu")?.store;
+    const menuUpdated=menuPresentation?.period||latestOperationalSnapshot("menu")?.periodEnd;
+    if(menuPresentation?.verified&&Number.isFinite(menu?.presentation))health.push({label:"MENUS SHOWN",value:Math.round(menu.presentation)+"%",status:"CURRENT"});
+    if(menuPenetration?.verified&&Number.isFinite(menu?.penetration))health.push({label:"MENUS SOLD",value:Math.round(menu.penetration)+"%",status:"CURRENT"});
+    if(dealer?.responses>0&&Number.isFinite(dealer.nps))health.push({label:"CUSTOMER SCORE",value:Math.round(dealer.nps).toString(),status:dealer.responses+" RESPONSES"});
+    if(!health.length&&menuPresentation?.status==="stale"&&/^\d{4}-\d{2}-\d{2}$/.test(menuUpdated||"")&&Number.isFinite(menu?.presentation)){
+      health.push({label:"MENUS SHOWN",value:Math.round(menu.presentation)+"%",status:"UPDATED "+shortDate(menuUpdated)});
+    }
+    const signal=health.slice(0,2).map(h=>`<span class="as-signal"><b>${h.label}</b><strong>${h.value}</strong><small>${h.status}</small></span>`).join("");
+    const opportunity=sourceFreshness("sapr").safeForCurrent?storeMeetingNextOpportunity(latest):null;
+    const challenge=opportunity?meetingEscape(String(opportunity.label||"NEXT OPPORTUNITY").toUpperCase()):"NEXT TEAM WIN";
+    const target=opportunity&&Number.isFinite(opportunity.needed)&&opportunity.needed>0?`${opportunity.needed} MORE ${opportunity.needed===1?"SALE":"SALES"}`:
+      opportunity&&Number.isFinite(opportunity.gap)?`${Number(opportunity.gap.toFixed(1))} POINTS TO GO`:"UPDATE YOUR TARGETS";
+    const el=document.createElement("section");
+    el.className="arena-store";
+    el.setAttribute("aria-label","Store meeting broadcast");
+    el.innerHTML=`<div class="as-upper">
+      <div class="as-tally"><span class="as-eyebrow">THE STORE · THIS MONTH</span><strong>${Number.isFinite(gross)?compactMoney(gross):"—"}</strong><small>${verified?"UPDATED "+meetingEscape(updated.toUpperCase()):"MONTHLY TOTAL NOT READY"}</small>
+        <div class="as-week">${weekly}</div>
+      </div>
+      <div class="as-chart"><div class="as-chart-title"><span>THE WEEK AT A GLANCE</span><small>DAILY CLOSED GROSS · ${known.length} DAYS REPORTED</small></div><div class="as-bars">${bars}</div></div>
+      </div>
+      <div class="as-lower">
+       <div class="as-story"><span>OUR STRONGEST DAY</span><strong>${best?date(best):"WAITING FOR RESULTS"}</strong><small>${best?compactMoney(best.value)+" CLOSED GROSS":"NEW REPORT NEEDED"}</small></div>
+       <div class="as-signal-bank"><span>TEAM NUMBERS</span><div>${signal||'<span class="as-unavailable">MORE RESULTS COMING SOON</span>'}</div></div>
+       <div class="as-challenge"><span>OUR NEXT WIN ↗</span><strong>${challenge}</strong><b>${target}</b></div>
+      </div>`;
+    view.querySelector(".meeting-scoreboard-head")?.after(el);
+    view.classList.add("arena-ready");
+  }catch(e){console.warn("Store broadcast unavailable; keeping original slide.",e);view.classList.remove("arena-ready");}
+}
+    function attachMeetingAdvisorTv(card, code, latest, entity, goal, window, next, csi) {
     // If optional presentation detail cannot render, keep the verified original
     // advisor card available instead of displaying a blank slide.
     try {
@@ -2233,7 +2296,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const health = view.querySelector("#meetingV3Team"), healthItems = [{ key: "dealerNps", label: "CUSTOMER SCORE", evidence: csiMetricEvidence(dealer) }, { key: "vir", label: "INSPECTIONS", evidence: virEvidence, suffix: "%" }, { key: "menuPresentation", label: "MENUS SHOWN", evidence: menuPresentation, suffix: "%" }, { key: "menuPenetration", label: "MENUS SOLD", evidence: menuPenetration, suffix: "%" }], sharedMenuStale = menuPresentation.status === "stale" && menuPenetration.status === "stale" && menuPresentation.period === menuPenetration.period; health.replaceChildren(); health.classList.toggle("has-menu-stale", sharedMenuStale); healthItems.forEach((item) => { const comparison = item.key === "vir" ? { previous: virComparison?.prior?.evidence?.value ?? null, change: virComparison?.change ?? null } : item.evidence.verified ? meetingMetricComparison(item.key, currentMetrics[item.key]) : { previous: null, change: null }, card = document.createElement("article"), className = Number.isFinite(comparison.change) ? comparison.change > 0 ? "up" : comparison.change < 0 ? "down" : "flat" : "flat", shownValue = item.evidence.verified ? item.evidence.value : item.evidence.status === "stale" ? item.evidence.lastVerifiedValue : null, menuStale = sharedMenuStale && (item.key === "menuPresentation" || item.key === "menuPenetration"), stateLine = item.evidence.status === "stale" ? `Updated ${shortCoverage(item.evidence.period)}` : Number.isFinite(comparison.previous) ? `Previous ${Math.round(comparison.previous)}${item.suffix || ""}` : item.evidence.verified ? "No comparison available this week" : item.evidence.status === "missing-period" ? "Current result not verified" : publicMetricState(item.evidence), changeLine = menuStale ? "" : item.evidence.status === "stale" ? "UPDATE PENDING" : Number.isFinite(comparison.change) ? `${comparison.change > 0 ? "UP" : comparison.change < 0 ? "DOWN" : "NO CHANGE"} ${Math.abs(comparison.change).toFixed(1)} PTS` : item.evidence.verified ? "NO VERIFIED CHANGE" : ""; card.className = `${className}${menuStale ? " historical" : ""}`; card.innerHTML = `<span>${item.label}</span><strong>${Number.isFinite(shownValue) ? `${Math.round(shownValue)}${item.suffix || ""}` : publicMetricState(item.evidence)}</strong><small>${stateLine}</small><b>${changeLine}</b>`; health.append(card); }); if (sharedMenuStale) { const shared = document.createElement("div"); shared.className = "meeting-menu-freshness"; shared.textContent = "WAITING FOR THIS WEEK’S RESULTS"; health.append(shared); }
     const advisors = view.querySelector("#meetingV3Advisors"), roster = configuredAdvisors("advisorMeeting").filter((advisor) => validAdvisorIdentity(advisor.number, advisorDisplayName(advisor.number, advisor))), advisorRows = []; advisors.replaceChildren(); roster.forEach((advisor) => { const code = advisor.number, name = advisorDisplayName(code, advisor), entity = latest?.advisors?.[code], csi = npsSummary(Object.fromEntries(Object.entries(surveys).filter(([, survey]) => survey.advisorCode === code))), window = end ? meetingGrossWindow(end, code) : { current: { total: null, evidence: metricEvidence({ status: "missing-source", source: "SAPR" }) }, prior: { total: null, evidence: metricEvidence({ status: "missing-period", source: "SAPR" }) } }, movement = meetingChange(window.current.total, window.prior.total), card = document.createElement("article"); card.className = "meeting-v3-advisor"; card.dataset.advisorCode = code; if (!entity) { card.innerHTML = `<h3>${name}</h3><span class="advisor-period-label">LAST 7 DAYS</span><strong class="advisor-week-gross">UPDATE PENDING</strong><small>No current advisor result yet</small><div class="active-gross-bar"><i></i></div><div class="exact-gross"><p><span>MONTH</span><strong>UPDATE PENDING</strong></p></div><div class="advisor-daily-need"><b>UPDATE PENDING</b><span>NEED / DAY</span></div><div class="advisor-survey no-response">NO VERIFIED RESPONSES</div><div class="next-win"><span>NEXT WIN</span><strong>UPDATE PENDING</strong></div>`; attachMeetingAdvisorTv(card, code, latest, null, null, window, null, csi); advisors.append(card); return; } const goal = meetingGrossGoal(latest, entity), next = meetingNextWin(code, latest), currentKnown = Number.isFinite(window.current.total), comparison = currentKnown && Number.isFinite(window.prior.total) ? `Previous ${compactMoney(window.prior.total)} · ${movement.amount > 0 ? "UP" : movement.amount < 0 ? "DOWN" : "NO CHANGE"} ${movement.amount ? compactMoney(Math.abs(movement.amount)) : ""}${Number.isFinite(movement.percent) ? ` · ${Math.abs(movement.percent).toFixed(1)}%` : ""}` : "Previous 7-day comparison not available", targetLabel = goal.configured ? `${performanceFormat(goal.target,"money")} ${goal.target===configuredNumber(meetingSetting("grossMinimum"))?"MONTHLY MINIMUM":"STRETCH"}` : "LOCAL TARGET NOT CONFIGURED", targetKind = goal.configured ? (goal.target===configuredNumber(meetingSetting("grossMinimum"))?"MINIMUM":"STRETCH") : "TARGET", dailyNeed = !goal.configured ? "TARGET NOT SET" : goal.achieved ? `${performanceFormat(configuredNumber(meetingSetting("grossStretch")),"money")} ACHIEVED` : Number.isFinite(goal.roundedDaily) ? performanceFormat(goal.roundedDaily, "money") : "UPDATE PENDING", npsClass = !csi.responses ? "no-response" : dealer.responses && csi.nps >= dealer.nps ? "nps-good" : "nps-bad"; card.classList.toggle("gross-achieved", goal.achieved); card.innerHTML = `<h3>${name}</h3><span class="advisor-period-label">LAST 7 DAYS</span><strong class="advisor-week-gross">${currentKnown ? performanceFormat(window.current.total, "money") : publicMetricState(window.current.evidence)}</strong><small class="advisor-week-change ${movement.className}">${comparison}</small><div class="active-gross-bar"><i style="width:${goal.progress}%"></i></div><div class="exact-gross"><p><span>MONTH</span><strong>${compactMoney(entity.totalGross)}</strong></p><p><span>${targetKind}</span><strong>${goal.configured?compactMoney(goal.target):"NOT SET"}</strong></p></div><div class="advisor-daily-need"><b>${dailyNeed}</b><span>${!goal.configured ? "LOCAL TARGET" : goal.achieved ? "STRETCH GOAL" : "NEED / DAY"}</span><small>${!goal.configured ? "Configure in Settings" : goal.achieved ? "" : `TO REACH ${targetLabel}`}</small></div><div class="advisor-survey ${npsClass}">${csi.responses ? `${csi.responses} RESPONSE${csi.responses === 1 ? "" : "S"} · NPS ${performanceFormat(csi.nps, "count")}` : "NO RESPONSES THIS PERIOD"}</div><div class="next-win${next.achieved ? " achieved" : ""}"><span>NEXT WIN · ${next.label}</span><strong>${next.measure}</strong><small>${next.action}</small></div>`; attachMeetingAdvisorTv(card, code, latest, entity, goal, window, next, csi); advisors.append(card); advisorRows.push({ code, name, window, goal, csi, next }); });
     const voice = meetingVoiceChoice(surveys); view.classList.toggle("overdrive-has-voice", Boolean(voice.quote)); view.querySelector("#meetingV3VoiceLabel").textContent = voice.label || "CUSTOMER VOICE"; view.querySelector("#meetingV3Quote").textContent = voice.quote ? (voice.label === "TEAM MESSAGE" ? voice.quote : `“${voice.quote}”`) : voice.label === "TEAM MESSAGE" ? "A TEAM MESSAGE WILL APPEAR AFTER IT IS APPLIED." : "“A CUSTOMER VOICE MOMENT WILL APPEAR WHEN A QUALIFYING RESPONSE IS AVAILABLE.”"; renderCustomerVoiceManager(voice);
-    const actions=meetingActionBandData({latest,grossWindow,grossChange,dealer,currentMetrics});view.querySelector("#meetingV3Momentum").innerHTML=actions.momentum;view.querySelector("#meetingV3Focus").innerHTML=actions.focus;view.querySelector("#meetingV3Next").innerHTML=actions.next;renderMeetingDataHealth(view,meetingDataHealthRows(latest,grossWindow,dealer,virEvidence,virComparison,menuPresentation,menuPenetration,advisorRows)); }
+    const actions=meetingActionBandData({latest,grossWindow,grossChange,dealer,currentMetrics});view.querySelector("#meetingV3Momentum").innerHTML=actions.momentum;view.querySelector("#meetingV3Focus").innerHTML=actions.focus;view.querySelector("#meetingV3Next").innerHTML=actions.next;renderMeetingDataHealth(view,meetingDataHealthRows(latest,grossWindow,dealer,virEvidence,virComparison,menuPresentation,menuPenetration,advisorRows)); renderMeetingArenaStore(view,latest,grossWindow,virEvidence,menuPresentation,menuPenetration,dealer); }
   function decorateMeetingCycle(view = document.querySelector("#view-meeting.meeting-v3")) { if (!view) return; const cycle = meetingCycleInfo(), valid = model.meetingCycle?.cycleStart === cycle.cycleStart, current = meetingCurrentMetrics(); let label = view.querySelector("#meetingV3Cycle"); if (!label) { label = document.createElement("b"); label.id = "meetingV3Cycle"; label.className = "meeting-cycle-label"; view.querySelector(".meeting-v3-head h2")?.after(label); } label.textContent = valid ? `SINCE LAST MEETING · DAY ${cycle.day} OF 7` : "SINCE LAST MEETING · BASELINE UNAVAILABLE"; const nps = view.querySelector("#meetingV3Nps"); if (nps) { let delta = nps.querySelector(".meeting-cycle-delta"); if (!delta) { delta = document.createElement("em"); delta.className = "meeting-cycle-delta"; nps.append(delta); } delta.textContent = valid ? meetingDelta("dealerNps", current.dealerNps) : "CHANGE UNAVAILABLE"; } const keys = ["vir", "menuPresentation", "menuPenetration", "mediaViewed", "controllables"]; view.querySelectorAll("#meetingV3Team .team-tile").forEach((card, index) => { let delta = card.querySelector(".meeting-cycle-delta"); if (!delta) { delta = document.createElement("em"); delta.className = "meeting-cycle-delta"; card.append(delta); } delta.textContent = valid ? meetingDelta(keys[index], current[keys[index]]) : "CHANGE UNAVAILABLE"; }); }
   renderMeeting = function renderMeetingWithCycle() { renderMeetingV3Accurate(); decorateMeetingCycle(); };
   function showMeetingPanel(panel) { const sapr = panel === "sapr"; ui.meetingSaprPanel.hidden = !sapr; ui.meetingCsiPanel.hidden = sapr; ui.meetingSapr.classList.toggle("active", sapr); ui.meetingCsi.classList.toggle("active", !sapr); ui.meetingPeriod.textContent = (sapr ? ui.meetingSaprPanel.dataset.period : ui.meetingCsiPanel.dataset.period) || `Waiting for verified ${sapr ? "SAPR" : "CSI"}`; }
