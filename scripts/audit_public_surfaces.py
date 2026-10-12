@@ -125,7 +125,13 @@ for release in releases:
                 scan_bytes(data,f"release:{name}")
 
 # Current non-expired Actions artifacts.
-artifacts=gh_json(f"repos/{REPO}/actions/artifacts?per_page=100")
+artifact_pages=gh_json(f"repos/{REPO}/actions/artifacts?per_page=100")
+artifacts=[]
+for page in artifact_pages:
+    if isinstance(page,dict) and isinstance(page.get("artifacts"),list):
+        artifacts.extend(page["artifacts"])
+    elif isinstance(page,dict) and page.get("id"):
+        artifacts.append(page)
 for artifact in artifacts:
     if artifact.get("expired"):
         safe["expired_action_artifact"]+=1
