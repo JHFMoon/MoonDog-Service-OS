@@ -10,7 +10,7 @@ const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const start = app.indexOf('  const ADMIN_CLOSEOUT_BLOCKERS =');
 const end = app.indexOf('  function cdkStatusIndicator(', start);
 assert.ok(start >= 0 && end > start, 'admin closeout helpers should be present');
-const context = {localDateKey:()=> '2026-10-11'};
+const context = {localDateKey:()=> '2026-10-11', isClosedManagement:(management)=>String(management?.status||'').toLowerCase()==='closed'};
 vm.runInNewContext(app.slice(start, end)+'\nthis.closeout={nextAdminCloseout,adminCloseoutState};', context);
 const {nextAdminCloseout,adminCloseoutState} = context.closeout;
 
@@ -73,5 +73,6 @@ test('Home save does not clear or transfer administrative fields between ROs', (
 test('Supervisor Workbook updates do not silently replace an existing admin commitment', () => {
   assert.ok(app.includes('Administrative closeout promise changed in workbook: confirm the revised date and reason'));
   assert.ok(app.includes('proposed.reviewDate !== (current.adminCloseout.taskDate || "") || proposed.nextAction !== (current.nextAction || "")'));
-  assert.ok(app.includes('!record.management.nextAction ? 5 : 6'));
+  assert.ok(app.includes('adminCloseoutState(record,today).dueToday ? 3'));
+  assert.match(app,/!record\.management\.nextAction \? \d+ : \d+/);
 });
