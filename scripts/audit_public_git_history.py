@@ -20,6 +20,7 @@ patterns = {
 email_rx = re.compile(rb"(?i)\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b")
 vin_rx = re.compile(rb"\b[A-HJ-NPR-Z0-9]{17}\b")
 ssn_rx = re.compile(rb"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
+safe_email_addresses = {b"web-flow@github.com", b"noreply@github.com"}
 safe_email_domains = {
     b"users.noreply.github.com",
     b"noreply.github.com",
@@ -49,7 +50,7 @@ def valid_vin(raw):
 
 def unsafe_email_matches(data):
     for match in email_rx.finditer(data):
-        if match.group(1).lower() not in safe_email_domains:
+        if match.group(1).lower() not in safe_email_domains and match.group(0).lower() not in safe_email_addresses:
             yield match
 
 counts = collections.Counter()
@@ -124,7 +125,7 @@ for email in commit_emails:
     if not m:
         continue
     domain = m.group(1).lower()
-    if domain in safe_email_domains:
+    if domain in safe_email_domains or email in safe_email_addresses:
         safe_counts["known_public_commit_email"] += 1
     else:
         counts["commit_identity_email"] += 1

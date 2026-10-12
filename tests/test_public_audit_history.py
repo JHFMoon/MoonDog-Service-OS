@@ -1,5 +1,6 @@
 """Synthetic integration checks for redacted public-history scanner."""
 import pathlib
+import runpy
 import subprocess
 import tempfile
 import unittest
@@ -43,6 +44,25 @@ class RedactedHistoryAuditTests(unittest.TestCase):
             self.assertNotIn("commit_identity_email:", result.stdout)
         finally:
             td.cleanup()
+
+    def test_accepts_github_webflow_system_identity(self):
+        td, repo = self.init_repo()
+        try:
+            git(repo, "config", "user.email", "web-flow@github.com")
+            (repo / "README.md").write_text("Synthetic public source.\\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "Synthetic public web commit")
+            result = self.audit(repo)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        finally:
+            td.cleanup()
+
+    def test_publication_history_scan_recognizes_only_exact_github_system_emails(self):
+        scan = runpy.run_path(str(ROOT / "scripts" / "audit_git_history.py"))["pii_categories"]
+        self.assertNotIn("non-example email address", scan(b"web-flow@github.com"))
+        self.assertNotIn("non-example email address", scan(b"noreply@github.com"))
+        self.assertIn("non-example email address", scan(b"personal" + b"@github.com"))
+        self.assertIn("non-example email address", scan(b"customer" + b"@dealership.invalid"))
 
     def test_inspects_historical_name_when_identical_blob_is_renamed(self):
         td, repo = self.init_repo()
