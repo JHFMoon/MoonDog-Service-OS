@@ -28,11 +28,11 @@ test("Navigation paints meeting shell before expensive data build and cancels ob
  assert.match(nav,/globalThis\.__serviceMeetingPresenter\?\.activate\(\)/);
  assert.match(app,/const wasActive=view\.classList\.contains\("active"\); view\.className = "view meeting-view meeting-v3 meeting-scoreboard"\+\(wasActive\?" active":""\)/);
 });
-test("Runtime presenter exactly matches checked-in source and fullscreen errors are visible",()=>{
+test("Runtime presenter exactly matches checked-in source and presentation controls are accessible",()=>{
  const start="// BEGIN GENERATED MEETING PRESENTER (see src/meeting-presenter.js)";
  const end="// END GENERATED MEETING PRESENTER";
  assert.equal(runtime.split(start)[1]?.split(end)[0]?.trim(),source.trim());
- assert.match(source,/data-fullscreen-help hidden/);
+ assert.match(source,/data-presentation-help hidden/);
  assert.match(source,/help\.textContent="Full screen was blocked by Edge\./);
  assert.match(source,/role="status" aria-live="polite"/);
 });
