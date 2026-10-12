@@ -32,7 +32,7 @@ No application path uploads dealership operational data to GitHub.
 
 The end-user application is browser-only HTML, CSS, and JavaScript. Normal operation requires no Python, Node, PowerShell, EXE, service, registry change, or public runtime service.
 
-A migrated installation preserves the original root `index.html` document path so Edge can retain the browser-local storage context used for the saved folder handle and authoritative-computer identity. The visible launcher is `00 - OPEN DASHBOARD.html`; maintained application files are under `System Files/`.
+A migrated installation preserves the original root `index.html` document path so Edge can retain the browser-local storage context used for the saved folder handle and browser-local state. The visible launcher is `00 - OPEN DASHBOARD.html`; maintained application files are under `System Files/`.
 
 A fresh clean installation launches directly into `System Files/index.html` and uses the extracted installation root as its selected working folder.
 
@@ -44,7 +44,7 @@ Backup storage is managed by bounded automatic retention. Validated full backups
 
 Application updates target `System Files/` but must reject the protected `Workspace/` subtree.
 
-One store has one designated authoritative writer. Browser-local authority plus a non-secret workspace marker is required before durable writes are enabled. Copied or independently synchronized workspace copies do not inherit authority and remain read-only. OneDrive synchronization is not treated as a distributed lock.
+Stable 0.10.17 does not use an owner-designation control. Durable writes require browser-granted read/write access to the connected folder and remain protected by revision checks, recovery journals, and protected-path rules. Independently synchronized copies are not coordinated as a multi-writer database, and OneDrive synchronization is not treated as a distributed lock.
 
 Durable changes are guarded by authority and revision checks and use persistent recovery journals. Failed or interrupted writes/deletes must not falsely advance the store revision.
 
@@ -75,10 +75,10 @@ The GitHub Pages site is a static storefront pointing to the current Stable rele
 
 Current channels:
 
-- Stable: `0.10.14`
-- Beta: `0.10.15-beta.1`
+- Stable: `0.10.17`
+- Beta: `0.10.18-beta.24`
 
-Stable 0.10.14 requires `0.10.9` or later. This is intentional: the 0.10.8-era updater cannot safely perform the application/workspace layout separation.
+Stable 0.10.17 requires `0.10.9` or later. This is intentional: the 0.10.8-era updater cannot safely perform the application/workspace layout separation.
 
 A Stable version is considered published only when the matching formal GitHub Release exists at tag `v<version>` and contains the exact updater package asset whose SHA-256 is declared by `updates/manifest.json`. The Stable manifest points to the **same tagged package** through GitHub's CORS-compatible raw file endpoint because browser-based local `file://` apps cannot fetch GitHub Release assets directly. The tag, manifest SHA-256, and formal Release asset must match. After the `Publication check` succeeds on `main`, `.github/workflows/stable-release.yml` creates or verifies the matching release automatically.
 
