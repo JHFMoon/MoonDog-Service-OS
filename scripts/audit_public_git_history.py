@@ -54,6 +54,7 @@ def unsafe_email_matches(data):
 
 counts = collections.Counter()
 safe_counts = collections.Counter()
+diagnostic_counts = collections.Counter()
 blobs = set()
 
 def scan_payload(data, prefix=""):
@@ -132,10 +133,10 @@ for email in commit_emails:
         commit_email_providers[
             "personal_provider" if domain in personal_domains else "other_domain"
         ] += 1
-safe_counts["distinct_candidate_commit_email_addresses"] = len(candidate_commit_addresses)
-safe_counts["distinct_candidate_commit_email_domains"] = len(candidate_commit_domains)
+diagnostic_counts["distinct_candidate_commit_email_addresses"] = len(candidate_commit_addresses)
+diagnostic_counts["distinct_candidate_commit_email_domains"] = len(candidate_commit_domains)
 for provider, total in commit_email_providers.items():
-    safe_counts["candidate_commit_email_" + provider + "_entries"] = total
+    diagnostic_counts["candidate_commit_email_" + provider + "_entries"] = total
 
 print("Git history objects inspected:", len(blobs), "distinct historical paths:", len(seen_paths), flush=True)
 print("Audit scope: reachable blobs/paths, commit and tag messages, and commit identities; findings are redacted.", flush=True)
@@ -144,6 +145,8 @@ for kind in sorted(counts):
     print(f"  {kind}: {counts[kind]}")
 for kind in sorted(safe_counts):
     print(f"  allowed_{kind}: {safe_counts[kind]}")
+for kind in sorted(diagnostic_counts):
+    print(f"  diagnostic_{kind}: {diagnostic_counts[kind]}")
 
 summary = [
     "## Public history audit",
@@ -167,7 +170,7 @@ status_path = os.environ.get("PUBLIC_HISTORY_AUDIT_STATUS")
 if status_path:
     import json
     with open(status_path, "w", encoding="utf-8") as report:
-        json.dump({"counts": dict(counts), "objects": len(blobs)}, report, sort_keys=True)
+        json.dump({"counts": dict(counts), "diagnostics": dict(diagnostic_counts), "objects": len(blobs)}, report, sort_keys=True)
 
 if counts:
     print("REVIEW REQUIRED: candidates detected; no sensitive values were printed.")
