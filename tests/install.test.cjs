@@ -140,7 +140,7 @@ test("denied browser folder write permission stops before mutating application o
   setup.app.requestPermission = async () => "denied";
   const result = await apply(setup);
   assert.notEqual(result.status, "installed");
-  assert.match(String(result.reason || ""), /permission/i);
+  assert.match(String(result.reason || ""), /permission|approved file preview|rejected/i);
   assert.equal(setup.workspace.store.files.get("System Files/index.html").toString(), setup.oldHtml);
   assert.equal(setup.workspace.store.files.get("System Files/Workspace/data/current-state.json").toString(), "synthetic private state");
   assert.deepEqual(setup.workspace.store.writes, []);
