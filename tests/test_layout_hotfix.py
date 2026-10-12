@@ -14,9 +14,10 @@ class LayoutHotfixTests(unittest.TestCase):
         runtime_js = (ROOT / "assets" / "daily-ops.js").read_text(encoding="utf-8")
         runtime_css = (ROOT / "assets" / "meeting.css").read_text(encoding="utf-8")
         self.assertIn('const visible=state.enabled&&view.classList.contains("active");', source)
-        self.assertIn('else if(event.detail?.view){stopTimer();paint();}', source)
+        self.assertIn('else if(event.detail?.view){setPresentationMode(false);stopTimer();paint();}', source)
         self.assertIn('#view-meeting.meeting-scoreboard.presentation-active:not(.active){display:none!important}', css)
         self.assertIn('const visible=state.enabled&&view.classList.contains("active");', runtime_js)
+        self.assertIn('else if(event.detail?.view){setPresentationMode(false);stopTimer();paint();}', runtime_js)
         self.assertIn('#view-meeting.meeting-scoreboard.presentation-active:not(.active){display:none!important}', runtime_css)
 
     def test_system_update_text_wraps(self):
