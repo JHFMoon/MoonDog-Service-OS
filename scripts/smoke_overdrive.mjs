@@ -8,7 +8,7 @@ fs.mkdirSync(out,{recursive:true});
 const browser=await chromium.launch({headless:true});
 try{
  for(const [width,height] of [[1920,1080],[1600,900],[1366,768]]){
-  const page=await browser.newPage({viewport:{width,height},reducedMotion:"reduce"});
+  const page=await browser.newPage({viewport:{width,height},reducedMotion:width===1600?"no-preference":"reduce"});
   const errors=[];page.on("pageerror",e=>errors.push(e.message));
   await page.goto(pathToFileURL(path.resolve(launcher)).href,{waitUntil:"load",timeout:30000});
   await page.waitForURL(u=>u.protocol==="file:"&&u.pathname.endsWith("/index.html"),{timeout:15000});
@@ -33,7 +33,7 @@ try{
       '<div class="aa-next"><span>NEXT WIN ↗</span><strong>ALIGNMENTS</strong><div><b>1 MORE SALE</b><small>BY NEXT MEETING</small></div></div></div></section></article>';
    const bars=Array.from({length:7},(_,i)=>'<div class="as-bar '+(i===5?"absent":"present")+'"><b>'+(i===5?"—":"$"+(i+1)+"K")+'</b><div><i style="height:'+(i===5?2:(20+i*9))+'%"></i></div><span>DAY '+(i+1)+'</span></div>').join("");
    v.innerHTML='<header class="meeting-scoreboard-head"><div><h2>MOONDOG <em>LIVE</em></h2><span>SERVICE TEAM</span></div>'+
-    '<div class="meeting-scoreboard-period"><strong>DEMO WEEK</strong><span>LAST 7 DAYS</span><small>SYNTHETIC DATA</small></div><div class="meeting-scoreboard-actions"></div></header>'+
+    '<div class="meeting-scoreboard-period"><strong>DEMO WEEK</strong><span>LAST 7 DAYS</span><small>SYNTHETIC DATA</small></div><div class="meeting-scoreboard-actions"><button id="meetingFullscreen">Enter full screen</button></div></header>'+
     '<section class="arena-store"><div class="as-upper"><div class="as-tally"><span class="as-eyebrow">THE STORE · THIS MONTH</span><strong>$85.3K</strong><small>UPDATED OCT 11</small><div class="as-week">WAITING FOR OCT 10</div></div>'+
     '<div class="as-chart"><div class="as-chart-title"><span>THE WEEK AT A GLANCE</span><small>DAILY CLOSED GROSS</small></div><div class="as-bars">'+bars+'</div></div></div>'+
     '<div class="as-lower"><div class="as-story"><span>OUR STRONGEST DAY</span><strong>MONDAY</strong><small>$19K CLOSED</small></div>'+
@@ -60,23 +60,134 @@ try{
    if(!card)return {slide,error:"selected advisor missing"};
    const area=card.querySelector(".arena-advisor"),top=area.querySelector(".aa-lead"),bottom=area.querySelector(".aa-bottom");
    const stage=area.querySelector(".aa-earnings"),pace=area.querySelector(".aa-target"),pulse=area.querySelector(".aa-pulse"),next=area.querySelector(".aa-next");
+   const ring=area.querySelector(".aa-circle"),percent=ring.querySelector("b");
+   const fits=inside(percent,ring,3)&&getComputedStyle(percent).whiteSpace==="nowrap"&&
+     percent.getBoundingClientRect().height<=ring.getBoundingClientRect().height/2;
    return {slide,visible:getComputedStyle(area).display!=="none",inside:inside(top,area)&&inside(bottom,area),
      separated:!overlap(top,bottom)&&!overlap(stage,pace)&&!overlap(pulse,next),
-     text:card.querySelector("h3").innerText};
+     percentFits:fits,text:card.querySelector("h3").innerText};
   });
   const store=await geom();
   if(store.slide!=="store"||!store.visible||!store.inside||!store.separated)
     throw Error("Store TV geometry "+width+"x"+height+": "+JSON.stringify(store));
   await page.screenshot({path:path.join(out,"store-"+width+".png")});
-  await page.evaluate(()=>globalThis.__serviceMeetingPresenter?.next());
+  const visibleFullscreen=await page.locator(".meeting-scoreboard-actions button").evaluateAll(buttons=>
+    buttons.filter(b=>b.getClientRects().length&&getComputedStyle(b).display!=="none"&&/full screen/i.test(b.textContent)).length);
+  if(visibleFullscreen!==1)throw Error("Expected one fullscreen control, got "+visibleFullscreen);
+  await page.evaluate(()=>{
+    globalThis.__arenaDomMoves=0;
+    const host=document.getElementById("meetingV3Advisors");
+    new MutationObserver(mutations=>{
+      globalThis.__arenaDomMoves+=mutations.filter(m=>m.type==="childList").length;
+    }).observe(host,{childList:true});
+  });
+  await page.locator(".meeting-presenter-controls [data-pause]").click();
+  if((await page.locator(".meeting-presenter-controls [data-pause]").textContent()).trim()!=="Resume")
+    throw Error("Pause button did not switch to Resume");
+  await page.locator(".meeting-presenter-controls [data-next]").click();
   await page.waitForTimeout(130);
   const advisor=await geom();
-  if(advisor.slide!=="advisor"||!advisor.visible||!advisor.inside||!advisor.separated)
-    throw Error("Advisor TV geometry "+width+"x"+height+": "+JSON.stringify(advisor));
+  if(advisor.slide!=="advisor"||!advisor.visible||!advisor.inside||!advisor.separated||!advisor.percentFits)
+    throw Error("Advisor TV geometry / percentage "+width+"x"+height+": "+JSON.stringify(advisor));
   await page.screenshot({path:path.join(out,"advisor-"+width+".png")});
-  for(let i=0;i<6;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter?.next());
+  await page.locator(".meeting-presenter-controls [data-next]").click();
+  if((await page.evaluate(()=>globalThis.__arenaDomMoves))!==0)
+    throw Error("Next/Pause caused unnecessary advisor DOM reordering");
+  await page.locator(".meeting-presenter-controls [data-pause]").click();
+  if((await page.locator(".meeting-presenter-controls [data-pause]").textContent()).trim()!=="Pause")
+    throw Error("Resume button did not restart presentation");
+  // Same real Full screen button, now timed under a synthetic background
+  // workload to catch accidental whole-dashboard stylesheet invalidation.
+  if(await page.evaluate(()=>document.fullscreenEnabled)){
+    await page.evaluate(()=>{
+      const main=document.querySelector("main");
+      const hidden=document.createElement("section");hidden.id="syntheticNonMeetingView";
+      hidden.className="view";
+      hidden.innerHTML=Array.from({length:1600},(_,i)=>'<article class="card"><strong>DEMO ITEM '+i+'</strong><span>SYNTHETIC BACKGROUND CONTENT</span></article>').join("");
+      main.append(hidden);
+    });
+    await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
+    await page.waitForFunction(()=>Boolean(document.fullscreenElement),null,{timeout:2000});
+    await page.waitForFunction(()=>Number.isFinite(globalThis.__serviceMeetingPresenter?.fullscreenTiming()?.frameMs),null,{timeout:2800});
+    const entry=await page.evaluate(()=>({
+      timing:globalThis.__serviceMeetingPresenter.fullscreenTiming(),
+      globallyRestyled:document.body.classList.contains("meeting-fullscreen"),
+      fullscreenView:document.fullscreenElement?.id
+    }));
+    if(entry.fullscreenView!=="view-meeting"||entry.globallyRestyled||
+       entry.timing.failed||entry.timing.kind!=="enter"||
+       entry.timing.eventMs>2200||entry.timing.frameMs>3300)
+      throw Error("Fullscreen entry latency or global restyle "+width+"x"+height+": "+JSON.stringify(entry));
+    await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
+    await page.waitForFunction(()=>!document.fullscreenElement,null,{timeout:2000});
+    await page.waitForFunction(()=>{
+      const m=globalThis.__serviceMeetingPresenter?.fullscreenTiming();
+      return m?.kind==="exit"&&Number.isFinite(m.restoredMs)&&
+        !document.getElementById("view-meeting")?.classList.contains("arena-exiting-fullscreen");
+    },null,{timeout:4300});
+    const exit=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
+    if(exit.failed||exit.eventMs>2200||exit.frameMs>3300||exit.restoredMs>4300)
+      throw Error("Fullscreen exit repaint latency "+width+"x"+height+": "+JSON.stringify(exit));
+    // Repeat fullscreen exit with animations enabled and synthetic offscreen
+    // content still mounted. Regression must not emerge on the second exit.
+    if(width===1600){
+      for(let retry=0;retry<2;retry++){
+        await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
+        await page.waitForFunction(()=>Boolean(document.fullscreenElement),null,{timeout:2200});
+        await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
+        await page.waitForFunction(()=>{
+          const m=globalThis.__serviceMeetingPresenter?.fullscreenTiming();
+          return !document.fullscreenElement&&m?.kind==="exit"&&Number.isFinite(m.restoredMs)&&
+            !document.getElementById("view-meeting").classList.contains("arena-exiting-fullscreen");
+        },null,{timeout:4300});
+        const repeat=await page.evaluate(()=>globalThis.__serviceMeetingPresenter.fullscreenTiming());
+        if(repeat.failed||repeat.restoredMs>4300)
+          throw Error("Repeat fullscreen exit slow or staged content stuck: "+JSON.stringify(repeat));
+      }
+    }
+    console.log("Fullscreen latency proof",width,height,
+      "enter",entry.timing.eventMs+"ms event / "+entry.timing.frameMs+"ms frame",
+      "exit",exit.eventMs+"ms event / "+exit.frameMs+"ms frame / "+exit.restoredMs+"ms restored");
+    await page.evaluate(()=>document.getElementById("syntheticNonMeetingView")?.remove());
+  }
+  for(let i=0;i<5;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter?.next());
   const cycle=await geom();
   if(cycle.slide!=="store")throw Error("Seven-slide rotation did not return to Store "+JSON.stringify(cycle));
+  // Moving from a wide monitor into an ~830px Edge Split Screen pane must
+  // reflow the entire stage without clipping the Store cards or breaking controls.
+  await page.setViewportSize({width:830,height:820});
+  await page.waitForTimeout(110);
+  const narrowStore=await page.evaluate(()=>{
+    const view=document.querySelector("#view-meeting"),store=view.querySelector(".arena-store");
+    const lower=store.querySelector(".as-lower"),bounds=e=>e.getBoundingClientRect();
+    return {windowWidth:innerWidth,viewportWidth:bounds(view).width,overflow:getComputedStyle(view).overflow,
+      lowerInside:bounds(lower).bottom<=bounds(view).bottom+7,
+      horizontalOverflow:document.documentElement.scrollWidth>innerWidth+9};
+  });
+  if(narrowStore.viewportWidth>narrowStore.windowWidth+8||!narrowStore.lowerInside||narrowStore.horizontalOverflow)
+    throw Error("Split-pane Store is clipped: "+JSON.stringify(narrowStore));
+  await page.locator(".meeting-presenter-controls [data-next]").click();
+  await page.waitForTimeout(100);
+  const narrowAdvisor=await page.evaluate(()=>{
+    const view=document.querySelector("#view-meeting"),card=view.querySelector('.meeting-v3-advisor[data-slide-active="true"]'),
+      ring=card?.querySelector(".aa-circle"),pct=ring?.querySelector("b"),next=card?.querySelector(".aa-next");
+    if(!pct||!next)return {error:"Advisor stage did not render after resize"};
+    const r=e=>e.getBoundingClientRect();
+    return {pctText:pct.textContent,pctOneLine:getComputedStyle(pct).whiteSpace==="nowrap",
+      pctWithinRing:r(pct).left>=r(ring).left-4&&r(pct).right<=r(ring).right+4,
+      nextVisible:r(next).width>120,
+      nextBelowTop:r(next).top>=r(card).top,
+      horizontalOverflow:document.documentElement.scrollWidth>innerWidth+9};
+  });
+  if(!narrowAdvisor.pctOneLine||!narrowAdvisor.pctWithinRing||!narrowAdvisor.nextVisible||
+      !narrowAdvisor.nextBelowTop||narrowAdvisor.horizontalOverflow)
+    throw Error("Split-pane Advisor geometry "+JSON.stringify(narrowAdvisor));
+  await page.setViewportSize({width,height});
+  await page.waitForTimeout(90);
+  const wideAgain=await geom();
+  if(wideAgain.slide!=="advisor"||!wideAgain.percentFits||!wideAgain.separated)
+    throw Error("Return-to-wide-monitor geometry failed "+JSON.stringify(wideAgain));
+
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
   console.log("Arena TV visual and 7-slide rotation proof PASS",width,height);
   await page.close();

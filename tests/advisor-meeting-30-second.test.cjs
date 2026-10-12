@@ -202,3 +202,43 @@ test("A Store menu report dated after the displayed week is context, not an achi
  assert.match(html,/class="as-signal pending"/);
  assert.match(html,/UPDATED OCT 8/);
 });
+
+test("Broadcast scoreboard highlights strongest VERIFIED operating-day bar only",()=>{
+ const start=app.indexOf("  function renderMeetingArenaStore("),end=app.indexOf("  function attachMeetingAdvisorTv(",start);
+ const presenter=app.slice(start,end);
+ let html="";
+ const ctx={Number,Math,Date,console,
+  document:{createElement(){return {className:"",innerHTML:"",setAttribute(){}};}},
+  compactMoney:n=>"$"+Math.round(n).toLocaleString(),
+  shortDate:d=>d.slice(5),meetingEscape:String,
+  sourceFreshness:()=>({safeForCurrent:false}),virObservationDate:()=>"",
+  latestOperationalSnapshot:()=>null,storeMeetingNextOpportunity:()=>null
+ };
+ const draw=vm.runInNewContext(presenter+"\nrenderMeetingArenaStore;",ctx);
+ const dates=["2026-10-05","2026-10-06","2026-10-07","2026-10-08","2026-10-09","2026-10-10","2026-10-11"];
+ const points=dates.map((date,i)=>({date,available:i<5,closed:i===6,value:i===2?400:i<5?100:null}));
+ const view={querySelector:s=>s===".arena-store"?null:s===".meeting-scoreboard-head"?{after:x=>{html=x.innerHTML;}}:null,
+  classList:{add(){},remove(){}}};
+ draw(view,{periodEnd:"2026-10-11",validation:{finalTotalsVerified:true},store:{totalGross:1000}},
+  {current:{points,missingDates:["2026-10-10"],total:null}},
+  {verified:false},{verified:false},{verified:false},{responses:0});
+ assert.equal((html.match(/as-bar present champion/g)||[]).length,1);
+ assert.match(html,/class="as-bar closed"><b>CLOSED/);
+ assert.match(html,/class="as-bar absent"><b>—/);
+ assert.doesNotMatch(html,/as-bar closed champion|as-bar absent champion/);
+ assert.match(html,/5 OF 6 OPEN DAYS REPORTED/);
+});
+test("Primetime screen changes layout and presentation but not the data renderer or TV rotation",()=>{
+ const design=fs.readFileSync(path.join(root,"assets/daily-ops.css"),"utf8");
+ assert.match(design,/SERVICE ARENA \/ PRIME TIME BROADCAST STAGE/);
+ assert.match(design,/\.arena-advisor \.aa-next\{\s*position:absolute/);
+ assert.match(design,/\.arena-advisor \.aa-bottom\{display:block!important;width:65%/);
+ assert.match(design,/\.arena-store \.as-bar\.champion i/);
+ assert.match(design,/@keyframes arena-bar-rise/);
+ assert.match(design,/prefers-reduced-motion:reduce/);
+ assert.match(design,/@media\(orientation:portrait\)/);
+ assert.match(app,/class="aa-next"/);
+ assert.match(app,/const weekLabel=weekNum\?/);
+ assert.match(app,/const missing=Array\.isArray\(week\?\.current\?\.missingDates\)/);
+ assert.match(app,/function decorateMeetingCycle/);
+});
