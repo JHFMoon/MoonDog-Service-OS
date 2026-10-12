@@ -9,6 +9,11 @@ from build_distribution import WORKSPACE_README
 REPO=os.environ["GITHUB_REPOSITORY"]
 counts=collections.Counter()
 safe=collections.Counter()
+email_sources=collections.Counter()
+email_unique=set()
+email_unique_by_source=collections.defaultdict(set)
+email_source_item_count=collections.Counter()
+email_personal_domains={b"gmail.com",b"googlemail.com",b"yahoo.com",b"hotmail.com",b"outlook.com",b"live.com",b"icloud.com",b"aol.com"}
 
 patterns={
     "private_key": re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
@@ -44,13 +49,19 @@ def scan_bytes(data: bytes, label: str):
     for kind,rx in patterns.items():
         if rx.search(data):
             counts[kind]+=1
-    bad_email=False
-    for m in email_rx.finditer(data):
-        if m.group(1).lower() not in safe_email_domains:
-            bad_email=True
-            break
-    if bad_email:
+    matched_emails={
+        m.group(0).lower() for m in email_rx.finditer(data)
+        if m.group(1).lower() not in safe_email_domains
+    }
+    if matched_emails:
         counts["unsafe_email"]+=1
+        email_source_item_count[label]+=1
+        for email in matched_emails:
+            email_unique.add(email)
+            email_unique_by_source[label].add(email)
+            domain=email.split(b"@",1)[1]
+            category="personal_provider" if domain in email_personal_domains else "other_domain"
+            email_sources[label+"_"+category+"_occurrences"]+=1
     elif email_rx.search(data):
         safe["known_public_or_synthetic_email"]+=1
     if any(valid_vin(m.group(0)) for m in vin_rx.finditer(data)):
@@ -235,6 +246,16 @@ for issue in issues:
         if review.get("body"):
             scan_bytes(str(review["body"]).encode(),"pr-review")
 
+
+# Redacted provenance: no addresses, domains, paths or match excerpts are emitted.
+safe["distinct_candidate_email_addresses"]=len(email_unique)
+safe["candidate_email_sources"]=len(email_unique_by_source)
+for label, items in email_unique_by_source.items():
+    safe["email_distinct_"+label]=len(items)
+for label, n in email_source_item_count.items():
+    safe["email_items_"+label]=n
+for label, n in email_sources.items():
+    safe["email_"+label]=n
 
 report={"counts":dict(counts),"safe_counts":dict(safe),"releases":len(releases),"artifacts":len(artifacts),"issues":len(issues),"issueComments":len(issue_comments),"reviewComments":len(review_comments),"reviewSubmissions":review_submission_count}
 status_path=os.environ.get("PUBLIC_SURFACE_AUDIT_STATUS")
