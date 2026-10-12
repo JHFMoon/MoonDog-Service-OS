@@ -33,7 +33,7 @@ test("Runtime presenter exactly matches checked-in source and presentation contr
  const end="// END GENERATED MEETING PRESENTER";
  assert.equal(runtime.split(start)[1]?.split(end)[0]?.trim(),source.trim());
  assert.match(source,/data-presentation-help hidden/);
- assert.match(source,/help\.textContent="Full screen was blocked by Edge\./);
+ assert.match(source,/button\.title=state\.presentationMode\?/);
  assert.match(source,/role="status" aria-live="polite"/);
 });
 test("Narrow Edge pane reflows instead of clipping a full TV stage",()=>{
