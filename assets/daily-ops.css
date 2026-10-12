@@ -998,4 +998,82 @@ html[data-theme="dark"] body #view-settings :is(input:not([type="checkbox"]),sel
  }
 }
 
+
+/* MEETING ARENA / interaction and typography QA. Stable offline CSS path. */
+#view-meeting.meeting-scoreboard .meeting-scoreboard-actions #meetingFullscreen[hidden]{
+  display:none!important;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-scoreboard-actions{
+  z-index:6;pointer-events:auto;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-presenter-controls{
+  position:relative;z-index:7;pointer-events:auto;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-presenter-controls button{
+  cursor:pointer;touch-action:manipulation;user-select:none;
+}
+#view-meeting.meeting-scoreboard.presentation-active .meeting-presenter-controls button:disabled{
+  opacity:.65;cursor:progress;
+}
+/* The progress percentage must remain one line in embedded AND fullscreen layouts. */
+.arena-advisor .aa-target{
+  min-width:0;justify-content:space-around;
+  contain:layout style;
+}
+.arena-advisor .aa-circle{
+  width:clamp(128px,10.6cqw,172px)!important;
+  height:clamp(128px,10.6cqw,172px)!important;
+  min-width:128px;
+  flex:0 0 auto;
+  max-height:180px!important;
+  aspect-ratio:1;
+  filter:none!important;
+}
+.arena-advisor .aa-circle svg{
+  position:absolute;inset:0;width:100%;height:100%;
+}
+.arena-advisor .aa-circle span{
+  inset:0;min-width:0;gap:1px;
+  overflow:visible;text-align:center;
+}
+.arena-advisor .aa-circle b{
+  display:block;max-width:100%;
+  font-size:clamp(29px,2.5cqw,41px)!important;
+  line-height:1!important;
+  white-space:nowrap!important;
+  overflow-wrap:normal!important;word-break:normal!important;
+  text-align:center;
+}
+.arena-advisor .aa-circle small{
+  white-space:nowrap!important;word-break:normal!important;
+  font-size:clamp(10px,.77cqw,13px)!important;
+}
+.arena-advisor .aa-daily strong{
+  white-space:nowrap;overflow-wrap:normal;word-break:normal;
+}
+.arena-advisor .aa-next>span,.arena-advisor .aa-next>strong{
+  text-shadow:none!important;color:#062f3e!important;
+}
+.arena-advisor .aa-next div b{color:#fff!important;text-shadow:none!important;}
+/* Avoid animating or rasterizing the entire 16:9 stage on every Next/Pause. */
+#view-meeting.meeting-scoreboard.presentation-active .arena-advisor,
+#view-meeting.meeting-scoreboard.presentation-active .arena-store,
+#view-meeting.meeting-scoreboard.presentation-active .arena-advisor .aa-next{
+  animation:none!important;filter:none!important;
+}
+#view-meeting.meeting-scoreboard.presentation-active .arena-advisor .aa-earnings:before{
+  box-shadow:0 0 0 24px rgba(88,214,241,.022)!important;
+}
+@media(max-height:800px) and (orientation:landscape){
+  .arena-advisor .aa-circle{
+    width:clamp(124px,10cqw,154px)!important;
+    height:clamp(124px,10cqw,154px)!important;
+    max-height:154px!important;
+  }
+  .arena-advisor .aa-circle b{font-size:clamp(28px,2.4cqw,37px)!important;}
+}
+@media(orientation:portrait){
+  .arena-advisor .aa-circle{width:140px!important;height:140px!important;max-height:140px!important;}
+}
+
 /* END PREMIUM EXPERIENCE FINISH */
