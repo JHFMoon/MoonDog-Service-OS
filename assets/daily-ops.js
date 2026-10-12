@@ -1268,7 +1268,11 @@
             stopTimer();
             await document.exitFullscreen();
           }else if(!document.fullscreenEnabled)throw new Error("fullscreen unavailable");
-          else await current.requestFullscreen();
+          else {
+            // Fullscreen the stable document root, not the size-contained Arena.
+            // Edge can stall when restoring a complex size-container from the fullscreen top layer.
+            await document.documentElement.requestFullscreen();
+          }
         }catch(_){
           state.fullscreenTransition.failed=true;
           // A Split Screen pane or browser policy can deny fullscreen.
