@@ -2157,20 +2157,29 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const verified=latest?.validation?.finalTotalsVerified===true&&Number.isFinite(latest?.store?.totalGross);
     const gross=verified?latest.store.totalGross:null,updated=latest?.periodEnd?shortDate(latest.periodEnd):"LATEST REPORT";
     const points=Array.isArray(grossWindow?.current?.points)?grossWindow.current.points:[];
-    const known=points.filter(p=>p.available&&Number.isFinite(p.value));
+    const operating=points.filter(p=>!p.closed);
+    const known=operating.filter(p=>p.available&&Number.isFinite(p.value));
     const max=Math.max(1,...known.map(p=>Math.max(0,p.value)));
     const date=p=>new Date(p.date+"T12:00:00").toLocaleDateString(undefined,{weekday:"short"}).toUpperCase();
-    const bars=points.map(p=>`<div class="as-bar ${p.available?"present":"absent"}"><b>${p.available&&Number.isFinite(p.value)?compactMoney(p.value):"—"}</b><div><i style="height:${p.available&&Number.isFinite(p.value)?Math.max(4,Math.max(0,p.value)/max*100):2}%"></i></div><span>${date(p)}</span></div>`).join("");
+    const bars=points.map(p=>{
+      const isOpen=!p.closed, hasResult=isOpen&&p.available&&Number.isFinite(p.value);
+      const state=!isOpen?"closed":hasResult?"present":"absent";
+      return `<div class="as-bar ${state}"><b>${!isOpen?"CLOSED":hasResult?compactMoney(p.value):"—"}</b><div><i style="height:${hasResult?Math.max(4,Math.max(0,p.value)/max*100):2}%"></i></div><span>${date(p)}</span></div>`;
+    }).join("");
     const best=known.length?known.reduce((winner,p)=>p.value>winner.value?p:winner):null;
     const missing=Array.isArray(grossWindow?.current?.missingDates)?grossWindow.current.missingDates:[];
     const weekly=Number.isFinite(grossWindow?.current?.total)?`LAST 7 DAYS ${compactMoney(grossWindow.current.total)}`:missing.length?`WAITING FOR ${missing.slice(0,2).map(shortDate).join(", ").toUpperCase()}${missing.length>2?" +MORE":""}`:"WEEKLY TOTAL NOT READY";
     const health=[];
     const vir=virEvidence?.verified?virEvidence.value:null;
-    if(Number.isFinite(vir))health.push({label:"VEHICLE INSPECTIONS",value:Math.round(vir)+"%",status:"CURRENT"});
+    const virDate=virObservationDate(latestOperationalSnapshot("vir"));
+    const virStamp=/^\d{4}-\d{2}-\d{2}$/.test(virDate||"")?"UPDATED "+shortDate(virDate).toUpperCase():"LATEST REPORT";
+    if(Number.isFinite(vir))health.push({label:"VEHICLE INSPECTIONS",value:Math.round(vir)+"%",status:virStamp});
     const menu=latestOperationalSnapshot("menu")?.store;
-    const menuUpdated=menuPresentation?.period||latestOperationalSnapshot("menu")?.periodEnd;
-    if(menuPresentation?.verified&&Number.isFinite(menu?.presentation))health.push({label:"MENUS SHOWN",value:Math.round(menu.presentation)+"%",status:"CURRENT"});
-    if(menuPenetration?.verified&&Number.isFinite(menu?.penetration))health.push({label:"MENUS SOLD",value:Math.round(menu.penetration)+"%",status:"CURRENT"});
+    const menuUpdated=latestOperationalSnapshot("menu")?.releaseWeek||latestOperationalSnapshot("menu")?.periodEnd||menuPresentation?.period||"";
+    const menuDates=String(menuUpdated).match(/\d{4}-\d{2}-\d{2}/g);
+    const menuStamp=menuDates?.length?"WEEK OF "+shortDate(menuDates[0]).toUpperCase():"LATEST REPORT";
+    if(menuPresentation?.verified&&Number.isFinite(menu?.presentation))health.push({label:"MENUS SHOWN",value:Math.round(menu.presentation)+"%",status:menuStamp});
+    if(menuPenetration?.verified&&Number.isFinite(menu?.penetration))health.push({label:"MENUS SOLD",value:Math.round(menu.penetration)+"%",status:menuStamp});
     if(dealer?.responses>0&&Number.isFinite(dealer.nps))health.push({label:"CUSTOMER SCORE",value:Math.round(dealer.nps).toString(),status:dealer.responses+" RESPONSES"});
     if(!health.length&&menuPresentation?.status==="stale"&&/^\d{4}-\d{2}-\d{2}$/.test(menuUpdated||"")&&Number.isFinite(menu?.presentation)){
       health.push({label:"MENUS SHOWN",value:Math.round(menu.presentation)+"%",status:"UPDATED "+shortDate(menuUpdated)});
@@ -2187,7 +2196,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       <div class="as-tally"><span class="as-eyebrow">THE STORE · THIS MONTH</span><strong>${Number.isFinite(gross)?compactMoney(gross):"—"}</strong><small>${verified?"UPDATED "+meetingEscape(updated.toUpperCase()):"MONTHLY TOTAL NOT READY"}</small>
         <div class="as-week">${weekly}</div>
       </div>
-      <div class="as-chart"><div class="as-chart-title"><span>THE WEEK AT A GLANCE</span><small>DAILY CLOSED GROSS · ${known.length} DAYS REPORTED</small></div><div class="as-bars">${bars}</div></div>
+      <div class="as-chart"><div class="as-chart-title"><span>THE WEEK AT A GLANCE</span><small>DAILY CLOSED GROSS · ${known.length} OF ${operating.length} OPEN DAYS REPORTED</small></div><div class="as-bars">${bars}</div></div>
       </div>
       <div class="as-lower">
        <div class="as-story"><span>OUR STRONGEST DAY</span><strong>${best?date(best):"WAITING FOR RESULTS"}</strong><small>${best?compactMoney(best.value)+" CLOSED GROSS":"NEW REPORT NEEDED"}</small></div>

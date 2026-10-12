@@ -833,3 +833,14 @@ body.meeting-fullscreen .meeting-scoreboard-actions>#meetingFullscreen{display:n
  .arena-advisor *,.arena-store *{animation:none!important;transition:none!important}
 }
 
+/* Closed days are calendar context, never reported production. */
+#view-meeting.meeting-scoreboard.presentation-active .arena-store .as-bar.closed>b{
+ color:#8fabb9!important;font-size:clamp(11px,.88cqw,17px);letter-spacing:.035em
+}
+#view-meeting.meeting-scoreboard.presentation-active .arena-store .as-bar.closed>div{
+ border-bottom:1px dashed #55778b!important;background:none!important
+}
+#view-meeting.meeting-scoreboard.presentation-active .arena-store .as-bar.closed i{
+ background:transparent!important;box-shadow:none!important;height:0!important
+}
+
