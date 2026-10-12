@@ -29,8 +29,8 @@ test("only one accessible fullscreen control, with native success and failure ha
  assert.match(source,/current\.requestFullscreen\(\)/);
  assert.match(source,/document\.exitFullscreen\(\)/);
  assert.match(source,/button\.disabled=true/);
- assert.match(source,/finally\{button\.disabled=false;syncFullscreenLabel\(\);\}/);
- assert.match(source,/document\.addEventListener\("fullscreenchange",syncFullscreenLabel\)/);
+ assert.match(source,/finally\{button\.disabled=false;button\.removeAttribute\("aria-busy"\);syncFullscreenLabel\(\);\}/);
+ assert.match(source,/document\.addEventListener\("fullscreenchange",onFullscreenChange\)/);
  assert.match(css,/#view-meeting\.meeting-scoreboard \.meeting-scoreboard-actions #meetingFullscreen\[hidden\]/);
 });
 test("full/embedded progress ring does not wrap its percentage or lose priority",()=>{
@@ -44,4 +44,23 @@ test("browser proof physically exercises presentation controls and percent bound
   assert.ok(browser.includes(term),term);
  }
  for(const size of ["1920,1080","1600,900","1366,768"])assert.ok(browser.includes(size),size);
+});
+
+test("Arena fullscreen leaves entire dashboard CSS alone and keeps runtime diagnostics local",()=>{
+ const app=fs.readFileSync(path.join(root,"assets/app.js"),"utf8");
+ assert.match(app,/classList\.toggle\("meeting-fullscreen", document\.fullscreenElement === document\.documentElement\)/);
+ assert.doesNotMatch(app,/classList\.toggle\("meeting-fullscreen", active\)/);
+ assert.match(css,/#view-meeting\.meeting-scoreboard\.presentation-active:fullscreen/);
+ assert.match(css,/contain:layout style paint/);
+ assert.match(source,/fullscreenTiming:\(\)=>/);
+ assert.match(source,/transition\.eventMs=Math\.round\(performance\.now\(\)-transition\.startedAt\)/);
+ assert.match(source,/transition\.frameMs=Math\.round\(performance\.now\(\)-transition\.startedAt\)/);
+ assert.match(source,/button\.textContent=entering\?"Opening…":"Exiting…"/);
+});
+test("Real Chrome smoke bounds enter/exit latency and tests with no-reduction motion",()=>{
+ assert.match(browser,/syntheticNonMeetingView/);
+ assert.match(browser,/entry\.globallyRestyled/);
+ assert.match(browser,/timing\.eventMs>2200\|\|entry\.timing\.frameMs>3300/);
+ assert.match(browser,/exit\.eventMs>2200\|\|exit\.frameMs>3300/);
+ assert.match(browser,/reducedMotion:width===1600\?"no-preference":"reduce"/);
 });
