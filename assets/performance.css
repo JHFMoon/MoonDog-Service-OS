@@ -27,3 +27,42 @@
 #view-performance .performance-controls .performance-retention{grid-column:1/-1}
 .trend-role-controls button:focus-visible,.trend-quick-controls button:focus-visible,.trend-picker button:focus-visible,.trend-picker summary:focus-visible{outline:3px solid #e7a536;outline-offset:2px}
 @media(max-width:700px){#view-performance .performance-controls{grid-template-columns:minmax(0,1fr)}.trend-picker-items{grid-template-columns:minmax(0,1fr)}.trend-role-controls button{flex:1;padding:9px 7px}.trend-picker-results{max-height:320px}}
+
+/* Advisor comparison becomes complete labeled cards instead of a sideways table. */
+@media screen and (max-width:1280px){
+  #view-performance .table-wrap{overflow-x:visible}
+  #view-performance .performance-table{display:block;width:100%;min-width:0}
+  #view-performance .performance-table thead{
+    position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);
+    white-space:nowrap
+  }
+  #view-performance .performance-table tbody{display:grid;gap:12px;min-width:0}
+  #view-performance .performance-table tbody tr{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px;
+    border:1px solid #d7e3eb;border-radius:12px;padding:10px 12px;min-width:0;
+    background:#fff
+  }
+  #view-performance .performance-table tbody tr td{
+    display:flex;flex-direction:column;justify-content:flex-start;gap:4px;
+    min-width:0;padding:10px 5px;border-bottom:1px solid #e5ebef;
+    text-align:left!important;overflow-wrap:anywhere
+  }
+  #view-performance .performance-table tbody tr td::before{
+    display:block;font-size:12px;font-weight:800;color:#526a7a;line-height:1.3
+  }
+  #view-performance .performance-table td:nth-child(1)::before{content:"Advisor"}
+  #view-performance .performance-table td:nth-child(2)::before{content:"Total gross"}
+  #view-performance .performance-table td:nth-child(3)::before{content:"Closed ROs"}
+  #view-performance .performance-table td:nth-child(4)::before{content:"Gross / RO"}
+  #view-performance .performance-table td:nth-child(5)::before{content:"CP hrs / RO"}
+  #view-performance .performance-table td:nth-child(6)::before{content:"CP ELR"}
+  #view-performance .performance-table td:nth-child(7)::before{content:"Labor margin"}
+  #view-performance .performance-table td:nth-child(8)::before{content:"Parts margin"}
+  #view-performance .performance-table td:nth-child(9)::before{content:"SAPR open / aged"}
+  #view-performance .performance-table td:nth-child(10)::before{content:"Current tracker open"}
+  #view-performance .performance-table td[colspan]{grid-column:1/-1;display:block}
+  #view-performance .performance-table td[colspan]::before{content:none}
+}
+@media screen and (max-width:560px){
+  #view-performance .performance-table tbody tr{grid-template-columns:minmax(0,1fr)}
+}
