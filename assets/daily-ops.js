@@ -1133,7 +1133,7 @@
   "use strict";
   const api=root.__moondogDaily,model=api?.model;
   if(!api||!model)return;
-  const state={enabled:false,paused:false,index:0,timer:null,view:null,controls:null,seconds:30,cardHost:null,cardNodes:[]};
+  const state={enabled:false,paused:false,index:0,timer:null,view:null,controls:null,seconds:30,cardHost:null,cardNodes:[],fullscreenTransition:null};
   const $=id=>document.getElementById(id);
   function setting(){const prefs=api.presentationSettings?.()||{};return {
     seconds:Number.isInteger(prefs.seconds)&&prefs.seconds>=10&&prefs.seconds<=120?prefs.seconds:30,
@@ -1195,6 +1195,17 @@
     if(!state.enabled){state.enabled=true;state.paused=false;state.index=0;}
     state.seconds=setting().seconds;paint();restartTimer();
   }
+  function onFullscreenChange(){
+    const transition=state.fullscreenTransition;
+    if(transition){
+      transition.eventMs=Math.round(performance.now()-transition.startedAt);
+      requestAnimationFrame(()=>{
+        if(state.fullscreenTransition===transition)
+          transition.frameMs=Math.round(performance.now()-transition.startedAt);
+      });
+    }
+    syncFullscreenLabel();
+  }
   function syncFullscreenLabel(){
     const button=state.controls?.querySelector("[data-fullscreen]");
     if(!button)return;
@@ -1225,7 +1236,11 @@
         if(!current)return;
         const button=controls.querySelector("[data-fullscreen]");
         if(button.disabled)return;
+        const entering=!document.fullscreenElement;
+        state.fullscreenTransition={kind:entering?"enter":"exit",startedAt:performance.now(),eventMs:null,frameMs:null};
         button.disabled=true;
+        button.setAttribute("aria-busy","true");
+        button.textContent=entering?"Opening…":"Exiting…";
         const help=controls.querySelector("[data-fullscreen-help]");
         if(help){help.hidden=true;help.textContent="";}
         try{
@@ -1233,13 +1248,14 @@
           else if(!document.fullscreenEnabled)throw new Error("fullscreen unavailable");
           else await current.requestFullscreen();
         }catch(_){
+          state.fullscreenTransition.failed=true;
           // A Split Screen pane or browser policy can deny fullscreen.
           // Never leave the manager with a silent button.
           if(help){
             help.textContent="Full screen was blocked by Edge. Exit Split Screen or try F11.";
             help.hidden=false;
           }
-        }finally{button.disabled=false;syncFullscreenLabel();}
+        }finally{button.disabled=false;button.removeAttribute("aria-busy");syncFullscreenLabel();}
       });
       host.prepend(controls);
     }
@@ -1282,10 +1298,10 @@
   document.addEventListener("moondog-recovered",()=>{stopTimer();state.index=0;state.enabled=false;paint();});
   document.addEventListener("visibilitychange",()=>{if(document.hidden)stopTimer();else restartTimer();});
   // Fullscreen resize must not rebuild the meeting or reorder advisor cards.
-  document.addEventListener("fullscreenchange",syncFullscreenLabel);
+  document.addEventListener("fullscreenchange",onFullscreenChange);
   window.addEventListener("beforeunload",stopTimer);
   installPreferences();ensureControls();
   if(viewReady()?.classList.contains("active"))activate();
-  root.__serviceMeetingPresenter=Object.freeze({next,paint,setting,cards,activate});
+  root.__serviceMeetingPresenter=Object.freeze({next,paint,setting,cards,activate,fullscreenTiming:()=>{const t=state.fullscreenTransition;return t?{kind:t.kind,eventMs:t.eventMs,frameMs:t.frameMs,failed:!!t.failed}:null;}});
 })(globalThis);
 // END GENERATED MEETING PRESENTER

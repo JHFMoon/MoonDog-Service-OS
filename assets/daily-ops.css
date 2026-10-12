@@ -1147,4 +1147,19 @@ html[data-theme="dark"] body #view-settings :is(input:not([type="checkbox"]),sel
   text-align:left;
  }
 }
+
+/* Fullscreen only restyles the presentation surface; the rest of the app stays inert.
+ * Entering fullscreen must not change BODY/grid/sidebar layout or force a global repaint. */
+#view-meeting.meeting-scoreboard.presentation-active:fullscreen {
+  width:100%!important;max-width:none!important;margin:0!important;
+  isolation:isolate;contain:layout style paint;
+}
+#view-meeting.meeting-scoreboard.presentation-active:fullscreen::backdrop {background:#031521;}
+@media (min-width:1081px) {
+  #view-meeting.meeting-scoreboard.presentation-active:fullscreen {
+    height:100dvh!important;min-height:100dvh!important;max-height:100dvh!important;
+    overflow:hidden!important;
+  }
+}
+
 /* END PREMIUM EXPERIENCE FINISH */
