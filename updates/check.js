@@ -29,7 +29,11 @@
     }
 
     try {
-      const response = await fetcher(MANIFEST_URL, {
+      // raw.githubusercontent.com may serve an older CDN edge copy of main's
+      // manifest even when browser caching is disabled. A per-check query
+      // changes the cache key without exposing workspace data or credentials.
+      const freshManifestUrl = MANIFEST_URL + "?check=" + Date.now();
+      const response = await fetcher(freshManifestUrl, {
         cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer"
       });
       if (!response.ok) throw new Error("Manifest unavailable");

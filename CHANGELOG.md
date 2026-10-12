@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.18-beta.51 — current Beta
+
+- Bypass stale GitHub CDN metadata in Beta update detection. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.50 — current Beta
+
+- Bypass stale GitHub CDN metadata in Beta update detection. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.49 — current Beta
+
+- Bypass stale GitHub CDN metadata in Beta update detection. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.48 — current Beta
 
 - Stop hidden RO table rebuilds and retry delayed Beta checks. Verified automated Beta; no Workspace migration.

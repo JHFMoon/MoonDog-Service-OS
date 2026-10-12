@@ -99,7 +99,11 @@ test("Uses only the fixed public manifest URL and sends no credentials", async (
   let calls = 0;
   const fetcher = async (url, options) => {
     calls += 1;
-    assert.equal(url, "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/manifest.json");
+    const parsed = new URL(url);
+    assert.equal(parsed.origin, "https://raw.githubusercontent.com");
+    assert.equal(parsed.pathname, "/JHFMoon/MoonDog-Service-OS/main/updates/manifest.json");
+    assert.equal(parsed.searchParams.size, 1);
+    assert.equal(Number(parsed.searchParams.get("check")) > 0, true);
     assert.equal(options.credentials, "omit");
     assert.equal(options.referrerPolicy, "no-referrer");
     assert.equal(options.cache, "no-store");
@@ -118,4 +122,25 @@ test("Automatic failures are silent; manual failures are visible", async () => {
 
   const invalid = await check({ currentVersion: "bad", manual: true, fetcher: offline });
   assert.equal(invalid.status, "invalid-input");
+});
+
+test("A stale raw CDN response can be bypassed without changing verified package identity", async () => {
+  const published = { ...manifest,
+    stable: { ...manifest.stable, version: "0.10.17", minimumCompatibleVersion: "0.10.9" },
+    beta: { ...manifest.beta,
+    version: "0.10.18-beta.48", minimumCompatibleVersion: "0.10.9",
+    packageUrl: "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.48.json",
+    sha256: "a".repeat(64) } };
+  const stale = { ...published, beta: { ...published.beta, version: "0.10.18-beta.46" } };
+  const requested = [];
+  const result = await check({ currentVersion: "0.10.18-beta.46", channel: "beta", manual: true,
+    fetcher: async url => {
+      requested.push(url);
+      return { ok: true, json: async () => url.includes("?check=") ? published : stale };
+    } });
+  assert.equal(requested.length, 1);
+  assert.equal(result.status, "newer-version");
+  assert.equal(result.version, published.beta.version);
+  assert.equal(result.sha256, published.beta.sha256);
+  assert.equal(result.packageUrl, published.beta.packageUrl);
 });
