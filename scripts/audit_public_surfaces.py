@@ -123,10 +123,11 @@ def gh_download(endpoint: str, target: Path):
     token=os.environ.get("GH_TOKEN","")
     if not token:
         raise DownloadFailure("auth_missing")
+    accept = "application/octet-stream" if "/releases/assets/" in endpoint else "application/vnd.github+json"
     result=subprocess.run(
         ["curl","--silent","--location","--output",str(target),
          "--write-out","%{http_code}","--connect-timeout","20","--max-time","120",
-         "--header","Accept: application/vnd.github+json",
+         "--header","Accept: "+accept,
          "--header","X-GitHub-Api-Version: 2022-11-28",
          "--header","Authorization: Bearer "+token,
          "https://api.github.com/"+endpoint],
@@ -160,6 +161,11 @@ for release in releases:
             data=path.read_bytes()
             if len(data)>100_000_000:
                 counts["oversize_release_asset"]+=1
+            elif name.lower().endswith(".zip"):
+                if not zipfile.is_zipfile(io.BytesIO(data)):
+                    counts["release_zip_invalid_or_api_metadata"]+=1
+                else:
+                    scan_zip_bytes(data,f"release:{name}")
             elif zipfile.is_zipfile(io.BytesIO(data)):
                 scan_zip_bytes(data,f"release:{name}")
             else:
@@ -192,6 +198,8 @@ for artifact in artifacts:
         data=path.read_bytes()
         if len(data)>100_000_000:
             counts["oversize_action_artifact"]+=1
+        elif not zipfile.is_zipfile(io.BytesIO(data)):
+            counts["action_artifact_invalid_or_api_metadata"]+=1
         else:
             scan_zip_bytes(data,f"artifact:{name}")
 
