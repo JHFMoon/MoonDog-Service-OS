@@ -99,11 +99,11 @@ try{
   // The same control enters and exits real browser fullscreen.
   if(await page.evaluate(()=>document.fullscreenEnabled)){
     await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
-    await page.waitForFunction(()=>Boolean(document.fullscreenElement),{timeout:1500});
+    await page.waitForFunction(()=>Boolean(document.fullscreenElement),null,{timeout:1500});
     if((await page.locator(".meeting-presenter-controls [data-fullscreen]").textContent()).trim()!=="Exit full screen")
       throw Error("Fullscreen control failed to update label");
     await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
-    await page.waitForFunction(()=>!document.fullscreenElement,{timeout:1500});
+    await page.waitForFunction(()=>!document.fullscreenElement,null,{timeout:1500});
   }
   for(let i=0;i<5;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter?.next());
   const cycle=await geom();
