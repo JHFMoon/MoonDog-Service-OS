@@ -1253,7 +1253,7 @@ html[data-theme="dark"] body #view-settings :is(input:not([type="checkbox"]),sel
 body.moondog-presentation-mode #view-meeting.meeting-scoreboard.presentation-active.presentation-overlay.active{
   position:fixed!important;inset:0!important;z-index:2147483000!important;
   width:100vw!important;max-width:none!important;
-  height:100vh!important;height:100dvh!important;
-  min-height:100dvh!important;max-height:100dvh!important;
+  height:auto!important;
+  min-height:0!important;max-height:none!important;
   margin:0!important;overflow:hidden!important;
 }
