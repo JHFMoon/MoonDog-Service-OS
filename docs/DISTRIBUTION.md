@@ -45,7 +45,7 @@ The ZIP contains:
 
 The ZIP must not contain initialized store settings, report data, customer/RO/VIN content, history, backups, credentials, browser authority identity, or any source-store adapter.
 
-The first installation starts unconfigured. The user chooses the extracted root folder, designates the authoritative editing computer, and completes Guided Setup. All subsequently created operational state belongs to that copy.
+The first installation starts unconfigured. The user chooses the extracted root folder, grants the browser read/write access to it, and completes Guided Setup. All subsequently created operational state belongs to that copy.
 
 ## Third-party browser libraries
 
