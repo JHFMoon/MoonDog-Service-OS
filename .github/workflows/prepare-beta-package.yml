@@ -203,50 +203,222 @@ jobs:
           echo "GitHub did not settle the generated-head status context in time." >&2
           exit 1
 
-  backfill-merged-beta:
+  package-unadvertised-main-runtime:
     if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Check out trusted main and history
+      - name: Check out current main with enough history
         uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
           persist-credentials: true
-      - name: Validate merged commit and prepare Beta on isolated branch
+
+      - name: Detect merged runtime that is not already packaged
+        id: detect
         shell: bash
         env:
-          REVIEWED_COMMIT: ${{ inputs.reviewed_commit || '136857458c1dcdbd9e81222435c33781c400eda7' }}
+          REQUESTED_COMMIT: ${{ inputs.reviewed_commit || '' }}
         run: |
           set -euo pipefail
           git fetch origin main
-          if [ "${{ github.event_name }}" = "push" ]; then
-            CURRENT_BETA="$(python3 -c 'import json; print(json.load(open("updates/manifest.json"))["beta"]["version"])')"
-            if [ "$CURRENT_BETA" != "0.10.18-beta.23" ]; then
-              echo "Bootstrap Beta backfill already completed; skipping."
-              exit 0
-            fi
+          MAIN_SHA="$(git rev-parse origin/main)"
+          test "$(git rev-parse HEAD)" = "$MAIN_SHA" || {
+            echo "Main moved before packaging; a later push will retry." >&2
+            exit 1
+          }
+          TARGET_SHA="${REQUESTED_COMMIT:-$MAIN_SHA}"
+          git cat-file -e "$TARGET_SHA^{commit}"
+          git merge-base --is-ancestor "$TARGET_SHA" "$MAIN_SHA" || {
+            echo "Requested commit is not contained in current main." >&2
+            exit 1
+          }
+          TARGET_PARENT="$(git rev-parse "$TARGET_SHA^")"
+          git diff --name-only "$TARGET_PARENT" "$TARGET_SHA" > /tmp/merged-paths.txt
+
+          python3 - <<'PY' > /tmp/runtime-detect.json
+          import json
+          from pathlib import Path
+          from scripts.build_beta_package import beta_runtime_paths
+          changed={line.strip() for line in Path('/tmp/merged-paths.txt').read_text(encoding='utf-8').splitlines() if line.strip()}
+          paths=set(beta_runtime_paths(Path('assets/app.js').read_text(encoding='utf-8')))
+          runtime=sorted(changed & paths)
+          package_changed=(
+              'updates/manifest.json' in changed
+              and any(p.startswith('updates/packages/moondog-') and p.endswith('.json') for p in changed)
+          )
+          print(json.dumps({'runtime':runtime,'packageChanged':package_changed}))
+          PY
+
+          RUNTIME_COUNT="$(python3 -c 'import json; print(len(json.load(open("/tmp/runtime-detect.json"))["runtime"]))')"
+          PACKAGE_CHANGED="$(python3 -c 'import json; print(str(json.load(open("/tmp/runtime-detect.json"))["packageChanged"]).lower())')"
+          if [ "$RUNTIME_COUNT" = "0" ]; then
+            echo "No merged browser runtime change; no Beta publication needed."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo "Main moved; retry on fresh main" >&2; exit 1; }
-          git cat-file -e "$REVIEWED_COMMIT^{commit}"
-          git merge-base --is-ancestor "$REVIEWED_COMMIT" HEAD || { echo "Commit is not merged into main" >&2; exit 1; }
-          BASE="$(git rev-parse "$REVIEWED_COMMIT^")"
-          mkdir -p /tmp/moondog-beta-backfill-base
-          git archive "$BASE" | tar -x -C /tmp/moondog-beta-backfill-base
-          cp updates/manifest.json /tmp/moondog-beta-backfill-base-manifest.json
-          python3 scripts/build_beta_package.py --root . --base-root /tmp/moondog-beta-backfill-base --base-manifest /tmp/moondog-beta-backfill-base-manifest.json --release-notes "Backfill merged RO closeout fixes into verified Beta; Stable unchanged."
-          test -n "$(git status --porcelain -- updates/manifest.json updates/packages)" || { echo "No un-packaged runtime changes; no release needed"; exit 0; }
-          BRANCH="beta/backfill-$GITHUB_RUN_ID"
+          if [ "$PACKAGE_CHANGED" = "true" ]; then
+            echo "Merged runtime commit already carries a Beta package."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+          echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+          echo "target_parent=$TARGET_PARENT" >> "$GITHUB_OUTPUT"
+
+      - name: Build next Beta from trusted current main
+        id: build
+        if: steps.detect.outputs.needed == 'true'
+        shell: bash
+        env:
+          BASE_SHA: ${{ steps.detect.outputs.target_parent }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/moondog-beta-base
+          git archive "$BASE_SHA" | tar -x -C /tmp/moondog-beta-base
+          cp updates/manifest.json /tmp/moondog-beta-base-manifest.json
+          python3 scripts/build_beta_package.py             --root .             --base-root /tmp/moondog-beta-base             --base-manifest /tmp/moondog-beta-base-manifest.json             --release-notes "Automatically packaged merged runtime from current main; Stable unchanged."
+
+          CHANGED="$(git status --porcelain)"
+          if echo "$CHANGED" | grep -Ev '^( M|M |A |\?\?) (CHANGELOG\.md|README\.md|updates/manifest\.json|updates/packages/moondog-[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+\.json)$' | grep -q .; then
+            echo "Post-merge Beta preparation attempted an unexpected file change:" >&2
+            echo "$CHANGED" >&2
+            exit 1
+          fi
+          test -n "$(git status --porcelain -- CHANGELOG.md README.md updates/manifest.json updates/packages)" || {
+            echo "Runtime delta produced no Beta package; refusing silent success." >&2
+            exit 1
+          }
+
+          BRANCH="beta/post-merge-$GITHUB_RUN_ID"
           git switch -c "$BRANCH"
           git config user.name "MoonDog Automation"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add updates/manifest.json updates/packages README.md CHANGELOG.md
-          git commit -m "Backfill merged runtime into next Beta package"
+          git add CHANGELOG.md README.md updates/manifest.json updates/packages
+          git commit -m "Package merged runtime into next verified Beta"
           git push origin "$BRANCH"
-          echo "BACKFILL_BRANCH=$BRANCH" >> "$GITHUB_ENV"
-      - name: Open verified Beta PR (never push package directly to main)
-        if: env.BACKFILL_BRANCH != ''
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Open isolated package PR
+        id: pr
+        if: steps.detect.outputs.needed == 'true'
+        shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.build.outputs.branch }}
         run: |
-          gh pr create --base main --head "$BACKFILL_BRANCH" --title "Backfill merged RO fixes into next Beta" --body "Reviewed merged runtime packaged with the trusted builder. Required Publication Check and Clean Install Proof must pass before guarded merge. Stable is unchanged."
+          set -euo pipefail
+          URL="$(gh pr create             --base main             --head "$BRANCH"             --title "Package merged runtime into next Beta"             --body "MoonDog-Automation-Package: yes
+
+          Generated from already-merged runtime using the trusted Beta builder. Only Beta metadata/package files may change. Stable must remain unchanged. Required exact-head Publication Check and Clean Install Proof must pass before merge.")"
+          PR_NUMBER="$(gh pr view "$URL" --json number --jq .number)"
+          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch exact-head verification
+        if: steps.detect.outputs.needed == 'true'
+        shell: bash
+        env:
+          BRANCH: ${{ steps.build.outputs.branch }}
+        run: |
+          set -euo pipefail
+          gh workflow run publication-check.yml --repo "$REPO" --ref "$BRANCH"
+          gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$BRANCH"
+
+      - name: Verify package PR and merge exact head
+        if: steps.detect.outputs.needed == 'true'
+        shell: bash
+        env:
+          BRANCH: ${{ steps.build.outputs.branch }}
+          PACKAGE_HEAD: ${{ steps.build.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          EXPECTED_MAIN: ${{ steps.detect.outputs.main_sha }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..42}; do
+            RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$PACKAGE_HEAD&per_page=100")"
+            PUB_OK="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .event=="workflow_dispatch" and .conclusion=="success")] | length' <<<"$RUNS")"
+            CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .event=="workflow_dispatch" and .conclusion=="success")] | length' <<<"$RUNS")"
+            PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .event=="workflow_dispatch" and .status!="completed")] | length' <<<"$RUNS")"
+            HARD_FAIL="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .event=="workflow_dispatch" and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out"))] | length' <<<"$RUNS")"
+            if [ "$HARD_FAIL" != "0" ]; then
+              echo "Generated Beta verification failed." >&2
+              exit 1
+            fi
+            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ]; then
+              break
+            fi
+            if [ "$attempt" = "42" ]; then
+              echo "Timed out waiting for generated Beta proof." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+          CURRENT_MAIN="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+          test "$CURRENT_MAIN" = "$EXPECTED_MAIN" || {
+            echo "Main advanced while generated Beta was verifying; refusing stale merge." >&2
+            exit 1
+          }
+
+          gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/beta-pr.json
+          python3 - <<'PY'
+          import json, os
+          pr=json.load(open('/tmp/beta-pr.json',encoding='utf-8'))
+          checks={
+              'open': pr.get('state')=='open',
+              'draft': pr.get('draft') is False,
+              'base': pr.get('base',{}).get('ref')=='main',
+              'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
+              'head': pr.get('head',{}).get('sha')==os.environ['PACKAGE_HEAD'],
+              'machine_marker': 'MoonDog-Automation-Package: yes' in (pr.get('body') or ''),
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('Generated Beta PR refused: '+', '.join(failed))
+          PY
+
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename' > /tmp/beta-paths.txt
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          allowed={'CHANGELOG.md','README.md','updates/manifest.json'}
+          package=re.compile(r'^updates/packages/moondog-[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+\.json$')
+          paths=[p.strip() for p in Path('/tmp/beta-paths.txt').read_text().splitlines() if p.strip()]
+          bad=[p for p in paths if p not in allowed and not package.fullmatch(p)]
+          if bad:
+              raise SystemExit('Generated Beta PR contains unexpected paths: '+', '.join(bad))
+          PY
+
+          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$EXPECTED_MAIN" > /tmp/main-manifest.json
+          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$PACKAGE_HEAD" > /tmp/package-manifest.json
+          python3 - <<'PY'
+          import json
+          main=json.load(open('/tmp/main-manifest.json',encoding='utf-8'))
+          package=json.load(open('/tmp/package-manifest.json',encoding='utf-8'))
+          if main.get('stable') != package.get('stable'):
+              raise SystemExit('Generated Beta merge refused: Stable changed.')
+          if main.get('beta') == package.get('beta'):
+              raise SystemExit('Generated Beta merge refused: Beta did not advance.')
+          PY
+
+          PUB_RUN_ID="$(jq -r '[.workflow_runs[] | select(.name=="Publication check" and .event=="workflow_dispatch" and .conclusion=="success")][0].id' <<<"$RUNS")"
+          gh api -X POST "repos/$REPO/statuses/$PACKAGE_HEAD"             -f state=success             -f context="Publication Check"             -f description="Exact-head Publication Check and Clean Install Proof passed"             -f target_url="https://github.com/$REPO/actions/runs/$PUB_RUN_ID"
+
+          for attempt in {1..12}; do
+            if RESULT="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$PACKAGE_HEAD" 2>&1)"; then
+              test "$(jq -r '.merged' <<<"$RESULT")" = "true"
+              exit 0
+            fi
+            if grep -Eq 'Required status check.*(in progress|expected)' <<<"$RESULT"; then
+              sleep 5
+              continue
+            fi
+            echo "$RESULT" >&2
+            exit 1
+          done
+          echo "GitHub did not settle required status context for generated Beta." >&2
+          exit 1
