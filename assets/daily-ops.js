@@ -884,10 +884,114 @@
     if(category==='recovery')$('backupRecoverySection')?.classList.remove('daily-settings-hidden');
     if(category==='updates')targets[0].scrollIntoView({block:'start'});
   }
+  /* Separate local paste route; does not modify the source importer. */
+  function renderPasteWorkOrder(host){
+    const parser=globalThis.MoonDogStoryInterpreter, section=document.createElement('section');
+    section.className='paste-ro-tool';host.append(section);
+    const lead=document.createElement('p');
+    lead.textContent='Paste an RO story or technician notes. MoonDog proposes facts and next steps; nothing changes until you review and save the matching Open RO.';
+    const field=document.createElement('label'),textarea=document.createElement('textarea');
+    field.textContent='Work-order text';textarea.rows=13;textarea.id='pasteRoSource';
+    textarea.placeholder='Example: RO 123456. Tech verified concern. Parts on order. Next step: check parts ETA.';
+    textarea.spellcheck=false;textarea.setAttribute('autocomplete','off');field.append(textarea);
+    const track=document.createElement('div');track.className='paste-ro-progress';
+    const progress=document.createElement('progress');progress.max=4;progress.value=0;progress.setAttribute('aria-label','Local analysis progress');
+    const step=document.createElement('span');step.setAttribute('role','status');step.setAttribute('aria-live','polite');step.textContent='Ready for text';
+    track.append(progress,step);
+    const actions=document.createElement('div');actions.className='paste-ro-actions';
+    const analyzeBtn=button('Analyze text',()=>analyze(),'primary'),clearBtn=button('Clear',()=>reset());
+    actions.append(analyzeBtn,clearBtn);
+    const output=document.createElement('div');output.className='paste-ro-results';
+    section.append(lead,field,track,actions,output);
+    let parsed=null,busy=false;
+    const stage=(value,label)=>{progress.value=value;step.textContent=label;};
+    const line=(label,value)=>{const p=document.createElement('p'),b=document.createElement('strong');b.textContent=label+': ';p.append(b,document.createTextNode(String(value||'Not identified')));return p;};
+    function reset(){if(busy)return;textarea.value='';parsed=null;output.replaceChildren();stage(0,'Ready for text');}
+    textarea.addEventListener('input',()=>{parsed=null;output.replaceChildren();stage(0,'Text changed — analyze again');});
+    async function analyze(){
+      if(busy)return;
+      if(!textarea.value.trim()){stage(0,'Paste text to analyze');return;}
+      busy=true;analyzeBtn.disabled=true;output.replaceChildren();
+      try{
+        stage(1,'Reading pasted text');await new Promise(r=>requestAnimationFrame(r));
+        stage(2,'Identifying work-order evidence');await new Promise(r=>requestAnimationFrame(r));
+        if(!parser?.analyze)throw new Error('Local work-order interpreter is unavailable.');
+        parsed=parser.analyze(textarea.value);
+        stage(3,'Checking context and contradictions');await new Promise(r=>requestAnimationFrame(r));
+        draw();stage(4,parsed.recognized?'Review suggested updates':'Not recognized — nothing changed');
+      }catch(err){parsed=null;stage(0,'Analysis could not be completed');output.append(line('Error',err.message||'Unknown failure'));}
+      finally{busy=false;analyzeBtn.disabled=false;}
+    }
+    function draw(){
+      output.replaceChildren();
+      if(!parsed)return;
+      output.append(line('Recognition',parsed.recognized?'Work-order language recognized; review required':'Unrecognized'));
+      output.append(line('RO identifiers',parsed.roNumbers.join(', ')||'Not included'));
+      for(const warning of parsed.warnings){const msg=document.createElement('p');msg.className='paste-ro-warning';msg.textContent=warning;output.append(msg);}
+      if(!parsed.recognized){
+        const learn=button('Save locally to Files To Learn',async()=>{
+          if(!globalThis.confirm('Save this pasted source in your local Files To Learn folder for future support? No data will be imported.'))return;
+          learn.disabled=true;try{
+            const saved=await api.savePastedUnknownText(textarea.value);
+            const msg=document.createElement('p');msg.textContent='Saved locally as '+saved.name+'. No operating data was changed.';output.append(msg);
+          }catch(err){output.append(line('Could not save',err.message||err));}
+          finally{learn.disabled=false;}
+        },'secondary');output.append(learn);return;
+      }
+      output.append(line('Current blocker',parsed.blocker?.type||'Not established'));
+      output.append(line('Proposed next action',parsed.nextAction?.value||'Not established; manager must supply'));
+      if(parsed.nextAction)output.append(line('Basis',parsed.nextAction.source+' — '+parsed.nextAction.evidence));
+      if(parsed.status)output.append(line('Possible status (review first)',parsed.status.value));
+      const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Evidence and interpretation ('+parsed.facts.length+' statements)';details.append(summary);
+      for(const f of parsed.facts){details.append(line(f.type+' / '+f.evidence,f.quote));}output.append(details);
+      if(parsed.roNumbers.length>1){output.append(line('Action blocked','Paste only one RO at a time; no combined vehicle histories.'));return;}
+      const records=api.model.state?.records||[],matching=parsed.roNumbers.length===1?records.filter(r=>String(r.ro)===parsed.roNumbers[0]):records;
+      const selector=document.createElement('select');selector.setAttribute('aria-label','Select current Open RO');
+      selector.append(new Option('Choose the current Open RO',''));
+      for(const record of matching)selector.append(new Option('RO '+record.ro+' · '+(record.vehicle||record.advisor||''),record.id));
+      if(matching.length===1)selector.value=matching[0].id;
+      output.append(line('Target record','Choose the exact live RO below'),selector);
+      const statusLabel=document.createElement('label'),statusCheck=document.createElement('input');
+      statusCheck.type='checkbox';statusLabel.append(statusCheck,document.createTextNode(' Apply proposed workflow status (requires confirmation in editor)'));
+      if(parsed.status)output.append(statusLabel);
+      const apply=button('Review in Open RO editor',()=>{
+        const record=records.find(r=>r.id===selector.value);
+        if(!record){output.append(line('Action blocked','Select a current Open RO.'));return;}
+        if(parsed.roNumbers.length&&String(record.ro)!==parsed.roNumbers[0]){output.append(line('Action blocked','Pasted RO ID does not match selected record.'));return;}
+        const priorUpdated=record.management?.updatedAt||'';
+        api.openEdit(record.id);
+        const editor=$('editDialog'),actionField=$('editNextAction'),noteField=$('editNote');
+        if(parsed.nextAction?.value&&!actionField.value.trim()){actionField.value=parsed.nextAction.value;actionField.dispatchEvent(new Event('input',{bubbles:true}));}
+        if(parsed.reviewNote&&!noteField.value.includes(parsed.reviewNote)){
+          noteField.value=[noteField.value,parsed.reviewNote].filter(Boolean).join('\n');
+          noteField.dispatchEvent(new Event('input',{bubbles:true}));
+        }
+        if(parsed.owner&&!$('editOwner').value.trim()){
+          $('editOwner').value=parsed.owner;$('editOwner').dispatchEvent(new Event('input',{bubbles:true}));
+        }
+        if(parsed.status&&statusCheck.checked){
+          const picker=$('editStatus');
+          if([...picker.options].some(o=>o.value===parsed.status.value)){
+            picker.value=parsed.status.value;picker.dispatchEvent(new Event('change',{bubbles:true}));
+          }
+        }
+        const onClose=()=>{
+          const after=api.model.state?.records?.find(r=>r.id===record.id);
+          if(after&&after.management?.updatedAt&&after.management.updatedAt!==priorUpdated){
+            reset();
+          }else stage(4,'Editor closed without verified save; pasted text retained');
+        };
+        editor.addEventListener('close',onClose,{once:true});
+      },'primary');
+      apply.disabled=!matching.length;output.append(apply);
+      output.append(line('Save policy','Review status, ownership, next action, communication and commitment date in the normal RO editor. This tool cannot save automatically.'));
+    }
+  }
+
   function goTools(category){go('tools');renderTools(category);}
   function renderTools(category=''){
     const host=$('dailyTools');host.dataset.category=category;host.replaceChildren();
-    const title=document.createElement('h2');title.textContent=category?({imports:'Import or refresh data',settings:'Change how Service Operations Dashboard works',recovery:'Back up or recover Service Operations Dashboard',more:'More tools'})[category]:'What are you trying to do?';host.append(title);
+    const title=document.createElement('h2');title.textContent=category?({imports:'Import or refresh data',settings:'Change how Service Operations Dashboard works',recovery:'Back up or recover Service Operations Dashboard',more:'More tools',paste:'Paste & Analyze work orders'})[category]:'What are you trying to do?';host.append(title);
     if(category)host.append(button('‹ Tools',()=>renderTools()));
     if(category==='settings'){
       const config=api.sharedSourceLearning?.();
@@ -908,7 +1012,8 @@
       }
     }
     const options=document.createElement('div');options.className='daily-tool-choices';host.append(options);
-    if(!category){[['Import or refresh data','imports'],['Change how Service Operations Dashboard works','settings'],['Back up or recover Service Operations Dashboard','recovery']].forEach(([label,key])=>options.append(button(label,()=>renderTools(key))));host.append(button('More',()=>renderTools('more'),'link-button'));}
+    if(!category){[['Import or refresh data','imports'],['Change how Service Operations Dashboard works','settings'],['Back up or recover Service Operations Dashboard','recovery']].forEach(([label,key])=>options.append(button(label,()=>renderTools(key))));options.append(button('Paste & Analyze work orders',()=>renderTools('paste')));host.append(button('More',()=>renderTools('more'),'link-button'));}
+    if(category==='paste'){renderPasteWorkOrder(options);return;}
     if(category==='imports'){
       importer(options);
       const rows=api.imports(),groups=[['WHAT YOU NEED NOW',row=>row.need.state==='NEED NOW'],['USEFUL SOON / OPTIONAL',row=>!['NEED NOW','REFERENCE','ON DEMAND'].includes(row.need.state)],['REFERENCE / ON DEMAND',row=>['REFERENCE','ON DEMAND'].includes(row.need.state)]];
@@ -1244,3 +1349,42 @@
   root.__serviceMeetingPresenter=Object.freeze({next,paint,setting,cards,activate});
 })(globalThis);
 // END GENERATED MEETING PRESENTER
+
+// BEGIN LOCAL WORK-ORDER INTERPRETER (see src/work-order-interpreter.js)
+/* Offline work-order interpretation: facts remain proposals until manager review. */
+(function(root){"use strict";
+const split=s=>String(s||"").replace(/\r/g,"").split(/\n+|(?<=[.;!?])\s+(?=[A-Z0-9])/).map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean);
+const uncertain=/\b(?:may|might|could|possibly|potentially|suspect|if)\b/i,negative=/\b(?:not|no longer|never|wasn'?t|isn'?t)\b/i;
+function analyze(raw){
+ const original=String(raw||"").trim(),sentences=split(original),roNumbers=[...new Set([...original.matchAll(/\b(?:RO|R\/O|repair order)\s*(?:#|number)?\s*[:\-]?\s*(\d{5,8})\b/gi)].map(x=>x[1]))];
+ const facts=[],events=[],steps=[];
+ for(let i=0;i<sentences.length;i++){
+ const s=sentences[i],reported=/\bcustomer (?:states|says|reports)\b/i.test(s),speculative=uncertain.test(s),negated=negative.test(s);
+ let type=reported?"customer report":/\b(?:technician|tech|verified|diagnosed|found|inspected|tested|confirmed)\b/i.test(s)?"finding":/\b(?:replaced|repaired|installed|performed|completed)\b/i.test(s)?"repair":/\b(?:recommend|suggest|should|needs replacement)\b/i.test(s)?"recommendation":"";
+ if(type)facts.push({type,quote:s.slice(0,600),evidence:reported?"reported":speculative?"uncertain":negated?"negative":"stated"});
+ if(/\b(?:parts? (?:have |has )?(?:arrived|received)|received parts|no longer waiting (?:on|for) parts?)\b/i.test(s))events.push({type:"parts-clear",index:i,quote:s});
+ else if(/\b(?:waiting|awaiting|pending|backorder(?:ed)?)\b.{0,55}\bparts?\b|\bparts?\b.{0,35}\bbackorder(?:ed)?\b/i.test(s)&&!speculative&&!negated)events.push({type:"parts-wait",index:i,quote:s});
+ if(/\b(?:authorization received|customer approved|work authorized)\b/i.test(s))events.push({type:"approval-clear",index:i,quote:s});
+ else if(/\b(?:waiting|awaiting|pending)\b.{0,65}\b(?:approval|authorization)\b/i.test(s)&&!speculative&&!negated)events.push({type:"approval-wait",index:i,quote:s});
+ if(/\b(?:next step|plan is to|will (?:call|contact|order|follow up|verify|diagnose|repair|check)|need to (?:call|contact|order|follow up|verify|diagnose|repair|check))\b/i.test(s)&&!reported&&!speculative)steps.push(s);
+ }
+ const latest=family=>events.filter(e=>e.type.startsWith(family)).at(-1);
+ const blockers=[latest("parts"),latest("approval")].filter(x=>x&&x.type.endsWith("wait")).sort((a,b)=>a.index-b.index);
+ const blocker=blockers.at(-1)||null;
+ let status=blocker?.type==="approval-wait"?"Pending Authorization":blocker?.type==="parts-wait"&&events.some(x=>x.type==="approval-clear")?"Awaiting Technician Attention":null;
+ const inferred={ "parts-wait":"Confirm parts ETA and update the customer.", "approval-wait":"Contact customer for authorization and document the decision." };
+ const nextAction=steps.length?{value:steps.at(-1).slice(0,350),source:"explicit",evidence:steps.at(-1)}:blocker?{value:inferred[blocker.type],source:"inferred",evidence:blocker.quote}:null;
+ const ownerLine=sentences.find(s=>/^(?:owner|assigned to)\s*:/i.test(s));
+ const owner=ownerLine?ownerLine.replace(/^(?:owner|assigned to)\s*:/i,"").trim().slice(0,100):"";
+ const recognized=Boolean(facts.length||events.length||steps.length),warnings=[];
+ if(!original)warnings.push("Paste a technician story or work-order narrative.");
+ if(roNumbers.length>1)warnings.push("Multiple ROs detected; paste one RO at a time.");
+ if(!roNumbers.length)warnings.push("RO identifier missing; select a current RO manually.");
+ if(!recognized&&original)warnings.push("Text not understood; no data changed.");
+ const reviewNote=facts.filter(f=>f.evidence==="stated").slice(0,5).map(f=>f.quote).join("\n").slice(0,1500);
+ return {recognized,roNumbers,facts:facts.slice(0,50),blocker,status:status?{value:status,evidence:blocker.quote,source:"inferred"}:null,nextAction,owner,reviewNote,warnings,requiresReview:true};
+}
+const api=Object.freeze({analyze});root.MoonDogStoryInterpreter=api;
+if(typeof module!=="undefined"&&module.exports)module.exports=api;
+})(globalThis);
+// END LOCAL WORK-ORDER INTERPRETER
