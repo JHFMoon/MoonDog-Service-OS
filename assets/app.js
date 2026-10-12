@@ -2634,6 +2634,15 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     listDirectories:async p=>{const out=[];for await(const[n,h]of(await directory(p.split('/'),false)).entries())if(h.kind==='directory')out.push(p+'/'+n);return out;},
     directoryEntries:async p=>{const out=[];for await(const[n,h]of(await directory(p.split('/'),false)).entries())out.push({name:n,kind:h.kind});return out.sort((a,b)=>a.name.localeCompare(b.name));},
     removeEmpty:async p=>{writeAuthority.requireWrite();try{await writeAuthority.journaledDelete(physicalWorkspacePath(p.split('/')).join('/'));}catch(_){}},
+    // Rollback-only cleanup: never recurse into operational data or unverified recovery folders.
+    removeTree:async p=>{
+      if(!/^backups\/system-updates\/MoonDog-Update-Backup-20\d{2}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(p))throw Error('Unsafe update rollback directory');
+      writeAuthority.requireWrite();
+      const parent=await nativeDirectory(['backups','system-updates']),name=p.split('/').at(-1);
+      await parent.removeEntry(name,{recursive:true});
+      try{await parent.getDirectoryHandle(name,{create:false});throw Error('Rollback directory was not removed');}
+      catch(e){if(e.name!=='NotFoundError')throw e;}
+    },
     hash:sha256,
     failure:()=>{console.warn('Service Operations Dashboard durable write failed; success was withheld.');}
   };
