@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.40 — current Beta
+
+- Rebuild Service Arena as primetime broadcast stage. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.39 — current Beta
 
 - Refine Service Arena coaching signals and editorial presentation. Verified automated Beta; no Workspace migration.
