@@ -152,32 +152,30 @@ for artifact in artifacts:
         else:
             scan_zip_bytes(data,f"artifact:{name}")
 
-# Public issue/PR bodies and comments. High-risk matches only; values are never logged.
+# Public issue/PR bodies and comments. Use repository-wide endpoints so the audit
+# stays bounded as PR history grows; values are never logged.
 issues=gh_json(f"repos/{REPO}/issues?state=all&per_page=100")
 for issue in issues:
     for text in [issue.get("title"),issue.get("body")]:
         if text:
             scan_bytes(str(text).encode(),"issue")
-    number=issue.get("number")
-    if not number:
-        continue
-    for comment in gh_json(f"repos/{REPO}/issues/{number}/comments?per_page=100"):
-        if comment.get("body"):
-            scan_bytes(str(comment["body"]).encode(),"issue-comment")
-    if "pull_request" in issue:
-        for review in gh_json(f"repos/{REPO}/pulls/{number}/reviews?per_page=100"):
-            if review.get("body"):
-                scan_bytes(str(review["body"]).encode(),"pr-review")
-        for comment in gh_json(f"repos/{REPO}/pulls/{number}/comments?per_page=100"):
-            if comment.get("body"):
-                scan_bytes(str(comment["body"]).encode(),"pr-review-comment")
 
-report={"counts":dict(counts),"safe_counts":dict(safe),"releases":len(releases),"artifacts":len(artifacts),"issues":len(issues)}
+issue_comments=gh_json(f"repos/{REPO}/issues/comments?per_page=100")
+for comment in issue_comments:
+    if comment.get("body"):
+        scan_bytes(str(comment["body"]).encode(),"issue-comment")
+
+review_comments=gh_json(f"repos/{REPO}/pulls/comments?per_page=100")
+for comment in review_comments:
+    if comment.get("body"):
+        scan_bytes(str(comment["body"]).encode(),"pr-review-comment")
+
+report={"counts":dict(counts),"safe_counts":dict(safe),"releases":len(releases),"artifacts":len(artifacts),"issues":len(issues),"issueComments":len(issue_comments),"reviewComments":len(review_comments)}
 status_path=os.environ.get("PUBLIC_SURFACE_AUDIT_STATUS")
 if status_path:
     Path(status_path).write_text(json.dumps(report,sort_keys=True),encoding="utf-8")
 
-summary=["## Public GitHub surface audit","",f"Releases scanned: {len(releases)}",f"Actions artifacts enumerated: {len(artifacts)}",f"Issues/PRs enumerated: {len(issues)}","", "| Candidate category | Count |","|---|---:|"]
+summary=["## Public GitHub surface audit","",f"Releases scanned: {len(releases)}",f"Actions artifacts enumerated: {len(artifacts)}",f"Issues/PRs enumerated: {len(issues)}",f"Issue comments enumerated: {len(issue_comments)}",f"PR review comments enumerated: {len(review_comments)}","", "| Candidate category | Count |","|---|---:|"]
 summary += [f"| {k} | {counts[k]} |" for k in sorted(counts)]
 summary += ["", "**Review required** — candidates are redacted and are not proof of exposure." if counts else "No blocking candidates detected on scanned public surfaces."]
 if safe:
@@ -186,7 +184,7 @@ if os.environ.get("GITHUB_STEP_SUMMARY"):
     with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
         f.write("\n".join(summary)+"\n")
 
-print(f"Public surfaces scanned: releases={len(releases)} artifacts={len(artifacts)} issues={len(issues)}")
+print(f"Public surfaces scanned: releases={len(releases)} artifacts={len(artifacts)} issues={len(issues)} issue_comments={len(issue_comments)} review_comments={len(review_comments)}")
 for k in sorted(counts):
     print(f"  {k}: {counts[k]}")
 if counts:
