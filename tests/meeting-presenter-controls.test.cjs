@@ -50,7 +50,8 @@ test("Arena fullscreen leaves entire dashboard CSS alone and keeps runtime diagn
  const app=fs.readFileSync(path.join(root,"assets/app.js"),"utf8");
  assert.match(app,/classList\.toggle\("meeting-fullscreen", document\.fullscreenElement === document\.documentElement && !arenaIsPresenting\)/);
  assert.doesNotMatch(app,/classList\.toggle\("meeting-fullscreen", active\)/);
- assert.match(css,/#view-meeting\.meeting-scoreboard\.presentation-active:fullscreen/);\n assert.match(css,/:root:fullscreen #view-meeting\.meeting-scoreboard\.presentation-active\.active/);
+ assert.match(css,/#view-meeting\.meeting-scoreboard\.presentation-active:fullscreen/);
+ assert.match(css,/:root:fullscreen #view-meeting\.meeting-scoreboard\.presentation-active\.active/);
  assert.match(css,/contain:layout style paint/);
  assert.match(source,/fullscreenTiming:\(\)=>/);
  assert.match(source,/transition\.eventMs=Math\.round\(performance\.now\(\)-transition\.startedAt\)/);
