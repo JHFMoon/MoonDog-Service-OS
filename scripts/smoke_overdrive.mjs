@@ -33,7 +33,7 @@ try{
       '<div class="aa-next"><span>NEXT WIN ↗</span><strong>ALIGNMENTS</strong><div><b>1 MORE SALE</b><small>BY NEXT MEETING</small></div></div></div></section></article>';
    const bars=Array.from({length:7},(_,i)=>'<div class="as-bar '+(i===5?"absent":"present")+'"><b>'+(i===5?"—":"$"+(i+1)+"K")+'</b><div><i style="height:'+(i===5?2:(20+i*9))+'%"></i></div><span>DAY '+(i+1)+'</span></div>').join("");
    v.innerHTML='<header class="meeting-scoreboard-head"><div><h2>MOONDOG <em>LIVE</em></h2><span>SERVICE TEAM</span></div>'+
-    '<div class="meeting-scoreboard-period"><strong>DEMO WEEK</strong><span>LAST 7 DAYS</span><small>SYNTHETIC DATA</small></div><div class="meeting-scoreboard-actions"></div></header>'+
+    '<div class="meeting-scoreboard-period"><strong>DEMO WEEK</strong><span>LAST 7 DAYS</span><small>SYNTHETIC DATA</small></div><div class="meeting-scoreboard-actions"><button id="meetingFullscreen">Enter full screen</button></div></header>'+
     '<section class="arena-store"><div class="as-upper"><div class="as-tally"><span class="as-eyebrow">THE STORE · THIS MONTH</span><strong>$85.3K</strong><small>UPDATED OCT 11</small><div class="as-week">WAITING FOR OCT 10</div></div>'+
     '<div class="as-chart"><div class="as-chart-title"><span>THE WEEK AT A GLANCE</span><small>DAILY CLOSED GROSS</small></div><div class="as-bars">'+bars+'</div></div></div>'+
     '<div class="as-lower"><div class="as-story"><span>OUR STRONGEST DAY</span><strong>MONDAY</strong><small>$19K CLOSED</small></div>'+
@@ -60,21 +60,52 @@ try{
    if(!card)return {slide,error:"selected advisor missing"};
    const area=card.querySelector(".arena-advisor"),top=area.querySelector(".aa-lead"),bottom=area.querySelector(".aa-bottom");
    const stage=area.querySelector(".aa-earnings"),pace=area.querySelector(".aa-target"),pulse=area.querySelector(".aa-pulse"),next=area.querySelector(".aa-next");
+   const ring=area.querySelector(".aa-circle"),percent=ring.querySelector("b");
+   const fits=inside(percent,ring,3)&&getComputedStyle(percent).whiteSpace==="nowrap"&&
+     percent.getBoundingClientRect().height<=ring.getBoundingClientRect().height/2;
    return {slide,visible:getComputedStyle(area).display!=="none",inside:inside(top,area)&&inside(bottom,area),
      separated:!overlap(top,bottom)&&!overlap(stage,pace)&&!overlap(pulse,next),
-     text:card.querySelector("h3").innerText};
+     percentFits:fits,text:card.querySelector("h3").innerText};
   });
   const store=await geom();
   if(store.slide!=="store"||!store.visible||!store.inside||!store.separated)
     throw Error("Store TV geometry "+width+"x"+height+": "+JSON.stringify(store));
   await page.screenshot({path:path.join(out,"store-"+width+".png")});
-  await page.evaluate(()=>globalThis.__serviceMeetingPresenter?.next());
+  const visibleFullscreen=await page.locator(".meeting-scoreboard-actions button").evaluateAll(buttons=>
+    buttons.filter(b=>b.getClientRects().length&&getComputedStyle(b).display!=="none"&&/full screen/i.test(b.textContent)).length);
+  if(visibleFullscreen!==1)throw Error("Expected one fullscreen control, got "+visibleFullscreen);
+  await page.evaluate(()=>{
+    globalThis.__arenaDomMoves=0;
+    const host=document.getElementById("meetingV3Advisors");
+    new MutationObserver(mutations=>{
+      globalThis.__arenaDomMoves+=mutations.filter(m=>m.type==="childList").length;
+    }).observe(host,{childList:true});
+  });
+  await page.locator(".meeting-presenter-controls [data-pause]").click();
+  if((await page.locator(".meeting-presenter-controls [data-pause]").textContent()).trim()!=="Resume")
+    throw Error("Pause button did not switch to Resume");
+  await page.locator(".meeting-presenter-controls [data-next]").click();
   await page.waitForTimeout(130);
   const advisor=await geom();
-  if(advisor.slide!=="advisor"||!advisor.visible||!advisor.inside||!advisor.separated)
-    throw Error("Advisor TV geometry "+width+"x"+height+": "+JSON.stringify(advisor));
+  if(advisor.slide!=="advisor"||!advisor.visible||!advisor.inside||!advisor.separated||!advisor.percentFits)
+    throw Error("Advisor TV geometry / percentage "+width+"x"+height+": "+JSON.stringify(advisor));
   await page.screenshot({path:path.join(out,"advisor-"+width+".png")});
-  for(let i=0;i<6;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter?.next());
+  await page.locator(".meeting-presenter-controls [data-next]").click();
+  if((await page.evaluate(()=>globalThis.__arenaDomMoves))!==0)
+    throw Error("Next/Pause caused unnecessary advisor DOM reordering");
+  await page.locator(".meeting-presenter-controls [data-pause]").click();
+  if((await page.locator(".meeting-presenter-controls [data-pause]").textContent()).trim()!=="Pause")
+    throw Error("Resume button did not restart presentation");
+  // The same control enters and exits real browser fullscreen.
+  if(await page.evaluate(()=>document.fullscreenEnabled)){
+    await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
+    await page.waitForFunction(()=>Boolean(document.fullscreenElement),{timeout:1500});
+    if((await page.locator(".meeting-presenter-controls [data-fullscreen]").textContent()).trim()!=="Exit full screen")
+      throw Error("Fullscreen control failed to update label");
+    await page.locator(".meeting-presenter-controls [data-fullscreen]").click();
+    await page.waitForFunction(()=>!document.fullscreenElement,{timeout:1500});
+  }
+  for(let i=0;i<5;i++)await page.evaluate(()=>globalThis.__serviceMeetingPresenter?.next());
   const cycle=await geom();
   if(cycle.slide!=="store")throw Error("Seven-slide rotation did not return to Store "+JSON.stringify(cycle));
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
