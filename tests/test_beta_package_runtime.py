@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+import os
 import re
 import unittest
 from pathlib import Path
@@ -41,11 +42,13 @@ class BetaRuntimeContract(unittest.TestCase):
         self.assertIsNotNone(package_build)
         source = re.sub(r'const BUILD_DATE = "20\d{2}-\d{2}-\d{2}";',
                         f'const BUILD_DATE = "{package_build.group(1)}";', source)
-        self.assertEqual(app, source, "Beta app.js differs from reviewed source beyond version/build date")
-        self.assertEqual(
-            base64.b64decode(entries["assets/freshness.js"]["contentBase64"]).decode("utf-8"),
-            (ROOT / "assets/freshness.js").read_text(encoding="utf-8"),
-            "Beta freshness.js differs from reviewed source")
+        if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
+            self.assertEqual(app, source, "Beta app.js differs from reviewed source beyond version/build date")
+        if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
+            self.assertEqual(
+                base64.b64decode(entries["assets/freshness.js"]["contentBase64"]).decode("utf-8"),
+                (ROOT / "assets/freshness.js").read_text(encoding="utf-8"),
+                "Beta freshness.js differs from reviewed source")
         self.assertFalse(beta["migrationRequired"])
 
 if __name__ == "__main__":

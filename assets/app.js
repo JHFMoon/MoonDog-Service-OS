@@ -133,6 +133,7 @@
     const previous = prior && typeof prior === "object" ? prior : {};
     const revised = Boolean(previous.blocker) && (previous.blocker !== blocker || previous.taskDate !== taskDate || previous.expectedCloseDate !== expectedCloseDate);
     if (revised && !String(reason || "").trim()) throw new Error("Explain why the advisor's previous administrative commitment changed.");
+    if (previous.blocker === blocker && previous.taskDate === taskDate && previous.expectedCloseDate === expectedCloseDate) return prior;
     const revisions = Array.isArray(previous.revisions) ? previous.revisions.slice(-49) : [];
     if (revised) revisions.push({ at, reason: String(reason).trim(), previous: { blocker: previous.blocker, taskDate: previous.taskDate || "", expectedCloseDate: previous.expectedCloseDate || "" }, next: { blocker, taskDate, expectedCloseDate } });
     return { blocker, taskDate, expectedCloseDate, revisions, updatedAt: at };
@@ -1418,7 +1419,7 @@
         else if (!proposed.statusId) reason = "Management status is not recognized";
         else if (!COMMUNICATION_STATUSES.includes(proposed.communication)) reason = "Customer communication value is not recognized";
         else if (proposed.reviewDate === null) reason = "Commitment date could not be understood";
-        else if (current.adminCloseout?.blocker && proposed.reviewDate !== (current.adminCloseout.taskDate || "")) reason = "Administrative closeout promise changed in workbook: confirm the revised date and reason with the manager in Open RO Control.";
+        else if (current.adminCloseout?.blocker && (proposed.reviewDate !== (current.adminCloseout.taskDate || "") || proposed.nextAction !== (current.nextAction || ""))) reason = "Administrative closeout promise changed in workbook: confirm the revised date and reason with the manager in Open RO Control.";
         else if (!isClosedManagement(proposed) && (!proposed.nextAction || !proposed.reviewDate)) reason = "Next action and commitment date must both be provided";
         else if (isClosedManagement(proposed) && Boolean(proposed.nextAction) !== Boolean(proposed.reviewDate)) reason = "Next action and commitment date must be provided together";
         if (reason) questions.push({ id, sheetName, row: rowIndex + 2, ro: record.ro, advisor: record.advisor, reason, proposed }); else clearUpdates.push({ record, proposed });
