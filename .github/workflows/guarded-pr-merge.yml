@@ -45,6 +45,11 @@ jobs:
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.json
+          if [ "$(jq -r '.state' /tmp/pr.json)" != "open" ] || ! jq -e '.body // "" | contains("MoonDog-Auto-Merge: yes")' /tmp/pr.json >/dev/null; then
+            echo "PR is closed or not authorized for automatic merge; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           python3 - <<'PY'
           import json, os, sys
           pr=json.load(open('/tmp/pr.json',encoding='utf-8'))
