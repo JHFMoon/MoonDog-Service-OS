@@ -51,16 +51,17 @@ test('advisor notification waits 3 configured working days; material decline ove
   assert.equal(engine.eligible({...item,actual:190},[event],Date.parse('2026-10-09T18:00:00Z')),true);
 });
 
-test('No automatic installation or data upload; the schedule only requests metadata after noon', () => {
+test('Visible-only update polling fetches metadata without automatic installation or data upload', () => {
   const update = read('assets/moondog-update-settings.js');
-  assert.match(update,/function checkAfterNoon\(/);
-  assert.match(update,/current\.getHours\(\) < 12/);
-  assert.match(update,/state\.lastAutomatic === stamp/);
-  assert.match(update,/void check\(false\)/);
-  assert.match(update,/data-update-install/);
-  assert.match(update,/data-update-changes/);
-  assert.match(update,/data-update-later/);
-  assert.match(update,/installButton\.click\(\)/);
-  assert.match(update,/note\.textContent = value\.releaseNotes/);
-  assert.doesNotMatch(update,/fetch\([^)]*customer/i);
+  assert.ok(update.includes('function checkInBackground()'));
+  assert.ok(update.includes('AUTOMATIC_RECHECK_MS = 30 * 60 * 1000'));
+  assert.ok(update.includes('AUTOMATIC_RETRY_MS = 5 * 60 * 1000'));
+  assert.ok(update.includes('document.hidden || !appRoot() || state.busy'));
+  assert.ok(update.includes('void check(false)'));
+  assert.ok(update.includes('data-update-install'));
+  assert.ok(update.includes('data-update-changes'));
+  assert.ok(update.includes('data-update-later'));
+  assert.ok(update.includes('installButton.click()'));
+  assert.ok(update.includes('note.textContent = value.releaseNotes'));
+  assert.doesNotMatch(update,/fetch\\([^)]*customer/i);
 });
