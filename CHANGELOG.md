@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.33 — current Beta
+
+- Automatically packaged merged runtime from current main; Stable unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.32 — current Beta
 
 - MoonDog 30-second UX: responsive data-preserving foundation. Verified automated Beta; no Workspace migration.
