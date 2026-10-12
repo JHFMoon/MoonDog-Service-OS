@@ -14,11 +14,12 @@ objects = git("rev-list", "--objects", "--all").decode("utf-8", "replace").split
 
 patterns = {
     "private_key": re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
-    "provider_token": re.compile(rb"(?i)(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|sk_live_[A-Za-z0-9]{16,})"),
+    "provider_token": re.compile(rb"(?i)(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|xox[baprs]-[0-9A-Za-z-]{20,}|npm_[0-9A-Za-z]{20,}|sk_live_[A-Za-z0-9]{16,}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})"),
     "credential_assignment": re.compile(rb"(?im)^.{0,100}(?:password|client_secret|api[_-]?key|access[_-]?token)\s*[:=]\s*['\"]?[A-Za-z0-9+/=_-]{16,}"),
 }
 email_rx = re.compile(rb"(?i)\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b")
 vin_rx = re.compile(rb"\b[A-HJ-NPR-Z0-9]{17}\b")
+ssn_rx = re.compile(rb"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
 safe_email_domains = {
     b"users.noreply.github.com",
     b"example.com",
@@ -54,10 +55,27 @@ counts = collections.Counter()
 safe_counts = collections.Counter()
 blobs = set()
 
+def scan_payload(data, prefix=""):
+    key = (lambda name: f"{prefix}_{name}" if prefix else name)
+    for kind, rx in patterns.items():
+        if rx.search(data):
+            counts[key(kind)] += 1
+    emails = list(unsafe_email_matches(data))
+    if emails:
+        counts[key("email_address")] += 1
+    elif email_rx.search(data):
+        safe_counts[key("known_public_or_synthetic_email")] += 1
+    if any(valid_vin(m.group(0)) for m in vin_rx.finditer(data)):
+        counts[key("valid_vin")] += 1
+    if ssn_rx.search(data):
+        counts[key("ssn_candidate")] += 1
+
 for line in objects:
     oid, _, path = line.partition(" ")
     if path and restricted.search(path):
         counts["restricted_path"] += 1
+    if path:
+        scan_payload(path.encode("utf-8","replace"), "path")
     if oid in blobs:
         continue
     blobs.add(oid)
@@ -68,18 +86,18 @@ for line in objects:
         counts["oversize_uninspected_blob"] += 1
         continue
     data = git("cat-file", "blob", oid)
-    for kind, rx in patterns.items():
-        if rx.search(data):
-            counts[kind] += 1
-    emails = list(unsafe_email_matches(data))
-    if emails:
-        counts["email_address"] += 1
-    elif email_rx.search(data):
-        safe_counts["known_public_or_synthetic_email"] += 1
-    if any(valid_vin(m.group(0)) for m in vin_rx.finditer(data)):
-        counts["valid_vin"] += 1
+    scan_payload(data)
 
-# Commit identity metadata is part of public history too.
+# Commit messages, annotated tag messages, and identity metadata are part of
+# public history too; scan them without printing values.
+for message in git("log", "--all", "--format=%B%x00").split(b"\x00"):
+    if message.strip():
+        scan_payload(message, "commit_message")
+
+for message in git("for-each-ref", "refs/tags", "--format=%(contents)%00").split(b"\x00"):
+    if message.strip():
+        scan_payload(message, "tag_message")
+
 commit_emails = git("log", "--all", "--format=%ae%n%ce").splitlines()
 for email in commit_emails:
     m = email_rx.fullmatch(email.strip())
@@ -91,7 +109,7 @@ for email in commit_emails:
         counts["commit_identity_email"] += 1
 
 print("Git history objects inspected:", len(blobs), flush=True)
-print("Audit scope: all reachable refs and commit identity metadata; findings are redacted.", flush=True)
+print("Audit scope: reachable blobs/paths, commit and tag messages, and commit identities; findings are redacted.", flush=True)
 print("Redacted candidate categories (counts only):")
 for kind in sorted(counts):
     print(f"  {kind}: {counts[kind]}")
