@@ -125,7 +125,9 @@ test("Automatic failures are silent; manual failures are visible", async () => {
 });
 
 test("A stale raw CDN response can be bypassed without changing verified package identity", async () => {
-  const published = { ...manifest, beta: { ...manifest.beta,
+  const published = { ...manifest,
+    stable: { ...manifest.stable, version: "0.10.17", minimumCompatibleVersion: "0.10.9" },
+    beta: { ...manifest.beta,
     version: "0.10.18-beta.48", minimumCompatibleVersion: "0.10.9",
     packageUrl: "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.48.json",
     sha256: "a".repeat(64) } };
