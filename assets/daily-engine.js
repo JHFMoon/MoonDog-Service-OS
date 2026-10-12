@@ -29,8 +29,12 @@
     while(count<days){date.setDate(date.getDate()+1);if(working.includes(date.getDay()))count++;}
     return date.getTime();
   }
-  function eligible(task,events,at) {
-    const event=events.filter(e=>e.details?.taskId===task.id&&['completed','deferred','not-an-issue'].includes(e.details.action)).at(-1);
+  function eligible(task,events,at,latestActionByTask=null) {
+    // The Home selector supplies the last actionable event by ID once per ranking.
+    // Other callers still accept the original ordered event history.
+    const event=latestActionByTask instanceof Map
+      ? latestActionByTask.get(task.id)
+      : events.filter(e=>e.details?.taskId===task.id&&['completed','deferred','not-an-issue'].includes(e.details.action)).at(-1);
     if(!event)return true;
     const d=event.details;
     if(task.type==='coaching' && ['completed','not-an-issue'].includes(d.action)) {
