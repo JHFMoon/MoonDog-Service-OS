@@ -1316,45 +1316,105 @@
   }
   async function reconcileLearnedFiles() {
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)return {deferred:true};
-    let failures=0;dailyImportBusy=true;try{
-    let folder; try { folder = await directory(["Files To Learn"], false); } catch (error) { if (error.name === "NotFoundError") return {failures:0}; throw error; }
+    let failures=0,attempts=0,recovered=0,unsupported=0;dailyImportBusy=true;try{
+    let folder; try { folder = await directory(["Files To Learn"], false); } catch (error) { if (error.name === "NotFoundError") return {failures:0,attempts:0,recovered:0,unsupported:0}; throw error; }
     const entries = []; for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && !/^~\$/.test(name)) { try { const file = await handle.getFile(); const relativePath=`Files To Learn/${name}`; entries.push({ name, location:"learn", relativePath, handle, file, signature:`${relativePath}|${file.size}|${file.lastModified}` }); } catch (error) { failures++; recordDiagnostic("FILES TO LEARN", `Learned-source open deferred: ${error?.name||"Error"}`); } }
     for (const entry of entries) { entry.structurePriority=10; if (/\.csv$/i.test(entry.name)) { const start=(await entry.file.slice(0,160).text()).trim().toLowerCase(); entry.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     entries.sort((a, b) => a.structurePriority - b.structurePriority || a.file.lastModified - b.file.lastModified || a.name.localeCompare(b.name, undefined, { numeric: true }));
     for (const entry of entries) {
       try {
-        if(model.autoImport.seen?.[entry.signature]?.kind==="appointments"&&model.autoImport.seen[entry.signature].importedAt)continue;const bytes = await entry.file.arrayBuffer(), kind = await classifyImportFile(entry.name, entry.file, bytes);
-        if (!kind) continue;
+        if(model.autoImport.seen?.[entry.signature]?.kind==="appointments"&&model.autoImport.seen[entry.signature].importedAt)continue;attempts++;const bytes = await entry.file.arrayBuffer(), kind = await classifyImportFile(entry.name, entry.file, bytes);
+        if (!kind) { unsupported++; continue; }
         const outcome=await processClassifiedCandidate(entry, kind, bytes, true);if(kind==="appointments"){model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,importedAt:now(),kind};await writeJson(AUTO_IMPORT_PATH,model.autoImport);}
-        if(outcome?.retired){await addHistory("learned-file-retired","Verified a known non-service learned source and removed the Service OS copy",{sourceFamily:kind,retired:true});recordDiagnostic("FILES TO LEARN",`${kind} retired; no Service OS data retained`);}else{await addHistory("learned-file-recovered", "Verified a now-supported learned source through durable intake", { sourceFamily: kind, recovered: true });recordDiagnostic("FILES TO LEARN", `${kind} recovered after durable verification`);}
+        recovered++;if(outcome?.retired){await addHistory("learned-file-retired","Verified a known non-service learned source and removed the Service OS copy",{sourceFamily:kind,retired:true});recordDiagnostic("FILES TO LEARN",`${kind} retired; no Service OS data retained`);}else{await addHistory("learned-file-recovered", "Verified a now-supported learned source through durable intake", { sourceFamily: kind, recovered: true });recordDiagnostic("FILES TO LEARN", `${kind} recovered after durable verification`);}
       } catch (error) { failures++;recordDiagnostic("FILES TO LEARN", `Known-file reconciliation deferred: ${error.name}: ${error.message||error}`); }
       // Yield between files: version-triggered reconciliation must not freeze Home.
       await new Promise(resolve=>setTimeout(resolve,0));
     }
-    return {failures};
+    return {failures,attempts,recovered,unsupported};
     }finally{dailyImportBusy=false;}
   }
 
+  // Read-only catalog-to-disk check after an installed update, never on each
+  // normal connection. Only public runtime filenames are inspected. Protected
+  // Workspace files and Files To Learn are never traversed, moved or deleted.
+  async function auditInstalledRuntimeLayout(root, catalog = HANDOFF_RUNTIME_PATHS) {
+    const report = { missing: 0, misplacedReports: 0, unexpectedRuntime: 0, scanned: 0, compatibilityIndexPresent: false, needsReview: false };
+    if (!root || !Array.isArray(catalog) || !catalog.length) throw new Error("Trusted runtime inventory is unavailable.");
+    const safeSegments = (value) => value.split("/").every((part) => part && part !== "." && part !== "..");
+    if (!catalog.every((name) => typeof name === "string" && safeSegments(name) && (name === "index.html" || name.startsWith("assets/") || name.startsWith("vendor/")))) {
+      throw new Error("Trusted runtime inventory contains an invalid path.");
+    }
+    const hasFile = async (folder, name) => {
+      try { await folder.getFileHandle(name); return true; }
+      catch (error) { if (error?.name === "NotFoundError") return false; throw error; }
+    };
+    const hasDirectory = async (folder, name) => {
+      try { return await folder.getDirectoryHandle(name); }
+      catch (error) { if (error?.name === "NotFoundError") return null; throw error; }
+    };
+    report.compatibilityIndexPresent = await hasFile(root, "index.html");
+    if (!await hasFile(root, "00 - OPEN DASHBOARD.html")) report.missing++;
+    const system = await hasDirectory(root, "System Files");
+    if (!system) {
+      report.missing += catalog.length + 1;
+      report.needsReview = true;
+      return report;
+    }
+    const asset = await hasDirectory(system, "assets");
+    const vendor = await hasDirectory(system, "vendor");
+    const workspace = await hasDirectory(system, "Workspace");
+    if (!asset) report.missing++;
+    if (!vendor) report.missing++;
+    if (!workspace) report.missing++;
+    for (const name of catalog) {
+      const parts = name.split("/");
+      const folder = parts.length === 1 ? system : parts[0] === "assets" ? asset : vendor;
+      if (!folder || !await hasFile(folder, parts.at(-1))) report.missing++;
+      else report.scanned++;
+    }
+    const expected = new Set(catalog);
+    const reportFile = /\.(?:csv|xlsx?|pdf|docx?|zip)$/i;
+    async function examine(folder, prefix) {
+      if (!folder || typeof folder.entries !== "function") throw new Error("Folder listing unavailable during verified update layout check.");
+      for await (const [name, handle] of folder.entries()) {
+        if (handle.kind !== "file") continue;
+        const location = prefix ? prefix + "/" + name : name;
+        if (reportFile.test(name)) report.misplacedReports++;
+        else if (prefix === "assets" || prefix === "vendor") {
+          if (!expected.has(location)) report.unexpectedRuntime++;
+        }
+      }
+    }
+    await examine(root, "");
+    await examine(system, "");
+    await examine(asset, "assets");
+    await examine(vendor, "vendor");
+    report.needsReview = report.missing > 0 || report.misplacedReports > 0 || report.unexpectedRuntime > 0;
+    return report;
+  }
+
   async function runVerifiedUpdateFollowup() {
-    // A verified-install receipt is set by the updater only AFTER successful
-    // installation. Routine starts, failed installs and rollbacks never trigger
-    // a complete historical reclassification pass.
+    // The updater writes the local receipt only after a verified installation.
+    // A failed installation or rollback never triggers these heavier checks.
     const key="moondog-verified-update-followup-v1";let receipt;
     try{receipt=JSON.parse(localStorage.getItem(key)||"null");}catch(_){return;}
     if(receipt?.version!==VERSION||!model.root||!writeAuthority.canWrite)return;
     try{
-      // Read-only installation layout audit; protect the root compatibility
-      // index.html, every private Workspace file and all learning sources.
-      const root=model.applicationRoot,system=await root.getDirectoryHandle("System Files");
-      await root.getFileHandle("00 - OPEN DASHBOARD.html");
-      await system.getFileHandle("index.html");
-      for(const dir of ["assets","vendor","Workspace"])await system.getDirectoryHandle(dir);
-      recordDiagnostic("VERIFIED UPDATE LAYOUT","Required launcher, runtime and protected Workspace folders verified; no files changed");
+      const layout=await auditInstalledRuntimeLayout(model.applicationRoot);
+      if(layout.needsReview){
+        recordDiagnostic("VERIFIED UPDATE LAYOUT","Needs review · missing "+layout.missing+" · out-of-place reports "+layout.misplacedReports+" · unexpected runtime files "+layout.unexpectedRuntime+". No files were changed; update receipt retained.");
+        return;
+      }
+      recordDiagnostic("VERIFIED UPDATE LAYOUT","Verified "+layout.scanned+" runtime files against trusted catalog; compatibility index "+(layout.compatibilityIndexPresent?"retained":"not required")+"; no files moved or deleted.");
       const result=await reconcileLearnedFiles();
-      if(result?.deferred||result?.failures){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Learning-source retry deferred; receipt kept for a future connection");return;}
+      if(result?.deferred||result?.failures){
+        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Learning-source retry deferred; receipt retained. Attempts "+(result?.attempts||0)+" · recovered "+(result?.recovered||0)+" · unsupported "+(result?.unsupported||0)+" · errors "+(result?.failures||0));
+        return;
+      }
       localStorage.removeItem(key);
-      recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Version "+VERSION+" learning-source retry completed; receipt cleared");
-    }catch(error){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.message||error));}
+      recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Verified "+VERSION+" · attempted "+(result?.attempts||0)+" learned files · recovered "+(result?.recovered||0)+" · still unsupported "+(result?.unsupported||0)+". Originals left untouched unless existing durable intake verified their result.");
+    }catch(error){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.name||"Error")+"; receipt retained, originals unchanged.");}
   }
 
   const folderWatch={timer:null,busy:false,pending:new Map(),lastChecked:"",state:"OFF",message:""};
