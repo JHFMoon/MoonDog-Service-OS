@@ -2165,12 +2165,12 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const known=operating.filter(p=>p.available&&Number.isFinite(p.value));
     const max=Math.max(1,...known.map(p=>Math.max(0,p.value)));
     const date=p=>new Date(p.date+"T12:00:00").toLocaleDateString(undefined,{weekday:"short"}).toUpperCase();
+    const best=known.length?known.reduce((winner,p)=>p.value>winner.value?p:winner):null;
     const bars=points.map(p=>{
       const isOpen=!p.closed, hasResult=isOpen&&p.available&&Number.isFinite(p.value);
       const state=!isOpen?"closed":hasResult?"present":"absent";
-      return `<div class="as-bar ${state}"><b>${!isOpen?"CLOSED":hasResult?compactMoney(p.value):"—"}</b><div><i style="height:${hasResult?Math.max(4,Math.max(0,p.value)/max*100):2}%"></i></div><span>${date(p)}</span></div>`;
+      return `<div class="as-bar ${state}${best&&p.date===best.date?" champion":""}"><b>${!isOpen?"CLOSED":hasResult?compactMoney(p.value):"—"}</b><div><i style="height:${hasResult?Math.max(4,Math.max(0,p.value)/max*100):2}%"></i></div><span>${date(p)}</span></div>`;
     }).join("");
-    const best=known.length?known.reduce((winner,p)=>p.value>winner.value?p:winner):null;
     const missing=Array.isArray(grossWindow?.current?.missingDates)?grossWindow.current.missingDates:[];
     const weekly=Number.isFinite(grossWindow?.current?.total)?`LAST 7 DAYS ${compactMoney(grossWindow.current.total)}`:missing.length?`WAITING FOR ${missing.slice(0,2).map(shortDate).join(", ").toUpperCase()}${missing.length>2?" +MORE":""}`:"WEEKLY TOTAL NOT READY";
     const health=[];
