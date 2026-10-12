@@ -1,11 +1,5 @@
 # Changelog
 
-## 0.10.18-beta.37 — current Beta
-
-- Premium finish for Settings and Meeting Arena. Verified automated Beta; no Workspace migration.
-- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
-
-
 ## 0.10.18-beta.36 — current Beta
 
 - Automatically packaged merged runtime from current main; Stable unchanged.
