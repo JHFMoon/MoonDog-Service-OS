@@ -10,12 +10,13 @@ safe=collections.Counter()
 
 patterns={
     "private_key": re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
-    "provider_token": re.compile(rb"(?i)(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|sk_live_[A-Za-z0-9]{16,})"),
+    "provider_token": re.compile(rb"(?i)(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|xox[baprs]-[0-9A-Za-z-]{20,}|npm_[0-9A-Za-z]{20,}|sk_live_[A-Za-z0-9]{16,}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})"),
     "credential_assignment": re.compile(rb"(?im)^.{0,100}(?:password|client_secret|api[_-]?key|access[_-]?token)\s*[:=]\s*['\"]?[A-Za-z0-9+/=_-]{16,}"),
 }
 email_rx=re.compile(rb"(?i)\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b")
 safe_email_domains={b"users.noreply.github.com",b"example.com",b"example.org",b"example.net"}
 vin_rx=re.compile(rb"\b[A-HJ-NPR-Z0-9]{17}\b")
+ssn_rx=re.compile(rb"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
 restricted_name=re.compile(r"(?i)(?:^|/)(?:customers?|employees?|contacts?|reports?|exports?|repair.orders?|store.data|operational.data|files to learn|drop reports here)(?:/|$)")
 workspace_name=re.compile(r"(?i)(?:^|/)workspace(?:/|$)")
 
@@ -52,6 +53,8 @@ def scan_bytes(data: bytes, label: str):
         safe["known_public_or_synthetic_email"]+=1
     if any(valid_vin(m.group(0)) for m in vin_rx.finditer(data)):
         counts["valid_vin"]+=1
+    if ssn_rx.search(data):
+        counts["ssn_candidate"]+=1
 
 def scan_zip_bytes(data: bytes, source: str, depth: int=0):
     if depth>1:
@@ -107,6 +110,7 @@ for release in releases:
             scan_bytes(str(text).encode(), "release-metadata")
     for asset in release.get("assets") or []:
         name=str(asset.get("name") or "")
+        scan_bytes(name.encode("utf-8","replace"),"release-asset-name")
         if restricted_name.search(name):
             counts["restricted_release_asset_name"]+=1
         with tempfile.TemporaryDirectory(prefix="surface-release-") as td:
@@ -137,6 +141,7 @@ for artifact in artifacts:
         safe["expired_action_artifact"]+=1
         continue
     name=str(artifact.get("name") or "")
+    scan_bytes(name.encode("utf-8","replace"),"action-artifact-name")
     if restricted_name.search(name):
         counts["restricted_action_artifact_name"]+=1
     with tempfile.TemporaryDirectory(prefix="surface-artifact-") as td:
