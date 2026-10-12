@@ -38,7 +38,7 @@ function renderScenario({current = true, week = false, responses = 0, value = 94
   const observations = [21300,215,1.9,91,100];
   const entity = Object.fromEntries(fields.map((field,index)=>[field,observations[index]]));
   return renderer("test",
-    {periodEnd:"2026-10-11", advisors:{test:{}}},
+    {periodEnd:"2026-10-11", validation:{saprDaysVerified:true,finalTotalsVerified:true}, saprDaysCompleted:7, saprTotalDays:23, advisors:{test:{}}},
     entity,
     {configured:true, target:Math.round(67000 + 1000), achieved:false, roundedDaily:3100, remainingDays:15},
     {current:{total:week ? 10200 : null}, prior:{total:week ? 8900 : null}},
@@ -53,8 +53,10 @@ test("30-second TV card displays pace, eight metrics, one action and verified we
   assert.ok(html.includes((68000/1000).toFixed(1)+"K goal"));
   assert.match(html, /\$3,100/);
   assert.match(html, /\$10\.2K/);
-  assert.match(html, /<div class="tv-metrics">/);
+  assert.match(html, /<div class="tv-metrics" data-metric-count="8">/);
   assert.equal((html.match(/class="tv-metric /g)||[]).length,8);
+  assert.match(html, /PERFORMANCE TELEMETRY/);
+  assert.match(html, /RUN RATE/);
   for(const label of ["CP ELR","CP HRS / RO","MEDIA VIEWED","TEXTING","VIR","MENU SHOWN","MENU SOLD","CSI NPS"])assert.ok(html.includes(label),label);
   assert.match(html, /Need 1 more sale/);
   assert.match(html, /BY NEXT MEETING/);
@@ -65,17 +67,19 @@ test("missing weekly data stays small; no surveys are not scored as NPS zero",()
   const html=renderScenario({current:true,week:false,responses:0});
   assert.match(html, /<strong class="pending">PENDING<\/strong>/);
   assert.match(html, /Verified daily history incomplete/);
-  assert.match(html, /0 responses/);
-  assert.match(html, /<strong>—<\/strong><small>0 responses/);
+  assert.match(html, /0 RESPONSES/);
+  assert.doesNotMatch(html, /<span>CSI NPS<\/span>/);
+  assert.match(html, /0 RESPONSES/);
 });
 
 test("stale dependent sources never become falsely verified advisor metrics",()=>{
   const html=renderScenario({current:false,week:false,responses:2});
   assert.match(html, /SAPR through Oct 11/);
-  assert.match(html, /CSI refresh pending/);
+  assert.match(html, /CSI NOT CURRENT/);
   assert.ok(!html.includes("94%"),"stale VIR value must be withheld");
   assert.ok(!html.includes("81%"),"stale menu value must be withheld");
-  assert.ok(!html.includes("215.00"),"stale ELR value must be withheld");
+  assert.ok(html.includes("$215"),"dated, verified SAPR values remain visible when currentness expires");
+  assert.match(html, /Verified through Oct 11/);
 });
 
 test("TV-only markup does not replace compact overview and CSS runtime matches source",()=>{
@@ -128,4 +132,24 @@ test("TV-only CSS never hides the original card unless a new scorecard actually 
   assert.match(css,/\.meeting-v3-advisor>\.advisor-tv\{display:none\}/);
   assert.match(css,/\.meeting-v3-advisor\[data-slide-active="true"\]\.tv-ready>:not\(h3\):not\(\.advisor-tv\)\{display:none!important\}/);
   assert.doesNotMatch(css, /\.meeting-v3-advisor\[data-slide-active="true"\]>:not\(h3\):not\(\.advisor-tv\)\{display:none!important\}/);
+});
+
+test("Overdrive Store fallback displays dated month-to-date only when a strict week is not verified",()=>{
+  const start=app.indexOf("function renderMeetingV3Accurate()");
+  const end=app.indexOf("function decorateMeetingCycle",start);
+  const live=app.slice(start,end);
+  assert.match(live,/renderOverdriveStoreGross\(view, latest, grossWindow\)/);
+  assert.match(app,/classList\.toggle\("overdrive-partial", !weeklyReady\)/);
+  assert.match(app,/7-DAY TOTAL WITHHELD/);
+  assert.match(live,/view\.classList\.toggle\("overdrive-has-voice", Boolean\(voice\.quote\)\)/);
+  assert.doesNotMatch(live,/grossWindow\.current\.points\.reduce\([^)]*sum/);
+});
+test("Overdrive responsive source/runtime design parity remains exact",()=>{
+  assert.match(css,/PROJECT OVERDRIVE \/ PIT WALL/);
+  assert.match(css,/\.tv-metrics\[data-metric-count="3"\]/);
+  assert.match(css,/\.overdrive-store-mtd/);
+  assert.match(css,/prefers-reduced-motion:reduce/);
+  const start="/* BEGIN GENERATED MEETING LAYOUT (see src/meeting-presenter.css) */";
+  const end="/* END GENERATED MEETING LAYOUT */";
+  assert.equal(runtime.split(start)[1].split(end)[0].trim(),css.trim());
 });

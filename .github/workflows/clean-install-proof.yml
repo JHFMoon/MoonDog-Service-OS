@@ -46,6 +46,9 @@ jobs:
       - name: Smoke-test extracted file application
         run: |
           node scripts/smoke_distribution.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
+      - name: Prove 16:9 TV layouts and seven-slide rotation with synthetic data
+        run: |
+          node scripts/smoke_overdrive.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html" ".clean-install-smoke/overdrive-proof"
 
       - name: Upload proof artifact
         uses: actions/upload-artifact@v6
