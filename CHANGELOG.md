@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.18-beta.46 — current Beta
+
+- Recover Edge fullscreen exits by removing risky staging. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.45 — current Beta
+
+- Recover Edge fullscreen exits by removing risky staging. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.44 — current Beta
 
 - Eliminate Arena fullscreen exit repaint stalls. Verified automated Beta; no Workspace migration.

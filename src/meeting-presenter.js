@@ -65,28 +65,18 @@
     if(!state.enabled){state.enabled=true;state.paused=false;state.index=0;}
     state.seconds=setting().seconds;paint();restartTimer();
   }
-  function restoreArenaAfterExit(transition){
-    if(!transition?.staged||transition.releaseScheduled)return;
-    transition.releaseScheduled=true;
-    // Let the browser restore the tab/window geometry before painting the full
-    // high-detail broadcast stage. Do not force synchronous layout reads.
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{
-      transition.view?.classList.remove("arena-exiting-fullscreen");
-      restartTimer();
-      requestAnimationFrame(()=>{
-        transition.restoredMs=Math.round(performance.now()-transition.startedAt);
-      });
-    }));
-  }
   function onFullscreenChange(){
     const transition=state.fullscreenTransition;
     if(transition){
       transition.eventMs=Math.round(performance.now()-transition.startedAt);
       requestAnimationFrame(()=>{
-        if(state.fullscreenTransition===transition)
-          transition.frameMs=Math.round(performance.now()-transition.startedAt);
+        if(state.fullscreenTransition!==transition)return;
+        transition.frameMs=Math.round(performance.now()-transition.startedAt);
+        requestAnimationFrame(()=>{
+          if(state.fullscreenTransition===transition)
+            transition.restoredMs=Math.round(performance.now()-transition.startedAt);
+        });
       });
-      if(transition.kind==="exit"&&!document.fullscreenElement)restoreArenaAfterExit(transition);
     }
     syncFullscreenLabel();
   }
@@ -129,30 +119,21 @@
         if(help){help.hidden=true;help.textContent="";}
         try{
           if(document.fullscreenElement){
-            const transition=state.fullscreenTransition;
-            transition.staged=true;
-            transition.view=current;
+            // The previous staging workaround triggered Edge renderer hangs.
+            // Exit directly; do not hide or reconstitute expensive slide DOM.
             stopTimer();
-            current.classList.add("arena-exiting-fullscreen");
-            // Commit the lightweight exit surface BEFORE asking Edge to resize
-            // the monitor window. exitFullscreen does not need a user gesture.
-            await new Promise(resolve=>requestAnimationFrame(resolve));
-            if(document.fullscreenElement)await document.exitFullscreen();
-            restoreArenaAfterExit(transition);
+            await document.exitFullscreen();
           }else if(!document.fullscreenEnabled)throw new Error("fullscreen unavailable");
           else await current.requestFullscreen();
         }catch(_){
-          const transition=state.fullscreenTransition;
-          transition.failed=true;
-          transition.view?.classList.remove("arena-exiting-fullscreen");
-          restartTimer();
+          state.fullscreenTransition.failed=true;
           // A Split Screen pane or browser policy can deny fullscreen.
           // Never leave the manager with a silent button.
           if(help){
             help.textContent="Full screen was blocked by Edge. Exit Split Screen or try F11.";
             help.hidden=false;
           }
-        }finally{button.disabled=false;button.removeAttribute("aria-busy");syncFullscreenLabel();}
+        }finally{button.disabled=false;button.removeAttribute("aria-busy");syncFullscreenLabel();restartTimer();}
       });
       host.prepend(controls);
     }
