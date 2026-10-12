@@ -2022,7 +2022,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function signedValue(value, type = "number") { if (!Number.isFinite(value)) return "CHANGE UNAVAILABLE"; const sign = value > 0 ? "+" : value < 0 ? "−" : ""; const absolute = Math.abs(value); return type === "money" ? `${sign}${compactMoney(absolute)}` : `${sign}${Number.isInteger(absolute) ? absolute : absolute.toFixed(1)}`; }
   function meetingMetricComparison(key, current) { const baseline = model.meetingCycle?.metrics?.[key], valid = model.meetingCycle?.cycleStart === meetingCycleInfo().cycleStart && baseline && current && baseline.period === current.period && Number.isFinite(baseline.value) && Number.isFinite(current.value); return { previous: valid ? baseline.value : null, change: valid ? current.value - baseline.value : null }; }
   function meetingRangeLabel(endDate) { if (!endDate) return "WAITING FOR VERIFIED SAPR"; return `${shortDate(freshness.addDays(endDate,-6))} – ${shortDate(endDate)}, ${endDate.slice(0,4)}`; }
-  function ensureMeetingV3Shell() { const view = document.querySelector("#view-meeting"), fullscreen = ui.meetingFullscreen; if (!view.classList.contains("meeting-scoreboard")) { view.className = "view meeting-view meeting-v3 meeting-scoreboard"; view.replaceChildren(); view.innerHTML = `<header class="meeting-scoreboard-head"><div><h2>TEAM <em>LIVE</em></h2><span>SERVICE TEAM PERFORMANCE</span></div><div class="meeting-scoreboard-period"><strong id="meetingV3Range">WAITING FOR VERIFIED SAPR</strong><span>LAST 7 DAYS</span><small id="meetingV3Freshness">WAITING FOR VERIFIED SOURCES</small></div><div class="meeting-scoreboard-actions"></div></header><section class="meeting-team-story"><article class="meeting-gross-story"><span>TEAM SCOREBOARD</span><strong id="meetingV3Gross">—</strong><small>CLOSED GROSS</small><p id="meetingV3GrossPrior">PRIOR 7 DAYS UNAVAILABLE</p><b id="meetingV3GrossChange">CHANGE UNAVAILABLE</b></article><article class="meeting-daily-story"><span>DAILY RESULTS</span><div id="meetingV3Daily" class="meeting-daily-bars"></div></article><article class="meeting-health-story"><span>TEAM HIGHLIGHTS</span><div id="meetingV3Team" class="meeting-health-grid"></div></article></section><section class="meeting-scoreboard-advisors" id="meetingV3Advisors"></section><section class="meeting-scoreboard-voice"><div><span id="meetingV3VoiceLabel">CUSTOMER VOICE</span><small>REAL FEEDBACK · REAL IMPACT</small></div><strong id="meetingV3Quote">“A CUSTOMER VOICE MOMENT WILL APPEAR WHEN A QUALIFYING RESPONSE IS AVAILABLE.”</strong></section><footer class="meeting-action-band"><article><span>OUR MOMENTUM</span><div id="meetingV3Momentum"></div></article><article><span>WHAT NEEDS WORK</span><div id="meetingV3Focus"></div></article><article><span>TEAM CHALLENGE</span><div id="meetingV3Next"></div></article></footer>`; view.querySelector(".meeting-scoreboard-actions").append(fullscreen); } return view; }
+  function ensureMeetingV3Shell() { const view = document.querySelector("#view-meeting"), fullscreen = ui.meetingFullscreen; if (!view.classList.contains("meeting-scoreboard")) { view.className = "view meeting-view meeting-v3 meeting-scoreboard"; view.replaceChildren(); view.innerHTML = `<header class="meeting-scoreboard-head"><div><h2>SERVICE <em>ARENA</em></h2><span>WEEKLY TEAM PERFORMANCE</span></div><div class="meeting-scoreboard-period"><strong id="meetingV3Range">WAITING FOR VERIFIED SAPR</strong><span>LAST 7 DAYS</span><small id="meetingV3Freshness">WAITING FOR VERIFIED SOURCES</small></div><div class="meeting-scoreboard-actions"></div></header><section class="meeting-team-story"><article class="meeting-gross-story"><span>TEAM SCOREBOARD</span><strong id="meetingV3Gross">—</strong><small>CLOSED GROSS</small><p id="meetingV3GrossPrior">PRIOR 7 DAYS UNAVAILABLE</p><b id="meetingV3GrossChange">CHANGE UNAVAILABLE</b></article><article class="meeting-daily-story"><span>DAILY RESULTS</span><div id="meetingV3Daily" class="meeting-daily-bars"></div></article><article class="meeting-health-story"><span>TEAM HIGHLIGHTS</span><div id="meetingV3Team" class="meeting-health-grid"></div></article></section><section class="meeting-scoreboard-advisors" id="meetingV3Advisors"></section><section class="meeting-scoreboard-voice"><div><span id="meetingV3VoiceLabel">CUSTOMER VOICE</span><small>REAL FEEDBACK · REAL IMPACT</small></div><strong id="meetingV3Quote">“A CUSTOMER VOICE MOMENT WILL APPEAR WHEN A QUALIFYING RESPONSE IS AVAILABLE.”</strong></section><footer class="meeting-action-band"><article><span>OUR MOMENTUM</span><div id="meetingV3Momentum"></div></article><article><span>WHAT NEEDS WORK</span><div id="meetingV3Focus"></div></article><article><span>TEAM CHALLENGE</span><div id="meetingV3Next"></div></article></footer>`; view.querySelector(".meeting-scoreboard-actions").append(fullscreen); } return view; }
 
   // Advisor-facing 30-second scorecard. Values come from verified imported sources;
   // unavailable data stays unavailable rather than becoming zero or an invented goal.
@@ -2083,7 +2083,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const configured=Number.isFinite(target)&&target>0;
     const status=stale?"past":!configured?"neutral":value>=target?"good":"low";
     const gap=configured&&value<target ? (kind==="percent"?Number((target-value).toFixed(1))+" POINTS TO GO":fmt(Number((target-value).toFixed(2)),kind)+" TO GO"):"";
-    metrics.push({label,value:fmt(value,kind),status,detail:stale?"UPDATED "+shortDate(date):gap|| (configured?"GOAL MET":"UPDATED "+(date?shortDate(date):asOf)),delta:configured?(value-target)/target:null});
+    metrics.push({label,value:fmt(value,kind),status,detail:stale?"UPDATED "+shortDate(date).toUpperCase():gap|| (configured?"GOAL MET":"TARGET NOT SET · "+(date?"UPDATED "+shortDate(date).toUpperCase():asOf.toUpperCase())),delta:configured?(value-target)/target:null});
   };
   metric("LABOR RATE",entity?.cpElr,standard("cpElr"),"money",verified,false,end);
   metric("HOURS PER VISIT",entity?.cpHours,standard("cpHoursPerRo"),"dec",verified,false,end);
@@ -2115,11 +2115,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   const difference=Number.isFinite(forecast)&&target?forecast-target:null;
   const ahead=difference===null?"unknown":difference>=0?"ahead":"behind";
   const missing=Array.isArray(week?.current?.missingDates)?week.current.missingDates:[];
-  // A verified MTD snapshot can support a run-rate estimate even when the seven-day chart is incomplete.
-  // Label the forecast as an estimate and disclose the unrelated weekly coverage gap separately.
+  // A verified MTD snapshot supports a run-rate estimate even when the seven-day chart is incomplete.
+  // Label the forecast as an estimate; place the weekly coverage warning only in the weekly line.
   const status=difference===null?"MONTHLY OUTLOOK":difference>=0?"ON PACE":"NEEDS A STRONGER FINISH";
   const statusSub=difference===null?"PROJECTION NOT READY":`${compactMoney(forecast)} PROJECTED (EST.) · ${compactMoney(Math.abs(difference))} ${difference>=0?"ABOVE":"BELOW"} GOAL`;
-  const coverageNote=Number.isFinite(forecast)&&missing.length?`7-DAY VIEW INCOMPLETE · WAITING FOR ${missing.slice(0,2).map(shortDate).join(", ").toUpperCase()}${missing.length>2?" +MORE":""}`:"";
   const daily=goal?.configured&&Number.isFinite(goal.roundedDaily)?performanceFormat(goal.roundedDaily,"money"):goal?.achieved?"GOAL REACHED":"—";
   const weekNum=Number.isFinite(week?.current?.total)?compactMoney(week.current.total):null;
   const weekLabel=weekNum?"LAST 7 DAYS: "+weekNum:missing.length?"LAST 7 DAYS: WAITING FOR "+missing.slice(0,2).map(shortDate).join(", ").toUpperCase()+(missing.length>2?" +MORE":""):"LAST 7 DAYS: NOT READY";
@@ -2134,7 +2133,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       <div class="aa-money">${Number.isFinite(gross)?compactMoney(gross):"—"}</div>
       <div class="aa-goal"><b>${pct===null?"LATEST NUMBERS PENDING":pct+"% OF MONTHLY GOAL"}</b><span>${target?"GOAL "+compactMoney(target):"MONTHLY GOAL NOT SET"}</span></div>
       <div class="aa-race-line"><i style="width:${fill}%"></i><b></b></div>
-      <div class="aa-race-caption">${status}<small>${statusSub}</small>${coverageNote?`<small class="aa-confidence">${meetingEscape(coverageNote)}</small>`:""}</div>
+      <div class="aa-race-caption">${status}<small>${statusSub}</small></div>
     </div>
     <div class="aa-target">
       <div class="aa-circle">
@@ -2147,8 +2146,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
    </div>
    <div class="aa-bottom">
       <div class="aa-pulse">
-        ${strip(best.length?"WINNING":"YOUR NUMBERS","good",best.length?best:others,"NEW RESULTS COMING SOON")}
-        ${strip("ROOM TO GROW","low",gaps,gaps.length?"":"NO CURRENT GOAL GAPS")}
+        ${strip(best.length?"WINNING":others.length?"UNSCORED":"WINNING",best.length?"good":"neutral",best.length?best:others,best.length?"NEW RESULTS COMING SOON":"NO VERIFIED GOALS MET")}
+        ${strip("ROOM TO GROW","low",gaps,gaps.length?"":metrics.some(m=>m.status==="good"||m.status==="low")?"NO CURRENT GOAL GAPS":"TARGETS NOT CONFIGURED")}
         ${strip("LAST REPORTED","past",past,past.length?"":"UPDATES ARE CURRENT")}
       </div>
       <div class="aa-next"><span>NEXT WIN <i>↗</i></span><strong>${label}</strong><div><b>${measure}</b><small>${next?.achieved?"GOAL ACHIEVED":"BY NEXT MEETING"}</small></div></div>
@@ -2193,8 +2192,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       health.push({label:"MENUS SHOWN",value:Math.round(menu.presentation)+"%",status:"UPDATED "+shortDate(menuUpdated)});
     }
     // A newer-dated menu file must not masquerade as an October 5-11 achievement.
-    if(menuAfterPeriod&&health.length<2)health.push({label:"MENUS SHOWN",value:"—",status:"REPORT DATED "+shortDate(menuDate).toUpperCase()+" · AFTER PERIOD"});
-    const signal=health.slice(0,2).map(h=>`<span class="as-signal"><b>${h.label}</b><strong>${h.value}</strong><small>${h.status}</small></span>`).join("");
+    if(menuAfterPeriod&&health.length<2)health.push({label:"MENU REPORT",value:null,pending:true,status:"DATED "+shortDate(menuDate).toUpperCase()+" · PERIOD NOT CONFIRMED"});
+    const signal=health.slice(0,2).map(h=>`<span class="as-signal${h.pending?" pending":""}"><b>${meetingEscape(h.label)}</b>${h.pending?"":`<strong>${meetingEscape(String(h.value))}</strong>`}<small>${meetingEscape(h.status)}</small></span>`).join("");
     const opportunity=sourceFreshness("sapr").safeForCurrent?storeMeetingNextOpportunity(latest):null;
     const challenge=opportunity?meetingEscape(String(opportunity.label||"NEXT OPPORTUNITY").toUpperCase()):"NEXT TEAM WIN";
     const target=opportunity&&Number.isFinite(opportunity.needed)&&opportunity.needed>0?`${opportunity.needed} MORE ${opportunity.needed===1?"SALE":"SALES"}`:
