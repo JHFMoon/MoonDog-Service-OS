@@ -3016,6 +3016,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     if(kind.sourceId){
       const rule=pasteRules().find(r=>r.id===kind.sourceId);
+      if(!rule)return{kind,detected:0,valid:0,issues:[],
+        warnings:["A reviewed source adapter recognized this text, but no approved extractor or operational destination is enabled."],
+        scope:"Recognition only",canCommit:false};
       const result=engine.tablePreview(text,rule);
       return{kind,detected:result.rows.length+result.issues.length,valid:result.rows.length,
         issues:result.issues.map(x=>"Row "+x.row+": "+x.reason),warnings:["Recognized layout only. No operational destination is authorized."],
