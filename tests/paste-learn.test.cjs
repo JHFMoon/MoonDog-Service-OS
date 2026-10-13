@@ -95,3 +95,47 @@ test("reviewed secondary source adapter can be registered without operational wr
  assert.equal(match.writeEnabled,false);
  assert.throws(()=>e.registerAdapter({id:"synthetic-checklist",name:"Another",detect:()=>true}),/duplicate/);
 });
+
+test("partial clipboard commit keeps missing active ROs and every manual management field",async()=>{
+ const begin=app.indexOf("  async function commitPasteLearning("),end=app.indexOf("  async function savePasteLearningRule(",begin);
+ const commit=app.slice(begin,end);
+ const root={name:"Synthetic Workspace"},management={status:"Waiting Parts",owner:"Advisor",nextAction:"Order sensor",reviewDate:"2026-10-14",note:"Important management note"};
+ const prior={id:"ro-123456-00000186",ro:"123456",vin:"1HGBH41JXMN109186",customer:"Synthetic",
+   sourceStatus:"Pending",advisorCode:"110",management};
+ const missing={id:"ro-123457-00000186",ro:"123457",vin:"1HGBH41JXMN109186",
+   management:{status:"Waiting Approval",nextAction:"Follow up"}};
+ const incoming={...prior,sourceStatus:"Working",customer:"Synthetic",management:undefined};
+ const model={root,state:{updatedAt:"before",records:[prior,missing],closedRecords:[],source:{fileName:"Verified Complete Snapshot",importedAt:"verified"}}};
+ let writes=0,backups=0,history=0,workloadWrites=0,rendered=0;
+ const preview={nonce:"reviewed",root,updatedAt:"before",priorIds:model.state.records.map(x=>x.id).join("|"),
+   parsed:{records:[incoming]},diff:{errors:[],counts:{new:0,updated:1,unchanged:0}}};
+ const cx={model,pastePreview:preview,pasteCommitBusy:false,writeAuthority:{requireWrite:()=>{}},
+   pasteDiff:()=>({errors:[]}),now:()=>new Date().toISOString(),backupState:async()=>backups++,
+   writeJson:async()=>writes++,addHistory:async()=>history++,markSupervisorWorkbookStale:async()=>{},
+   renderAll:()=>rendered++,defaultManagementFor:()=>({}),operationalStatusFromImport:()=>null,
+   recordDiagnostic:()=>{},STATE_PATH:["data","current-state.json"]};
+ vm.runInNewContext(commit+"\nthis.commit=commitPasteLearning",cx);
+ const outcome=await cx.commit("reviewed");
+ assert.equal(outcome.missingClosed,0);assert.equal(backups,1);assert.equal(writes,1);
+ assert.equal(model.state.records.length,2);
+ assert.equal(model.state.records.find(x=>x.ro==="123457").management.nextAction,"Follow up");
+ assert.equal(model.state.records.find(x=>x.ro==="123456").management,management);
+ assert.equal(model.state.source.fileName,"Verified Complete Snapshot","partial import must not advance verified source");
+ assert.equal(history,1);assert.equal(rendered,1);assert.equal(workloadWrites,0);
+});
+test("stale preview and failed durable writes cannot report success",async()=>{
+ const begin=app.indexOf("  async function commitPasteLearning("),end=app.indexOf("  async function savePasteLearningRule(",begin);
+ const source=app.slice(begin,end),root={name:"Synthetic"},model={root,state:{updatedAt:"old",records:[],closedRecords:[]}};
+ const cx={model,pastePreview:{nonce:"nonce",root,updatedAt:"old",priorIds:"",parsed:{records:[{ro:"123456",id:"x"}]},diff:{errors:[]}},
+ pasteCommitBusy:false,pasteDiff:()=>({errors:[]}),now:()=>new Date().toISOString(),
+ writeAuthority:{requireWrite:()=>{}},backupState:async()=>{},
+ writeJson:async()=>{throw Error("Read-back failed");},defaultManagementFor:()=>({status:"",nextAction:""}),
+ operationalStatusFromImport:()=>null,STATE_PATH:["data","current-state.json"]};
+ vm.runInNewContext(source+"\nthis.commit=commitPasteLearning",cx);
+ model.state.updatedAt="new";
+ await assert.rejects(()=>cx.commit("nonce"),/changed/);
+ model.state.updatedAt="old";
+ await assert.rejects(()=>cx.commit("nonce"),/Read-back failed/);
+ assert.equal(model.state.updatedAt,"old");
+ assert.equal(model.state.records.length,0);
+});
