@@ -357,6 +357,12 @@
     if(await permission(handle,false)!=="granted")return {status:"permission-needed"};
     const fileHandle=await handle.getFileHandle(MOBILE_FILENAME,{create:true});
     const bytes=new TextEncoder().encode(html);
+    // Skip identical OneDrive writes but retain read-back after changed writes.
+    try{
+      const prior=new Uint8Array(await(await fileHandle.getFile()).arrayBuffer());
+      if(prior.length===bytes.length&&prior.every((value,index)=>value===bytes[index]))
+        return {status:'published',unchanged:true,fileName:MOBILE_FILENAME,bytes:bytes.length,folder:handle.name||''};
+    }catch(error){if(error.name!=='NotFoundError')throw error;}
     let writable;
     try{writable=await fileHandle.createWritable();await writable.write(bytes);await writable.close();}
     catch(error){try{await writable?.abort?.();}catch(_){}throw error;}
@@ -489,11 +495,24 @@
     items.push(...engine.coachingTasks(api.latestSapr(),api.advisors(),model.settings.performanceStandards,globalThis.__moondogFreshness.sourceFreshness('sapr',{today:day}).safeForCurrent,day));
     return items;
   }
-  async function loadHistory(){
+  async function loadHistory(includeAll=false,searchToken=null){
     const entries=await api.readEntries('data/history'),events=[];
-    for(const {name,handle} of entries)if(name.endsWith('.json')){try{events.push(JSON.parse(await(await handle.getFile()).text()));}catch(error){if(error.name!=='SyntaxError')throw error;}}
+    // Daily priorities need only daily-task events; full history is loaded on
+    // demand for search, not during every workspace connection.
+    const relevant=entries.filter(({name})=>name.endsWith('.json')&&(includeAll||name.startsWith('daily-')));
+    for(let i=0;i<relevant.length;i+=12){
+      if(searchToken!==null&&searchToken!==state.searchToken)return false;
+      const batch=await Promise.all(relevant.slice(i,i+12).map(async({handle})=>{
+        try{return JSON.parse(await(await handle.getFile()).text());}
+        catch(error){if(error.name==='SyntaxError')return null;throw error;}
+      }));
+      events.push(...batch.filter(Boolean));
+      if(i+12<relevant.length)await new Promise(resolve=>setTimeout(resolve,0));
+    }
+    if(searchToken!==null&&searchToken!==state.searchToken)return false;
     events.sort((a,b)=>String(a.at).localeCompare(String(b.at))||String(a.id).localeCompare(String(b.id)));
     state.history=events;state.events=events.filter(e=>e.type==='daily-task');
+    return true;
   }
   async function log(action,task,extra={}){
     const event=await api.event({action,taskId:task.id,taskType:task.type,advisor:task.advisor||'',recordId:task.recordId||'',day:today(),hour:businessHour(),rank:task.rank,fingerprint:task.fingerprint,...extra});
@@ -655,6 +674,7 @@
     const day=today(),currentPhase=engine.phase(now());if(state.operatingDate===day&&state.selectedPhase===currentPhase)return;
     if(state.operatingDate===day&&state.editing)return;
     state.operatingDate=day;
+    queueMobilePublish(1000);
     if(state.editing){state.pending=true;const target=$('dailyChanged');if(target)target.hidden=false;return;}
     await action(selectNext);
   }
@@ -1085,7 +1105,8 @@
     function paint(loading=false){if(token!==state.searchToken)return;host.replaceChildren();const count=document.createElement('p');count.textContent=`${results.length} result${results.length===1?'':'s'}${loading?' · Searching saved history…':''}`;host.append(count);for(const item of results){const row=button(item.label,()=>{host.hidden=true;item.open();},'find-result');const detail=document.createElement('small');detail.textContent=item.detail;row.append(detail);host.append(row);}state.searchResults=results;}
     paint(Boolean(model.root));if(!model.root)return;
     try{
-      await loadHistory();for(const event of state.history)if(matches(event,q))add(`history:${event.id}`,`${event.summary||event.type} · ${String(event.at).slice(0,10)}`,'Saved activity',()=>showReadOnly('Saved activity',event));
+      if(!await loadHistory(true,token))return;
+      for(const event of state.history)if(matches(event,q))add(`history:${event.id}`,`${event.summary||event.type} · ${String(event.at).slice(0,10)}`,'Saved activity',()=>showReadOnly('Saved activity',event));
       for(const {name,handle} of await api.readEntries('backups')){if(token!==state.searchToken)return;if(!name.endsWith('.json'))continue;let value;try{value=JSON.parse(await(await handle.getFile()).text());}catch(_){continue;}for(const r of value.records||[])addRo(r,true,name);}
       paint();
     }catch(error){paint();const p=document.createElement('p');p.textContent='Some saved files could not be searched. Check folder access and try again.';host.append(p);}
@@ -1114,9 +1135,16 @@
     if(e.detail.origin!=='home'&&!state.busy){state.pending=true;if(!state.editing)action(selectNext);}
   });
   // Automatic intake completion is an allowed boundary, but never replaces a draft.
-  const observer=new MutationObserver(()=>{if($('status').classList.contains('success'))refreshCurrent();});observer.observe($('status'),{childList:true,attributes:true});
+  let statusRefreshQueued=false;
+  const observer=new MutationObserver(()=>{
+    if(statusRefreshQueued||!$('status').classList.contains('success'))return;
+    statusRefreshQueued=true;
+    queueMicrotask(()=>{statusRefreshQueued=false;refreshCurrent();});
+  });
+  observer.observe($('status'),{childList:true,attributes:true,attributeFilter:['class']});
   setInterval(checkOperatingDate,30000);
-  const mobileHeartbeat=setInterval(()=>queueMobilePublish(1000),300000);mobileHeartbeat?.unref?.();
+  // Publish only on data changes and date rollover; the old five-minute
+  // heartbeat rewrote timestamp-only mobile pages to OneDrive.
   window.addEventListener('focus',checkOperatingDate);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkOperatingDate();});
   installThemeToggle();installShell();renderHome();ready();queueMobilePublish(3500);
