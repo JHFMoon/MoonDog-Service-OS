@@ -1303,3 +1303,38 @@ html[data-theme="dark"] body.daily-operating .daily-report-summary,html[data-the
 html[data-theme="dark"] body.daily-operating .daily-report-explanation,html[data-theme="dark"] body.daily-operating .daily-report-source,html[data-theme="dark"] body.daily-operating .daily-report-details{color:#d2e5ee}
 html[data-theme="dark"] body.daily-operating .daily-report-state{color:#b4e6f2}
 @media(max-width:700px){#dailyTools[data-category="imports"]{max-width:100%}.daily-source-row{padding:12px}.daily-report-primary{flex-direction:column;align-items:stretch!important}.daily-source-row button.daily-report-import{width:100%}.daily-report-toolbar>.daily-primary{width:100%}}
+
+
+/* Paste & Learn — local-only responsive intake */
+#dailyTools[data-category="paste"]{max-width:1040px;width:100%;margin:22px auto}
+#dailyTools[data-category="paste"] .daily-tool-choices{display:flex;flex-direction:column;gap:12px;min-width:0}
+#dailyTools[data-category="paste"] label{font-weight:700}
+#dailyPasteInput{display:block;min-width:0;width:100%;min-height:185px;max-height:440px;resize:vertical;
+  font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;border:1px solid #597789;border-radius:10px;
+  background:var(--panel,#132736);color:inherit;padding:14px;tab-size:4}
+#dailyPasteInput:focus-visible{outline:3px solid #32a7cb;outline-offset:2px}
+.daily-paste-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.daily-paste-controls button{min-width:95px;max-width:100%}
+.daily-paste-progress{display:flex;flex-direction:column;gap:8px;padding:12px 0;min-width:0}
+.daily-paste-progress progress{display:block;width:100%;height:18px;accent-color:#328fa9}
+.daily-paste-status{line-height:1.5;padding:6px 0;min-height:34px;overflow-wrap:break-word}
+.daily-paste-preview,.daily-paste-lessons{min-width:0;width:100%;max-width:100%;overflow-wrap:break-word}
+.daily-paste-preview:not(:empty),.daily-paste-lessons:not(:empty){
+  padding:16px;border:1px solid #4d6e81;border-radius:12px;margin:10px 0}
+.daily-paste-preview h3,.daily-paste-lessons h3{font-size:18px;margin:0 0 10px}
+.daily-paste-preview ul,.daily-paste-preview ol{padding-left:22px;line-height:1.5}
+.daily-paste-preview li{margin:4px 0}
+.daily-paste-preview summary,.daily-paste-rule-manager summary{cursor:pointer;font-weight:700;padding:9px 0}
+.daily-paste-error{color:#e69c9c;font-weight:600}
+.daily-paste-success{color:#83cfac;font-weight:700}
+.daily-paste-mappings{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:10px}
+.daily-paste-mappings label{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px}
+.daily-paste-mappings select{width:100%;min-width:0;max-width:100%}
+.daily-paste-lessons input{display:block;width:min(100%,440px);max-width:100%;margin:8px 0;padding:10px}
+.daily-paste-rule{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #486274}
+.daily-paste-rule p{flex:1;min-width:165px}
+html[data-theme="light"] #dailyPasteInput{background:#fff;color:#132335;border-color:#617689}
+html[data-theme="light"] .daily-paste-error{color:#922d32}
+html[data-theme="light"] .daily-paste-success{color:#12613d}
+@media(max-width:700px){#dailyTools[data-category="paste"]{max-width:100%}.daily-paste-controls button{flex:1 1 140px}
+ .daily-paste-preview,.daily-paste-lessons{padding:11px!important}}
