@@ -70,7 +70,7 @@ test('Home RO completion respects the configured store calendar, not a hardcoded
   const at=Date.parse('2026-10-13T13:00:00Z'); // Oct 14 in Auckland, Oct 13 in Los Angeles
   const context=vm.createContext({Date,Intl,MoonDogFreshness:{
     DEFAULT_TIME_ZONE:'Pacific/Auckland',
-    dateKey:(date,zone)=>new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date).split('/').reverse().join('-')
+    dateKey:(date,zone)=>{const p=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date).map(x=>[x.type,x.value]));return p.year+'-'+p.month+'-'+p.day;}
   },__moondogSettingsModel:{settings:{store:{timeZone:'Pacific/Auckland'}}}});
   vm.runInContext(read('assets/daily-engine.js'),context);
   const task={id:'ro:abc',type:'ro',rank:4,fingerprint:'same',record:{management:{reviewDate:'2026-10-14'}}};
