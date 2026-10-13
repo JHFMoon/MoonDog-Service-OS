@@ -76,7 +76,7 @@ test('publisher writes only the fixed MoonDog mobile filename and verifies exact
       write:async bytes=>{written=new Uint8Array(bytes);},
       close:async()=>{}
     }),
-    getFile:async()=>({arrayBuffer:async()=>written.buffer.slice(written.byteOffset,written.byteOffset+written.byteLength)})
+    getFile:async()=>({arrayBuffer:async()=>written?written.buffer.slice(written.byteOffset,written.byteOffset+written.byteLength):new ArrayBuffer(0)})
   };
   const folder={
     name:'Private Site Pages',

@@ -6,11 +6,11 @@ APP=(Path(__file__).resolve().parents[1]/"assets"/"app.js").read_text(encoding="
 
 class LearnedFileRetryTests(unittest.TestCase):
     def test_unreadable_files_hold_followup_receipt(self):
-        segment=APP.split("async function reconcileLearnedFiles()",1)[1].split("async function runVerifiedUpdateFollowup()",1)[0]
+        segment=APP.split("async function reconcileLearnedFiles(",1)[1].split("async function runVerifiedUpdateFollowup()",1)[0]
         self.assertIn('handle.getFile()', segment)
         self.assertIn('catch (error) { failures++; recordDiagnostic("FILES TO LEARN",', segment)
         self.assertNotIn('} catch (_) {} }', segment)
-        self.assertIn('return {failures,attempts,recovered,unsupported};', segment)
+        self.assertIn('return {failures,attempts,recovered,unsupported,skipped};', segment)
 
     def test_retry_receipt_is_only_cleared_on_success(self):
         segment=APP.split("async function runVerifiedUpdateFollowup()",1)[1].split("const folderWatch=",1)[0]
