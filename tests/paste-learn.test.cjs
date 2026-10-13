@@ -182,7 +182,7 @@ test("Clipboard commit classifies unchanged rows using the same verified diff as
  const diff=app.slice(a,b);
  const c=app.slice(app.indexOf("  async function commitPasteLearning("),app.indexOf("  async function savePasteLearningRule("));
  assert.match(diff,/kind:!prior\?"new":fieldChanges\.length\?"updated":"unchanged"/);
- assert.match(c,/const approvedChanges=new Map\(rechecked\.changes\.map/);
+ assert.match(c,/const approvedChanges=new Map\(\(rechecked\.changes\|\|\[\]\)\.map/);
  assert.match(c,/if\(prior&&approved\.kind==="unchanged"\)/);
  assert.match(c,/unchanged\.push\(raw\.ro\)/);
  assert.match(c,/else changed\.push\(previous\)/);
