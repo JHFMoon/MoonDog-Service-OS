@@ -369,6 +369,9 @@
     const info=reportCadenceEvidence(key,todayKey);
     const mode=info.value;
     if(['unavailable','on-demand','irregular'].includes(mode))return false;
+    // Unknown observed cadence is not proof that an optional report
+    // publishes every operating day. Required SAPR/CSI retain their rules.
+    if(mode==='auto')return ['sapr','csi','openRo','appointments'].includes(key);
     if(mode==='weekly'){
       if(info.automatic){
         if(!info.lastObserved)return true;
@@ -383,7 +386,9 @@
         if(!info.lastObserved)return true;
         return freshness.addDays(info.lastObserved,28)<=todayKey;
       }
-      return Number(todayKey.slice(8,10))>=Number(info.releaseDay);
+      const release=Math.max(1,Math.min(Number(info.releaseDay)||1,
+        Number(freshness.lastDayOfMonth(todayKey.slice(0,7)).slice(-2))));
+      return Number(todayKey.slice(8,10))>=release;
     }
     return true;
   }
@@ -414,11 +419,20 @@
         currentSnapshot:key==='openRo'&&Boolean(activeWorkloadSnapshot(todayKey)),
         arrivalPlanning:key==='appointments'&&(review==='arrivals'||(parts?.hour??0)<13),
         activeFeature,soonFeature,legacyUnsafe,cumulativeStart:validCoverageDate(model.settings.csiPeriodStart)});
+      // Monday Menu Sales is expected, but without verified publication
+      // evidence the dashboard cannot claim the release is already overdue.
+      if(key==='menu'&&freshness.dayOfWeek(todayKey)===1&&
+          !evidence.safeForCurrent&&out[key].state==='NEED NOW'){
+        out[key]={...out[key],state:'AWAITING RELEASE',actionable:false,actions:[],
+          reason:'Monday release expected. Confirm it is published before importing; earlier weekly gaps remain in history.'};
+      }
       // Never hide safety-critical Open RO/arrivals. For dated trend sources,
       // preserve the gaps but wait until the report is actually expected.
+      // An actively selected management feature may legitimately need a
+      // current report even when normal source publication cadence is unknown.
       if(!['openRo','appointments'].includes(key)&&
           ['NEED NOW','NEED SOON'].includes(out[key].state)&&
-          !reportCadenceDue(key,todayKey)){
+          !activeFeature&&!soonFeature&&!reportCadenceDue(key,todayKey)){
         out[key]={...out[key],state:'AWAITING RELEASE',actionable:false,
           actions:[],reason:'Report is not scheduled as available yet. Missing dates remain unfilled.'};
       }
