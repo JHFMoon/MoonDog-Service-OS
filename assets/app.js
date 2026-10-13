@@ -2561,7 +2561,23 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   const renderSettingsWithValidAdvisors=renderSettings;renderSettings=function(){renderSettingsWithValidAdvisors();ui.advisorSettingsList.querySelectorAll("[data-advisor-setting]").forEach((row)=>{const code=row.dataset.advisorSetting,advisor=model.settings.advisors?.[code];if(!validAdvisorIdentity(code,advisor?.name)){row.remove();return;}const name=row.querySelector("strong");if(name)name.textContent=advisorDisplayName(code,advisor);});};
   const SETUP_SOURCES={csi:["CSI","Dealer and advisor NPS plus Customer Voice"],vir:["VIR","Store and advisor VIR utilization"],menu:["Menu Sales","Menu Presentation and Menu Penetration"],nextAppointments:["Next Appointments","Appointment follow-up activity"],mediaAsr:["Media ASR","Media Viewed and shop execution"],efficiency:["Efficiency","Technician and shop efficiency"],sor:["SOR","Manager financial and parts context"],openRoSummary:["Aggregate WIP","Store and advisor WIP context"]};
   function hasSourceFamily(key){return sourceFreshness(key).loaded;}
-  let meetingNavigationTicket=0;
+  // Keep calculated Meeting and Performance views while the verified source data
+  // remains unchanged. Navigation should switch screens, not reconstruct reports.
+  let meetingNavigationTicket=0, navigationDataRevision=0;
+  let meetingRenderedRevision=-1, performanceRenderedRevision=-1;
+  function invalidateNavigationRenders(){navigationDataRevision++;}
+  const renderMeetingBeforeNavigationReuse=renderMeeting;
+  renderMeeting=function(...args){
+    const output=renderMeetingBeforeNavigationReuse(...args);
+    meetingRenderedRevision=navigationDataRevision;
+    return output;
+  };
+  const renderPerformanceBeforeNavigationReuse=renderPerformance;
+  renderPerformance=function(...args){
+    const output=renderPerformanceBeforeNavigationReuse(...args);
+    performanceRenderedRevision=navigationDataRevision;
+    return output;
+  };
   function navigateTo(view,anchor=""){const button=document.querySelector(`.nav-item[data-view="${view}"]`);if(!button)return;
     document.querySelectorAll(".nav-item").forEach((item)=>{item.classList.remove("active");item.removeAttribute("aria-current");});
     document.querySelectorAll(".view").forEach((item)=>item.classList.remove("active"));
@@ -2571,19 +2587,31 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const ticket=++meetingNavigationTicket;
     if(view==="open-ro")renderTable();
     if(view==="arrivals")renderArrivals();
-    if(view==="performance")renderPerformance();
-    if(view==="meeting"){
-      // Draw the lightweight header immediately. Give Edge one frame to size the pane
-      // before building the heavy, source-verified report; don't rebuild it at startup.
-      ensureMeetingV3Shell();
+    if(view==="performance"&&performanceRenderedRevision!==navigationDataRevision){
+      // Let the navigation paint before expensive report work, and abandon
+      // stale callbacks when a different tab is selected in the meantime.
       requestAnimationFrame(()=>setTimeout(()=>{
-        if(ticket!==meetingNavigationTicket||!ui["view-meeting"]?.classList.contains("active"))return;
+        if(ticket!==meetingNavigationTicket||!ui["view-performance"]?.classList.contains("active"))return;
         const started=performance.now();
-        renderMeeting();
-        globalThis.__serviceMeetingPresenter?.activate();
+        renderPerformance();
         const elapsed=performance.now()-started;
-        if(elapsed>2000)console.warn("Meeting data build took",Math.round(elapsed),"ms");
+        if(elapsed>500)console.warn("Advisor Performance build took",Math.round(elapsed),"ms");
       },0));
+    }
+    if(view==="meeting"){
+      // Reuse fully rendered Meeting cards on return trips until verified source
+      // data changes; otherwise reconstructing advisors/metrics blocks the UI.
+      ensureMeetingV3Shell();
+      if(meetingRenderedRevision!==navigationDataRevision){
+        requestAnimationFrame(()=>setTimeout(()=>{
+          if(ticket!==meetingNavigationTicket||!ui["view-meeting"]?.classList.contains("active"))return;
+          const started=performance.now();
+          renderMeeting();
+          globalThis.__serviceMeetingPresenter?.paint?.();
+          const elapsed=performance.now()-started;
+          if(elapsed>500)console.warn("Meeting data build took",Math.round(elapsed),"ms");
+        },0));
+      }
     }
     if(view==="assign-next")renderAssignNext();
     if(anchor)setTimeout(()=>document.getElementById(anchor)?.scrollIntoView({behavior:"smooth",block:"start"}),0);
@@ -2728,7 +2756,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   // Daily operating UI uses the existing model and persistence paths exclusively.
   const dailyNotify = (type, detail = {}) => document.dispatchEvent(new CustomEvent(type, { detail }));
   const renderBeforeDaily = renderAll;
-  renderAll = function () { renderBeforeDaily(); dailyNotify('moondog-data'); };
+  renderAll = function () {
+    invalidateNavigationRenders();
+    renderBeforeDaily();
+    dailyNotify('moondog-data');
+  };
   const processBeforeDaily = processClassifiedCandidate;
   processClassifiedCandidate = async function(...args) { const result=await processBeforeDaily(...args); await rememberVerifiedImport(args[1]); dailyNotify('moondog-imported',{kind:args[1]});return result; };
   const restoreBeforeDaily=restoreSelectedBackup;
