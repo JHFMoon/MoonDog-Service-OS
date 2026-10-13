@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.79 — current Beta
+
+- Keep Paste & Learn progress hidden until analysis begins. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.78 — current Beta
 
 - Verified Beta: local universal Paste & Learn with non-destructive CDK clipboard. Verified automated Beta; no Workspace migration.
