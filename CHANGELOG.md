@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.81 — current Beta
+
+- Home: prefill known RO commitments and display source provenance. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.80 — current Beta
 
 - Draft Beta 80: CDK clipboard import integrity fixes. Verified automated Beta; no Workspace migration.
