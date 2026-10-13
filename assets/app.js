@@ -10,6 +10,21 @@
   const correctionStyles=document.createElement("style");correctionStyles.textContent=".month-correction-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;padding:10px 12px;border:1px solid #dfbd69;border-radius:9px;background:#fff8e5;color:#6b5316}.month-correction-notice button{white-space:nowrap}.voice-mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.customer-voice-manager [hidden]{display:none!important}.voice-use-full{align-self:flex-start}@media(max-width:760px){.voice-mode-grid{grid-template-columns:1fr}}";document.head.append(correctionStyles);
   const VERSION = "0.10.17";
   globalThis.MoonDogInstalledVersion = VERSION;
+  // Privacy-safe performance evidence: no source files or business identifiers.
+  const responsiveness={longTasks:0,maxLongTaskMs:0,lastLongTaskAt:""};
+  globalThis.__moondogResponsiveness=Object.freeze({snapshot:()=>({...responsiveness})});
+  try{
+    if(globalThis.PerformanceObserver?.supportedEntryTypes?.includes("longtask")){
+      const observer=new PerformanceObserver(list=>{
+        for(const task of list.getEntries()){
+          responsiveness.longTasks++;
+          responsiveness.maxLongTaskMs=Math.max(responsiveness.maxLongTaskMs,Math.round(task.duration));
+          responsiveness.lastLongTaskAt=new Date().toISOString();
+        }
+      });
+      observer.observe({entryTypes:["longtask"]});
+    }
+  }catch(_){/* Unsupported observers never affect startup. */}
   const BUILD_DATE = "2026-10-07";
   const DB_NAME = "moondog-operations-local";
   const HANDLE_KEY = "working-folder";
