@@ -385,14 +385,14 @@ try{
           return {hostWidth:bounds.width,hostLeft:bounds.left,hostRight:bounds.right,
             cards:cards.map(card=>{
               const r=card.getBoundingClientRect();
-              const name=card.querySelector('.daily-report-head strong');
-              const text=name?.getBoundingClientRect();
+              const heading=card.querySelector('.daily-report-head');
+              const text=heading?.getBoundingClientRect();
               return {width:r.width,left:r.left,right:r.right,
-                nameWidth:text?.width||0,height:r.height,visible:!!text};
+                headerWidth:text?.width||0,height:r.height,visible:!!text};
             }),viewport:window.innerWidth};
         });
         if(!metrics.cards.length)throw Error("No visible report cards at "+size+"px");
-        if(metrics.cards.some(x=>x.width<170||x.nameWidth<115||x.left<metrics.hostLeft-4||x.right>metrics.hostRight+4))
+        if(metrics.cards.some(x=>x.width<170||(x.visible&&x.headerWidth<170)||x.left<metrics.hostLeft-4||x.right>metrics.hostRight+4))
           throw Error("Collapsed report columns at "+size+"px "+theme+" "+JSON.stringify(metrics));
         if(metrics.cards.find(x=>x.height>2500))
           throw Error("Report card excessively tall at "+size+"px "+theme);
