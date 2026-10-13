@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.80 — current Beta
+
+- Draft Beta 80: CDK clipboard import integrity fixes. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.79 — current Beta
 
 - Keep Paste & Learn progress hidden until analysis begins. Verified automated Beta; no Workspace migration.

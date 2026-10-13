@@ -1408,7 +1408,7 @@
     const lines=String(source||"").replace(/\r/g,"").split(/\n+/).map(line=>line.replace(/\u00a0/g," ").replace(/\s+/g," ").trim()).filter(Boolean);
     const joined=lines.slice(0,70).join(" ");
     if(!/\bCDK\b/i.test(joined)||!/\bRepair Orders\b/i.test(joined)||!/\bRO\s*#\s*:?/i.test(joined))throw Error("CDK Repair Orders header was not verified.");
-    const summary=joined.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);
+    const summary=joined.match(/All:\s*(\d+)\s*Open:\s*(\d+)\s*Working:\s*(\d+)\s*On Hold:\s*(\d+)\s*Closed:\s*(\d+)/i);
     const validStatuses=new Set(["open","pending","review","closed","waiting","parts estimate","inspection","working"]);
     const starts=[];
     for(let i=0;i<lines.length-1;i++)if(/^\d{5,7}$/.test(lines[i])&&validStatuses.has(norm(lines[i+1])))starts.push(i);
@@ -1432,9 +1432,9 @@
     const opened=dateValues[0],promised=dateValues[1],closed=dateValues[2],services=block.find(line=>/^\[[A-Z]\]/.test(line))||"";
     if(codes.length<2||!opened||!promised)return{error:"RO "+ro+": tag, advisor or required dates are incomplete."};
     const raw={ro,advisorCode:codes[1]||"",advisor:"",technicianCode:codes[2]||"",technician:"",
-      customer:block.slice(2,vinIndex).join(" / "),vehicle,vin,tagNumber:codes[0]||"",sourceStatus,
+      customer:block.slice(2,vinIndex).filter(line=>norm(line)!=="waiting").join(" / "),secondaryStatus:block.slice(2,vinIndex).some(line=>norm(line)==="waiting")?"Waiting":"",vehicle,vin,tagNumber:codes[0]||"",sourceStatus,
       opened:opened.display||"",promised:promised.display||"",closed:closed?.display||"",services,
-      sourceFields:{Status:sourceStatus,"Tag #":codes[0]||"",Adv:codes[1]||"",Tech:codes[2]||"",
+      sourceFields:{Status:sourceStatus,"Secondary Status":block.slice(2,vinIndex).some(line=>norm(line)==="waiting")?"Waiting":"","Tag #":codes[0]||"",Adv:codes[1]||"",Tech:codes[2]||"",
         Open:opened.display||"",Promised:promised.display||"",Closed:closed?.display||"",Services:services}};
     reconcileRecordSourceIdentity(raw);raw.id=stableId(raw);
     return{raw,opened:opened.iso||workloadDate(raw.opened)};
@@ -3098,19 +3098,21 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function pasteDiff(parsed){
     const active=new Map((model.state.records||[]).map(row=>[String(row.ro),row]));
     const closed=new Map((model.state.closedRecords||[]).map(row=>[String(row.ro),row]));
-    const changes=[],errors=[...(parsed.issues||[])];
+    const changes=[],errors=[],seen=new Set();
     for(const raw of parsed.records){
+      if(seen.has(String(raw.ro))){errors.push("Duplicate RO "+raw.ro+" in pasted records; import blocked.");continue;}
+      seen.add(String(raw.ro));
       const prior=active.get(String(raw.ro))||closed.get(String(raw.ro));
       if(prior?.vin&&raw.vin&&prior.vin!==raw.vin){
         errors.push("RO "+raw.ro+" has a different VIN from the existing record; no automatic merge allowed.");
         continue;
       }
-      const fields=["sourceStatus","advisorCode","technicianCode","opened","promised","customer","vehicle","tagNumber","services"];
-      const changed=!prior||fields.some(field=>String(prior[field]||"")!==String(raw[field]||""));
-      changes.push({ro:raw.ro,kind:!prior?"new":changed?"updated":"unchanged"});
+      const fields=["sourceStatus","secondaryStatus","advisorCode","technicianCode","opened","promised","customer","vehicle","tagNumber","services"];
+      const fieldChanges=fields.filter(field=>!prior||Boolean(String(raw[field]??"").trim())&&String(prior[field]??"")!==String(raw[field]??"")).map(field=>({field,before:prior?.[field]??"",after:raw[field]??""}));
+      changes.push({ro:raw.ro,kind:!prior?"new":fieldChanges.length?"updated":"unchanged",fields:fieldChanges});
     }
     const counts={new:changes.filter(c=>c.kind==="new").length,updated:changes.filter(c=>c.kind==="updated").length,
-      unchanged:changes.filter(c=>c.kind==="unchanged").length,invalid:errors.length};
+      unchanged:changes.filter(c=>c.kind==="unchanged").length,invalid:errors.length+(parsed.issues||[]).length};
     return{changes,errors,counts};
   }
   async function analyzePasteLearning(input,report,signal){
@@ -3135,7 +3137,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         priorIds:(model.state.records||[]).map(r=>r.id).join("|"),diff};
       return{kind,nonce,summary:parsed.summary,detected:parsed.validation.recordStarts,
         valid:parsed.records.length,closedExcluded:parsed.summary?.closed??0,
-        warnings:parsed.warnings,issues:diff.errors,counts:diff.counts,
+        warnings:parsed.warnings,issues:[...(parsed.issues||[]),...diff.errors],counts:diff.counts,
         changes:diff.changes.slice(0,100),scope:"Unverified / partial — absent vehicles remain open",
         canCommit:!diff.errors.length&&parsed.records.length>0};
     }
@@ -3172,7 +3174,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       const importedAt=now();
       for(const raw of preview.parsed.records){
         const prior=active.get(String(raw.ro))||closed.get(String(raw.ro));
-        const previous={...(prior||{}),...raw,management:prior?.management||defaultManagementFor(raw)};
+        const safeRaw=Object.fromEntries(Object.entries(raw).filter(([key,value])=>!prior||!["customer","vehicle","tagNumber","advisorCode","technicianCode","opened","promised","services","secondaryStatus"].includes(key)||String(value??"").trim()));
+        const previous={...(prior||{}),...safeRaw,management:prior?.management||defaultManagementFor(raw)};
         const status=operationalStatusFromImport(raw,prior,importedAt);
         if(status)previous.cdkOperational=status;
         else delete previous.cdkOperational;
