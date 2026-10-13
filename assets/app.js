@@ -366,6 +366,7 @@
       lastObserved:observed.at(-1)||'',releaseDay:override?.releaseDay??null};
   }
   function reportCadenceDue(key,todayKey=localDateKey()){
+    if(freshness.dayOfWeek(todayKey)===0)return false;
     const info=reportCadenceEvidence(key,todayKey);
     const mode=info.value;
     if(['unavailable','on-demand','irregular'].includes(mode))return false;
