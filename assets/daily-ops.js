@@ -1103,12 +1103,174 @@
     }
     options.append(section);
   }
+  // Universal, local-only Paste & Learn view. Parsing and preview cannot write;
+  // only the separate confirmed Import action calls the guarded destination.
+  function renderPasteLearn(host){
+    const engine=globalThis.MoonDogPasteLearn,bridge=api.pasteLearn;
+    const intro=document.createElement('p');intro.className='daily-hint';
+    intro.textContent='Paste text or a copied table from a work system. CDK Repair Orders can be imported after review; other learned layouts remain read-only until approved for an operational destination.';
+    host.append(intro);
+    const label=document.createElement('label');label.htmlFor='dailyPasteInput';label.textContent='Paste copied information';
+    const input=document.createElement('textarea');input.id='dailyPasteInput';input.rows=10;
+    input.placeholder='Press Ctrl+V here. No report file is needed.';
+    input.autocomplete='off';input.spellcheck=false;input.maxLength=engine?.MAX_TEXT||1600000;
+    let html="",controller=null,activeNonce="",working=false,lastResult=null;
+    input.addEventListener('paste',event=>{
+      html=(event.clipboardData?.getData('text/html')||'').slice(0,engine?.MAX_TEXT||1600000);
+      // Native paste inserts plain text. No permission prompt or HTML injection.
+      bridge.clear();activeNonce="";lastResult=null;
+    });
+    input.addEventListener('input',()=>{bridge.clear();activeNonce="";lastResult=null;result.replaceChildren();});
+    host.append(label,input);
+    const controls=document.createElement('div');controls.className='daily-paste-controls';
+    const analyze=button('Understand Text',()=>void begin(),'daily-primary');
+    const cancel=button('Cancel analysis',()=>{controller?.abort();},'link-button');cancel.disabled=true;
+    const clear=button('Clear',()=>{
+      controller?.abort();input.value="";html="";bridge.clear();activeNonce="";lastResult=null;
+      result.replaceChildren();progress.hidden=true;status.textContent='Ready for pasted text.';
+      input.focus();
+    },'link-button');
+    const teach=button('Teach MoonDog',()=>renderTeachingForm(),'link-button');
+    controls.append(analyze,cancel,teach,clear);host.append(controls);
+    const progressWrap=document.createElement('div');progressWrap.className='daily-paste-progress';progressWrap.hidden=true;
+    const progressLabel=document.createElement('label');progressLabel.textContent='Understanding pasted information';
+    progressLabel.htmlFor='dailyPasteProgress';
+    const progress=document.createElement('progress');progress.id='dailyPasteProgress';progress.max=1;
+    progress.setAttribute('aria-label','Text analysis progress');
+    const status=document.createElement('p');status.className='daily-paste-status';status.setAttribute('role','status');
+    status.setAttribute('aria-live','polite');status.textContent='Ready for pasted text.';
+    progressWrap.append(progressLabel,progress);host.append(progressWrap,status);
+    const result=document.createElement('section');result.className='daily-paste-preview';host.append(result);
+    const lessons=document.createElement('section');lessons.className='daily-paste-lessons';host.append(lessons);
+    function line(parent,text,tag='p',cls=''){
+      const el=document.createElement(tag);if(cls)el.className=cls;el.textContent=text;parent.append(el);return el;
+    }
+    function setWorking(next){
+      working=next;analyze.disabled=next;clear.disabled=next;teach.disabled=next;cancel.disabled=!next;
+      input.disabled=next;progressWrap.hidden=!next;
+    }
+    function updateProgress(info){
+      if(!working)return;
+      const message=info?.stage||'Analyzing text';
+      if(Number.isFinite(info?.total)&&info.total>0&&Number.isFinite(info.completed)){
+        progress.max=info.total;progress.value=Math.min(info.completed,info.total);
+        status.textContent=message+' — '+info.completed+' of '+info.total+(info.elapsedMs!==undefined?' · '+info.elapsedMs+' ms':'');
+      }else{progress.removeAttribute('value');status.textContent=message+'…';}
+    }
+    async function begin(){
+      if(working)return;
+      controller=new AbortController();const current=controller;
+      setWorking(true);result.replaceChildren();lessons.replaceChildren();activeNonce="";lastResult=null;
+      progress.removeAttribute('value');status.textContent='Identifying source…';
+      try{
+        const outcome=await bridge.analyze({text:input.value,html},updateProgress,current.signal);
+        if(current.signal.aborted)return;
+        progress.max=1;progress.value=1;lastResult=outcome;activeNonce=outcome.nonce||"";
+        status.textContent='Analysis complete'+(outcome.canCommit?' — ready for verified import':' — review or teaching required')+'.';
+        renderResult(outcome);
+      }catch(error){
+        if(error.name==='AbortError')status.textContent='Analysis canceled — no operational data changed.';
+        else status.textContent=error.message||'The text could not be analyzed.';
+      }finally{if(current===controller){setWorking(false);progressWrap.hidden=false;}}
+    }
+    function renderResult(outcome){
+      result.replaceChildren();
+      line(result,(outcome.kind?.name||'Unknown format')+' — '+(outcome.kind?.status||'unknown'),'h3');
+      line(result,'Records detected: '+(outcome.detected||0)+' · verified: '+(outcome.valid||0));
+      if(outcome.counts)line(result,'New: '+outcome.counts.new+' · Updated: '+outcome.counts.updated+
+        ' · Unchanged: '+outcome.counts.unchanged+' · Issues: '+outcome.counts.invalid);
+      line(result,'Scope: '+(outcome.scope||'Not established'));
+      if(outcome.warnings?.length){
+        const list=document.createElement('ul');
+        for(const item of outcome.warnings.slice(0,15))line(list,item,'li');
+        result.append(list);
+      }
+      if(outcome.issues?.length){
+        line(result,'Items requiring review ('+outcome.issues.length+')','h4');
+        const list=document.createElement('ol');
+        for(const issue of outcome.issues.slice(0,100))line(list,String(issue),'li');
+        result.append(list);
+      }
+      if(outcome.changes?.length){
+        const details=document.createElement('details');
+        const summary=document.createElement('summary');summary.textContent='Proposed source changes ('+outcome.changes.length+' shown)';details.append(summary);
+        const ul=document.createElement('ul');
+        for(const item of outcome.changes)line(ul,'RO '+item.ro+': '+item.kind,'li');
+        details.append(ul);result.append(details);
+      }
+      if(outcome.canCommit&&activeNonce){
+        const save=button('Import Verified Data',async()=>{
+          if(!confirm('Import verified source fields for '+outcome.valid+' ROs? Missing vehicles will NOT be closed. Management notes are preserved.'))return;
+          save.disabled=true;
+          try{
+            const committed=await bridge.commit(activeNonce);activeNonce="";
+            line(result,committed.status==='unchanged'?'Already current — nothing new was written':
+              'Saved and verified: '+committed.added+' new, '+committed.updated+' updated. Missing ROs closed: 0.','p','daily-paste-success');
+            status.textContent='Import complete. Original pasted text was not retained.';
+          }catch(error){line(result,error.message||'Commit failed. Review your workspace.','p','daily-paste-error');}
+          finally{save.disabled=false;}
+        },'daily-primary');
+        result.append(save);
+      }else if(!outcome.kind?.sourceId){
+        const hint=button('Teach this layout',()=>renderTeachingForm(),'link-button');result.append(hint);
+      }
+    }
+    function renderTeachingForm(){
+      lessons.replaceChildren();
+      line(lessons,'Teach a source layout','h3');
+      line(lessons,'Learning saves approved headers and field mappings locally. New sources stay review-only; teaching does not authorize changes to Open RO Control.');
+      const headers=engine?.tableHeaders(input.value)||[];
+      if(headers.length<2){
+        line(lessons,'This text does not have a tab-separated column header. The first release teaches structured tables; free-form text needs an approved adapter.','p','daily-paste-error');return;
+      }
+      const name=document.createElement('input');name.placeholder='Source name (for example: Parts Order Status)';
+      name.maxLength=90;name.setAttribute('aria-label','Name this source');lessons.append(name);
+      const mappings=document.createElement('div');mappings.className='daily-paste-mappings';
+      const selects={};
+      for(const field of engine.FIELDS){
+        const row=document.createElement('label');row.textContent=field+' ';
+        const select=document.createElement('select');select.add(new Option('Not mapped',''));
+        for(const header of headers)select.add(new Option(header,header));
+        row.append(select);mappings.append(row);selects[field]=select;
+      }
+      lessons.append(mappings);
+      const save=button('Save approved layout',()=>void (async()=>{
+        const fields={};for(const [field,select] of Object.entries(selects))if(select.value)fields[field]=select.value;
+        try{
+          const rule=await bridge.teach({name:name.value,headers,fields});
+          status.textContent='Saved layout '+rule.name+' v'+rule.version+'. Future matching tables will be recognized without import permission.';
+          renderLessons();
+        }catch(error){status.textContent=error.message||'Could not save the layout.';}
+      })(),'daily-primary');lessons.append(save);
+    }
+    function renderLessons(){
+      const rules=bridge.rules();
+      const holder=document.createElement('details');holder.className='daily-paste-rule-manager';
+      const title=document.createElement('summary');title.textContent='Saved teaching rules ('+rules.length+')';holder.append(title);
+      for(const rule of rules){
+        const row=document.createElement('div');row.className='daily-paste-rule';
+        line(row,rule.name+' · v'+rule.version+(rule.enabled?' · active':' · disabled'));
+        row.append(button(rule.enabled?'Disable':'Enable',()=>void (async()=>{
+          try{await bridge.manage(rule.id,rule.enabled?'disable':'enable');renderLessons();}
+          catch(error){status.textContent=error.message;}
+        })(),'link-button'));
+        if(rule.previous)row.append(button('Revert',()=>void (async()=>{
+          try{await bridge.manage(rule.id,'revert');renderLessons();}
+          catch(error){status.textContent=error.message;}
+        })(),'link-button'));
+        holder.append(row);
+      }
+      lessons.replaceChildren(holder);
+    }
+    renderLessons();
+  }
   function renderTools(category=''){
     const host=$('dailyTools');host.dataset.category=category;host.replaceChildren();
-    const title=document.createElement('h2');title.textContent=category?({imports:'Import or refresh data',settings:'Change how Service Operations Dashboard works',recovery:'Back up or recover Service Operations Dashboard',more:'More tools'})[category]:'What are you trying to do?';host.append(title);
+    const title=document.createElement('h2');title.textContent=category?({imports:'Import or refresh data',settings:'Change how Service Operations Dashboard works',recovery:'Back up or recover Service Operations Dashboard',more:'More tools',paste:'Paste & Learn'})[category]:'What are you trying to do?';host.append(title);
     if(category)host.append(button('‹ Tools',()=>renderTools()));
     const options=document.createElement('div');options.className='daily-tool-choices';host.append(options);
-    if(!category){[['Import or refresh data','imports'],['Change how Service Operations Dashboard works','settings'],['Back up or recover Service Operations Dashboard','recovery']].forEach(([label,key])=>options.append(button(label,()=>renderTools(key))));host.append(button('More',()=>renderTools('more'),'link-button'));}
+    if(!category){[['Paste & Learn','paste'],['Import or refresh data','imports'],['Change how Service Operations Dashboard works','settings'],['Back up or recover Service Operations Dashboard','recovery']].forEach(([label,key])=>options.append(button(label,()=>renderTools(key))));host.append(button('More',()=>renderTools('more'),'link-button'));}
+    if(category==='paste')renderPasteLearn(options);
     if(category==='imports'){
       // One source of evidence feeds all report actions, counts, and details.
       const toolbar=document.createElement('div');toolbar.className='daily-report-toolbar';
