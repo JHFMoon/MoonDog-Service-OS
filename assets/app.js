@@ -1277,32 +1277,95 @@
     const time=String(lines[index+1]||"").trim();if(!/^\d{1,2}:\d{2}\s*(?:am|pm)$/i.test(time))return null;
     return{iso:usDateToIso(current),display:current+" "+time.toUpperCase(),consumed:2};
   }
-  function parseCdkRepairOrdersDocx(source,fileName) {
-    const lines=String(source||"").replace(/\r/g,"").split(/\n+/).map((line)=>line.replace(/\u00a0/g," ").replace(/\s+/g," ").trim()).filter(Boolean),joined=lines.join(" ");
-    if(!/\bCDK\b/i.test(joined)||!/\bRepair Orders\b/i.test(joined)||!/\bRO\s*#\s*:?/i.test(joined))throw new Error("This is not a CDK Repair Orders export.");
+  // Both the existing DOCX importer and the new clipboard adapter use this
+  // same per-record grammar. Clipboard is ALWAYS a non-authoritative subset.
+  function cdkRepairOrdersLayout(source){
+    const lines=String(source||"").replace(/\r/g,"").split(/\n+/).map(line=>line.replace(/\u00a0/g," ").replace(/\s+/g," ").trim()).filter(Boolean);
+    const joined=lines.slice(0,70).join(" ");
+    if(!/\bCDK\b/i.test(joined)||!/\bRepair Orders\b/i.test(joined)||!/\bRO\s*#\s*:?/i.test(joined))throw Error("CDK Repair Orders header was not verified.");
     const summary=joined.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);
-    if(!summary)throw new Error("The CDK Repair Orders summary counts could not be verified.");
-    const validStatuses=new Set(["open","pending","review","closed","waiting","parts estimate","inspection","working"]),starts=[];
+    const validStatuses=new Set(["open","pending","review","closed","waiting","parts estimate","inspection","working"]);
+    const starts=[];
     for(let i=0;i<lines.length-1;i++)if(/^\d{5,7}$/.test(lines[i])&&validStatuses.has(norm(lines[i+1])))starts.push(i);
-    const allRecords=[],activeRecords=[],workloadRecords=[];
-    for(let index=0;index<starts.length;index++){
-      const block=lines.slice(starts[index],starts[index+1]??lines.length),ro=block[0],sourceStatus=block[1];
-      const vinIndex=block.findIndex((line,position)=>position>1&&/^[A-HJ-NPR-Z0-9]{17}$/i.test(line));
-      if(vinIndex<3)continue;
-      const vin=block[vinIndex].toUpperCase(),vehicleLine=String(block[vinIndex+1]||"").trim(),hasVehicle=/^(?:19|20)\d{2}\b/.test(vehicleLine),vehicle=hasVehicle?vehicleLine:"",tailStart=vinIndex+(hasVehicle?2:1);
-      let firstDate=-1;for(let i=tailStart;i<block.length;i++)if(cdkDateTimeFromLines(block,i)){firstDate=i;break;}
-      if(firstDate<0)continue;
-      const codes=block.slice(tailStart,firstDate).filter((line)=>!/^\[[A-Z]\]/.test(line)),dateValues=[];
-      for(let i=firstDate;i<block.length;){const value=cdkDateTimeFromLines(block,i);if(value){dateValues.push(value);i+=value.consumed;}else i+=1;}
-      const opened=dateValues[0],promised=dateValues[1],closed=dateValues[2],services=block.find((line)=>/^\[[A-Z]\]/.test(line))||"";
-      if(codes.length<2||!opened||!promised)continue;
-      const raw={ro,advisorCode:codes[1]||"",advisor:"",technicianCode:codes[2]||"",technician:"",customer:block.slice(2,vinIndex).join(" / "),vehicle,vin,tagNumber:codes[0]||"",sourceStatus,opened:opened.display||"",promised:promised.display||"",closed:closed?.display||"",services,sourceFields:{Status:sourceStatus,"Tag #":codes[0]||"",Adv:codes[1]||"",Tech:codes[2]||"",Open:opened.display||"",Promised:promised.display||"",Closed:closed?.display||"",Services:services}};
-      reconcileRecordSourceIdentity(raw);raw.id=stableId(raw);allRecords.push(raw);
-      if(norm(sourceStatus)!=="closed"){activeRecords.push(raw);workloadRecords.push({ro,advisorCode:raw.advisorCode,opened:opened.iso||workloadDate(raw.opened),isOpen:true});}
+    if(starts.length>6000)throw Error("Too many CDK records to process safely.");
+    return{lines,starts,summary};
+  }
+  function cdkRepairOrdersBlock(block){
+    const ro=block[0],sourceStatus=block[1];
+    const vinIndex=block.findIndex((line,pos)=>pos>1&&/^[A-HJ-NPR-Z0-9]{17}$/i.test(line));
+    if(vinIndex<3)return{error:"RO "+ro+": VIN or customer information could not be identified."};
+    const vin=block[vinIndex].toUpperCase(),vehicleLine=String(block[vinIndex+1]||"").trim();
+    const hasVehicle=/^(?:19|20)\d{2}\b/.test(vehicleLine),vehicle=hasVehicle?vehicleLine:"",tailStart=vinIndex+(hasVehicle?2:1);
+    let firstDate=-1;
+    for(let i=tailStart;i<block.length;i++)if(cdkDateTimeFromLines(block,i)){firstDate=i;break;}
+    if(firstDate<0)return{error:"RO "+ro+": opening and promise dates could not be found."};
+    const codes=block.slice(tailStart,firstDate).filter(line=>! /^\[[A-Z]\]/.test(line)),dateValues=[];
+    for(let i=firstDate;i<block.length;){
+      const value=cdkDateTimeFromLines(block,i);
+      if(value){dateValues.push(value);i+=value.consumed;}else i++;
     }
-    const expectedAll=Number(summary[1]),expectedOpen=Number(summary[2]),expectedClosed=Number(summary[5]),closedCount=allRecords.filter((record)=>norm(record.sourceStatus)==="closed").length;
-    if(allRecords.length!==expectedAll||activeRecords.length!==expectedOpen||closedCount!==expectedClosed)throw new Error("CDK Repair Orders reconciliation failed: parsed "+allRecords.length+"/"+activeRecords.length+"/"+closedCount+", expected "+expectedAll+"/"+expectedOpen+"/"+expectedClosed+".");
-    return{records:activeRecords,workloadRecords,summary:{all:expectedAll,open:expectedOpen,working:Number(summary[3]),onHold:Number(summary[4]),closed:expectedClosed},format:"CDK Repair Orders browser export",validation:{parser:"cdk-repair-orders-docx-v2-split-fields",recordStarts:starts.length,activeRecords:activeRecords.length,closedExcluded:true,splitVinVehicleSupported:true,splitDateTimeSupported:true}};
+    const opened=dateValues[0],promised=dateValues[1],closed=dateValues[2],services=block.find(line=>/^\[[A-Z]\]/.test(line))||"";
+    if(codes.length<2||!opened||!promised)return{error:"RO "+ro+": tag, advisor or required dates are incomplete."};
+    const raw={ro,advisorCode:codes[1]||"",advisor:"",technicianCode:codes[2]||"",technician:"",
+      customer:block.slice(2,vinIndex).join(" / "),vehicle,vin,tagNumber:codes[0]||"",sourceStatus,
+      opened:opened.display||"",promised:promised.display||"",closed:closed?.display||"",services,
+      sourceFields:{Status:sourceStatus,"Tag #":codes[0]||"",Adv:codes[1]||"",Tech:codes[2]||"",
+        Open:opened.display||"",Promised:promised.display||"",Closed:closed?.display||"",Services:services}};
+    reconcileRecordSourceIdentity(raw);raw.id=stableId(raw);
+    return{raw,opened:opened.iso||workloadDate(raw.opened)};
+  }
+  function cdkRepairOrdersResult(layout,entries,errors,partial=false){
+    const allRecords=entries.map(entry=>entry.raw),activeRecords=allRecords.filter(record=>norm(record.sourceStatus)!=="closed");
+    const closedCount=allRecords.length-activeRecords.length;
+    const workloadRecords=entries.filter(e=>norm(e.raw.sourceStatus)!=="closed").map(e=>({
+      ro:e.raw.ro,advisorCode:e.raw.advisorCode,opened:e.opened,isOpen:true
+    }));
+    const summary=layout.summary?{all:Number(layout.summary[1]),open:Number(layout.summary[2]),
+      working:Number(layout.summary[3]),onHold:Number(layout.summary[4]),closed:Number(layout.summary[5])}:null;
+    const duplicate=new Set(),seen=new Set();
+    for(const record of allRecords){if(seen.has(record.ro))duplicate.add(record.ro);seen.add(record.ro);}
+    for(const ro of duplicate)errors.push("Duplicate RO "+ro+" within pasted source.");
+    if(!partial){
+      if(!summary)throw Error("The CDK Repair Orders summary counts could not be verified.");
+      if(errors.length||allRecords.length!==summary.all||activeRecords.length!==summary.open||closedCount!==summary.closed)
+        throw Error("CDK Repair Orders reconciliation failed: parsed "+allRecords.length+"/"+activeRecords.length+"/"+closedCount+
+          ", expected "+summary.all+"/"+summary.open+"/"+summary.closed+".");
+    }
+    if(partial&&!layout.starts.length)errors.push("No repair order record boundaries were found.");
+    const warnings=[];
+    if(partial){
+      warnings.push("Clipboard scope is not independently verified; records absent from this paste will never be closed.");
+      if(summary&&allRecords.length!==summary.all)warnings.push(
+        "Pasted "+allRecords.length+" of "+summary.all+" records listed in the header (possibly filtered or truncated).");
+      if(!summary)warnings.push("Source summary counts are unavailable.");
+    }
+    return{records:activeRecords,workloadRecords,summary,issues:errors,warnings,
+      format:"CDK Repair Orders browser export",validation:{parser:partial?"cdk-repair-orders-clipboard-v1":"cdk-repair-orders-docx-v2-split-fields",sharedRecordParser:"v3",
+      recordStarts:layout.starts.length,activeRecords:activeRecords.length,closedExcluded:true,
+      splitVinVehicleSupported:true,splitDateTimeSupported:true,scope:partial?"unverified":"verified-full"}};
+  }
+  function parseCdkRepairOrdersDocx(source,fileName){
+    const layout=cdkRepairOrdersLayout(source),entries=[],errors=[];
+    for(let i=0;i<layout.starts.length;i++){
+      const entry=cdkRepairOrdersBlock(layout.lines.slice(layout.starts[i],layout.starts[i+1]??layout.lines.length));
+      if(entry.error)errors.push(entry.error);else entries.push(entry);
+    }
+    return cdkRepairOrdersResult(layout,entries,errors,false);
+  }
+  async function parseCdkRepairOrdersPaste(source,report,signal){
+    const layout=cdkRepairOrdersLayout(source),entries=[],errors=[];
+    if(!layout.starts.length)throw Error("No CDK repair order rows could be identified.");
+    const started=performance.now();
+    for(let i=0;i<layout.starts.length;i++){
+      if(signal?.aborted)throw new DOMException("Analysis canceled.","AbortError");
+      const entry=cdkRepairOrdersBlock(layout.lines.slice(layout.starts[i],layout.starts[i+1]??layout.lines.length));
+      if(entry.error)errors.push(entry.error);else entries.push(entry);
+      if((i+1)%20===0||i+1===layout.starts.length){
+        report?.({stage:"Extracting and validating repair orders",completed:i+1,total:layout.starts.length,elapsedMs:Math.round(performance.now()-started)});
+        if(i+1<layout.starts.length)await new Promise(resolve=>setTimeout(resolve,0));
+      }
+    }
+    return cdkRepairOrdersResult(layout,entries,errors,true);
   }
   function defaultManagementFor(raw){return{statusId:"",status:"",owner:raw.advisor||"",nextAction:"",reviewDate:"",communication:"",note:"",updatedAt:null};}
   function pruneClosedRecords(records,at=Date.now()){const cutoff=at-CLOSED_RO_RETENTION_DAYS*86400000;return (records||[]).filter((record)=>{const time=Date.parse(record.closedAt||"");return Number.isFinite(time)&&time>=cutoff;}).sort((a,b)=>String(b.closedAt).localeCompare(String(a.closedAt)));}
@@ -2784,7 +2847,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function removePath(path){try{const parent=path.length>1?await directory(path.slice(0,-1),false):model.root;await parent.removeEntry(path.at(-1),{recursive:true});}catch(error){if(error.name!=="NotFoundError")throw error;}}
   async function restoreHandoffSnapshot(snapshot){for(const dirName of HANDOFF_CLEAR_DIRS)await removeTreeContents(await directory([dirName],true));await removeTreeContents(await directory(["data","history"],true));for(const path of [...Object.keys(BACKUP_FILES),"data/recovery.json","MOONDOG_DIAGNOSTICS.md","PROJECT_CONTEXT.md","README.txt","TEST_STATUS.md","NEW_STORE_HANDOFF_REPORT.md"])await removePath(path.split("/"));for await(const[name,handle]of model.root.entries())if(handle.kind==="file"&&HANDOFF_ROOT_SOURCE_PATTERN.test(name))await model.root.removeEntry(name);for(const item of snapshot)await writeBytes(item.path.split("/"),item.bytes);}
   async function resetConnectedCopy(at){for(const dirName of HANDOFF_CLEAR_DIRS){const dir=await directory([dirName],true);await removeTreeContents(dir);}try{const learn=await directory(["Files To Learn"],false);await removeTreeContents(learn,(path,isDir)=>!isDir&&HANDOFF_LEARN_PATTERN.test(path));}catch(_){}for await(const[name,handle]of model.root.entries())if(handle.kind==="file"&&HANDOFF_ROOT_SOURCE_PATTERN.test(name))await model.root.removeEntry(name);const history=await directory(["data","history"],true);await removeTreeContents(history);const fresh=freshProductState();for(const[path,value]of Object.entries(fresh))await writeJson(path.split("/"),value);model.recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,lastRestore:null,status:"New-store preparation complete"};await writeJson(RECOVERY_PATH,model.recovery);await writeText(["MOONDOG_DIAGNOSTICS.md"],cleanDiagnostics(at));await writeText(["PROJECT_CONTEXT.md"],portableContext());await writeText(["README.txt"],portableReadme());await writeText(["TEST_STATUS.md"],portableTestStatus());await writeText(["NEW_STORE_HANDOFF_REPORT.md"],handoffReport(at));[model.state,model.settings,model.appointments,model.performance,model.assignNext,model.autoImport,model.operationalMetrics,model.meetingCycle]=Object.values(fresh);}
-  const HANDOFF_RUNTIME_PATHS=["assets/app.js","assets/arrivals.css","assets/assign-next-controls.css","assets/assign-next.css","assets/clarity.css","assets/daily-engine.js","assets/daily-ops.css","assets/daily-ops.js","assets/developer-center.css","assets/freshness.js","assets/maintenance.js","assets/meeting.css","assets/moondog-update-check.js","assets/moondog-update-install.js","assets/moondog-update-model.js","assets/moondog-update-plan.js","assets/moondog-update-settings.js","assets/moondog-update-verify.js","assets/moondog-write-authority.js","assets/operational.css","assets/performance.css","assets/product-settings.css","assets/queue.css","assets/styles.css","assets/worklist.css","index.html","vendor/JSZIP-LICENSE.txt","vendor/PDFJS-LICENSE.txt","vendor/SHEETJS-LICENSE.txt","vendor/THIRD_PARTY_NOTICES.md","vendor/jszip.min.js","vendor/pdf.min.js","vendor/pdf.worker.min.js","vendor/xlsx.full.min.js"];
+  const HANDOFF_RUNTIME_PATHS=["assets/app.js","assets/arrivals.css","assets/assign-next-controls.css","assets/assign-next.css","assets/clarity.css","assets/daily-engine.js","assets/daily-ops.css","assets/daily-ops.js","assets/developer-center.css","assets/freshness.js","assets/maintenance.js","assets/meeting.css","assets/moondog-update-check.js","assets/moondog-update-install.js","assets/moondog-update-model.js","assets/moondog-update-plan.js","assets/moondog-update-settings.js","assets/moondog-update-verify.js","assets/moondog-write-authority.js","assets/operational.css","assets/paste-learn.js","assets/performance.css","assets/product-settings.css","assets/queue.css","assets/styles.css","assets/worklist.css","index.html","vendor/JSZIP-LICENSE.txt","vendor/PDFJS-LICENSE.txt","vendor/SHEETJS-LICENSE.txt","vendor/THIRD_PARTY_NOTICES.md","vendor/jszip.min.js","vendor/pdf.min.js","vendor/pdf.worker.min.js","vendor/xlsx.full.min.js"];
   async function runtimeFileBytes(path){let dir=await connectedNativeRoot.getDirectoryHandle("System Files");const parts=path.split("/");for(const part of parts.slice(0,-1))dir=await dir.getDirectoryHandle(part);return new Uint8Array(await(await(await dir.getFileHandle(parts.at(-1))).getFile()).arrayBuffer());}
   async function runtimeIntegrity(){const result={};for(const path of HANDOFF_RUNTIME_PATHS){const bytes=await runtimeFileBytes(path);if(!bytes.byteLength)throw new Error(`Required product file is missing: ${path}.`);result[path]=await sha256(bytes);}return result;}
   async function validatePreparedCopy(expectedRuntime){const expected=freshProductState();for(const[path,value]of Object.entries(expected)){const actual=await readJson(path.split("/"),null);if(!actual||JSON.stringify(actual)!==JSON.stringify(value))throw new Error(`New-store validation failed for ${path}.`);}for(const dirName of HANDOFF_CLEAR_DIRS)if((await walkFiles(await directory([dirName],true),dirName)).length)throw new Error(`${dirName} was not cleared.`);if((await walkFiles(await directory(["data","history"],true),"data/history")).length)throw new Error("Operational history was not cleared.");const actualRuntime=await runtimeIntegrity();for(const[path,hash]of Object.entries(expectedRuntime||{}))if(actualRuntime[path]!==hash)throw new Error(`Application/runtime integrity changed during reset: ${path}.`);for(const name of ["PROJECT_CONTEXT.md","NEW_STORE_HANDOFF_REPORT.md"])if(!(await readFileBytes(name.split("/"))).byteLength)throw new Error(`Required product file is missing: ${name}.`);const combined=decodeUtf8(await readFileBytes(["PROJECT_CONTEXT.md"]))+decodeUtf8(await readFileBytes(["NEW_STORE_HANDOFF_REPORT.md"]));if([sourceAdapter.storeName,sourceAdapter.storeCode,...Object.keys(sourceAdapter.legacyAdvisors||{}),...Object.values(sourceAdapter.legacyAdvisors||{})].filter(value=>String(value||"").length>2).some(value=>combined.toLowerCase().includes(String(value).toLowerCase())))throw new Error("Portable documentation retained a source-store identifier.");return true;}
@@ -2903,8 +2966,159 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     } finally { dailySaveAdditions = null; }
   };
   let dailySaveAdditions = null;
+  // Paste & Learn uses an ephemeral preview token; only a separately
+  // confirmed commit writes, and it never performs complete-snapshot closure.
+  let pastePreview=null,pasteCommitBusy=false;
+  const pasteRules=()=>Array.isArray(model.settings.future?.pasteLearnRules)?model.settings.future.pasteLearnRules:[];
+  function pasteDiff(parsed){
+    const active=new Map((model.state.records||[]).map(row=>[String(row.ro),row]));
+    const closed=new Map((model.state.closedRecords||[]).map(row=>[String(row.ro),row]));
+    const changes=[],errors=[...(parsed.issues||[])];
+    for(const raw of parsed.records){
+      const prior=active.get(String(raw.ro))||closed.get(String(raw.ro));
+      if(prior?.vin&&raw.vin&&prior.vin!==raw.vin){
+        errors.push("RO "+raw.ro+" has a different VIN from the existing record; no automatic merge allowed.");
+        continue;
+      }
+      const fields=["sourceStatus","advisorCode","technicianCode","opened","promised","customer","vehicle","tagNumber","services"];
+      const changed=!prior||fields.some(field=>String(prior[field]||"")!==String(raw[field]||""));
+      changes.push({ro:raw.ro,kind:!prior?"new":changed?"updated":"unchanged"});
+    }
+    const counts={new:changes.filter(c=>c.kind==="new").length,updated:changes.filter(c=>c.kind==="updated").length,
+      unchanged:changes.filter(c=>c.kind==="unchanged").length,invalid:errors.length};
+    return{changes,errors,counts};
+  }
+  async function analyzePasteLearning(input,report,signal){
+    if(!model.root)throw Error("Connect the working folder before analyzing pasted information.");
+    pastePreview=null;
+    const engine=globalThis.MoonDogPasteLearn;
+    if(!engine)throw Error("Paste & Learn runtime is unavailable; reload the verified dashboard.");
+    const text=engine.capture(input?.text||"",input?.html||"");
+    if(!text.trim())throw Error("Paste text into the field before analyzing.");
+    report?.({stage:"Identifying source"});
+    await new Promise(resolve=>setTimeout(resolve,0));
+    if(signal?.aborted)throw new DOMException("Analysis canceled.","AbortError");
+    const kind=engine.detectFormat(text,pasteRules());
+    if(kind.sourceId==="cdk-repair-orders"){
+      report?.({stage:"Extracting CDK Repair Orders"});
+      const parsed=await parseCdkRepairOrdersPaste(text,report,signal);
+      if(signal?.aborted)throw new DOMException("Analysis canceled.","AbortError");
+      report?.({stage:"Comparing with Open RO Control"});
+      await new Promise(resolve=>setTimeout(resolve,0));
+      const diff=pasteDiff(parsed),nonce=String(Date.now())+"-"+Math.random().toString(36).slice(2);
+      pastePreview={nonce,parsed,root:model.root,updatedAt:model.state.updatedAt,
+        priorIds:(model.state.records||[]).map(r=>r.id).join("|"),diff};
+      return{kind,nonce,summary:parsed.summary,detected:parsed.validation.recordStarts,
+        valid:parsed.records.length,closedExcluded:parsed.summary?.closed??0,
+        warnings:parsed.warnings,issues:diff.errors,counts:diff.counts,
+        changes:diff.changes.slice(0,100),scope:"Unverified / partial — absent vehicles remain open",
+        canCommit:!diff.errors.length&&parsed.records.length>0};
+    }
+    if(kind.sourceId){
+      const rule=pasteRules().find(r=>r.id===kind.sourceId);
+      if(!rule)return{kind,detected:0,valid:0,issues:[],
+        warnings:["A reviewed source adapter recognized this text, but no approved extractor or operational destination is enabled."],
+        scope:"Recognition only",canCommit:false};
+      const result=engine.tablePreview(text,rule);
+      return{kind,detected:result.rows.length+result.issues.length,valid:result.rows.length,
+        issues:result.issues.map(x=>"Row "+x.row+": "+x.reason),warnings:["Recognized layout only. No operational destination is authorized."],
+        exampleRows:result.rows.slice(0,5),scope:"Review only",canCommit:false};
+    }
+    return{kind,detected:0,valid:0,issues:[],warnings:["Unknown source. Teach a safe table layout or ask for a reviewed source adapter."],
+      headers:engine.tableHeaders(text),scope:"Review only",canCommit:false};
+  }
+  async function commitPasteLearning(nonce){
+    if(pasteCommitBusy)throw Error("A paste import is already being committed.");
+    const preview=pastePreview;
+    if(!preview||preview.nonce!==nonce)throw Error("That preview expired. Analyze the current text again.");
+    if(preview.root!==model.root||preview.updatedAt!==model.state.updatedAt||
+        preview.priorIds!==(model.state.records||[]).map(r=>r.id).join("|"))
+      throw Error("The connected workspace or Open RO data changed. Analyze the paste again before importing.");
+    if(preview.diff.errors.length||!preview.parsed.records.length)
+      throw Error("Unresolved issues block operational import.");
+    writeAuthority.requireWrite();
+    pasteCommitBusy=true;
+    try{
+      const rechecked=pasteDiff(preview.parsed);
+      if(rechecked.errors.length)throw Error("Existing RO identities changed. Review again.");
+      const active=new Map((model.state.records||[]).map(row=>[String(row.ro),row]));
+      const closed=new Map((model.state.closedRecords||[]).map(row=>[String(row.ro),row]));
+      const added=[],changed=[];
+      const importedAt=now();
+      for(const raw of preview.parsed.records){
+        const prior=active.get(String(raw.ro))||closed.get(String(raw.ro));
+        const previous={...(prior||{}),...raw,management:prior?.management||defaultManagementFor(raw)};
+        const status=operationalStatusFromImport(raw,prior,importedAt);
+        if(status)previous.cdkOperational=status;
+        else delete previous.cdkOperational;
+        delete previous.closedAt;delete previous.closedReason;
+        if(!prior)added.push(previous);
+        else if(JSON.stringify({...prior,cdkOperational:undefined})!==JSON.stringify({...previous,cdkOperational:undefined}))
+          changed.push(previous);
+        active.set(String(raw.ro),previous);
+      }
+      if(!added.length&&!changed.length){
+        pastePreview=null;return{status:"unchanged",added:0,updated:0,missingClosed:0};
+      }
+      await backupState("before-cdk-clipboard-import");
+      const previousState=model.state;
+      const closedRecords=(previousState.closedRecords||[]).filter(record=>!active.has(String(record.ro)));
+      const next={...previousState,records:[...active.values()],closedRecords,updatedAt:importedAt,
+        clipboardIntake:{lastImportedAt:importedAt,source:"CDK Repair Orders — Clipboard",
+          importedRecords:preview.parsed.records.length,scope:"partial-unverified"}};
+      // Do not advance authoritative source freshness or replace Assign Next's
+      // complete-workload snapshot with a potentially paginated clipboard page.
+      try{await writeJson(STATE_PATH,next);model.state=next;}
+      catch(error){model.state=previousState;throw error;}
+      pastePreview=null;
+      let followupWarning="";
+      try{
+        await addHistory("source-import","Verified partial CDK clipboard update",
+          {source:"CDK Repair Orders — Clipboard",added:added.length,updated:changed.length,
+            missingClosed:0,scope:"partial",rawTextRetained:false});
+        await markSupervisorWorkbookStale("Open RO source fields changed from verified clipboard records");
+      }catch(error){
+        // The operational-state write is already read-back verified. A
+        // secondary history/workbook failure must not falsely claim rollback.
+        followupWarning="RO changes were saved, but a secondary follow-up could not finish. Review diagnostics.";
+        recordDiagnostic("PASTE FOLLOWUP",String(error?.name||"Error"));
+      }
+      renderAll();
+      return{status:"saved",added:added.length,updated:changed.length,missingClosed:0,warning:followupWarning};
+    }finally{pasteCommitBusy=false;}
+  }
+  async function savePasteLearningRule(candidate){
+    const engine=globalThis.MoonDogPasteLearn;
+    if(!engine)throw Error("Paste learning module not installed.");
+    const validated=engine.safeRule(candidate,pasteRules());
+    await updateLocalFuture(future=>{
+      const list=Array.isArray(future.pasteLearnRules)?[...future.pasteLearnRules]:[];
+      const at=list.findIndex(item=>item.id===validated.id);
+      if(at>=0)list[at]=validated;else list.push(validated);
+      future.pasteLearnRules=list;
+    });
+    return validated;
+  }
+  async function changePasteLearningRule(id,mode){
+    const list=pasteRules(),target=list.find(x=>x.id===id);
+    if(!target)throw Error("Learned source not found.");
+    if(!["disable","enable","revert"].includes(mode))throw Error("Unsupported rule action.");
+    await updateLocalFuture(future=>{
+      future.pasteLearnRules=list.map(rule=>{
+        if(rule.id!==id)return rule;
+        if(mode==="revert"){
+          if(!rule.previous)throw Error("There is no previous approved rule to restore.");
+          return{...rule,name:rule.previous.name,headers:rule.previous.headers,
+            fields:rule.previous.fields,version:rule.version+1,previous:null,updatedAt:now()};
+        }
+        return{...rule,enabled:mode==="enable",version:rule.version+1,updatedAt:now()};
+      });
+    });
+  }
   globalThis.__moondogDaily = Object.freeze({
     model, navigate: (view, anchor) => navigateTo(view, anchor), connect,
+    pasteLearn:Object.freeze({analyze:analyzePasteLearning,commit:commitPasteLearning,
+      clear:()=>{pastePreview=null;},rules:pasteRules,teach:savePasteLearningRule,manage:changePasteLearningRule}),
     reportNeeds,
     reportRefreshRequests(todayKey=localDateKey()) {
       const types={openRo:'open-ro',sapr:'performance',csi:'csi',menu:'menu-sales',appointments:'appointments',nextAppointments:'next-appointments',vir:'vir',mediaAsr:'media-asr',mediaAsrTech:'media-asr-tech',efficiency:'efficiency',sor:'sor'},ranks={csi:2.5,openRo:3.5,appointments:4.5,sapr:5.5,mediaAsr:5.8,mediaAsrTech:5.9,menu:6,nextAppointments:6.2,efficiency:6.5,sor:7};ranks.vir=5;
