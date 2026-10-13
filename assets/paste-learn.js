@@ -31,6 +31,21 @@
     return plain.trim()?plain:normalize(fromHtml(html));
   }
   function lines(text){return normalize(text).split("\n").map(s=>s.trim()).filter(Boolean);}
+  function keyValuePairs(text){
+    const pairs=[];
+    for(const line of lines(text).slice(0,100)){
+      const match=line.match(/^([^:\n]{2,80}):\s*(.{0,400})$/);
+      if(match)pairs.push({header:match[1].trim(),value:match[2].trim()});
+    }
+    return pairs;
+  }
+  function suggestedStructure(text){
+    const headers=tableHeaders(text);
+    if(headers.length>1)return{kind:"table",headers};
+    const pairs=keyValuePairs(text),keys=[...new Set(pairs.map(p=>p.header.toLowerCase()))];
+    if(keys.length>1)return{kind:"key-value",headers:pairs.filter((p,i)=>pairs.findIndex(x=>x.header.toLowerCase()===p.header.toLowerCase())===i).map(p=>p.header)};
+    return{kind:"unknown",headers:[]};
+  }
   const trustedAdapters=new Map();
   function registerAdapter(adapter){
     if(!adapter||!/^[-a-z0-9]{3,70}$/.test(adapter.id||"")||
@@ -49,9 +64,10 @@
         writeEnabled:adapter.writeEnabled,version:adapter.version||"1",evidence:adapter.evidence||[]};
     }
     const first=sample[0]||"";
-    const headers=first.split("\t").map(x=>x.trim().toLowerCase());
-    const match=rules.find(rule=>rule?.enabled&&rule?.approved&&rule?.kind==="table"&&Array.isArray(rule.headers)&&
-      rule.headers.length>1&&rule.headers.every(h=>headers.includes(String(h).toLowerCase())));
+    const tabHeaders=first.split("\t").map(x=>x.trim().toLowerCase());
+    const kvHeaders=keyValuePairs(text).map(x=>x.header.toLowerCase());
+    const match=rules.find(rule=>rule?.enabled&&rule?.approved&&["table","key-value"].includes(rule?.kind)&&Array.isArray(rule.headers)&&
+      rule.headers.length>1&&rule.headers.every(h=>(rule.kind==="table"?tabHeaders:kvHeaders).includes(String(h).toLowerCase())));
     if(match)return{sourceId:match.id,name:match.name,status:"recognized",writeEnabled:false,version:match.version,evidence:["Approved column headers"]};
     return{sourceId:"",name:"Unknown text",status:"unknown",writeEnabled:false,version:"",evidence:[]};
   }
@@ -71,10 +87,19 @@
     if(id==="cdk-repair-orders")throw Error("Built-in import definitions cannot be replaced by learned mappings.");
     if(!previous.some(x=>x.id===id)&&previous.length>=MAX_RULES)throw Error("Maximum number of learned layouts reached.");
     const old=previous.find(x=>x.id===id);
-    return{id,name,kind:"table",headers,fields:sourceFields,version:(old?.version||0)+1,approved:true,enabled:true,
+    const kind=data.kind==="key-value"?"key-value":"table";
+    return{id,name,kind,headers,fields:sourceFields,version:(old?.version||0)+1,approved:true,enabled:true,
       writeEnabled:false,updatedAt:new Date().toISOString(),previous:old?{version:old.version,headers:old.headers,fields:old.fields,name:old.name}:null};
   }
   function tablePreview(text,rule){
+    if(rule?.kind==="key-value"){
+      const pairs=keyValuePairs(text),mapped={};
+      for(const [field,header] of Object.entries(rule.fields||{})){
+        const match=pairs.find(p=>p.header.toLowerCase()===String(header).toLowerCase());
+        if(match)mapped[field]=match.value;
+      }
+      return{rows:[mapped],issues:[]};
+    }
     const data=lines(text).map(line=>line.split("\t").map(cell=>cell.trim()));
     const headers=(data.shift()||[]).map(h=>h.toLowerCase());
     if(data.length>MAX_ROWS)throw Error("Too many data rows.");
@@ -95,5 +120,5 @@
     const first=lines(text)[0]||"";
     return first.includes("\t")?first.split("\t").map(s=>s.trim()).filter(Boolean).slice(0,MAX_COLUMNS):[];
   }
-  root.MoonDogPasteLearn=Object.freeze({normalize,capture,detectFormat,registerAdapter,safeRule,tablePreview,tableHeaders,MAX_TEXT,MAX_ROWS,FIELDS});
+  root.MoonDogPasteLearn=Object.freeze({normalize,capture,detectFormat,registerAdapter,safeRule,tablePreview,tableHeaders,suggestedStructure,MAX_TEXT,MAX_ROWS,FIELDS});
 })(globalThis);
