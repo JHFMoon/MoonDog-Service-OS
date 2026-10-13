@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.84 — current Beta
+
+- Beta 84: distinguish invalid CDK rows from incomplete clipboard coverage. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.83 — current Beta
 
 - Beta 83: apply store timezone to Home follow-up acknowledgments. Verified automated Beta; no Workspace migration.
