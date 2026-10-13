@@ -1277,32 +1277,95 @@
     const time=String(lines[index+1]||"").trim();if(!/^\d{1,2}:\d{2}\s*(?:am|pm)$/i.test(time))return null;
     return{iso:usDateToIso(current),display:current+" "+time.toUpperCase(),consumed:2};
   }
-  function parseCdkRepairOrdersDocx(source,fileName) {
-    const lines=String(source||"").replace(/\r/g,"").split(/\n+/).map((line)=>line.replace(/\u00a0/g," ").replace(/\s+/g," ").trim()).filter(Boolean),joined=lines.join(" ");
-    if(!/\bCDK\b/i.test(joined)||!/\bRepair Orders\b/i.test(joined)||!/\bRO\s*#\s*:?/i.test(joined))throw new Error("This is not a CDK Repair Orders export.");
+  // Both the existing DOCX importer and the new clipboard adapter use this
+  // same per-record grammar. Clipboard is ALWAYS a non-authoritative subset.
+  function cdkRepairOrdersLayout(source){
+    const lines=String(source||"").replace(/\r/g,"").split(/\n+/).map(line=>line.replace(/\u00a0/g," ").replace(/\s+/g," ").trim()).filter(Boolean);
+    const joined=lines.slice(0,70).join(" ");
+    if(!/\bCDK\b/i.test(joined)||!/\bRepair Orders\b/i.test(joined)||!/\bRO\s*#\s*:?/i.test(joined))throw Error("CDK Repair Orders header was not verified.");
     const summary=joined.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);
-    if(!summary)throw new Error("The CDK Repair Orders summary counts could not be verified.");
-    const validStatuses=new Set(["open","pending","review","closed","waiting","parts estimate","inspection","working"]),starts=[];
+    const validStatuses=new Set(["open","pending","review","closed","waiting","parts estimate","inspection","working"]);
+    const starts=[];
     for(let i=0;i<lines.length-1;i++)if(/^\d{5,7}$/.test(lines[i])&&validStatuses.has(norm(lines[i+1])))starts.push(i);
-    const allRecords=[],activeRecords=[],workloadRecords=[];
-    for(let index=0;index<starts.length;index++){
-      const block=lines.slice(starts[index],starts[index+1]??lines.length),ro=block[0],sourceStatus=block[1];
-      const vinIndex=block.findIndex((line,position)=>position>1&&/^[A-HJ-NPR-Z0-9]{17}$/i.test(line));
-      if(vinIndex<3)continue;
-      const vin=block[vinIndex].toUpperCase(),vehicleLine=String(block[vinIndex+1]||"").trim(),hasVehicle=/^(?:19|20)\d{2}\b/.test(vehicleLine),vehicle=hasVehicle?vehicleLine:"",tailStart=vinIndex+(hasVehicle?2:1);
-      let firstDate=-1;for(let i=tailStart;i<block.length;i++)if(cdkDateTimeFromLines(block,i)){firstDate=i;break;}
-      if(firstDate<0)continue;
-      const codes=block.slice(tailStart,firstDate).filter((line)=>!/^\[[A-Z]\]/.test(line)),dateValues=[];
-      for(let i=firstDate;i<block.length;){const value=cdkDateTimeFromLines(block,i);if(value){dateValues.push(value);i+=value.consumed;}else i+=1;}
-      const opened=dateValues[0],promised=dateValues[1],closed=dateValues[2],services=block.find((line)=>/^\[[A-Z]\]/.test(line))||"";
-      if(codes.length<2||!opened||!promised)continue;
-      const raw={ro,advisorCode:codes[1]||"",advisor:"",technicianCode:codes[2]||"",technician:"",customer:block.slice(2,vinIndex).join(" / "),vehicle,vin,tagNumber:codes[0]||"",sourceStatus,opened:opened.display||"",promised:promised.display||"",closed:closed?.display||"",services,sourceFields:{Status:sourceStatus,"Tag #":codes[0]||"",Adv:codes[1]||"",Tech:codes[2]||"",Open:opened.display||"",Promised:promised.display||"",Closed:closed?.display||"",Services:services}};
-      reconcileRecordSourceIdentity(raw);raw.id=stableId(raw);allRecords.push(raw);
-      if(norm(sourceStatus)!=="closed"){activeRecords.push(raw);workloadRecords.push({ro,advisorCode:raw.advisorCode,opened:opened.iso||workloadDate(raw.opened),isOpen:true});}
+    if(starts.length>6000)throw Error("Too many CDK records to process safely.");
+    return{lines,starts,summary};
+  }
+  function cdkRepairOrdersBlock(block){
+    const ro=block[0],sourceStatus=block[1];
+    const vinIndex=block.findIndex((line,pos)=>pos>1&&/^[A-HJ-NPR-Z0-9]{17}$/i.test(line));
+    if(vinIndex<3)return{error:"RO "+ro+": VIN or customer information could not be identified."};
+    const vin=block[vinIndex].toUpperCase(),vehicleLine=String(block[vinIndex+1]||"").trim();
+    const hasVehicle=/^(?:19|20)\d{2}\b/.test(vehicleLine),vehicle=hasVehicle?vehicleLine:"",tailStart=vinIndex+(hasVehicle?2:1);
+    let firstDate=-1;
+    for(let i=tailStart;i<block.length;i++)if(cdkDateTimeFromLines(block,i)){firstDate=i;break;}
+    if(firstDate<0)return{error:"RO "+ro+": opening and promise dates could not be found."};
+    const codes=block.slice(tailStart,firstDate).filter(line=>! /^\[[A-Z]\]/.test(line)),dateValues=[];
+    for(let i=firstDate;i<block.length;){
+      const value=cdkDateTimeFromLines(block,i);
+      if(value){dateValues.push(value);i+=value.consumed;}else i++;
     }
-    const expectedAll=Number(summary[1]),expectedOpen=Number(summary[2]),expectedClosed=Number(summary[5]),closedCount=allRecords.filter((record)=>norm(record.sourceStatus)==="closed").length;
-    if(allRecords.length!==expectedAll||activeRecords.length!==expectedOpen||closedCount!==expectedClosed)throw new Error("CDK Repair Orders reconciliation failed: parsed "+allRecords.length+"/"+activeRecords.length+"/"+closedCount+", expected "+expectedAll+"/"+expectedOpen+"/"+expectedClosed+".");
-    return{records:activeRecords,workloadRecords,summary:{all:expectedAll,open:expectedOpen,working:Number(summary[3]),onHold:Number(summary[4]),closed:expectedClosed},format:"CDK Repair Orders browser export",validation:{parser:"cdk-repair-orders-docx-v2-split-fields",recordStarts:starts.length,activeRecords:activeRecords.length,closedExcluded:true,splitVinVehicleSupported:true,splitDateTimeSupported:true}};
+    const opened=dateValues[0],promised=dateValues[1],closed=dateValues[2],services=block.find(line=>/^\[[A-Z]\]/.test(line))||"";
+    if(codes.length<2||!opened||!promised)return{error:"RO "+ro+": tag, advisor or required dates are incomplete."};
+    const raw={ro,advisorCode:codes[1]||"",advisor:"",technicianCode:codes[2]||"",technician:"",
+      customer:block.slice(2,vinIndex).join(" / "),vehicle,vin,tagNumber:codes[0]||"",sourceStatus,
+      opened:opened.display||"",promised:promised.display||"",closed:closed?.display||"",services,
+      sourceFields:{Status:sourceStatus,"Tag #":codes[0]||"",Adv:codes[1]||"",Tech:codes[2]||"",
+        Open:opened.display||"",Promised:promised.display||"",Closed:closed?.display||"",Services:services}};
+    reconcileRecordSourceIdentity(raw);raw.id=stableId(raw);
+    return{raw,opened:opened.iso||workloadDate(raw.opened)};
+  }
+  function cdkRepairOrdersResult(layout,entries,errors,partial=false){
+    const allRecords=entries.map(entry=>entry.raw),activeRecords=allRecords.filter(record=>norm(record.sourceStatus)!=="closed");
+    const closedCount=allRecords.length-activeRecords.length;
+    const workloadRecords=entries.filter(e=>norm(e.raw.sourceStatus)!=="closed").map(e=>({
+      ro:e.raw.ro,advisorCode:e.raw.advisorCode,opened:e.opened,isOpen:true
+    }));
+    const summary=layout.summary?{all:Number(layout.summary[1]),open:Number(layout.summary[2]),
+      working:Number(layout.summary[3]),onHold:Number(layout.summary[4]),closed:Number(layout.summary[5])}:null;
+    const duplicate=new Set(),seen=new Set();
+    for(const record of allRecords){if(seen.has(record.ro))duplicate.add(record.ro);seen.add(record.ro);}
+    for(const ro of duplicate)errors.push("Duplicate RO "+ro+" within pasted source.");
+    if(!partial){
+      if(!summary)throw Error("The CDK Repair Orders summary counts could not be verified.");
+      if(errors.length||allRecords.length!==summary.all||activeRecords.length!==summary.open||closedCount!==summary.closed)
+        throw Error("CDK Repair Orders reconciliation failed: parsed "+allRecords.length+"/"+activeRecords.length+"/"+closedCount+
+          ", expected "+summary.all+"/"+summary.open+"/"+summary.closed+".");
+    }
+    if(partial&&!layout.starts.length)errors.push("No repair order record boundaries were found.");
+    const warnings=[];
+    if(partial){
+      warnings.push("Clipboard scope is not independently verified; records absent from this paste will never be closed.");
+      if(summary&&allRecords.length!==summary.all)warnings.push(
+        "Pasted "+allRecords.length+" of "+summary.all+" records listed in the header (possibly filtered or truncated).");
+      if(!summary)warnings.push("Source summary counts are unavailable.");
+    }
+    return{records:activeRecords,workloadRecords,summary,issues:errors,warnings,
+      format:"CDK Repair Orders browser export",validation:{parser:"cdk-repair-orders-shared-v3",
+      recordStarts:layout.starts.length,activeRecords:activeRecords.length,closedExcluded:true,
+      splitVinVehicleSupported:true,splitDateTimeSupported:true,scope:partial?"unverified":"verified-full"}};
+  }
+  function parseCdkRepairOrdersDocx(source,fileName){
+    const layout=cdkRepairOrdersLayout(source),entries=[],errors=[];
+    for(let i=0;i<layout.starts.length;i++){
+      const entry=cdkRepairOrdersBlock(layout.lines.slice(layout.starts[i],layout.starts[i+1]??layout.lines.length));
+      if(entry.error)errors.push(entry.error);else entries.push(entry);
+    }
+    return cdkRepairOrdersResult(layout,entries,errors,false);
+  }
+  async function parseCdkRepairOrdersPaste(source,report,signal){
+    const layout=cdkRepairOrdersLayout(source),entries=[],errors=[];
+    if(!layout.starts.length)throw Error("No CDK repair order rows could be identified.");
+    const started=performance.now();
+    for(let i=0;i<layout.starts.length;i++){
+      if(signal?.aborted)throw new DOMException("Analysis canceled.","AbortError");
+      const entry=cdkRepairOrdersBlock(layout.lines.slice(layout.starts[i],layout.starts[i+1]??layout.lines.length));
+      if(entry.error)errors.push(entry.error);else entries.push(entry);
+      if((i+1)%20===0||i+1===layout.starts.length){
+        report?.({stage:"Extracting and validating repair orders",completed:i+1,total:layout.starts.length,elapsedMs:Math.round(performance.now()-started)});
+        if(i+1<layout.starts.length)await new Promise(resolve=>setTimeout(resolve,0));
+      }
+    }
+    return cdkRepairOrdersResult(layout,entries,errors,true);
   }
   function defaultManagementFor(raw){return{statusId:"",status:"",owner:raw.advisor||"",nextAction:"",reviewDate:"",communication:"",note:"",updatedAt:null};}
   function pruneClosedRecords(records,at=Date.now()){const cutoff=at-CLOSED_RO_RETENTION_DAYS*86400000;return (records||[]).filter((record)=>{const time=Date.parse(record.closedAt||"");return Number.isFinite(time)&&time>=cutoff;}).sort((a,b)=>String(b.closedAt).localeCompare(String(a.closedAt)));}
