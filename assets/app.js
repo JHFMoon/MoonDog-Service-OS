@@ -454,10 +454,40 @@
   async function fileAt(path, create = false) { const parts = [...path]; const name = parts.pop(); return (await directory(parts, create)).getFileHandle(name, { create }); }
   async function readJson(path, fallback) { try { return JSON.parse(await (await (await fileAt(path)).getFile()).text()); } catch (error) { if (error.name === "NotFoundError") return fallback; throw error; } }
   async function writeBytes(path,bytes){writeAuthority.requireWrite();await MoonDogMaintenance.safeWrite(maintenanceIO,path.join('/'),bytes,{validateJson:false});return fileAt(path);}
-  let diagnosticsQueue = Promise.resolve();
+  let diagnosticsQueue = Promise.resolve(),diagnosticTimer=null;
+  const pendingDiagnostics=[];
   function diagnosticLine(kind, message, at = now()) { return `- ${at} | ${String(kind).replace(/[^A-Z -]/gi, "").slice(0, 32)} | ${String(message).replace(/[\r\n|]/g, " ").slice(0, 240)}`; }
-  async function maintainDiagnostics(kind, message) { if (!model.root) return; const path = ["MOONDOG_DIAGNOSTICS.md"], cutoff = Date.now() - 7 * 86400000; let prior = ""; try { prior = await (await (await fileAt(path)).getFile()).text(); } catch (error) { if (error.name !== "NotFoundError") return; } const retained = prior.split(/\r?\n/).filter((line) => { const match = line.match(/^- (\d{4}-\d{2}-\d{2}T[^ ]+) \|/); return match && Number.isFinite(Date.parse(match[1])) && Date.parse(match[1]) >= cutoff; }).slice(-499); const body = ["# Service Operations Dashboard Diagnostics", "", "Recent non-PII operational diagnostics for troubleshooting. Entries are retained for seven days.", "", ...retained, diagnosticLine(kind, message), ""].join("\n"); await writeBytes(path, new TextEncoder().encode(body)); }
-  function recordDiagnostic(kind, message) { if (!writeAuthority.canWrite) return Promise.resolve(); diagnosticsQueue = diagnosticsQueue.then(() => maintainDiagnostics(kind, message)).catch(() => {}); return diagnosticsQueue; }
+  async function maintainDiagnostics(batch,originRoot) {
+    if(!batch.length||!model.root||model.root!==originRoot||!writeAuthority.canWrite)return;
+    const path=["MOONDOG_DIAGNOSTICS.md"],cutoff=Date.now()-7*86400000;
+    let prior="";
+    try{prior=await(await(await fileAt(path)).getFile()).text();}
+    catch(error){if(error.name!=="NotFoundError")return;}
+    const lines=batch.map(item=>diagnosticLine(item.kind,item.message,item.at));
+    const retained=prior.split(/\r?\n/).filter(line=>{
+      const match=line.match(/^- (\d{4}-\d{2}-\d{2}T[^ ]+) \|/);
+      return match&&Number.isFinite(Date.parse(match[1]))&&Date.parse(match[1])>=cutoff;
+    }).slice(-Math.max(0,500-lines.length));
+    const body=["# Service Operations Dashboard Diagnostics","","Recent non-PII operational diagnostics for troubleshooting. Entries are retained for seven days.","",...retained,...lines,""].join("\n");
+    if(model.root===originRoot)await writeBytes(path,new TextEncoder().encode(body));
+  }
+  function flushDiagnostics(){
+    if(diagnosticTimer){clearTimeout(diagnosticTimer);diagnosticTimer=null;}
+    if(!pendingDiagnostics.length)return diagnosticsQueue;
+    const batch=pendingDiagnostics.splice(0),originRoot=model.root;
+    const relevant=batch.filter(item=>item.root===originRoot);
+    if(!relevant.length)return diagnosticsQueue;
+    diagnosticsQueue=diagnosticsQueue.then(()=>maintainDiagnostics(relevant,originRoot)).catch(()=>{});
+    return diagnosticsQueue;
+  }
+  function recordDiagnostic(kind,message){
+    if(!writeAuthority.canWrite||!model.root)return Promise.resolve();
+    pendingDiagnostics.push({kind,message,at:now(),root:model.root});
+    if(pendingDiagnostics.length>=24)return flushDiagnostics();
+    if(!diagnosticTimer)diagnosticTimer=setTimeout(flushDiagnostics,1200);
+    return diagnosticsQueue;
+  }
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)void flushDiagnostics();});
   async function writeJson(path, value) { writeAuthority.requireWrite(); const bytes = new TextEncoder().encode(JSON.stringify(value, null, 2) + "\n");
     try { await writeBytes(path, bytes); const check = await readJson(path, null); if (JSON.stringify(check)!==JSON.stringify(value)) throw new Error(`Read-back verification failed for ${path.join("/")}.`); recordDiagnostic("DURABLE WRITE", `${path.join("/")} saved and verified`); } catch (error) { recordDiagnostic("DURABLE WRITE FAILED", `${path.join("/")} could not be saved (${error.name || "Error"})`); throw error; } }
   async function backupState(reason, state = model.state) { if (state.updatedAt) await writeJson(["backups", `${stamp()}-${slug(reason)}.json`], state); }
