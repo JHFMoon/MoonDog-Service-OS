@@ -1270,7 +1270,7 @@ body.moondog-presentation-mode #view-meeting.meeting-scoreboard.presentation-act
 .daily-report-needs{display:block;min-width:0;width:100%;margin:0 0 12px}
 .daily-report-needs>h3{margin:18px 0 8px!important;font-size:14px!important;letter-spacing:.03em}
 .daily-report-needs>p{margin:8px 0;line-height:1.5}
-.daily-source-row{display:flex;flex-direction:column;align-items:stretch;gap:9px;min-width:0;width:100%;padding:14px 16px;margin-bottom:9px;border:1px solid #476173;border-radius:9px;overflow:visible}
+.daily-source-row{display:flex;flex-direction:column;align-items:normal;gap:9px;min-width:0;width:100%;padding:14px 16px;margin-bottom:9px;border:1px solid #476173;border-radius:9px;overflow:visible}
 .daily-source-row>*{min-width:0!important;max-width:100%;grid-column:auto!important;grid-row:auto!important}
 .daily-source-row .daily-report-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
 .daily-report-head>strong{font-size:17px;line-height:1.3}
@@ -1301,4 +1301,4 @@ body.moondog-presentation-mode #view-meeting.meeting-scoreboard.presentation-act
 html[data-theme="dark"] body.daily-operating .daily-report-summary,html[data-theme="dark"] body.daily-operating .daily-report-empty,html[data-theme="dark"] body.daily-operating .daily-source-row{background:#182937;border-color:#45647a;color:#e8f1f7}
 html[data-theme="dark"] body.daily-operating .daily-report-explanation,html[data-theme="dark"] body.daily-operating .daily-report-source,html[data-theme="dark"] body.daily-operating .daily-report-details{color:#d2e5ee}
 html[data-theme="dark"] body.daily-operating .daily-report-state{color:#b4e6f2}
-@media(max-width:700px){#dailyTools[data-category="imports"]{max-width:100%}.daily-source-row{padding:12px}.daily-report-primary{flex-direction:column;align-items:stretch!important}.daily-source-row button.daily-report-import{width:100%;align-self:stretch}.daily-report-toolbar>.daily-primary{width:100%}}
+@media(max-width:700px){#dailyTools[data-category="imports"]{max-width:100%}.daily-source-row{padding:12px}.daily-report-primary{flex-direction:column;align-items:stretch!important}.daily-source-row button.daily-report-import{width:100%}.daily-report-toolbar>.daily-primary{width:100%}}
