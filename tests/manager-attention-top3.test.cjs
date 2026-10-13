@@ -65,3 +65,15 @@ test('Visible-only update polling fetches metadata without automatic installatio
   assert.ok(update.includes('note.textContent = value.releaseNotes'));
   assert.equal(update.includes('fetch(customer'),false);
 });
+
+test('Home RO completion respects the configured store calendar, not a hardcoded timezone',()=>{
+  const at=Date.parse('2026-10-13T13:00:00Z'); // Oct 14 in Auckland, Oct 13 in Los Angeles
+  const context=vm.createContext({Date,Intl,MoonDogFreshness:{
+    DEFAULT_TIME_ZONE:'Pacific/Auckland',
+    dateKey:(date,zone)=>new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date).split('/').reverse().join('-')
+  },__moondogSettingsModel:{settings:{store:{timeZone:'Pacific/Auckland'}}}});
+  vm.runInContext(read('assets/daily-engine.js'),context);
+  const task={id:'ro:abc',type:'ro',rank:4,fingerprint:'same',record:{management:{reviewDate:'2026-10-14'}}};
+  const event={at:'2026-10-12T12:00:00Z',details:{taskId:task.id,action:'completed',fingerprint:'same',rank:4,until:'2026-10-12T12:00:00Z'}};
+  assert.equal(context.MoonDogDailyEngine.eligible(task,[event],at),true);
+});
