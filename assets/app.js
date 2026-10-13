@@ -3098,8 +3098,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function pasteDiff(parsed){
     const active=new Map((model.state.records||[]).map(row=>[String(row.ro),row]));
     const closed=new Map((model.state.closedRecords||[]).map(row=>[String(row.ro),row]));
-    const changes=[],errors=[];
+    const changes=[],errors=[],seen=new Set();
     for(const raw of parsed.records){
+      if(seen.has(String(raw.ro))){errors.push("Duplicate RO "+raw.ro+" in pasted records; import blocked.");continue;}
+      seen.add(String(raw.ro));
       const prior=active.get(String(raw.ro))||closed.get(String(raw.ro));
       if(prior?.vin&&raw.vin&&prior.vin!==raw.vin){
         errors.push("RO "+raw.ro+" has a different VIN from the existing record; no automatic merge allowed.");
