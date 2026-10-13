@@ -372,7 +372,9 @@
     if(['unavailable','on-demand','irregular'].includes(mode))return false;
     // Unknown observed cadence is not proof that an optional report
     // publishes every operating day. Required SAPR/CSI retain their rules.
-    if(mode==='auto')return ['sapr','csi','openRo','appointments'].includes(key);
+    if(mode==='auto')return key==='menu'
+      ?freshness.dayOfWeek(todayKey)>1
+      :['sapr','csi','openRo','appointments'].includes(key);
     if(mode==='weekly'){
       if(info.automatic){
         if(!info.lastObserved)return true;
