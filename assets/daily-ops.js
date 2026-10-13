@@ -1206,7 +1206,7 @@
             const committed=await bridge.commit(activeNonce);activeNonce="";
             line(result,committed.status==='unchanged'?'Already current — nothing new was written':
               'Saved and verified: '+committed.added+' new, '+committed.updated+' updated. Missing ROs closed: 0.','p','daily-paste-success');
-            status.textContent='Import complete. Original pasted text was not retained.';
+            status.textContent=committed.warning||'Import complete. Original pasted text was not retained.';
           }catch(error){line(result,error.message||'Commit failed. Review your workspace.','p','daily-paste-error');}
           finally{save.disabled=false;}
         },'daily-primary');
