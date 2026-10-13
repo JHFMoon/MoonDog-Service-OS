@@ -2966,8 +2966,148 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     } finally { dailySaveAdditions = null; }
   };
   let dailySaveAdditions = null;
+  // Paste & Learn uses an ephemeral preview token; only a separately
+  // confirmed commit writes, and it never performs complete-snapshot closure.
+  let pastePreview=null,pasteCommitBusy=false;
+  const pasteRules=()=>Array.isArray(model.settings.future?.pasteLearnRules)?model.settings.future.pasteLearnRules:[];
+  function pasteDiff(parsed){
+    const active=new Map((model.state.records||[]).map(row=>[String(row.ro),row]));
+    const closed=new Map((model.state.closedRecords||[]).map(row=>[String(row.ro),row]));
+    const changes=[],errors=[...(parsed.issues||[])];
+    for(const raw of parsed.records){
+      const prior=active.get(String(raw.ro))||closed.get(String(raw.ro));
+      if(prior?.vin&&raw.vin&&prior.vin!==raw.vin){
+        errors.push("RO "+raw.ro+" has a different VIN from the existing record; no automatic merge allowed.");
+        continue;
+      }
+      const fields=["sourceStatus","advisorCode","technicianCode","opened","promised","customer","vehicle","tagNumber","services"];
+      const changed=!prior||fields.some(field=>String(prior[field]||"")!==String(raw[field]||""));
+      changes.push({ro:raw.ro,kind:!prior?"new":changed?"updated":"unchanged"});
+    }
+    const counts={new:changes.filter(c=>c.kind==="new").length,updated:changes.filter(c=>c.kind==="updated").length,
+      unchanged:changes.filter(c=>c.kind==="unchanged").length,invalid:errors.length};
+    return{changes,errors,counts};
+  }
+  async function analyzePasteLearning(input,report,signal){
+    if(!model.root)throw Error("Connect the working folder before analyzing pasted information.");
+    pastePreview=null;
+    const engine=globalThis.MoonDogPasteLearn;
+    if(!engine)throw Error("Paste & Learn runtime is unavailable; reload the verified dashboard.");
+    const text=engine.capture(input?.text||"",input?.html||"");
+    if(!text.trim())throw Error("Paste text into the field before analyzing.");
+    report?.({stage:"Identifying source"});
+    await new Promise(resolve=>setTimeout(resolve,0));
+    if(signal?.aborted)throw new DOMException("Analysis canceled.","AbortError");
+    const kind=engine.detectFormat(text,pasteRules());
+    if(kind.sourceId==="cdk-repair-orders"){
+      report?.({stage:"Extracting CDK Repair Orders"});
+      const parsed=await parseCdkRepairOrdersPaste(text,report,signal);
+      if(signal?.aborted)throw new DOMException("Analysis canceled.","AbortError");
+      report?.({stage:"Comparing with Open RO Control"});
+      await new Promise(resolve=>setTimeout(resolve,0));
+      const diff=pasteDiff(parsed),nonce=String(Date.now())+"-"+Math.random().toString(36).slice(2);
+      pastePreview={nonce,parsed,root:model.root,updatedAt:model.state.updatedAt,
+        priorIds:(model.state.records||[]).map(r=>r.id).join("|"),diff};
+      return{kind,nonce,summary:parsed.summary,detected:parsed.validation.recordStarts,
+        valid:parsed.records.length,closedExcluded:parsed.summary?.closed??0,
+        warnings:parsed.warnings,issues:diff.errors,counts:diff.counts,
+        changes:diff.changes.slice(0,100),scope:"Unverified / partial — absent vehicles remain open",
+        canCommit:!diff.errors.length&&parsed.records.length>0};
+    }
+    if(kind.sourceId){
+      const rule=pasteRules().find(r=>r.id===kind.sourceId);
+      const result=engine.tablePreview(text,rule);
+      return{kind,detected:result.rows.length+result.issues.length,valid:result.rows.length,
+        issues:result.issues.map(x=>"Row "+x.row+": "+x.reason),warnings:["Recognized layout only. No operational destination is authorized."],
+        exampleRows:result.rows.slice(0,5),scope:"Review only",canCommit:false};
+    }
+    return{kind,detected:0,valid:0,issues:[],warnings:["Unknown source. Teach a safe table layout or ask for a reviewed source adapter."],
+      headers:engine.tableHeaders(text),scope:"Review only",canCommit:false};
+  }
+  async function commitPasteLearning(nonce){
+    if(pasteCommitBusy)throw Error("A paste import is already being committed.");
+    const preview=pastePreview;
+    if(!preview||preview.nonce!==nonce)throw Error("That preview expired. Analyze the current text again.");
+    if(preview.root!==model.root||preview.updatedAt!==model.state.updatedAt||
+        preview.priorIds!==(model.state.records||[]).map(r=>r.id).join("|"))
+      throw Error("The connected workspace or Open RO data changed. Analyze the paste again before importing.");
+    if(preview.diff.errors.length||!preview.parsed.records.length)
+      throw Error("Unresolved issues block operational import.");
+    writeAuthority.requireWrite();
+    pasteCommitBusy=true;
+    try{
+      const rechecked=pasteDiff(preview.parsed);
+      if(rechecked.errors.length)throw Error("Existing RO identities changed. Review again.");
+      const active=new Map((model.state.records||[]).map(row=>[String(row.ro),row]));
+      const closed=new Map((model.state.closedRecords||[]).map(row=>[String(row.ro),row]));
+      const added=[],changed=[];
+      const importedAt=now();
+      for(const raw of preview.parsed.records){
+        const prior=active.get(String(raw.ro))||closed.get(String(raw.ro));
+        const previous={...(prior||{}),...raw,management:prior?.management||defaultManagementFor(raw)};
+        const status=operationalStatusFromImport(raw,prior,importedAt);
+        if(status)previous.cdkOperational=status;
+        else delete previous.cdkOperational;
+        delete previous.closedAt;delete previous.closedReason;
+        if(!prior)added.push(previous);
+        else if(JSON.stringify({...prior,cdkOperational:undefined})!==JSON.stringify({...previous,cdkOperational:undefined}))
+          changed.push(previous);
+        active.set(String(raw.ro),previous);
+      }
+      if(!added.length&&!changed.length){
+        pastePreview=null;return{status:"unchanged",added:0,updated:0,missingClosed:0};
+      }
+      await backupState("before-cdk-clipboard-import");
+      const previousState=model.state;
+      const closedRecords=(previousState.closedRecords||[]).filter(record=>!active.has(String(record.ro)));
+      const next={...previousState,records:[...active.values()],closedRecords,updatedAt:importedAt,
+        clipboardIntake:{lastImportedAt:importedAt,source:"CDK Repair Orders — Clipboard",
+          importedRecords:preview.parsed.records.length,scope:"partial-unverified"}};
+      // Do not advance authoritative source freshness or replace Assign Next's
+      // complete-workload snapshot with a potentially paginated clipboard page.
+      try{await writeJson(STATE_PATH,next);model.state=next;}
+      catch(error){model.state=previousState;throw error;}
+      pastePreview=null;
+      await addHistory("source-import","Verified partial CDK clipboard update",
+        {source:"CDK Repair Orders — Clipboard",added:added.length,updated:changed.length,
+          missingClosed:0,scope:"partial",rawTextRetained:false});
+      await markSupervisorWorkbookStale("Open RO source fields changed from verified clipboard records");
+      renderAll();
+      return{status:"saved",added:added.length,updated:changed.length,missingClosed:0};
+    }finally{pasteCommitBusy=false;}
+  }
+  async function savePasteLearningRule(candidate){
+    const engine=globalThis.MoonDogPasteLearn;
+    if(!engine)throw Error("Paste learning module not installed.");
+    const validated=engine.safeRule(candidate,pasteRules());
+    await updateLocalFuture(future=>{
+      const list=Array.isArray(future.pasteLearnRules)?[...future.pasteLearnRules]:[];
+      const at=list.findIndex(item=>item.id===validated.id);
+      if(at>=0)list[at]=validated;else list.push(validated);
+      future.pasteLearnRules=list;
+    });
+    return validated;
+  }
+  async function changePasteLearningRule(id,mode){
+    const list=pasteRules(),target=list.find(x=>x.id===id);
+    if(!target)throw Error("Learned source not found.");
+    if(!["disable","enable","revert"].includes(mode))throw Error("Unsupported rule action.");
+    await updateLocalFuture(future=>{
+      future.pasteLearnRules=list.map(rule=>{
+        if(rule.id!==id)return rule;
+        if(mode==="revert"){
+          if(!rule.previous)throw Error("There is no previous approved rule to restore.");
+          return{...rule,name:rule.previous.name,headers:rule.previous.headers,
+            fields:rule.previous.fields,version:rule.version+1,previous:null,updatedAt:now()};
+        }
+        return{...rule,enabled:mode==="enable",version:rule.version+1,updatedAt:now()};
+      });
+    });
+  }
   globalThis.__moondogDaily = Object.freeze({
     model, navigate: (view, anchor) => navigateTo(view, anchor), connect,
+    pasteLearn:Object.freeze({analyze:analyzePasteLearning,commit:commitPasteLearning,
+      clear:()=>{pastePreview=null;},rules:pasteRules,teach:savePasteLearningRule,manage:changePasteLearningRule}),
     reportNeeds,
     reportRefreshRequests(todayKey=localDateKey()) {
       const types={openRo:'open-ro',sapr:'performance',csi:'csi',menu:'menu-sales',appointments:'appointments',nextAppointments:'next-appointments',vir:'vir',mediaAsr:'media-asr',mediaAsrTech:'media-asr-tech',efficiency:'efficiency',sor:'sor'},ranks={csi:2.5,openRo:3.5,appointments:4.5,sapr:5.5,mediaAsr:5.8,mediaAsrTech:5.9,menu:6,nextAppointments:6.2,efficiency:6.5,sor:7};ranks.vir=5;
