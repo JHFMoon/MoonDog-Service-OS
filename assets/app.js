@@ -20,6 +20,8 @@
   const PERFORMANCE_PATH = ["data", "advisor-performance.json"];
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
+  // Bump only for verified source-recognition rule changes, not UI updates.
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-12";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -1314,24 +1316,37 @@
     else await importSource(candidate.name, deleteAfterSuccess);
     await ensurePreviousMonthSummary(); renderAll();return appointmentOutcome;
   }
-  async function reconcileLearnedFiles() {
+  async function reconcileLearnedFiles(parserRevision=LEARNED_PARSER_REVISION) {
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)return {deferred:true};
-    let failures=0,attempts=0,recovered=0,unsupported=0;dailyImportBusy=true;try{
+    let failures=0,attempts=0,recovered=0,unsupported=0,skipped=0;
+    const memo=model.autoImport.learnedFileMemo||=( {} );
+    let memoDirty=false;dailyImportBusy=true;try{
     let folder; try { folder = await directory(["Files To Learn"], false); } catch (error) { if (error.name === "NotFoundError") return {failures:0,attempts:0,recovered:0,unsupported:0}; throw error; }
     const entries = []; for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && !/^~\$/.test(name)) { try { const file = await handle.getFile(); const relativePath=`Files To Learn/${name}`; entries.push({ name, location:"learn", relativePath, handle, file, signature:`${relativePath}|${file.size}|${file.lastModified}` }); } catch (error) { failures++; recordDiagnostic("FILES TO LEARN", `Learned-source open deferred: ${error?.name||"Error"}`); } }
     for (const entry of entries) { entry.structurePriority=10; if (/\.csv$/i.test(entry.name)) { const start=(await entry.file.slice(0,160).text()).trim().toLowerCase(); entry.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     entries.sort((a, b) => a.structurePriority - b.structurePriority || a.file.lastModified - b.file.lastModified || a.name.localeCompare(b.name, undefined, { numeric: true }));
     for (const entry of entries) {
       try {
-        if(model.autoImport.seen?.[entry.signature]?.kind==="appointments"&&model.autoImport.seen[entry.signature].importedAt)continue;attempts++;const bytes = await entry.file.arrayBuffer(), kind = await classifyImportFile(entry.name, entry.file, bytes);
-        if (!kind) { unsupported++; continue; }
+        if(model.autoImport.seen?.[entry.signature]?.kind==="appointments"&&model.autoImport.seen[entry.signature].importedAt)continue;
+        if(memo[entry.signature]===parserRevision){skipped++;continue;}
+        attempts++;
+        // Avoid decoding entire unsupported images and presentation files.
+        if(!/\.(?:csv|xlsx|pdf|docx)$/i.test(entry.name)){
+          unsupported++;memo[entry.signature]=parserRevision;memoDirty=true;continue;
+        }
+        const bytes = await entry.file.arrayBuffer(), kind = await classifyImportFile(entry.name, entry.file, bytes);
+        if (!kind) { unsupported++;memo[entry.signature]=parserRevision;memoDirty=true; continue; }
         const outcome=await processClassifiedCandidate(entry, kind, bytes, true);if(kind==="appointments"){model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,importedAt:now(),kind};await writeJson(AUTO_IMPORT_PATH,model.autoImport);}
         recovered++;if(outcome?.retired){await addHistory("learned-file-retired","Verified a known non-service learned source and removed the Service OS copy",{sourceFamily:kind,retired:true});recordDiagnostic("FILES TO LEARN",`${kind} retired; no Service OS data retained`);}else{await addHistory("learned-file-recovered", "Verified a now-supported learned source through durable intake", { sourceFamily: kind, recovered: true });recordDiagnostic("FILES TO LEARN", `${kind} recovered after durable verification`);}
       } catch (error) { failures++;recordDiagnostic("FILES TO LEARN", `Known-file reconciliation deferred: ${error.name}: ${error.message||error}`); }
       // Yield between files: version-triggered reconciliation must not freeze Home.
       await new Promise(resolve=>setTimeout(resolve,0));
     }
-    return {failures,attempts,recovered,unsupported};
+    if(memoDirty){
+      // Cache is non-authoritative metadata; original files remain untouched.
+      await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+    }
+    return {failures,attempts,recovered,unsupported,skipped};
     }finally{dailyImportBusy=false;}
   }
 
@@ -1407,13 +1422,24 @@
         return;
       }
       recordDiagnostic("VERIFIED UPDATE LAYOUT","Verified "+layout.scanned+" runtime files against trusted catalog; compatibility index "+(layout.compatibilityIndexPresent?"retained":"not required")+"; no files moved or deleted.");
-      const result=await reconcileLearnedFiles();
+      // Existing installations already scanned unchanged learned sources.
+      // Baseline a parser revision on first use; only genuine recognition
+      // upgrades reprocess them, independently from general UI releases.
+      const previousParser=model.autoImport.learnedParserRevision;
+      let result={attempts:0,recovered:0,unsupported:0,skipped:0};
+      if(previousParser&&previousParser!==LEARNED_PARSER_REVISION){
+        result=await reconcileLearnedFiles(LEARNED_PARSER_REVISION);
+      }
       if(result?.deferred||result?.failures){
         recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Learning-source retry deferred; receipt retained. Attempts "+(result?.attempts||0)+" · recovered "+(result?.recovered||0)+" · unsupported "+(result?.unsupported||0)+" · errors "+(result?.failures||0));
         return;
       }
+      if(model.autoImport.learnedParserRevision!==LEARNED_PARSER_REVISION){
+        model.autoImport.learnedParserRevision=LEARNED_PARSER_REVISION;
+        await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+      }
       localStorage.removeItem(key);
-      recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Verified "+VERSION+" · attempted "+(result?.attempts||0)+" learned files · recovered "+(result?.recovered||0)+" · still unsupported "+(result?.unsupported||0)+". Originals left untouched unless existing durable intake verified their result.");
+      recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Verified "+VERSION+" · attempted "+(result?.attempts||0)+" learned files · skipped "+(result?.skipped||0)+" · recovered "+(result?.recovered||0)+" · still unsupported "+(result?.unsupported||0)+". Unchanged parser revisions do not trigger reclassification.");
     }catch(error){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.name||"Error")+"; receipt retained, originals unchanged.");}
   }
 
@@ -1421,7 +1447,7 @@
   function folderWatchEnabled(){return model.settings?.future?.folderWatch?.enabled!==false;}
   function watchStatus(state,message=""){folderWatch.state=state;folderWatch.message=message;folderWatch.lastChecked=state==="CHECKING REPORT INBOX"?folderWatch.lastChecked:now();if(ui.folderWatchStatus){ui.folderWatchStatus.textContent=`${state}${folderWatch.lastChecked?` · Last checked ${new Date(folderWatch.lastChecked).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`:""}`;ui.folderWatchStatus.className=`badge ${/MISSING|REQUIRED|ERROR/.test(state)?"watch-error":/WAITING|IMPORTING|CHECKING/.test(state)?"watch-working":""}`;}if(ui.folderWatchDetail)ui.folderWatchDetail.textContent=message||`Watches ${REPORT_INBOX} every 15 seconds while Service Operations Dashboard is open.`;}
   function stopFolderWatch(reason="WATCH OFF"){if(folderWatch.timer)clearInterval(folderWatch.timer);folderWatch.timer=null;watchStatus(reason,reason==="FOLDER PERMISSION REQUIRED"?"Reconnect the working folder to resume Report Inbox intake.":"Automatic intake remains available when Report Inbox Watch is turned on.");}
-  function startFolderWatch(){if(!model.root||!folderWatchEnabled()){stopFolderWatch("WATCH OFF");return;}if(folderWatch.timer)clearInterval(folderWatch.timer);folderWatch.timer=setInterval(()=>folderWatchScan("poll"),15000);watchStatus("REPORT INBOX WATCHING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox watch started at a 15-second interval");}
+  function startFolderWatch(){if(!model.root||!folderWatchEnabled()){stopFolderWatch("WATCH OFF");return;}if(folderWatch.timer)clearInterval(folderWatch.timer);folderWatch.timer=setInterval(()=>{if(!document.hidden)void folderWatchScan("poll");},15000);watchStatus("REPORT INBOX WATCHING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox watch started at a 15-second interval");}
   function watchedInboxFile(name) { return Boolean(String(name || "").trim()); }
   function returnedWorkbookCandidate(name){return /\.xlsx$/i.test(name)&&!/^~\$/.test(name)&&/^(?:MoonDog|Service Operations) /i.test(name)&&!/-revision\.xlsx$/i.test(name);}
   async function watchCandidates(){const candidates=[],append=async(name,handle,location)=>{const relativePath=location==="inbox"?`${REPORT_INBOX}/${name}`:name;try{const file=await handle.getFile();candidates.push({name,location,relativePath,file,signature:`${relativePath}|${file.size}|${file.lastModified}`});}catch(error){candidates.push({name,location,relativePath,readError:error});}};const inbox=await reportInbox(false);for await(const[name,handle]of inbox.entries())if(handle.kind==="file"&&watchedInboxFile(name))await append(name,handle,"inbox");for await(const[name,handle]of model.root.entries())if(handle.kind==="file"&&returnedWorkbookCandidate(name)&&!candidates.some((candidate)=>candidate.name===name))await append(name,handle,"root");return candidates;}
@@ -2569,6 +2595,12 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   // remains unchanged. Navigation should switch screens, not reconstruct reports.
   let meetingNavigationTicket=0, navigationDataRevision=0;
   let meetingRenderedRevision=-1, performanceRenderedRevision=-1;
+  let meetingRenderedDate="",performanceRenderedClock="";
+  // Freshness and business-day pace depend on clock transitions too.
+  function reportClockToken(){
+    const date=localDateKey(),hour=freshness.timeParts(new Date(),businessTimeZone())?.hour??new Date().getHours();
+    return date+"|"+(hour>=18?"closed":"open");
+  }
   let openRoRenderedRevision=-1, openRoRenderedDate="";
   function invalidateNavigationRenders(){navigationDataRevision++;}
   const renderOpenRoBeforeNavigationReuse=renderTable;
@@ -2582,12 +2614,14 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   renderMeeting=function(...args){
     const output=renderMeetingBeforeNavigationReuse(...args);
     meetingRenderedRevision=navigationDataRevision;
+    meetingRenderedDate=localDateKey();
     return output;
   };
   const renderPerformanceBeforeNavigationReuse=renderPerformance;
   renderPerformance=function(...args){
     const output=renderPerformanceBeforeNavigationReuse(...args);
     performanceRenderedRevision=navigationDataRevision;
+    performanceRenderedClock=reportClockToken();
     return output;
   };
   function navigateTo(view,anchor=""){const button=document.querySelector(`.nav-item[data-view="${view}"]`);if(!button)return;
@@ -2610,7 +2644,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       },0));
     }
     if(view==="arrivals")renderArrivals();
-    if(view==="performance"&&performanceRenderedRevision!==navigationDataRevision){
+    if(view==="performance"&&(performanceRenderedRevision!==navigationDataRevision||performanceRenderedClock!==reportClockToken())){
       // Let the navigation paint before expensive report work, and abandon
       // stale callbacks when a different tab is selected in the meantime.
       requestAnimationFrame(()=>setTimeout(()=>{
@@ -2625,7 +2659,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       // Reuse fully rendered Meeting cards on return trips until verified source
       // data changes; otherwise reconstructing advisors/metrics blocks the UI.
       ensureMeetingV3Shell();
-      if(meetingRenderedRevision!==navigationDataRevision){
+      if(meetingRenderedRevision!==navigationDataRevision||meetingRenderedDate!==localDateKey()){
         requestAnimationFrame(()=>setTimeout(()=>{
           if(ticket!==meetingNavigationTicket||!ui["view-meeting"]?.classList.contains("active"))return;
           const started=performance.now();
