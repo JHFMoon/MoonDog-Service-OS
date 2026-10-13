@@ -422,6 +422,18 @@ try{
         "10/12/2026","08:30 AM","10/13/2026","09:00 AM","[C] Synthetic Service");
       return lines.join("\n");
     });
+    const prefill=await page.locator('#dailyPasteInput').evaluate(el=>{
+      const r=el.getBoundingClientRect(),style=getComputedStyle(el),parents=[];
+      for(let p=el;p&&parents.length<8;p=p.parentElement){
+        const st=getComputedStyle(p);parents.push({id:p.id,className:String(p.className||"").slice(0,100),
+          display:st.display,visibility:st.visibility,hidden:p.hidden,width:p.getBoundingClientRect().width,
+          height:p.getBoundingClientRect().height});
+      }
+      return{rect:{top:r.top,left:r.left,width:r.width,height:r.height},
+        disabled:el.disabled,readonly:el.readOnly,display:style.display,visibility:style.visibility,parents};
+    });
+    if(prefill.rect.height<10||prefill.rect.width<100||prefill.parents.some(x=>x.display==="none"||x.hidden))
+      throw Error("Paste interface is not visible: "+JSON.stringify(prefill));
     await page.locator('#dailyPasteInput').fill(synthetic,{timeout:5000});
     const pasteStarted=Date.now();
     await page.getByRole('button',{name:"Understand Text"}).click({timeout:5000});
