@@ -49,11 +49,12 @@ test("Narrow Edge pane reflows instead of clipping a full TV stage",()=>{
  assert.match(smoke,/Return-to-wide-monitor geometry failed/);
 });
 
-test("Open RO table is rendered only when active and refreshed on navigation",()=>{
+test("Open RO table refreshes on verified data and only recomputes on stale navigation",()=>{
  const start=app.indexOf("  function renderAll() {");
  const end=app.indexOf("  const renderAllWithCanonicalSourceLabels=",start);
  const content=app.slice(start,end);
  assert.ok(content.includes('if(ui["view-open-ro"]?.classList.contains("active"))renderTable();'));
  const nav=app.slice(app.indexOf("  function navigateTo(view,anchor="),app.indexOf("  function ensurePhase3Ui()"));
- assert.ok(nav.includes('if(view==="open-ro")renderTable();'));
+ assert.ok(nav.includes('if(view==="open-ro"&&(openRoRenderedRevision!==navigationDataRevision||openRoRenderedDate!==localDateKey()))'));
+ assert.ok(nav.includes('if(ticket!==meetingNavigationTicket||!ui["view-open-ro"]?.classList.contains("active"))return;'));
 });

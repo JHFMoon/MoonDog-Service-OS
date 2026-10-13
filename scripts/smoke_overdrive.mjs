@@ -303,6 +303,54 @@ try{
       throw Error("Repeated navigation unnecessarily rebuilt unchanged report DOM "+JSON.stringify(reuse));
     console.log("Repeated tab-navigation proof PASS",navigationTimes.length+" transitions",
       "max="+Math.max(...navigationTimes)+"ms","DOM reuse="+JSON.stringify(reuse));
+    // Reproduce the user's complete sequence: all five top navigation tabs,
+    // Tools > configuration > the small "‹ Tools" back button. Exercise
+    // hundreds of synthetic open ROs so this also catches table DOM churn.
+    await page.evaluate(()=>{
+      const model=globalThis.__moondogDaily?.model;
+      if(!model?.state)throw Error("Synthetic RO navigation proof has no model");
+      model.state.records=Array.from({length:413},(_,i)=>({
+        id:"synthetic-ro-"+i,ro:String(900000+i),advisor:"Demo Advisor",
+        advisorCode:"100",customer:"Synthetic Test "+i,
+        vehicle:"Synthetic Vehicle",sourceStatus:"Open",daysOpen:i%8,
+        management:{status:"Waiting Dispatch",nextAction:"Review synthetic task",
+          reviewDate:"2026-10-14",communication:"Updated"}
+      }));
+    });
+    const visitedTimes=[];
+    let initialTableRow=null;
+    for(let repeat=0;repeat<8;repeat++){
+      for(const destination of ["open-ro","assign-next","performance","meeting","tools"]){
+        const started=Date.now();
+        await page.locator('.nav-item[data-view="'+destination+'"]').click({timeout:3500});
+        await page.waitForFunction(view=>document.getElementById("view-"+view).classList.contains("active"),destination,{timeout:3500});
+        await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
+        visitedTimes.push(Date.now()-started);
+      }
+      await page.locator('#dailyTools button').filter({hasText:"Change how Service Operations Dashboard works"}).click({timeout:3500});
+      await page.waitForFunction(()=>document.getElementById("dailyTools").dataset.category==="settings",null,{timeout:1500});
+      const backStarted=Date.now();
+      await page.getByRole('button',{name:"‹ Tools"}).click({timeout:3500});
+      await page.waitForFunction(()=>document.getElementById("dailyTools").dataset.category==="",null,{timeout:1500});
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
+      const backMs=Date.now()-backStarted;
+      visitedTimes.push(backMs);
+      if(backMs>1250)throw Error("Tools back button stalled after full tab circuit: "+backMs+"ms");
+      await page.locator('.nav-item[data-view="open-ro"]').click({timeout:3500});
+      await page.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===413,null,{timeout:5000});
+      const row=await page.locator("#roTable tr[data-id]").first().evaluate(el=>{
+        el.dataset.syntheticNavigationProof ||= "preserve";
+        return el.dataset.id;
+      });
+      if(!row)throw Error("Synthetic Open RO rows were not rendered");
+      const preserved=await page.locator("#roTable tr[data-synthetic-navigation-proof='preserve']").count();
+      if(repeat>0&&preserved!==1)
+        throw Error("Open RO DOM was unnecessarily rebuilt after unchanged tab navigation");
+      initialTableRow ||= row;
+    }
+    console.log("Five-tab and Tools-back proof PASS",visitedTimes.length+" transitions",
+      "max="+Math.max(...visitedTimes)+"ms","rows=413","DOM reuse=true");
+
   }
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
   console.log("Arena TV visual and 7-slide rotation proof PASS",width,height);

@@ -2479,6 +2479,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.openFirstRecord.disabled = !records.length;
     ui.roTable.replaceChildren();
     if (!records.length) { const row = document.createElement("tr"), cell = document.createElement("td"); cell.colSpan = 7; cell.className = "empty"; cell.textContent = all.length ? "No records match the current filters." : "Connect a folder and import an XLSX."; row.append(cell); ui.roTable.append(row); return; }
+    // Build large RO tables off-DOM, then attach once to avoid hundreds of
+    // incremental live-table mutations and repeated style/layout work.
+    const tableRows=document.createDocumentFragment();
     for (const record of records) {
       const row = document.createElement("tr"), clarification = clarificationFor(record), closed = isClosedManagement(record.management), admin = adminCloseoutState(record,today), overdue = !closed && (admin.overdue || (record.management.reviewDate && record.management.reviewDate < today)), due = !closed && (admin.dueToday || record.management.reviewDate === today); row.dataset.id = record.id; row.tabIndex = 0; row.className = `${clarification ? "needs-clarification " : ""}${overdue ? "commitment-overdue" : due ? "commitment-due" : ""}`.trim();
       const ro = document.createElement("td"); ro.textContent = record.ro;
@@ -2487,8 +2490,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       const source = document.createElement("td"), sourcePill = document.createElement("span"); sourcePill.className = "status-pill source-pill"; sourcePill.textContent = record.sourceStatus || "—"; source.append(sourcePill);
       const management = document.createElement("td"), managementPill = document.createElement("span"); managementPill.className = "status-pill"; managementPill.textContent = statusForRecord(record); management.append(managementPill); if (clarification) { const ask = document.createElement("small"); ask.className = "ask-label"; ask.textContent = "Ask in person"; management.append(ask); }
       const action = document.createElement("td"), actionStack = document.createElement("div"), actionText = document.createElement("strong"), review = document.createElement("time"); action.className = "ro-action-cell"; actionStack.className = "ro-cell-stack"; actionText.textContent = record.management.nextAction || "No next action"; review.className = `commitment-label${record.management.reviewDate && record.management.reviewDate < today ? " overdue" : record.management.reviewDate === today ? " due" : ""}`; review.textContent = closed ? "Closed" : record.management.reviewDate ? `${record.management.reviewDate < today ? "OVERDUE" : record.management.reviewDate === today ? "DUE TODAY" : "Committed"} · ${record.management.reviewDate}` : "Commitment date required"; actionStack.append(actionText, review); if(admin.active){const closeout=document.createElement("small");closeout.textContent="Admin: "+admin.blocker+" · Task: "+(admin.taskDate||"Commitment needed")+(admin.taskOverdue?" · MISSED":admin.taskDueToday?" · DUE TODAY":"")+" · RO close: "+(admin.closeDate||"Commitment needed")+(admin.closeOverdue?" · MISSED":admin.closeDueToday?" · DUE TODAY":"");actionStack.append(closeout);} action.append(actionStack);
-      const control = document.createElement("td"), button = document.createElement("button"); button.className = "link-button"; button.textContent = "Update"; button.dataset.id = record.id; control.append(button); row.append(ro, advisor, customer, source, management, action, control); ui.roTable.append(row);
+      const control = document.createElement("td"), button = document.createElement("button"); button.className = "link-button"; button.textContent = "Update"; button.dataset.id = record.id; control.append(button); row.append(ro, advisor, customer, source, management, action, control); tableRows.append(row);
     }
+    ui.roTable.append(tableRows);
   }
   function visibleRecordIds() { return [...ui.roTable.querySelectorAll("tr[data-id]")].map((row) => row.dataset.id); }
   let editDraftDirty = false;
@@ -2565,7 +2569,15 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   // remains unchanged. Navigation should switch screens, not reconstruct reports.
   let meetingNavigationTicket=0, navigationDataRevision=0;
   let meetingRenderedRevision=-1, performanceRenderedRevision=-1;
+  let openRoRenderedRevision=-1, openRoRenderedDate="";
   function invalidateNavigationRenders(){navigationDataRevision++;}
+  const renderOpenRoBeforeNavigationReuse=renderTable;
+  renderTable=function(...args){
+    const output=renderOpenRoBeforeNavigationReuse(...args);
+    openRoRenderedRevision=navigationDataRevision;
+    openRoRenderedDate=localDateKey();
+    return output;
+  };
   const renderMeetingBeforeNavigationReuse=renderMeeting;
   renderMeeting=function(...args){
     const output=renderMeetingBeforeNavigationReuse(...args);
@@ -2585,7 +2597,18 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     (ui[`view-${view}`]||document.getElementById(`view-${view}`))?.classList.add("active");
     ui.pageTitle.textContent=button.textContent;
     const ticket=++meetingNavigationTicket;
-    if(view==="open-ro")renderTable();
+    if(view==="open-ro"&&(openRoRenderedRevision!==navigationDataRevision||openRoRenderedDate!==localDateKey())){
+      // An unchanged RO table stays mounted. When stale, let the tab paint
+      // first and discard its build if the user has already switched away.
+      requestAnimationFrame(()=>setTimeout(()=>{
+        if(ticket!==meetingNavigationTicket||!ui["view-open-ro"]?.classList.contains("active"))return;
+        if(openRoRenderedRevision===navigationDataRevision&&openRoRenderedDate===localDateKey())return;
+        const started=performance.now();
+        renderTable();
+        const elapsed=performance.now()-started;
+        if(elapsed>500)console.warn("Open RO table build took",Math.round(elapsed),"ms");
+      },0));
+    }
     if(view==="arrivals")renderArrivals();
     if(view==="performance"&&performanceRenderedRevision!==navigationDataRevision){
       // Let the navigation paint before expensive report work, and abandon
