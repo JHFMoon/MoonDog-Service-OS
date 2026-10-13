@@ -76,3 +76,7 @@ test("unknown report cadence is not treated as daily and monthly release handles
  assert.equal(cx.due("menu","2026-10-11"),false);
  assert.equal(cx.due("menu","2026-10-12"),true);
 });
+test("closed optional report groups cannot consume layout space",()=>{
+ const scoped=css.slice(css.indexOf("/* REPORTS & DATA — stable card layout."));
+ assert.match(scoped,/\.daily-report-optional:not\(\[open\]\)>:not\(summary\)\{display:none!important\}/);
+});
