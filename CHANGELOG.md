@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.72 — current Beta
+
+- Reduce Open RO tab churn and verify Tools back navigation. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.71 — current Beta
 
 - Reduce Open RO tab churn and verify Tools back navigation. Verified automated Beta; no Workspace migration.
