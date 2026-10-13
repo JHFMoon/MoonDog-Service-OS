@@ -139,3 +139,16 @@ test("stale preview and failed durable writes cannot report success",async()=>{
  assert.equal(model.state.updatedAt,"old");
  assert.equal(model.state.records.length,0);
 });
+
+test("can teach field mappings from key/value text without enabling operational imports",()=>{
+ const e=engine(),sample="Part Number: SYNTHETIC-001\nPart Status: Waiting\nOwner: Synthetic Advisor";
+ const structure=e.suggestedStructure(sample);
+ assert.equal(structure.kind,"key-value");
+ const rule=e.safeRule({name:"Parts Note",kind:structure.kind,headers:structure.headers,
+   fields:{description:"Part Number",status:"Part Status",owner:"Owner"}});
+ assert.equal(e.detectFormat(sample,[rule]).sourceId,rule.id);
+ const preview=e.tablePreview(sample,rule);
+ assert.equal(preview.rows.length,1);
+ assert.equal(preview.rows[0].status,"Waiting");
+ assert.equal(rule.writeEnabled,false);
+});
