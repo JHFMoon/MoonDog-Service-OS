@@ -495,16 +495,24 @@
     items.push(...engine.coachingTasks(api.latestSapr(),api.advisors(),model.settings.performanceStandards,globalThis.__moondogFreshness.sourceFreshness('sapr',{today:day}).safeForCurrent,day));
     return items;
   }
+  const historyFileCache=new Map();
+  let historyCacheRoot=null;
   async function loadHistory(includeAll=false,searchToken=null){
+    if(historyCacheRoot!==model.root){historyFileCache.clear();historyCacheRoot=model.root;}
     const entries=await api.readEntries('data/history'),events=[];
     // Daily priorities need only daily-task events; full history is loaded on
     // demand for search, not during every workspace connection.
     const relevant=entries.filter(({name})=>name.endsWith('.json')&&(includeAll||name.startsWith('daily-')));
     for(let i=0;i<relevant.length;i+=12){
       if(searchToken!==null&&searchToken!==state.searchToken)return false;
-      const batch=await Promise.all(relevant.slice(i,i+12).map(async({handle})=>{
-        try{return JSON.parse(await(await handle.getFile()).text());}
-        catch(error){if(error.name==='SyntaxError')return null;throw error;}
+      const batch=await Promise.all(relevant.slice(i,i+12).map(async({name,handle})=>{
+        if(historyFileCache.has(name))return historyFileCache.get(name);
+        try{
+          const event=JSON.parse(await(await handle.getFile()).text());
+          historyFileCache.set(name,event);
+          if(historyFileCache.size>4000)historyFileCache.delete(historyFileCache.keys().next().value);
+          return event;
+        }catch(error){if(error.name==='SyntaxError')return null;throw error;}
       }));
       events.push(...batch.filter(Boolean));
       if(i+12<relevant.length)await new Promise(resolve=>setTimeout(resolve,0));
@@ -1111,7 +1119,7 @@
       paint();
     }catch(error){paint();const p=document.createElement('p');p.textContent='Some saved files could not be searched. Check folder access and try again.';host.append(p);}
   }
-  document.addEventListener('moondog-recovered',async()=>{state.current=null;state.editing=false;state.loadedRoot=null;await ready();});
+  document.addEventListener('moondog-recovered',async()=>{historyFileCache.clear();historyCacheRoot=null;state.current=null;state.editing=false;state.loadedRoot=null;await ready();});
   document.addEventListener('moondog-data',ready);
   document.addEventListener('moondog-data',()=>queueMobilePublish());
   document.addEventListener('moondog-data',()=>{const name=$('hubStoreName');if(name)name.textContent=model.settings.store?.code&&model.settings.store?.name?.trim()?model.settings.store.name.trim():'Offline operations';});
