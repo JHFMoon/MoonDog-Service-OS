@@ -85,3 +85,13 @@ test("Partial clipboard path cannot invoke full source reconciliation or advance
  assert.match(commit,/missingClosed:0/);
  assert.match(commit,/writeJson\(STATE_PATH,next\)/);
 });
+
+test("reviewed secondary source adapter can be registered without operational write authority",()=>{
+ const e=engine();
+ e.registerAdapter({id:"synthetic-checklist",name:"Synthetic Checklist",version:"1",
+   detect:text=>text.includes("SYNTHETIC CHECKLIST"),evidence:["SYNTHETIC CHECKLIST"]});
+ const match=e.detectFormat("SYNTHETIC CHECKLIST\nA\tB");
+ assert.equal(match.sourceId,"synthetic-checklist");
+ assert.equal(match.writeEnabled,false);
+ assert.throws(()=>e.registerAdapter({id:"synthetic-checklist",name:"Another",detect:()=>true}),/duplicate/);
+});
