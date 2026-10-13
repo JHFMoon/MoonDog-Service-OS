@@ -1,7 +1,10 @@
 "use strict";
 const test=require("node:test"),assert=require("node:assert/strict"),vm=require("node:vm"),fs=require("node:fs"),path=require("node:path");
-const moduleSource=fs.readFileSync(path.join(__dirname,"..","assets","paste-learn.js"),"utf8");
 const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+const moduleBegin=app.indexOf("/* MoonDog Paste & Learn — inert");
+const moduleEnd=app.indexOf("})(globalThis);",moduleBegin);
+assert.ok(moduleBegin>=0&&moduleEnd>moduleBegin,"embedded engine must remain in rollback-safe app.js");
+const moduleSource=app.slice(moduleBegin,moduleEnd+"})(globalThis);".length);
 function engine(){const cx={};vm.runInNewContext(moduleSource,cx);return cx.MoonDogPasteLearn;}
 function cdkHarness(){
  const start=app.indexOf("  function cdkRepairOrdersLayout("),end=app.indexOf("  function defaultManagementFor(",start);
