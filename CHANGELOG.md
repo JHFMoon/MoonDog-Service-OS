@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.70 — current Beta
+
+- Stop redundant Meeting and Performance rebuilds on tab navigation. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.69 — current Beta
 
 - Stop redundant Meeting and Performance rebuilds on tab navigation. Verified automated Beta; no Workspace migration.
