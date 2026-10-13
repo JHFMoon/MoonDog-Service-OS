@@ -351,6 +351,65 @@ try{
     console.log("Five-tab and Tools-back proof PASS",visitedTimes.length+" transitions",
       "max="+Math.max(...visitedTimes)+"ms","rows=413","DOM reuse=true");
 
+    // Report manager visual regression: actual packaged file:// runtime, same
+    // 928px Edge viewport from James's screenshots, plus reflow/zoom checks.
+    await page.locator('.nav-item[data-view="tools"]').click({timeout:3500});
+    await page.locator('#dailyTools button').filter({hasText:"Import or refresh data"}).click({timeout:3500});
+    await page.waitForFunction(()=>document.getElementById("dailyTools")?.dataset.category==="imports",null,{timeout:3500});
+    if(!await page.locator('[data-report-group="now"]').count())throw Error("Report action planner did not render");
+    // Synthetic long instructions exercise the same class names without
+    // importing any operational or customer data into browser tests.
+    await page.evaluate(()=>{
+      const host=document.querySelector('.daily-report-dashboard');
+      const article=document.createElement('article');article.className='daily-source-row';article.id='synthetic-report-reflow';
+      const header=document.createElement('div');header.className='daily-report-head';
+      header.innerHTML='<strong>Next Appointments synthetic long report example</strong><span class="daily-report-state">Optional history</span>';
+      const content=document.createElement('div');content.className='daily-report-primary';
+      const text=document.createElement('div');text.className='daily-report-period';
+      text.textContent='Run Next Appointments for 2026-10-01 through 2026-10-12, using a verified report period — optional historical evidence only.';
+      const button=document.createElement('button');button.className='daily-report-import';button.textContent='Import Next Appointments';
+      content.append(text,button);
+      const details=document.createElement('details');details.className='daily-report-details';details.open=true;
+      const summary=document.createElement('summary');summary.textContent='Detailed historical coverage';
+      const list=document.createElement('ol');
+      for(let i=1;i<=10;i++){const li=document.createElement('li');li.textContent='Optional dated report October '+i+' with approved substitute and From/To evidence';list.append(li);}
+      details.append(summary,list);article.append(header,content,details);host.append(article);
+    });
+    for(const size of [928,768,390,320]){
+      await page.setViewportSize({width:size,height:860});
+      for(const theme of ["dark","light"]){
+        await page.evaluate(theme=>{document.documentElement.dataset.theme=theme},theme);
+        const metrics=await page.evaluate(()=>{
+          const host=document.querySelector('#dailyTools'),bounds=host.getBoundingClientRect();
+          const cards=Array.from(host.querySelectorAll('.daily-source-row')).filter(e=>e.getBoundingClientRect().height>0);
+          return {hostWidth:bounds.width,hostLeft:bounds.left,hostRight:bounds.right,
+            cards:cards.map(card=>{
+              const r=card.getBoundingClientRect();
+              const heading=card.querySelector('.daily-report-head');
+              const text=heading?.getBoundingClientRect();
+              return {width:r.width,left:r.left,right:r.right,
+                headerWidth:text?.width||0,height:r.height,visible:!!text};
+            }),viewport:window.innerWidth};
+        });
+        if(!metrics.cards.length)throw Error("No visible report cards at "+size+"px");
+        if(metrics.cards.some(x=>x.width<170||(x.visible&&x.headerWidth<170)||x.left<metrics.hostLeft-4||x.right>metrics.hostRight+4))
+          throw Error("Collapsed report columns at "+size+"px "+theme+" "+JSON.stringify(metrics));
+        if(metrics.cards.find(x=>x.height>2500))
+          throw Error("Report card excessively tall at "+size+"px "+theme);
+        const screenshot=path.join(out,"reports-"+size+"-"+theme+".png");
+        await page.screenshot({path:screenshot,fullPage:false});
+      }
+    }
+    await page.setViewportSize({width:1366,height:768});
+    const optional=page.locator('[data-report-group="optional"]');
+    if(!await optional.count())throw Error("Optional report disclosure missing");
+    await optional.locator('summary').first().click();
+    await page.locator('[data-report-section="availability"]>summary').click();
+    if(!await page.locator('.daily-report-cadence-control select').count())
+      throw Error("Report availability controls missing");
+    console.log("Report manager file-mode reflow proof PASS", "928/768/390/320px","dark/light","synthetic long report");
+
+
   }
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
   console.log("Arena TV visual and 7-slide rotation proof PASS",width,height);
