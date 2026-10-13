@@ -100,9 +100,9 @@ test("partial clipboard commit keeps missing active ROs and every manual managem
  const begin=app.indexOf("  async function commitPasteLearning("),end=app.indexOf("  async function savePasteLearningRule(",begin);
  const commit=app.slice(begin,end);
  const root={name:"Synthetic Workspace"},management={status:"Waiting Parts",owner:"Advisor",nextAction:"Order sensor",reviewDate:"2026-10-14",note:"Important management note"};
- const prior={id:"ro-123456-00000186",ro:"123456",vin:"1HGBH41JXMN109186",customer:"Synthetic",
+ const prior={id:"synthetic-one",ro:"123456",vin:"1HGBH41JXMN109186",customer:"Synthetic",
    sourceStatus:"Pending",advisorCode:"110",management};
- const missing={id:"ro-123457-00000186",ro:"123457",vin:"1HGBH41JXMN109186",
+ const missing={id:"synthetic-two",ro:"123457",vin:"1HGBH41JXMN109186",
    management:{status:"Waiting Approval",nextAction:"Follow up"}};
  const incoming={...prior,sourceStatus:"Working",customer:"Synthetic",management:undefined};
  const model={root,state:{updatedAt:"before",records:[prior,missing],closedRecords:[],source:{fileName:"Verified Complete Snapshot",importedAt:"verified"}}};
