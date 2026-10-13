@@ -266,6 +266,39 @@ try{
     await page.waitForFunction(()=>document.getElementById("view-meeting").classList.contains("active"),null,{timeout:3500});
     if(Date.now()-navigationStarted>6500)throw Error("Dashboard navigation stalled after fullscreen exit");
     console.log("Post-exit dashboard navigation proof PASS",Date.now()-navigationStarted+"ms");
+    // A successful one-time switch hides repeat-navigation stalls and DOM churn.
+    // Exercise actual installed code with data unchanged, tracking the same
+    // Meeting/Performance DOM nodes across 12 complete tab-switching cycles.
+    await page.waitForTimeout(90);
+    const originalNodes=await page.evaluate(()=>{
+      const advisor=document.querySelector("#meetingV3Advisors .meeting-v3-advisor");
+      const performance=document.querySelector("#performanceChart > *");
+      if(!advisor||!performance)throw Error("Performance/Meeting report elements missing from smoke proof");
+      advisor.setAttribute("data-navigation-stability-proof","meeting");
+      performance.setAttribute("data-navigation-stability-proof","performance");
+      return true;
+    });
+    if(!originalNodes)throw Error("Navigation DOM proof unavailable");
+    const navigationTimes=[];
+    for(let repeat=0;repeat<12;repeat++){
+      for(const destination of ["home","performance","meeting"]){
+        const started=Date.now();
+        await page.locator('.nav-item[data-view="'+destination+'"]').click({timeout:3500});
+        await page.waitForFunction(view=>document.getElementById("view-"+view).classList.contains("active"),destination,{timeout:3500});
+        await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));
+        const elapsed=Date.now()-started;
+        navigationTimes.push(elapsed);
+        if(elapsed>850)throw Error("Repeated navigation blocked after Meeting: "+destination+" "+elapsed+"ms");
+      }
+    }
+    const reuse=await page.evaluate(()=>({
+      meeting:!!document.querySelector('#meetingV3Advisors .meeting-v3-advisor[data-navigation-stability-proof="meeting"]'),
+      performance:!!document.querySelector('#performanceChart > [data-navigation-stability-proof="performance"]')
+    }));
+    if(!reuse.meeting||!reuse.performance)
+      throw Error("Repeated navigation unnecessarily rebuilt unchanged report DOM "+JSON.stringify(reuse));
+    console.log("Repeated tab-navigation proof PASS",navigationTimes.length+" transitions",
+      "max="+Math.max(...navigationTimes)+"ms","DOM reuse="+JSON.stringify(reuse));
   }
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
   console.log("Arena TV visual and 7-slide rotation proof PASS",width,height);
