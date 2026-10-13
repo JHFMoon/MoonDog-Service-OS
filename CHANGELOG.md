@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.78 — current Beta
+
+- Publish guarded local Paste & Learn with teachable mapping and partial CDK import. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.77 — current Beta
 
 - Publish verified Reports & Data rebuild with clean audited history. Verified automated Beta; no Workspace migration.
