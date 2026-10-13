@@ -159,6 +159,24 @@
     notice.querySelector("[data-update-install]").textContent = value.status === "channel-switch" ? "Return to Stable" : "Install Update";
     note.textContent = value.releaseNotes || "No release notes were provided for this update.";
   }
+  let reloadScheduled = false;
+  function reloadVerifiedUpdate(version) {
+    if (reloadScheduled || !version) return;
+    const manualReload = () => {
+      status.textContent = `Update ${version} installed and verified. Automatic reload was unavailable; refresh this tab to load the new version.`;
+      field("updateProgressDetail").textContent = "Press Ctrl+R to load the installed update.";
+    };
+    if (typeof global.location?.reload !== "function" || typeof global.setTimeout !== "function") {
+      manualReload();
+      return;
+    }
+    reloadScheduled = true;
+    status.textContent = `Update ${version} installed and verified. Reloading Service Operations Dashboard automatically...`;
+    global.setTimeout(() => {
+      try { global.location.reload(); }
+      catch (_) { reloadScheduled = false; manualReload(); }
+    }, 900);
+  }
   function flushUi() {
     return new Promise(resolve => {
       let finished = false;
@@ -251,6 +269,7 @@
   installButton.addEventListener("click", async () => {
     if (state.busy || !currentOffer()) return;
     const offered = state.check, offeredFor = state.checkFor;
+    let verifiedReloadVersion = null;
     state.busy = true; render();
     clearPlan();
     await setProgress({ phase: "verify-package", percent: 5, label: "Verifying update package", detail: "Downloading and checking the selected update" });
@@ -293,7 +312,7 @@
         trustedAllowlist: catalog, expectedPlan: plan, confirmed: true,
         onProgress: event => setProgress({ ...event, percent: Math.round(28 + (Math.max(0, Math.min(100, Number(event.percent) || 0)) * .72)) }) });
       status.textContent = outcome.status === "installed" ?
-        `Update verified. Restart Service Operations Dashboard to use version ${outcome.version}. Rollback backup saved in System Files/Workspace/backups/system-updates/.` :
+        `Update verified. Reloading to use version ${outcome.version}. Rollback backup saved in System Files/Workspace/backups/system-updates/.` :
         outcome.status === "rolled-back" ? "Update failed and original app files were verified restored. Rollback backup saved in System Files/Workspace/backups/system-updates/." :
         outcome.status === "recovery-required" ? `Update stopped. Recovery is required from System Files/Workspace/backups/system-updates/; do not retry installation. ${outcome.reason}` :
         `Update stopped without a verified installation. ${outcome.reason || outcome.status}`;
@@ -317,12 +336,20 @@
         installedChannel = verified.channel;
         field("updateInstalledVersion").textContent = installedVersion;
         field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
-        await setProgress({ phase: "complete", percent: 100, label: "Update installed", detail: "Installation verified. Restart Service Operations Dashboard to load the new version." });
+        await setProgress({ phase: "complete", percent: 100, label: "Update installed", detail: "Installation verified. Reloading the dashboard automatically..." });
+        verifiedReloadVersion = outcome.version;
       }
     } catch (error) {
       status.textContent = error.message || "Update stopped before installation.";
       await setProgress({ phase: "error", percent: state.progress?.percent || 5, label: "Update stopped", detail: error.message || "Installation could not continue." });
-    } finally { state.busy = false; render(); if (state.recoveryRequired) refreshRecovery(); }
+    } finally {
+      state.busy = false;
+      render();
+      if (state.recoveryRequired) refreshRecovery();
+      // Reload only after verified installation, receipt and success UI have completed.
+      // Rejected, cancelled, rolled-back and recovery-required outcomes never reload.
+      if (verifiedReloadVersion) reloadVerifiedUpdate(verifiedReloadVersion);
+    }
   });
   field("recoverMoonDogUpdate").addEventListener("click", async () => {
     if (state.busy) return;

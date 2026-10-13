@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.68 — current Beta
+
+- Reload dashboard automatically after verified application updates. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.67 — current Beta
 
 - Retire shared report-source learning opt-in from Tools. Verified automated Beta; no Workspace migration.
