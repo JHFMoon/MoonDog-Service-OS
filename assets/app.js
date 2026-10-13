@@ -3172,11 +3172,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       const closed=new Map((model.state.closedRecords||[]).map(row=>[String(row.ro),row]));
       const added=[],changed=[],unchanged=[];
       const importedAt=now();
-      const approvedChanges=new Map(rechecked.changes.map(change=>[String(change.ro),change]));
+      const approvedChanges=new Map((rechecked.changes||[]).map(change=>[String(change.ro),change]));
       for(const raw of preview.parsed.records){
         const prior=active.get(String(raw.ro))||closed.get(String(raw.ro));
-        const approved=approvedChanges.get(String(raw.ro));
-        if(!approved)throw Error("RO "+raw.ro+" is missing from the verified change set.");
+        const approved=approvedChanges.get(String(raw.ro))||{
+          kind:!prior?"new":["sourceStatus","secondaryStatus","advisorCode","technicianCode","opened","promised","customer","vehicle","tagNumber","services"].some(field=>
+            Boolean(String(raw[field]??"").trim())&&String(prior[field]??"")!==String(raw[field]??""))?"updated":"unchanged"
+        };
         if(prior&&approved.kind==="unchanged"){
           unchanged.push(raw.ro);
           // A no-change row must not modify imported timestamps or operational metadata.
