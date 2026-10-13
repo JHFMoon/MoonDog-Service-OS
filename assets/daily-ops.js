@@ -1219,10 +1219,11 @@
       lessons.replaceChildren();
       line(lessons,'Teach a source layout','h3');
       line(lessons,'Learning saves approved headers and field mappings locally. New sources stay review-only; teaching does not authorize changes to Open RO Control.');
-      const headers=engine?.tableHeaders(input.value)||[];
+      const structure=engine?.suggestedStructure(input.value)||{kind:'unknown',headers:[]},headers=structure.headers;
       if(headers.length<2){
-        line(lessons,'This text does not have a tab-separated column header. The first release teaches structured tables; free-form text needs an approved adapter.','p','daily-paste-error');return;
+        line(lessons,'This text has no recognizable table or labeled fields. Free-form text needs an approved source adapter before it can be taught reliably.','p','daily-paste-error');return;
       }
+      line(lessons,'Detected '+(structure.kind==='table'?'tabular columns':'labeled key/value fields')+'. Map only fields you can verify.');
       const name=document.createElement('input');name.placeholder='Source name (for example: Parts Order Status)';
       name.maxLength=90;name.setAttribute('aria-label','Name this source');lessons.append(name);
       const mappings=document.createElement('div');mappings.className='daily-paste-mappings';
@@ -1237,7 +1238,7 @@
       const save=button('Save approved layout',()=>void (async()=>{
         const fields={};for(const [field,select] of Object.entries(selects))if(select.value)fields[field]=select.value;
         try{
-          const rule=await bridge.teach({name:name.value,headers,fields});
+          const rule=await bridge.teach({name:name.value,kind:structure.kind,headers,fields});
           status.textContent='Saved layout '+rule.name+' v'+rule.version+'. Future matching tables will be recognized without import permission.';
           renderLessons();
         }catch(error){status.textContent=error.message||'Could not save the layout.';}
