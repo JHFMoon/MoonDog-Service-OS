@@ -409,6 +409,41 @@ try{
       throw Error("Report availability controls missing");
     console.log("Report manager file-mode reflow proof PASS", "928/768/390/320px","dark/light","synthetic long report");
 
+    // Universal Paste & Learn must operate under the packaged file:// launcher.
+    // The browser uses 300 wholly synthetic ROs; this proof NEVER clicks Commit.
+    await page.locator('.nav-item[data-view="tools"]').click({timeout:3500});
+    await page.locator('#dailyTools button').filter({hasText:"Paste & Learn"}).click({timeout:3500});
+    await page.waitForFunction(()=>document.getElementById("dailyTools")?.dataset.category==="paste",null,{timeout:3500});
+    await page.evaluate(()=>{globalThis.__moondogDaily.model.root={name:"SYNTHETIC TEST ONLY"};});
+    const synthetic=await page.evaluate(()=>{
+      const lines=["CDK","Repair Orders","RO #","All: 300 Open: 300 Working: 0 On Hold: 0 Closed: 0"];
+      for(let n=0;n<300;n++)lines.push(String(930000+n),"Open","Synthetic Customer",
+        "1HGBH41JXMN109186","2022 Synthetic Vehicle","TAG"+n,"110","225",
+        "10/12/2026","08:30 AM","10/13/2026","09:00 AM","[C] Synthetic Service");
+      return lines.join("\n");
+    });
+    await page.locator('#dailyPasteInput').fill(synthetic,{timeout:5000});
+    const pasteStarted=Date.now();
+    await page.getByRole('button',{name:"Understand Text"}).click({timeout:5000});
+    await page.waitForFunction(()=>document.querySelector('.daily-paste-status')?.textContent?.includes("Analysis complete"),null,{timeout:18000});
+    const pasteMs=Date.now()-pasteStarted;
+    const preview=await page.locator('.daily-paste-preview').innerText();
+    if(!preview.includes("CDK Repair Orders")||!preview.includes("Records detected: 300")||
+       !await page.getByRole('button',{name:"Import Verified Data"}).count())
+      throw Error("CDK paste preview did not recognize 300 records: "+preview.slice(0,800));
+    if(pasteMs>12000)throw Error("300-record paste preview took "+pasteMs+"ms");
+    for(const size of [928,320]){
+      await page.setViewportSize({width:size,height:820});
+      const geom=await page.locator('#dailyPasteInput').evaluate(el=>{
+        const r=el.getBoundingClientRect();return{width:r.width,left:r.left,right:r.right,windowWidth:innerWidth};
+      });
+      if(geom.width<250||geom.left<0||geom.right>geom.windowWidth+6)
+        throw Error("Paste input responsive geometry invalid: "+JSON.stringify(geom));
+    }
+    await page.setViewportSize({width:1366,height:768});
+    console.log("Paste & Learn file-mode proof PASS","300 synthetic ROs",pasteMs+"ms","928/320px");
+
+
 
   }
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
