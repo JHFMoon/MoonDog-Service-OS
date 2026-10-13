@@ -149,14 +149,17 @@
   function hasFuturePlan(record,day){const m=record.management||{},action=String(m.nextAction||'').trim();return Boolean(action&&!/^(?:tbd|to be determined|unknown|n\/a|none|pending)$/i.test(action)&&validDate(m.reviewDate)&&m.reviewDate>day);}
   function stuckWork(record,day) {
     const m=record.management||{},date=m.reviewDate,action=String(m.nextAction||'').trim(),usableAction=Boolean(action&&!/^(?:tbd|to be determined|unknown|n\/a|none|pending)$/i.test(action));
-    if(hasFuturePlan(record,day))return null;
     const age=Number(record.daysOpen),aged=Number.isFinite(age)&&age>=2;
     const noPlan=!usableAction||!validDate(date);
-    if(aged&&age>=5&&noPlan)return {kind:'missing-plan',rank:3,title:'Build a plan to finish this RO'};
+    const owner=String(m.owner||'').trim(),communication=String(m.communication||'').trim();
+    if(aged&&age>=5&&(noPlan||!owner||!communication))
+      return {kind:'missing-plan',rank:3,title:'Complete the 5+ day RO action plan'};
+    if(hasFuturePlan(record,day))return null;
     const blocked=/waiting on (parts|customer|approval|authorization|dispatch|diagnosis)|in diagnostic/i.test(String(m.status||''));
     const updated=String(m.updatedAt||''),stamp=Date.parse(updated),verified=Number.isFinite(stamp)&&/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(updated);
     const lastManagementDay=verified?businessDate(stamp):'',daysSinceUpdate=lastManagementDay?Math.floor((Date.parse(day+'T12:00:00Z')-Date.parse(lastManagementDay+'T12:00:00Z'))/86400000):0;
     if(blocked&&aged&&daysSinceUpdate>=2&&noPlan)return {kind:'blocked',rank:3,title:'Unblock this RO'};
+    if(aged&&noPlan)return {kind:'aged-review',rank:4,title:'Review this 2+ day RO and assign a next step'};
     return null;
   }
   function roTask(record,api,day,at) {

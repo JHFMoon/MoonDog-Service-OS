@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.85 — current Beta
+
+- Beta 85: two-day RO reviews and complete five-day plans. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.84 — current Beta
 
 - Beta 84: distinguish invalid CDK rows from incomplete clipboard coverage. Verified automated Beta; no Workspace migration.
