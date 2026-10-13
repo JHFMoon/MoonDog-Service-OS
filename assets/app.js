@@ -3068,12 +3068,20 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       try{await writeJson(STATE_PATH,next);model.state=next;}
       catch(error){model.state=previousState;throw error;}
       pastePreview=null;
-      await addHistory("source-import","Verified partial CDK clipboard update",
-        {source:"CDK Repair Orders — Clipboard",added:added.length,updated:changed.length,
-          missingClosed:0,scope:"partial",rawTextRetained:false});
-      await markSupervisorWorkbookStale("Open RO source fields changed from verified clipboard records");
+      let followupWarning="";
+      try{
+        await addHistory("source-import","Verified partial CDK clipboard update",
+          {source:"CDK Repair Orders — Clipboard",added:added.length,updated:changed.length,
+            missingClosed:0,scope:"partial",rawTextRetained:false});
+        await markSupervisorWorkbookStale("Open RO source fields changed from verified clipboard records");
+      }catch(error){
+        // The operational-state write is already read-back verified. A
+        // secondary history/workbook failure must not falsely claim rollback.
+        followupWarning="RO changes were saved, but a secondary follow-up could not finish. Review diagnostics.";
+        recordDiagnostic("PASTE FOLLOWUP",String(error?.name||"Error"));
+      }
       renderAll();
-      return{status:"saved",added:added.length,updated:changed.length,missingClosed:0};
+      return{status:"saved",added:added.length,updated:changed.length,missingClosed:0,warning:followupWarning};
     }finally{pasteCommitBusy=false;}
   }
   async function savePasteLearningRule(candidate){
