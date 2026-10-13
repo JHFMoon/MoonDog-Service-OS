@@ -432,7 +432,10 @@ try{
       return{rect:{top:r.top,left:r.left,width:r.width,height:r.height},
         disabled:el.disabled,readonly:el.readOnly,display:style.display,visibility:style.visibility,parents};
     });
-    if(prefill.rect.height<10||prefill.rect.width<100||prefill.parents.some(x=>x.display==="none"||x.hidden))
+    console.log("Paste input geometry diagnostic",JSON.stringify(prefill));
+    if(prefill.disabled||prefill.readonly||prefill.visibility==="hidden"||
+      prefill.rect.height<10||prefill.rect.width<100||
+      prefill.parents.some(x=>x.display==="none"||x.visibility==="hidden"||x.hidden))
       throw Error("Paste interface is not visible: "+JSON.stringify(prefill));
     await page.locator('#dailyPasteInput').fill(synthetic,{timeout:5000});
     const pasteStarted=Date.now();
