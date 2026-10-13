@@ -415,6 +415,9 @@ try{
     await page.locator('#dailyTools button').filter({hasText:"Paste & Learn"}).click({timeout:3500});
     await page.waitForFunction(()=>document.getElementById("dailyTools")?.dataset.category==="paste",null,{timeout:3500});
     await page.evaluate(()=>{globalThis.__moondogDaily.model.root={name:"SYNTHETIC TEST ONLY"};});
+    const initialProgress=await page.locator('.daily-paste-progress').evaluate(el=>({hidden:el.hidden,display:getComputedStyle(el).display}));
+    if(!initialProgress.hidden||initialProgress.display!=="none")
+      throw Error("Idle paste progress must be hidden: "+JSON.stringify(initialProgress));
     const synthetic=await page.evaluate(()=>{
       const lines=["CDK","Repair Orders","RO #","All: 300 Open: 300 Working: 0 On Hold: 0 Closed: 0"];
       for(let n=0;n<300;n++)lines.push(String(930000+n),"Open","Synthetic Customer",
