@@ -155,3 +155,24 @@ test("can teach field mappings from key/value text without enabling operational 
  assert.equal(preview.rows[0].status,"Waiting");
  assert.equal(rule.writeEnabled,false);
 });
+
+test("CDK compact summary and secondary Waiting stay separate from customer",async()=>{
+ const h=cdkHarness();
+ const sample=rows(1).replace("All: 1 Open: 1 Working: 0 On Hold: 0 Closed: 0","All: 1Open: 1Working: 0On Hold: 0Closed: 0").replace("Synthetic Customer\\n1HGBH41JXMN109186","Waiting\\nSynthetic Customer\\n1HGBH41JXMN109186");
+ const parsed=await h.partial(sample);
+ assert.equal(parsed.summary?.all,1);
+ assert.equal(parsed.records.length,1);
+ assert.equal(parsed.records[0].customer,"Synthetic Customer");
+ assert.equal(parsed.records[0].secondaryStatus,"Waiting");
+});
+test("Five invalid VIN blocks are quarantined while one verified record stays eligible",async()=>{
+ const h=cdkHarness();
+ const source=rows(6).replace("All: 6 Open: 6 Working: 0 On Hold: 0 Closed: 0","All: 6Open: 6Working: 0On Hold: 0Closed: 0");
+ const parts=source.split("1HGBH41JXMN109186");
+ const mixed=parts.slice(0,-2).join("1HGBH41JXMN109").concat("1HGBH41JXMN109186",parts.at(-1));
+ const parsed=await h.partial(mixed);
+ assert.equal(parsed.validation.recordStarts,6);
+ assert.equal(parsed.records.length,1);
+ assert.equal(parsed.issues.length,5);
+ assert.equal(parsed.summary?.all,6);
+});
