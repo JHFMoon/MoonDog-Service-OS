@@ -188,3 +188,20 @@ test("Clipboard commit classifies unchanged rows using the same verified diff as
  assert.match(c,/else changed\.push\(previous\)/);
  assert.doesNotMatch(c,/JSON\.stringify\(\{\.\.\.prior,cdkOperational/);
 });
+
+test("Invalid source records are not mislabeled as missing clipboard coverage",async()=>{
+ const h=cdkHarness();
+ const source=rows(2).replace("1HGBH41JXMN109186","INVALID-VIN");
+ const parsed=await h.partial(source);
+ assert.equal(parsed.validation.recordStarts,2);
+ assert.equal(parsed.records.length,1);
+ assert.equal(parsed.issues.length,1);
+ assert.match(parsed.warnings.join(" "),/1 identified RO records could not be validated/);
+ assert.doesNotMatch(parsed.warnings.join(" "),/clipboard coverage may be filtered or incomplete/);
+});
+test("Incomplete source boundaries remain explicitly distinct from invalid rows",async()=>{
+ const h=cdkHarness();
+ const parsed=await h.partial(rows(1,300));
+ assert.match(parsed.warnings.join(" "),/Detected 1 of 300 RO boundaries/);
+ assert.equal(parsed.issues.length,0);
+});
