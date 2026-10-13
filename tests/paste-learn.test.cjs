@@ -169,7 +169,7 @@ test("Five invalid VIN blocks are quarantined while one verified record stays el
  const h=cdkHarness();
  const source=rows(6).replace("All: 6 Open: 6 Working: 0 On Hold: 0 Closed: 0","All: 6Open: 6Working: 0On Hold: 0Closed: 0");
  const parts=source.split("1HGBH41JXMN109186");
- const mixed=parts.slice(0,-2).join("1HGBH41JXMN109").concat("1HGBH41JXMN109186",parts.at(-1));
+ const mixed=parts.map((part,i)=>part+(i<5?"1HGBH41JXMN109":i===5?"1HGBH41JXMN109186":"")).join("");
  const parsed=await h.partial(mixed);
  assert.equal(parsed.validation.recordStarts,6);
  assert.equal(parsed.records.length,1);
