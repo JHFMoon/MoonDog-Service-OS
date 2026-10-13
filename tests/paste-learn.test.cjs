@@ -176,3 +176,15 @@ test("Five invalid VIN blocks are quarantined while one verified record stays el
  assert.equal(parsed.issues.length,5);
  assert.equal(parsed.summary?.all,6);
 });
+
+test("Clipboard commit classifies unchanged rows using the same verified diff as preview",()=>{
+ const a=app.indexOf("  function pasteDiff("),b=app.indexOf("  async function analyzePasteLearning(",a);
+ const diff=app.slice(a,b);
+ const c=app.slice(app.indexOf("  async function commitPasteLearning("),app.indexOf("  async function savePasteLearningRule("));
+ assert.match(diff,/kind:!prior\?"new":fieldChanges\.length\?"updated":"unchanged"/);
+ assert.match(c,/const approvedChanges=new Map\(\(rechecked\.changes\|\|\[\]\)\.map/);
+ assert.match(c,/if\(prior&&approved\.kind==="unchanged"\)/);
+ assert.match(c,/unchanged\.push\(raw\.ro\)/);
+ assert.match(c,/else changed\.push\(previous\)/);
+ assert.doesNotMatch(c,/JSON\.stringify\(\{\.\.\.prior,cdkOperational/);
+});

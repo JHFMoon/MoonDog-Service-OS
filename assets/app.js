@@ -3170,10 +3170,22 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       if(rechecked.errors.length)throw Error("Existing RO identities changed. Review again.");
       const active=new Map((model.state.records||[]).map(row=>[String(row.ro),row]));
       const closed=new Map((model.state.closedRecords||[]).map(row=>[String(row.ro),row]));
-      const added=[],changed=[];
+      const added=[],changed=[],unchanged=[];
       const importedAt=now();
+      const approvedChanges=new Map((rechecked.changes||[]).map(change=>[String(change.ro),change]));
       for(const raw of preview.parsed.records){
         const prior=active.get(String(raw.ro))||closed.get(String(raw.ro));
+        const approved=approvedChanges.get(String(raw.ro))||{
+          kind:!prior?"new":["sourceStatus","secondaryStatus","advisorCode","technicianCode","opened","promised","customer","vehicle","tagNumber","services"].some(field=>
+            Boolean(String(raw[field]??"").trim())&&String(prior[field]??"")!==String(raw[field]??""))?"updated":"unchanged"
+        };
+        if(prior&&approved.kind==="unchanged"){
+          unchanged.push(raw.ro);
+          // A no-change row must not modify imported timestamps or operational metadata.
+          // If it came from closed records, leave it closed rather than reopening it.
+          if(!active.has(String(raw.ro)))active.delete(String(raw.ro));
+          continue;
+        }
         const safeRaw=Object.fromEntries(Object.entries(raw).filter(([key,value])=>!prior||!["customer","vehicle","tagNumber","advisorCode","technicianCode","opened","promised","services","secondaryStatus"].includes(key)||String(value??"").trim()));
         const previous={...(prior||{}),...safeRaw,management:prior?.management||defaultManagementFor(raw)};
         const status=operationalStatusFromImport(raw,prior,importedAt);
@@ -3181,8 +3193,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         else delete previous.cdkOperational;
         delete previous.closedAt;delete previous.closedReason;
         if(!prior)added.push(previous);
-        else if(JSON.stringify({...prior,cdkOperational:undefined})!==JSON.stringify({...previous,cdkOperational:undefined}))
-          changed.push(previous);
+        else changed.push(previous);
         active.set(String(raw.ro),previous);
       }
       if(!added.length&&!changed.length){
