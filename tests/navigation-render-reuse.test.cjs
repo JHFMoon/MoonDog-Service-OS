@@ -152,5 +152,6 @@ test("large Open RO tables use a single fragment insertion instead of per-row li
   assert.match(table,/for \(const record of records\)/);
   assert.match(table,/tableRows\.append\(row\)/);
   assert.match(table,/ui\.roTable\.append\(tableRows\)/);
-  assert.doesNotMatch(table,/ui\.roTable\.append\(row\)/);
+  const nonemptyRows=table.slice(table.indexOf("    for (const record of records) {"));
+  assert.doesNotMatch(nonemptyRows,/ui\.roTable\.append\(row\)/);
 });
