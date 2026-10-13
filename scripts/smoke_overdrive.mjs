@@ -461,6 +461,18 @@ try{
         throw Error("Paste input responsive geometry invalid: "+JSON.stringify(geom));
     }
     await page.setViewportSize({width:1366,height:768});
+
+    const inertCheck=await page.evaluate(()=>{
+      globalThis.__pasteHtmlDidExecute=false;
+      const hostile='<table><tr><th>RO</th><th>Status</th></tr><tr><td>synthetic</td><td>Open</td></tr></table>'+
+        '<script>globalThis.__pasteHtmlDidExecute=true</'+'script>'+
+        '<img src="data:," onerror="globalThis.__pasteHtmlDidExecute=true">';
+      const out=globalThis.MoonDogPasteLearn.capture('',hostile);
+      return{executed:globalThis.__pasteHtmlDidExecute,out};
+    });
+    if(inertCheck.executed||!inertCheck.out.includes('RO\tStatus')||inertCheck.out.includes('<script'))
+      throw Error("HTML-only paste failed inert extraction safety proof");
+
     console.log("Paste & Learn file-mode proof PASS","300 synthetic ROs",pasteMs+"ms","928/320px");
 
 
