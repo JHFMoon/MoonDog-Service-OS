@@ -1186,16 +1186,26 @@
         result.append(list);
       }
       if(outcome.issues?.length){
-        line(result,'Items requiring review ('+outcome.issues.length+')','h4');
+        const exceptions=document.createElement('details');
+        const heading=document.createElement('summary');
+        heading.textContent='Review '+outcome.issues.length+' exceptions';exceptions.append(heading);
+        line(exceptions,'Verify incomplete or conflicting records against CDK before correcting the source. These records are excluded from the approved partial import.');
         const list=document.createElement('ol');
         for(const issue of outcome.issues.slice(0,100))line(list,String(issue),'li');
-        result.append(list);
+        exceptions.append(list);result.append(exceptions);
       }
       if(outcome.changes?.length){
         const details=document.createElement('details');
         const summary=document.createElement('summary');summary.textContent='Proposed source changes ('+outcome.changes.length+' shown)';details.append(summary);
         const ul=document.createElement('ul');
-        for(const item of outcome.changes)line(ul,'RO '+item.ro+': '+item.kind,'li');
+        for(const item of outcome.changes){
+          const entry=line(ul,'RO '+item.ro+': '+item.kind,'li');
+          if(item.fields?.length){
+            const fields=document.createElement('ul');
+            for(const change of item.fields)line(fields,change.field+': '+String(change.before||'(blank)')+' → '+String(change.after||'(blank)'),'li');
+            entry.append(fields);
+          }
+        }
         details.append(ul);result.append(details);
       }
       if(outcome.canCommit&&activeNonce){
