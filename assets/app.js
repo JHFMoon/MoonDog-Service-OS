@@ -1340,7 +1340,7 @@
       if(!summary)warnings.push("Source summary counts are unavailable.");
     }
     return{records:activeRecords,workloadRecords,summary,issues:errors,warnings,
-      format:"CDK Repair Orders browser export",validation:{parser:"cdk-repair-orders-shared-v3",
+      format:"CDK Repair Orders browser export",validation:{parser:partial?"cdk-repair-orders-clipboard-v1":"cdk-repair-orders-docx-v2-split-fields",sharedRecordParser:"v3",
       recordStarts:layout.starts.length,activeRecords:activeRecords.length,closedExcluded:true,
       splitVinVehicleSupported:true,splitDateTimeSupported:true,scope:partial?"unverified":"verified-full"}};
   }
