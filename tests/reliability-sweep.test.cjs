@@ -3,7 +3,7 @@ const test=require("node:test"),assert=require("node:assert/strict"),fs=require(
 const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
 const daily=fs.readFileSync(path.join(__dirname,"..","assets","daily-ops.js"),"utf8");
 function extract(source,begin,end){const a=source.indexOf(begin),b=source.indexOf(end,a+begin.length);assert.ok(a>=0&&b>a);return source.slice(a,b);}
-const history=extract(daily,"  async function loadHistory(","  async function log(");
+const history=extract(daily,"  const historyFileCache=new Map();","  async function log(");
 const followup=extract(app,"  async function runVerifiedUpdateFollowup()","  const folderWatch=");
 const mobile=extract(daily,"  async function publishToHandle(","  async function connectPublisher(");
 test("daily startup reads only daily-task history, with complete history on demand",async()=>{
@@ -12,7 +12,7 @@ test("daily startup reads only daily-task history, with complete history on dema
   const isDaily=i<204,kind=isDaily?"daily":"other",name=(isDaily?"daily-":"event-")+i+".json";
   files.push({name,handle:{getFile:async()=>({text:async()=>{reads[kind]++;return JSON.stringify({id:name,at:"2026-10-12",type:isDaily?"daily-task":"history"});}})}});
  }
- const state={history:[],events:[],searchToken:1},context=vm.createContext({api:{readEntries:async()=>files},state,Promise,setTimeout});
+ const state={history:[],events:[],searchToken:1},context=vm.createContext({api:{readEntries:async()=>files},state,model:{root:{}},Promise,setTimeout});
  vm.runInContext(history+"\nthis.loadHistory=loadHistory",context);
  await context.loadHistory();
  assert.equal(reads.daily,204);assert.equal(reads.other,0);assert.equal(state.events.length,204);
@@ -21,7 +21,7 @@ test("daily startup reads only daily-task history, with complete history on dema
 });
 test("stale historical search cannot overwrite newer history",async()=>{
  let release;const waiting=new Promise(resolve=>release=resolve),state={history:[{id:"newer"}],events:[],searchToken:4};
- const context=vm.createContext({api:{readEntries:async()=>[{name:"daily-1.json",handle:{getFile:async()=>({text:async()=>waiting})}}]},state,Promise,setTimeout});
+ const context=vm.createContext({api:{readEntries:async()=>[{name:"daily-1.json",handle:{getFile:async()=>({text:async()=>waiting})}}]},state,model:{root:{}},Promise,setTimeout});
  vm.runInContext(history+"\nthis.loadHistory=loadHistory",context);
  const old=context.loadHistory(true,4);state.searchToken=5;release('{"id":"older","type":"daily-task"}');
  assert.equal(await old,false);assert.equal(state.history[0].id,"newer");
@@ -64,4 +64,22 @@ test("watcher and mobile maintenance avoid redundant idle writes",()=>{
  assert.match(app,/if\(!document\.hidden\)void folderWatchScan\("poll"\)/);
  assert.doesNotMatch(daily,/setInterval\(\(\)=>queueMobilePublish\(1000\),300000\)/);
  assert.match(daily,/queueMobilePublish\(1000\);\n    if\(state\.editing\)/);
+});
+test("diagnostics batch events and never move queued entries to another workspace",async()=>{
+ const code=extract(app,"  let diagnosticsQueue = Promise.resolve(),diagnosticTimer=null;","  async function writeJson(");
+ let body="",writes=0;const root={name:"Synthetic"},model={root};
+ const context=vm.createContext({model,writeAuthority:{canWrite:true},now:()=>new Date().toISOString(),
+  Date,Promise,setTimeout,clearTimeout,TextEncoder,
+  document:{addEventListener:()=>{}},
+  fileAt:async()=>({getFile:async()=>({text:async()=>body})}),
+  writeBytes:async(_path,bytes)=>{writes++;body=new TextDecoder().decode(bytes);}
+ });
+ vm.runInContext(code+"\nthis.recordDiagnostic=recordDiagnostic;this.flushDiagnostics=flushDiagnostics",context);
+ for(let i=0;i<50;i++)context.recordDiagnostic("EVENT","Detail "+i);
+ await context.flushDiagnostics();
+ assert.ok(writes<=3);assert.ok(body.includes("Detail 0")&&body.includes("Detail 49"));
+ const before=writes;context.recordDiagnostic("EVENT","Prior workspace");
+ model.root={name:"Other workspace"};
+ await context.flushDiagnostics();
+ assert.equal(writes,before);
 });
