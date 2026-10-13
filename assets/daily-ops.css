@@ -1316,6 +1316,7 @@ html[data-theme="dark"] body.daily-operating .daily-report-state{color:#b4e6f2}
 .daily-paste-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .daily-paste-controls button{min-width:95px;max-width:100%}
 .daily-paste-progress{display:flex;flex-direction:column;gap:8px;padding:12px 0;min-width:0}
+#dailyTools[data-category="paste"] .daily-paste-progress[hidden]{display:none!important}
 .daily-paste-progress progress{display:block;width:100%;height:18px;accent-color:#328fa9}
 .daily-paste-status{line-height:1.5;padding:6px 0;min-height:34px;overflow-wrap:break-word}
 .daily-paste-preview,.daily-paste-lessons{min-width:0;width:100%;max-width:100%;overflow-wrap:break-word}
