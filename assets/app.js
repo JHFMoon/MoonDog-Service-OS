@@ -1460,8 +1460,10 @@
     const warnings=[];
     if(partial){
       warnings.push("Clipboard scope is not independently verified; records absent from this paste will never be closed.");
-      if(summary&&allRecords.length!==summary.all)warnings.push(
-        "Pasted "+allRecords.length+" of "+summary.all+" records listed in the header (possibly filtered or truncated).");
+      if(summary&&layout.starts.length!==summary.all)warnings.push(
+        "Detected "+layout.starts.length+" of "+summary.all+" RO boundaries shown in the header; clipboard coverage may be filtered or incomplete.");
+      if(errors.length)warnings.push(
+        errors.length+" identified RO records could not be validated and were excluded from the import. Review each exception against CDK.");
       if(!summary)warnings.push("Source summary counts are unavailable.");
     }
     return{records:activeRecords,workloadRecords,summary,issues:errors,warnings,
