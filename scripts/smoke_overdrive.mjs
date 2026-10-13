@@ -437,7 +437,12 @@ try{
       prefill.rect.height<10||prefill.rect.width<100||
       prefill.parents.some(x=>x.display==="none"||x.visibility==="hidden"||x.hidden))
       throw Error("Paste interface is not visible: "+JSON.stringify(prefill));
-    await page.locator('#dailyPasteInput').fill(synthetic,{timeout:5000});
+    // Verify an ordinary editable text area, then isolate parser timing from
+    // Playwright's expensive 40k-character typing/fill action in CI.
+    await page.locator('#dailyPasteInput').fill('Sample text',{timeout:10000});
+    await page.locator('#dailyPasteInput').evaluate((el,payload)=>{
+      el.value=payload;el.dispatchEvent(new Event('input',{bubbles:true}));
+    },synthetic);
     const pasteStarted=Date.now();
     await page.getByRole('button',{name:"Understand Text"}).click({timeout:5000});
     await page.waitForFunction(()=>document.querySelector('.daily-paste-status')?.textContent?.includes("Analysis complete"),null,{timeout:18000});
