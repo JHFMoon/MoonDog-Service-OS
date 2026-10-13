@@ -935,7 +935,13 @@
     const valid=date=>/^20\d{2}-\d{2}-\d{2}$/.test(String(date||""))&&date<=asOf;
     for(const row of rows){
       const state=row.need?.state||"OPTIONAL";
-      const dates=[...new Set((row.trend?.missing||[]).filter(valid))].sort();
+      // The current Monday release may not be published yet; keep it
+      // in Awaiting Release rather than calling it a historical gap.
+      const dates=[...new Set((row.trend?.missing||[]).filter(date=>
+        valid(date)&&!(row.key==='menu'&&
+          row.need?.state==='AWAITING RELEASE'&&
+          date===globalThis.MoonDogFreshness?.mondayFor(asOf))
+      ))].sort();
       if(['ON DEMAND','REFERENCE'].includes(state)){result.reference.push({row,dates});continue;}
       if(state==='NEED NOW')result.now.push({row,dates});
       else if(state==='NEED SOON'||state==='AWAITING RELEASE')result.soon.push({row,dates});
@@ -979,6 +985,9 @@
       :mode==='reference'?(row.need?.state==='ON DEMAND'?'On demand':'Reference')
       :(row.need?.state==='CURRENT'?'Current / optional history':'Optional');
     header.append(name,state);entry.append(header);
+    if(detailOnly&&row.need?.state==='ON DEMAND'){
+      entry.append(button('Generate / workbook tools',()=>go('imports'),'daily-report-import'));
+    }
     if(!detailOnly){
       const primary=document.createElement('div');primary.className='daily-report-primary';
       const explanation=document.createElement('div');
