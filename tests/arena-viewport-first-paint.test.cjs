@@ -23,9 +23,11 @@ test("Navigation paints meeting shell before expensive data build and cancels ob
  const end=app.indexOf("  function ensurePhase3Ui()",start);
  assert.ok(start>0&&end>start);
  const nav=app.slice(start,end);
- assert.match(nav,/ensureMeetingV3Shell\(\);\s*requestAnimationFrame\(\(\)=>setTimeout/);
+ assert.match(nav,/if\(meetingRenderedRevision!==navigationDataRevision\)\{\s*requestAnimationFrame\(\(\)=>setTimeout/);
+ assert.match(nav,/ensureMeetingV3Shell\(\)/);
+ assert.match(nav,/if\(view==="performance"&&performanceRenderedRevision!==navigationDataRevision\)/);
  assert.match(nav,/if\(ticket!==meetingNavigationTicket\|\|!ui\["view-meeting"\]\?\.classList\.contains\("active"\)\)return/);
- assert.match(nav,/globalThis\.__serviceMeetingPresenter\?\.activate\(\)/);
+ assert.match(nav,/globalThis\.__serviceMeetingPresenter\?\.paint\?\.\(\)/);
  assert.match(app,/const wasActive=view\.classList\.contains\("active"\); view\.className = "view meeting-view meeting-v3 meeting-scoreboard"\+\(wasActive\?" active":""\)/);
 });
 test("Runtime presenter exactly matches checked-in source and presentation controls are accessible",()=>{
