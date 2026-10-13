@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.79 — current Beta
+
+- Rebuild Reports & Data actions, historical dates, and responsive cards. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.78 — current Beta
 
 - Rebuild Reports & Data actions, historical dates, and responsive cards. Verified automated Beta; no Workspace migration.
