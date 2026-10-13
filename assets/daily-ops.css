@@ -1294,6 +1294,7 @@ body.moondog-presentation-mode #view-meeting.meeting-scoreboard.presentation-act
 .daily-report-cadence-control select{min-width:min(100%,190px);max-width:100%}
 .daily-report-cadence-control small{flex:1;min-width:180px}
 .daily-report-optional>summary{cursor:pointer;font-weight:750;padding:12px 0}
+.daily-report-optional:not([open])>:not(summary){display:none!important}
 .daily-report-optional[open]>summary{margin-bottom:10px}
 .daily-report-empty{padding:12px 14px;border:1px solid #476173;border-radius:8px}
 .daily-report-footer{display:flex;flex-wrap:wrap;gap:8px;padding-top:12px}
