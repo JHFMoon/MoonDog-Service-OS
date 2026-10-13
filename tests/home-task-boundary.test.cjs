@@ -14,3 +14,10 @@ assert.match(daily, /unresolved\.length/);
 assert.match(daily, /view:\x27open-ro\x27/);
 
 console.log("PASS Home no longer surfaces appointment-prep tasks");
+
+// Home auto-fill is read-only until the existing explicit Save and continue.
+assert.match(daily,/m\.currentTechnician\|\|r\.technician\|\|r\.technicianCode\|\|''/);
+assert.match(daily,/m\.owner\|\|r\.advisor\|\|r\.advisorCode\|\|''/);
+assert.match(daily,/verify current assignment/);
+assert.match(daily,/not a confirmed follow-up assignment/);
+assert.match(daily,/missing customer updates and follow-up times are never guessed/);
