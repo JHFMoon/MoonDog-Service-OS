@@ -31,10 +31,23 @@
     return plain.trim()?plain:normalize(fromHtml(html));
   }
   function lines(text){return normalize(text).split("\n").map(s=>s.trim()).filter(Boolean);}
+  const trustedAdapters=new Map();
+  function registerAdapter(adapter){
+    if(!adapter||!/^[-a-z0-9]{3,70}$/.test(adapter.id||"")||
+        typeof adapter.detect!=="function"||typeof adapter.name!=="string"||
+        trustedAdapters.has(adapter.id))throw Error("Invalid or duplicate built-in adapter.");
+    // Adapter code comes only from the reviewed runtime, never learned settings.
+    trustedAdapters.set(adapter.id,Object.freeze({...adapter,writeEnabled:adapter.id==="cdk-repair-orders"}));
+  }
+  registerAdapter({id:"cdk-repair-orders",name:"CDK Repair Orders",version:"cdk-clipboard-v1",
+    detect:text=>/\bCDK\b/i.test(text)&&/\bRepair Orders\b/i.test(text)&&/\bRO\s*#\s*:?/i.test(text),
+    evidence:["CDK","Repair Orders","RO #"]});
   function detectFormat(text,rules=[]){
     const sample=lines(text),joined=sample.slice(0,100).join(" ");
-    if(/\bCDK\b/i.test(joined)&&/\bRepair Orders\b/i.test(joined)&&/\bRO\s*#\s*:?/i.test(joined))
-      return{sourceId:"cdk-repair-orders",name:"CDK Repair Orders",status:"recognized",writeEnabled:true,version:"cdk-clipboard-v1",evidence:["CDK","Repair Orders","RO #"]};
+    for(const adapter of trustedAdapters.values()){
+      if(adapter.detect(joined))return{sourceId:adapter.id,name:adapter.name,status:"recognized",
+        writeEnabled:adapter.writeEnabled,version:adapter.version||"1",evidence:adapter.evidence||[]};
+    }
     const first=sample[0]||"";
     const headers=first.split("\t").map(x=>x.trim().toLowerCase());
     const match=rules.find(rule=>rule?.enabled&&rule?.approved&&rule?.kind==="table"&&Array.isArray(rule.headers)&&
@@ -82,5 +95,5 @@
     const first=lines(text)[0]||"";
     return first.includes("\t")?first.split("\t").map(s=>s.trim()).filter(Boolean).slice(0,MAX_COLUMNS):[];
   }
-  root.MoonDogPasteLearn=Object.freeze({normalize,capture,detectFormat,safeRule,tablePreview,tableHeaders,MAX_TEXT,MAX_ROWS,FIELDS});
+  root.MoonDogPasteLearn=Object.freeze({normalize,capture,detectFormat,registerAdapter,safeRule,tablePreview,tableHeaders,MAX_TEXT,MAX_ROWS,FIELDS});
 })(globalThis);
