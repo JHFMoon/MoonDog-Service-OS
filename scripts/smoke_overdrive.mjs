@@ -269,7 +269,11 @@ try{
     // A successful one-time switch hides repeat-navigation stalls and DOM churn.
     // Exercise actual installed code with data unchanged, tracking the same
     // Meeting/Performance DOM nodes across 12 complete tab-switching cycles.
-    await page.waitForTimeout(90);
+    // Give both reports one verified first render before pinning their DOM.
+    await page.locator('.nav-item[data-view="performance"]').click({timeout:3500});
+    await page.waitForTimeout(120);
+    await page.locator('.nav-item[data-view="meeting"]').click({timeout:3500});
+    await page.waitForTimeout(120);
     const originalNodes=await page.evaluate(()=>{
       const advisor=document.querySelector("#meetingV3Advisors .meeting-v3-advisor");
       const performance=document.querySelector("#performanceChart > *");
