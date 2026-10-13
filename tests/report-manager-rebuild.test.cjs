@@ -67,6 +67,8 @@ test("unknown report cadence is not treated as daily and monthly release handles
  vm.runInNewContext(script+"this.due=reportCadenceDue",cx);
  assert.equal(cx.due("vir","2026-10-12"),false);
  assert.equal(cx.due("sapr","2026-10-12"),true);
+ assert.equal(cx.due("menu","2026-10-12"),false,"unconfirmed Monday release must wait");
+ assert.equal(cx.due("menu","2026-10-13"),true,"Tuesday report becomes actionable");
  cadence.value="monthly";cadence.automatic=false;cadence.releaseDay=31;
  assert.equal(cx.due("sor","2026-02-27"),false);
  assert.equal(cx.due("sor","2026-02-28"),true);
