@@ -77,3 +77,26 @@ test('Home RO completion respects the configured store calendar, not a hardcoded
   const event={at:'2026-10-12T12:00:00Z',details:{taskId:task.id,action:'completed',fingerprint:'same',rank:4,until:'2026-10-12T12:00:00Z'}};
   assert.equal(context.MoonDogDailyEngine.eligible(task,[event],at),true);
 });
+
+test('Two-day ROs without a viable plan receive an actionable review task',()=>{
+ const context=vm.createContext({Date,Intl});
+ vm.runInContext(read('assets/daily-engine.js'),context);
+ const engine=context.MoonDogDailyEngine;
+ const two={daysOpen:2,management:{status:'Repair',nextAction:'',reviewDate:''}};
+ const review=engine.stuckWork(two,'2026-10-13');
+ assert.equal(review.kind,'aged-review');
+ assert.match(review.title,/2\+ day RO/);
+ assert.equal(review.rank,4);
+ const withPlan={...two,management:{owner:'Advisor A',communication:'Updated',nextAction:'Finish repair',reviewDate:'2026-10-14'}};
+ assert.equal(engine.stuckWork(withPlan,'2026-10-13'),null);
+});
+test('Five-day ROs require owner, communication, and next review even if an action is recorded',()=>{
+ const context=vm.createContext({Date,Intl});
+ vm.runInContext(read('assets/daily-engine.js'),context);
+ const engine=context.MoonDogDailyEngine;
+ const base={daysOpen:5,management:{status:'Waiting Parts',nextAction:'Check parts ETA',reviewDate:'2026-10-14',owner:'Advisor A',communication:'Updated'}};
+ assert.equal(engine.stuckWork(base,'2026-10-13'),null);
+ assert.equal(engine.stuckWork({...base,management:{...base.management,owner:''}},'2026-10-13').kind,'missing-plan');
+ assert.equal(engine.stuckWork({...base,management:{...base.management,communication:''}},'2026-10-13').kind,'missing-plan');
+ assert.equal(engine.stuckWork({...base,management:{...base.management,reviewDate:''}},'2026-10-13').kind,'missing-plan');
+});
