@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.75 — current Beta
+
+- Stabilize startup history, learned-file retries, background writes, and report cache lifecycles. Verified automated Beta; no Workspace migration.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.74 — current Beta
 
 - Stabilize startup history, learned-file retries, background writes, and report cache lifecycles. Verified automated Beta; no Workspace migration.
