@@ -55,6 +55,6 @@ test("Open RO table refreshes on verified data and only recomputes on stale navi
  const content=app.slice(start,end);
  assert.ok(content.includes('if(ui["view-open-ro"]?.classList.contains("active"))renderTable();'));
  const nav=app.slice(app.indexOf("  function navigateTo(view,anchor="),app.indexOf("  function ensurePhase3Ui()"));
- assert.match(nav,/if\\(view==="open-ro"&&\\(openRoRenderedRevision!==navigationDataRevision\\|\\|openRoRenderedDate!==localDateKey\\(\\)\\)\\)/);
- assert.match(nav,/ticket!==meetingNavigationTicket\\|\\|!ui\\["view-open-ro"\\]\\?\\.classList\\.contains\\("active"\\)/);
+ assert.ok(nav.includes('if(view==="open-ro"&&(openRoRenderedRevision!==navigationDataRevision||openRoRenderedDate!==localDateKey()))'));
+ assert.ok(nav.includes('if(ticket!==meetingNavigationTicket||!ui["view-open-ro"]?.classList.contains("active"))return;'));
 });
