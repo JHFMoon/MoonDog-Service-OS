@@ -17,7 +17,7 @@ for (const token of [
 ]) assert.ok(app.includes(token), `missing ${token}`);
 
 assert.ok(app.includes("parseCdkRepairOrdersDocx"));
-assert.ok(app.includes("activeRecords.length!==expectedOpen"));
+assert.ok(app.includes("activeRecords.length!==summary.open"),"strict DOCX still reconciles every reported active RO");
 assert.ok(app.includes("closedExcluded:true"));
 assert.ok(app.includes('family==="service-consulting-audit"?20:4'));
 assert.ok(app.includes("supplementalManagerAttention"));
