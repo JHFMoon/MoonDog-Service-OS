@@ -32,6 +32,7 @@ function harness(){
     renderPerformance:()=>{draw.performance++;},
     renderTable:()=>{calls.openRo++;},renderArrivals:()=>{},renderAssignNext:()=>{},
     localDateKey:()=>businessDate,
+    freshness:{timeParts:()=>({hour:10})},businessTimeZone:()=>"America/Los_Angeles",
     ensureMeetingV3Shell:()=>{calls.shell++;},
     requestAnimationFrame:fn=>pendingFrames.push(fn),
     setTimeout:(fn)=>pendingTimers.push(fn),
