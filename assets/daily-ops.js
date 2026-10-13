@@ -927,6 +927,173 @@
     if(category==='updates')targets[0].scrollIntoView({block:'start'});
   }
   function goTools(category){go('tools');renderTools(category);}
+
+  // Report action planning is separate from rendering. Every source retains its
+  // verified evidence; optional missing dates never imply an urgent import.
+  function reportPresentationPlan(rows,asOf){
+    const result={now:[],soon:[],historical:[],optional:[],reference:[]};
+    const valid=date=>/^20\d{2}-\d{2}-\d{2}$/.test(String(date||""))&&date<=asOf;
+    for(const row of rows){
+      const state=row.need?.state||"OPTIONAL";
+      const dates=[...new Set((row.trend?.missing||[]).filter(valid))].sort();
+      if(['ON DEMAND','REFERENCE'].includes(state)){result.reference.push({row,dates});continue;}
+      if(state==='NEED NOW')result.now.push({row,dates});
+      else if(state==='NEED SOON'||state==='AWAITING RELEASE')result.soon.push({row,dates});
+      else result.optional.push({row,dates});
+      if(row.trend?.kind==='required'&&dates.length)
+        result.historical.push({row,dates});
+    }
+    return result;
+  }
+  function reportDateLabel(date){
+    return /^20\d{2}-\d{2}-\d{2}$/.test(date||'')
+      ?new Date(date+'T12:00:00Z').toLocaleDateString(undefined,{timeZone:'UTC',weekday:'short',month:'short',day:'numeric',year:'numeric'})
+      :(date||'Not established');
+  }
+  function reportPeriodInstruction(row,dates,mode,asOf){
+    const key=row.key;
+    if(mode==='historical'){
+      if(key==='sapr')
+        return dates.map(day=>'SAPR: '+reportDateLabel(day.slice(0,7)+'-01')+' through '+reportDateLabel(day));
+      if(key==='menu')return dates.map(day=>'Menu Sales: actual weekly release '+reportDateLabel(day));
+      return dates.map(day=>row.source+': verified observation '+reportDateLabel(day));
+    }
+    if(key==='openRo')return ['Current Open RO snapshot for '+reportDateLabel(asOf)];
+    if(key==='csi')return ['Latest validated cumulative CSI Store / Responses export'];
+    if(key==='sapr')return [row.need?.actions?.[0]||'Current verified month-to-date SAPR'];
+    if(key==='menu')return [row.need?.actions?.[0]||'Current Monday Menu Sales release'];
+    if(key==='nextAppointments')return ['One current verified upcoming-appointments report or approved substitute'];
+    const message=row.need?.actions?.[0];
+    return [message||('Latest available '+row.source+' report')];
+  }
+  function renderReportImportCard(row,{mode='now',dates=[],asOf,options,detailOnly=false}){
+    const entry=document.createElement('article');
+    entry.className='daily-source-row';
+    entry.dataset.source=row.key;
+    entry.dataset.reportMode=mode;
+    const header=document.createElement('div');header.className='daily-report-head';
+    const name=document.createElement('strong');name.textContent=row.source;
+    const state=document.createElement('span');state.className='daily-report-state';
+    state.textContent=mode==='historical'?'Required history — '+dates.length+' missing'
+      :mode==='now'?'Needed now':mode==='soon'?(row.need?.state==='AWAITING RELEASE'?'Awaiting release':'Needed soon')
+      :mode==='reference'?(row.need?.state==='ON DEMAND'?'On demand':'Reference')
+      :(row.need?.state==='CURRENT'?'Current / optional history':'Optional');
+    header.append(name,state);entry.append(header);
+    if(!detailOnly){
+      const primary=document.createElement('div');primary.className='daily-report-primary';
+      const explanation=document.createElement('div');
+      const period=document.createElement('span');period.className='daily-report-period';
+      period.textContent=reportPeriodInstruction(row,dates,mode,asOf)[0];
+      const reason=document.createElement('p');reason.className='daily-report-explanation';
+      reason.textContent=mode==='historical'
+        ?'Each missing point requires its own verified report; later cumulative exports cannot recreate it.'
+        :row.need?.reason||row.trend?.status||'Retained report evidence.';
+      explanation.append(period,reason);primary.append(explanation);
+      if(mode==='now'||mode==='historical'||(mode==='soon'&&row.need?.state!=='AWAITING RELEASE')){
+        primary.append(button('Import '+row.source,()=>options.querySelector('input[type="file"]')?.click(),'daily-report-import'));
+      }
+      entry.append(primary);
+    }
+    const sourceInfoKey=({openRo:'open-ro',sapr:'performance',menu:'menu-sales',nextAppointments:'next-appointments',
+      mediaAsr:'media-asr',mediaAsrTech:'media-asr-tech'})[row.key]||row.key.replace(/[A-Z]/g,letter=>'-'+letter.toLowerCase());
+    const sourceInfo=globalThis.ServiceRefreshIntelligence?.catalog?.[sourceInfoKey];
+    if(sourceInfo&&mode!=='reference'){
+      const where=document.createElement('div');where.className='daily-report-source';
+      const current=api.sourceLocations?.()?.[sourceInfoKey]||sourceInfo.location;
+      const caption=document.createElement('small');caption.textContent='Source: '+current;
+      where.append(caption);entry.append(where);
+    }
+    const evidence=document.createElement('details');evidence.className='daily-report-details';
+    const summary=document.createElement('summary');summary.textContent='Coverage and verification details';
+    evidence.append(summary);
+    const lines=[
+      'Status: '+(row.status||'Unverified'),
+      'Last validated import: '+(row.lastSuccessfulImport||'Not loaded'),
+      'Represented period: '+(row.period||'Not established'),
+      'Evidence: '+(row.trend?.status||'Not established'),
+      row.coverage?.summary||'',
+      row.trend?.recovery||'',
+      row.trend?.note||''
+    ].filter(Boolean);
+    for(const line of lines){const p=document.createElement('p');p.textContent=line;evidence.append(p);}
+    if(mode==='historical'&&dates.length){
+      const list=document.createElement('ol');
+      for(const instruction of reportPeriodInstruction(row,dates,mode,asOf)){
+        const li=document.createElement('li');li.textContent=instruction;list.append(li);
+      }
+      evidence.append(list);
+    }else if(mode==='optional'&&dates.length){
+      const info=document.createElement('p');info.textContent=dates.length+' optional historical observations: '+dates.map(reportDateLabel).join(', ');
+      evidence.append(info);
+    }
+    if(row.coverage?.details?.length){
+      const more=document.createElement('details'),moreSummary=document.createElement('summary');moreSummary.textContent='Additional source evidence';
+      more.append(moreSummary);
+      for(const line of row.coverage.details){const p=document.createElement('p');p.textContent=line;more.append(p);}
+      evidence.append(more);
+    }
+    entry.append(evidence);
+    return entry;
+  }
+  function renderReportAvailability(options,rows){
+    const section=document.createElement('details');section.className='daily-report-optional';section.dataset.reportSection='availability';
+    const heading=document.createElement('summary');heading.textContent='Report schedule & availability';section.append(heading);
+    const p=document.createElement('p');p.className='daily-hint';p.textContent='Observed import intervals are not proof of a publication schedule. Changing availability does not change verified data or erase gaps.';section.append(p);
+    for(const row of rows.filter(r=>['sapr','nextAppointments','vir','menu','sor','efficiency','mediaAsr','mediaAsrTech'].includes(r.key))){
+      const box=document.createElement('div');box.className='daily-source-row';box.dataset.source=row.key;
+      const head=document.createElement('strong');head.textContent=row.source;box.append(head);
+      const control=document.createElement('div');control.className='daily-report-cadence-control';
+      const label=document.createElement('label');label.textContent='Availability';label.htmlFor='daily-cadence-'+row.key;
+      const picker=document.createElement('select');picker.id='daily-cadence-'+row.key;
+      for(const [value,name] of [['auto','Auto — keep learning'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly'],['irregular','Irregular'],['on-demand','On demand'],['unavailable','Not available']])picker.add(new Option(name,value));
+      const saved=api.reportCadenceOverrides?.()?.[row.key]||{};
+      picker.value=saved.value||'auto';
+      const release=document.createElement('select');release.setAttribute('aria-label','Release day for '+row.source);
+      const populate=()=>{
+        release.replaceChildren();
+        release.hidden=!['weekly','monthly'].includes(picker.value);
+        if(picker.value==='weekly'){
+          for(const [i,d] of ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].entries())
+            release.add(new Option(d,String(i)));
+          release.value=String(Number.isInteger(saved.releaseDay)?saved.releaseDay:1);
+        }else if(picker.value==='monthly'){
+          for(let i=1;i<=31;i++)release.add(new Option('Day '+i,String(i)));
+          release.value=String(Number.isInteger(saved.releaseDay)?saved.releaseDay:1);
+        }
+      };
+      populate();
+      const save=()=>action(async()=>{
+        await api.saveReportCadence(row.key,picker.value,release.hidden?null:Number(release.value));
+        renderTools('imports');
+        $('dailyTools').querySelector('[data-report-section="availability"]').open=true;
+      });
+      picker.addEventListener('change',()=>{populate();save();});
+      release.addEventListener('change',save);
+      const evidence=api.reportCadenceEvidence?.(row.key)||{};
+      const confidence=document.createElement('small');confidence.textContent=
+        'Observed '+(evidence.samples||0)+' imports'+(evidence.learned?' · Pattern: '+evidence.learned:' · Pattern not established')+
+        ' · Official release schedule not independently confirmed.';
+      control.append(label,picker,release,confidence);box.append(control);
+      const key=({sapr:'performance',menu:'menu-sales',nextAppointments:'next-appointments',mediaAsr:'media-asr',mediaAsrTech:'media-asr-tech'})[row.key]||row.key;
+      const source=globalThis.ServiceRefreshIntelligence?.catalog?.[key];
+      if(source){
+        const location=document.createElement('div');location.className='daily-report-source';
+        const label=document.createElement('small');
+        const current=api.sourceLocations?.()?.[key]||source.location;
+        label.textContent='Get it from: '+current;
+        location.append(label,button('Change location',()=>action(async()=>{
+          const next=prompt('Where do you get '+source.label+'?',current);
+          if(next===null||!next.trim()||next.length>200)return;
+          await api.saveSourceLocation(key,next);
+          renderTools('imports');
+          $('dailyTools').querySelector('[data-report-section="availability"]').open=true;
+        }),'link-button'));
+        box.append(location);
+      }
+      section.append(box);
+    }
+    options.append(section);
+  }
   function renderTools(category=''){
     const host=$('dailyTools');host.dataset.category=category;host.replaceChildren();
     const title=document.createElement('h2');title.textContent=category?({imports:'Import or refresh data',settings:'Change how Service Operations Dashboard works',recovery:'Back up or recover Service Operations Dashboard',more:'More tools'})[category]:'What are you trying to do?';host.append(title);
@@ -934,125 +1101,38 @@
     const options=document.createElement('div');options.className='daily-tool-choices';host.append(options);
     if(!category){[['Import or refresh data','imports'],['Change how Service Operations Dashboard works','settings'],['Back up or recover Service Operations Dashboard','recovery']].forEach(([label,key])=>options.append(button(label,()=>renderTools(key))));host.append(button('More',()=>renderTools('more'),'link-button'));}
     if(category==='imports'){
-      importer(options);
-      const rows=api.imports(),groups=[['WHAT YOU NEED NOW',row=>row.need.state==='NEED NOW'],['USEFUL SOON / OPTIONAL',row=>!['NEED NOW','REFERENCE','ON DEMAND'].includes(row.need.state)],['REFERENCE / ON DEMAND',row=>['REFERENCE','ON DEMAND'].includes(row.need.state)]];
-      const date=value=>/^20\d{2}-\d{2}-\d{2}$/.test(value||'')?new Date(`${value}T12:00:00Z`).toLocaleDateString(undefined,{timeZone:'UTC',month:'short',day:'numeric'}):value||'None';
-      const trendLine=row=>globalThis.MoonDogFreshness.trendMaintenanceSummary(row.key,row.trend,date);
-      for(const [label,includes] of groups){
-        const group=document.createElement('section');group.className='daily-report-needs';group.dataset.needGroup=label;const title=document.createElement('h3');title.textContent=label;group.append(title);options.append(group);
-        const selected=rows.filter(includes);
-        if(label==='WHAT YOU NEED NOW'&&!selected.length){const p=document.createElement('p');p.className='empty';p.textContent='You’re current. No reports need to be pulled right now.';group.append(p);}
-        for(const row of selected){const entry=document.createElement('div');entry.className='daily-source-row';entry.dataset.source=row.key;
-          entry.innerHTML=`<strong>${esc(row.source)}</strong><span>${esc(row.need.state==='ON DEMAND'?'On demand':row.need.state==='REFERENCE'?'Reference data':row.need.state)}</span><small>${esc(row.need.reason)}</small>`;
-          const trend=document.createElement('div');trend.className='daily-trend-compact';trend.innerHTML='<strong>SOURCE EVIDENCE</strong>';
-          const quick=document.createElement('span');quick.textContent=`${row.trend.cadence}${row.trend.cadence?' · ':''}${trendLine(row)}`;trend.append(quick);entry.append(trend);
-          if(['NEED NOW','NEED SOON'].includes(row.need.state)){const action=document.createElement('p');action.textContent=row.need.actions.length>1?'Recover the missing SAPR snapshots listed in Coverage details.':row.need.actions[0]||'';entry.append(action);}
-          // Explicit coverage requests, not generic freshness notices: the
-          // source report and each recoverable day/range must be visible.
-          const requests=Array.isArray(row.coverage?.actions)?row.coverage.actions:[];
-          const expected=['sapr','nextAppointments','vir','menu','sor','efficiency','mediaAsr','mediaAsrTech'].includes(row.key);
-          const cadenceSetting=api.reportCadenceOverrides?.()?.[row.key]?.value||'auto';
-          if(expected && requests.length){
-            const requestBox=document.createElement('section');requestBox.className='daily-trend-request';
-            const heading=document.createElement('strong');heading.textContent=
-              ['unavailable','on-demand','irregular'].includes(cadenceSetting)||row.need.state==='AWAITING RELEASE'
-                ? 'MISSING TREND COVERAGE — '+row.source
-                : 'RUN THIS REPORT — '+row.source;
-            requestBox.append(heading);
-            const list=document.createElement('ol');
-            for(const instruction of requests){
-              const li=document.createElement('li');li.textContent=instruction;list.append(li);
-            }
-            requestBox.append(list);
-            if(cadenceSetting!=='auto'){
-              const notice=document.createElement('p');
-              notice.textContent='Availability set to '+cadenceSetting+'. These dates remain gaps until verified reports cover them; no daily values will be estimated.';
-              requestBox.append(notice);
-            }
-            entry.append(requestBox);
-          }
-          if(expected){
-            const cadenceBox=document.createElement('div');cadenceBox.className='daily-source-cadence';
-            const caption=document.createElement('label');caption.textContent='Report availability';caption.htmlFor='daily-cadence-'+row.key;
-            const picker=document.createElement('select');picker.id='daily-cadence-'+row.key;
-            for(const [value,label] of [['auto','Auto — keep learning'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly'],['irregular','Irregular'],['on-demand','On demand'],['unavailable','Not available']])
-              picker.add(new Option(label,value));
-            picker.value=cadenceSetting;
-            const stored=api.reportCadenceOverrides?.()?.[row.key]||{};
-            const releasePicker=document.createElement('select');
-            releasePicker.setAttribute('aria-label','Release day for '+row.source);
-            const populateReleaseDays=()=>{
-              releasePicker.replaceChildren();
-              const weekly=picker.value==='weekly',monthly=picker.value==='monthly';
-              releasePicker.hidden=!(weekly||monthly);
-              if(weekly){
-                ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
-                  .forEach((name,index)=>releasePicker.add(new Option(name,String(index))));
-                releasePicker.value=String(Number.isInteger(stored.releaseDay)?stored.releaseDay:1);
-              }else if(monthly){
-                for(let day=1;day<=31;day++)releasePicker.add(new Option('Day '+day,String(day)));
-                releasePicker.value=String(Number.isInteger(stored.releaseDay)?stored.releaseDay:1);
-              }
-            };
-            populateReleaseDays();
-            const applyCadence=()=>action(async()=>{
-              await api.saveReportCadence(row.key,picker.value,releasePicker.hidden?null:Number(releasePicker.value));
-              renderTools('imports');
-            });
-            picker.addEventListener('change',()=>{populateReleaseDays();applyCadence();});
-            releasePicker.addEventListener('change',applyCadence);
-            const info=document.createElement('small'),observed=api.reportCadenceEvidence?.(row.key);
-            info.textContent='Observed from '+(observed?.samples||0)+' imports: '+
-              (observed?.learned||'not enough evidence')+
-              '. Source rule: '+(row.trend?.cadence||'not established')+
-              '. Learning continues even when you set availability manually.';
-            cadenceBox.append(caption,picker,releasePicker,info);entry.append(cadenceBox);
-          }
-          const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Trend details / Why?';details.append(summary);
-          const coverage=document.createElement('div');coverage.className='daily-source-coverage';
-          const t=row.trend,lines=[`Purpose: ${row.need.purpose}`,`Operational need: ${row.need.state} · ${row.need.reason}`,`Trend status: ${t.status}`,`Cadence: ${t.cadence||'None'}`];
-          if(['openRo','appointments'].includes(row.key))lines.push(`Current verified import: ${t.importDate?date(t.importDate):'not available'}`,`Source snapshot date: ${t.snapshotDate?date(t.snapshotDate):'not provided'}`);
-          else if(t.kind==='recoverable')lines.push(`Response events present: ${t.responses||'not established'}`,`Last report observation: ${t.lastReportObservation?date(t.lastReportObservation):'not established'}`,`Verified export scope: ${t.last||'not established'}`,t.last?'':'Response dates show when surveys occurred; they do not prove the export covered every day in that range.',t.missing.length?`Next useful export: ${t.next} cumulative CSI`:'A day without a response is not a missing report.');
-          else if(row.key==='sor')lines.push(`Current observation: ${date(t.last)}`,`Financial month: ${/^\d{4}-\d{2}$/.test(t.financialMonth||'')?new Date(`${t.financialMonth}-01T12:00:00Z`).toLocaleDateString(undefined,{timeZone:'UTC',month:'long'}):'not established'}`,`Next optional observation: ${date(t.next)}`);
-          else if(t.kind!=='none')lines.push(`Last valid trend point: ${date(t.last)}`,...(row.key==='sapr'?[]:[`Next ${t.kind==='required'?'required':'optional'} ${row.key==='menu'?'release':'point'}: ${date(t.next)}`]));
-          if(row.need.state==='ON DEMAND')lines.push(`Last generated: ${t.lastActivityDate?date(t.lastActivityDate):'not recorded'}`,`Source timestamp: ${row.lastSuccessfulImport}`,`Generate when needed.`);
-          if(row.need.state==='REFERENCE')lines.push(`Last received: ${t.lastActivityDate?date(t.lastActivityDate):'not recorded'}`,`Source timestamp: ${row.lastSuccessfulImport}`,`Reference data; no recurring refresh required.`);
-          if(t.kind==='required')lines.push(`REQUIRED TREND DATES: ${t.missing.map(date).join(', ')||'None'}`);
-          if(t.kind==='optional')lines.push(`OPTIONAL TREND DATES: ${t.missing.map(date).join(', ')||'None'}`);
-          lines.push(t.recovery,t.note);
-          if(!['REFERENCE','ON DEMAND'].includes(row.need.state))lines.push(`Freshness: ${row.status} · Last successful update: ${row.lastSuccessfulImport}`);
-          if(!['openRo','appointments','csi','sor'].includes(row.key))lines.push(`Represented period: ${row.period}`);
-          const historical=['REQUIRED TREND','CUMULATIVE / RECOVERABLE','WEEKLY'].includes(row.need.purpose)||String(row.need?.purpose||'').startsWith('OPTIONAL TREND');
-          if(historical)lines.push(row.coverage.summary,...row.coverage.details);
-          for(const line of lines.filter(Boolean)){const p=document.createElement('p');p.textContent=line;coverage.append(p);}
-          const actions=['REQUIRED TREND','CUMULATIVE / RECOVERABLE','WEEKLY'].includes(row.need.purpose)?row.coverage.actions:row.need.actions;
-          if(actions.length){const list=document.createElement('ul');for(const line of actions){const item=document.createElement('li');item.textContent=line;list.append(item);}coverage.append(list);}
-          details.append(coverage);
-          const key=({openRo:'open-ro',sapr:'performance',menu:'menu-sales',nextAppointments:'next-appointments',
-            mediaAsr:'media-asr',mediaAsrTech:'media-asr-tech'})[row.key]||
-            row.key.replace(/[A-Z]/g,letter=>'-'+letter.toLowerCase());
-          const sourceInfo=globalThis.ServiceRefreshIntelligence?.catalog?.[key];
-          if(sourceInfo){
-            const where=document.createElement('div');where.className='daily-source-location';
-            const label=document.createElement('small');label.textContent='Get it from: '+(api.sourceLocations?.()?.[key]||sourceInfo.location);
-            where.append(label,button('Change location',()=>action(async()=>{
-              const prior=api.sourceLocations?.()?.[key]||sourceInfo.location;
-              const location=prompt('Where do you get '+sourceInfo.label+'?',prior);
-              if(location===null||!location.trim()||location.length>200)return;
-              await api.saveSourceLocation(key,location);renderTools('imports');
-            }),'link-button'));entry.append(where);
-          }
-          entry.append(details,button(row.need.state==='ON DEMAND'?'Generate / workbook tools':'Import',()=>row.need.state==='ON DEMAND'?go('imports'):options.querySelector('input[type="file"]').click()));group.append(entry);
+      // One source of evidence feeds all report actions, counts, and details.
+      const toolbar=document.createElement('div');toolbar.className='daily-report-toolbar';
+      importer(toolbar);options.append(toolbar);
+      const rows=api.imports(),asOf=today(),plan=reportPresentationPlan(rows,asOf);
+      const summary=document.createElement('p');summary.className='daily-report-summary';
+      summary.textContent=plan.now.length+' needed now · '+plan.soon.length+
+        ' needed soon / awaiting release · '+plan.historical.reduce((n,item)=>n+item.dates.length,0)+
+        ' required historical gaps';
+      options.append(summary);
+      const dashboard=document.createElement('div');dashboard.className='daily-report-dashboard';options.append(dashboard);
+      const section=(title,items,mode,empty,collapsed=false)=>{
+        const group=document.createElement(collapsed?'details':'section');
+        group.className='daily-report-needs'+(collapsed?' daily-report-optional':'');
+        group.dataset.reportGroup=mode;
+        const label=document.createElement(collapsed?'summary':'h3');label.textContent=title+' ('+items.length+')';group.append(label);
+        if(!items.length){
+          const p=document.createElement('p');p.className='daily-report-empty';p.textContent=empty;group.append(p);
         }
-        if(label==='WHAT YOU NEED NOW'){
-          const plan=document.createElement('section');plan.className='daily-trend-plan daily-report-needs';plan.innerHTML='<h3>TREND MAINTENANCE</h3>';
-          const actions=globalThis.MoonDogFreshness.trendMaintenanceActions(rows,date);
-          if(!actions.length){const p=document.createElement('p');p.textContent='All required trend data is current. No report action needed.';plan.append(p);}
-          for(const action of actions){const p=document.createElement('p');p.textContent=`${action.label}: ${action.summary}${action.instruction?` · ${action.instruction}`:''}`;plan.append(p);}
-          group.after(plan);
-        }
-      }
-      host.append(button('Supervisor workbook and detailed imports',()=>go('imports')),button("Today's Arrivals",()=>go('arrivals')),button('Report availability and setup',()=>go('setup')));
+        for(const item of items)group.append(renderReportImportCard(item.row,{mode,dates:item.dates,asOf,options,detailOnly:mode==='reference'}));
+        dashboard.append(group);
+      };
+      section('Needed now',plan.now,'now','No report imports currently require immediate action.');
+      section('Needed soon / awaiting release',plan.soon,'soon','No reports awaiting release or needed soon.');
+      section('Required historical coverage',plan.historical,'historical','No required historical report gaps.');
+      section('Optional reporting and current sources',plan.optional,'optional','No optional sources.',true);
+      section('Reference / on demand',plan.reference,'reference','No reference sources.',true);
+      renderReportAvailability(dashboard,rows);
+      const footer=document.createElement('div');footer.className='daily-report-footer';
+      footer.append(button('Supervisor workbook and detailed imports',()=>go('imports')),
+        button("Today's Arrivals",()=>go('arrivals')),
+        button('Report availability and setup',()=>go('setup')));
+      dashboard.append(footer);
     }
     if(category==='settings')for(const feature of settingsFeatures.filter(item=>item.key!=='recovery'))options.append(button(feature.label,()=>settingsCategory(feature.key)));
     if(category==='recovery'){options.append(button('Create backup / Restore from backup',()=>settingsCategory('recovery')),button('Create support / recovery copy',()=>settingsCategory('recovery')),button('Show recovery status',()=>settingsCategory('recovery')),button('Advanced recovery and new-store preparation',()=>settingsCategory('advanced')));}
