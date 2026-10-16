@@ -50,7 +50,7 @@ test("subset export validates exactly selected advisors and preserves normal rou
   assert.match(app, /async function validateWorkbookBytes\(bytes, codes = supervisorAdvisorCodes\(\), handoff = false\)/);
   assert.match(app, /const expectedSheets = codes\.map\(/);
   assert.match(app, /supervisorWorkbookRecords\(codes\)\.length/);
-  assert.match(app, /async function workbookBytes\(codes = supervisorAdvisorCodes\(\)\)/);
+  assert.match(app, /async function workbookBytes\(codes = supervisorAdvisorCodes\(\), handoff = false\)/);
   assert.match(app, /codes\.forEach\(\(code\) => \{ const name=handoffAdvisorName\(code\)/);
   assert.match(app, /async function generateWorkbook\(announce = true\)/);
   assert.match(app, /const bytes = await workbookBytes\(\), validation = await validateWorkbookBytes\(bytes\)/);
