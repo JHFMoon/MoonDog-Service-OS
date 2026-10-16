@@ -22,7 +22,9 @@ const source = [
   mergeFns,
   "globalThis.api={canonicalCdkStatus,canonicalReviewStatus,statusDetailsFor,operationalStatusFromImport,mergeCompleteOpenRoRecords,pruneClosedRecords};"
 ].join("\n");
-const context={Date,Number,String,Set,Map,Object,Array};vm.createContext(context);vm.runInContext(source,context);
+// Freeze the clock used by retention logic so this fixture does not expire in real time.
+class FrozenNowDate extends Date { static now(){return Date.parse("2026-10-08T12:00:00.000Z");} }
+const context={Date:FrozenNowDate,Number,String,Set,Map,Object,Array};vm.createContext(context);vm.runInContext(source,context);
 const api=context.api;
 
 const expected={

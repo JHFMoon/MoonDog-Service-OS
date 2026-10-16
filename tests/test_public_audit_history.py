@@ -81,6 +81,27 @@ class RedactedHistoryAuditTests(unittest.TestCase):
         finally:
             td.cleanup()
 
+    def test_new_synthetic_vin_blob_still_fails_closed(self):
+        """A freshly created valid-looking VIN must not inherit historical exceptions."""
+        from importlib.util import module_from_spec, spec_from_file_location
+        spec = spec_from_file_location("vin_triage_for_test", ROOT / "scripts" / "audit_vin_provenance.py")
+        helper = module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        base = "1HGCM826" + "0" + "3A004352"
+        total = sum(helper.VALUES[ch] * weight for ch, weight in zip(base, helper.WEIGHTS))
+        test_vin = base[:8] + ("X" if total % 11 == 10 else str(total % 11)) + base[9:]
+        td, repo = self.init_repo()
+        try:
+            (repo / "fixture.txt").write_text("Synthetic example " + test_vin + "\\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "New synthetic fixture must remain blocked")
+            result = self.audit(repo)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("valid_vin:", result.stdout)
+            self.assertNotIn(test_vin, result.stdout)
+        finally:
+            td.cleanup()
+
     def test_both_public_scanners_compile(self):
         for path in (HISTORY_AUDIT, PUBLIC_SURFACE_AUDIT):
             compile(path.read_text(encoding="utf-8"), str(path), "exec")
