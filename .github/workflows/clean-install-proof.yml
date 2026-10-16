@@ -50,6 +50,26 @@ jobs:
         run: |
           node scripts/smoke_overdrive.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html" ".clean-install-smoke/overdrive-proof"
 
+      - name: Verify synthetic navigation benchmark structure
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path(".clean-install-smoke/overdrive-proof/navigation-baseline.json")
+          report=json.loads(p.read_text(encoding="utf-8"))
+          assert set(report)=={"schemaVersion","dataset","viewport","navigationMs","responsiveness"}
+          assert report["schemaVersion"]==1 and report["dataset"]=="synthetic-clean-install"
+          assert report["viewport"]=={"width":1600,"height":900}
+          nav=report["navigationMs"]
+          assert set(nav)=={"count","p50","p95","max"}
+          assert nav["count"]==36 and 0<=nav["p50"]<=nav["p95"]<=nav["max"]
+          if report["responsiveness"] is not None:
+              assert set(report["responsiveness"])=={"longTasks","maxLongTaskMs"}
+              assert all(isinstance(v,(int,float)) and v>=0 for v in report["responsiveness"].values())
+          assert p.stat().st_size<4096
+          print("PASS: synthetic-only navigation timing artifact validated")
+          PY
+
       - name: Upload proof artifact
         uses: actions/upload-artifact@v6
         with:
@@ -58,5 +78,6 @@ jobs:
             dist/Service-Operations-Dashboard.zip
             dist/Service-Operations-Dashboard.zip.sha256
             dist/Service-Operations-Dashboard.manifest.json
+            .clean-install-smoke/overdrive-proof/navigation-baseline.json
           if-no-files-found: error
           retention-days: 7

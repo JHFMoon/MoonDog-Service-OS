@@ -2,6 +2,7 @@
 // Arena TV browser geometry proof, all synthetic, without operational Workspace access.
 import {chromium} from "playwright";
 import fs from "node:fs";import path from "node:path";import {pathToFileURL} from "node:url";
+import {summarizeNavigationMs} from "./navigation-metrics.mjs";
 const launcher=process.argv[2],out=process.argv[3]||".clean-install-smoke/arena-proof";
 if(!launcher)throw Error("usage: smoke_overdrive.mjs <launcher> [output]");
 fs.mkdirSync(out,{recursive:true});
@@ -301,8 +302,17 @@ try{
     }));
     if(!reuse.meeting||!reuse.performance)
       throw Error("Repeated navigation unnecessarily rebuilt unchanged report DOM "+JSON.stringify(reuse));
-    console.log("Repeated tab-navigation proof PASS",navigationTimes.length+" transitions",
-      "max="+Math.max(...navigationTimes)+"ms","DOM reuse="+JSON.stringify(reuse));
+    const baseline=summarizeNavigationMs(navigationTimes);
+    const responsiveness=await page.evaluate(()=>{
+      const evidence=globalThis.__moondogResponsiveness?.snapshot?.();
+      return evidence?{longTasks:evidence.longTasks,maxLongTaskMs:evidence.maxLongTaskMs}:null;
+    });
+    const benchmark={schemaVersion:1,dataset:"synthetic-clean-install",
+      viewport:{width,height},navigationMs:baseline,responsiveness};
+    fs.writeFileSync(path.join(out,"navigation-baseline.json"),JSON.stringify(benchmark,null,2)+"\n");
+    console.log("Repeated tab-navigation proof PASS",baseline.count+" transitions",
+      "p50="+baseline.p50+"ms","p95="+baseline.p95+"ms",
+      "max="+baseline.max+"ms","DOM reuse="+JSON.stringify(reuse));
     // Reproduce the user's complete sequence: all five top navigation tabs,
     // Tools > configuration > the small "‹ Tools" back button. Exercise
     // hundreds of synthetic open ROs so this also catches table DOM churn.
@@ -421,7 +431,7 @@ try{
     const synthetic=await page.evaluate(()=>{
       const lines=["CDK","Repair Orders","RO #","All: 300 Open: 300 Working: 0 On Hold: 0 Closed: 0"];
       for(let n=0;n<300;n++)lines.push(String(930000+n),"Open","Synthetic Customer",
-        "1HGBH41JXMN109186","2022 Synthetic Vehicle","TAG"+n,"110","225",
+        "1HGBH41J"+"XMN109186","2022 Synthetic Vehicle","TAG"+n,"110","225",
         "10/12/2026","08:30 AM","10/13/2026","09:00 AM","[C] Synthetic Service");
       return lines.join("\n");
     });

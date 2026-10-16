@@ -54,9 +54,11 @@ def unsafe_email_matches(data):
             yield match
 
 # Reviewed individually on 2026-10-16: seven synthetic Paste & Learn test
-# blob versions and two synthetic browser smoke-test blob versions.
-# This exempts only the immutable blob contents from VIN alerts; unrelated
-# credential, email, path and other sensitive-data checks remain active.
+# blob versions and four synthetic browser smoke-test blob versions.
+# The two newer smoke blobs were created by PR #181 performance-test commits
+# before its synthetic VIN fixture was assembled dynamically at runtime.
+# This exempts only these exact immutable blob contents from VIN alerts;
+# unrelated credential, email, path and other sensitive-data checks remain active.
 VETTED_SYNTHETIC_VIN_BLOB_SHA1 = frozenset({
     "0414723d60df03155223972a018a6687e0adb7dc",
     "57542df983462586df6b85a98af2d4ffd6e5e5d9",
@@ -64,6 +66,8 @@ VETTED_SYNTHETIC_VIN_BLOB_SHA1 = frozenset({
     "6457921ada76620cb1af1540c1885cdccf8a0da0",
     "70683a459eb59ff0f706aa6291448a704c31030a",
     "795d7744bfbd898b8a90bfb260d79f9475be0c6a",
+    "91df695ca2c0cf0a23ba6ffadfd99179c5c317a5",
+    "5118ea8c5385a764f9fb888e7681f696103200c4",
     "b1e6d7b6de41481160dfb54c8b4222c0476dc1a2",
     "bbb2b16de4b66c6efe0b5e9417a3ab96ca5962cd",
     "c725dce8e13b38a548594a1c5ce3b3ace379ee44",
