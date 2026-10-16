@@ -20,6 +20,7 @@ function returnedImportFixture(options = {}) {
     keywords = "Service Operations Open RO Round Trip",
     issuance = ISSUED,
     expected = ISSUED,
+    stale = false,
     xmlProperties = [ISSUED],
     zipFails = false
   } = options;
@@ -32,7 +33,7 @@ function returnedImportFixture(options = {}) {
     ui: { sourceSelect: { value: "" } },
     status: () => {},
     text: (value) => String(value ?? ""),
-    model: { recovery: { supervisorWorkbook: expected === null ? {} : { issuanceId: expected } } },
+    model: { recovery: { supervisorWorkbook: expected === null ? {} : { issuanceId: expected, stale } } },
     sourceFileHandle: async () => ({ getFile: async () => ({ arrayBuffer: async () => new ArrayBuffer(4) }) }),
     XLSX: { read: () => book },
     window: { crypto: { getRandomValues: (arr) => arr.fill(0x11) } },
@@ -90,6 +91,14 @@ for (const [caseName, options] of [
     const { run, mutations } = returnedImportFixture(options);
     await assert.rejects(() => run("Renamed-Current.xlsx"), /Supervisor Workbook issuance could not be verified/);
     assert.deepEqual(mutations, [], "no backup or state mutation on rejected return");
+  });
+}
+
+for (const stale of [true, undefined, null, "unknown"]) {
+  test("stale state " + String(stale) + " rejects before backup and freshness", async () => {
+    const { run, mutations } = returnedImportFixture({ stale });
+    await assert.rejects(() => run("Official-Synthetic.xlsx"), /Supervisor Workbook is stale or its current status cannot be verified/);
+    assert.deepEqual(mutations, []);
   });
 }
 
