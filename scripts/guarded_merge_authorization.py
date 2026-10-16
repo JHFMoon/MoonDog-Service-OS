@@ -22,7 +22,15 @@ def has_explicit_approval(body: str | None) -> bool:
     approved = False
     fence_char = None
     fence_count = 0
+    html_comment = False
     for line in body.splitlines():
+        # HTML comments are hidden in rendered PRs. They cannot grant or revoke
+        # authorization, even if they contain otherwise valid directives or
+        # Markdown fence markers.
+        if html_comment:
+            if "-->" in line:
+                html_comment = False
+            continue
         mark = FENCE.match(line)
         if mark:
             chars = mark.group(1)
@@ -32,6 +40,10 @@ def has_explicit_approval(body: str | None) -> bool:
                 fence_char, fence_count = None, 0
             continue
         if fence_char:
+            continue
+        if "<!--" in line:
+            if "-->" not in line.split("<!--", 1)[1]:
+                html_comment = True
             continue
         candidate = DIRECTIVE.fullmatch(line)
         if candidate:
