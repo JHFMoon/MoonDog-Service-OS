@@ -87,7 +87,9 @@ class SecurityWorkflowTests(unittest.TestCase):
     def test_guarded_merge_and_offline_distribution_are_hands_off_safe(self):
         merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
         self.assertIn('workflows: ["Publication check"]', merge)
-        self.assertIn("MoonDog-Auto-Merge: yes", merge)
+        self.assertIn("python3 scripts/guarded_merge_authorization.py /tmp/pr.json", merge)
+        self.assertEqual(merge.count("'authorization': has_explicit_approval("), 2)
+        self.assertIn("from scripts.guarded_merge_authorization import has_explicit_approval", merge)
         self.assertIn("Clean Install Proof", merge)
         self.assertIn("workflow_dispatch", merge)
         self.assertIn('pulls?state=open&head=$OWNER:$HEAD_BRANCH', merge)
