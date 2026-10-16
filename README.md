@@ -29,9 +29,8 @@ End-user flow:
 2. Extract it to a normal folder.
 3. Open `00 - OPEN DASHBOARD.html` in Microsoft Edge.
 4. Choose the extracted folder as the working folder.
-5. Designate the authoritative editing computer.
-6. Complete Guided Setup.
-7. Use Settings → System Updates for future verified updates.
+5. Complete Guided Setup.
+6. Use Settings → System Updates for future verified updates.
 
 The GitHub Pages site is only a download storefront. It does not process or store dealership data and does not build the package in the browser.
 
@@ -55,7 +54,7 @@ Inside `System Files/`:
 - rollback backups live under `Workspace/backups/system-updates/`;
 - backup retention is automatic and bounded: validated full backups are kept densely for 30 days, then one per month for 12 months, with the newest three always preserved and a fresh rolling backup every 30 days; resolved system-update rollbacks keep at most 3 for 30 days; restore-safety backups keep at most 2 for 30 days; automatic pre-change backups keep at most 50 for 30 days.
 
-The connected workspace is not a multi-writer database. One browser installation is designated as the authoritative writer. A copied or independently synchronized workspace does not inherit write authority and remains read-only.
+The connected workspace is not a multi-writer database. Stable 0.10.17 has no owner-designation gate: browser-granted read/write access may permit edits, but concurrent writers and independently synchronized copies are not coordinated by a distributed lock. Keep a single operational source of truth and rely on revision checks, journaling, backups, and recovery safeguards rather than assuming synced copies serialize edits.
 
 ## Update safety
 
