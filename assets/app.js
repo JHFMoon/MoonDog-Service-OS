@@ -597,6 +597,32 @@
   const stamp = () => now().replace(/[:.]/g, "-");
   const slug = (v) => String(v).replace(/[^a-z0-9_-]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || "record";
   const stableId = (raw) => `ro-${slug(raw.ro)}${raw.vin ? `-${slug(raw.vin.slice(-8))}` : ""}`;
+  const SUPERVISOR_ISSUANCE_PROP = "MoonDogSupervisorIssuanceV1";
+  function newSupervisorWorkbookIssuance() {
+    if (!window.crypto?.getRandomValues) throw new Error("Secure workbook issuance is unavailable in this browser.");
+    const random = new Uint8Array(16);
+    window.crypto.getRandomValues(random);
+    return "mdsw1-" + Array.from(random, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  function workbookHasReturnIdentity(book) {
+    return book.SheetNames.some((sheetName) => {
+      const rows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { header: 1, defval: "", raw: false });
+      return rows.some((row) => row.includes(RETURN_ID_HEADER) || row.includes(RETURN_BASELINE_HEADER) || row.includes(RETURN_STATUS_ID_HEADER));
+    }) || Boolean(book.Custprops?.[SUPERVISOR_ISSUANCE_PROP]);
+  }
+  async function requireIssuedSupervisorWorkbook(book, bytes) {
+    const expected = model.recovery?.supervisorWorkbook?.issuanceId;
+    const actual = book.Custprops?.[SUPERVISOR_ISSUANCE_PROP];
+    const invalid = () => new Error("Supervisor Workbook issuance could not be verified. Needs Review: preserve the file and regenerate an official current Supervisor Workbook before importing updates.");
+    if (typeof expected !== "string" || !/^mdsw1-[0-9a-f]{32}$/.test(expected) || typeof actual !== "string" || actual !== expected) throw invalid();
+    let zip; try { zip = await JSZip.loadAsync(bytes); } catch (_) { throw invalid(); }
+    const part = zip.file("docProps/custom.xml");
+    if (!part) throw invalid();
+    let xml; try { xml = parsedXml(new DOMParser(), await part.async("string"), "docProps/custom.xml"); } catch (_) { throw invalid(); }
+    const ns = "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties";
+    const matches = [...xml.getElementsByTagNameNS(ns, "property")].filter((node) => node.getAttribute("name") === SUPERVISOR_ISSUANCE_PROP);
+    if (matches.length !== 1 || matches[0].textContent.trim() !== expected) throw invalid();
+  }
   function workbookHasReturnSchema(book) { return book.SheetNames.some((sheetName) => { const rows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { header: 1, defval: "", raw: false }); return rows.some((row) => row.includes(RETURN_ID_HEADER) && row.includes("Next action") && row.includes("Commitment date")); }); }
   function workbookDate(value) { if (value instanceof Date && !Number.isNaN(value.valueOf())) return localDateKey(value); const source = text(value).trim(); if (!source) return ""; if (/^\d{4}-\d{2}-\d{2}$/.test(source)) return source; const match = source.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); if (!match) return null; const year = match[3].length === 2 ? `20${match[3]}` : match[3]; return `${year}-${match[1].padStart(2, "0")}-${match[2].padStart(2, "0")}`; }
 
@@ -1753,7 +1779,7 @@
 
   async function importReturnedWorkbook(selectedName, deleteAfterSuccess = false) {
     const name = selectedName || ui.sourceSelect.value; if (!name) throw new Error("Choose a returned supervisor workbook."); status(`Reviewing advisor updates in ${name}…`, "working");
-    const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer(), book = XLSX.read(bytes, { type: "array", cellDates: true, raw: false }); if (/^Advisor Handoff\s*-/i.test(name.trim()) || /MoonDog Advisor Handoff Snapshot/i.test(text(book.Props?.Keywords))) throw new Error("Advisor handoff snapshots are outbound only and cannot be imported as Supervisor Workbooks."); if (!workbookHasReturnSchema(book)) throw new Error("This workbook does not contain the required supervisor update fields."); validateReturnedWorkbookFreshness(book);
+    const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer(), book = XLSX.read(bytes, { type: "array", cellDates: true, raw: false }); if (/^Advisor Handoff\s*-/i.test(name.trim()) || /MoonDog Advisor Handoff Snapshot/i.test(text(book.Props?.Keywords))) throw new Error("Advisor handoff snapshots are outbound only and cannot be imported as Supervisor Workbooks."); await requireIssuedSupervisorWorkbook(book, bytes); if (!workbookHasReturnSchema(book)) throw new Error("This workbook does not contain the required supervisor update fields."); validateReturnedWorkbookFreshness(book);
     const byId = new Map(model.state.records.map((record) => [record.id, record])), clearUpdates = [], questions = [], entries = [], idCounts = new Map(), duplicateQuestions = new Set();
     for (const sheetName of book.SheetNames) {
       const rows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { defval: "", raw: false });
@@ -1785,7 +1811,7 @@
 
   async function importSource(selectedName = null, deleteAfterSuccess = false) {
     const name = selectedName || ui.sourceSelect.value; if (!name) return; status("Reading "+name+"…", "working");
-    const file = await (await sourceFileHandle(name)).getFile(); const bytes = await file.arrayBuffer(); const book = XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true }); if (/^Advisor Handoff\s*-/i.test(name.trim()) || /MoonDog Advisor Handoff Snapshot/i.test(text(book.Props?.Keywords))) throw new Error("Advisor handoff snapshots are outbound only and cannot be imported as Supervisor Workbooks."); if (workbookHasReturnSchema(book)) return importReturnedWorkbook(name, deleteAfterSuccess); const legacy = legacyReport(book); const table = legacy ? null : findTable(book);
+    const file = await (await sourceFileHandle(name)).getFile(); const bytes = await file.arrayBuffer(); const book = XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true }); if (/^Advisor Handoff\s*-/i.test(name.trim()) || /MoonDog Advisor Handoff Snapshot/i.test(text(book.Props?.Keywords))) throw new Error("Advisor handoff snapshots are outbound only and cannot be imported as Supervisor Workbooks."); if (workbookHasReturnSchema(book)) return importReturnedWorkbook(name, deleteAfterSuccess); if (workbookHasReturnIdentity(book)) throw new Error("This file has Supervisor Workbook identity fields but no valid return schema. Needs Review: do not import it as a generic Open RO report."); const legacy = legacyReport(book); const table = legacy ? null : findTable(book);
     const incoming = legacy ? legacy.records : table.rows.map((row) => rawRecord(row, table)).filter((record) => record.ro); if (!incoming.length) throw new Error("The detected table contained no RO records.");
     incoming.forEach((raw)=>reconcileRecordSourceIdentity(raw));const importedAt=now(),merged=mergeCompleteOpenRoRecords(incoming,importedAt,"open-ro-xlsx"),records=merged.records;records.forEach(reconcileRecordSourceIdentity);
     await backupState("before-import");
@@ -1858,7 +1884,7 @@
     return zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
   }
   function parsedXml(parser, source, partName) { const doc = parser.parseFromString(source, "application/xml"); if (doc.getElementsByTagName("parsererror").length) throw new Error(`Generated workbook contains malformed XML in ${partName}.`); return doc; }
-  async function validateWorkbookBytes(bytes, codes = supervisorAdvisorCodes(), handoff = false) {
+  async function validateWorkbookBytes(bytes, codes = supervisorAdvisorCodes(), handoff = false, issuanceId = "") {
     if (!bytes?.byteLength) throw new Error("Generated workbook is empty.");
     let zip; try { zip = await JSZip.loadAsync(bytes); } catch (_) { throw new Error("Generated workbook is not a valid ZIP/XLSX package."); }
     const required = ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/styles.xml"];
@@ -1877,6 +1903,7 @@
       for (const cell of doc.getElementsByTagNameNS(mainNs, "c")) { const style = Number(cell.getAttribute("s") || 0); if (!Number.isInteger(style) || style < 0 || style >= styleCount) throw new Error(`Worksheet ${partName} references missing style ${style}.`); }
     }
     let book; try { book = XLSX.read(bytes, { type: "array", cellStyles: true }); } catch (_) { throw new Error("Generated workbook could not be parsed back after protection."); }
+    if (!handoff && issuanceId && book.Custprops?.[SUPERVISOR_ISSUANCE_PROP] !== issuanceId) throw new Error("Generated Supervisor Workbook issuance did not survive protected XLSX read-back.");
     const expectedSheets = codes.map((code) => `${handoffAdvisorName(code)} ${code}`); if (book.SheetNames.join("|") !== expectedSheets.join("|")) throw new Error("Generated workbook advisor worksheets are incomplete or out of order.");
     let count = 0; for (const sheetName of expectedSheets) { const sheet = book.Sheets[sheetName], rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }); count += rows.length; const headers = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" })[0] || []; if (!headers.includes(RETURN_ID_HEADER) || !headers.includes(RETURN_BASELINE_HEADER) || !headers.includes(RETURN_STATUS_ID_HEADER) || !sheet["!cols"]?.[0]?.hidden || !sheet["!cols"]?.[14]?.hidden || !sheet["!cols"]?.[15]?.hidden) throw new Error(`Hidden round-trip identity fields are missing from ${sheetName}.`); }
     if (count !== (handoff ? handoffRecords(codes).length : supervisorWorkbookRecords(codes).length)) throw new Error("Generated workbook record count does not match the selected advisor Open RO state.");
@@ -1908,7 +1935,7 @@
   function supervisorWorkbookRecords(codes = supervisorAdvisorCodes()) { const selected = new Set(codes); return (model.state.records || []).filter((record) => selected.has(String(record.advisorCode || "")) || (!record.advisorCode && codes.some((code) => norm(record.advisor) === norm(handoffAdvisorName(code))))); }
   function validateReturnedWorkbookFreshness(book) { const expected = new Map(supervisorWorkbookRecords().map((record) => [record.id, text(record.management?.updatedAt).trim()])), found = new Map(); for (const sheetName of book.SheetNames) for (const row of XLSX.utils.sheet_to_json(book.Sheets[sheetName], { defval: "", raw: false })) { const id = text(row[RETURN_ID_HEADER]).trim(); if (id) found.set(id, text(row[RETURN_BASELINE_HEADER]).trim()); } if (found.size !== expected.size || [...expected.keys()].some((id) => !found.has(id)) || [...expected].some(([id, baseline]) => found.get(id) !== baseline)) throw new Error("Supervisor Workbook is out of date. Generate a new workbook before importing changes."); }
   async function markSupervisorWorkbookStale(reason) { model.recovery.supervisorWorkbook = { ...(model.recovery.supervisorWorkbook || {}), stale: true, reason, markedAt: now(), durableRecordCount: (model.state.records || []).length, eligibleRecordCount: supervisorWorkbookRecords().length }; try { await writeJson(RECOVERY_PATH, model.recovery); } catch (error) { recordDiagnostic("WORKBOOK STATUS FAILED", `Supervisor Workbook stale status could not be saved (${error.name || "Error"})`); } }
-  async function workbookBytes(codes = supervisorAdvisorCodes(), handoff = false) {
+  async function workbookBytes(codes = supervisorAdvisorCodes(), handoff = false, issuanceId = "") {
     const headers = [RETURN_ID_HEADER, "RO", "Customer", "Vehicle / tag", "Source status", "Management status", "Next action", "Commitment date", "Customer communication", "Owner", "Update note", "Opened", "Days open", "Last update", RETURN_BASELINE_HEADER, RETURN_STATUS_ID_HEADER], book = XLSX.utils.book_new(), widths = [2, 12, 24, 25, 16, 20, 36, 15, 22, 18, 38, 13, 10, 20, 2, 2], editableColumns = [5, 6, 7, 8, 9, 10];
     if (!codes.length) throw new Error("Choose at least one advisor before generating a workbook.");
     codes.forEach((code) => { const name=handoffAdvisorName(code);
@@ -1917,12 +1944,13 @@
       const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:P1"); for (let row = 0; row <= range.e.r; row += 1) for (let column = 0; column <= range.e.c; column += 1) { const address = XLSX.utils.encode_cell({ r: row, c: column }), cell = sheet[address]; if (!cell) continue; cell.s = row === 0 ? { font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "173C59" } }, alignment: { vertical: "center", wrapText: true }, protection: { locked: true } } : { alignment: { vertical: "top", wrapText: true }, protection: { locked: !editableColumns.includes(column) }, fill: editableColumns.includes(column) ? { fgColor: { rgb: "FFF2CC" } } : undefined }; }
       XLSX.utils.book_append_sheet(book, sheet, `${name} ${code}`);
     });
+    if (!handoff) { if (!/^mdsw1-[0-9a-f]{32}$/.test(issuanceId)) throw new Error("Supervisor Workbook issuance ID is required."); book.Custprops = { [SUPERVISOR_ISSUANCE_PROP]: issuanceId }; }
     book.Props = { Title: handoff ? "Advisor Handoff - Outbound Snapshot" : "Service Operations Open RO Current", Subject: handoff ? "Outbound advisor handoff snapshot - not a Supervisor Workbook import" : "Protected advisor-update workbook for Service Operations Dashboard round trip", Author: model.settings.storeName, CreatedDate: new Date(), Keywords: handoff ? "MoonDog Advisor Handoff Snapshot - outbound only" : "Service Operations Open RO Round Trip" }; const bytes = await protectEditableWorkbook(XLSX.write(book, { type: "array", bookType: "xlsx", compression: true, cellStyles: true })); await validateWorkbookBytes(bytes, codes, handoff); return bytes;
   }
-  async function generateWorkbook(announce = true) { if (!model.state.records.length) throw new Error("Import an XLSX before generating the supervisor workbook."); const bytes = await workbookBytes(), validation = await validateWorkbookBytes(bytes), configuredName=model.settings.supervisorWorkbook?.filename||model.settings.exportName||DEFAULTS.supervisorWorkbook.filename, name = configuredName.endsWith(".xlsx") ? configuredName : `${configuredName}.xlsx`; let currentError = null;
-    try { await writeBytes(["exports", name], bytes); const saved = new Uint8Array(await (await (await fileAt(["exports", name])).getFile()).arrayBuffer()); await validateWorkbookBytes(saved); } catch (error) { currentError = error; }
-    if (currentError) { const revisionName = `${stamp()}-revision.xlsx`; await writeBytes(["exports", revisionName], bytes); const savedRevision = new Uint8Array(await (await (await fileAt(["exports", revisionName])).getFile()).arrayBuffer()); await validateWorkbookBytes(savedRevision); await addHistory("xlsx-export-failed", `Could not refresh ${name}`, { recordCount: validation.recordCount, revisionName, browserError: currentError.message || String(currentError) }); throw new Error(`The durable RO state and one verified recovery workbook, ${revisionName}, were saved, but ${name} could not be refreshed because Excel or OneDrive changed or locked it. Close the workbook in Excel, then use Generate current XLSX.`); }
-    model.recovery.supervisorWorkbook = { stale: false, reason: "", generatedAt: now(), fileName: name, durableRecordCount: (model.state.records || []).length, eligibleRecordCount: validation.recordCount }; await writeJson(RECOVERY_PATH, model.recovery); await retainDailyReport("supervisorWorkbook",model.recovery.supervisorWorkbook); await addHistory("xlsx-export", `Generated ${name}`, { recordCount: validation.recordCount, advisorTabs: validation.expectedSheets }); ui.lastExport.textContent = new Date(model.recovery.supervisorWorkbook.generatedAt).toLocaleString(); if (announce) status(`${name} was generated and structurally verified with one tab per advisor.`, "success"); }
+  async function generateWorkbook(announce = true) { if (!model.state.records.length) throw new Error("Import an XLSX before generating the supervisor workbook."); const issuanceId = newSupervisorWorkbookIssuance(), codes = supervisorAdvisorCodes(), bytes = await workbookBytes(codes, false, issuanceId), validation = await validateWorkbookBytes(bytes, codes, false, issuanceId), configuredName=model.settings.supervisorWorkbook?.filename||model.settings.exportName||DEFAULTS.supervisorWorkbook.filename, name = configuredName.endsWith(".xlsx") ? configuredName : `${configuredName}.xlsx`; let currentError = null;
+    try { await writeBytes(["exports", name], bytes); const saved = new Uint8Array(await (await (await fileAt(["exports", name])).getFile()).arrayBuffer()); await validateWorkbookBytes(saved, codes, false, issuanceId); } catch (error) { currentError = error; }
+    if (currentError) { const revisionName = `${stamp()}-revision.xlsx`; await writeBytes(["exports", revisionName], bytes); const savedRevision = new Uint8Array(await (await (await fileAt(["exports", revisionName])).getFile()).arrayBuffer()); await validateWorkbookBytes(savedRevision, codes, false, issuanceId); await addHistory("xlsx-export-failed", `Could not refresh ${name}`, { recordCount: validation.recordCount, revisionName, browserError: currentError.message || String(currentError) }); throw new Error(`The durable RO state and one verified recovery workbook, ${revisionName}, were saved, but ${name} could not be refreshed because Excel or OneDrive changed or locked it. Close the workbook in Excel, then use Generate current XLSX.`); }
+    const previousSupervisorRecovery = model.recovery.supervisorWorkbook; model.recovery.supervisorWorkbook = { stale: false, reason: "", generatedAt: now(), fileName: name, issuanceId, durableRecordCount: (model.state.records || []).length, eligibleRecordCount: validation.recordCount }; try { await writeJson(RECOVERY_PATH, model.recovery); const onDisk = await readJson(RECOVERY_PATH, {}); if (onDisk.supervisorWorkbook?.issuanceId !== issuanceId) throw new Error("Supervisor Workbook issuance could not be verified in recovery.json."); } catch (error) { model.recovery.supervisorWorkbook = previousSupervisorRecovery; throw error; } await retainDailyReport("supervisorWorkbook",model.recovery.supervisorWorkbook); await addHistory("xlsx-export", `Generated ${name}`, { recordCount: validation.recordCount, advisorTabs: validation.expectedSheets }); ui.lastExport.textContent = new Date(model.recovery.supervisorWorkbook.generatedAt).toLocaleString(); if (announce) status(`${name} was generated and structurally verified with one tab per advisor.`, "success"); }
 
   // A handoff is an independent, on-demand snapshot; it never alters the
   // configured Supervisor Workbook roster, recovery metadata, or return workflow.
