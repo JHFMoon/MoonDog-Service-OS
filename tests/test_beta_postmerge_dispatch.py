@@ -23,7 +23,7 @@ class BetaDispatchTests(unittest.TestCase):
         self.assertIn('reviewed_commit:', text)
         self.assertIn('TARGET_SHA="${REQUESTED_COMMIT:-$MAIN_SHA}"', text)
         self.assertIn('git merge-base --is-ancestor "$TARGET_SHA" "$MAIN_SHA"', text)
-        self.assertIn('if main.get("stable") != package.get("stable"):', text)
+        self.assertIn("if main.get('stable') != package.get('stable'):", text)
         self.assertIn('gh workflow run clean-install-proof.yml', text)
 
 
