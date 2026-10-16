@@ -64,6 +64,10 @@ class HistoryTriageTests(unittest.TestCase):
         by_category = Counter(entry["path_category"] for entry in data["candidates"])
         print("HISTORY_TRIAGE_REDACTED_COUNT", data["candidate_blobs"], flush=True)
         print("HISTORY_TRIAGE_CATEGORIES", json.dumps(dict(sorted(by_category.items()))), flush=True)
+        # Git object IDs are public hash pointers, not the matched VIN values.
+        # Print only opaque hashes and synthetic-context counts for private investigator review.
+        for item in data["candidates"]:
+            print("HISTORY_TRIAGE_BLOB_META", item["blob_sha"], item["path_category"], item["valid_vin_occurrences"], item["fixture_context_clues"], flush=True)
         print("HISTORY_TRIAGE_NO_IDENTIFIERS_LOGGED", flush=True)
 
 
