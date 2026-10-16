@@ -21,7 +21,17 @@
     supervisorWorkbook: Object.freeze({ label: "Supervisor Workbook", cadence: "state-current" })
   });
 
-  function validDateKey(value) { return DATE_KEY.test(String(value || "")); }
+  function validDateKey(value) {
+    if (typeof value !== "string" || !DATE_KEY.test(value)) return false;
+    const year = Number(value.slice(0, 4));
+    const month = Number(value.slice(5, 7));
+    const day = Number(value.slice(8, 10));
+    if (month < 1 || month > 12 || day < 1) return false;
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const lastDay = month === 2 ? (leap ? 29 : 28)
+      : (month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31);
+    return day <= lastDay;
+  }
   function dateKey(value = new Date(), timeZone = DEFAULT_TIME_ZONE) {
     const date = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(date.valueOf())) return "";
