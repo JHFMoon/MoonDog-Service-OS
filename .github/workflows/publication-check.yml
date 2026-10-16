@@ -67,6 +67,8 @@ jobs:
         run: python3 scripts/check_publication.py
       - name: Audit reachable Git history for sensitive material
         run: python3 scripts/audit_git_history.py
+      - name: Enforce strict redacted full-history VIN and credential scan
+        run: python3 scripts/audit_public_git_history.py
 
       # The guarded Beta packager issues the legacy required Publication Check
       # commit status for normal automated PRs. Trusted owner-authored bootstrap
