@@ -1913,10 +1913,12 @@
       }
     }
     // Vacationing advisors may be absent from a recent SAPR, but still own
-    // current open ROs. Do not discard them merely for inactive participation.
+    // current open ROs. Explicitly removed advisors remain excluded.
+    const removed = new Set(Object.values(model.settings.advisors || {})
+      .filter((advisor) => advisor.removed).map((advisor) => text(advisor.number).trim()));
     for (const record of model.state.records || []) {
       const code = text(record.advisorCode).trim(), name = text(record.advisor).trim();
-      if (code && name && !roster.has(code)) roster.set(code, { code, name });
+      if (code && name && !removed.has(code) && !roster.has(code)) roster.set(code, { code, name });
     }
     return [...roster.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   }
