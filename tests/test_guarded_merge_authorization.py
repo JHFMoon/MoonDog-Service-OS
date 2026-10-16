@@ -40,6 +40,19 @@ class ConsentTests(unittest.TestCase):
     def test_revocation(self):
         self.assertFalse(has_explicit_approval("MoonDog-Auto-Merge: yes\nMoonDog-Auto-Merge: no"))
 
+    def test_hidden_html_block_is_not_authorization(self):
+        self.assertFalse(has_explicit_approval(
+            "<details>\nMoonDog-Auto-Merge: yes\n</details>"
+        ))
+        self.assertFalse(has_explicit_approval(
+            "<div hidden>\nMoonDog-Auto-Merge: yes\n</div>"
+        ))
+
+    def test_fence_with_info_is_not_closed_by_another_opener(self):
+        self.assertFalse(has_explicit_approval(
+            "```python\n```javascript\nMoonDog-Auto-Merge: yes\n```"
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()
