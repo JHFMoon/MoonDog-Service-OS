@@ -53,12 +53,28 @@ def unsafe_email_matches(data):
         if match.group(1).lower() not in safe_email_domains and match.group(0).lower() not in safe_email_addresses:
             yield match
 
+# Reviewed individually on 2026-10-16: seven synthetic Paste & Learn test
+# blob versions and two synthetic browser smoke-test blob versions.
+# This exempts only the immutable blob contents from VIN alerts; unrelated
+# credential, email, path and other sensitive-data checks remain active.
+VETTED_SYNTHETIC_VIN_BLOB_SHA1 = frozenset({
+    "0414723d60df03155223972a018a6687e0adb7dc",
+    "57542df983462586df6b85a98af2d4ffd6e5e5d9",
+    "64037ec104d17efa7ea4a98d6e6e463336d618b4",
+    "6457921ada76620cb1af1540c1885cdccf8a0da0",
+    "70683a459eb59ff0f706aa6291448a704c31030a",
+    "795d7744bfbd898b8a90bfb260d79f9475be0c6a",
+    "b1e6d7b6de41481160dfb54c8b4222c0476dc1a2",
+    "bbb2b16de4b66c6efe0b5e9417a3ab96ca5962cd",
+    "c725dce8e13b38a548594a1c5ce3b3ace379ee44",
+})
+
 counts = collections.Counter()
 safe_counts = collections.Counter()
 diagnostic_counts = collections.Counter()
 blobs = set()
 
-def scan_payload(data, prefix=""):
+def scan_payload(data, prefix="", approved_synthetic_vin_blob=False):
     key = (lambda name: f"{prefix}_{name}" if prefix else name)
     for kind, rx in patterns.items():
         if rx.search(data):
@@ -69,7 +85,10 @@ def scan_payload(data, prefix=""):
     elif email_rx.search(data):
         safe_counts[key("known_public_or_synthetic_email")] += 1
     if any(valid_vin(m.group(0)) for m in vin_rx.finditer(data)):
-        counts[key("valid_vin")] += 1
+        if approved_synthetic_vin_blob and not prefix:
+            safe_counts["vetted_synthetic_vin_blob"] += 1
+        else:
+            counts[key("valid_vin")] += 1
     if ssn_rx.search(data):
         counts[key("ssn_candidate")] += 1
 
@@ -85,7 +104,7 @@ for line in objects:
         counts["oversize_uninspected_blob"] += 1
         continue
     data = git("cat-file", "blob", oid)
-    scan_payload(data)
+    scan_payload(data, approved_synthetic_vin_blob=oid in VETTED_SYNTHETIC_VIN_BLOB_SHA1)
 
 # Enumerate complete tree snapshots, not just git rev-list --objects names.
 # The latter prints only one possible pathname for a blob reused at many paths.
