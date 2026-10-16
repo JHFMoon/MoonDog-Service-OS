@@ -6,6 +6,7 @@ from pathlib import Path
 import hashlib
 
 from build_distribution import WORKSPACE_README
+from audit_surface_retry import DownloadFailure, retry_transient
 
 REPO=os.environ["GITHUB_REPOSITORY"]
 counts=collections.Counter()
@@ -144,35 +145,37 @@ def gh_json(endpoint: str):
         items.extend(value if isinstance(value,list) else [value])
     return items
 
-class DownloadFailure(Exception):
-    def __init__(self, status):
-        self.status=status
-        super().__init__("asset download returned HTTP status "+status)
-
 def gh_download(endpoint: str, target: Path):
-    """Follow release/artifact redirects without writing API errors as ZIPs.
+    """Follow release/artifact redirects; fail closed after bounded transient retries.
 
-    GitHub CLI's gh api does not reliably stream these binary redirects.
-    Never log the token, response body, matched values, or signed URLs.
+    The GitHub CLI does not reliably stream binary redirects. Never expose
+    tokens, signed URLs, response bodies, or matched values in logs.
     """
     token=os.environ.get("GH_TOKEN","")
     if not token:
         raise DownloadFailure("auth_missing")
-    accept = "application/octet-stream" if "/releases/assets/" in endpoint else "application/vnd.github+json"
-    result=subprocess.run(
-        ["curl","--silent","--location","--output",str(target),
-         "--write-out","%{http_code}","--connect-timeout","20","--max-time","120",
-         "--header","Accept: "+accept,
-         "--header","X-GitHub-Api-Version: 2022-11-28",
-         "--header","Authorization: Bearer "+token,
-         "https://api.github.com/"+endpoint],
-        stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=False
-    )
-    code=result.stdout.decode("ascii","replace").strip()
-    if result.returncode!=0 or code!="200":
-        raise DownloadFailure(code if code.isdigit() else "transport_failure")
-    if not target.is_file():
-        raise DownloadFailure("missing_file")
+    accept="application/octet-stream" if "/releases/assets/" in endpoint else "application/vnd.github+json"
+
+    def download_once():
+        result=subprocess.run(
+            ["curl","--silent","--location","--output",str(target),
+             "--write-out","%{http_code}","--connect-timeout","20","--max-time","120",
+             "--header","Accept: "+accept,
+             "--header","X-GitHub-Api-Version: 2022-11-28",
+             "--header","Authorization: Bearer "+token,
+             "https://api.github.com/"+endpoint],
+            stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=False,
+        )
+        code=result.stdout.decode("ascii","replace").strip()
+        if result.returncode!=0:
+            raise DownloadFailure(code if code in {"408","429","500","502","503","504"} else "transport_failure")
+        if code!="200":
+            raise DownloadFailure(code if code.isdigit() else "transport_failure")
+        if not target.is_file():
+            raise DownloadFailure("missing_file")
+
+    retry_transient(download_once, reset=lambda: target.unlink(missing_ok=True))
+
 
 # Release metadata and assets.
 releases=gh_json(f"repos/{REPO}/releases?per_page=100")
