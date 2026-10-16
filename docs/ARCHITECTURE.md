@@ -76,7 +76,7 @@ The GitHub Pages site is a static storefront pointing to the current Stable rele
 Current channels:
 
 - Stable: `0.10.17`
-- Beta: `0.10.18-beta.24`
+- Beta: `0.10.18-beta.85`
 
 Stable 0.10.17 requires `0.10.9` or later. This is intentional: the 0.10.8-era updater cannot safely perform the application/workspace layout separation.
 
