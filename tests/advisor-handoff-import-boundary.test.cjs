@@ -5,51 +5,144 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+const ISSUANCE_PROP = "MoonDogSupervisorIssuanceV1";
+const ISSUED = "mdsw1-" + "a".repeat(32);
+const DIFFERENT = "mdsw1-" + "b".repeat(32);
+const helperStart = app.indexOf('  const SUPERVISOR_ISSUANCE_PROP = ');
+const helperEnd = app.indexOf('  function workbookHasReturnSchema(', helperStart);
+const importStart = app.indexOf("  async function importReturnedWorkbook(");
+const importEnd = app.indexOf("  async function importSource(", importStart);
+assert.ok(helperStart > 0 && helperEnd > helperStart, "Supervisor Workbook issuance helpers exist");
+assert.ok(importStart > 0 && importEnd > importStart, "Supervisor Workbook return import exists");
 
-function syntheticReturnedWorkbookImport(keywords) {
-  const start = app.indexOf("  async function importReturnedWorkbook(");
-  const end = app.indexOf("  async function importSource(", start);
-  assert.ok(start > 0 && end > start, "returned-workbook import boundary exists");
+function returnedImportFixture(options = {}) {
+  const {
+    keywords = "Service Operations Open RO Round Trip",
+    issuance = ISSUED,
+    expected = ISSUED,
+    xmlProperties = [ISSUED],
+    zipFails = false
+  } = options;
+  const mutations = [];
+  const book = {
+    Props: { Keywords: keywords }, Custprops: issuance === null ? {} : { [ISSUANCE_PROP]: issuance },
+    SheetNames: []
+  };
   const context = {
     ui: { sourceSelect: { value: "" } },
     status: () => {},
-    sourceFileHandle: async () => ({
-      getFile: async () => ({ arrayBuffer: async () => new ArrayBuffer(4) })
+    text: (value) => String(value ?? ""),
+    model: { recovery: { supervisorWorkbook: expected === null ? {} : { issuanceId: expected } } },
+    sourceFileHandle: async () => ({ getFile: async () => ({ arrayBuffer: async () => new ArrayBuffer(4) }) }),
+    XLSX: { read: () => book },
+    window: { crypto: { getRandomValues: (arr) => arr.fill(0x11) } },
+    JSZip: { loadAsync: async () => {
+      if (zipFails) throw new Error("synthetic invalid ZIP");
+      return { file: (name) => name === "docProps/custom.xml" && xmlProperties !== null
+        ? { async: async () => "<Properties/>" } : null };
+    } },
+    DOMParser: class {},
+    parsedXml: () => ({
+      getElementsByTagNameNS: () => (xmlProperties || []).map((id) => ({
+        getAttribute: (key) => key === "name" ? ISSUANCE_PROP : "",
+        textContent: id
+      }))
     }),
-    XLSX: { read: () => ({ Props: { Keywords: keywords }, SheetNames: [] }) },
     workbookHasReturnSchema: () => true,
-    validateReturnedWorkbookFreshness: () => {
-      throw new Error("Reached canonical freshness validation");
-    },
-    text: (value) => String(value ?? "")
+    validateReturnedWorkbookFreshness: () => { throw new Error("Reached canonical freshness validation"); },
+    backupState: async () => { mutations.push("backup"); throw new Error("Reached prohibited state mutation"); }
   };
-  vm.runInNewContext(app.slice(start, end) + "\nthis.importWorkbook = importReturnedWorkbook;", context);
-  return context.importWorkbook;
+  vm.runInNewContext(
+    app.slice(helperStart, helperEnd) + "\n" + app.slice(importStart, importEnd)
+      + "\nthis.importWorkbook = importReturnedWorkbook; this.issue = newSupervisorWorkbookIssuance;",
+    context
+  );
+  return { run: context.importWorkbook, issue: context.issue, mutations };
 }
 
-test("an outbound advisor handoff cannot be imported after its filename is changed", async () => {
-  const runImport = syntheticReturnedWorkbookImport("MoonDog Advisor Handoff Snapshot - outbound only");
-  await assert.rejects(
-    () => runImport("Renamed Returned Supervisor Workbook.xlsx"),
-    /Advisor handoff snapshots are outbound only/,
-    "the persisted workbook marker must reject the handoff before any canonical import path"
-  );
+test("outbound advisor handoff is rejected after its filename is changed", async () => {
+  const { run } = returnedImportFixture({ keywords: "MoonDog Advisor Handoff Snapshot - outbound only" });
+  await assert.rejects(() => run("Renamed Returned Supervisor Workbook.xlsx"), /Advisor handoff snapshots are outbound only/);
 });
 
-test("an advisor handoff filename cannot masquerade as a returned supervisor workbook", async () => {
-  const runImport = syntheticReturnedWorkbookImport("Service Operations Open RO Round Trip");
-  await assert.rejects(
-    () => runImport("Advisor Handoff - 2026-10-16 - synthetic.xlsx"),
-    /Advisor handoff snapshots are outbound only/,
-    "the filename guard must reject a handoff even when metadata is absent or old"
-  );
+test("handoff filename cannot masquerade as a returned Supervisor Workbook", async () => {
+  const { run } = returnedImportFixture({ keywords: "Service Operations Open RO Round Trip" });
+  await assert.rejects(() => run("Advisor Handoff - 2026-10-16 - synthetic.xlsx"), /Advisor handoff snapshots are outbound only/);
 });
 
-test("a canonical supervisor workbook still reaches its existing freshness gate", async () => {
-  const runImport = syntheticReturnedWorkbookImport("Service Operations Open RO Round Trip");
-  await assert.rejects(
-    () => runImport("Service Operations Current.xlsx"),
-    /Reached canonical freshness validation/,
-    "handoff rejection must not disable the supervisor workbook import validation"
-  );
+test("valid issued Supervisor Workbook reaches the original freshness gate after harmless rename", async () => {
+  const { run, mutations } = returnedImportFixture();
+  await assert.rejects(() => run("Arbitrary-Renamed-Official.xlsx"), /Reached canonical freshness validation/);
+  assert.deepEqual(mutations, []);
+});
+
+for (const [caseName, options] of [
+  ["renamed metadata-stripped handoff", { issuance: null, xmlProperties: null }],
+  ["mismatched issuance", { issuance: DIFFERENT }],
+  ["missing saved recovery issuance", { expected: null }],
+  ["obsolete Supervisor Workbook after issuance rotation", { expected: DIFFERENT }],
+  ["custom XLSX property removed", { xmlProperties: null }],
+  ["duplicate XLSX custom issuance properties", { xmlProperties: [ISSUED, ISSUED] }],
+  ["XML issuance mismatch", { xmlProperties: [DIFFERENT] }],
+  ["invalid XLSX package", { zipFails: true }]
+]) {
+  test(caseName + " fails closed before any state write", async () => {
+    const { run, mutations } = returnedImportFixture(options);
+    await assert.rejects(() => run("Renamed-Current.xlsx"), /Supervisor Workbook issuance could not be verified/);
+    assert.deepEqual(mutations, [], "no backup or state mutation on rejected return");
+  });
+}
+
+test("issued workbook identifiers use Web Crypto instead of a timestamp", () => {
+  const { issue } = returnedImportFixture();
+  assert.equal(issue(), "mdsw1-" + "11".repeat(16));
+  assert.match(app, /window\.crypto\.getRandomValues\(random\)/);
+  assert.doesNotMatch(app.slice(helperStart, helperEnd), /Math\.random\(/);
+});
+
+test("official generation persists verified issuance; handoff generation never issues one", () => {
+  assert.match(app, /book\.Custprops = \{ \[SUPERVISOR_ISSUANCE_PROP\]: issuanceId \}/);
+  assert.match(app, /if \(!handoff\) \{ if \(!\/\^mdsw1/);
+  assert.match(app, /const issuanceId = newSupervisorWorkbookIssuance\(\), codes = supervisorAdvisorCodes\(\)/);
+  assert.match(app, /await validateWorkbookBytes\(saved, codes, false, issuanceId\)/);
+  assert.match(app, /await readJson\(RECOVERY_PATH, \{\}\)/);
+  assert.match(app, /onDisk\.supervisorWorkbook\?\.issuanceId !== issuanceId/);
+});
+
+function sourceImportFixture(returnSchema, hasIdentity) {
+  const start = app.indexOf("  async function importSource(");
+  const end = app.indexOf("\n\n  const timeMinutes =", start);
+  assert.ok(start > 0 && end > start, "general import entry exists");
+  const calls = [];
+  const context = {
+    ui: { sourceSelect: { value: "" } },
+    status: () => {},
+    text: (value) => String(value ?? ""),
+    sourceFileHandle: async () => ({ getFile: async () => ({ arrayBuffer: async () => new ArrayBuffer(4) }) }),
+    XLSX: { read: () => ({ Props: {}, SheetNames: ["Sheet1"], Sheets: { Sheet1: {} } }) },
+    workbookHasReturnSchema: () => returnSchema,
+    workbookHasReturnIdentity: () => hasIdentity,
+    importReturnedWorkbook: async () => { calls.push("returned"); throw new Error("Routed through official return import"); },
+    legacyReport: () => { calls.push("generic"); throw new Error("Reached generic source importer"); }
+  };
+  vm.runInNewContext(app.slice(start, end) + "\nthis.importSource = importSource;", context);
+  return { run: context.importSource, calls };
+}
+
+test("general import routes complete supervisor-like books through issuance validation", async () => {
+  const { run, calls } = sourceImportFixture(true, true);
+  await assert.rejects(() => run("Renamed-Current.xlsx"), /Routed through official return import/);
+  assert.deepEqual(calls, ["returned"]);
+});
+
+test("supervisor-like books with damaged headers cannot fall back to generic import", async () => {
+  const { run, calls } = sourceImportFixture(false, true);
+  await assert.rejects(() => run("Damaged-Current.xlsx"), /Needs Review/);
+  assert.deepEqual(calls, []);
+});
+
+test("ordinary generic source XLSX remains on the generic import path", async () => {
+  const { run, calls } = sourceImportFixture(false, false);
+  await assert.rejects(() => run("SYNTHETIC-Ro-Report.xlsx"), /Reached generic source importer/);
+  assert.deepEqual(calls, ["generic"]);
 });
