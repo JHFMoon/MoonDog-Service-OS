@@ -154,7 +154,7 @@ test("failed recovery persistence must preserve the previously issued workbook",
   const generation = app.slice(start, end);
   // A failed recovery.json write after overwriting the primary workbook must
   // restore its previous bytes, or the old issuance becomes unusable.
-  assert.match(generation, /const previousPrimaryWorkbookBytes\s*=/,
+  assert.match(generation, /let previousPrimaryWorkbookBytes\s*=/,
     "capture the previously issued workbook before replacing it");
   assert.match(generation, /catch \(error\) \{[\s\S]*?previousPrimaryWorkbookBytes[\s\S]*?writeBytes\(\["exports", name\]/,
     "restore the prior workbook if recovery persistence fails");
