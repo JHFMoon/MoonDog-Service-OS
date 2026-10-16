@@ -19,6 +19,7 @@ function selectionModel() {
       } },
       state: { records: [
         { advisorCode: "101", advisor: "Vacation Advisor" },
+        { advisorCode: "103", advisor: "Removed Advisor" },
         { advisorCode: "104", advisor: "Unconfigured Advisor" }
       ] }
     },
@@ -33,7 +34,7 @@ function selectionModel() {
   return context.select;
 }
 
-test("handoff picker includes absent and unconfigured advisors who own open work", () => {
+test("handoff picker includes absent and unconfigured owners but excludes explicitly removed advisors", () => {
   const codes = selectionModel()().map((advisor) => advisor.code);
   assert.deepEqual([...codes].sort(), ["101", "102", "104"]);
 });
