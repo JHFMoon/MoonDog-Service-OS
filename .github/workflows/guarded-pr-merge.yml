@@ -189,6 +189,11 @@ jobs:
                 exit 1
               }
               gh workflow run publication-check.yml --repo "$REPO" --ref main
+              # GITHUB_TOKEN merges do not create push-triggered package runs.
+              # Dispatch packaging from verified main, using the exact merged SHA.
+              # The packager checks the Beta manifest, Stable invariant and
+              # opens a separately validated package PR only if runtime changed.
+              gh workflow run prepare-beta-package.yml --repo "$REPO" --ref main -f reviewed_commit="$MERGED_SHA"
               exit 0
             fi
             if grep -Eq 'Required status check.*(in progress|expected)' <<<"$RESULT"; then
