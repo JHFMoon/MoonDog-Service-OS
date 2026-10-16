@@ -58,5 +58,6 @@ jobs:
             dist/Service-Operations-Dashboard.zip
             dist/Service-Operations-Dashboard.zip.sha256
             dist/Service-Operations-Dashboard.manifest.json
+            .clean-install-smoke/overdrive-proof/navigation-baseline.json
           if-no-files-found: error
           retention-days: 7
