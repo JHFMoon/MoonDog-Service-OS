@@ -309,7 +309,7 @@ try{
     });
     const benchmark={schemaVersion:1,dataset:"synthetic-clean-install",
       viewport:{width,height},navigationMs:baseline,responsiveness};
-    fs.writeFileSync(path.join(out,"navigation-baseline.json"),JSON.stringify(benchmark,null,2)+"\\n");
+    fs.writeFileSync(path.join(out,"navigation-baseline.json"),JSON.stringify(benchmark,null,2)+"\n");
     console.log("Repeated tab-navigation proof PASS",baseline.count+" transitions",
       "p50="+baseline.p50+"ms","p95="+baseline.p95+"ms",
       "max="+baseline.max+"ms","DOM reuse="+JSON.stringify(reuse));
