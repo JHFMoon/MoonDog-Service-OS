@@ -47,13 +47,13 @@ test("handoff advisor selection adapts beyond seven without changing settings", 
 });
 
 test("subset export validates exactly selected advisors and preserves normal round-trip", () => {
-  assert.match(app, /async function validateWorkbookBytes\(bytes, codes = supervisorAdvisorCodes\(\), handoff = false\)/);
+  assert.match(app, /async function validateWorkbookBytes\(bytes, codes = supervisorAdvisorCodes\(\), handoff = false, issuanceId = ""\)/);
   assert.match(app, /const expectedSheets = codes\.map\(/);
   assert.match(app, /supervisorWorkbookRecords\(codes\)\.length/);
-  assert.match(app, /async function workbookBytes\(codes = supervisorAdvisorCodes\(\), handoff = false\)/);
+  assert.match(app, /async function workbookBytes\(codes = supervisorAdvisorCodes\(\), handoff = false, issuanceId = ""\)/);
   assert.match(app, /codes\.forEach\(\(code\) => \{ const name=handoffAdvisorName\(code\)/);
   assert.match(app, /async function generateWorkbook\(announce = true\)/);
-  assert.match(app, /const bytes = await workbookBytes\(\), validation = await validateWorkbookBytes\(bytes\)/);
+  assert.match(app, /const issuanceId = newSupervisorWorkbookIssuance\(\), codes = supervisorAdvisorCodes\(\), bytes = await workbookBytes\(codes, false, issuanceId\), validation = await validateWorkbookBytes\(bytes, codes, false, issuanceId\)/);
   assert.match(app, /const bytes = await workbookBytes\(codes, true\), validation = await validateWorkbookBytes\(bytes, codes, true\)/);
   assert.match(app, /await validateWorkbookBytes\(saved, codes, true\)/);
 });
@@ -147,5 +147,5 @@ test("handoff-only scoping leaves canonical workbook import intact and reports N
   assert.match(app, /validateWorkbookBytes\(saved, codes, true\)/);
   assert.match(app, /Needs Review:.*records.*excluded/);
   assert.match(app, /Advisor Handoff - \$\{localDateKey\(\)\} - \$\{Date\.now\(\)\}/);
-  assert.match(app, /const bytes = await workbookBytes\(\), validation = await validateWorkbookBytes\(bytes\)/);
+  assert.match(app, /const issuanceId = newSupervisorWorkbookIssuance\(\), codes = supervisorAdvisorCodes\(\), bytes = await workbookBytes\(codes, false, issuanceId\), validation = await validateWorkbookBytes\(bytes, codes, false, issuanceId\)/);
 });
