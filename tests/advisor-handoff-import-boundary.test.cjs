@@ -146,3 +146,21 @@ test("ordinary generic source XLSX remains on the generic import path", async ()
   await assert.rejects(() => run("SYNTHETIC-Ro-Report.xlsx"), /Reached generic source importer/);
   assert.deepEqual(calls, ["generic"]);
 });
+
+test("failed recovery persistence must preserve the previously issued workbook", () => {
+  const start = app.indexOf("  async function generateWorkbook(");
+  const end = app.indexOf("\n\n  // A handoff is an independent", start);
+  assert.ok(start > 0 && end > start, "generation path exists");
+  const generation = app.slice(start, end);
+  // A failed recovery.json write after overwriting the primary workbook must
+  // restore its previous bytes, or the old issuance becomes unusable.
+  assert.match(generation, /const previousPrimaryWorkbookBytes\s*=/,
+    "capture the previously issued workbook before replacing it");
+  assert.match(generation, /catch \(error\) \{[\s\S]*?previousPrimaryWorkbookBytes[\s\S]*?writeBytes\(\["exports", name\]/,
+    "restore the prior workbook if recovery persistence fails");
+});
+
+test("official issuance must be checked after an actual protected XLSX roundtrip", () => {
+  assert.match(app, /await validateWorkbookBytes\(saved, codes, false, issuanceId\)/);
+  assert.match(app, /book\.Custprops\?\.\[SUPERVISOR_ISSUANCE_PROP\] !== issuanceId/);
+});
