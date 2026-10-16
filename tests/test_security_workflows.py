@@ -104,7 +104,10 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("Required status check.*(in progress|expected)", merge)
 
         prepare = (ROOT / ".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
-        self.assertIn("pull_request_target", prepare)
+        self.assertNotIn("\n  pull_request_target:", prepare)
+        self.assertIn("  workflow_dispatch:", prepare)
+        self.assertIn("  package-unadvertised-main-runtime:", prepare)
+        self.assertIn("reviewed_commit:", prepare)
         self.assertIn("MoonDog-Auto-Merge: yes", prepare)
         self.assertIn("Refuse automatic changes to trusted proof/automation files", prepare)
         self.assertIn("trusted/scripts/pipeline_guard.py check-paths", prepare)
