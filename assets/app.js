@@ -1858,7 +1858,7 @@
     return zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
   }
   function parsedXml(parser, source, partName) { const doc = parser.parseFromString(source, "application/xml"); if (doc.getElementsByTagName("parsererror").length) throw new Error(`Generated workbook contains malformed XML in ${partName}.`); return doc; }
-  async function validateWorkbookBytes(bytes, codes = supervisorAdvisorCodes()) {
+  async function validateWorkbookBytes(bytes, codes = supervisorAdvisorCodes(), handoff = false) {
     if (!bytes?.byteLength) throw new Error("Generated workbook is empty.");
     let zip; try { zip = await JSZip.loadAsync(bytes); } catch (_) { throw new Error("Generated workbook is not a valid ZIP/XLSX package."); }
     const required = ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/styles.xml"];
@@ -1879,23 +1879,45 @@
     let book; try { book = XLSX.read(bytes, { type: "array", cellStyles: true }); } catch (_) { throw new Error("Generated workbook could not be parsed back after protection."); }
     const expectedSheets = codes.map((code) => `${handoffAdvisorName(code)} ${code}`); if (book.SheetNames.join("|") !== expectedSheets.join("|")) throw new Error("Generated workbook advisor worksheets are incomplete or out of order.");
     let count = 0; for (const sheetName of expectedSheets) { const sheet = book.Sheets[sheetName], rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }); count += rows.length; const headers = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" })[0] || []; if (!headers.includes(RETURN_ID_HEADER) || !headers.includes(RETURN_BASELINE_HEADER) || !headers.includes(RETURN_STATUS_ID_HEADER) || !sheet["!cols"]?.[0]?.hidden || !sheet["!cols"]?.[14]?.hidden || !sheet["!cols"]?.[15]?.hidden) throw new Error(`Hidden round-trip identity fields are missing from ${sheetName}.`); }
-    if (count !== supervisorWorkbookRecords(codes).length) throw new Error("Generated workbook record count does not match the selected advisor Open RO state.");
+    if (count !== (handoff ? handoffRecords(codes).length : supervisorWorkbookRecords(codes).length)) throw new Error("Generated workbook record count does not match the selected advisor Open RO state.");
     return { book, expectedSheets, recordCount: count };
   }
   function handoffAdvisorName(code) { return ADVISOR_NAMES[code] || model.settings.advisors?.[code]?.name || (model.state.records || []).find((record) => String(record.advisorCode || "") === code)?.advisor || code; }
+  // Advisor handoffs require one unambiguous identity per record. A name alone
+  // cannot assign work if two known advisor codes share it, even when only one
+  // of those advisors was selected for this export.
+  function handoffRecordOwner(record, roster = selectableHandoffAdvisors()) {
+    const code = text(record.advisorCode).trim();
+    if (code) return roster.some((advisor) => advisor.code === code) ? code : null;
+    const name = norm(record.advisor);
+    if (!name) return null;
+    const identities = new Map(roster.map((advisor) => [advisor.code, advisor.name]));
+    for (const advisor of Object.values(model.settings.advisors || {})) {
+      const knownCode = text(advisor.number).trim();
+      if (knownCode && text(advisor.name).trim()) identities.set(knownCode, advisor.name);
+    }
+    const matches = [...identities].filter(([, knownName]) => norm(knownName) === name);
+    if (matches.length !== 1) return null;
+    return roster.some((advisor) => advisor.code === matches[0][0]) ? matches[0][0] : null;
+  }
+  function handoffRecords(codes) {
+    const selected = new Set(codes), roster = selectableHandoffAdvisors();
+    return (model.state.records || []).filter((record) => selected.has(handoffRecordOwner(record, roster)));
+  }
+  function handoffRecordsForCode(code) { return handoffRecords([code]); }
   function supervisorWorkbookRecords(codes = supervisorAdvisorCodes()) { const selected = new Set(codes); return (model.state.records || []).filter((record) => selected.has(String(record.advisorCode || "")) || (!record.advisorCode && codes.some((code) => norm(record.advisor) === norm(handoffAdvisorName(code))))); }
   function validateReturnedWorkbookFreshness(book) { const expected = new Map(supervisorWorkbookRecords().map((record) => [record.id, text(record.management?.updatedAt).trim()])), found = new Map(); for (const sheetName of book.SheetNames) for (const row of XLSX.utils.sheet_to_json(book.Sheets[sheetName], { defval: "", raw: false })) { const id = text(row[RETURN_ID_HEADER]).trim(); if (id) found.set(id, text(row[RETURN_BASELINE_HEADER]).trim()); } if (found.size !== expected.size || [...expected.keys()].some((id) => !found.has(id)) || [...expected].some(([id, baseline]) => found.get(id) !== baseline)) throw new Error("Supervisor Workbook is out of date. Generate a new workbook before importing changes."); }
   async function markSupervisorWorkbookStale(reason) { model.recovery.supervisorWorkbook = { ...(model.recovery.supervisorWorkbook || {}), stale: true, reason, markedAt: now(), durableRecordCount: (model.state.records || []).length, eligibleRecordCount: supervisorWorkbookRecords().length }; try { await writeJson(RECOVERY_PATH, model.recovery); } catch (error) { recordDiagnostic("WORKBOOK STATUS FAILED", `Supervisor Workbook stale status could not be saved (${error.name || "Error"})`); } }
-  async function workbookBytes(codes = supervisorAdvisorCodes()) {
+  async function workbookBytes(codes = supervisorAdvisorCodes(), handoff = false) {
     const headers = [RETURN_ID_HEADER, "RO", "Customer", "Vehicle / tag", "Source status", "Management status", "Next action", "Commitment date", "Customer communication", "Owner", "Update note", "Opened", "Days open", "Last update", RETURN_BASELINE_HEADER, RETURN_STATUS_ID_HEADER], book = XLSX.utils.book_new(), widths = [2, 12, 24, 25, 16, 20, 36, 15, 22, 18, 38, 13, 10, 20, 2, 2], editableColumns = [5, 6, 7, 8, 9, 10];
     if (!codes.length) throw new Error("Choose at least one advisor before generating a workbook.");
     codes.forEach((code) => { const name=handoffAdvisorName(code);
-      const records = model.state.records.filter((record) => String(record.advisorCode || "") === code || (!record.advisorCode && norm(record.advisor) === norm(name))), rows = records.map((record) => ({ [RETURN_ID_HEADER]: record.id, "RO": text(record.ro), "Customer": record.customer || "", "Vehicle / tag": record.vehicle || record.tagNumber || "", "Source status": record.sourceStatus || "", "Management status": statusForRecord(record), "Next action": record.management.nextAction || "", "Commitment date": record.management.reviewDate || "", "Customer communication": normalizeCommunication(record.management.communication), "Owner": record.management.owner || "", "Update note": record.management.note || "", "Opened": record.opened || "", "Days open": record.daysOpen || "", "Last update": record.management.updatedAt ? new Date(record.management.updatedAt).toLocaleString() : "", [RETURN_BASELINE_HEADER]: record.management.updatedAt || "", [RETURN_STATUS_ID_HEADER]: resolveStatusId(record.management.status,record.management.statusId,true) })), sheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+      const records = handoff ? handoffRecordsForCode(code) : model.state.records.filter((record) => String(record.advisorCode || "") === code || (!record.advisorCode && norm(record.advisor) === norm(name))), rows = records.map((record) => ({ [RETURN_ID_HEADER]: record.id, "RO": text(record.ro), "Customer": record.customer || "", "Vehicle / tag": record.vehicle || record.tagNumber || "", "Source status": record.sourceStatus || "", "Management status": statusForRecord(record), "Next action": record.management.nextAction || "", "Commitment date": record.management.reviewDate || "", "Customer communication": normalizeCommunication(record.management.communication), "Owner": record.management.owner || "", "Update note": record.management.note || "", "Opened": record.opened || "", "Days open": record.daysOpen || "", "Last update": record.management.updatedAt ? new Date(record.management.updatedAt).toLocaleString() : "", [RETURN_BASELINE_HEADER]: record.management.updatedAt || "", [RETURN_STATUS_ID_HEADER]: resolveStatusId(record.management.status,record.management.statusId,true) })), sheet = XLSX.utils.json_to_sheet(rows, { header: headers });
       sheet["!autofilter"] = { ref: `B1:N${Math.max(1, rows.length + 1)}` }; sheet["!cols"] = widths.map((wch, index) => ({ wch, hidden: index === 0 || index === 14 || index === 15 })); sheet["!rows"] = [{ hpt: 24 }, ...rows.map(() => ({ hpt: 34 }))]; sheet["!freeze"] = { xSplit: 0, ySplit: 1, topLeftCell: "B2", activePane: "bottomLeft", state: "frozen" }; sheet["!protect"] = { selectLockedCells: true, selectUnlockedCells: false, formatCells: true, formatColumns: true, formatRows: true, insertColumns: true, insertRows: true, deleteColumns: true, deleteRows: true, sort: true, autoFilter: false };
       const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:P1"); for (let row = 0; row <= range.e.r; row += 1) for (let column = 0; column <= range.e.c; column += 1) { const address = XLSX.utils.encode_cell({ r: row, c: column }), cell = sheet[address]; if (!cell) continue; cell.s = row === 0 ? { font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "173C59" } }, alignment: { vertical: "center", wrapText: true }, protection: { locked: true } } : { alignment: { vertical: "top", wrapText: true }, protection: { locked: !editableColumns.includes(column) }, fill: editableColumns.includes(column) ? { fgColor: { rgb: "FFF2CC" } } : undefined }; }
       XLSX.utils.book_append_sheet(book, sheet, `${name} ${code}`);
     });
-    book.Props = { Title: "Service Operations Open RO Current", Subject: "Protected advisor-update workbook for Service Operations Dashboard round trip", Author: model.settings.storeName, CreatedDate: new Date(), Keywords: "Service Operations Open RO Round Trip" }; const bytes = await protectEditableWorkbook(XLSX.write(book, { type: "array", bookType: "xlsx", compression: true, cellStyles: true })); await validateWorkbookBytes(bytes, codes); return bytes;
+    book.Props = { Title: "Service Operations Open RO Current", Subject: "Protected advisor-update workbook for Service Operations Dashboard round trip", Author: model.settings.storeName, CreatedDate: new Date(), Keywords: "Service Operations Open RO Round Trip" }; const bytes = await protectEditableWorkbook(XLSX.write(book, { type: "array", bookType: "xlsx", compression: true, cellStyles: true })); await validateWorkbookBytes(bytes, codes, handoff); return bytes;
   }
   async function generateWorkbook(announce = true) { if (!model.state.records.length) throw new Error("Import an XLSX before generating the supervisor workbook."); const bytes = await workbookBytes(), validation = await validateWorkbookBytes(bytes), configuredName=model.settings.supervisorWorkbook?.filename||model.settings.exportName||DEFAULTS.supervisorWorkbook.filename, name = configuredName.endsWith(".xlsx") ? configuredName : `${configuredName}.xlsx`; let currentError = null;
     try { await writeBytes(["exports", name], bytes); const saved = new Uint8Array(await (await (await fileAt(["exports", name])).getFile()).arrayBuffer()); await validateWorkbookBytes(saved); } catch (error) { currentError = error; }
@@ -1966,7 +1988,8 @@
       label.append(box, textNode); ui.handoffList.append(label);
     }
     if (!roster.length) ui.handoffList.textContent = "No advisors found in the connected roster or Open ROs.";
-    ui.handoffCount.textContent = selectedHandoffCodes.size + " of " + roster.length + " advisors selected";
+    const needsReview = (model.state.records || []).filter((record) => !handoffRecordOwner(record, roster)).length;
+    ui.handoffCount.textContent = selectedHandoffCodes.size + " of " + roster.length + " advisors selected" + (needsReview ? ` · Needs Review: ${needsReview} records with unverified advisor identity excluded` : "");
     ui.handoffGenerate.disabled = !model.root || !model.state.records.length || !selectedHandoffCodes.size;
   }
   async function generateAdvisorHandoffWorkbook(requestedCodes) {
@@ -1974,14 +1997,15 @@
     const eligible = new Set(selectableHandoffAdvisors().map((advisor) => advisor.code));
     const codes = [...new Set(requestedCodes.map((code) => String(code)))].filter((code) => eligible.has(code));
     if (!codes.length || codes.length !== new Set(requestedCodes).size) throw new Error("Choose one or more advisors from the current roster.");
-    const bytes = await workbookBytes(codes), validation = await validateWorkbookBytes(bytes, codes);
+    const bytes = await workbookBytes(codes, true), validation = await validateWorkbookBytes(bytes, codes, true);
     const suffix = codes.map((code) => code.replace(/[^a-zA-Z0-9_-]/g, "")).join("-").slice(0, 90);
-    const name = `Advisor Handoff - ${localDateKey()} - ${suffix}.xlsx`;
+    const name = `Advisor Handoff - ${localDateKey()} - ${Date.now()} - ${suffix}.xlsx`;
     await writeBytes(["exports", name], bytes);
     const saved = new Uint8Array(await (await (await fileAt(["exports", name])).getFile()).arrayBuffer());
-    await validateWorkbookBytes(saved, codes);
+    await validateWorkbookBytes(saved, codes, true);
     await addHistory("advisor-handoff-export", `Generated ${name}`, { advisorTabs: codes.length, recordCount: validation.recordCount });
-    status(`${name} saved and verified in exports/ · ${codes.length} advisors · ${validation.recordCount} ROs. Standard Supervisor Workbook unchanged.`, "success");
+    const needsReview = (model.state.records || []).filter((record) => !handoffRecordOwner(record)).length;
+    status(`${name} saved and verified in exports/ · ${codes.length} advisors · ${validation.recordCount} ROs. ${needsReview ? `Needs Review: ${needsReview} records excluded because advisor identity is unverified. ` : ""}Standard Supervisor Workbook unchanged.`, "success");
   }
   async function saveState(reason, priorState = model.state) { await backupState(reason, priorState); model.state.appVersion = VERSION; model.state.updatedAt = now(); await writeJson(STATE_PATH, model.state); }
 
