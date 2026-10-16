@@ -47,15 +47,15 @@ test("handoff advisor selection adapts beyond seven without changing settings", 
 });
 
 test("subset export validates exactly selected advisors and preserves normal round-trip", () => {
-  assert.match(app, /async function validateWorkbookBytes\(bytes, codes = supervisorAdvisorCodes\(\)\)/);
+  assert.match(app, /async function validateWorkbookBytes\(bytes, codes = supervisorAdvisorCodes\(\), handoff = false\)/);
   assert.match(app, /const expectedSheets = codes\.map\(/);
   assert.match(app, /supervisorWorkbookRecords\(codes\)\.length/);
   assert.match(app, /async function workbookBytes\(codes = supervisorAdvisorCodes\(\)\)/);
   assert.match(app, /codes\.forEach\(\(code\) => \{ const name=handoffAdvisorName\(code\)/);
   assert.match(app, /async function generateWorkbook\(announce = true\)/);
   assert.match(app, /const bytes = await workbookBytes\(\), validation = await validateWorkbookBytes\(bytes\)/);
-  assert.match(app, /const bytes = await workbookBytes\(codes\), validation = await validateWorkbookBytes\(bytes, codes\)/);
-  assert.match(app, /await validateWorkbookBytes\(saved, codes\)/);
+  assert.match(app, /const bytes = await workbookBytes\(codes, true\), validation = await validateWorkbookBytes\(bytes, codes, true\)/);
+  assert.match(app, /await validateWorkbookBytes\(saved, codes, true\)/);
 });
 
 test("handoff export remains independent of Supervisor Workbook recovery and Settings", () => {
