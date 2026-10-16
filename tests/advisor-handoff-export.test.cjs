@@ -78,3 +78,74 @@ test("Open RO page gets visible, accessible handoff action", () => {
   assert.match(app, /renderAdvisorHandoff\(\); const records/);
   assert.match(app, /ensureOpenRoRetrievalUi\(\);ensureAdvisorHandoffUi\(\)/);
 });
+
+
+function handoffIdentityModel() {
+  const start = app.indexOf("  function handoffRecordOwner(");
+  const end = app.indexOf("  function supervisorWorkbookRecords(", start);
+  assert.ok(start >= 0 && end > start, "identity-scoped handoff resolver exists");
+  const records = [
+    { id: "A", advisorCode: "101", advisor: "Shared Name" },
+    { id: "B", advisorCode: "102", advisor: "Shared Name" },
+    { id: "C", advisorCode: "", advisor: "Shared Name" },
+    { id: "D", advisorCode: "", advisor: "Unique Name" },
+    { id: "E", advisorCode: "", advisor: "Unverified" },
+    { id: "F", advisorCode: "104", advisor: "Removed Advisor" }
+  ];
+  const roster = [
+    { code: "101", name: "Shared Name" },
+    { code: "102", name: "Shared Name" },
+    { code: "103", name: "Unique Name" }
+  ];
+  const context = {
+    model: { state: { records }, settings: { advisors: {
+      "101": { number: "101", name: "Shared Name" },
+      "102": { number: "102", name: "Shared Name" },
+      "103": { number: "103", name: "Unique Name" },
+      "104": { number: "104", name: "Removed Advisor", removed: true }
+    } } },
+    selectableHandoffAdvisors: () => roster,
+    norm: (value) => String(value ?? "").trim().toLowerCase(),
+    text: (value) => String(value ?? "")
+  };
+  vm.runInNewContext(app.slice(start, end) + "\nthis.owner = handoffRecordOwner; this.records = handoffRecords;", context);
+  return { context, records, roster };
+}
+
+test("handoff assigns explicit codes but never leaks duplicate display names", () => {
+  const { context, records, roster } = handoffIdentityModel();
+  assert.equal(context.owner(records[0], roster), "101");
+  assert.equal(context.owner(records[1], roster), "102");
+  assert.equal(context.owner(records[2], roster), null);
+  assert.equal(context.owner(records[3], roster), "103");
+  assert.equal(context.owner(records[4], roster), null);
+  assert.equal(context.owner(records[5], roster), null);
+  assert.deepEqual(Array.from(context.records(["101"]), (row) => row.id), ["A"]);
+  assert.deepEqual(Array.from(context.records(["102"]), (row) => row.id), ["B"]);
+});
+
+test("selected subsets, zero selections and all advisors preserve unique RO ownership", () => {
+  const { context } = handoffIdentityModel();
+  assert.deepEqual(Array.from(context.records([]), (row) => row.id), []);
+  assert.deepEqual(Array.from(context.records(["103"]), (row) => row.id), ["D"]);
+  assert.deepEqual(Array.from(context.records(["101", "102", "103"]), (row) => row.id), ["A", "B", "D"]);
+  const ids = ["101", "102", "103"].flatMap((code) => Array.from(context.records([code]), (row) => row.id));
+  assert.equal(new Set(ids).size, ids.length, "no RO appears in multiple advisor tabs");
+});
+
+test("removed duplicate identity also makes name-only assignment ambiguous", () => {
+  const { context, records, roster } = handoffIdentityModel();
+  context.model.settings.advisors["105"] = { number: "105", name: "Unique Name", removed: true };
+  assert.equal(context.owner(records[3], roster), null);
+  assert.deepEqual(Array.from(context.records(["103"]), (row) => row.id), []);
+});
+
+test("handoff-only scoping leaves canonical workbook import intact and reports Needs Review", () => {
+  assert.match(app, /handoff \? handoffRecords\(codes\)\.length : supervisorWorkbookRecords\(codes\)\.length/);
+  assert.match(app, /handoff \? handoffRecordsForCode\(code\) : model\.state\.records\.filter/);
+  assert.match(app, /workbookBytes\(codes, true\)/);
+  assert.match(app, /validateWorkbookBytes\(saved, codes, true\)/);
+  assert.match(app, /Needs Review:.*records.*excluded/);
+  assert.match(app, /Advisor Handoff - \$\{localDateKey\(\)\} - \$\{Date\.now\(\)\}/);
+  assert.match(app, /const bytes = await workbookBytes\(\), validation = await validateWorkbookBytes\(bytes\)/);
+});
