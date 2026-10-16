@@ -53,23 +53,5 @@ class HistoryTriageTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 mod.private_write(repo / "unsafe-report.json", repo, report)
 
-
-    def test_temporary_redacted_ci_history_inventory(self):
-        """Temporary investigation only: emit aggregate category counts, never identifiers."""
-        import os
-        from collections import Counter
-        if os.environ.get("GITHUB_WORKFLOW") != "Publication check":
-            self.skipTest("Deep history inventory runs only in Publication Check")
-        data = mod.inspect(Path(__file__).resolve().parents[1])
-        by_category = Counter(entry["path_category"] for entry in data["candidates"])
-        print("HISTORY_TRIAGE_REDACTED_COUNT", data["candidate_blobs"], flush=True)
-        print("HISTORY_TRIAGE_CATEGORIES", json.dumps(dict(sorted(by_category.items()))), flush=True)
-        # Git object IDs are public hash pointers, not the matched VIN values.
-        # Print only opaque hashes and synthetic-context counts for private investigator review.
-        for item in data["candidates"]:
-            print("HISTORY_TRIAGE_BLOB_META", item["blob_sha"], item["path_category"], item["valid_vin_occurrences"], item["fixture_context_clues"], flush=True)
-        print("HISTORY_TRIAGE_NO_IDENTIFIERS_LOGGED", flush=True)
-
-
 if __name__ == "__main__":
     unittest.main()
