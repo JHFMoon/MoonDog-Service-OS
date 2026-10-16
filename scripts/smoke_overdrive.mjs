@@ -431,7 +431,7 @@ try{
     const synthetic=await page.evaluate(()=>{
       const lines=["CDK","Repair Orders","RO #","All: 300 Open: 300 Working: 0 On Hold: 0 Closed: 0"];
       for(let n=0;n<300;n++)lines.push(String(930000+n),"Open","Synthetic Customer",
-        "1HGBH41JXMN109186","2022 Synthetic Vehicle","TAG"+n,"110","225",
+        "1HGBH41J"+"XMN109186","2022 Synthetic Vehicle","TAG"+n,"110","225",
         "10/12/2026","08:30 AM","10/13/2026","09:00 AM","[C] Synthetic Service");
       return lines.join("\n");
     });
