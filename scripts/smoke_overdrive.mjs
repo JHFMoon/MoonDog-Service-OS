@@ -11,9 +11,12 @@ try{
  for(const [width,height] of [[1920,1080],[1600,900],[1366,768]]){
   const page=await browser.newPage({viewport:{width,height},reducedMotion:width===1600?"no-preference":"reduce"});
   const errors=[];page.on("pageerror",e=>errors.push(e.message));
+  // Measures launcher navigation through app shell attachment, not folder connection.
+  const launcherStarted=performance.now();
   await page.goto(pathToFileURL(path.resolve(launcher)).href,{waitUntil:"load",timeout:30000});
   await page.waitForURL(u=>u.protocol==="file:"&&u.pathname.endsWith("/index.html"),{timeout:15000});
   await page.waitForSelector("#view-meeting",{state:"attached",timeout:15000});
+  const launcherToShellAttachedMs=Math.round(performance.now()-launcherStarted);
   await page.evaluate(()=>{
    const v=document.querySelector("#view-meeting");
    v.className="view active meeting-view meeting-v3 meeting-scoreboard arena-ready";v.hidden=false;
@@ -308,7 +311,8 @@ try{
       return evidence?{longTasks:evidence.longTasks,maxLongTaskMs:evidence.maxLongTaskMs}:null;
     });
     const benchmark={schemaVersion:1,dataset:"synthetic-clean-install",
-      viewport:{width,height},navigationMs:baseline,responsiveness};
+      viewport:{width,height},startupMs:{launcherToShellAttached:launcherToShellAttachedMs},
+      navigationMs:baseline,responsiveness};
     fs.writeFileSync(path.join(out,"navigation-baseline.json"),JSON.stringify(benchmark,null,2)+"\n");
     console.log("Repeated tab-navigation proof PASS",baseline.count+" transitions",
       "p50="+baseline.p50+"ms","p95="+baseline.p95+"ms",
