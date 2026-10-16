@@ -167,7 +167,9 @@ def gh_download(endpoint: str, target: Path):
             stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=False,
         )
         code=result.stdout.decode("ascii","replace").strip()
-        if result.returncode!=0 or code!="200":
+        if result.returncode!=0:
+            raise DownloadFailure(code if code in {"408","429","500","502","503","504"} else "transport_failure")
+        if code!="200":
             raise DownloadFailure(code if code.isdigit() else "transport_failure")
         if not target.is_file():
             raise DownloadFailure("missing_file")
