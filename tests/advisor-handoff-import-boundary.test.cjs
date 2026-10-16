@@ -164,3 +164,17 @@ test("official issuance must be checked after an actual protected XLSX roundtrip
   assert.match(app, /await validateWorkbookBytes\(saved, codes, false, issuanceId\)/);
   assert.match(app, /book\.Custprops\?\.\[SUPERVISOR_ISSUANCE_PROP\] !== issuanceId/);
 });
+
+test("returned workbook rejects stale or unverified issuance state before mutation", () => {
+  const start = app.indexOf("  async function importReturnedWorkbook(");
+  const end = app.indexOf("\n  ", start + 45);
+  assert.ok(start >= 0, "returned workbook entrypoint exists");
+  const entry = app.slice(start, start + 1500);
+  const issued = entry.indexOf("await requireIssuedSupervisorWorkbook(book, bytes)");
+  const stale = entry.indexOf("model.recovery?.supervisorWorkbook?.stale !== false");
+  const freshness = entry.indexOf("validateReturnedWorkbookFreshness(book)");
+  const mutation = app.indexOf("await backupState(", start);
+  assert.ok(issued >= 0 && stale > issued && freshness > stale, "stale gate follows issuance and precedes freshness");
+  assert.ok(mutation < 0 || mutation > start + stale, "stale gate precedes backup");
+  assert.match(entry, /Needs Review: generate a new official Supervisor Workbook/);
+});
