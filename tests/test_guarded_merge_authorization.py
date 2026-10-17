@@ -10,6 +10,7 @@ class ConsentTests(unittest.TestCase):
             self.assertFalse(has_explicit_approval("MoonDog-Auto-Merge: yes\n\n> quoted example\n" + boundary + "\nMoonDog-Auto-Merge: no"))
         self.assertFalse(has_explicit_approval("> quote\n```\n\nMoonDog-Auto-Merge: yes\n```"))
         self.assertFalse(has_explicit_approval("MoonDog-Auto-Merge: yes\n<!--\n```\n-->\nMoonDog-Auto-Merge: no"))
+        self.assertFalse(has_explicit_approval("MoonDog-Auto-Merge: yes\n\n> quoted example\n<div>Decision</div>\nMoonDog-Auto-Merge: no"))
     def test_multiline_inline_code_cannot_authorize(self):
         for ticks in ["`", "``"]:
             self.assertFalse(has_explicit_approval(ticks + "\nMoonDog-Auto-Merge: yes\n" + ticks))

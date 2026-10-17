@@ -110,6 +110,11 @@ def has_explicit_approval(body: str | None) -> bool:
             if re.match(r"^ {0,3}(?:>|[-+*] |\d+[.)] )", line):
                 quoted_paragraph = True
                 continue
+            # Revocation is conservative: an exact visible negative directive
+            # must not be lost to an ambiguous lazy-quote boundary.
+            if line == "MoonDog-Auto-Merge: no":
+                approved = False
+                continue
             if quoted_paragraph:
                 continue
         was_inline = bool(inline_ticks)

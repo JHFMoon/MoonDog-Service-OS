@@ -182,7 +182,8 @@ try {
     section("  function workbookSheetName(", "  function validateReturnedWorkbookFreshness("),
     section("  function workbookIssuanceId(", "  async function validateReturnedWorkbookIssuance("),
     section("  async function workbookBytes(", "  async function generateWorkbook("),
-    section("  function selectableHandoffAdvisors()", "  const selectedHandoffCodes")
+    section("  function selectableHandoffAdvisors()", "  const selectedHandoffCodes"),
+    section("  const selectedHandoffCodes", "  async function generateAdvisorHandoffWorkbook(")
   ].join("\n");
   const workbookResult = await page.evaluate(async source => {
     const model = {settings: {storeName: "Synthetic", advisors: {}}, state: {records: []}};
@@ -197,10 +198,28 @@ try {
       const text = value => String(value ?? ""), norm = value => text(value).trim().toLowerCase();
       const RETURN_ID_HEADER="__MoonDog RO ID", RETURN_BASELINE_HEADER="__MoonDog Last Update", RETURN_STATUS_ID_HEADER="__MoonDog Status ID", RETURN_ISSUANCE_CELL="Q1";
       const supervisorAdvisorCodes=()=>Object.keys(ADVISOR_NAMES), statusForRecord=()=>"Open", normalizeCommunication=value=>value||"", resolveStatusId=()=>"open", managementStatuses=()=>["Open"], COMMUNICATION_STATUSES=["", "Contacted"], validAdvisorIdentity=(code,name)=>Boolean(code&&name);
+      const ui={"view-open-ro":document.querySelector("#view-open-ro")}, run=operation=>operation();
+      const generateAdvisorHandoffWorkbook=()=>{throw Error("Selection smoke must not write a Workspace");};
       ${source}
-      return {workbookBytes,validateWorkbookBytes,selectableHandoffAdvisors};
+      return {workbookBytes,validateWorkbookBytes,selectableHandoffAdvisors,ensureAdvisorHandoffUi,renderAdvisorHandoff};
     `);
     const api = make(model, names), all = Object.keys(names);
+    model.root = {};
+    document.getElementById("handoffTools")?.remove();
+    api.ensureAdvisorHandoffUi();
+    document.getElementById("handoffToggle").click();
+    if (!document.getElementById("handoffGenerate").disabled) throw Error("Zero-selection export is enabled");
+    const boxes=[...document.querySelectorAll("#handoffList input")];
+    if(boxes.length!==9)throw Error("Handoff UI has a fixed advisor limit");
+    for(const count of [1,3]) {
+      document.getElementById("handoffClear").click();
+      for(let i=0;i<count;i++) { const box=document.querySelectorAll("#handoffList input")[i]; box.checked=true; box.dispatchEvent(new Event("change",{bubbles:true})); }
+      if(!document.getElementById("handoffCount").textContent.startsWith(count+" of 9")||document.getElementById("handoffGenerate").disabled)throw Error("Handoff subset selection failed");
+    }
+    document.getElementById("handoffSelectAll").click();
+    if(!document.getElementById("handoffCount").textContent.startsWith("9 of 9"))throw Error("Select all failed");
+    document.getElementById("handoffClear").click();
+    if(!document.getElementById("handoffGenerate").disabled)throw Error("Clear left export enabled");
     if (api.selectableHandoffAdvisors().length !== 9) throw Error("Handoff roster lost an advisor");
     let emptyRejected = false;
     try { await api.workbookBytes("", [], true); } catch (_) { emptyRejected = true; }
@@ -214,7 +233,7 @@ try {
     const official = await api.workbookBytes(id);
     const validation = await api.validateWorkbookBytes(official, id);
     if (validation.issuanceId !== id || validation.recordCount !== 9) throw Error("Official issuance did not round-trip");
-    return {advisors: 9, subsets: [1, 3, 9], emptyRejected, officialIssuance: "verified"};
+    return {advisors: 9, subsets: [1, 3, 9], uiSelections: [0,1,3,9], emptyRejected, officialIssuance: "verified"};
   }, workbookHarness);
   console.log("Verified packaged Supervisor Workbook and outbound handoff XLSX round trips", workbookResult);
   console.log("Verified Beta update installed and launched", runtime);
