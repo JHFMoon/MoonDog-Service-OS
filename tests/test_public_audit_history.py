@@ -2,6 +2,7 @@
 import pathlib
 import runpy
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -25,7 +26,7 @@ class RedactedHistoryAuditTests(unittest.TestCase):
 
     def audit(self, repo):
         return subprocess.run(
-            ["python3", str(HISTORY_AUDIT)],
+            [sys.executable, str(HISTORY_AUDIT)],
             cwd=repo,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

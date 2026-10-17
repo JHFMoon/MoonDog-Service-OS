@@ -13,6 +13,8 @@ else:
 
 PROTECTED_PREFIXES = (
     ".github/workflows/",
+    "scripts/",
+    "tests/",
 )
 PROTECTED_FILES = {
     "scripts/audit_git_history.py",

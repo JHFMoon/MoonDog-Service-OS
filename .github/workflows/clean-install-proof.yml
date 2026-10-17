@@ -3,8 +3,6 @@ name: Clean Install Proof
 on:
   pull_request:
   workflow_dispatch:
-  schedule:
-    - cron: '23 13 * * 1'
 
 permissions:
   contents: read
@@ -15,6 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 2  # Keep PR merge parent for package-only source-parity proof
 
       - name: Run repository safety checks

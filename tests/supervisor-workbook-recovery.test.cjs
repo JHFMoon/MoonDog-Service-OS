@@ -12,7 +12,7 @@ function extract(startToken, endToken) {
   return app.slice(start, end);
 }
 function load(source, globals = {}) {
-  const context = vm.createContext(globals);
+  const context = vm.createContext({ model: {}, verifyCompleteRoImport: async () => ({}), workbookIsHandoff: () => false, workbookHasReturnIdentity: () => false, ...globals });
   vm.runInContext(source, context);
   return context;
 }
@@ -172,13 +172,13 @@ test("issuance IDs are cryptographic UUID v4 values", () => {
 test("generated workbook embeds issuance ID in a hidden locked field", async () => {
   const source = [
     "const RETURN_ID_HEADER='__MoonDog RO ID', RETURN_BASELINE_HEADER='__MoonDog Last Update', RETURN_STATUS_ID_HEADER='__MoonDog Status ID', RETURN_ISSUANCE_CELL='Q1';",
-    extract("  async function workbookBytes(issuanceId)", "  async function generateWorkbook(")
+    extract("  async function workbookBytes(issuanceId,", "  async function generateWorkbook(")
   ].join("\n");
   let capturedBook;
   const toCell = ({ r, c }) => `${String.fromCharCode(65 + c)}${r + 1}`;
   const context = load(source, {
     model: { state: { records: [{ id: "synthetic-ro", advisorCode: "A", ro: "synthetic", management: {} }] }, settings: { storeName: "Synthetic" } },
-    supervisorAdvisorCodes: () => ["A"], ADVISOR_NAMES: { A: "Synthetic Advisor" },
+    handoffAdvisorName: () => "Synthetic Advisor", workbookSheetName: () => "Synthetic Advisor A", supervisorAdvisorCodes: () => ["A"], ADVISOR_NAMES: { A: "Synthetic Advisor" },
     text: (value) => String(value ?? ""), statusForRecord: () => "Open", normalizeCommunication: () => "", resolveStatusId: () => "",
     protectEditableWorkbook: async (bytes) => bytes,
     validateWorkbookBytes: async (bytes, expectedId) => { assert.equal(expectedId, issuanceId); return {}; },

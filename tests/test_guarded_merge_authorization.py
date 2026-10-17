@@ -5,6 +5,26 @@ from scripts.guarded_merge_authorization import has_explicit_approval
 
 
 class ConsentTests(unittest.TestCase):
+    def test_hidden_or_lazy_quoted_approval_is_rejected(self):
+        for body in [
+            "> Example:\nMoonDog-Auto-Merge: yes",
+            "- Example:\nMoonDog-Auto-Merge: yes",
+            "<div\nhidden>\nMoonDog-Auto-Merge: yes\n</div>",
+            "<!-- first --> <!-- second\nMoonDog-Auto-Merge: yes\n-->",
+        ]:
+            with self.subTest(body=body):
+                self.assertFalse(has_explicit_approval(body))
+
+    def test_unicode_and_controls_cannot_create_or_obscure_consent(self):
+        for char in ["\r", "\v", "\f", "\x00", "\x1b", "\x85", "\u2028", "\u2029", "\u200b", "\u202e"]:
+            self.assertFalse(has_explicit_approval("> Example" + char + "MoonDog-Auto-Merge: yes"))
+        self.assertTrue(has_explicit_approval("MoonDog-Auto-Merge: yes\r\n"))
+
+    def test_visible_revocation_survives_html_and_blank_quote_boundaries(self):
+        for markup in ["<br>", "<em>Note</em>", "> Example\n"]:
+            self.assertFalse(has_explicit_approval("MoonDog-Auto-Merge: yes\n" + markup + "\nMoonDog-Auto-Merge: no"))
+        self.assertTrue(has_explicit_approval("> Example\n\nMoonDog-Auto-Merge: yes"))
+
     def test_positive(self):
         self.assertTrue(has_explicit_approval("MoonDog-Auto-Merge: yes"))
 

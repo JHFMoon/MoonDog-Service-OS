@@ -112,8 +112,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/pr-paths.txt
+          python3 scripts/pipeline_guard.py check-paths /tmp/pr-paths.txt
           for attempt in {1..42}; do
             RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=50")"
+            RUNS="$(jq --arg head "$HEAD_SHA" --arg repo "$REPO" '{workflow_runs: [.workflow_runs[] | select(.head_sha==$head and .head_repository.full_name==$repo and (.event=="pull_request" or .event=="workflow_dispatch")) | select((.name=="Publication check" and .path==".github/workflows/publication-check.yml") or (.name=="Clean Install Proof" and .path==".github/workflows/clean-install-proof.yml"))]}' <<<"$RUNS")"
             PUB_OK="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")] | length' <<<"$RUNS")"
             CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")] | length' <<<"$RUNS")"
             PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .status!="completed")] | length' <<<"$RUNS")"
@@ -152,6 +155,8 @@ jobs:
           set -euo pipefail
           for attempt in {1..12}; do
             gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/final-pr.json
+            gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/final-pr-paths.txt
+            python3 scripts/pipeline_guard.py check-paths /tmp/final-pr-paths.txt
             MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
             CURRENT_HEAD="$(jq -r '.head.sha' /tmp/final-pr.json)"
             test "$CURRENT_HEAD" = "$HEAD_SHA" || {
