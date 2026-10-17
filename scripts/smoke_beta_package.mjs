@@ -166,6 +166,57 @@ try {
       !/Service Operations Dashboard/i.test(runtime.title) || pageErrors.length) {
     throw new Error(`Installed Beta runtime did not launch cleanly: ${JSON.stringify({ runtime, pageErrors })}`);
   }
+  const workbookSource = new TextDecoder().decode(
+    Buffer.from(JSON.parse(packageBytes).files.find(file => file.path === "assets/app.js")?.contentBase64 || "", "base64")
+  );
+  // Exercise the actual packaged generator with the browser's pinned XLSX,
+  // ZIP and XML implementations. No connected Workspace or real identities.
+  const sourceText = workbookSource || runtimeSource;
+  function section(start, end) {
+    const a = sourceText.indexOf(start), b = sourceText.indexOf(end, a + start.length);
+    if (a < 0 || b <= a) throw new Error(`Workbook smoke extraction failed: ${start}`);
+    return sourceText.slice(a, b);
+  }
+  const workbookHarness = [
+    section("  async function protectEditableWorkbook(", "  function workbookSheetName("),
+    section("  function workbookSheetName(", "  function validateReturnedWorkbookFreshness("),
+    section("  function workbookIssuanceId(", "  async function validateReturnedWorkbookIssuance("),
+    section("  async function workbookBytes(", "  async function generateWorkbook("),
+    section("  function selectableHandoffAdvisors()", "  const selectedHandoffCodes")
+  ].join("\n");
+  const workbookResult = await page.evaluate(async source => {
+    const model = {settings: {storeName: "Synthetic", advisors: {}}, state: {records: []}};
+    const names = {};
+    for (let i = 1; i <= 9; i++) {
+      const code = String(100 + i), name = i === 9 ? "Synthetic / long advisor name exceeding Excel limits" : `Synthetic Advisor ${i}`;
+      names[code] = name;
+      model.settings.advisors[code] = {number: code, name, active: i !== 8};
+      model.state.records.push({id: `synthetic-${i}`, ro: `DEMO-${i}`, advisorCode: code, advisor: name, management: {}});
+    }
+    const make = new Function("model", "ADVISOR_NAMES", `
+      const text = value => String(value ?? ""), norm = value => text(value).trim().toLowerCase();
+      const RETURN_ID_HEADER="__MoonDog RO ID", RETURN_BASELINE_HEADER="__MoonDog Last Update", RETURN_STATUS_ID_HEADER="__MoonDog Status ID", RETURN_ISSUANCE_CELL="Q1";
+      const supervisorAdvisorCodes=()=>Object.keys(ADVISOR_NAMES), statusForRecord=()=>"Open", normalizeCommunication=value=>value||"", resolveStatusId=()=>"open", managementStatuses=()=>["Open"], COMMUNICATION_STATUSES=["", "Contacted"], validAdvisorIdentity=(code,name)=>Boolean(code&&name);
+      ${source}
+      return {workbookBytes,validateWorkbookBytes,selectableHandoffAdvisors};
+    `);
+    const api = make(model, names), all = Object.keys(names);
+    if (api.selectableHandoffAdvisors().length !== 9) throw Error("Handoff roster lost an advisor");
+    let emptyRejected = false;
+    try { await api.workbookBytes("", [], true); } catch (_) { emptyRejected = true; }
+    if (!emptyRejected) throw Error("Empty handoff was accepted");
+    for (const codes of [[all[0]], all.slice(0, 3), all]) {
+      const bytes = await api.workbookBytes("", codes, true);
+      const validation = await api.validateWorkbookBytes(bytes, "", codes, true);
+      if (validation.recordCount !== codes.length || validation.expectedSheets.length !== codes.length) throw Error("Handoff count mismatch");
+    }
+    const id = "123e4567-e89b-42d3-a456-426614174000";
+    const official = await api.workbookBytes(id);
+    const validation = await api.validateWorkbookBytes(official, id);
+    if (validation.issuanceId !== id || validation.recordCount !== 9) throw Error("Official issuance did not round-trip");
+    return {advisors: 9, subsets: [1, 3, 9], emptyRejected, officialIssuance: "verified"};
+  }, workbookHarness);
+  console.log("Verified packaged Supervisor Workbook and outbound handoff XLSX round trips", workbookResult);
   console.log("Verified Beta update installed and launched", runtime);
 } finally {
   await browser.close();
