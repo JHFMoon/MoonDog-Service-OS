@@ -605,7 +605,7 @@
     return Boolean(book.Custprops?.MoonDogSupervisorIssuanceV1) || /Service Operations Open RO Round Trip/i.test(text(book.Props?.Keywords)) || book.SheetNames.some(name => {
       const sheet = book.Sheets[name];
       if (sheet?.Q1?.v) return true;
-      return XLSX.utils.sheet_to_json(sheet, {header: 1, defval: "", raw: false}).some(row => row.some(value => /^__MoonDog /i.test(text(value))));
+      return XLSX.utils.sheet_to_json(sheet, {header: 1, defval: "", raw: false}).some(row => row.some(value => /^__MoonDog /i.test(text(value))) || ["Next action", "Commitment date", "Customer communication", "Update note"].filter(header => row.includes(header)).length >= 2);
     });
   }
   function workbookHasReturnSchema(book) { return book.SheetNames.some((sheetName) => { const rows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { header: 1, defval: "", raw: false }); return rows.some((row) => row.includes(RETURN_ID_HEADER) && row.includes("Next action") && row.includes("Commitment date")); }); }

@@ -1,15 +1,16 @@
 #!/usr/bin/env node
-import { chromium } from "playwright";
+import { createRequire } from "node:module";
+const { chromium } = createRequire(import.meta.url)("playwright");
 import { createHash, webcrypto } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 
 const launcher = process.argv[2];
 if (!launcher) throw new Error("usage: smoke_beta_package.mjs <clean-install-launcher.html>");
 
-const repository = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const installRoot = path.dirname(path.resolve(launcher));
 const appRoot = path.join(installRoot, "System Files");
 const manifest = JSON.parse(fs.readFileSync(path.join(repository, "updates/manifest.json"), "utf8"));
@@ -146,8 +147,9 @@ if (result.status !== "installed" || result.version !== beta.version) {
 if (createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex") !== originalStateHash) {
   throw new Error("The Beta update changed protected synthetic Workspace state.");
 }
+console.log("Verified Stable-to-Beta installation and protected synthetic Workspace invariance", beta.version);
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, channel: process.env.MOONDOG_BROWSER_CHANNEL || undefined });
 const page = await browser.newPage();
 const pageErrors = [];
 page.on("pageerror", error => pageErrors.push(String(error?.stack || error)));

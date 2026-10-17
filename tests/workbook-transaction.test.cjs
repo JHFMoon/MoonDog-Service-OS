@@ -54,3 +54,9 @@ test('RO review blocks duplicate, replay, stale, changed and unapproved sources'
   actual=new Uint8Array([2]);await assert.rejects(ctx.verifyCompleteRoImport('original.xlsx',file,bytes,rows),/changed/);actual=bytes;
   approval=false;await assert.rejects(ctx.verifyCompleteRoImport('original.xlsx',file,bytes,rows),/not approved/);
 });
+test('a stale second tab cannot generate or import from an obsolete RO population',async()=>{
+  const code=extract('  let supervisorWorkbookOperationTail = Promise.resolve();','  const dailyPickedSources');
+  let ran=false;
+  const ctx=vm.createContext({model:{root:{},state:{updatedAt:'old',records:[]}},STATE_PATH:['state'],RECOVERY_PATH:['recovery'],navigator:{locks:{request:async(_n,_o,job)=>job()}},readJson:async()=>({updatedAt:'new',records:[{id:'synthetic'}]})});
+  vm.runInContext(code,ctx);await assert.rejects(ctx.withSupervisorWorkbookLock(async()=>{ran=true;}),/Workspace changed/);assert.equal(ran,false);
+});

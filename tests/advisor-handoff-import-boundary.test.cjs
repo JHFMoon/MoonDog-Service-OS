@@ -25,7 +25,7 @@ function fixture(value, recovery={supervisorWorkbook:{stale:false,issuanceId:id}
   return {context,writes};
 }
 test('damaged returns never enter generic import, including renamed books and stripped headers',async()=>{
-  for(const b of [book(['RO','__MoonDog Last Update']),book(['RO'],{},id),book(['RO'],{Keywords:'Service Operations Open RO Round Trip'})]){
+  for(const b of [book(['RO','__MoonDog Last Update']),book(['RO','Next action','Commitment date']),book(['RO'],{},id),book(['RO'],{Keywords:'Service Operations Open RO Round Trip'})]){
     const {context,writes}=fixture(b);
     await assert.rejects(context.importSourceUnlocked('renamed.xlsx'),/Needs Review/);assert.deepEqual(writes,[]);
   }

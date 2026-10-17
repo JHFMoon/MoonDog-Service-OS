@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-import { chromium } from "playwright";
+import { createRequire } from "node:module";
+const { chromium } = createRequire(import.meta.url)("playwright");
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 const index = process.argv[2];
 if (!index) throw new Error("usage: smoke_distribution.mjs <launcher.html>");
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, channel: process.env.MOONDOG_BROWSER_CHANNEL || undefined });
 const page = await browser.newPage();
 const pageErrors = [];
 page.on("pageerror", error => pageErrors.push(String(error?.stack || error)));

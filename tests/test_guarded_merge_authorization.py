@@ -5,6 +5,16 @@ from scripts.guarded_merge_authorization import has_explicit_approval
 
 
 class ConsentTests(unittest.TestCase):
+    def test_block_boundaries_do_not_hide_revocation_or_open_code_examples(self):
+        for boundary in ["# Decision", "---", "***", "___"]:
+            self.assertFalse(has_explicit_approval("MoonDog-Auto-Merge: yes\n\n> quoted example\n" + boundary + "\nMoonDog-Auto-Merge: no"))
+        self.assertFalse(has_explicit_approval("> quote\n```\n\nMoonDog-Auto-Merge: yes\n```"))
+        self.assertFalse(has_explicit_approval("MoonDog-Auto-Merge: yes\n<!--\n```\n-->\nMoonDog-Auto-Merge: no"))
+    def test_multiline_inline_code_cannot_authorize(self):
+        for ticks in ["`", "``"]:
+            self.assertFalse(has_explicit_approval(ticks + "\nMoonDog-Auto-Merge: yes\n" + ticks))
+        self.assertFalse(has_explicit_approval("MoonDog-Auto-Merge: yes\n`example`\nMoonDog-Auto-Merge: no"))
+        self.assertFalse(has_explicit_approval("MoonDog-Auto-Merge: yes\n```\n<div>\n```\nMoonDog-Auto-Merge: no"))
     def test_hidden_or_lazy_quoted_approval_is_rejected(self):
         for body in [
             "> Example:\nMoonDog-Auto-Merge: yes",

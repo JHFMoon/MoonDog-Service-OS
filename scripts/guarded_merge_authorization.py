@@ -18,88 +18,113 @@ HTML_TAG = re.compile(r"<\s*(/?)\s*([a-z][\w:-]*)\b[^>]*>", re.IGNORECASE)
 VOID_HTML_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
 
 
+class HtmlState:
+    """Small fail-closed HTML lexer; comments and quoted attributes may span lines."""
+    def __init__(self):
+        self.stack = []
+        self.comment = False
+        self.tag = ""
+        self.quote = None
+
+    @property
+    def active(self):
+        return bool(self.stack or self.comment or self.tag)
+
+    def feed(self, line):
+        hidden = self.active
+        i = 0
+        while i < len(line):
+            if self.comment:
+                end = line.find("-->", i)
+                if end < 0:
+                    return True
+                self.comment = False
+                i = end + 3
+            elif self.tag:
+                char = line[i]
+                self.tag += char
+                i += 1
+                if self.quote:
+                    if char == self.quote:
+                        self.quote = None
+                elif char in {"'", '"'}:
+                    self.quote = char
+                elif char == ">":
+                    match = HTML_TAG.fullmatch(self.tag)
+                    if not match:
+                        self.stack.append("invalid")
+                    else:
+                        closing, name = match[1], match[2].lower()
+                        if closing:
+                            if self.stack and self.stack[-1] == name:
+                                self.stack.pop()
+                        elif name not in VOID_HTML_TAGS and not self.tag.endswith("/>"):
+                            self.stack.append(name)
+                    self.tag = ""
+            elif line.startswith("<!--", i):
+                hidden = self.comment = True
+                i += 4
+            elif line[i] == "<":
+                hidden = True
+                self.tag = "<"
+                i += 1
+            else:
+                i += 1
+        if self.tag:
+            self.tag += "\n"
+        return hidden or self.active
+
+
 def has_explicit_approval(body: str | None) -> bool:
     if not isinstance(body, str):
         return False
-    # Accept LF and CRLF only; splitlines() also recognizes invisible Unicode
-    # and control separators that can fabricate a standalone approval line.
     body = body.replace("\r\n", "\n")
-    if any((unicodedata.category(ch) in {"Cc", "Cf", "Zl", "Zp"} and ch not in "\n\t") for ch in body):
+    if any(unicodedata.category(ch) in {"Cc", "Cf", "Zl", "Zp"} and ch not in "\n\t" for ch in body):
         return False
     approved = False
-    fence_char = None
-    fence_count = 0
-    # Ignore HTML inside Markdown fences before tracking hidden HTML spans.
-    html_lines = []
-    html_fence = None
+    fence = None
+    inline_ticks = 0
+    quoted_paragraph = False
+    html = HtmlState()
     for line in body.split("\n"):
-        if html_fence:
+        if fence:
             close = FENCE_CLOSE.fullmatch(line)
-            if close and close[1][0] == html_fence[0] and len(close[1]) >= html_fence[1]:
-                html_fence = None
-            html_lines.append("")
-        else:
+            if close and close[1][0] == fence[0] and len(close[1]) >= fence[1]:
+                fence = None
+            continue
+        if not inline_ticks and (html.active or "<" in line):
+            if html.feed(line):
+                continue
+        if not inline_ticks:
             opening = FENCE_OPEN.match(line)
             if opening:
-                html_fence = (opening[1][0], len(opening[1]))
-                html_lines.append("")
-            else:
-                html_lines.append(line)
-    markup_body = "\n".join(html_lines)
-    html_hidden = set()
-    stack = []
-    cursor = 0
-    line_number = 0
-    for token in re.finditer(r"<!--[\s\S]*?(?:-->|$)|<[^>]*(?:>|$)", markup_body):
-        between = markup_body[cursor:token.start()]
-        if stack:
-            html_hidden.update(range(line_number, line_number + between.count("\n") + 1))
-        line_number += between.count("\n")
-        value = token.group()
-        html_hidden.update(range(line_number, line_number + value.count("\n") + 1))
-        line_number += value.count("\n")
-        tag = HTML_TAG.fullmatch(value)
-        if tag:
-            closing, name = tag.group(1), tag.group(2).lower()
-            if closing:
-                if stack and stack[-1] == name:
-                    stack.pop()
-            elif name not in VOID_HTML_TAGS and not value.endswith("/>"):
-                stack.append(name)
-        elif not value.startswith("<!--"):
-            stack.append("invalid")
-        cursor = token.end()
-    if stack:
-        return False
-    quoted_paragraph = False
-
-    for number, line in enumerate(body.split("\n")):
-        if fence_char:
-            close = FENCE_CLOSE.fullmatch(line)
-            if close and close.group(1)[0] == fence_char and len(close.group(1)) >= fence_count:
-                fence_char, fence_count = None, 0
+                fence = (opening[1][0], len(opening[1]))
+                quoted_paragraph = False
+                continue
+            if not line.strip():
+                quoted_paragraph = False
+                continue
+            if re.match(r"^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:\* *\* *\*|- *- *-|_ *_ *_)[ *_-]*$)", line):
+                quoted_paragraph = False
+                continue
+            if re.match(r"^ {0,3}(?:>|[-+*] |\d+[.)] )", line):
+                quoted_paragraph = True
+                continue
+            if quoted_paragraph:
+                continue
+        was_inline = bool(inline_ticks)
+        for ticks in re.finditer(r"(?<!\\)(`+)", line):
+            size = len(ticks[1])
+            if not inline_ticks:
+                inline_ticks = size
+            elif size == inline_ticks:
+                inline_ticks = 0
+        if was_inline or inline_ticks or "`" in line:
             continue
-        # Feed HTML before interpreting Markdown. Partial tags/comments can
-        # span lines, and multiple comments may occur on the same line.
-        if number in html_hidden:
-            continue
-        if not line.strip():
-            quoted_paragraph = False
-            continue
-        if re.match(r"^ {0,3}(?:>|[-+*] |\d+[.)] )", line):
-            quoted_paragraph = True
-        if quoted_paragraph:
-            continue
-        open_fence = FENCE_OPEN.match(line)
-        if open_fence:
-            fence_char, fence_count = open_fence.group(1)[0], len(open_fence.group(1))
-            continue
-
         directive = DIRECTIVE.fullmatch(line)
         if directive:
-            approved = directive.group(1) == "yes"
-
-    return approved
+            approved = directive[1] == "yes"
+    return approved and not html.active and not inline_ticks and fence is None
 
 
 def main() -> int:
