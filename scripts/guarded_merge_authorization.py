@@ -17,13 +17,18 @@ HTML_TAG = re.compile(r"<\s*(/?)\s*([a-z][\w:-]*)\b[^>]*>", re.IGNORECASE)
 def has_explicit_approval(body: str | None) -> bool:
     if not isinstance(body, str):
         return False
+    # Accept LF and CRLF only; splitlines() also recognizes invisible Unicode
+    # and control separators that can fabricate a standalone approval line.
+    body = body.replace("\r\n", "\n")
+    if any(ch in body for ch in ("\r", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")):
+        return False
     approved = False
     fence_char = None
     fence_count = 0
     html_comment = False
     html_stack: list[str] = []
 
-    for line in body.splitlines():
+    for line in body.split("\n"):
         if html_comment:
             if "-->" in line:
                 html_comment = False
