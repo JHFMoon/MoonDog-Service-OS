@@ -30,8 +30,8 @@ concurrency:
 jobs:
   prepare:
     if: >-
+      github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(github.event.pull_request.body, 'MoonDog-Auto-Merge: yes') &&
       (github.event.pull_request.author_association == 'OWNER' ||
        github.event.pull_request.author_association == 'MEMBER' ||
        github.event.pull_request.author_association == 'COLLABORATOR')
@@ -56,6 +56,16 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
           fetch-depth: 0
+
+      - name: Verify explicit PR automation authorization
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/authorized-pr.json
+          python3 trusted/scripts/guarded_merge_authorization.py /tmp/authorized-pr.json
 
       - name: Refuse automatic changes to trusted proof/automation files
         shell: bash
@@ -153,7 +163,9 @@ jobs:
 
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/generated-pr.json
           python3 - <<'PY'
-          import json, os
+          import json, os, sys
+          sys.path.insert(0, "trusted")
+          from scripts.guarded_merge_authorization import has_explicit_approval
           pr=json.load(open('/tmp/generated-pr.json',encoding='utf-8'))
           checks={
               'open': pr.get('state')=='open',
@@ -161,7 +173,7 @@ jobs:
               'base': pr.get('base',{}).get('ref')=='main',
               'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
               'head': pr.get('head',{}).get('sha')==os.environ['CURRENT_HEAD'],
-              'authorization': 'MoonDog-Auto-Merge: yes' in (pr.get('body') or ''),
+              'authorization': has_explicit_approval(pr.get('body')),
               'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
           }
           failed=[name for name,ok in checks.items() if not ok]

@@ -17,6 +17,13 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import check_publication as boundary  # noqa: E402
 
 MAX_TEXT_BLOB = 8 * 1024 * 1024
+# Only this exact historical bytecode blob contains synthetic scanner fixtures.
+VETTED_SYNTHETIC_TEST_BYTECODE = {
+    (
+        "1fc52a8c97815235c558290422f0aff000ccf125",
+        "tests/__pycache__/test_check_publication.cpython-314.pyc",
+    )
+}
 
 SSN_PATTERN = re.compile(rb"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
 PHONE_PATTERN = re.compile(
@@ -107,7 +114,7 @@ def scan_blob(oid: str, path: str, size: int) -> list[str]:
     if size > MAX_TEXT_BLOB:
         return findings
     data = run("git", "cat-file", "blob", oid)
-    if boundary.blocked_content(data):
+    if boundary.blocked_content(data) and (oid, path) not in VETTED_SYNTHETIC_TEST_BYTECODE:
         findings.append("blocked secret/target content")
     if text_like(data):
         findings.extend(pii_categories(data))

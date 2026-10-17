@@ -3,6 +3,8 @@ name: Clean Install Proof
 on:
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '23 13 * * 1'
 
 permissions:
   contents: read
@@ -49,6 +51,10 @@ jobs:
       - name: Prove 16:9 TV layouts and seven-slide rotation with synthetic data
         run: |
           node scripts/smoke_overdrive.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html" ".clean-install-smoke/overdrive-proof"
+
+      - name: Install the verified Beta package and launch its runtime
+        run: |
+          node scripts/smoke_beta_package.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
 
       - name: Verify synthetic navigation benchmark structure
         run: |
