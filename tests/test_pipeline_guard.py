@@ -20,7 +20,10 @@ class PipelineGuardTests(unittest.TestCase):
             ".github/workflows/clean-install-proof.yml",
             ".github/workflows/prepare-beta-package.yml",
             "scripts/check_publication.py",
+            "scripts/audit_public_git_history.py",
             "scripts/pipeline_guard.py",
+            "tests/navigation-render-reuse.test.cjs",
+            "tests/test_public_audit_history.py",
             "tests/test_security_workflows.py",
         ]
         self.assertEqual(blocked_paths(candidates), sorted(candidates))
@@ -63,6 +66,20 @@ class PipelineGuardTests(unittest.TestCase):
                 expected_head="different",
             ),
         )
+        for body in [
+            "No `MoonDog-Auto-Merge: yes` marker.",
+            "MoonDog-Auto-Merge: yes\nMoonDog-Auto-Merge: no",
+            "> MoonDog-Auto-Merge: yes",
+        ]:
+            altered = {**pr, "body": body}
+            self.assertIn(
+                "automation-marker",
+                validate_pr_snapshot(
+                    altered,
+                    repository="JHFMoon/MoonDog-Service-OS",
+                    expected_head="abc123",
+                ),
+            )
 
     def test_stable_change_is_detected_independent_of_beta(self):
         base = {"stable": {"version": "0.10.17"}, "beta": {"version": "0.10.18-beta.3"}}

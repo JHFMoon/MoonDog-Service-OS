@@ -11,7 +11,7 @@ assert.ok(begin>0&&end>begin,"production navigation implementation exists");
 const navigation=src.slice(begin,end);
 
 function harness(){
-  let businessDate="2026-10-12";
+  let businessDate="2026-10-12",businessHour=10;
   const pendingFrames=[],pendingTimers=[],draw={meeting:0,performance:0},calls={paint:0,activate:0,shell:0,openRo:0};
   const makeClassList=()=>{const values=new Set();return{
     add:name=>values.add(name),remove:name=>values.delete(name),
@@ -32,7 +32,7 @@ function harness(){
     renderPerformance:()=>{draw.performance++;},
     renderTable:()=>{calls.openRo++;},renderArrivals:()=>{},renderAssignNext:()=>{},
     localDateKey:()=>businessDate,
-    freshness:{timeParts:()=>({hour:10})},businessTimeZone:()=>"America/Los_Angeles",
+    freshness:{timeParts:()=>({hour:businessHour})},businessTimeZone:()=>"America/Los_Angeles",
     ensureMeetingV3Shell:()=>{calls.shell++;},
     requestAnimationFrame:fn=>pendingFrames.push(fn),
     setTimeout:(fn)=>pendingTimers.push(fn),
@@ -50,7 +50,7 @@ function harness(){
       while(pendingTimers.length)pendingTimers.shift()();
     }
   };
-  return {context,draw,calls,flush,views,setBusinessDate:day=>{businessDate=day;}};
+  return {context,draw,calls,flush,views,setBusinessDate:day=>{businessDate=day;},setBusinessHour:hour=>{businessHour=hour;}};
 }
 
 test("repeated navigation reuses Meeting and Performance DOM on unchanged data",()=>{
@@ -80,6 +80,42 @@ test("source revision invalidation updates both screens but not unrelated tab re
   context.navigateTo("meeting");flush();
   assert.equal(draw.meeting,2,"a reactivated presenter does not need a new data render");
   assert.match(src,/renderAll = function \(\) \{\s*invalidateNavigationRenders\(\);\s*renderBeforeDaily\(\);/);
+});
+
+test("midnight refreshes Meeting and Performance on activation without changing same-day reuse",()=>{
+  const {context,draw,flush,setBusinessDate}=harness();
+  context.navigateTo("meeting");flush();
+  context.navigateTo("performance");flush();
+  context.navigateTo("home");flush();
+  setBusinessDate("2026-10-13");
+  context.navigateTo("meeting");flush();
+  context.navigateTo("performance");flush();
+  assert.deepEqual(draw,{meeting:2,performance:2});
+  context.navigateTo("home");flush();
+  context.navigateTo("meeting");flush();
+  context.navigateTo("performance");flush();
+  assert.deepEqual(draw,{meeting:2,performance:2},"unchanged business date should reuse both reports");
+});
+
+test("Performance refreshes once when the working-day cutoff changes",()=>{
+  const {context,draw,flush,setBusinessHour}=harness();
+  context.navigateTo("performance");flush();
+  context.navigateTo("home");flush();
+  setBusinessHour(17);
+  context.navigateTo("performance");flush();
+  assert.equal(draw.performance,1,"changes within the open workday do not rebuild Performance");
+  context.navigateTo("home");flush();
+  setBusinessHour(18);
+  context.navigateTo("performance");flush();
+  assert.equal(draw.performance,2,"crossing closeHour refreshes working-progress state");
+  context.navigateTo("home");flush();
+  setBusinessHour(19);
+  context.navigateTo("performance");flush();
+  assert.equal(draw.performance,2,"the closed period remains cached");
+  context.navigateTo("home");flush();
+  setBusinessHour(17);
+  context.navigateTo("performance");flush();
+  assert.equal(draw.performance,3,"returning to the open period refreshes once");
 });
 
 test("rapid tab switching cancels stale expensive Meeting and Performance draws",()=>{

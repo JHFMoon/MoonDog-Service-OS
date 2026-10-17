@@ -64,6 +64,35 @@ class RedactedHistoryAuditTests(unittest.TestCase):
         self.assertIn("non-example email address", scan(b"personal" + b"@github.com"))
         self.assertIn("non-example email address", scan(b"customer" + b"@dealership.invalid"))
 
+    def test_publication_history_audit_exempts_only_exact_test_bytecode(self):
+        audit = runpy.run_path(str(ROOT / "scripts" / "audit_git_history.py"))
+        oid = "1fc52a8c97815235c558290422f0aff000ccf125"
+        path = "tests/__pycache__/test_check_publication.cpython-314.pyc"
+        size = int(audit["run"]("git", "cat-file", "-s", oid))
+        self.assertEqual([], audit["scan_blob"](oid, path, size))
+        self.assertIn("blocked secret/target content", audit["scan_blob"](oid, "fixture.pyc", size))
+
+    def test_public_history_audit_exempts_exact_synthetic_test_blobs_only(self):
+        td, repo = self.init_repo()
+        try:
+            path = repo / "test-fixture.pyc"
+            blob = git(ROOT, "cat-file", "blob", "1fc52a8c97815235c558290422f0aff000ccf125")
+            path.write_bytes(blob)
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "Add exact reviewed synthetic test fixture")
+            result = self.audit(repo)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("allowed_reviewed_synthetic_test_blob: 1", result.stdout)
+
+            path.write_bytes(blob + b" ")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "Change exact fixture bytes")
+            result = self.audit(repo)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("provider_token: 1", result.stdout)
+        finally:
+            td.cleanup()
+
     def test_inspects_historical_name_when_identical_blob_is_renamed(self):
         td, repo = self.init_repo()
         try:

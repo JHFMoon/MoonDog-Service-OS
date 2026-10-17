@@ -72,20 +72,34 @@ VETTED_SYNTHETIC_VIN_BLOB_SHA1 = frozenset({
     "bbb2b16de4b66c6efe0b5e9417a3ab96ca5962cd",
     "c725dce8e13b38a548594a1c5ce3b3ace379ee44",
 })
+# Exact compiled test fixtures from the initial public snapshot. Their source
+# contains synthetic credential and email examples used to test redaction.
+VETTED_SYNTHETIC_TEST_BLOB_CATEGORIES = {
+    "53bcb80da3a4b5b95540da75128557353357847f": frozenset({"email_address"}),
+    "1fc52a8c97815235c558290422f0aff000ccf125": frozenset({"private_key", "provider_token"}),
+    "1afd5304e8086f9b6c0cf4711c3b992da8e84512": frozenset({"email_address"}),
+}
 
 counts = collections.Counter()
 safe_counts = collections.Counter()
 diagnostic_counts = collections.Counter()
 blobs = set()
 
-def scan_payload(data, prefix="", approved_synthetic_vin_blob=False):
+def scan_payload(data, prefix="", approved_synthetic_vin_blob=False, approved_categories=frozenset()):
     key = (lambda name: f"{prefix}_{name}" if prefix else name)
+    vetted_matches = set()
     for kind, rx in patterns.items():
         if rx.search(data):
-            counts[key(kind)] += 1
+            if kind in approved_categories:
+                vetted_matches.add(kind)
+            else:
+                counts[key(kind)] += 1
     emails = list(unsafe_email_matches(data))
     if emails:
-        counts[key("email_address")] += 1
+        if "email_address" in approved_categories:
+            vetted_matches.add("email_address")
+        else:
+            counts[key("email_address")] += 1
     elif email_rx.search(data):
         safe_counts[key("known_public_or_synthetic_email")] += 1
     if any(valid_vin(m.group(0)) for m in vin_rx.finditer(data)):
@@ -95,6 +109,8 @@ def scan_payload(data, prefix="", approved_synthetic_vin_blob=False):
             counts[key("valid_vin")] += 1
     if ssn_rx.search(data):
         counts[key("ssn_candidate")] += 1
+    if vetted_matches:
+        safe_counts["reviewed_synthetic_test_blob"] += 1
 
 for line in objects:
     oid, _, path = line.partition(" ")
@@ -108,7 +124,11 @@ for line in objects:
         counts["oversize_uninspected_blob"] += 1
         continue
     data = git("cat-file", "blob", oid)
-    scan_payload(data, approved_synthetic_vin_blob=oid in VETTED_SYNTHETIC_VIN_BLOB_SHA1)
+    scan_payload(
+        data,
+        approved_synthetic_vin_blob=oid in VETTED_SYNTHETIC_VIN_BLOB_SHA1,
+        approved_categories=VETTED_SYNTHETIC_TEST_BLOB_CATEGORIES.get(oid, frozenset()),
+    )
 
 # Enumerate complete tree snapshots, not just git rev-list --objects names.
 # The latter prints only one possible pathname for a blob reused at many paths.
