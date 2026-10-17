@@ -3,8 +3,6 @@ name: Clean Install Proof
 on:
   pull_request:
   workflow_dispatch:
-  schedule:
-    - cron: '23 13 * * 1'
 
 permissions:
   contents: read
