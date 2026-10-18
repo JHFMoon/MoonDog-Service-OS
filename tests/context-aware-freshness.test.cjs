@@ -147,3 +147,15 @@ test('Menu weekly report history picks latest release without assuming import so
   assert.deepEqual(releases,['2026-10-19','2026-10-05','2026-10-12','2026-10-26','2026-13-01']);
   assert.equal(F.trendMaintenance({key:'menu',today:'2026-10-20',coverage:{presentReleases:['invalid']}}).last,'');
 });
+
+test('SOR financial-month confidence never prints Invalid Date from an impossible month', () => {
+  const base={kind:'optional',status:'Current through 2026-10-18',last:'2026-10-18',next:'2026-10-19'};
+  for(const financialMonth of ['2026-00','2026-13','0099-12','2026-1','invalid','']){
+    const label=F.trendMaintenanceSummary('sor',{...base,financialMonth});
+    assert.match(label,/Financial month: not established/,financialMonth||'(empty)');
+    assert.doesNotMatch(label,/Invalid Date/,financialMonth||'(empty)');
+  }
+  const valid=F.trendMaintenanceSummary('sor',{...base,financialMonth:'2026-02'});
+  assert.doesNotMatch(valid,/not established|Invalid Date/);
+  assert.match(valid,/Current observation: 2026-10-18/);
+});
