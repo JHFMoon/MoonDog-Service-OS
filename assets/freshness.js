@@ -26,7 +26,9 @@
     const year = Number(value.slice(0, 4));
     const month = Number(value.slice(5, 7));
     const day = Number(value.slice(8, 10));
-    if (month < 1 || month > 12 || day < 1) return false;
+    // JavaScript Date.UTC remaps 00–99 to 1900–1999; reject that ambiguous
+    // range rather than silently changing the stated source/reporting year.
+    if (year < 100 || month < 1 || month > 12 || day < 1) return false;
     const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
     const lastDay = month === 2 ? (leap ? 29 : 28)
       : (month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31);
@@ -135,8 +137,8 @@
   }
   function trendMaintenanceActions(rows,format=(value)=>value) { return rows.map(row=>trendMaintenanceAction(row,format)).filter(Boolean); }
   function mondayFor(date) { const weekday = dayOfWeek(date); return weekday === undefined ? "" : addDays(date, -((weekday + 6) % 7)); }
-  function lastDayOfMonth(month) { const match = String(month || "").match(/^(\d{4})-(\d{2})$/); if (!match) return ""; return new Date(Date.UTC(Number(match[1]), Number(match[2]), 0, 12)).toISOString().slice(0, 10); }
-  function previousMonth(date) { const match = String(date || "").match(/^(\d{4})-(\d{2})/); if (!match) return ""; return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 2, 1, 12)).toISOString().slice(0, 7); }
+  function lastDayOfMonth(month) { const match = String(month || "").match(/^(\d{4})-(\d{2})$/); if (!match || !validDateKey(`${match[1]}-${match[2]}-01`)) return ""; return new Date(Date.UTC(Number(match[1]), Number(match[2]), 0, 12)).toISOString().slice(0, 10); }
+  function previousMonth(date) { const match = String(date || "").match(/^(\d{4})-(\d{2})/); if (!match || !validDateKey(`${match[1]}-${match[2]}-01`)) return ""; return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 2, 1, 12)).toISOString().slice(0, 7); }
   function finalOperatingDay(month) { let value = lastDayOfMonth(month); while (isSunday(value)) value = addDays(value, -1); return value; }
   function adjacentWindows(end, length = 7) { const currentStart = addDays(end, -(length - 1)), priorEnd = addDays(currentStart, -1), priorStart = addDays(priorEnd, -(length - 1)); return { current: { start: currentStart, end }, previous: { start: priorStart, end: priorEnd } }; }
 
