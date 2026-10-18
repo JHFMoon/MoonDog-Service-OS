@@ -62,9 +62,12 @@ jobs:
           from pathlib import Path
           p=Path(".clean-install-smoke/overdrive-proof/navigation-baseline.json")
           report=json.loads(p.read_text(encoding="utf-8"))
-          assert set(report)=={"schemaVersion","dataset","viewport","navigationMs","responsiveness"}
+          assert set(report)=={"schemaVersion","dataset","viewport","startupMs","navigationMs","responsiveness"}
           assert report["schemaVersion"]==1 and report["dataset"]=="synthetic-clean-install"
           assert report["viewport"]=={"width":1600,"height":900}
+          startup=report["startupMs"]
+          assert set(startup)=={"launcherToShellAttached"}
+          assert isinstance(startup["launcherToShellAttached"],(int,float)) and 0<=startup["launcherToShellAttached"]<120000
           nav=report["navigationMs"]
           assert set(nav)=={"count","p50","p95","max"}
           assert nav["count"]==36 and 0<=nav["p50"]<=nav["p95"]<=nav["max"]
