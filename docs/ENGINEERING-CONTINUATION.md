@@ -11,19 +11,20 @@ This is a non-sensitive execution checkpoint, not proof of a continuously runnin
 
 ## Latest verified GitHub checkpoint (October 18, 2026)
 
-**Read this section first, but treat it as a dated snapshot.** Re-fetch GitHub `main`, open issues/PRs, required checks and the active manifest on every continuation. The older October 17 record below is retained solely for historical evidence, **not** for current branch, release or PR decisions.
+**Read this first as a dated snapshot.** Re-fetch public `main`, open issues/PRs, CI and the live manifest whenever resuming. The older October 17 record below is preserved only as historical evidence; its Beta, PR and local-branch statuses are not current.
 
-- Last checked `main`: `d0459abf1fd9ee65533287dab7b4ba458ffc5dbc`.
-- Manifest Beta: `0.10.18-beta.98`, SHA-256 `e7c4af07bff3d83104cb58e2735c42fe7476be47e547626b6cdb3dfa1f4fbea1`. **Published is not installed.**
-- Protected Stable: `0.10.17`; no Stable promotion authorized.
-- Open GitHub issues: **#164, #58, #59, #60, #61, #212** (six). #212 is deliberately deferred.
-- Merged and verified: PR #219 bounded update-recovery inventory scan; PR #221 trusted Beta 98 publication; PR #222 hardware-validation procedure `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md`.
-- **Draft PR #220** on `feature/59-history-workspace-isolation-20261018` (last verified head `56e0d2224aa6c49a1f487897996b7d2e61216239`) preserves the per-Workspace history-cache isolation fix. Existing CI passed, but the required new overlapping-workspace regression was denied by a GitHub tool safety control. Do **not** merge or attempt the denied operation via another route. Record the limitation and work on independent requirements.
-- **PR #223** on `feature/164-backup-list-io-fail-closed-20261018` addresses transient recovery-journal read errors so OneDrive locks cannot silently enable a second update. A substantive review found the update-settings caller would clear the recovery flag on scan failure; this was corrected with fail-closed install/UI gates and more synthetic tests. **Exact-head CI and review outcome must be rechecked before any merge.**
-- **PR #224** on `tests/58-164-navigation-endurance-20261018` adds 240-cycle synthetic Meeting/Performance/Open RO navigation-regression coverage. Its last observed exact-head Publication Check and Clean Install Proof passed, but it was still **unmerged** at this checkpoint.
-- Real Windows Edge/OneDrive and installed-app validation are **not performed**. Use the privacy-safe guide from PR #222, and do not upload raw traces, private Workspace files or machine-local paths.
+- Last verified `main`: `f6c5a46c64e890d3d146b11fcd4ef1ca8d30fc80`.
+- Manifest Beta: `0.10.18-beta.99`, SHA-256 `34e3b982012688c6b0821e47ded75ecc6f73429387712bb52fc783ae80611277`. Published **does not mean installed**.
+- Protected Stable: `0.10.17`; no promotion authorized.
+- Six open issues: **#164, #58, #59, #60, #61, #212**. #212 remains explicitly deferred.
+- Merged/verified increments: PR #219 bounded backup scan, PR #221 Beta 98, PR #222 Windows/Edge field-validation guide, **PR #223** fail-closed OneDrive recovery journal/installer UI preflight (squash `70db8c773f0b381286597da97fcf100c81aacfcb`), and **PR #226** trusted Beta 99 publication (`f6c5a46c64e890d3d146b11fcd4ef1ca8d30fc80`). PR #223's last exact-head Publication Check and Clean Install Proof passed, and the substantive review thread was resolved.
+- **Draft PR #220**, `feature/59-history-workspace-isolation-20261018`, head `56e0d2224aa6c49a1f487897996b7d2e61216239`: production cache-generation safeguard is preserved but the needed *new* overlapping-workspace regression write was blocked by tool safety. Existing CI green is not sufficient for merge. Do not bypass denial or merge this draft.
+- **PR #224**, `tests/58-164-navigation-endurance-20261018`: 240-cycle synthetic Meeting/Performance/Open RO navigation test; original head passed exact-head CI. Current candidate `f247cc56e422c950f77e72c0b6c5c7955af394c5` incorporates Beta 99 main using a non-forced merge commit; **fresh exact-head checks pending**, not merged at this checkpoint.
+- **PR #225**, `docs/61-refresh-continuation-ledger-20261018`: this date-stamped continuation update. This documentation-only PR must pass current exact-head checks and protected merge.
+- **Draft PR #227**, `fix/61-reviewed-beta-release-notes-20261018`: removes generic post-merge Beta note override so the existing builder can summarize the reviewed commit title. Protected workflow/test modification **not yet reviewed or merged**; do not auto-merge before validation.
+- Real Windows Edge/OneDrive, installed dashboard, and hardware startup/memory metrics have **not** been verified. Field protocol: `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md`. Do not upload raw traces or protected operational files.
 
-**Next action:** Verify PR #223's latest required checks and resolve substantive review feedback; once independently green, deliver through protected merge and confirm post-merge Beta. Then reconcile the latest `main` into #224, rerun exact-head checks and deliver the validated synthetic endurance increment. Keep #220 draft until its regression blocker is resolved through an explicitly authorized path. Continue independent #58/#59/#60/#61 requirements without duplicating existing work.
+**Next executable sequence:** Finish exact-head CI and reviewed protected merge for PR #224, verify the latest `main` and whether only-test changes require a Beta; then update this ledger PR #225 onto current `main` and merge. Independently review/validate protected workflow PR #227, retain PR #220 as draft until its denied test-writing barrier is legitimately cleared, and continue the open issues in independently verified increments.
 
 ## Verified baseline at checkpoint (October 17, 2026)
 - Public `main`, local `main`, and the recovery work branch base: `50ebbdfdfe5386fa77a90883eeac16317ed36f68`.
