@@ -22,7 +22,12 @@
     return new Date(at+delay*minutes).toISOString();
   }
   function followUpAt(at,days=3,scheduledDays) {
-    const working = Array.isArray(scheduledDays) && scheduledDays.length ? scheduledDays : [2,3,4,5,6];
+    // A corrupt or older saved schedule must never create an unbounded calendar loop.
+    // Only real JavaScript weekdays (Sun=0 through Sat=6) are eligible.
+    const configuredDays = Array.isArray(scheduledDays)
+      ? scheduledDays.filter(day => Number.isInteger(day) && day >= 0 && day <= 6)
+      : [];
+    const working = configuredDays.length ? configuredDays : [2,3,4,5,6];
     const date=new Date(at); if (!Number.isFinite(date.valueOf())) return at;
     date.setHours(12,0,0,0);
     let count=0;
