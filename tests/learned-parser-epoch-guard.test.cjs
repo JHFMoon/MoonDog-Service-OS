@@ -101,7 +101,11 @@ test("source drift detection recognizes synthetic dispatcher and delegated parse
 // baseline alone cannot hide a parser edit made without an epoch bump.
 test("PR-to-base delegated recognition edits require LEARNED_PARSER_REVISION bump", () => {
   const base = (process.env.LEARNED_PARSER_BASE_SHA || "").trim();
-  if (!base) return; // Local or push context: baseline and synthetic tests above still run.
+  if (!base) {
+    assert.notEqual(process.env.GITHUB_EVENT_NAME, "pull_request",
+      "Missing immutable pull-request base SHA; delegated parser epoch verification must fail closed");
+    return; // Local or push builds retain baseline and synthetic tests.
+  }
   assert.match(base, /^[a-f0-9]{40}$/i, "Only a reviewed commit SHA may be used as base");
   const previous = execFileSync("git", ["show", base + ":assets/app.js"],
     { cwd: root, encoding: "utf8", maxBuffer: 2 * 1024 * 1024 });
