@@ -52,7 +52,7 @@ test('Gregorian date keys reject impossible dates without silently rolling into 
 
 test('prior-operating-day freshness requires the report period to include that day', () => {
   const today = '2026-10-20'; // Tuesday; the preceding completed operating day is Monday.
-  for (const key of ['sapr', 'vir', 'nextAppointments']) {
+  for (const key of ['sapr', 'nextAppointments']) {
     const complete = F.evaluateSource({key, exists:true, today,
       periodStart:'2026-10-01', periodEnd:'2026-10-20'});
     assert.equal(complete.status, 'current', key + ' valid cumulative period');
@@ -83,4 +83,26 @@ test('Monday freshness never treats a Sunday-only period as covering Saturday', 
   const includesSaturday = F.evaluateSource({key:'sapr', exists:true, today,
     periodStart:'2026-10-17', periodEnd:'2026-10-19'});
   assert.equal(includesSaturday.status, 'current');
+});
+
+test('VIR point-in-time provenance stays current without falsely inventing interval coverage', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const app = fs.readFileSync(path.join(__dirname,'..','assets','app.js'), 'utf8');
+  const start = app.indexOf('if (key === "vir") { const item = options.item || latestVirObservation();');
+  const end = app.indexOf('if (key === "menu")', start);
+  assert.ok(start > 0 && end > start, 'production VIR evidence adapter exists');
+  const adapter = app.slice(start,end);
+  assert.match(adapter,/periodEnd: virObservationDate\(item\)/);
+  assert.doesNotMatch(adapter,/periodStart:/,
+    'point-in-time VIR observations cannot claim coverage of an interval');
+
+  const today = '2026-10-20';
+  for (const observation of ['2026-10-19','2026-10-20']) {
+    assert.equal(F.evaluateSource({key:'vir',exists:true,today,
+      periodEnd:observation}).status,'current', observation);
+  }
+  assert.equal(F.evaluateSource({key:'vir',exists:true,today,
+    periodEnd:'2026-10-18'}).status,'stale',
+    'an old VIR observation cannot be made current by a missing period start');
 });
