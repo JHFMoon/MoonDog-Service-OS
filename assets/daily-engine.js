@@ -92,12 +92,17 @@
       for(const [key,label,action] of definitions){
         if(opportunity)break;
         const metric=metrics?.[key];
-        if(metric&&Number.isFinite(metric.actual)&&Number.isFinite(metric.brandAverage)&&metric.actual>=0&&metric.brandAverage>0&&metric.brandAverage<=100&&metric.actual<metric.brandAverage&&metric.eligibleVins===row.cpRO){opportunity={key,label,action,benchmark:'SAPR Brand Average',actual:metric.actual,target:metric.brandAverage};break;}
+        // A below-average percentage alone is not a coaching exception. Require a
+        // material absolute and relative gap, plus at least one projected missed
+        // opportunity at this advisor's verified CP RO volume.
+        const gapHundredths=metric?Math.round((metric.brandAverage-metric.actual)*100):NaN;
+        const benchmarkHundredths=metric?Math.round(metric.brandAverage*100):NaN;
+        if(metric&&Number.isFinite(metric.actual)&&Number.isFinite(metric.brandAverage)&&metric.actual>=0&&metric.actual<=100&&metric.brandAverage>0&&metric.brandAverage<=100&&metric.eligibleVins===row.cpRO&&gapHundredths>=100&&gapHundredths*10>=benchmarkHundredths&&row.cpRO*gapHundredths>=10000){opportunity={key,label,action,benchmark:'SAPR Brand Average',actual:metric.actual,target:metric.brandAverage,sample:row.cpRO};break;}
       }
       const standard=standards?.mediaViewed;
       if(!opportunity&&Number.isFinite(row.mediaViewed)&&row.mediaViewed>=0&&row.mediaViewed<=100&&Number.isFinite(standard)&&standard>0&&standard<=100&&row.mediaViewed<standard)opportunity={key:'mediaViewed',label:'Media Viewed',action:'review media sharing and reinforce asking customers to view what was sent',benchmark:'current store standard',actual:row.mediaViewed,target:standard};
       if(!opportunity)return [];
-      return [{id:`coaching:${code}:${opportunity.key}`,type:'coaching',title:`${advisor.name} · ${opportunity.label} needs attention`,description:`${opportunity.label}: ${opportunity.actual.toFixed(opportunity.key==='cpElr'?2:1)} vs ${opportunity.target.toFixed(opportunity.key==='cpElr'?2:1)} (${opportunity.benchmark}).`,next:`With ${advisor.name}, ${opportunity.action}.`,view:'performance',rank:6,once:false,advisor:code,key:opportunity.key,actual:opportunity.actual,target:opportunity.target,fingerprint:JSON.stringify([snapshot.periodEnd,snapshot.importedAt,opportunity.key,opportunity.actual,opportunity.target])}];
+      return [{id:`coaching:${code}:${opportunity.key}`,type:'coaching',title:`${advisor.name} · ${opportunity.label} needs attention`,description:`${opportunity.label}: ${opportunity.actual.toFixed(opportunity.key==='cpElr'?2:1)} vs ${opportunity.target.toFixed(opportunity.key==='cpElr'?2:1)} (${opportunity.benchmark})${opportunity.sample?`; ${opportunity.sample} CP ROs`:''}.`,next:`With ${advisor.name}, ${opportunity.action}.`,view:'performance',rank:6,once:false,advisor:code,key:opportunity.key,actual:opportunity.actual,target:opportunity.target,fingerprint:JSON.stringify([snapshot.periodEnd,snapshot.importedAt,opportunity.key,opportunity.actual,opportunity.target])}];
     });
   }
   function coachingTurn(tasks,events,at) {
