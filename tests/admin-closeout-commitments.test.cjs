@@ -100,3 +100,13 @@ test('admin promise has a dedicated date field distinct from general manager rev
   assert.ok(!app.includes('nextAdminCloseout(record.management.adminCloseout,adminBlocker,commitmentDate,'));
   assert.ok(app.includes('The regular review date above is not an advisor promise'));
 });
+
+test('Home save preserves the correct RO administrative task date, never stale form state', () => {
+  const home = app.slice(app.indexOf("ui.editAdminBlocker.value=record.management.adminCloseout?.blocker||''"));
+  const call = home.indexOf('const saved=await saveRecord(null,false,');
+  assert.ok(call > 0);
+  const beforeSave=home.slice(0,call);
+  assert.ok(beforeSave.includes("ui.editAdminTaskDate.value=record.management.adminCloseout?.taskDate||''"));
+  assert.ok(beforeSave.includes("ui.editAdminCloseDate.value=record.management.adminCloseout?.expectedCloseDate||''"));
+  assert.ok(beforeSave.includes("ui.editAdminChangeReason.value=''"));
+});
