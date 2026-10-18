@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Arena TV browser geometry proof, all synthetic, without operational Workspace access.
-import {chromium} from "playwright";
+import {createRequire} from "node:module";
+const {chromium}=createRequire(import.meta.url)("playwright");
 import fs from "node:fs";import path from "node:path";import {pathToFileURL} from "node:url";
 import {summarizeNavigationMs} from "./navigation-metrics.mjs";
 const launcher=process.argv[2],out=process.argv[3]||".clean-install-smoke/arena-proof";
 if(!launcher)throw Error("usage: smoke_overdrive.mjs <launcher> [output]");
 fs.mkdirSync(out,{recursive:true});
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch({headless:true,channel:process.env.MOONDOG_BROWSER_CHANNEL||undefined});
 try{
  for(const [width,height] of [[1920,1080],[1600,900],[1366,768]]){
   const page=await browser.newPage({viewport:{width,height},reducedMotion:width===1600?"no-preference":"reduce"});

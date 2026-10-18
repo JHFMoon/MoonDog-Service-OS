@@ -2,6 +2,7 @@
 import pathlib
 import runpy
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -25,7 +26,7 @@ class RedactedHistoryAuditTests(unittest.TestCase):
 
     def audit(self, repo):
         return subprocess.run(
-            ["python3", str(HISTORY_AUDIT)],
+            [sys.executable, str(HISTORY_AUDIT)],
             cwd=repo,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -78,6 +79,22 @@ class RedactedHistoryAuditTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("restricted_path:", result.stdout)
             self.assertNotIn("Workspace/private.txt", result.stdout)
+        finally:
+            td.cleanup()
+
+    def test_high_signal_credentials_in_history_are_detected_and_redacted(self):
+        td, repo = self.init_repo()
+        try:
+            payload = b"-----BEGIN " + b"PRIVATE KEY-----\n" + b"ghp_" + b"A" * 36 + b"\n"
+            (repo / "synthetic-fixture.txt").write_bytes(payload)
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "Synthetic credential detector fixture")
+            result = self.audit(repo)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("private_key: 1", result.stdout)
+            self.assertIn("provider_token: 1", result.stdout)
+            self.assertNotIn("PRIVATE KEY-----", result.stdout)
+            self.assertNotIn("ghp_", result.stdout)
         finally:
             td.cleanup()
 

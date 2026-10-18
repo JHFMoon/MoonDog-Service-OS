@@ -228,6 +228,7 @@
   const RETURN_ID_HEADER = "__MoonDog RO ID";
   const RETURN_BASELINE_HEADER = "__MoonDog Last Update";
   const RETURN_STATUS_ID_HEADER = "__MoonDog Status ID";
+  const RETURN_ISSUANCE_CELL = "Q1";
   const ARRIVAL_ADVISOR_NAMES = {};
   const PRERO_ADVISORS = {};
   const RO_KEYS = ["ro", "ro #", "ro#", "ro number", "repair order", "repair order number"];
@@ -597,6 +598,16 @@
   const stamp = () => now().replace(/[:.]/g, "-");
   const slug = (v) => String(v).replace(/[^a-z0-9_-]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || "record";
   const stableId = (raw) => `ro-${slug(raw.ro)}${raw.vin ? `-${slug(raw.vin.slice(-8))}` : ""}`;
+  function workbookIsHandoff(book, name = "") {
+    return /^Advisor Handoff\s*-/i.test(name.trim()) || /MoonDog Advisor Handoff Snapshot/i.test(text(book.Props?.Keywords)) || book.SheetNames.some(name => book.Sheets[name]?.Q1?.v === "MoonDog outbound handoff");
+  }
+  function workbookHasReturnIdentity(book) {
+    return Boolean(book.Custprops?.MoonDogSupervisorIssuanceV1) || /Service Operations Open RO Round Trip/i.test(text(book.Props?.Keywords)) || book.SheetNames.some(name => {
+      const sheet = book.Sheets[name];
+      if (sheet?.Q1?.v) return true;
+      return XLSX.utils.sheet_to_json(sheet, {header: 1, defval: "", raw: false}).some(row => row.some(value => /^__MoonDog /i.test(text(value))) || ["Next action", "Commitment date", "Customer communication", "Update note"].filter(header => row.includes(header)).length >= 2);
+    });
+  }
   function workbookHasReturnSchema(book) { return book.SheetNames.some((sheetName) => { const rows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { header: 1, defval: "", raw: false }); return rows.some((row) => row.includes(RETURN_ID_HEADER) && row.includes("Next action") && row.includes("Commitment date")); }); }
   function workbookDate(value) { if (value instanceof Date && !Number.isNaN(value.valueOf())) return localDateKey(value); const source = text(value).trim(); if (!source) return ""; if (/^\d{4}-\d{2}-\d{2}$/.test(source)) return source; const match = source.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); if (!match) return null; const year = match[3].length === 2 ? `20${match[3]}` : match[3]; return `${year}-${match[1].padStart(2, "0")}-${match[2].padStart(2, "0")}`; }
 
@@ -653,6 +664,8 @@
   async function initializeFolders() { for (const path of [["data"], ["data", "history"], ["backups"], ["imports"], ["exports"], ["support"], [REPORT_INBOX]]) await directory(path, true); }
   async function reportInbox(create = false) { try { return await directory([REPORT_INBOX], create); } catch (error) { if (create) throw new Error(`Service Operations Dashboard could not create the Report Inbox: ${REPORT_INBOX}. Confirm folder write access and reconnect.`); throw error; } }
   const sourceLocations = new Map();
+  let supervisorWorkbookOperationTail = Promise.resolve();
+  async function withSupervisorWorkbookLock(operation) { const locks = globalThis.navigator?.locks; if (!locks?.request) throw new Error("This browser cannot safely serialize Supervisor Workbook operations. Use an up-to-date browser and retry."); const run = async () => { const previous = supervisorWorkbookOperationTail; let release; supervisorWorkbookOperationTail = new Promise((resolve) => { release = resolve; }); await previous; try { if (model.root) { const durable = await readJson(STATE_PATH, null); if (!durable || durable.updatedAt !== model.state.updatedAt || JSON.stringify(durable.records) !== JSON.stringify(model.state.records)) throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing."); const recovery = await readJson(RECOVERY_PATH, null); if (recovery) model.recovery = recovery; } return await operation(); } finally { release(); } }; return locks.request("moondog-supervisor-workbook", { mode: "exclusive" }, run); }
   const dailyPickedSources = new Map(); let dailyImportBusy = false, appointmentImportBusy = false;
   async function sourceFileHandle(name) { if(dailyPickedSources.has(name))return dailyPickedSources.get(name); const location = sourceLocations.get(name); if (location === "root") return model.root.getFileHandle(name); if (location === "learn") return (await directory(["Files To Learn"], false)).getFileHandle(name); try { return await (await reportInbox(false)).getFileHandle(name); } catch (error) { if (error.name !== "NotFoundError") throw error; return model.root.getFileHandle(name); } }
   async function removeSourceEntry(name) { if(dailyPickedSources.has(name))return; const location = sourceLocations.get(name); if (location === "root") return model.root.removeEntry(name); if (location === "learn") return (await directory(["Files To Learn"], false)).removeEntry(name); try { return await (await reportInbox(false)).removeEntry(name); } catch (error) { if (error.name !== "NotFoundError") throw error; return model.root.removeEntry(name); } }
@@ -1202,7 +1215,7 @@
     if (!/\.xlsx$/i.test(name) || /^~\$/.test(name)) return null;
     let book;
     try { book = XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true }); } catch (_) { return null; }
-    if (workbookHasReturnSchema(book)) return "ro-update";
+    if (workbookIsHandoff(book, name)) throw new Error("Needs Review: advisor handoff snapshots are outbound only."); if (workbookHasReturnSchema(book)) return "ro-update"; if (workbookHasReturnIdentity(book)) throw new Error("Needs Review: damaged Supervisor Workbook cannot be imported as a generic Open RO report.");
     try { parseCsiWorkbook(bytes, name); return "csi"; } catch (_) {}
     try { parseMenuSalesWorkbook(bytes, name); return "menu-sales"; } catch (_) {}
     try { parsePerformanceWorkbook(bytes, name); return "performance"; } catch (_) {}
@@ -1512,15 +1525,34 @@
     return{records,closedRecords,reopenedCount:[...closed.keys()].filter((id)=>reopened.has(id)).length,closedCount:newlyClosed.length,sourceKind};
   }
   async function importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess=false) {
+    return withSupervisorWorkbookLock(() => importCdkRepairOrdersDocxUnlocked(candidate,bytes,deleteAfterSuccess));
+  }
+  async function verifyCompleteRoImport(name, file, bytes, records) {
+    if (!records.length || records.some(row => !text(row.ro).trim())) throw new Error("Needs Review: incomplete RO identity.");
+    const keys = records.map(row => text(row.ro).trim());
+    if (new Set(keys).size !== keys.length) throw new Error("Needs Review: duplicate RO identities in complete source.");
+    const digest = await sha256(bytes), prior = model.state.source || {};
+    if (prior.sha256 === digest || prior.acceptedDigests?.includes(digest)) throw new Error("Needs Review: this report was already imported; replay was stopped.");
+    const modified = Number(file.lastModified), priorModified = Date.parse(prior.sourceModifiedAt || "");
+    if (!Number.isFinite(modified) || modified <= 0 || modified > Date.now() + 300000 || Number.isFinite(priorModified) && modified < priorModified) throw new Error("Needs Review: source timestamp is missing, future-dated, or older than the current RO source.");
+    const current = await (await sourceFileHandle(name)).getFile();
+    if (await sha256(await current.arrayBuffer()) !== digest) throw new Error("Needs Review: report changed during review; source retained.");
+    const closing = (model.state.records || []).filter(row => !keys.includes(text(row.ro).trim())).length;
+    if (!window.confirm(`Review complete RO replacement: ${name}\n\n${records.length} incoming ROs; ${closing} existing ROs absent from this file.\nFile timestamp: ${new Date(modified).toLocaleString()}\n\nThis file is unsigned. Confirm the correct store, report generation date, complete scope and totals in the original report before continuing. Absent ROs will leave the active list; existing commitments are preserved for matching ROs. Continue?`)) throw new Error("Needs Review: complete RO replacement was not approved; source retained.");
+    return {sha256: digest, sourceModifiedAt: new Date(modified).toISOString(), acceptedDigests: [...new Set([...(prior.acceptedDigests || []), prior.sha256, digest].filter(Boolean))].slice(-256), verification: "explicit-local-source-review; unsigned"};
+  }
+  async function importCdkRepairOrdersDocxUnlocked(candidate,bytes,deleteAfterSuccess=false) {
     const source=await docxText(bytes),parsed=parseCdkRepairOrdersDocx(source,candidate.name),file=await(await sourceFileHandle(candidate.name)).getFile();
+    const verifiedSource = await verifyCompleteRoImport(candidate.name, file, bytes, parsed.records);
+    await markSupervisorWorkbookStale("Open RO population changed after a CDK Repair Orders import");
     await backupState("before-cdk-docx-import");
     const importedAt=now(),sourceModifiedAt=new Date(file.lastModified).toISOString(),merged=mergeCompleteOpenRoRecords(parsed.records,importedAt,"cdk-repair-orders");
-    model.state={...model.state,updatedAt:importedAt,source:{fileName:candidate.name,importedAt,sourceModifiedAt,sheetName:"CDK Repair Orders",rowCount:merged.records.length,format:parsed.format,summary:parsed.summary,validation:parsed.validation},records:merged.records,closedRecords:merged.closedRecords};
-    await writeJson(STATE_PATH,model.state);
+    const nextState={...model.state,updatedAt:importedAt,source:{...verifiedSource,fileName:candidate.name,importedAt,sourceModifiedAt,sheetName:"CDK Repair Orders",rowCount:merged.records.length,format:parsed.format,summary:parsed.summary,validation:parsed.validation},records:merged.records,closedRecords:merged.closedRecords};
+    await writeJson(STATE_PATH,nextState);model.state=nextState;
     await retainDailyReport("openRo",{...model.state.source,coverageDate:coverageTimestamp(sourceModifiedAt),rowCount:merged.records.length,advisors:Object.fromEntries([...new Set(merged.records.map((row)=>row.advisorCode).filter(Boolean))].map((code)=>[code,merged.records.filter((row)=>row.advisorCode===code).length]))});
     await saveOpenRoWorkload(openRoWorkloadSnapshot(parsed.workloadRecords,model.state.source,sourceModifiedAt));
     await ensureDailyFocus();await addHistory("source-import","Imported active Open ROs from CDK Repair Orders DOCX",{fileName:candidate.name,format:parsed.format,recordCount:merged.records.length,closedByReconciliation:merged.closedCount,reopenedFromRetention:merged.reopenedCount,rawCopyRetained:false,assignNextWorkload:true});
-    await markSupervisorWorkbookStale("Open RO population changed after a CDK Repair Orders import");renderAll();if(deleteAfterSuccess)await removeSourceEntry(candidate.name);return{records:merged.records.length,deleted:deleteAfterSuccess};
+    renderAll();if(deleteAfterSuccess)await removeSourceEntry(candidate.name);return{records:merged.records.length,deleted:deleteAfterSuccess};
   }
   function parseTechnicianVideoPlaybook(source,fileName) {
     const textSource=String(source||"").replace(/\s+/g," ");if(!/Technician Video MPI Playbook/i.test(textSource)||!/The four parts of every video/i.test(textSource))return null;
@@ -1552,6 +1584,7 @@
   }
 
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true) {
+    if (["open-ro", "open-ro-docx"].includes(kind) && candidate.location !== "picked") throw new Error("Needs Review: an unsigned complete RO report requires explicit source, date and completeness review. Use Import Report to select the original file; the automatic scan cannot replace Open ROs.");
     sourceLocations.set(candidate.name, candidate.location);let appointmentOutcome;
     if (kind === "performance") await importPerformanceFile(candidate.name, deleteAfterSuccess);
     else if (kind === "next-appointments") await importNextAppointmentsFile(candidate.name, deleteAfterSuccess);
@@ -1752,8 +1785,11 @@
   }
 
   async function importReturnedWorkbook(selectedName, deleteAfterSuccess = false) {
+    return withSupervisorWorkbookLock(() => importReturnedWorkbookUnlocked(selectedName,deleteAfterSuccess));
+  }
+  async function importReturnedWorkbookUnlocked(selectedName, deleteAfterSuccess = false) {
     const name = selectedName || ui.sourceSelect.value; if (!name) throw new Error("Choose a returned supervisor workbook."); status(`Reviewing advisor updates in ${name}…`, "working");
-    const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer(), book = XLSX.read(bytes, { type: "array", cellDates: true, raw: false }); if (!workbookHasReturnSchema(book)) throw new Error("This workbook does not contain the required supervisor update fields."); validateReturnedWorkbookFreshness(book);
+    const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer(), book = XLSX.read(bytes, { type: "array", cellDates: true, raw: false }); if (workbookIsHandoff(book, name)) throw new Error("Advisor handoff snapshots are outbound only."); if (!workbookHasReturnSchema(book)) throw new Error("This workbook does not contain the required supervisor update fields."); await validateReturnedWorkbookIssuance(book); validateReturnedWorkbookFreshness(book); await markSupervisorWorkbookStale("A returned Supervisor Workbook is being processed");
     const byId = new Map(model.state.records.map((record) => [record.id, record])), clearUpdates = [], questions = [], entries = [], idCounts = new Map(), duplicateQuestions = new Set();
     for (const sheetName of book.SheetNames) {
       const rows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { defval: "", raw: false });
@@ -1776,23 +1812,30 @@
         if (reason) questions.push({ id, sheetName, row: rowIndex + 2, ro: record.ro, advisor: record.advisor, reason, proposed }); else clearUpdates.push({ record, proposed });
     });
     await backupState("before-returned-workbook");
-    clearUpdates.forEach(({ record, proposed }) => { record.management = { ...record.management, ...proposed, clarification: null, updatedAt: now() }; });
-    questions.filter((item) => item.id && byId.has(item.id)).forEach((item) => { byId.get(item.id).management.clarification = { sourceFile: name, flaggedAt: now(), reason: item.reason, proposed: item.proposed || null }; });
-    model.state.reviewQueue = questions.filter((item) => !item.id || !byId.has(item.id)).slice(-250); model.state.updatedAt = now(); await writeJson(STATE_PATH, model.state); await addHistory("returned-workbook-import", `Processed returned workbook ${name}`, { fileName: name, applied: clearUpdates.length, questions: questions.length }); await generateWorkbook(false); renderAll();
+    const managementUpdates=new Map();
+    clearUpdates.forEach(({ record, proposed }) => { managementUpdates.set(record.id,{ ...record.management, ...proposed, clarification: null, updatedAt: now() }); });
+    questions.filter((item) => item.id && byId.has(item.id)).forEach((item) => { const current=managementUpdates.get(item.id)||byId.get(item.id).management;managementUpdates.set(item.id,{...current,clarification:{ sourceFile: name, flaggedAt: now(), reason: item.reason, proposed: item.proposed || null }}); });
+    const nextState={...model.state,records:model.state.records.map((record)=>managementUpdates.has(record.id)?{...record,management:managementUpdates.get(record.id)}:record),reviewQueue:questions.filter((item) => !item.id || !byId.has(item.id)).slice(-250),updatedAt:now()};
+    await writeJson(STATE_PATH,nextState);model.state=nextState;await addHistory("returned-workbook-import", `Processed returned workbook ${name}`, { fileName: name, applied: clearUpdates.length, questions: questions.length }); await generateWorkbookUnlocked(false); renderAll();
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted processed returned workbook ${name}`, { fileName: name, retainedAuditCopy: false }); }
     status(`${clearUpdates.length} clear advisor update${clearUpdates.length === 1 ? " was" : "s were"} applied.${questions.length ? ` ${questions.length} item${questions.length === 1 ? " was" : "s were"} flagged to ask in person.` : " No clarification was needed."}`, questions.length ? "info" : "success");
   }
 
   async function importSource(selectedName = null, deleteAfterSuccess = false) {
+    return withSupervisorWorkbookLock(() => importSourceUnlocked(selectedName,deleteAfterSuccess));
+  }
+  async function importSourceUnlocked(selectedName = null, deleteAfterSuccess = false) {
     const name = selectedName || ui.sourceSelect.value; if (!name) return; status("Reading "+name+"…", "working");
-    const file = await (await sourceFileHandle(name)).getFile(); const bytes = await file.arrayBuffer(); const book = XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true }); if (workbookHasReturnSchema(book)) return importReturnedWorkbook(name, deleteAfterSuccess); const legacy = legacyReport(book); const table = legacy ? null : findTable(book);
+    const file = await (await sourceFileHandle(name)).getFile(); const bytes = await file.arrayBuffer(); const book = XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true }); if (workbookIsHandoff(book, name)) throw new Error("Advisor handoff snapshots are outbound only."); if (workbookHasReturnSchema(book)) return importReturnedWorkbookUnlocked(name, deleteAfterSuccess); if (workbookHasReturnIdentity(book)) throw new Error("Needs Review: damaged Supervisor Workbook cannot be imported as a generic Open RO report."); const legacy = legacyReport(book); const table = legacy ? null : findTable(book);
     const incoming = legacy ? legacy.records : table.rows.map((row) => rawRecord(row, table)).filter((record) => record.ro); if (!incoming.length) throw new Error("The detected table contained no RO records.");
+    const verifiedSource = await verifyCompleteRoImport(name, file, bytes, incoming);
     incoming.forEach((raw)=>reconcileRecordSourceIdentity(raw));const importedAt=now(),merged=mergeCompleteOpenRoRecords(incoming,importedAt,"open-ro-xlsx"),records=merged.records;records.forEach(reconcileRecordSourceIdentity);
+    await markSupervisorWorkbookStale("Open RO population changed after a source import");
     await backupState("before-import");
     if (!deleteAfterSuccess) await writeBytes(["imports", stamp()+"-"+slug(name.replace(/\.xlsx$/i, ""))+".xlsx"], new Uint8Array(bytes));
-    const sheetName = legacy?.sheetName || table.sheetName; model.state = { ...model.state, updatedAt: importedAt, source: { fileName: name, importedAt, sourceModifiedAt:new Date(file.lastModified).toISOString(), sheetName, rowCount: records.length, format: legacy?.format || "Generic table", advisorSections: legacy?.advisorSections || null }, records, closedRecords:merged.closedRecords };
-    await writeJson(STATE_PATH, model.state);await retainDailyReport("openRo",{...model.state.source,coverageDate:internalObservationDate(XLSX.utils.sheet_to_json(book.Sheets[sheetName],{header:1,defval:""}))||coverageTimestamp(model.state.source.sourceModifiedAt),rowCount:records.length,advisors:Object.fromEntries([...new Set(records.map(row=>row.advisorCode))].map(code=>[code,records.filter(row=>row.advisorCode===code).length]))});await saveOpenRoWorkload(openRoWorkloadSnapshot(legacy?.workloadRecords || records,model.state.source,model.state.source.sourceModifiedAt)); await ensureDailyFocus(); await addHistory("source-import", "Imported "+records.length+" open ROs from "+name, { fileName: name, sheetName, format: model.state.source.format, advisorSections: model.state.source.advisorSections, rawCopyRetained: !deleteAfterSuccess,assignNextWorkload:true,closedByReconciliation:merged.closedCount,reopenedFromRetention:merged.reopenedCount });
-    await markSupervisorWorkbookStale("Open RO population changed after a source import"); renderAll();
+    const sheetName = legacy?.sheetName || table.sheetName, nextState = { ...model.state, updatedAt: importedAt, source: { ...verifiedSource, fileName: name, importedAt, sourceModifiedAt:new Date(file.lastModified).toISOString(), sheetName, rowCount: records.length, format: legacy?.format || "Generic table", advisorSections: legacy?.advisorSections || null }, records, closedRecords:merged.closedRecords };
+    await writeJson(STATE_PATH,nextState);model.state=nextState;await retainDailyReport("openRo",{...model.state.source,coverageDate:internalObservationDate(XLSX.utils.sheet_to_json(book.Sheets[sheetName],{header:1,defval:""}))||coverageTimestamp(model.state.source.sourceModifiedAt),rowCount:records.length,advisors:Object.fromEntries([...new Set(records.map(row=>row.advisorCode))].map(code=>[code,records.filter(row=>row.advisorCode===code).length]))});await saveOpenRoWorkload(openRoWorkloadSnapshot(legacy?.workloadRecords || records,model.state.source,model.state.source.sourceModifiedAt)); await ensureDailyFocus(); await addHistory("source-import", "Imported "+records.length+" open ROs from "+name, { fileName: name, sheetName, format: model.state.source.format, advisorSections: model.state.source.advisorSections, rawCopyRetained: !deleteAfterSuccess,assignNextWorkload:true,closedByReconciliation:merged.closedCount,reopenedFromRetention:merged.reopenedCount });
+    renderAll();
     let deleted = false;
     if (deleteAfterSuccess || (!dailyPickedSources.has(name) && window.confirm("Import complete and verified.\n\nDelete the original source file \""+name+"\" from the working folder?\n\nA timestamped audit copy remains in the imports folder."))) {
       try { await removeSourceEntry(name); await addHistory("source-deleted", "Deleted processed source file "+name, { fileName: name, retainedAuditCopy: !deleteAfterSuccess }); deleted = true; await scanFiles(); }
@@ -1858,7 +1901,7 @@
     return zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
   }
   function parsedXml(parser, source, partName) { const doc = parser.parseFromString(source, "application/xml"); if (doc.getElementsByTagName("parsererror").length) throw new Error(`Generated workbook contains malformed XML in ${partName}.`); return doc; }
-  async function validateWorkbookBytes(bytes) {
+  async function validateWorkbookBytes(bytes, expectedIssuanceId = null, codes = supervisorAdvisorCodes(), handoff = false) {
     if (!bytes?.byteLength) throw new Error("Generated workbook is empty.");
     let zip; try { zip = await JSZip.loadAsync(bytes); } catch (_) { throw new Error("Generated workbook is not a valid ZIP/XLSX package."); }
     const required = ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/styles.xml"];
@@ -1877,28 +1920,226 @@
       for (const cell of doc.getElementsByTagNameNS(mainNs, "c")) { const style = Number(cell.getAttribute("s") || 0); if (!Number.isInteger(style) || style < 0 || style >= styleCount) throw new Error(`Worksheet ${partName} references missing style ${style}.`); }
     }
     let book; try { book = XLSX.read(bytes, { type: "array", cellStyles: true }); } catch (_) { throw new Error("Generated workbook could not be parsed back after protection."); }
-    const expectedSheets = supervisorAdvisorCodes().map((code) => `${ADVISOR_NAMES[code]} ${code}`); if (book.SheetNames.join("|") !== expectedSheets.join("|")) throw new Error("Generated workbook advisor worksheets are incomplete or out of order.");
-    let count = 0; for (const sheetName of expectedSheets) { const sheet = book.Sheets[sheetName], rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }); count += rows.length; const headers = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" })[0] || []; if (!headers.includes(RETURN_ID_HEADER) || !headers.includes(RETURN_BASELINE_HEADER) || !headers.includes(RETURN_STATUS_ID_HEADER) || !sheet["!cols"]?.[0]?.hidden || !sheet["!cols"]?.[14]?.hidden || !sheet["!cols"]?.[15]?.hidden) throw new Error(`Hidden round-trip identity fields are missing from ${sheetName}.`); }
-    if (count !== supervisorWorkbookRecords().length) throw new Error("Generated workbook record count does not match the eligible Supervisor Workbook Open RO state.");
-    return { book, expectedSheets, recordCount: count };
+    const expectedSheets = codes.map((code) => workbookSheetName(code, codes)); if (book.SheetNames.join("|") !== expectedSheets.join("|")) throw new Error("Generated workbook advisor worksheets are incomplete or out of order.");
+    let count = 0; for (const sheetName of expectedSheets) { const sheet = book.Sheets[sheetName], rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }); count += rows.length; const headers = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" })[0] || [], issuanceId = text(sheet[RETURN_ISSUANCE_CELL]?.v).trim(); if (!headers.includes(RETURN_ID_HEADER) || !headers.includes(RETURN_BASELINE_HEADER) || !headers.includes(RETURN_STATUS_ID_HEADER) || !sheet["!cols"]?.[0]?.hidden || !sheet["!cols"]?.[14]?.hidden || !sheet["!cols"]?.[15]?.hidden || !sheet["!cols"]?.[16]?.hidden || !issuanceId || (handoff ? issuanceId !== "MoonDog outbound handoff" : expectedIssuanceId && issuanceId !== expectedIssuanceId)) throw new Error(`Hidden round-trip identity fields are missing or invalid in ${sheetName}.`); }
+    if (count !== (handoff ? handoffRecords(codes).length : supervisorWorkbookRecords(codes).length)) throw new Error("Generated workbook record count does not match the eligible Supervisor Workbook Open RO state.");
+    return { book, expectedSheets, recordCount: count, issuanceId: handoff ? "" : workbookIssuanceId(book) };
   }
-  function supervisorWorkbookRecords() { const codes = new Set(supervisorAdvisorCodes()); return (model.state.records || []).filter((record) => codes.has(String(record.advisorCode || "")) || (!record.advisorCode && supervisorAdvisorCodes().some((code) => norm(record.advisor) === norm(ADVISOR_NAMES[code])))); }
+  function workbookSheetName(code, codes) {
+    const label = `${handoffAdvisorName(code)} ${code}`.replace(/[\\/?*\[\]:]/g, " ").replace(/^'+|'+$/g, "").trim() || "Advisor";
+    const index = codes.indexOf(code) + 1;
+    return label.length <= 31 && codes.filter(other => `${handoffAdvisorName(other)} ${other}`.toLowerCase() === label.toLowerCase()).length === 1 ? label : `${String(index)} ${label}`.slice(0, 31);
+  }
+  function handoffAdvisorName(code) { return ADVISOR_NAMES[code] || model.settings.advisors?.[code]?.name || (model.state.records || []).find((record) => String(record.advisorCode || "") === code)?.advisor || code; }
+  // Advisor handoffs require one unambiguous identity per record. A name alone
+  // cannot assign work if two known advisor codes share it, even when only one
+  // of those advisors was selected for this export.
+  function handoffRecordOwner(record, roster = selectableHandoffAdvisors()) {
+    const code = text(record.advisorCode).trim();
+    if (code) { const advisor = roster.find(advisor => advisor.code === code); return advisor && (!text(record.advisor).trim() || norm(record.advisor) === norm(advisor.name)) ? code : null; }
+    const name = norm(record.advisor);
+    if (!name) return null;
+    const identities = new Map(roster.map((advisor) => [advisor.code, advisor.name]));
+    for (const advisor of Object.values(model.settings.advisors || {})) {
+      const knownCode = text(advisor.number).trim();
+      if (knownCode && text(advisor.name).trim()) identities.set(knownCode, advisor.name);
+    }
+    const matches = [...identities].filter(([, knownName]) => norm(knownName) === name);
+    if (matches.length !== 1) return null;
+    return roster.some((advisor) => advisor.code === matches[0][0]) ? matches[0][0] : null;
+  }
+  function handoffRecords(codes) {
+    const selected = new Set(codes), roster = selectableHandoffAdvisors();
+    return (model.state.records || []).filter((record) => selected.has(handoffRecordOwner(record, roster)));
+  }
+  function handoffRecordsForCode(code) { return handoffRecords([code]); }
+  function supervisorWorkbookRecords(codes = supervisorAdvisorCodes()) { const selected = new Set(codes); return (model.state.records || []).filter((record) => selected.has(String(record.advisorCode || "")) || (!record.advisorCode && codes.some((code) => norm(record.advisor) === norm(handoffAdvisorName(code))))); }
   function validateReturnedWorkbookFreshness(book) { const expected = new Map(supervisorWorkbookRecords().map((record) => [record.id, text(record.management?.updatedAt).trim()])), found = new Map(); for (const sheetName of book.SheetNames) for (const row of XLSX.utils.sheet_to_json(book.Sheets[sheetName], { defval: "", raw: false })) { const id = text(row[RETURN_ID_HEADER]).trim(); if (id) found.set(id, text(row[RETURN_BASELINE_HEADER]).trim()); } if (found.size !== expected.size || [...expected.keys()].some((id) => !found.has(id)) || [...expected].some(([id, baseline]) => found.get(id) !== baseline)) throw new Error("Supervisor Workbook is out of date. Generate a new workbook before importing changes."); }
-  async function markSupervisorWorkbookStale(reason) { model.recovery.supervisorWorkbook = { ...(model.recovery.supervisorWorkbook || {}), stale: true, reason, markedAt: now(), durableRecordCount: (model.state.records || []).length, eligibleRecordCount: supervisorWorkbookRecords().length }; try { await writeJson(RECOVERY_PATH, model.recovery); } catch (error) { recordDiagnostic("WORKBOOK STATUS FAILED", `Supervisor Workbook stale status could not be saved (${error.name || "Error"})`); } }
-  async function workbookBytes() {
-    const headers = [RETURN_ID_HEADER, "RO", "Customer", "Vehicle / tag", "Source status", "Management status", "Next action", "Commitment date", "Customer communication", "Owner", "Update note", "Opened", "Days open", "Last update", RETURN_BASELINE_HEADER, RETURN_STATUS_ID_HEADER], book = XLSX.utils.book_new(), widths = [2, 12, 24, 25, 16, 20, 36, 15, 22, 18, 38, 13, 10, 20, 2, 2], editableColumns = [5, 6, 7, 8, 9, 10];
-    supervisorAdvisorCodes().forEach((code) => { const name=ADVISOR_NAMES[code];
-      const records = model.state.records.filter((record) => String(record.advisorCode || "") === code || (!record.advisorCode && norm(record.advisor) === norm(name))), rows = records.map((record) => ({ [RETURN_ID_HEADER]: record.id, "RO": text(record.ro), "Customer": record.customer || "", "Vehicle / tag": record.vehicle || record.tagNumber || "", "Source status": record.sourceStatus || "", "Management status": statusForRecord(record), "Next action": record.management.nextAction || "", "Commitment date": record.management.reviewDate || "", "Customer communication": normalizeCommunication(record.management.communication), "Owner": record.management.owner || "", "Update note": record.management.note || "", "Opened": record.opened || "", "Days open": record.daysOpen || "", "Last update": record.management.updatedAt ? new Date(record.management.updatedAt).toLocaleString() : "", [RETURN_BASELINE_HEADER]: record.management.updatedAt || "", [RETURN_STATUS_ID_HEADER]: resolveStatusId(record.management.status,record.management.statusId,true) })), sheet = XLSX.utils.json_to_sheet(rows, { header: headers });
-      sheet["!autofilter"] = { ref: `B1:N${Math.max(1, rows.length + 1)}` }; sheet["!cols"] = widths.map((wch, index) => ({ wch, hidden: index === 0 || index === 14 || index === 15 })); sheet["!rows"] = [{ hpt: 24 }, ...rows.map(() => ({ hpt: 34 }))]; sheet["!freeze"] = { xSplit: 0, ySplit: 1, topLeftCell: "B2", activePane: "bottomLeft", state: "frozen" }; sheet["!protect"] = { selectLockedCells: true, selectUnlockedCells: false, formatCells: true, formatColumns: true, formatRows: true, insertColumns: true, insertRows: true, deleteColumns: true, deleteRows: true, sort: true, autoFilter: false };
+  function workbookIssuanceId(book) { const ids = book.SheetNames.map((sheetName) => text(book.Sheets[sheetName]?.[RETURN_ISSUANCE_CELL]?.v).trim()); if (!ids.length || ids.some((id) => !id)) throw new Error("This legacy Supervisor Workbook has no issuance ID. Generate a new workbook before importing changes."); if (ids.some((id) => id !== ids[0]) || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ids[0])) throw new Error("Supervisor Workbook issuance could not be verified. Generate a new workbook before importing changes."); return ids[0]; }
+  async function validateReturnedWorkbookIssuance(book) { const issuanceId = workbookIssuanceId(book), durableRecovery = await readJson(RECOVERY_PATH, null), current = durableRecovery?.supervisorWorkbook; if (!current) throw new Error("Supervisor Workbook recovery data is missing. Generate a new workbook before importing changes."); if (current.stale !== false) throw new Error("Supervisor Workbook is marked stale or unverified. Generate a new workbook before importing changes."); if (current.issuanceId !== issuanceId) throw new Error("This Supervisor Workbook is not the latest verified issuance. Generate a new workbook before importing changes."); return issuanceId; }
+  async function markSupervisorWorkbookStale(reason) { model.recovery.supervisorWorkbook = { ...(model.recovery.supervisorWorkbook || {}), stale: true, reason, markedAt: now(), durableRecordCount: (model.state.records || []).length, eligibleRecordCount: supervisorWorkbookRecords().length }; await writeJson(RECOVERY_PATH, model.recovery); const durable = await readJson(RECOVERY_PATH, null); if (!durable || JSON.stringify(durable) !== JSON.stringify(model.recovery)) throw new Error("Supervisor Workbook stale status read-back verification failed; the source import was stopped."); }
+  async function persistSupervisorWorkbookIssuance(fileName, issuanceId, validation) { const pending = model.recovery.supervisorWorkbook?.pending; const item = { stale: false, reason: "", generatedAt: now(), fileName, issuanceId, durableRecordCount: (model.state.records || []).length, eligibleRecordCount: validation.recordCount }; model.recovery.supervisorWorkbook = item; try { await writeJson(RECOVERY_PATH, model.recovery); const durable = await readJson(RECOVERY_PATH, null); if (!durable || JSON.stringify(durable) !== JSON.stringify(model.recovery) || durable.supervisorWorkbook?.issuanceId !== issuanceId || durable.supervisorWorkbook?.stale !== false) throw new Error("Supervisor Workbook recovery read-back verification failed."); } catch (error) { model.recovery.supervisorWorkbook = { ...item, pending, stale: true, reason: "Workbook issuance recovery could not be verified" }; try { await writeJson(RECOVERY_PATH, model.recovery); } catch (_) {} throw error; } return item; }
+  function newWorkbookIssuanceId() { const bytes = new Uint8Array(16); crypto.getRandomValues(bytes); bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128; const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0")).join(""); return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`; }
+  async function workbookBytes(issuanceId, codes = supervisorAdvisorCodes(), handoff = false) {
+    const headers = [RETURN_ID_HEADER, "RO", "Customer", "Vehicle / tag", "Source status", "Management status", "Next action", "Commitment date", "Customer communication", "Owner", "Update note", "Opened", "Days open", "Last update", RETURN_BASELINE_HEADER, RETURN_STATUS_ID_HEADER], book = XLSX.utils.book_new(), widths = [2, 12, 24, 25, 16, 20, 36, 15, 22, 18, 38, 13, 10, 20, 2, 2, 2], editableColumns = [5, 6, 7, 8, 9, 10];
+    if (!codes.length) throw new Error("Choose at least one advisor.");
+    codes.forEach((code) => { const name=handoffAdvisorName(code);
+      const records = handoff ? handoffRecordsForCode(code) : model.state.records.filter((record) => String(record.advisorCode || "") === code || (!record.advisorCode && norm(record.advisor) === norm(name))), rows = records.map((record) => ({ [RETURN_ID_HEADER]: record.id, "RO": text(record.ro), "Customer": record.customer || "", "Vehicle / tag": record.vehicle || record.tagNumber || "", "Source status": record.sourceStatus || "", "Management status": statusForRecord(record), "Next action": record.management.nextAction || "", "Commitment date": record.management.reviewDate || "", "Customer communication": normalizeCommunication(record.management.communication), "Owner": record.management.owner || "", "Update note": record.management.note || "", "Opened": record.opened || "", "Days open": record.daysOpen || "", "Last update": record.management.updatedAt ? new Date(record.management.updatedAt).toLocaleString() : "", [RETURN_BASELINE_HEADER]: record.management.updatedAt || "", [RETURN_STATUS_ID_HEADER]: resolveStatusId(record.management.status,record.management.statusId,true) })), sheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+      sheet[RETURN_ISSUANCE_CELL] = { t: "s", v: handoff ? "MoonDog outbound handoff" : issuanceId }; const sheetRange = XLSX.utils.decode_range(sheet["!ref"] || "A1:P1"); sheetRange.e.c = Math.max(sheetRange.e.c, 16); sheet["!ref"] = XLSX.utils.encode_range(sheetRange);
+      sheet["!autofilter"] = { ref: `B1:N${Math.max(1, rows.length + 1)}` }; sheet["!cols"] = widths.map((wch, index) => ({ wch, hidden: index === 0 || index === 14 || index === 15 || index === 16 })); sheet["!rows"] = [{ hpt: 24 }, ...rows.map(() => ({ hpt: 34 }))]; sheet["!freeze"] = { xSplit: 0, ySplit: 1, topLeftCell: "B2", activePane: "bottomLeft", state: "frozen" }; sheet["!protect"] = { selectLockedCells: true, selectUnlockedCells: false, formatCells: true, formatColumns: true, formatRows: true, insertColumns: true, insertRows: true, deleteColumns: true, deleteRows: true, sort: true, autoFilter: false };
       const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:P1"); for (let row = 0; row <= range.e.r; row += 1) for (let column = 0; column <= range.e.c; column += 1) { const address = XLSX.utils.encode_cell({ r: row, c: column }), cell = sheet[address]; if (!cell) continue; cell.s = row === 0 ? { font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "173C59" } }, alignment: { vertical: "center", wrapText: true }, protection: { locked: true } } : { alignment: { vertical: "top", wrapText: true }, protection: { locked: !editableColumns.includes(column) }, fill: editableColumns.includes(column) ? { fgColor: { rgb: "FFF2CC" } } : undefined }; }
-      XLSX.utils.book_append_sheet(book, sheet, `${name} ${code}`);
+      XLSX.utils.book_append_sheet(book, sheet, workbookSheetName(code, codes));
     });
-    book.Props = { Title: "Service Operations Open RO Current", Subject: "Protected advisor-update workbook for Service Operations Dashboard round trip", Author: model.settings.storeName, CreatedDate: new Date(), Keywords: "Service Operations Open RO Round Trip" }; const bytes = await protectEditableWorkbook(XLSX.write(book, { type: "array", bookType: "xlsx", compression: true, cellStyles: true })); await validateWorkbookBytes(bytes); return bytes;
+    book.Props = { Title: "Service Operations Open RO Current", Subject: "Protected advisor-update workbook for Service Operations Dashboard round trip", Author: model.settings.storeName, CreatedDate: new Date(), Keywords: handoff ? "MoonDog Advisor Handoff Snapshot - outbound only" : "Service Operations Open RO Round Trip" }; const bytes = await protectEditableWorkbook(XLSX.write(book, { type: "array", bookType: "xlsx", compression: true, cellStyles: true })); await validateWorkbookBytes(bytes, issuanceId, codes, handoff); return bytes;
   }
-  async function generateWorkbook(announce = true) { if (!model.state.records.length) throw new Error("Import an XLSX before generating the supervisor workbook."); const bytes = await workbookBytes(), validation = await validateWorkbookBytes(bytes), configuredName=model.settings.supervisorWorkbook?.filename||model.settings.exportName||DEFAULTS.supervisorWorkbook.filename, name = configuredName.endsWith(".xlsx") ? configuredName : `${configuredName}.xlsx`; let currentError = null;
-    try { await writeBytes(["exports", name], bytes); const saved = new Uint8Array(await (await (await fileAt(["exports", name])).getFile()).arrayBuffer()); await validateWorkbookBytes(saved); } catch (error) { currentError = error; }
-    if (currentError) { const revisionName = `${stamp()}-revision.xlsx`; await writeBytes(["exports", revisionName], bytes); const savedRevision = new Uint8Array(await (await (await fileAt(["exports", revisionName])).getFile()).arrayBuffer()); await validateWorkbookBytes(savedRevision); await addHistory("xlsx-export-failed", `Could not refresh ${name}`, { recordCount: validation.recordCount, revisionName, browserError: currentError.message || String(currentError) }); throw new Error(`The durable RO state and one verified recovery workbook, ${revisionName}, were saved, but ${name} could not be refreshed because Excel or OneDrive changed or locked it. Close the workbook in Excel, then use Generate current XLSX.`); }
-    model.recovery.supervisorWorkbook = { stale: false, reason: "", generatedAt: now(), fileName: name, durableRecordCount: (model.state.records || []).length, eligibleRecordCount: validation.recordCount }; await writeJson(RECOVERY_PATH, model.recovery); await retainDailyReport("supervisorWorkbook",model.recovery.supervisorWorkbook); await addHistory("xlsx-export", `Generated ${name}`, { recordCount: validation.recordCount, advisorTabs: validation.expectedSheets }); ui.lastExport.textContent = new Date(model.recovery.supervisorWorkbook.generatedAt).toLocaleString(); if (announce) status(`${name} was generated and structurally verified with one tab per advisor.`, "success"); }
+  async function generateWorkbook(announce = true) { return withSupervisorWorkbookLock(() => generateWorkbookUnlocked(announce)); }
+  async function readWorkbookFile(name, folder = "exports") {
+    try { return new Uint8Array(await (await (await fileAt([folder, name])).getFile()).arrayBuffer()); }
+    catch (error) { if (error.name === "NotFoundError") return null; throw error; }
+  }
+  function equalWorkbookBytes(a, b) { return Boolean(a && b && a.length === b.length && a.every((value, index) => value === b[index])); }
+  async function recoverPendingSupervisorWorkbook() {
+    const durable = await readJson(RECOVERY_PATH, null), pending = durable?.supervisorWorkbook?.pending;
+    if (!pending) return;
+    if (![pending.name, pending.backupName].every(name => name === null || typeof name === "string" && name.length > 0 && !/[\\/]/.test(name) && name !== "." && name !== "..")) throw new Error("Needs Review: invalid workbook recovery paths.");
+    if (pending.backupName) {
+      const previous = await readWorkbookFile(pending.backupName, "backups");
+      if (!previous || await sha256(previous) !== pending.backupHash) throw new Error("Needs Review: previous workbook backup integrity failed.");
+      if (!previous) throw new Error("Needs Review: previous workbook backup is missing.");
+      await writeBytes(["exports", pending.name], previous);
+      if (!equalWorkbookBytes(previous, await readWorkbookFile(pending.name))) throw new Error("Needs Review: previous workbook restoration failed verification.");
+    } else {
+      await maintenanceIO.remove(`exports/${pending.name}`);
+      if (await readWorkbookFile(pending.name)) throw new Error("Needs Review: unverified workbook could not be removed.");
+    }
+    model.recovery = durable;
+    model.recovery.supervisorWorkbook = {...durable.supervisorWorkbook, pending: null, stale: true, reason: "Interrupted workbook restored; generate a new verified workbook"};
+    await writeJson(RECOVERY_PATH, model.recovery);
+    const check = await readJson(RECOVERY_PATH, null);
+    if (JSON.stringify(check) !== JSON.stringify(model.recovery)) throw new Error("Workbook recovery completion could not be verified.");
+  }
+  async function generateWorkbookUnlocked(announce = true) {
+    if (!model.state.records.length) throw new Error("Import an XLSX before generating the supervisor workbook.");
+    await recoverPendingSupervisorWorkbook();
+    await markSupervisorWorkbookStale("A new Supervisor Workbook is being generated");
+    const issuanceId = newWorkbookIssuanceId(), bytes = await workbookBytes(issuanceId), validation = await validateWorkbookBytes(bytes, issuanceId);
+    const configuredName = model.settings.supervisorWorkbook?.filename || model.settings.exportName || DEFAULTS.supervisorWorkbook.filename;
+    const name = configuredName.endsWith(".xlsx") ? configuredName : `${configuredName}.xlsx`;
+    if (/[\\/]/.test(name) || name === ".xlsx") throw new Error("Invalid Supervisor Workbook filename.");
+    const previous = await readWorkbookFile(name), backupName = previous ? `supervisor-${issuanceId}.xlsx` : null;
+    if (previous) {
+      await writeBytes(["backups", backupName], previous);
+      if (!equalWorkbookBytes(previous, await readWorkbookFile(backupName, "backups"))) throw new Error("Previous workbook backup failed verification.");
+    }
+    const pendingRecovery = structuredClone(model.recovery);
+    pendingRecovery.supervisorWorkbook.pending = {name, backupName, backupHash: previous ? await sha256(previous) : null, issuanceId};
+    await writeJson(RECOVERY_PATH, pendingRecovery);
+    if (JSON.stringify(await readJson(RECOVERY_PATH, null)) !== JSON.stringify(pendingRecovery)) throw new Error("Workbook transaction could not be verified before replacement.");
+    model.recovery = pendingRecovery;
+    let currentError = null;
+    try {
+      await writeBytes(["exports", name], bytes);
+      const saved = await readWorkbookFile(name);
+      if (!equalWorkbookBytes(bytes, saved)) throw new Error("Workbook saved bytes differ from generated bytes.");
+      await validateWorkbookBytes(saved, issuanceId);
+    } catch (error) { currentError = error; }
+    if (currentError) {
+      // Restore before selecting a fallback. If a lock prevents restoration,
+      // retain the pending journal and fail closed for a later retry.
+      const current = await readWorkbookFile(name);
+      if (!(previous ? equalWorkbookBytes(previous, current) : current === null)) await recoverPendingSupervisorWorkbook();
+      const revisionName = `${stamp()}-${issuanceId}-revision.xlsx`;
+      await writeBytes(["exports", revisionName], bytes);
+      const saved = await readWorkbookFile(revisionName);
+      if (!equalWorkbookBytes(bytes, saved)) throw new Error("Revision workbook failed byte verification.");
+      const revisionValidation = await validateWorkbookBytes(saved, issuanceId);
+      await persistSupervisorWorkbookIssuance(revisionName, issuanceId, revisionValidation);
+      throw new Error(`Verified recovery workbook ${revisionName} saved. ${name} could not be refreshed; close Excel and retry. Previous workbook preserved.`);
+    }
+    try { await persistSupervisorWorkbookIssuance(name, issuanceId, validation); }
+    catch (error) {
+      // A failed commit may have overwritten recovery metadata. Restore the
+      // pending journal before restoration so interruption remains recoverable.
+      model.recovery = pendingRecovery;
+      try { await writeJson(RECOVERY_PATH, pendingRecovery); } catch (_) {}
+      if (previous) {
+        await writeBytes(["exports", name], previous);
+        if (!equalWorkbookBytes(previous, await readWorkbookFile(name))) throw new Error("Needs Review: previous workbook restoration failed.");
+      } else {
+        await maintenanceIO.remove(`exports/${name}`);
+        if (await readWorkbookFile(name)) throw new Error("Needs Review: unverified workbook remains; recovery is required.");
+      }
+      throw error;
+    }
+    await retainDailyReport("supervisorWorkbook", model.recovery.supervisorWorkbook);
+    await addHistory("xlsx-export", `Generated ${name}`, {recordCount: validation.recordCount, advisorTabs: validation.expectedSheets, issuanceId});
+    ui.lastExport.textContent = new Date(model.recovery.supervisorWorkbook.generatedAt).toLocaleString();
+    if (announce) status(`${name} was generated and verified.`, "success");
+  }
+
+  // A handoff is an independent, on-demand snapshot; it never alters the
+  // configured Supervisor Workbook roster, recovery metadata, or return workflow.
+  function selectableHandoffAdvisors() {
+    const roster = new Map();
+    for (const advisor of Object.values(model.settings.advisors || {})) {
+      const code = text(advisor.number).trim();
+      if (!advisor.removed && validAdvisorIdentity(code, advisor.name)) {
+        roster.set(code, { code, name: handoffAdvisorName(code) });
+      }
+    }
+    // Vacationing advisors may be absent from a recent SAPR, but still own
+    // current open ROs. Explicitly removed advisors remain excluded.
+    const removed = new Set(Object.values(model.settings.advisors || {})
+      .filter((advisor) => advisor.removed).map((advisor) => text(advisor.number).trim()));
+    for (const record of model.state.records || []) {
+      const code = text(record.advisorCode).trim(), name = text(record.advisor).trim();
+      if (code && name && !removed.has(code) && !roster.has(code)) roster.set(code, { code, name });
+    }
+    return [...roster.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  }
+  const selectedHandoffCodes = new Set();
+  function ensureAdvisorHandoffUi() {
+    if (ui.handoffList) return;
+    const heading = ui["view-open-ro"]?.querySelector(".queue-heading");
+    if (!heading) return;
+    const host = document.createElement("div");
+    host.id = "handoffTools";
+    host.className = "advisor-handoff";
+    host.innerHTML = '<button id="handoffToggle" class="secondary" type="button" aria-expanded="false" aria-controls="handoffPanel">Export Advisor Handoff XLSX</button><div id="handoffPanel" class="advisor-handoff-panel" hidden><p>Select any combination of advisors. This creates a separate snapshot in exports/ and does not change your Supervisor Workbook or advisor settings.</p><div id="handoffList" class="advisor-handoff-list" aria-label="Advisors to include"></div><div class="advisor-handoff-actions"><button id="handoffSelectAll" class="secondary" type="button">Select all</button><button id="handoffClear" class="secondary" type="button">Clear</button><button id="handoffGenerate" class="primary" type="button" disabled>Generate handoff XLSX</button><small id="handoffCount" aria-live="polite"></small></div><small>Share only through approved dealership channels. This handoff snapshot is not a returned Supervisor Workbook import.</small></div>';
+    heading.after(host);
+    for (const id of ["handoffToggle", "handoffPanel", "handoffList", "handoffSelectAll", "handoffClear", "handoffGenerate", "handoffCount"]) ui[id] = document.getElementById(id);
+    const style = document.createElement("style");
+    style.textContent = '.advisor-handoff{margin:10px 0}.advisor-handoff-panel{padding:12px;margin-top:8px;border:1px solid var(--line,#d5e1e6);border-radius:10px}.advisor-handoff-panel[hidden]{display:none}.advisor-handoff-panel p{margin:0 0 10px}.advisor-handoff-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin:10px 0}.advisor-handoff-list label{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--line,#d5e1e6);border-radius:7px}.advisor-handoff-list input{width:auto}.advisor-handoff-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0}';
+    document.head.append(style);
+    ui.handoffToggle.addEventListener("click", () => {
+      ui.handoffPanel.hidden = !ui.handoffPanel.hidden;
+      ui.handoffToggle.setAttribute("aria-expanded", String(!ui.handoffPanel.hidden));
+      if (!ui.handoffPanel.hidden) renderAdvisorHandoff();
+    });
+    ui.handoffList.addEventListener("change", (event) => {
+      const box = event.target.closest('input[data-handoff-advisor]');
+      if (!box) return;
+      if (box.checked) selectedHandoffCodes.add(box.dataset.handoffAdvisor);
+      else selectedHandoffCodes.delete(box.dataset.handoffAdvisor);
+      renderAdvisorHandoff();
+    });
+    ui.handoffSelectAll.addEventListener("click", () => { selectableHandoffAdvisors().forEach((advisor) => selectedHandoffCodes.add(advisor.code)); renderAdvisorHandoff(); });
+    ui.handoffClear.addEventListener("click", () => { selectedHandoffCodes.clear(); renderAdvisorHandoff(); });
+    ui.handoffGenerate.addEventListener("click", () => run(() => generateAdvisorHandoffWorkbook([...selectedHandoffCodes])));
+  }
+  function renderAdvisorHandoff() {
+    if (!ui.handoffList) return;
+    const roster = selectableHandoffAdvisors(), eligible = new Set(roster.map((advisor) => advisor.code));
+    for (const code of selectedHandoffCodes) if (!eligible.has(code)) selectedHandoffCodes.delete(code);
+    ui.handoffToggle.disabled = !model.root || !(model.state.records || []).length;
+    if (ui.handoffPanel.hidden) return;
+    ui.handoffList.replaceChildren();
+    for (const advisor of roster) {
+      const label = document.createElement("label"), box = document.createElement("input"), textNode = document.createElement("span");
+      box.type = "checkbox"; box.dataset.handoffAdvisor = advisor.code; box.checked = selectedHandoffCodes.has(advisor.code);
+      textNode.textContent = advisor.name + " (" + advisor.code + ")";
+      label.append(box, textNode); ui.handoffList.append(label);
+    }
+    if (!roster.length) ui.handoffList.textContent = "No advisors found in the connected roster or Open ROs.";
+    const needsReview = (model.state.records || []).filter((record) => !handoffRecordOwner(record, roster)).length;
+    ui.handoffCount.textContent = selectedHandoffCodes.size + " of " + roster.length + " advisors selected" + (needsReview ? ` · Needs Review: ${needsReview} records with unverified advisor identity excluded` : "");
+    ui.handoffGenerate.disabled = !model.root || !model.state.records.length || !selectedHandoffCodes.size;
+  }
+  async function generateAdvisorHandoffWorkbook(requestedCodes) {
+    if (!model.root || !model.state.records.length) throw new Error("Connect the working folder and import Open ROs before exporting.");
+    const eligible = new Set(selectableHandoffAdvisors().map((advisor) => advisor.code));
+    const codes = [...new Set(requestedCodes.map((code) => String(code)))].filter((code) => eligible.has(code));
+    if (!codes.length || codes.length !== new Set(requestedCodes).size) throw new Error("Choose one or more advisors from the current roster.");
+    const bytes = await workbookBytes("", codes, true), validation = await validateWorkbookBytes(bytes, "", codes, true);
+    const suffix = codes.map((code) => code.replace(/[^a-zA-Z0-9_-]/g, "")).join("-").slice(0, 90);
+    const name = `Advisor Handoff - ${localDateKey()} - ${Date.now()} - ${suffix}.xlsx`;
+    await writeBytes(["exports", name], bytes);
+    const saved = new Uint8Array(await (await (await fileAt(["exports", name])).getFile()).arrayBuffer());
+    await validateWorkbookBytes(saved, "", codes, true);
+    await addHistory("advisor-handoff-export", `Generated ${name}`, { advisorTabs: codes.length, recordCount: validation.recordCount });
+    const needsReview = (model.state.records || []).filter((record) => !handoffRecordOwner(record)).length;
+    status(`${name} saved and verified in exports/ · ${codes.length} advisors · ${validation.recordCount} ROs. ${needsReview ? `Needs Review: ${needsReview} records excluded because advisor identity is unverified. ` : ""}Standard Supervisor Workbook unchanged.`, "success");
+  }
   async function saveState(reason, priorState = model.state) { await backupState(reason, priorState); model.state.appVersion = VERSION; model.state.updatedAt = now(); await writeJson(STATE_PATH, model.state); }
 
   function syncFilter(select, placeholder, values) { const prior = select.value; select.replaceChildren(new Option(placeholder, "")); [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).forEach((value) => select.add(new Option(value, value))); if ([...select.options].some((option) => option.value === prior)) select.value = prior; }
@@ -2657,7 +2898,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function ensureDailyFocus() { if (!model.root || !(model.state.records || []).length) return null; const today = localDateKey(); if (!isDailyFocusDay(today) || !isManagerWorkingTime()) return null; const limit=dailyWalkCount(); model.state.dailyFocus ||= {}; const existing = model.state.dailyFocus[today] || { date: today, createdAt: now(), advisors: {} }, byId = new Map(model.state.records.map((record) => [record.id, record])); let changed = !model.state.dailyFocus[today]; for (const code of Object.keys(DAILY_WALK_ADVISORS)) { const prior = Array.isArray(existing.advisors[code]) ? existing.advisors[code] : [], kept = prior.filter((id, index) => byId.has(id) && index === prior.indexOf(id)).slice(0, limit), candidates = focusCandidates(code, today); for (const record of candidates) if (kept.length < limit && !kept.includes(record.id)) kept.push(record.id); if (JSON.stringify(kept) !== JSON.stringify(prior)) changed = true; existing.advisors[code] = kept; } model.state.dailyFocus[today] = existing; const dates = Object.keys(model.state.dailyFocus).sort(); dates.slice(0, Math.max(0, dates.length - 30)).forEach((date) => { delete model.state.dailyFocus[date]; changed = true; }); if (changed) { model.state.updatedAt = now(); await writeJson(STATE_PATH, model.state); await addHistory("daily-focus-created", `Prepared ${limit}-per-advisor focus list for ${today}`, { date: today, perAdvisor:limit, selected: Object.keys(DAILY_WALK_ADVISORS).reduce((total, code) => total + (existing.advisors[code]?.length || 0), 0) }); } return existing; }
   function focusReason(record, today = localDateKey()) { const priority = dailyFocusPriority(record, today); if (priority === 0) return ["Ask in person", "focus-warning"]; if (priority === 1) return [`OVERDUE · ${record.management.reviewDate}`, "focus-urgent"]; if (priority === 2) return ["DUE TODAY", "focus-warning"]; if (priority === 3) return ["Next action and commitment needed", "focus-warning"]; return [`Committed · ${record.management.reviewDate}`, ""]; }
   function renderDailyFocus() { const today = localDateKey(), date = new Date(`${today}T12:00:00`), day = date.getDay(), friendly = date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }); ui.dailyFocusDate.textContent = friendly; ui.dailyFocusGrid.replaceChildren(); if (!model.root) { ui.dailyFocusSummary.textContent = "Connect the working folder to build today’s list."; ui.dailyFocusGrid.innerHTML = '<p class="empty">No daily focus list is available.</p>'; return; } if (day === 0) { const off = document.createElement("div"); off.className = "focus-off"; off.innerHTML = "<strong>Sunday · no manager review</strong><span>No manager RO walk is scheduled today.</span>"; ui.dailyFocusSummary.textContent = "Daily selections resume Monday."; ui.dailyFocusGrid.append(off); return; } const focus = model.state.dailyFocus?.[today], byId = new Map(model.state.records.map((record) => [record.id, record])), ids = focus ? Object.keys(DAILY_WALK_ADVISORS).flatMap((code) => focus.advisors?.[code] || []) : [], reviewed = ids.filter((id) => byId.get(id)?.management?.managerReviewedOn === today).length; ui.dailyFocusSummary.textContent = focus ? `${reviewed} of ${ids.length} addressed today · selections stay fixed for the day` : "Import Open ROs or reconnect to prepare today’s list."; for (const [code, name] of Object.entries(DAILY_WALK_ADVISORS)) { const card = document.createElement("article"), header = document.createElement("header"), heading = document.createElement("strong"), count = document.createElement("span"), list = document.createElement("div"), advisorIds = focus?.advisors?.[code] || []; card.className = "focus-advisor"; card.dataset.advisorCode = code; heading.textContent = name; count.textContent = `${advisorIds.length}/${dailyWalkCount()} · ${code}`; header.append(heading, count); list.className = "focus-list"; if (!advisorIds.length) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No eligible open ROs"; list.append(empty); } for (const id of advisorIds) { const record = byId.get(id); if (!record) continue; const row = document.createElement("div"), ro = document.createElement("span"), detail = document.createElement("div"), action = document.createElement("strong"), reason = document.createElement("small"), button = document.createElement("button"), addressed = record.management.managerReviewedOn === today, [reasonText, reasonClass] = focusReason(record, today); row.className = `focus-ro${addressed ? " reviewed" : ""}`; ro.className = "focus-ro-number"; ro.textContent = record.ro; detail.className = "focus-ro-detail"; action.textContent = record.management.nextAction || record.customer || "Update required"; reason.textContent = reasonText; if (reasonClass) reason.className = reasonClass; detail.append(action, reason); button.type = "button"; button.dataset.focusId = record.id; button.textContent = addressed ? "Reviewed" : "Address"; row.append(ro, detail, button); list.append(row); } card.append(header, list); ui.dailyFocusGrid.append(card); } }
-  function renderFilters() { const records = model.state.records || []; syncFilter(ui.advisorFilter, "All advisors", records.map((record) => record.advisor)); syncFilter(ui.sourceStatusFilter, "All source statuses", records.map((record) => record.sourceStatus)); syncFilter(ui.managementStatusFilter, "All management statuses", records.map(statusForRecord)); }
+  function renderFilters() { renderAdvisorHandoff(); const records = model.state.records || []; syncFilter(ui.advisorFilter, "All advisors", records.map((record) => record.advisor)); syncFilter(ui.sourceStatusFilter, "All source statuses", records.map((record) => record.sourceStatus)); syncFilter(ui.managementStatusFilter, "All management statuses", records.map(statusForRecord)); }
   function renderTrendCoverageSummary(audit){if(!ui.trendCoverageSummary)return;const expected=audit.window.expectedDates.length,items=[`SAPR: ${audit.sapr.presentDates.length} / ${expected} expected days`];if(audit.vir?.state==="not-used")items.push("VIR: Not used");else if(audit.vir?.state==="temporarily-unavailable")items.push("VIR: Temporarily unavailable");else items.push(audit.vir?.observationDate?`VIR: Latest observation ${shortDate(audit.vir.observationDate)}`:"VIR: Current observation needed");items.push(audit.csi?.state==="not-used"?"CSI: Not used":audit.csi?.state==="temporarily-unavailable"?"CSI: Temporarily unavailable":`CSI: ${audit.csi?.refreshDate===localDateKey()?"Complete":"Refresh needed"} · cumulative`);items.push(`Menu: ${sourceExpectation("menu")==="not-used"?"Not used":sourceExpectation("menu")==="temporarily-unavailable"?"Temporarily unavailable":"Weekly"}`);ui.trendCoverageSummary.replaceChildren();const heading=document.createElement("strong"),grid=document.createElement("div");heading.textContent="Current Month Trend Coverage";grid.className="trend-coverage-grid";items.forEach((value)=>{const item=document.createElement("span");item.textContent=value;grid.append(item);});ui.trendCoverageSummary.append(heading,grid);}
   function compactMonthlyMetrics(metrics){const values=[];if(Number.isFinite(metrics?.totalGross))values.push(`Gross ${performanceFormat(metrics.totalGross,"money")}`);if(Number.isFinite(metrics?.roCount))values.push(`ROs ${performanceFormat(metrics.roCount,"count")}`);if(Number.isFinite(metrics?.cpHoursPerRo))values.push(`CP Hrs/RO ${performanceFormat(metrics.cpHoursPerRo,"number")}`);if(Number.isFinite(metrics?.cpElr))values.push(`ELR ${performanceFormat(metrics.cpElr,"money")}`);if(Number.isFinite(metrics?.vir))values.push(`VIR ${performanceFormat(metrics.vir,"percent")}`);if(Number.isFinite(metrics?.menuPresentation)||Number.isFinite(metrics?.menuPenetration))values.push(`Menu ${performanceFormat(metrics.menuPresentation,"percent")} / ${performanceFormat(metrics.menuPenetration,"percent")}`);if(Number.isFinite(metrics?.mediaViewed))values.push(`Media ${performanceFormat(metrics.mediaViewed,"percent")}`);if(Number.isFinite(metrics?.nps))values.push(`NPS ${performanceFormat(metrics.nps,"number")}`);return values;}
   function renderPreviousMonthTotals(){if(!ui.previousMonthTotals)return;const month=priorMonthKey(),summary=model.operationalMetrics.monthlySummaries?.[month]||buildMonthEndSummary(month),label=new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined,{month:"long",year:"numeric"});ui.previousMonthTotals.replaceChildren();const head=document.createElement("div");head.className="section-head";const title=document.createElement("div"),eyebrow=document.createElement("p"),heading=document.createElement("h2"),note=document.createElement("p");eyebrow.className="eyebrow";eyebrow.textContent=summary.status==="locked"?"Locked month-end scoreboard":"Pending finalization";heading.textContent="Previous Month Totals";note.textContent=label;title.append(eyebrow,heading,note);head.append(title);ui.previousMonthTotals.append(head);if(summary.status!=="locked"){const pending=document.createElement("p"),names=(summary.needed||[]).map((key)=>SOURCE_COVERAGE_RULES[key]?.label||key);pending.className="empty";pending.textContent=`${label} final totals pending · Needed: ${names.join(", ")||"verified month-end sources"}`;ui.previousMonthTotals.append(pending);return;}const correction=monthEndCorrectionCandidate(month);if(correction){const notice=document.createElement("div"),button=document.createElement("button");notice.className="month-correction-notice";notice.textContent=summary.schemaVersion<2?"This legacy lock predates explicit source readiness. Verified late sources can be applied deliberately.":"Verified late month-end data is available.";button.type="button";button.dataset.applyMonthCorrection=month;button.textContent="Apply verified late correction";notice.append(button);ui.previousMonthTotals.append(notice);}const storeGrid=document.createElement("div");storeGrid.className="month-total-grid";compactMonthlyMetrics(summary.store).forEach((value)=>{const card=document.createElement("div"),parts=value.split(" "),name=document.createElement("span"),metric=document.createElement("strong");name.textContent=parts.shift();metric.textContent=parts.join(" ");card.append(name,metric);storeGrid.append(card);});const advisors=document.createElement("div");advisors.className="month-advisor-list";Object.values(summary.advisors||{}).sort((a,b)=>a.name.localeCompare(b.name)).forEach((advisor)=>{const row=document.createElement("div"),name=document.createElement("strong"),metrics=document.createElement("div");row.className="month-advisor-row";name.textContent=advisor.name;metrics.className="month-advisor-metrics";metrics.textContent=compactMonthlyMetrics(advisor.metrics).join(" · ");row.append(name,metrics);advisors.append(row);});ui.previousMonthTotals.append(storeGrid,advisors);}
@@ -2995,7 +3236,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   ui.dailyWalkCount.addEventListener("change",()=>{const value=Number(ui.dailyWalkCount.value);if(Number.isInteger(value)&&value>=1&&value<=10)model.settings.dailyWalk.rosPerAdvisor=value;queueSettingsAutosave();setTimeout(()=>run(ensureDailyFocus),260);});
   document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => navigateTo(button.dataset.view)));
   ui.refreshPerformanceFiles.addEventListener("click", () => run(scanPerformanceFiles)); ui.performanceSourceSelect.addEventListener("change", () => { ui.importPerformance.disabled = !ui.performanceSourceSelect.value; }); ui.importPerformance.addEventListener("click", () => run(importPerformanceFile)); ui.performanceAdvisor.addEventListener("change", renderPerformance); ui.performanceMetric.addEventListener("change", renderPerformance); ui.assignAdvisorGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-assign-availability]"); if (button) run(() => toggleAssignAvailability(button.dataset.assignAvailability)); }); ui.meetingSapr.addEventListener("click", () => showMeetingPanel("sapr")); ui.meetingCsi.addEventListener("click", () => showMeetingPanel("csi")); ui.meetingFullscreen.addEventListener("click", () => run(toggleMeetingFullscreen)); document.addEventListener("fullscreenchange", () => { const active = Boolean(document.fullscreenElement); /* The Arena goes fullscreen on its own element. Do not toggle a BODY class and reflow every other dashboard view. The legacy whole-document fullscreen path still uses its existing body rules. */ const arenaIsPresenting=Boolean(document.querySelector("#view-meeting.meeting-scoreboard.presentation-active.active")); document.body.classList.toggle("meeting-fullscreen", document.fullscreenElement === document.documentElement && !arenaIsPresenting); ui.meetingFullscreen.textContent = active ? "Exit full screen" : "Enter full screen"; });
-  ensureOpenRoRetrievalUi();
+  ensureOpenRoRetrievalUi();ensureAdvisorHandoffUi();
   ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", () => run(connect)); ui.homeConnect.addEventListener("click", () => run(connect)); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input", renderTable); [ui.advisorFilter, ui.sourceStatusFilter, ui.managementStatusFilter, ui.attentionFilter].forEach((select) => select.addEventListener("change", renderTable)); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",()=>{editDraftDirty=true;}); ui.editForm.addEventListener("change",()=>{editDraftDirty=true;}); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(importAppointmentFile)); ui.appointmentDate.addEventListener("change", renderArrivals); ui.arrivalSearch.addEventListener("input", renderArrivals); ui.printArrivals.addEventListener("click", () => run(printPorterList)); ui.arrivalTimeline.addEventListener("change", (event) => { const select = event.target.closest("select[data-appointment-id]"); if (select) run(() => updateArrivalStatus(select.dataset.appointmentId, select.value)); }); ui.saveSettings.addEventListener("click", () => run(saveSettings)); const saveMeetingVoiceDraft=()=>{syncMeetingVoiceDraftSettings();queueSettingsAutosave();renderVoiceControlVisibility();};ui.meetingVoiceSurvey.addEventListener("change",()=>{previewMeetingVoiceSelection();saveMeetingVoiceDraft();});ui.meetingVoiceMode.addEventListener("change",saveMeetingVoiceDraft);ui.meetingVoiceSourceMethod.addEventListener("change",()=>{if(ui.meetingVoiceSourceMethod.value==="saved")previewMeetingVoiceSelection();else ui.meetingVoiceExcerpt.value=ui.meetingVoicePastedSource.value;saveMeetingVoiceDraft();});[ui.meetingVoicePastedSource,ui.meetingVoiceExcerpt,ui.meetingTeamMessage].forEach((field)=>field.addEventListener("input",saveMeetingVoiceDraft));ui.meetingVoiceUseFull.addEventListener("click",()=>{useFullMeetingVoice();saveMeetingVoiceDraft();}); ui.pinMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(true))); ui.clearMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(false)));
   ui.recentlyReviewed.addEventListener("click",()=>{ui.recentlyReviewedPanel.hidden=!ui.recentlyReviewedPanel.hidden;ui.recentlyReviewed.setAttribute("aria-expanded",String(!ui.recentlyReviewedPanel.hidden));if(!ui.recentlyReviewedPanel.hidden)renderRecentlyReviewed();});ui.recentlyReviewedPanel.addEventListener("click",(event)=>{const button=event.target.closest("button[data-recently-reviewed-id]");if(!button)return;ui.recentlyReviewedPanel.hidden=true;ui.recentlyReviewed.setAttribute("aria-expanded","false");openEdit(button.dataset.recentlyReviewedId,"recent");});
   ui.openFirstRecord.addEventListener("click", () => { const id = visibleRecordIds()[0]; if (id) openEdit(id); });
@@ -3432,4 +3673,3 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   initializeHousekeeping();
 
 })();
-

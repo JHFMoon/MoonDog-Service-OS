@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.18-beta.88 — current Beta
+
+- Integrated Supervisor Workbook recovery, independent advisor handoff, staged unsigned RO verification and strict merge authorization. Review candidate; no Workspace migration. Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.87 — current Beta
+
+- Integrated Supervisor Workbook recovery, independent advisor handoff, explicit unsigned RO source review and merge-authorization repairs. Review candidate; no Workspace migration. Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.86 — current Beta
+
+- Supervisor Workbook recovery: durable issuance verification, stale-before-import protection, serialized workbook operations, and state changes only after verified persistence. Verified synthetic recovery tests; no Workspace migration. Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.85 — current Beta
 
 - Beta 85: two-day RO reviews and complete five-day plans. Verified automated Beta; no Workspace migration.

@@ -48,6 +48,8 @@ Stable 0.10.17 does not use an owner-designation control. Durable writes require
 
 Durable changes are guarded by authority and revision checks and use persistent recovery journals. Failed or interrupted writes/deletes must not falsely advance the store revision.
 
+Supervisor Workbook issuance is recorded in durable recovery state and read back before the workbook is treated as current. Each issued workbook carries a cryptographically random identifier; returned workbooks must match that identifier and current recovery state. Source imports invalidate the prior issuance before changing durable source state. Imports and workbook generation share an exclusive browser lock across tabs and fail closed when that lock is unavailable. State changes are applied to the in-memory model only after verified persistence succeeds.
+
 ## Clean-install distribution contract
 
 `scripts/build_distribution.py` reads the same `HANDOFF_RUNTIME_PATHS` catalog used by application handoff/runtime integrity checks. The builder:

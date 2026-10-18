@@ -72,7 +72,6 @@ VETTED_SYNTHETIC_VIN_BLOB_SHA1 = frozenset({
     "bbb2b16de4b66c6efe0b5e9417a3ab96ca5962cd",
     "c725dce8e13b38a548594a1c5ce3b3ace379ee44",
 })
-
 counts = collections.Counter()
 safe_counts = collections.Counter()
 diagnostic_counts = collections.Counter()

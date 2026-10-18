@@ -28,6 +28,12 @@ jobs:
       HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
       PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
     steps:
+      - name: Check out trusted merge guard from main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
       - name: Verify automation authorization and PR safety
         id: guard
         shell: bash
@@ -45,16 +51,29 @@ jobs:
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.json
-          if [ "$(jq -r '.state' /tmp/pr.json)" != "open" ] || ! jq -e '.body // "" | contains("MoonDog-Auto-Merge: yes")' /tmp/pr.json >/dev/null; then
+          if [ "$(jq -r '.state' /tmp/pr.json)" != "open" ]; then
             echo "PR is closed or not authorized for automatic merge; skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          set +e
+          python3 scripts/guarded_merge_authorization.py /tmp/pr.json
+          AUTHORIZATION_STATUS=$?
+          set -e
+          if [ "$AUTHORIZATION_STATUS" -eq 1 ]; then
+            echo "PR has no explicit automatic-merge authorization; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$AUTHORIZATION_STATUS" -ne 0 ]; then
+            echo "Could not verify structured PR authorization; refusing to merge." >&2
+            exit "$AUTHORIZATION_STATUS"
+          fi
           python3 - <<'PY'
           import json, os, sys
+          from scripts.guarded_merge_authorization import has_explicit_approval
           pr=json.load(open('/tmp/pr.json',encoding='utf-8'))
           expected=os.environ['HEAD_SHA']
-          body=pr.get('body') or ''
           if pr.get('state')!='open':
               print('PR is no longer open; nothing to merge.')
               sys.exit(0)
@@ -63,7 +82,7 @@ jobs:
               'base': pr.get('base',{}).get('ref')=='main',
               'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
               'head': pr.get('head',{}).get('sha')==expected,
-              'authorization': 'MoonDog-Auto-Merge: yes' in body,
+              'authorization': has_explicit_approval(pr.get('body')),
               'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
           }
           failed=[name for name,ok in checks.items() if not ok]
@@ -93,8 +112,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/pr-paths.txt
+          python3 scripts/pipeline_guard.py check-paths /tmp/pr-paths.txt
           for attempt in {1..42}; do
             RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=50")"
+            RUNS="$(jq --arg head "$HEAD_SHA" --arg repo "$REPO" '{workflow_runs: [.workflow_runs[] | select(.head_sha==$head and .head_repository.full_name==$repo and (.event=="pull_request" or .event=="workflow_dispatch")) | select((.name=="Publication check" and .path==".github/workflows/publication-check.yml") or (.name=="Clean Install Proof" and .path==".github/workflows/clean-install-proof.yml"))]}' <<<"$RUNS")"
             PUB_OK="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")] | length' <<<"$RUNS")"
             CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")] | length' <<<"$RUNS")"
             PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .status!="completed")] | length' <<<"$RUNS")"
@@ -133,6 +155,8 @@ jobs:
           set -euo pipefail
           for attempt in {1..12}; do
             gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/final-pr.json
+            gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/final-pr-paths.txt
+            python3 scripts/pipeline_guard.py check-paths /tmp/final-pr-paths.txt
             MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
             CURRENT_HEAD="$(jq -r '.head.sha' /tmp/final-pr.json)"
             test "$CURRENT_HEAD" = "$HEAD_SHA" || {
@@ -142,6 +166,7 @@ jobs:
 
             python3 - <<'PY'
           import json, os
+          from scripts.guarded_merge_authorization import has_explicit_approval
           pr=json.load(open('/tmp/final-pr.json',encoding='utf-8'))
           checks={
               'open': pr.get('state')=='open',
@@ -149,7 +174,7 @@ jobs:
               'base': pr.get('base',{}).get('ref')=='main',
               'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
               'head': pr.get('head',{}).get('sha')==os.environ['HEAD_SHA'],
-              'authorization': 'MoonDog-Auto-Merge: yes' in (pr.get('body') or ''),
+              'authorization': has_explicit_approval(pr.get('body')),
               'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
           }
           failed=[name for name,ok in checks.items() if not ok]
