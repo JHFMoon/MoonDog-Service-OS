@@ -10,7 +10,8 @@ const offered={status:"newer-version",channel:"beta",version:"0.10.18-beta.68",
   sha256:"a".repeat(64),packageUrl:"https://example.test/moondog-beta.json"};
 
 async function runCase({result={status:"installed",version:offered.version},
-  confirms=true,canReload=true,verifyFails=false,recoveryFails=false,failOnInstallPreflight=false}={}){
+  confirms=true,canReload=true,verifyFails=false,recoveryFails=false,failOnInstallPreflight=false,
+  retryRecovery=false,retryStillFails=false,skipInstall=false,retryFindsBackup=false}={}){
   const fields=new Map(),listeners=new Map(),scheduled=[],storageWrites=[],reloads=[];
   const field=id=>{
     if(!fields.has(id))fields.set(id,{textContent:"",value:"",disabled:false,hidden:false,
@@ -21,7 +22,7 @@ async function runCase({result={status:"installed",version:offered.version},
   const root={name:"Workspace",getDirectoryHandle:async name=>{
     assert.equal(name,"System Files");return {getDirectoryHandle:async()=>{throw Error("Legacy beta marker unavailable");}};
   }};
-  let applied=0, recoveryReads=0;
+  let applied=0, recoveryReads=0, forceRecoveryFailure=recoveryFails, confirmationCount=0;
   const globals={
     document:{
       getElementById:id=>id==="view-settings"?{querySelector:q=>q===".settings-sections"?{append:()=>{}}:null}:null,
@@ -43,11 +44,11 @@ async function runCase({result={status:"installed",version:offered.version},
     MoonDogPackagePlan:{dryRun:async()=>({add:[],replace:[],delete:[],unchanged:[],rejected:[]})},
     MoonDogUpdateInstall:{listBackups:async()=>{
       recoveryReads++;
-      if(recoveryFails||(failOnInstallPreflight&&recoveryReads>1))
+      if(forceRecoveryFailure||(failOnInstallPreflight&&recoveryReads>1))
         throw Object.assign(new Error("synthetic OneDrive lock"),{name:"NotReadableError"});
-      return [];
+      return retryFindsBackup&&retryRecovery&&recoveryReads>1?["MoonDog-Update-Backup-synthetic"]:[];
     },apply:async()=>{applied++;return result;}},
-    confirm:()=>confirms,
+    confirm:()=>{confirmationCount++;return confirms;},
     location:canReload?{reload:()=>reloads.push("reloaded")}:{},
     setTimeout:(fn,delay)=>{if(delay===20)fn();else scheduled.push({fn,delay});return {unref:()=>{}};},
     addEventListener:()=>{},
@@ -60,8 +61,12 @@ async function runCase({result={status:"installed",version:offered.version},
     await new Promise(resolve=>setImmediate(resolve));
   }
   await listeners.get("checkMoonDogUpdate:click")();
-  await listeners.get("installMoonDogUpdate:click")();
-  return {fields,scheduled,reloads,storageWrites,applied};
+  if(retryRecovery){
+    if(!retryStillFails)forceRecoveryFailure=false;
+    await listeners.get("recoverMoonDogUpdate:click")();
+  }
+  if(!skipInstall)await listeners.get("installMoonDogUpdate:click")();
+  return {fields,scheduled,reloads,storageWrites,applied,recoveryReads,confirmationCount};
 }
 
 test("verified installation schedules one automatic reload after completion",async()=>{
@@ -126,4 +131,34 @@ test("installation rechecks recovery before writing even when startup scan has n
     "the failed preflight must hold the install button disabled");
   assert.match(result.fields.get("updateStatus").textContent,/recovery backups are unresolved or cannot be verified/i);
   assert.equal(result.reloads.length,0);
+});
+
+
+test("recovery scan retry clears transient OneDrive lock without starting an update",async()=>{
+  const result=await runCase({recoveryFails:true,retryRecovery:true,skipInstall:true});
+  assert.ok(result.recoveryReads>=2,"manual action retries actual recovery inventory");
+  assert.equal(result.fields.get("installMoonDogUpdate").disabled,false,
+    "the verified-empty backup inventory clears the previous uncertainty");
+  assert.equal(result.fields.get("recoverMoonDogUpdate").hidden,true);
+  assert.match(result.fields.get("updateStatus").textContent,/recovery check complete/i);
+  assert.equal(result.applied,0,"a scan retry never installs anything");
+  assert.equal(result.confirmationCount,0,"a scan retry must not prompt for restoration");
+});
+
+test("a repeated failed recovery scan stays blocked without a restore prompt",async()=>{
+  const result=await runCase({recoveryFails:true,retryRecovery:true,retryStillFails:true,skipInstall:true});
+  assert.equal(result.fields.get("installMoonDogUpdate").disabled,true);
+  assert.equal(result.fields.get("recoverMoonDogUpdate").textContent,"Retry recovery check");
+  assert.match(result.fields.get("updateStatus").textContent,/recovery backup check failed/i);
+  assert.equal(result.applied,0);
+  assert.equal(result.confirmationCount,0);
+});
+
+test("a successful retry finding incomplete backups requires a separate restore action",async()=>{
+  const result=await runCase({recoveryFails:true,retryRecovery:true,retryFindsBackup:true,skipInstall:true});
+  assert.equal(result.fields.get("installMoonDogUpdate").disabled,true);
+  assert.equal(result.fields.get("recoverMoonDogUpdate").textContent,"Recover interrupted update");
+  assert.match(result.fields.get("updateStatus").textContent,/interrupted update backups were found/i);
+  assert.equal(result.applied,0);
+  assert.equal(result.confirmationCount,0,"a retry is never implicit restoration approval");
 });
