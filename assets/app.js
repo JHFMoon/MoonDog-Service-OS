@@ -310,7 +310,7 @@
   function nextAdminCloseoutEvidence(prior, values, at) {
     const previous = prior && typeof prior === "object" ? prior : {};
     const defaults = {
-      physicalWorkStatus: previous.blocker ? "verified" : "unverified",
+      physicalWorkStatus: "unverified",
       pickupStatus: "", pickupContactDate: "", expectedPickupDate: "", warrantyStatus: "", evidence: "", coachingStatus: "", coachingAction: ""
     };
     const current = adminCloseoutEvidenceSnapshot(Object.fromEntries(ADMIN_CLOSEOUT_EVIDENCE_FIELDS.map((key) => [key, previous[key] ?? defaults[key]])));
@@ -326,7 +326,7 @@
     if (!closeout?.blocker || isClosedManagement(record?.management)) {
       return { active: false, overdue: false, dueToday: false, needsCommitment: false };
     }
-    if (closeout.physicalWorkStatus && closeout.physicalWorkStatus !== "verified") {
+    if (closeout.physicalWorkStatus !== "verified") {
       return { active: false, verified: false, overdue: false, dueToday: false, needsCommitment: false };
     }
     // A manager review/reminder date is not proof of an advisor task commitment.
@@ -3164,7 +3164,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function renderCdkStatusIndicator(record){const indicator=cdkStatusIndicator(record);ui.editCdkStatusIndicator.hidden=!indicator;ui.editCdkStatusIndicator.className="cdk-status-indicator "+(indicator?.kind||"");ui.editCdkStatusIndicator.textContent=indicator?.text||"";}
   function loadAdminCloseoutEvidence(record) {
     const closeout = record.management.adminCloseout || {};
-    ui.editAdminWorkStatus.value = closeout.physicalWorkStatus || (closeout.blocker ? "verified" : "unverified");
+    ui.editAdminWorkStatus.value = closeout.physicalWorkStatus || "unverified";
     ui.editAdminPickupStatus.value = closeout.pickupStatus || "";
     ui.editAdminPickupContactDate.value = closeout.pickupContactDate || "";
     ui.editAdminPickupDate.value = closeout.expectedPickupDate || "";
