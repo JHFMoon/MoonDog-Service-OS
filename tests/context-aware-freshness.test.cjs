@@ -49,3 +49,20 @@ test('Gregorian date keys reject impossible dates without silently rolling into 
   assert.deepEqual(F.operatingDays('2026-02-30', '2026-03-02'), []);
   assert.equal(F.addDays('2024-02-28', 1), '2024-02-29');
 });
+
+test('invalid month keys never normalize into neighboring months or years', () => {
+  for (const month of ['2026-00','2026-13','0000-12','0099-01','2026-1','2026-14']) {
+    assert.equal(F.lastDayOfMonth(month), '', month + ' last day');
+    assert.equal(F.previousMonth(month), '', month + ' previous month');
+    assert.equal(F.finalOperatingDay(month), '', month + ' operating month end');
+  }
+  for (const date of ['0000-12-31','0099-01-01']) {
+    assert.equal(F.validDateKey(date), false, date);
+    assert.equal(F.addDays(date, 1), '', date + ' arithmetic');
+  }
+  assert.equal(F.lastDayOfMonth('2024-02'), '2024-02-29');
+  assert.equal(F.lastDayOfMonth('2026-02'), '2026-02-28');
+  assert.equal(F.previousMonth('2026-01'), '2025-12');
+  assert.equal(F.previousMonth('2026-01-15'), '2025-12');
+  assert.equal(F.finalOperatingDay('2026-02'), '2026-02-28');
+});
