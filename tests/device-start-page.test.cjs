@@ -59,10 +59,10 @@ test("installed runtime, Settings control and startup preference are wired toget
   assert.match(html,/<select id="deviceStartPage">/);
   assert.match(html,/id="deviceStartPageReset" type="button"/);
   assert.match(html,/id="deviceStartPageFeedback" role="status"/);
-  assert.doesNotMatch(html,/src="assets\\/device-preferences\\.js"/);
-  assert.match(app,/const HANDOFF_RUNTIME_PATHS=\\[[^;]+assets\\/daily-ops\\.css/);
-  assert.doesNotMatch(app,/const HANDOFF_RUNTIME_PATHS=\\[[^;]+assets\\/device-preferences\\.js/);
-  assert.match(app,/querySelectorAll\\("\\.settings-card:not\\(#settings-device-start-page\\)"\\)/);
+  assert.doesNotMatch(html,/src="assets\/device-preferences\.js"/);
+  assert.match(app,/const HANDOFF_RUNTIME_PATHS=\[[^;]+assets\/daily-ops\.css/);
+  assert.doesNotMatch(app,/const HANDOFF_RUNTIME_PATHS=\[[^;]+assets\/device-preferences\.js/);
+  assert.match(app,/querySelectorAll\("\.settings-card:not\(#settings-device-start-page\)"\)/);
   assert.match(html,/id="settings-device-start-page"/);
   assert.match(app,/MoonDogDevicePreferences\?\.readLanding\(\)/);
   assert.match(app,/MoonDogDevicePreferences\?\.writeLanding\(/);
