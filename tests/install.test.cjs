@@ -16,7 +16,7 @@ const compatibility = html => html.replace("<head>", '<head><base href="System F
 
 function folder(name, files = {}, directories = []) {
   const store = { dirs: new Set(["", ...directories]), files: new Map(Object.entries(files).map(([key, value]) =>
-    [key, Buffer.from(value)])), failOnce: null, writes: [], readDelayMs: 0, activeReads: 0, peakReads: 0 };
+    [key, Buffer.from(value)])), failOnce: null, failReadOnce: null, writes: [], readDelayMs: 0, activeReads: 0, peakReads: 0 };
   const handle = prefix => ({
     name: prefix.split("/").filter(Boolean).at(-1) || name,
     kind: "directory",
@@ -37,6 +37,10 @@ function folder(name, files = {}, directories = []) {
       if (!store.files.has(key) && !options.create) throw notFound();
       return {
         getFile: async () => {
+          if (store.failReadOnce === key) {
+            store.failReadOnce = null;
+            throw Object.assign(new Error("synthetic OneDrive read conflict"), { name: "NotReadableError" });
+          }
           const value = store.files.get(key);
           if (!value) throw notFound();
           if (store.readDelayMs) {
@@ -317,4 +321,31 @@ test("large recovery inventory reads bounded batches without modifying protected
   assert.equal(setup.workspace.store.dirs.size, originalDirs, "listing never deletes backup folders");
   assert.equal(setup.workspace.store.files.size, originalFiles, "listing never deletes journal bytes");
   assert.deepEqual(setup.workspace.store.writes, [], "listing must never mutate Workspace");
+});
+
+test("recovery inventory surfaces transient OneDrive read failures instead of hiding unfinished backups", async () => {
+  const setup = await fixture();
+  const dir = "System Files/Workspace/backups/system-updates/";
+  const name = "MoonDog-Update-Backup-20261018-synthetic-lock";
+  const validName = "MoonDog-Update-Backup-20261018-known-incomplete";
+  const journal = dir + name + "/journal.json";
+  setup.workspace.store.dirs.add(dir + name);
+  setup.workspace.store.dirs.add(dir + validName);
+  setup.workspace.store.files.set(journal, Buffer.from(JSON.stringify({ status: "applying" })));
+  setup.workspace.store.files.set(dir + validName + "/journal.json",
+    Buffer.from(JSON.stringify({ status: "prepared" })));
+  setup.workspace.store.failReadOnce = journal;
+
+  await assert.rejects(
+    context.MoonDogUpdateInstall.listBackups(setup.workspace.root),
+    error => error?.name === "NotReadableError",
+    "a temporary OneDrive conflict must be reported rather than interpreted as no recovery needed"
+  );
+  assert.deepEqual(
+    Array.from(await context.MoonDogUpdateInstall.listBackups(setup.workspace.root)),
+    [name, validName].sort().reverse(), "a retry finds every incomplete backup without hidden entries"
+  );
+  assert.equal(setup.workspace.store.files.get(journal).toString(),
+    JSON.stringify({ status: "applying" }), "the journal remains intact");
+  assert.deepEqual(setup.workspace.store.writes, [], "inventory never mutates backups or protected files");
 });
