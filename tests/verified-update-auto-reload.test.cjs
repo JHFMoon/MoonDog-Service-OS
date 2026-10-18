@@ -10,7 +10,7 @@ const offered={status:"newer-version",channel:"beta",version:"0.10.18-beta.68",
   sha256:"a".repeat(64),packageUrl:"https://example.test/moondog-beta.json"};
 
 async function runCase({result={status:"installed",version:offered.version},
-  confirms=true,canReload=true,verifyFails=false}={}){
+  confirms=true,canReload=true,verifyFails=false,recoveryFails=false,failOnInstallPreflight=false}={}){
   const fields=new Map(),listeners=new Map(),scheduled=[],storageWrites=[],reloads=[];
   const field=id=>{
     if(!fields.has(id))fields.set(id,{textContent:"",value:"",disabled:false,hidden:false,
@@ -21,11 +21,12 @@ async function runCase({result={status:"installed",version:offered.version},
   const root={name:"Workspace",getDirectoryHandle:async name=>{
     assert.equal(name,"System Files");return {getDirectoryHandle:async()=>{throw Error("Legacy beta marker unavailable");}};
   }};
-  let applied=0;
+  let applied=0, recoveryReads=0;
   const globals={
     document:{
       getElementById:id=>id==="view-settings"?{querySelector:q=>q===".settings-sections"?{append:()=>{}}:null}:null,
-      createElement:()=>card,querySelector:()=>null,addEventListener:()=>{},hidden:false
+      createElement:()=>card,querySelector:()=>null,
+      addEventListener:(name,fn)=>listeners.set("document:"+name,fn),hidden:false
     },
     MoonDogInstalledVersion:"0.10.18-beta.67",
     __moondogSettingsModel:{applicationRoot:root},
@@ -40,7 +41,12 @@ async function runCase({result={status:"installed",version:offered.version},
       migrationRequired:false,minimumCompatibleVersion:"0.10.17"
     };}},
     MoonDogPackagePlan:{dryRun:async()=>({add:[],replace:[],delete:[],unchanged:[],rejected:[]})},
-    MoonDogUpdateInstall:{listBackups:async()=>[],apply:async()=>{applied++;return result;}},
+    MoonDogUpdateInstall:{listBackups:async()=>{
+      recoveryReads++;
+      if(recoveryFails||(failOnInstallPreflight&&recoveryReads>1))
+        throw Object.assign(new Error("synthetic OneDrive lock"),{name:"NotReadableError"});
+      return [];
+    },apply:async()=>{applied++;return result;}},
     confirm:()=>confirms,
     location:canReload?{reload:()=>reloads.push("reloaded")}:{},
     setTimeout:(fn,delay)=>{if(delay===20)fn();else scheduled.push({fn,delay});return {unref:()=>{}};},
@@ -49,6 +55,10 @@ async function runCase({result={status:"installed",version:offered.version},
   };
   vm.runInNewContext(source,globals);
   await new Promise(resolve=>setImmediate(resolve));
+  if(recoveryFails){
+    listeners.get("document:moondog-data")();
+    await new Promise(resolve=>setImmediate(resolve));
+  }
   await listeners.get("checkMoonDogUpdate:click")();
   await listeners.get("installMoonDogUpdate:click")();
   return {fields,scheduled,reloads,storageWrites,applied};
@@ -98,4 +108,22 @@ test("only a confirmed installed result enters the reload gate",()=>{
   assert.match(source,/if \(verifiedReloadVersion\) reloadVerifiedUpdate\(verifiedReloadVersion\);/);
   assert.match(source,/global\.location\.reload\(\)/);
   assert.doesNotMatch(source,/reloadVerifiedUpdate\(outcome\.version\)/);
+});
+
+test("unreadable recovery inventory blocks an offered update before package installation",async()=>{
+  const result=await runCase({recoveryFails:true});
+  assert.equal(result.applied,0,"the updater must not apply when incomplete backups cannot be checked");
+  assert.equal(result.fields.get("installMoonDogUpdate").disabled,true,
+    "a failed OneDrive recovery scan must not enable the install button");
+  assert.match(result.fields.get("updateChannelNote").textContent,/recovery backups could not be checked/i);
+  assert.equal(result.reloads.length,0);
+});
+
+test("installation rechecks recovery before writing even when startup scan has not run",async()=>{
+  const result=await runCase({failOnInstallPreflight:true});
+  assert.equal(result.applied,0,"the installer must reject a late OneDrive backup read failure");
+  assert.equal(result.fields.get("installMoonDogUpdate").disabled,true,
+    "the failed preflight must hold the install button disabled");
+  assert.match(result.fields.get("updateStatus").textContent,/recovery backups are unresolved or cannot be verified/i);
+  assert.equal(result.reloads.length,0);
 });
