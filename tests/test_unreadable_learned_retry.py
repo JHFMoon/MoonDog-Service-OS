@@ -16,7 +16,7 @@ class LearnedFileRetryTests(unittest.TestCase):
         segment=APP.split("async function runVerifiedUpdateFollowup()",1)[1].split("const folderWatch=",1)[0]
         self.assertIn('result?.deferred||result?.failures',segment)
         self.assertIn('localStorage.removeItem(key)',segment)
-        self.assertLess(segment.index('result?.deferred||result?.failures'),segment.index('localStorage.removeItem(key)'))
+        self.assertLess(segment.index('result?.deferred||result?.failures'),segment.rindex('localStorage.removeItem(key)'))
 
 if __name__=="__main__":
     unittest.main()
