@@ -1,22 +1,24 @@
 "use strict";
-// Regression gate for the classifier used by Files To Learn.
-// A change to its recognition rules must also update LEARNED_PARSER_REVISION
-// and the reviewed baseline below. Do not change only the signature to silence
-// a failure; doing so can strand unsupported source files in the old memo.
+// The Files To Learn memo caches unsupported signatures by parser epoch.
+// The PR-to-base check below covers delegated production recognizers, not just
+// classifyImportFile's dispatch code, so parser rule changes require a bump.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 
-const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+const root = path.join(__dirname, "..");
+const app = fs.readFileSync(path.join(root, "assets/app.js"), "utf8");
 const beginning = app.indexOf("  async function classifyImportFile(");
 const ending = app.indexOf("  async function moveToLearn(", beginning);
-assert.ok(beginning >= 0 && ending > beginning, "Trusted source recognition boundaries changed; review epoch gate");
+assert.ok(beginning >= 0 && ending > beginning, "Trusted classifier boundaries changed; review epoch gate");
 const classifier = app.slice(beginning, ending).replace(/\r\n/g, "\n");
-const revision = app.match(/const LEARNED_PARSER_REVISION = "([^"]+)";/)?.[1] || "";
+const revisionOf = source => source.match(/const LEARNED_PARSER_REVISION = "([^"]+)";/)?.[1] || "";
+const revision = revisionOf(app);
 
 function fingerprint(source) {
-  // FNV-1a source fingerprint is a drift detector, not a cryptographic trust check.
+  // FNV-1a is a drift detector, not a cryptographic trust check.
   let value = 2166136261;
   for (let i = 0; i < source.length; i++) {
     value ^= source.charCodeAt(i);
@@ -30,15 +32,81 @@ const reviewed = Object.freeze({
   classifierFingerprint: "1e601352"
 });
 
-test("classification edits require reviewed epoch + fingerprint updates together", () => {
-  const currentFingerprint = fingerprint(classifier);
-  const classifierChanged = currentFingerprint !== reviewed.classifierFingerprint;
+// These are the production parsers/detectors called by the trusted classifier.
+// Include the actual recognition code: its dispatch text can remain unchanged
+// while a previously unsupported file becomes newly recognizable.
+const watched = Object.freeze([
+  "classifyImportFile",
+  "parseNextAppointmentsCsv",
+  "parseAppointmentsCreatedSummaryCsv",
+  "parseVirCsv",
+  "parseCsiRows",
+  "parseCdkRepairOrdersDocx",
+  "cdkRepairOrdersLayout",
+  "parseSorWorkbook",
+  "parsePerformanceWorkbook",
+  "parseMenuSalesWorkbook",
+  "parseOpenRoSummaryWorkbook",
+  "parseMediaAsrWorkbook",
+  "parseSupplementalWorkbook",
+  "parseEfficiencyWorkbook",
+  "parseAppointmentActivityWorkbook",
+  "parseSupplementalDocxReport",
+  "legacyReport",
+  "findTable"
+]);
+
+function recognitionSection(source, name) {
+  if (name === "classifyImportFile") {
+    const start = source.indexOf("  async function classifyImportFile(");
+    const end = source.indexOf("  async function moveToLearn(", start);
+    return start >= 0 && end > start ? source.slice(start, end).replace(/\r\n/g, "\n") : "";
+  }
+  const marker = "\n  function " + name + "(";
+  const start = source.indexOf(marker);
+  if (start < 0) return "";
+  const remainder = source.slice(start + marker.length);
+  const next = /\n  (?:async )?function [A-Za-z_$][\w$]*\(/.exec(remainder);
+  return source.slice(start, next ? start + marker.length + next.index : source.length).replace(/\r\n/g, "\n");
+}
+
+function changedRecognizers(previous, current) {
+  return watched.filter(name => recognitionSection(previous, name) !== recognitionSection(current, name));
+}
+
+test("classifier changes require reviewed epoch and fingerprint updates together", () => {
+  const classifierChanged = fingerprint(classifier) !== reviewed.classifierFingerprint;
   const revisionChanged = revision !== reviewed.revision;
   assert.equal(classifierChanged, revisionChanged,
-    "Files To Learn classifier changed without LEARNED_PARSER_REVISION update (or revision advanced with unchanged classifier). Review the source-recognition changes, update the revision and this baseline together, then verify durable file retry tests.");
+    "Files To Learn top-level classifier changed without LEARNED_PARSER_REVISION update (or revision changed with unchanged classifier). Review recognition changes and update the epoch and baseline together.");
   assert.ok(revision.length > 8);
 });
 
-test("source drift fingerprint notices changed recognition ordering", () => {
-  assert.notEqual(fingerprint(classifier + " // synthetic classification rule change"), fingerprint(classifier));
+test("all watched delegated recognizers exist in the actual shipped source", () => {
+  for (const name of watched)
+    assert.ok(recognitionSection(app, name).length >= 20, "Missing or relocated recognizer " + name + "; review the epoch gate");
+});
+
+test("source drift detection recognizes synthetic dispatcher and delegated parser changes", () => {
+  assert.notEqual(fingerprint(classifier + " // synthetic classification change"), fingerprint(classifier));
+  const marker = "  function parseVirCsv(source, fileName) {";
+  assert.ok(app.includes(marker));
+  const changed = app.replace(marker, marker + " /* synthetic recognition rule update */");
+  assert.ok(changedRecognizers(app, changed).includes("parseVirCsv"));
+  assert.deepEqual(changedRecognizers(app, app), []);
+});
+
+// Protected Publication Check supplies the immutable pull-request base SHA.
+// Comparing production code to Git history means changing this test's pinned
+// baseline alone cannot hide a parser edit made without an epoch bump.
+test("PR-to-base delegated recognition edits require LEARNED_PARSER_REVISION bump", () => {
+  const base = (process.env.LEARNED_PARSER_BASE_SHA || "").trim();
+  if (!base) return; // Local or push context: baseline and synthetic tests above still run.
+  assert.match(base, /^[a-f0-9]{40}$/i, "Only a reviewed commit SHA may be used as base");
+  const previous = execFileSync("git", ["show", base + ":assets/app.js"],
+    { cwd: root, encoding: "utf8", maxBuffer: 2 * 1024 * 1024 });
+  const changed = changedRecognizers(previous, app);
+  if (changed.length)
+    assert.notEqual(revision, revisionOf(previous),
+      "Production Files To Learn recognition changed without a parser epoch bump: " + changed.join(", "));
 });
