@@ -71,7 +71,7 @@ test('Home save does not clear or transfer administrative fields between ROs', (
 });
 
 test('Supervisor Workbook updates do not silently replace an existing admin commitment', () => {
-  assert.ok(app.includes('Administrative closeout promise changed in workbook: confirm the revised date and reason'));
+  assert.ok(app.includes('Administrative closeout action changed in workbook: confirm changes to advisor task commitments directly with the manager in Open RO Control.'));
   assert.ok(app.includes('proposed.nextAction !== (current.nextAction || "")'));
   assert.ok(!app.includes('proposed.reviewDate !== (current.adminCloseout.taskDate || "")'));
   assert.ok(app.includes('adminCloseoutState(record,today).dueToday ? 3'));
