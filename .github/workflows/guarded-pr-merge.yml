@@ -6,7 +6,9 @@ on:
     types: [completed]
 
 permissions:
-  actions: read
+  # Required only to dispatch the trusted post-merge Beta packager.
+  # The existing head/proof/main/Stable gates remain mandatory before dispatch.
+  actions: write
   contents: write
   pull-requests: write
 
