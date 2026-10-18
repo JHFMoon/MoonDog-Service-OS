@@ -1695,12 +1695,13 @@
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)return {deferred:true};
     let failures=0,attempts=0,recovered=0,unsupported=0,skipped=0;
     const memo=model.autoImport.learnedFileMemo||=( {} );
-    let memoDirty=false;dailyImportBusy=true;try{
+    let memoDirty=false,failureLedgerDirty=false;dailyImportBusy=true;try{
     let folder; try { folder = await directory(["Files To Learn"], false); } catch (error) { if (error.name === "NotFoundError") return {failures:0,attempts:0,recovered:0,unsupported:0}; throw error; }
-    const entries = []; for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && !/^~\$/.test(name)) { try { const file = await handle.getFile(); const relativePath=`Files To Learn/${name}`; entries.push({ name, location:"learn", relativePath, handle, file, signature:`${relativePath}|${file.size}|${file.lastModified}` }); } catch (error) { failures++; recordDiagnostic("FILES TO LEARN", `Learned-source open deferred: ${error?.name||"Error"}`); } }
+    const entries = []; for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && !/^~\$/.test(name)) { try { const file = await handle.getFile(); const relativePath=`Files To Learn/${name}`; entries.push({ name, location:"learn", relativePath, handle, file, signature:`${relativePath}|${file.size}|${file.lastModified}` }); } catch (error) { failures++;const diagnostic=`Learned-source open deferred: ${error?.name||"Error"}`;model.autoImport.seen||={};model.autoImport.seen[`learn-open|${name}`]={fileName:name,storedAs:name,importFailed:true,readError:true,diagnostic,failedAt:now()};failureLedgerDirty=true;recordDiagnostic("FILES TO LEARN",diagnostic); } }
     for (const entry of entries) { entry.structurePriority=10; if (/\.csv$/i.test(entry.name)) { const start=(await entry.file.slice(0,160).text()).trim().toLowerCase(); entry.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     entries.sort((a, b) => a.structurePriority - b.structurePriority || a.file.lastModified - b.file.lastModified || a.name.localeCompare(b.name, undefined, { numeric: true }));
     for (const entry of entries) {
+      let currentBytes=null;
       try {
         if(model.autoImport.seen?.[entry.signature]?.kind==="appointments"&&model.autoImport.seen[entry.signature].importedAt)continue;
         if(memo[entry.signature]===parserRevision){skipped++;continue;}
@@ -1709,15 +1710,15 @@
         if(!/\.(?:csv|xlsx|pdf|docx)$/i.test(entry.name)){
           unsupported++;memo[entry.signature]=parserRevision;memoDirty=true;continue;
         }
-        const bytes = await entry.file.arrayBuffer(), kind = await classifyImportFile(entry.name, entry.file, bytes);
+        const bytes = await entry.file.arrayBuffer(), kind = await classifyImportFile(entry.name, entry.file, bytes);currentBytes=new Uint8Array(bytes);
         if (!kind) { unsupported++;memo[entry.signature]=parserRevision;memoDirty=true; continue; }
         const outcome=await processClassifiedCandidate(entry, kind, bytes, true);if(kind==="appointments"){model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,importedAt:now(),kind};await writeJson(AUTO_IMPORT_PATH,model.autoImport);}
-        recovered++;if(outcome?.retired){await addHistory("learned-file-retired","Verified a known non-service learned source and removed the Service OS copy",{sourceFamily:kind,retired:true});recordDiagnostic("FILES TO LEARN",`${kind} retired; no Service OS data retained`);}else{await addHistory("learned-file-recovered", "Verified a now-supported learned source through durable intake", { sourceFamily: kind, recovered: true });recordDiagnostic("FILES TO LEARN", `${kind} recovered after durable verification`);}
-      } catch (error) { failures++;recordDiagnostic("FILES TO LEARN", `Known-file reconciliation deferred: ${error.name}: ${error.message||error}`); }
+        recovered++;for(const previous of Object.values(model.autoImport.seen||{}))if(previous.importFailed&&previous.storedAs===entry.name&&!previous.failureResolvedAt){previous.failureResolvedAt=now();previous.importFailed=false;failureLedgerDirty=true;}if(outcome?.retired){await addHistory("learned-file-retired","Verified a known non-service learned source and removed the Service OS copy",{sourceFamily:kind,retired:true});recordDiagnostic("FILES TO LEARN",`${kind} retired; no Service OS data retained`);}else{await addHistory("learned-file-recovered", "Verified a now-supported learned source through durable intake", { sourceFamily: kind, recovered: true });recordDiagnostic("FILES TO LEARN", `${kind} recovered after durable verification`);}
+      } catch (error) { failures++;const diagnostic=`Known-file reconciliation deferred: ${error.name}: ${error.message||error}`;model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,storedAs:entry.name,importFailed:true,diagnostic,failedAt:now(),failureSha256:currentBytes?await sha256(currentBytes):""};failureLedgerDirty=true;recordDiagnostic("FILES TO LEARN",diagnostic); }
       // Yield between files: version-triggered reconciliation must not freeze Home.
       await new Promise(resolve=>setTimeout(resolve,0));
     }
-    if(memoDirty){
+    if(memoDirty||failureLedgerDirty){
       // Cache is non-authoritative metadata; original files remain untouched.
       await writeJson(AUTO_IMPORT_PATH,model.autoImport);
     }
@@ -1919,13 +1920,27 @@
       let kind = null, bytes = null;
       try {
         sourceLocations.set(candidate.name,candidate.location); bytes = await candidate.file.arrayBuffer(); kind = await classifyImportFile(candidate.name, candidate.file, bytes); if(candidate.location==="root"&&kind!=="ro-update")throw new Error("Only returned supervisor workbooks use the specialized root intake path.");
-        if (!kind) { const referenceOnly=referenceOnlyHint(candidate.name),recognized=referenceOnly||recognizedFamilyHint(candidate.name,bytes),reason=referenceOnly?"Recognized non-KPI reference document; excluded from KPI ingestion":recognized?"Recognized report family but invalid or unsupported structure":"Unsupported or unrecognized file structure",storedAs=await moveToLearn(candidate,reason);learned.push(candidate.name);model.autoImport.seen[candidate.signature]={fileName:candidate.name,movedAt:now(),storedAs,recognized,referenceOnly,importFailed:recognized&&!referenceOnly};ledgerChanged=true;recordDiagnostic("REPORT INBOX",referenceOnly?"Moved to Files To Learn - recognized reference only":recognized?"Moved to Files To Learn - recognized but invalid":"Moved to Files To Learn - unsupported");if(/\.pdf$/i.test(candidate.name)&&!referenceOnly){pdfFailureMessage="PDF is not a supported PreRO appointment or supplemental report. Source kept in Files To Learn for review.";recordDiagnostic("PDF INTAKE","No supported PDF structure; source preserved for learning");}continue; }
+        if (!kind) {
+          const referenceOnly=referenceOnlyHint(candidate.name),recognized=referenceOnly||recognizedFamilyHint(candidate.name,bytes),reason=referenceOnly?"Recognized non-KPI reference document; excluded from KPI ingestion":recognized?"Recognized report family but invalid or unsupported structure":"Unsupported or unrecognized file structure",storedAs=await moveToLearn(candidate,reason);
+          learned.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={fileName:candidate.name,movedAt:now(),storedAs,recognized,referenceOnly,importFailed:recognized&&!referenceOnly,diagnostic:recognized&&!referenceOnly?reason:"",failedAt:recognized&&!referenceOnly?now():"",failureSha256:recognized&&!referenceOnly?await sha256(new Uint8Array(bytes)):""};
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX",referenceOnly?"Moved to Files To Learn - recognized reference only":recognized?"Moved to Files To Learn - recognized but invalid":"Moved to Files To Learn - unsupported");
+          if(/\.pdf$/i.test(candidate.name)&&!referenceOnly){pdfFailureMessage="PDF is not a supported PreRO appointment or supplemental report. Source kept in Files To Learn for review.";recordDiagnostic("PDF INTAKE","No supported PDF structure; source preserved for learning");}
+          continue;
+        }
         const outcome=await processClassifiedCandidate(candidate, kind, bytes, true);if(kind==="appointments"&&outcome?.deleted===false)pdfFailureMessage="Verified appointments saved. Source retained: "+outcome.retainedReason+". Stable source will not be reread.";
         if(outcome?.retired)retired.push(candidate.name);else imported.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, relativePath:candidate.relativePath, importedAt: now(), kind, retired:Boolean(outcome?.retired) }; ledgerChanged = true;recordDiagnostic("REPORT INBOX",outcome?.retired?`${kind} recognized and retired outside Service OS`:`${kind} recognized and imported or safely deduplicated`);
       } catch (error) {
         console.warn(`Automatic import retained ${candidate.name}:`, error);if(/\.pdf$/i.test(candidate.name)){pdfFailureMessage=`PDF intake failed: ${error.message||error}. Source kept for retry/review.`;recordDiagnostic("PDF INTAKE",error.name+": "+(error.message||error));}
         if(transientIntakeError(error)){retained.push(candidate.name);recordDiagnostic("REPORT INBOX PENDING","Temporary read, permission, or durable-write failure; retry scheduled");continue;}
-        try { const storedAs = await moveToLearn(candidate, error.message || String(error)); learned.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, movedAt: now(), storedAs, recognized: Boolean(kind)||recognizedFamilyHint(candidate.name,bytes), importFailed: true }; ledgerChanged = true;recordDiagnostic("REPORT INBOX","Moved to Files To Learn - recognized but invalid"); }
+        try {
+          const diagnostic=error.message||String(error),storedAs=await moveToLearn(candidate,diagnostic);
+          learned.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={fileName:candidate.name,movedAt:now(),storedAs,recognized:Boolean(kind)||recognizedFamilyHint(candidate.name,bytes),importFailed:true,diagnostic,failedAt:now(),failureSha256:bytes?await sha256(new Uint8Array(bytes)):""};
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX","Moved to Files To Learn - recognized but invalid");
+        }
         catch (moveError) { retained.push(candidate.name); try { await addHistory("auto-import-retained", `Automatic import retained ${candidate.name}`, { fileName: candidate.name, reason: moveError.message || String(moveError) }); } catch (_) {} }
       }
     }
@@ -3166,6 +3181,14 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   const renderAllWithCanonicalSourceLabels=renderAll;
   renderAll=function(){renderAllWithCanonicalSourceLabels();const openRo=sourceFreshness("openRo"),workbook=sourceFreshness("supervisorWorkbook");if(model.state.source)ui.lastImport.textContent=`${model.state.source.fileName} · ${new Date(model.state.source.importedAt).toLocaleString()} · ${sourceStatusLabel(openRo)}`;if(model.recovery.supervisorWorkbook?.generatedAt)ui.lastExport.textContent=`${new Date(model.recovery.supervisorWorkbook.generatedAt).toLocaleString()} · ${sourceStatusLabel(workbook)}`;};
   const renderAllWithConfiguredLabels=renderAll;renderAll=function(){renderAllWithConfiguredLabels();const filename=model.settings.supervisorWorkbook?.filename||model.settings.exportName||DEFAULTS.supervisorWorkbook.filename,description=ui["view-imports"]?.querySelector(".two-col .card:nth-child(2) p:not(.step)"),path=ui["view-imports"]?.querySelector(".file-map code:last-of-type");if(description)description.textContent=`Generate ${filename} from durable Open RO state.`;if(path)path.textContent=`exports/${filename}`;};
+  const renderAllWithLearnedFailures = renderAll;
+  renderAll = function() {
+    renderAllWithLearnedFailures();
+    if (ui["view-imports"]?.classList.contains("active")) void refreshFailedLearnedReportNotice().catch((error) => {
+      ui.failedLearnedPackageStatus.textContent = `Failed report details could not be refreshed (${error.name || "Error"}). No original files were changed.`;
+      status("Failed learned report details could not be refreshed. Check local folder access.", "error");
+    });
+  };
   function validManagerReviewDate(record){const value=text(record?.management?.managerReviewedOn).trim();return /^20\d{2}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(new Date(`${value}T12:00:00`).getTime());}
   function trustedManagerReviewTime(record){const reviewed=text(record?.management?.managerReviewedOn),updated=text(record?.management?.updatedAt);if(!validManagerReviewDate(record)||!updated)return"";const date=new Date(updated);return !Number.isNaN(date.getTime())&&storeDateKey(date)===reviewed?updated:"";}
   function ensureOpenRoRetrievalUi(){if(ui.recentlyReviewed)return;const option=new Option("Reviewed","reviewed");ui.attentionFilter.add(option);const actions=ui.searchInput.closest(".toolbar-actions"),button=document.createElement("button"),panel=document.createElement("div"),message=document.createElement("small"),styles=document.createElement("style");button.id="recentlyReviewed";button.type="button";button.className="secondary";button.textContent="Recently Reviewed";button.setAttribute("aria-expanded","false");panel.id="recentlyReviewedPanel";panel.className="recently-reviewed-panel";panel.hidden=true;message.id="exactRoFilterNotice";message.className="exact-ro-filter-notice";message.hidden=true;actions.append(button);actions.after(message,panel);styles.textContent='.recently-reviewed-panel{margin-top:8px;padding:8px;border:1px solid #c9d9de;border-radius:10px;background:#fff;box-shadow:0 8px 24px rgba(18,53,66,.12);display:grid;gap:4px;max-height:360px;overflow:auto}.recently-reviewed-panel[hidden]{display:none}.recently-reviewed-panel button{display:grid;grid-template-columns:minmax(80px,.7fr) minmax(110px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;width:100%;padding:8px 10px;border:0;border-radius:7px;background:transparent;text-align:left;color:inherit}.recently-reviewed-panel button:hover,.recently-reviewed-panel button:focus{background:#eef5f7}.recently-reviewed-panel span,.recently-reviewed-panel small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.exact-ro-filter-notice{display:block;margin-top:7px;color:#6b5316;font-weight:700}.recently-reviewed-empty{padding:8px;color:#59717a}@media(max-width:760px){.recently-reviewed-panel button{grid-template-columns:1fr 1fr}.recently-reviewed-panel button span:nth-child(3){grid-column:1/-1}}';document.head.append(styles);for(const id of ["recentlyReviewed","recentlyReviewedPanel","exactRoFilterNotice"])ui[id]=document.getElementById(id);}
@@ -3415,6 +3438,55 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function createBackupBytes(label,type="full"){const zip=new JSZip(),entries=[];for(const[path,getValue]of Object.entries(BACKUP_FILES)){const bytes=utf8(JSON.stringify(getValue(),null,2));validateDurableObject(path,JSON.parse(decodeUtf8(bytes)));entries.push({path,size:bytes.byteLength,sha256:await sha256(bytes)});zip.file(`payload/${path}`,bytes);}let history=[];try{history=await directoryFiles(["data","history"]);}catch(error){if(error.name!=="NotFoundError")throw error;}for(const file of history){const path=`data/history/${file.name}`;JSON.parse(decodeUtf8(file.bytes));entries.push({path,size:file.bytes.byteLength,sha256:await sha256(file.bytes)});zip.file(`payload/${path}`,file.bytes);}const manifest={format:"moondog-whole-state-backup",formatVersion:1,type,label,createdAt:now(),appVersion:VERSION,buildDate:BUILD_DATE,settingsSchema:model.settings.schemaVersion,validationStatus:"validated",recordCounts:{openRos:model.state.records.length,appointmentDays:Object.keys(model.appointments.days||{}).length,performanceSnapshots:Object.keys(model.performance.snapshots||{}).length,historyFiles:history.length},entries};zip.file("manifest.json",JSON.stringify(manifest,null,2));const bytes=await zip.generateAsync({type:"uint8array",compression:"DEFLATE",compressionOptions:{level:6}});await validateBackupBytes(bytes);return{bytes,manifest};}
   async function validateBackupBytes(bytes){let zip;try{zip=await JSZip.loadAsync(bytes);}catch(_){throw new Error("The selected backup is not a valid Service Operations Dashboard backup package.");}const manifestFile=zip.file("manifest.json");if(!manifestFile)throw new Error("Backup manifest is missing.");let manifest;try{manifest=JSON.parse(await manifestFile.async("string"));}catch(_){throw new Error("Backup manifest is corrupt.");}if(manifest.format!=="moondog-whole-state-backup"||manifest.formatVersion!==1||manifest.validationStatus!=="validated")throw new Error("Backup format or validation status is not supported.");const listed=new Map((manifest.entries||[]).map((entry)=>[entry.path,entry]));if(listed.size!==(manifest.entries||[]).length||[...listed.keys()].some(p=>!Object.hasOwn(BACKUP_FILES,p)&&!/^data\/history\/[^/\\]+\.json$/.test(p)))throw new Error("Backup contains duplicate or unsafe paths.");for(const path of Object.keys(BACKUP_FILES))if(!listed.has(path))throw new Error(`Backup is incomplete: ${path} is missing.`);const values={};for(const entry of manifest.entries){const part=zip.file(`payload/${entry.path}`);if(!part)throw new Error(`Backup content is missing: ${entry.path}.`);const data=await part.async("uint8array");if(data.byteLength!==entry.size||await sha256(data)!==entry.sha256)throw new Error(`Backup integrity failed: ${entry.path}.`);let value;try{value=JSON.parse(decodeUtf8(data));}catch(_){throw new Error(`Backup JSON is corrupt: ${entry.path}.`);}if(Object.hasOwn(BACKUP_FILES,entry.path)){validateDurableObject(entry.path,value);values[entry.path]=value;}}if(values["data/current-state.json"].records.length!==manifest.recordCounts?.openRos)throw new Error("Backup Open RO record count does not match its manifest.");if(Object.keys(values["data/appointments.json"].days).length!==manifest.recordCounts?.appointmentDays||Object.keys(values["data/advisor-performance.json"].snapshots).length!==manifest.recordCounts?.performanceSnapshots||manifest.entries.filter(e=>e.path.startsWith("data/history/")).length!==manifest.recordCounts?.historyFiles)throw new Error("Backup record counts do not reconcile.");return{manifest,zip,values};}
   function backupFileName(prefix="MoonDog Full Backup"){return `${prefix} - ${stamp()}.zip`;}
+  function failedReportArchivePath(index, name) {
+    const safeName = String(name).replace(/[^A-Za-z0-9._ ()-]/g, "_") || "report";
+    return `failed-originals/${String(index + 1).padStart(3, "0")}-${safeName}`;
+  }
+  async function verifyFailedReportZip(bytes, sources, loadZip = JSZip, digest = sha256) {
+    let zip;
+    try { zip = await loadZip.loadAsync(bytes); } catch (_) { throw new Error("Support ZIP read-back is not a valid archive."); }
+    const manifestFile = zip.file("diagnostics.json");
+    if (!manifestFile) throw new Error("Support ZIP is missing its per-file diagnostics.");
+    if (!zip.file("README.txt")) throw new Error("Support ZIP is missing its review instructions.");
+    let manifest;
+    try { manifest = JSON.parse(await manifestFile.async("string")); } catch (_) { throw new Error("Support ZIP diagnostics are corrupt."); }
+    if (!Array.isArray(manifest.files) || manifest.files.length !== sources.length) throw new Error("Support ZIP file inventory does not match the selected failures.");
+    const expectedPaths = new Set(["diagnostics.json", "README.txt", ...sources.map((source) => source.archivePath)]);
+    if (Object.keys(zip.files || {}).length !== expectedPaths.size || Object.keys(zip.files || {}).some((name) => !expectedPaths.has(name))) {
+      throw new Error("Support ZIP contains files outside the verified originals and diagnostics.");
+    }
+    for (const [index, source] of sources.entries()) {
+      const expected = manifest.files[index];
+      if (!expected || expected.name !== source.name || expected.archivePath !== source.archivePath || expected.size !== source.size || expected.sha256 !== source.sha256 || expected.diagnostic !== source.diagnostic) {
+        throw new Error(`Support ZIP diagnostics do not match ${source.name}.`);
+      }
+      const part = zip.file(source.archivePath);
+      if (!part) throw new Error(`Support ZIP is missing original file ${source.name}.`);
+      const original = new Uint8Array(await part.async("uint8array"));
+      if (original.byteLength !== source.size || await digest(original) !== source.sha256) throw new Error(`Support ZIP original-file verification failed for ${source.name}.`);
+    }
+    return {zip, manifest};
+  }
+  async function removeVerifiedFailedSources(folder, sources, digest = sha256) {
+    const verified = [];
+    for (const source of sources) {
+      const file = await source.handle.getFile();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (file.size !== source.size || file.lastModified !== source.lastModified || await digest(bytes) !== source.sha256) {
+        throw new Error(`Original ${source.name} changed before cleanup; no learned files were removed.`);
+      }
+      verified.push(source);
+    }
+    for (const source of verified) {
+      const file = await source.handle.getFile();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (file.size !== source.size || file.lastModified !== source.lastModified || await digest(bytes) !== source.sha256) {
+        throw new Error(`Original ${source.name} changed during cleanup. Any earlier removal was already verified in the saved ZIP.`);
+      }
+      await folder.removeEntry(source.name);
+    }
+    return verified.length;
+  }
   async function writeValidatedBackup(label="Manager backup",prefix="MoonDog Full Backup"){const packageData=await createBackupBytes(label);const name=backupFileName(prefix),path=["backups",name];await writeBytes(path,packageData.bytes);const verified=await validateBackupBytes(await readFileBytes(path));if(verified.manifest.createdAt!==packageData.manifest.createdAt)throw new Error("Backup read-back verification failed.");return{name,path:path.join("/"),manifest:verified.manifest};}
   async function createBackupNow(){model.recovery.status="Creating backup";renderRecovery();try{const result=await writeValidatedBackup("Manager-created whole-state backup");model.recovery.lastBackup={fileName:result.name,createdAt:result.manifest.createdAt,appVersion:VERSION,validationStatus:"Validated",recordCounts:result.manifest.recordCounts};model.recovery.status="Backup ready";await writeJson(RECOVERY_PATH,model.recovery);await addHistory("full-backup-created","Created and validated a whole-state MoonDog backup",{fileName:result.name,createdAt:result.manifest.createdAt,openRos:result.manifest.recordCounts.openRos});await scanRecoveryBackups();renderRecovery();status("Full backup created and validated.","success");}catch(error){model.recovery.status="Backup failed validation";await writeJson(RECOVERY_PATH,model.recovery);recordDiagnostic("BACKUP FAILED",`Whole-state backup failed (${error.name||"Error"})`);renderRecovery();throw error;}}
   async function scanRecoveryBackups(){if(!model.root)return;const dir=await directory(["backups"],true),found=[];for await(const[name,handle]of dir.entries())if(handle.kind==="file"&&name.endsWith(".zip")&&/MoonDog (Full Backup|Restore Safety)/.test(name)){try{const bytes=new Uint8Array(await(await handle.getFile()).arrayBuffer()),validated=await validateBackupBytes(bytes);found.push({name,createdAt:validated.manifest.createdAt,label:validated.manifest.label,version:validated.manifest.appVersion});}catch(_){found.push({name,invalid:true});}}found.sort((a,b)=>String(b.createdAt||b.name).localeCompare(String(a.createdAt||a.name)));ui.restoreBackupSelect.replaceChildren(new Option("Select a validated backup",""));for(const item of found){const option=new Option(item.invalid?`${item.name} · INVALID`:`${new Date(item.createdAt).toLocaleString()} · ${item.label}`,item.name);option.disabled=Boolean(item.invalid);ui.restoreBackupSelect.append(option);}ui.restoreBackup.disabled=true;}
@@ -3425,6 +3497,133 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function diagnosticsText(){try{return await(await(await fileAt(["MOONDOG_DIAGNOSTICS.md"])).getFile()).text();}catch(error){if(error.name==="NotFoundError")return"# Service Operations Dashboard Diagnostics\n\nNo diagnostic events are available.\n";throw error;}}
   async function supportPackageBytes(includeRuntime=false){const zip=new JSZip(),summary=sanitizedSupportSummary(),diagnostics=await diagnosticsText(),errors=diagnostics.split(/\r?\n/).filter((line)=>/ERROR|FAILED|PARSER|IMPORT/i.test(line)).slice(-100);zip.file("MOONDOG_DIAGNOSTICS.md",diagnostics);zip.file("support-summary.json",JSON.stringify({...summary,recentParserImportErrors:errors},null,2));zip.file("README.txt",`Service Operations Dashboard ${includeRuntime?"Support / Recovery Copy":"Support Package"}\nGenerated ${summary.generatedAt}\n\nIf support is needed, send this generated package to your support contact.\n\nThis package excludes raw operational records and customer-level data.\n`);if(includeRuntime){for(const path of HANDOFF_RUNTIME_PATHS)try{zip.file(`application/${path}`,await runtimeFileBytes(path));}catch(_){}}return zip.generateAsync({type:"uint8array",compression:"DEFLATE",compressionOptions:{level:6}});}
   async function createSupportPackage(includeRuntime=false){const bytes=await supportPackageBytes(includeRuntime),prefix=includeRuntime?"MoonDog Support Recovery Copy":"MoonDog Support Package",name=backupFileName(prefix),path=["support",name];await writeBytes(path,bytes);const check=await JSZip.loadAsync(await readFileBytes(path));for(const required of ["MOONDOG_DIAGNOSTICS.md","support-summary.json","README.txt"])if(!check.file(required))throw new Error(`Support package validation failed: ${required} is missing.`);recordDiagnostic("SUPPORT",`${includeRuntime?"Support recovery copy":"Support package"} created and validated`);status(`${includeRuntime?"Support / Recovery Copy":"Support package"} created in the support folder.`,"success");renderRecovery();}
+  function pendingLearnedFailureRecords() {
+    const grouped = new Map();
+    for (const entry of Object.values(model.autoImport.seen || {})) {
+      if (!entry?.importFailed || entry.failureResolvedAt || !entry.storedAs) continue;
+      const prior = grouped.get(entry.storedAs);
+      if (!prior || String(entry.failedAt || "") >= String(prior.failedAt || "")) grouped.set(entry.storedAs, entry);
+    }
+    return [...grouped.entries()].map(([name, metadata]) => ({name, metadata})).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+  }
+  async function scanFailedLearnedSources() {
+    const records = pendingLearnedFailureRecords();
+    if (!records.length || !model.root) return {rows: [], folder: null};
+    let folder;
+    try { folder = await directory(["Files To Learn"], false); }
+    catch (error) { if (error.name === "NotFoundError") return {rows: records.map((item) => ({...item, diagnostic: "Original missing from Files To Learn."})), folder: null}; throw error; }
+    const handles = new Map();
+    for await (const [name, handle] of folder.entries()) if (handle.kind === "file") handles.set(name, handle);
+    const rows = [];
+    for (const item of records) {
+      const handle = handles.get(item.name);
+      if (!handle) { rows.push({...item, diagnostic: `${item.metadata.diagnostic || "Import failed."} Original missing from Files To Learn.`}); continue; }
+      try {
+        const file = await handle.getFile();
+        rows.push({...item, handle, file, size: file.size, lastModified: file.lastModified, diagnostic: item.metadata.diagnostic || "Import failed; source retained for review."});
+      } catch (error) {
+        rows.push({...item, handle, diagnostic: `${item.metadata.diagnostic || "Import failed."} Original cannot be read (${error.name || "Error"}).`});
+      }
+    }
+    return {rows, folder};
+  }
+  async function refreshFailedLearnedReportNotice() {
+    const host = ui.failedLearnedReportNotice;
+    if (!host || !ui["view-imports"].classList.contains("active")) return;
+    const result = await scanFailedLearnedSources(), rows = result.rows;
+    host.hidden = rows.length === 0;
+    ui.failedLearnedReportSummary.textContent = `${rows.length} failed learned report${rows.length === 1 ? "" : "s"} need review. Originals stay local.`;
+    ui.failedLearnedReportDetails.replaceChildren();
+    let ready = rows.length > 0 && Boolean(result.folder);
+    for (const row of rows) {
+      const item = document.createElement("li");
+      item.textContent = `${row.name} · ${row.diagnostic}`;
+      ui.failedLearnedReportDetails.append(item);
+      if (!row.file) ready = false;
+    }
+    ui.saveFailedLearnedPackage.disabled = !ready;
+    ui.failedLearnedPackageStatus.textContent = ready
+      ? "The package includes original report bytes and per-file failure diagnostics; it does not upload anything."
+      : "One or more originals are unavailable. No source will be deleted.";
+  }
+  async function createFailedLearnedSupportPackage() {
+    if (typeof window.showSaveFilePicker !== "function") throw new Error("This browser cannot verify a locally chosen ZIP destination. No learned originals were changed.");
+    let destination;
+    try {
+      destination = await window.showSaveFilePicker({
+        suggestedName: `MoonDog Failed Reports - ${localDateKey()}.zip`,
+        types: [{description: "ZIP archive", accept: {"application/zip": [".zip"]}}]
+      });
+    } catch (error) {
+      if (error?.name === "AbortError") { status("Support package save cancelled. Failed report originals remain in Files To Learn.", "info"); return false; }
+      throw error;
+    }
+    const initial = await scanFailedLearnedSources(), rows = initial.rows;
+    if (!rows.length || !initial.folder) throw new Error("No failed learned originals are available to export.");
+    if (rows.some((row) => !row.file || !row.handle)) throw new Error("At least one failed original is unavailable. No learned files were removed.");
+    const sources = [];
+    const zip = new JSZip();
+    for (const [index, row] of rows.entries()) {
+      const bytes = new Uint8Array(await row.file.arrayBuffer()), digest = await sha256(bytes);
+      if (row.metadata.failureSha256 && row.metadata.failureSha256 !== digest) throw new Error(`Original ${row.name} changed since its import failure. No learned files were removed.`);
+      const archivePath = failedReportArchivePath(index, row.name);
+      const source = {
+        name: row.name, archivePath, size: bytes.byteLength, lastModified: row.lastModified,
+        sha256: digest, diagnostic: row.diagnostic, handle: row.handle, metadata: row.metadata
+      };
+      // No implicit directory entry: read-back inventory must contain only
+      // the selected originals and the two diagnostics files.
+      zip.file(archivePath, bytes, {createFolders: false});
+      sources.push(source);
+    }
+    const diagnosticManifest = {
+      format: "moondog-failed-learned-reports", formatVersion: 1, generatedAt: now(),
+      files: sources.map(({name, archivePath, size, sha256: hash, diagnostic}) => ({name, archivePath, size, sha256: hash, diagnostic}))
+    };
+    zip.file("diagnostics.json", JSON.stringify(diagnosticManifest, null, 2));
+    zip.file("README.txt", "This user-requested support archive contains original failed report files and their per-file diagnostics. It is local-only; MoonDog does not upload it. Review the contents before sharing.");
+    const archiveBytes = await zip.generateAsync({type: "uint8array", compression: "DEFLATE", compressionOptions: {level: 6}});
+    const archiveHash = await sha256(archiveBytes);
+    const writable = await destination.createWritable();
+    try { await writable.write(archiveBytes); await writable.close(); }
+    catch (error) { try { await writable.abort?.(); } catch (abortError) { recordDiagnostic("SUPPORT EXPORT", `ZIP writer abort failed (${abortError.name || "Error"})`); } throw error; }
+    const savedBytes = new Uint8Array(await (await destination.getFile()).arrayBuffer());
+    if (savedBytes.byteLength !== archiveBytes.byteLength || await sha256(savedBytes) !== archiveHash) throw new Error("Saved ZIP read-back hash did not match. Failed report originals remain in Files To Learn.");
+    await verifyFailedReportZip(savedBytes, sources, JSZip, sha256);
+    const latest = await scanFailedLearnedSources();
+    if (!latest.folder || latest.rows.length !== sources.length || latest.rows.some((row, index) => row.name !== sources[index].name || !row.file)) {
+      throw new Error("The Files To Learn set changed during export. The saved ZIP is verified; no learned originals were removed.");
+    }
+    for (let index = 0; index < sources.length; index++) {
+      if (latest.rows[index].size !== sources[index].size || latest.rows[index].lastModified !== sources[index].lastModified) {
+        throw new Error(`Original ${sources[index].name} changed during export. The saved ZIP is verified; no learned originals were removed.`);
+      }
+    }
+    const removed = await removeVerifiedFailedSources(initial.folder, sources, sha256);
+    for (const source of sources) { source.metadata.importFailed = false; source.metadata.failureResolvedAt = now(); }
+    await writeJson(AUTO_IMPORT_PATH, model.autoImport);
+    await refreshFailedLearnedReportNotice();
+    recordDiagnostic("SUPPORT EXPORT", `Saved and read-back verified ${removed} failed report original(s) with per-file diagnostics`);
+    status(`Verified support ZIP saved locally. ${removed} exported original file${removed === 1 ? "" : "s"} removed from Files To Learn.`, "success");
+    return true;
+  }
+  function ensureFailedLearnedReportUi() {
+    if (ui.failedLearnedReportNotice) return;
+    const host = document.createElement("section");
+    host.id = "failedLearnedReportNotice";
+    host.className = "card";
+    host.hidden = true;
+    host.setAttribute("role", "region");
+    host.setAttribute("aria-label", "Failed learned report recovery");
+    host.innerHTML = '<div class="section-head"><div><p class="eyebrow">Import / Reports · local recovery</p><h2>Failed reports need review</h2><p id="failedLearnedReportSummary"></p></div><span class="badge muted">Manager only</span></div><div class="recovery-actions"><button id="viewFailedLearnedDetails" type="button">View Details</button><button id="saveFailedLearnedPackage" type="button" class="primary">Save Support Package</button></div><ul id="failedLearnedReportDetails" hidden></ul><p id="failedLearnedPackageStatus" class="settings-note" role="status"></p>';
+    ui["view-imports"].prepend(host);
+    for (const id of ["failedLearnedReportNotice", "failedLearnedReportSummary", "viewFailedLearnedDetails", "saveFailedLearnedPackage", "failedLearnedReportDetails", "failedLearnedPackageStatus"]) ui[id] = document.getElementById(id);
+    ui.viewFailedLearnedDetails.addEventListener("click", () => {
+      ui.failedLearnedReportDetails.hidden = !ui.failedLearnedReportDetails.hidden;
+      ui.viewFailedLearnedDetails.textContent = ui.failedLearnedReportDetails.hidden ? "View Details" : "Hide Details";
+    });
+    ui.saveFailedLearnedPackage.addEventListener("click", () => run(createFailedLearnedSupportPackage));
+  }
   function ensureRecoveryUi(){if(ui.backupRecoverySection)return;const voice=ui["view-settings"].querySelector(".customer-voice-manager"),backup=document.createElement("section"),advanced=document.createElement("section");backup.id="backupRecoverySection";backup.className="card recovery-card";backup.innerHTML='<div class="section-head"><div><p class="eyebrow">Whole-state protection</p><h2>Backup &amp; Recovery</h2><p>Full backups recover the store. Restores always replace the complete durable state.</p></div><span id="recoveryStatus" class="badge muted">READY</span></div><div class="recovery-summary"><div><span>LAST SUCCESSFUL BACKUP</span><strong id="lastBackupDisplay">None yet</strong></div><div><span>RECOVERY STATUS</span><strong id="currentRecoveryDisplay">Ready</strong></div></div><div class="recovery-actions"><button id="createBackupNow" type="button" class="primary">Create Backup Now</button><button id="createRecoveryCopy" type="button">Create Support / Recovery Copy</button></div><label>Restore From Backup<select id="restoreBackupSelect"><option value="">Connect folder to scan backups</option></select></label><div id="restoreBackupDetails" class="recovery-detail">Choose a validated full backup to view its timestamp and version.</div><button id="restoreBackup" type="button" class="danger" disabled>Restore Complete State</button>';advanced.id="advancedDiagnosticsSection";advanced.className="card recovery-card";advanced.innerHTML='<div class="section-head"><div><p class="eyebrow">Management only</p><h2>Advanced / Diagnostics</h2><p>Readable support status without customer-level operational data.</p></div></div><div id="diagnosticsOverview" class="diagnostics-overview"></div><div class="recovery-actions"><button id="showDiagnosticsLocation" type="button">Show Diagnostics Location</button><button id="copyDiagnosticsPath" type="button">Copy Diagnostics Path</button><button id="createSupportPackage" type="button" class="primary">Create Support Package</button></div><code id="diagnosticsLocation" hidden></code><p class="settings-note">If support is needed, send the generated support package to James.</p>';voice.before(backup,advanced);for(const id of ["backupRecoverySection","recoveryStatus","lastBackupDisplay","currentRecoveryDisplay","createBackupNow","createRecoveryCopy","restoreBackupSelect","restoreBackupDetails","restoreBackup","advancedDiagnosticsSection","diagnosticsOverview","showDiagnosticsLocation","copyDiagnosticsPath","createSupportPackage","diagnosticsLocation"])ui[id]=document.getElementById(id);ui.createBackupNow.addEventListener("click",()=>run(createBackupNow));ui.createRecoveryCopy.addEventListener("click",()=>run(()=>createSupportPackage(true)));ui.createSupportPackage.addEventListener("click",()=>run(()=>createSupportPackage(false)));ui.restoreBackupSelect.addEventListener("change",async()=>{ui.restoreBackup.disabled=!ui.restoreBackupSelect.value;if(!ui.restoreBackupSelect.value){ui.restoreBackupDetails.textContent="Choose a validated full backup to view its timestamp and version.";return;}try{const validated=await validateBackupBytes(await readFileBytes(["backups",ui.restoreBackupSelect.value]));ui.restoreBackupDetails.textContent=`${new Date(validated.manifest.createdAt).toLocaleString()} · ${validated.manifest.appVersion} · ${validated.manifest.recordCounts.openRos} Open ROs · VALIDATED`;}catch(error){ui.restoreBackup.disabled=true;ui.restoreBackupDetails.textContent=error.message;}});ui.restoreBackup.addEventListener("click",()=>run(restoreSelectedBackup));ui.showDiagnosticsLocation.addEventListener("click",()=>{ui.diagnosticsLocation.hidden=false;ui.diagnosticsLocation.textContent=`${model.root?.name||"working folder"}\\MOONDOG_DIAGNOSTICS.md`;});ui.copyDiagnosticsPath.addEventListener("click",()=>run(copyDiagnosticsPath));}
   function ensureFolderWatchUi(){if(ui.folderWatchStatus)return;const badge=document.createElement("span");badge.id="folderWatchStatus";badge.className="badge muted";badge.textContent="WATCH OFF";ui.permissionBadge.before(badge);const panel=document.createElement("div");panel.className="folder-watch-setting";panel.innerHTML=`<div><strong>Report Inbox</strong><small id="folderWatchDetail">Watches ${REPORT_INBOX} every 15 seconds while Service Operations Dashboard is open.</small></div><label class="switch-label"><input id="folderWatchEnabled" type="checkbox"> ON</label><span>Polling interval: 15 seconds</span><div class="button-row"><button id="showReportInboxLocation" type="button">Show Report Inbox Location</button><button id="copyReportInboxPath" type="button">Copy Report Inbox Path</button></div><code id="reportInboxLocation" hidden></code>`;ui.advancedDiagnosticsSection.querySelector(".section-head").after(panel);for(const id of ["folderWatchStatus","folderWatchDetail","folderWatchEnabled","showReportInboxLocation","copyReportInboxPath","reportInboxLocation"])ui[id]=document.getElementById(id);ui.folderWatchEnabled.addEventListener("change",()=>{model.settings.future||={};model.settings.future.folderWatch={enabled:ui.folderWatchEnabled.checked,intervalSeconds:15};queueSettingsAutosave();if(ui.folderWatchEnabled.checked){startFolderWatch();folderWatchScan("setting");}else{stopFolderWatch("WATCH OFF");recordDiagnostic("REPORT INBOX WATCH","Report Inbox watch stopped in Settings");}});ui.showReportInboxLocation.addEventListener("click",()=>{ui.reportInboxLocation.hidden=false;ui.reportInboxLocation.textContent=`${model.root?.name||"working folder"}\\${REPORT_INBOX}`;});ui.copyReportInboxPath.addEventListener("click",()=>run(copyReportInboxPath));}
   async function copyReportInboxPath(){const value=`${model.root?.name||"working folder"}\\${REPORT_INBOX}`;try{await navigator.clipboard.writeText(value);}catch(_){const area=document.createElement("textarea");area.value=value;document.body.append(area);area.select();document.execCommand("copy");area.remove();}ui.reportInboxLocation.hidden=false;ui.reportInboxLocation.textContent=`Copied: ${value}`;}
@@ -3461,7 +3660,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function addManagementStatus(){const definitions=managementStatusDefinitions(),base="New status";let name=base,suffix=2;while(definitions.some((item)=>norm(item.name)===norm(name)))name=`${base} ${suffix++}`;model.settings.openRo.managementStatuses.push({id:`status-custom-${Date.now().toString(36)}`,name,enabled:true,order:definitions.length});await saveSettingsAutosave();}
   async function run(action) { try { await action(); } catch (error) { console.error(error); if(transientWorkspaceState(error)){recordDiagnostic("WORKSPACE BUSY",`Temporary workspace state (${error.name||"Error"}); automatic revalidation scheduled`);status("Updating workspace files… Service Operations Dashboard will retry editing automatically.","info");if(connectedNativeRoot)scheduleAuthorityRevalidation(connectedNativeRoot);return;} recordDiagnostic("APPLICATION ERROR", `An operation failed (${error.name || "Error"})`); status(error.message || String(error), "error"); } }
 
-  ensurePhase2SettingsUi();ensurePhase3Ui();ensureRecoveryUi();ensureFolderWatchUi();ensureManagerEntryCues();ensureNewStoreUi();ui.setupSettingsSummary=document.getElementById("setupSettingsSummary");
+  ensurePhase2SettingsUi();ensurePhase3Ui();ensureRecoveryUi();ensureFolderWatchUi();ensureManagerEntryCues();ensureFailedLearnedReportUi();ensureNewStoreUi();ui.setupSettingsSummary=document.getElementById("setupSettingsSummary");
   let authorityRevalidationTimer=null;
   function scheduleAuthorityRevalidation(root){if(authorityRevalidationTimer||!root)return;authorityRevalidationTimer=setTimeout(async()=>{authorityRevalidationTimer=null;if(root!==connectedNativeRoot||writeAuthority.canWrite)return;const ok=await writeAuthority.validate(root,false).catch(()=>false);if(root!==connectedNativeRoot)return;renderWriteAuthority();renderSetup();if(ok)status("Workspace files finished updating. Editing restored.","success");},1200);}
   ui.worksheetOrderSettings.addEventListener("click",(event)=>{const button=event.target.closest("button[data-worksheet-move]");if(!button)return;const codes=supervisorAdvisorCodes(),index=codes.indexOf(button.dataset.worksheetMove),moved=moveArrayItem(codes,index,Number(button.dataset.direction));model.settings.supervisorWorkbook.worksheetOrder=moved;queueSettingsAutosave();renderPhase2Settings();});
@@ -3551,6 +3750,14 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   prepareForNewStore=async function(){await prepareBeforeDaily();dailyNotify('moondog-recovered');};
   const navigateBeforeDaily = navigateTo;
   navigateTo = function(view, anchor = '') { if(['performance','meeting','arrivals'].includes(view))reportReviewView=view;else if(!['tools','imports'].includes(view))reportReviewView=''; navigateBeforeDaily(view, anchor); dailyNotify('moondog-navigation', { view, anchor }); };
+  const navigateWithLearnedFailures = navigateTo;
+  navigateTo = function(view, anchor = '') {
+    navigateWithLearnedFailures(view, anchor);
+    if (view === "imports") void refreshFailedLearnedReportNotice().catch((error) => {
+      ui.failedLearnedPackageStatus.textContent = `Failed report details could not be refreshed (${error.name || "Error"}). No original files were changed.`;
+      status("Failed learned report details could not be refreshed. Check local folder access.", "error");
+    });
+  };
   const saveBeforeDaily = saveRecord;
   saveRecord = async function(event, advance = false, additions = null) {
     const id = model.selectedId, record = model.state.records.find(r => r.id === id);

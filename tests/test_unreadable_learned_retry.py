@@ -8,7 +8,9 @@ class LearnedFileRetryTests(unittest.TestCase):
     def test_unreadable_files_hold_followup_receipt(self):
         segment=APP.split("async function reconcileLearnedFiles(",1)[1].split("async function runVerifiedUpdateFollowup()",1)[0]
         self.assertIn('handle.getFile()', segment)
-        self.assertIn('catch (error) { failures++; recordDiagnostic("FILES TO LEARN",', segment)
+        self.assertIn('failures++;const diagnostic=`Learned-source open deferred:', segment)
+        self.assertIn('importFailed:true,readError:true,diagnostic,failedAt:now()', segment)
+        self.assertIn('recordDiagnostic("FILES TO LEARN",diagnostic)', segment)
         self.assertNotIn('} catch (_) {} }', segment)
         self.assertIn('return {failures,attempts,recovered,unsupported,skipped};', segment)
 
