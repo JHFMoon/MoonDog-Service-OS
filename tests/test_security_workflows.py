@@ -158,7 +158,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('[ -z "$HEAD_SHA" ] || [ -z "$CURRENT_PR_HEAD" ]', guard)
         self.assertIn('if [ "$CURRENT_PR_HEAD" != "$HEAD_SHA" ]; then', guard)
         stale = guard.index('if [ "$CURRENT_PR_HEAD" != "$HEAD_SHA" ]; then')
-        end = guard.index("\\n          fi", stale)
+        end = guard.index("          fi", stale)
         self.assertIn('echo "skip=true" >> "$GITHUB_OUTPUT"', guard[stale:end])
         self.assertIn("exit 0", guard[stale:end])
         self.assertLess(guard.index(fetch), guard.index("CURRENT_PR_HEAD="))
