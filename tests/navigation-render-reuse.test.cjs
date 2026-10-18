@@ -192,3 +192,37 @@ test("large Open RO tables use a single fragment insertion instead of per-row li
   const nonemptyRows=table.slice(table.indexOf("    for (const record of records) {"));
   assert.doesNotMatch(nonemptyRows,/ui\.roTable\.append\(row\)/);
 });
+
+test("240 synthetic navigation cycles preserve current views without repeated heavy rendering",()=>{
+  const {context,draw,calls,flush,views,setBusinessDate}=harness();
+  context.navigateTo("meeting");flush();
+  context.navigateTo("performance");flush();
+  context.navigateTo("open-ro");flush();
+  for(let i=0;i<240;i++){
+    context.navigateTo("home");
+    context.navigateTo("meeting");
+    context.navigateTo("performance");
+    context.navigateTo("open-ro");
+    flush();
+  }
+  assert.equal(draw.meeting,1,"Meeting data should not be rebuilt from repeated navigation alone");
+  assert.equal(draw.performance,1,"Performance data should not be rebuilt from repeated navigation alone");
+  assert.equal(calls.openRo,1,"Open RO table should not be rebuilt from repeated navigation alone");
+  assert.equal(views["open-ro"].classList.contains("active"),true);
+  context.invalidateNavigationRenders();
+  context.navigateTo("home");flush();
+  context.navigateTo("meeting");flush();
+  context.navigateTo("performance");flush();
+  context.navigateTo("open-ro");flush();
+  assert.equal(draw.meeting,2,"source update still invalidates Meeting");
+  assert.equal(draw.performance,2,"source update still invalidates Performance");
+  assert.equal(calls.openRo,2,"source update still invalidates the Open RO table");
+  setBusinessDate("2026-10-13");
+  context.navigateTo("home");flush();
+  context.navigateTo("meeting");flush();
+  context.navigateTo("performance");flush();
+  context.navigateTo("open-ro");flush();
+  assert.equal(draw.meeting,3,"new operating date refreshes Meeting once");
+  assert.equal(draw.performance,3,"new operating date refreshes Performance once");
+  assert.equal(calls.openRo,3,"new operating date refreshes Open RO due dates once");
+});
