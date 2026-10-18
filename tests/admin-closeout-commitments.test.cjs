@@ -71,8 +71,9 @@ test('Home save does not clear or transfer administrative fields between ROs', (
 });
 
 test('Supervisor Workbook updates do not silently replace an existing admin commitment', () => {
-  assert.ok(app.includes('Administrative closeout promise changed in workbook: confirm the revised date and reason'));
-  assert.ok(app.includes('proposed.reviewDate !== (current.adminCloseout.taskDate || "") || proposed.nextAction !== (current.nextAction || "")'));
+  assert.ok(app.includes('Administrative closeout action changed in workbook: confirm changes to advisor task commitments directly with the manager in Open RO Control.'));
+  assert.ok(app.includes('proposed.nextAction !== (current.nextAction || "")'));
+  assert.ok(!app.includes('proposed.reviewDate !== (current.adminCloseout.taskDate || "")'));
   assert.ok(app.includes('adminCloseoutState(record,today).dueToday ? 3'));
   assert.match(app,/!record\.management\.nextAction \? \d+ : \d+/);
 });
@@ -90,4 +91,22 @@ test('a manager review reminder is not an advisor closeout commitment', () => {
   // Only an explicitly entered admin promise can establish the task due date.
   const promised=nextAdminCloseout(pending,pending.blocker,'2026-10-12','2026-10-16','Advisor committed to finish by October 12','2026-10-11T16:00:00Z');
   assert.equal(adminCloseoutState({management:{reviewDate:'2026-10-10',adminCloseout:promised}},'2026-10-11').taskDate,'2026-10-12');
+});
+
+test('admin promise has a dedicated date field distinct from general manager review', () => {
+  assert.ok(app.includes('id="editAdminTaskDate"'));
+  assert.ok(app.includes('ui.editAdminTaskDate.value = record.management.adminCloseout?.taskDate || ""'));
+  assert.ok(app.includes('nextAdminCloseout(record.management.adminCloseout,adminBlocker,ui.editAdminTaskDate.value,ui.editAdminCloseDate.value'));
+  assert.ok(!app.includes('nextAdminCloseout(record.management.adminCloseout,adminBlocker,commitmentDate,'));
+  assert.ok(app.includes('The regular review date above is not an advisor promise'));
+});
+
+test('Home save preserves the correct RO administrative task date, never stale form state', () => {
+  const home = app.slice(app.indexOf("ui.editAdminBlocker.value=record.management.adminCloseout?.blocker||''"));
+  const call = home.indexOf('const saved=await saveRecord(null,false,');
+  assert.ok(call > 0);
+  const beforeSave=home.slice(0,call);
+  assert.ok(beforeSave.includes("ui.editAdminTaskDate.value=record.management.adminCloseout?.taskDate||''"));
+  assert.ok(beforeSave.includes("ui.editAdminCloseDate.value=record.management.adminCloseout?.expectedCloseDate||''"));
+  assert.ok(beforeSave.includes("ui.editAdminChangeReason.value=''"));
 });
