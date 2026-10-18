@@ -15,10 +15,10 @@ const context = {
   isClosedManagement: (management) => String(management?.status || '').toLowerCase() === 'closed'
 };
 const helpers = vm.runInNewContext(
-  app.slice(start, end) + '\n({adminCloseoutDaysLate,adminCloseoutState,nextAdminCloseout,adminCloseoutEscalations})',
+  app.slice(start, end) + '\n({adminCloseoutDaysLate,adminCloseoutState,nextAdminCloseout,nextAdminCloseoutEvidence,adminCloseoutEscalations})',
   context
 );
-const {adminCloseoutDaysLate,adminCloseoutState,nextAdminCloseout,adminCloseoutEscalations} = helpers;
+const {adminCloseoutDaysLate,adminCloseoutState,nextAdminCloseout,nextAdminCloseoutEvidence,adminCloseoutEscalations} = helpers;
 
 function record(ro, taskDate, expectedCloseDate, status = 'Ready for Review') {
   return {
@@ -26,10 +26,10 @@ function record(ro, taskDate, expectedCloseDate, status = 'Ready for Review') {
     management: {
       status, owner: 'Assigned Advisor', nextAction: 'Finish paperwork',
       reviewDate: '2026-10-22',
-      adminCloseout: nextAdminCloseout(
+      adminCloseout: nextAdminCloseoutEvidence(nextAdminCloseout(
         null, 'Warranty approval or processing', taskDate, expectedCloseDate,
         '', '2026-10-10T12:00:00Z'
-      )
+      ), {physicalWorkStatus: 'verified'}, '2026-10-10T12:00:00Z')
     }
   };
 }
@@ -74,9 +74,9 @@ test('Home candidates show only real missing, due or missed admin promises, max 
 });
 
 test('prior missed revisions are counted only from documented promises', () => {
-  const original = nextAdminCloseout(
+  const original = nextAdminCloseoutEvidence(nextAdminCloseout(
     null, 'Customer pickup', '2026-10-11', '2026-10-12', '', '2026-10-10T10:00:00Z'
-  );
+  ), {physicalWorkStatus: 'verified'}, '2026-10-10T10:00:00Z');
   const firstMiss = nextAdminCloseout(
     original, 'Customer pickup', '2026-10-13', '2026-10-14',
     'Customer moved pickup', '2026-10-13T10:00:00Z'

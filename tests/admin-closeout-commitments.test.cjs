@@ -11,13 +11,14 @@ const start = app.indexOf('  const ADMIN_CLOSEOUT_BLOCKERS =');
 const end = app.indexOf('  function cdkStatusIndicator(', start);
 assert.ok(start >= 0 && end > start, 'admin closeout helpers should be present');
 const context = {localDateKey:()=> '2026-10-11', isClosedManagement:(management)=>String(management?.status||'').toLowerCase()==='closed'};
-vm.runInNewContext(app.slice(start, end)+'\nthis.closeout={nextAdminCloseout,adminCloseoutState};', context);
-const {nextAdminCloseout,adminCloseoutState} = context.closeout;
+vm.runInNewContext(app.slice(start, end)+'\nthis.closeout={nextAdminCloseout,nextAdminCloseoutEvidence,adminCloseoutState};', context);
+const {nextAdminCloseout,nextAdminCloseoutEvidence,adminCloseoutState} = context.closeout;
+const confirmed = closeout => nextAdminCloseoutEvidence(closeout, {physicalWorkStatus:'verified'}, '2026-10-11T12:00:00Z');
 
 test('manager must explicitly identify an administrative blocker; never infer from RO age', () => {
   const record = {management:{reviewDate:'2026-10-10'}};
   assert.equal(adminCloseoutState(record,'2026-10-11').active, false);
-  const initial = nextAdminCloseout(null,'Customer pickup','2026-10-12','2026-10-13','','2026-10-11T12:00:00Z');
+  const initial = confirmed(nextAdminCloseout(null,'Customer pickup','2026-10-12','2026-10-13','','2026-10-11T12:00:00Z'));
   assert.equal(initial.blocker,'Customer pickup');
   assert.equal(initial.taskDate,'2026-10-12');
   assert.equal(initial.expectedCloseDate,'2026-10-13');
@@ -26,7 +27,7 @@ test('manager must explicitly identify an administrative blocker; never infer fr
 });
 
 test('missing promises are represented as missing, not fabricated', () => {
-  const pending=nextAdminCloseout(null,'Billing / paperwork','','','','2026-10-11T12:00:00Z');
+  const pending=confirmed(nextAdminCloseout(null,'Billing / paperwork','','','','2026-10-11T12:00:00Z'));
   const state=adminCloseoutState({management:{adminCloseout:pending}},'2026-10-11');
   assert.equal(state.active,true);
   assert.equal(state.needsCommitment,true);
@@ -35,14 +36,14 @@ test('missing promises are represented as missing, not fabricated', () => {
 });
 
 test('missed task date or close date is flagged without closing or authorizing RO', () => {
-  const promised=nextAdminCloseout(null,'MaxCare / extended-warranty claim','2026-10-10','2026-10-15','','2026-10-09T12:00:00Z');
+  const promised=confirmed(nextAdminCloseout(null,'MaxCare / extended-warranty claim','2026-10-10','2026-10-15','','2026-10-09T12:00:00Z'));
   assert.equal(adminCloseoutState({management:{adminCloseout:promised}},'2026-10-11').overdue,true);
-  const closeDue=nextAdminCloseout(null,'Customer pickup','2026-10-15','2026-10-10','','2026-10-09T12:00:00Z');
+  const closeDue=confirmed(nextAdminCloseout(null,'Customer pickup','2026-10-15','2026-10-10','','2026-10-09T12:00:00Z'));
   assert.equal(adminCloseoutState({management:{adminCloseout:closeDue}},'2026-10-11').overdue,true);
 });
 
 test('revising an advisor promise requires reason and preserves previous dates', () => {
-  const first=nextAdminCloseout(null,'Warranty approval or processing','2026-10-12','2026-10-13','','2026-10-11T12:00:00Z');
+  const first=confirmed(nextAdminCloseout(null,'Warranty approval or processing','2026-10-12','2026-10-13','','2026-10-11T12:00:00Z'));
   assert.throws(()=>nextAdminCloseout(first,'Warranty approval or processing','2026-10-14','2026-10-16','','2026-10-12T12:00:00Z'),/Explain why/);
   const next=nextAdminCloseout(first,'Warranty approval or processing','2026-10-14','2026-10-16','Advisor awaiting warranty claim number','2026-10-12T12:00:00Z');
   assert.equal(next.revisions.length,1);
@@ -58,7 +59,7 @@ test('revising an advisor promise requires reason and preserves previous dates',
 test('update form and Open RO exception filters are manager-only; existing durable state is reused',()=>{
   for(const id of ['editAdminBlocker','editAdminCloseDate','editAdminChangeReason']) assert.ok(app.includes('id="'+id+'"'));
   for(const filter of ['admin-closeout','admin-commitment-needed','admin-overdue']) assert.ok(app.includes('value="'+filter+'"'));
-  assert.match(app,/adminCloseout=nextAdminCloseout\(/);
+  assert.match(app,/adminCloseout=nextAdminCloseoutEvidence\(commitments,currentAdminCloseoutEvidence\(\),now\(\)\)/);
   assert.ok(app.includes('await saveState("Updated RO "+record.ro, priorState)'));
   assert.match(app,/management=prior\?\.management\|\|defaultManagementFor\(raw\)/);
   assert.doesNotMatch(html,/data-view="advisor-closeout"/);
@@ -79,7 +80,7 @@ test('Supervisor Workbook updates do not silently replace an existing admin comm
 });
 
 test('a manager review reminder is not an advisor closeout commitment', () => {
-  const pending=nextAdminCloseout(null,'Warranty approval or processing','','2026-10-16','','2026-10-11T12:00:00Z');
+  const pending=confirmed(nextAdminCloseout(null,'Warranty approval or processing','','2026-10-16','','2026-10-11T12:00:00Z'));
   const record={management:{reviewDate:'2026-10-10',adminCloseout:pending}};
   const state=adminCloseoutState(record,'2026-10-11');
   assert.equal(state.active,true);

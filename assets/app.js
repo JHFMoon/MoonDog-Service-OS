@@ -241,9 +241,11 @@
     section.className = "wide";
     section.id = "adminCloseoutEditor";
     section.style.cssText = "padding:12px;border:1px solid #bed4da;border-radius:9px";
-    section.innerHTML = `<strong>Administrative closeout · manager confirmed</strong><p style="font-size:12px;margin:6px 0">Use only when physical work is verified complete. The regular review date above is not an advisor promise. Record the advisor's specific administrative task completion date below. Nothing here authorizes repairs or closes an RO.</p><div class="form-grid"><label>What's keeping this RO open?<select id="editAdminBlocker"><option value="">Not an administrative closeout</option><option value="Customer pickup">Customer pickup</option><option value="MaxCare / extended-warranty claim">MaxCare / extended-warranty claim</option><option value="Warranty approval or processing">Warranty approval or processing</option><option value="Billing / paperwork">Billing / paperwork</option><option value="Other administrative blocker">Other administrative blocker</option></select></label><label>Advisor administrative task completion date<input id="editAdminTaskDate" type="date"></label><label>Expected RO close date<input id="editAdminCloseDate" type="date"></label><label class="wide">Reason for changing a prior commitment<input id="editAdminChangeReason" autocomplete="off" placeholder="Required when a previously agreed date or blocker changes"></label></div><small>Missing dates remain Commitment needed; never assume the advisor agreed.</small>`;
+    section.innerHTML = `<strong>Administrative closeout · manager confirmed</strong><p style="font-size:12px;margin:6px 0">Use only when physical work is verified complete. The regular review date above is not an advisor promise. Record the advisor's specific administrative task completion date below. Nothing here authorizes repairs or closes an RO.</p><div class="form-grid"><label>What's keeping this RO open?<select id="editAdminBlocker"><option value="">Not an administrative closeout</option><option value="Customer pickup">Customer pickup</option><option value="MaxCare / extended-warranty claim">MaxCare / extended-warranty claim</option><option value="Warranty approval or processing">Warranty approval or processing</option><option value="Billing / paperwork">Billing / paperwork</option><option value="Other administrative blocker">Other administrative blocker</option></select></label><label>Physical work completion<select id="editAdminWorkStatus"><option value="unverified">Not verified</option><option value="verified">Manager verified complete</option></select></label><label>Advisor administrative task completion date<input id="editAdminTaskDate" type="date"></label><label>Expected RO close date<input id="editAdminCloseDate" type="date"></label><label>Pickup follow-through<select id="editAdminPickupStatus"><option value="">Not recorded</option><option value="contact-attempted">Outreach attempted · no confirmation</option><option value="notified">Customer notification confirmed</option><option value="pickup-expected">Pickup expected</option><option value="picked-up-verified">Picked up · manager verified</option></select></label><label>Outreach date<input id="editAdminPickupContactDate" type="date"></label><label>Expected pickup date<input id="editAdminPickupDate" type="date"></label><label>Warranty / MaxCare follow-through<select id="editAdminWarrantyStatus"><option value="">Not recorded · confirm with advisor</option><option value="not-filed">Claim not filed</option><option value="submitted">Claim submitted</option><option value="processing">Claim processing</option><option value="approval-received">Approval received</option><option value="action-needed">Action still needed</option></select></label><label class="wide">Evidence summary · no customer or VIN data<textarea id="editAdminEvidence" maxlength="500" rows="2" placeholder="Record a brief manager/source confirmation"></textarea></label><label class="wide">Reason for changing a prior commitment<input id="editAdminChangeReason" autocomplete="off" placeholder="Required when a previously agreed date or blocker changes"></label></div><small>Unverified work is not escalated. Missing dates remain Commitment needed; never assume the advisor agreed. Pickup contact is recorded only; MoonDog does not contact customers.</small>`;
+    section.insertAdjacentHTML("beforeend", '<div id="editAdminCoachingGroup" class="wide" hidden><strong>Manager follow-through · after repeat missed commitments</strong><div class="form-grid"><label>Coaching step<select id="editAdminCoachingStatus"><option value="">Not recorded</option><option value="planned">Follow-up planned</option><option value="discussed">Discussed with advisor</option><option value="monitoring">Monitoring next commitment</option><option value="resolved">Follow-up resolved</option></select></label><label class="wide">Process/support action summary · no personnel file<textarea id="editAdminCoachingAction" maxlength="500" rows="2"></textarea></label></div></div>');
+    section.insertAdjacentHTML("beforeend", "<small>Use the existing owner and next-action fields above. No customer messages are sent.</small>");
     ui.editCommunication.closest("label").before(section);
-    for (const id of ["editAdminBlocker", "editAdminTaskDate", "editAdminCloseDate", "editAdminChangeReason"]) ui[id] = document.getElementById(id);
+    for (const id of ["editAdminBlocker", "editAdminWorkStatus", "editAdminTaskDate", "editAdminCloseDate", "editAdminPickupStatus", "editAdminPickupContactDate", "editAdminPickupDate", "editAdminWarrantyStatus", "editAdminEvidence", "editAdminChangeReason", "editAdminCoachingGroup", "editAdminCoachingStatus", "editAdminCoachingAction"]) ui[id] = document.getElementById(id);
   }
   installAdminCloseoutUi();
   if (ui.moondogNeeds) {
@@ -277,11 +279,55 @@
     const due = Date.parse(date + "T12:00:00Z"), current = Date.parse(today + "T12:00:00Z");
     return Number.isFinite(due) && Number.isFinite(current) ? Math.max(0, Math.round((current - due) / 86400000)) : 0;
   }
+  const ADMIN_CLOSEOUT_WORK_STATUSES = Object.freeze(["unverified", "verified"]);
+  const ADMIN_CLOSEOUT_PICKUP_STATUSES = Object.freeze(["", "contact-attempted", "notified", "pickup-expected", "picked-up-verified"]);
+  const ADMIN_CLOSEOUT_WARRANTY_STATUSES = Object.freeze(["", "not-filed", "submitted", "processing", "approval-received", "action-needed"]);
+  const ADMIN_CLOSEOUT_COACHING_STATUSES = Object.freeze(["", "planned", "discussed", "monitoring", "resolved"]);
+  const ADMIN_CLOSEOUT_EVIDENCE_FIELDS = Object.freeze(["physicalWorkStatus", "pickupStatus", "pickupContactDate", "expectedPickupDate", "warrantyStatus", "evidence", "coachingStatus", "coachingAction"]);
+  function adminCloseoutEvidenceSnapshot(values = {}) {
+    const snapshot = {
+      physicalWorkStatus: String(values.physicalWorkStatus || "unverified"),
+      pickupStatus: String(values.pickupStatus || ""),
+      pickupContactDate: String(values.pickupContactDate || ""),
+      expectedPickupDate: String(values.expectedPickupDate || ""),
+      warrantyStatus: String(values.warrantyStatus || ""),
+      evidence: String(values.evidence || "").trim(),
+      coachingStatus: String(values.coachingStatus || ""),
+      coachingAction: String(values.coachingAction || "").trim()
+    };
+    if (!ADMIN_CLOSEOUT_WORK_STATUSES.includes(snapshot.physicalWorkStatus)) throw new Error("Select whether physical work completion is verified.");
+    if (!ADMIN_CLOSEOUT_PICKUP_STATUSES.includes(snapshot.pickupStatus)) throw new Error("Select a recognized customer pickup follow-through state.");
+    if (!ADMIN_CLOSEOUT_WARRANTY_STATUSES.includes(snapshot.warrantyStatus)) throw new Error("Select a recognized warranty or MaxCare claim state.");
+    if (!ADMIN_CLOSEOUT_COACHING_STATUSES.includes(snapshot.coachingStatus)) throw new Error("Select a recognized manager coaching follow-through state.");
+    for (const [label, date] of [["outreach", snapshot.pickupContactDate], ["expected pickup", snapshot.expectedPickupDate]]) {
+      const parsedDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00Z`) : null;
+      if (date && (!parsedDate || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date)) throw new Error(`Enter a valid ${label} date.`);
+    }
+    if (snapshot.evidence.length > 500) throw new Error("Evidence summary must be 500 characters or fewer.");
+    if (snapshot.coachingAction.length > 500) throw new Error("Coaching action summary must be 500 characters or fewer.");
+    return snapshot;
+  }
+  function nextAdminCloseoutEvidence(prior, values, at) {
+    const previous = prior && typeof prior === "object" ? prior : {};
+    const defaults = {
+      physicalWorkStatus: "unverified",
+      pickupStatus: "", pickupContactDate: "", expectedPickupDate: "", warrantyStatus: "", evidence: "", coachingStatus: "", coachingAction: ""
+    };
+    const current = adminCloseoutEvidenceSnapshot(Object.fromEntries(ADMIN_CLOSEOUT_EVIDENCE_FIELDS.map((key) => [key, previous[key] ?? defaults[key]])));
+    const next = adminCloseoutEvidenceSnapshot(values);
+    if (ADMIN_CLOSEOUT_EVIDENCE_FIELDS.every((key) => current[key] === next[key])) return prior;
+    const evidenceHistory = Array.isArray(previous.evidenceHistory) ? previous.evidenceHistory.slice(-49) : [];
+    evidenceHistory.push({ at, previous: current, next });
+    return { ...previous, ...next, evidenceHistory };
+  }
   function adminCloseoutState(record, today = localDateKey()) {
     const closeout = record?.management?.adminCloseout;
     // Never resurface administrative follow-ups once the RO is verified closed.
     if (!closeout?.blocker || isClosedManagement(record?.management)) {
       return { active: false, overdue: false, dueToday: false, needsCommitment: false };
+    }
+    if (closeout.physicalWorkStatus !== "verified") {
+      return { active: false, verified: false, overdue: false, dueToday: false, needsCommitment: false };
     }
     // A manager review/reminder date is not proof of an advisor task commitment.
     const taskDate = closeout.taskDate || "";
@@ -291,7 +337,16 @@
     const taskDueToday = taskDate === today;
     const closeDueToday = closeDate === today;
     return {
-      active: true, blocker: closeout.blocker, taskDate, closeDate,
+      active: true, verified: true, blocker: closeout.blocker, taskDate, closeDate,
+      physicalWorkStatus: closeout.physicalWorkStatus || "verified",
+      pickupStatus: closeout.pickupStatus || "",
+      pickupContactDate: closeout.pickupContactDate || "",
+      expectedPickupDate: closeout.expectedPickupDate || "",
+      warrantyStatus: closeout.warrantyStatus || "",
+      evidence: closeout.evidence || "",
+      coachingStatus: closeout.coachingStatus || "",
+      coachingAction: closeout.coachingAction || "",
+      evidenceHistoryCount: Array.isArray(closeout.evidenceHistory) ? closeout.evidenceHistory.length : 0,
       needsCommitment: !taskDate || !closeDate,
       taskOverdue, closeOverdue, overdue: taskOverdue || closeOverdue,
       taskDueToday, closeDueToday, dueToday: taskDueToday || closeDueToday,
@@ -312,7 +367,11 @@
     if (previous.blocker === blocker && previous.taskDate === taskDate && previous.expectedCloseDate === expectedCloseDate) return prior;
     const revisions = Array.isArray(previous.revisions) ? previous.revisions.slice(-49) : [];
     if (revised) revisions.push({ at, reason: String(reason).trim(), previous: { blocker: previous.blocker, taskDate: previous.taskDate || "", expectedCloseDate: previous.expectedCloseDate || "" }, next: { blocker, taskDate, expectedCloseDate } });
-    return { blocker, taskDate, expectedCloseDate, revisions, updatedAt: at };
+    return {
+      ...previous,
+      ...(blocker && !previous.blocker ? { physicalWorkStatus: "unverified" } : {}),
+      blocker, taskDate, expectedCloseDate, revisions, updatedAt: at
+    };
   }
   function adminCloseoutEscalations(records, today = localDateKey()) {
     return (records || []).map((record) => {
@@ -3013,8 +3072,12 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       button.className = "link-button";
       const taskStatus = admin.taskDaysLate ? `Task missed by ${admin.taskDaysLate} day${admin.taskDaysLate === 1 ? "" : "s"}` : admin.taskDueToday ? "Task due today" : "";
       const closeStatus = admin.closeDaysLate ? `RO close missed by ${admin.closeDaysLate} day${admin.closeDaysLate === 1 ? "" : "s"}` : admin.closeDueToday ? "RO close due today" : "";
-      const urgency = [taskStatus, closeStatus, admin.needsCommitment ? "Advisor commitment needed" : "", admin.missedRevisions >= 2 ? `${admin.missedRevisions} previous missed commitments · coach advisor` : ""].filter(Boolean).join(" · ");
-      button.textContent = `RO ${record.ro} · ${admin.blocker} · ${urgency} · Owner: ${record.management?.owner || record.advisor || "Assign owner"} · Next: ${record.management?.nextAction || "Obtain specific next action"}`;
+      const coaching = admin.missedRevisions >= 2 && admin.coachingStatus ? `Manager follow-up: ${admin.coachingStatus}` : "";
+      const urgency = [taskStatus, closeStatus, admin.needsCommitment ? "Advisor commitment needed" : "", admin.missedRevisions >= 2 ? `${admin.missedRevisions} previous missed commitments · coach advisor` : "", coaching].filter(Boolean).join(" · ");
+      const pickupStatus = ({ "contact-attempted": "Pickup outreach attempted", notified: "Pickup notification confirmed", "pickup-expected": `Pickup expected${admin.expectedPickupDate ? ` ${admin.expectedPickupDate}` : ""}`, "picked-up-verified": "Pickup verified" })[admin.pickupStatus] || "";
+      const warrantyStatus = ({ "not-filed": "Warranty claim not filed", submitted: "Warranty claim submitted", processing: "Warranty claim processing", "approval-received": "Warranty approval received", "action-needed": "Warranty action needed" })[admin.warrantyStatus] || "";
+      const evidence = admin.evidence ? ` · Evidence: ${admin.evidence.slice(0, 120)}` : "";
+      button.textContent = `RO ${record.ro} · ${admin.blocker} · ${[urgency, pickupStatus, warrantyStatus].filter(Boolean).join(" · ")} · Owner: ${record.management?.owner || record.advisor || "Assign owner"} · Next: ${record.management?.nextAction || "Obtain specific next action"}${evidence}`;
       button.addEventListener("click", () => {
         ui.searchInput.value = String(record.ro);
         ui.attentionFilter.value = "admin-closeout";
@@ -3162,12 +3225,43 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const other=ui.editStatusDetail.value==="Other";ui.editStatusDetailOtherGroup.hidden=!other;if(record&&other&&stored==="Other")ui.editStatusDetailOther.value=record.management?.statusDetailOther||"";else if(!other)ui.editStatusDetailOther.value="";
   }
   function renderCdkStatusIndicator(record){const indicator=cdkStatusIndicator(record);ui.editCdkStatusIndicator.hidden=!indicator;ui.editCdkStatusIndicator.className="cdk-status-indicator "+(indicator?.kind||"");ui.editCdkStatusIndicator.textContent=indicator?.text||"";}
+  function loadAdminCloseoutEvidence(record) {
+    const closeout = record.management.adminCloseout || {};
+    ui.editAdminWorkStatus.value = closeout.physicalWorkStatus || "unverified";
+    ui.editAdminPickupStatus.value = closeout.pickupStatus || "";
+    ui.editAdminPickupContactDate.value = closeout.pickupContactDate || "";
+    ui.editAdminPickupDate.value = closeout.expectedPickupDate || "";
+    ui.editAdminWarrantyStatus.value = closeout.warrantyStatus || "";
+    ui.editAdminEvidence.value = closeout.evidence || "";
+    ui.editAdminCoachingStatus.value = closeout.coachingStatus || "";
+    ui.editAdminCoachingAction.value = closeout.coachingAction || "";
+    const state = adminCloseoutState(record);
+    ui.editAdminCoachingGroup.hidden = !state.active || state.missedRevisions < 2;
+  }
+  function currentAdminCloseoutEvidence() {
+    return {
+      physicalWorkStatus: ui.editAdminWorkStatus.value,
+      pickupStatus: ui.editAdminPickupStatus.value,
+      pickupContactDate: ui.editAdminPickupContactDate.value,
+      expectedPickupDate: ui.editAdminPickupDate.value,
+      warrantyStatus: ui.editAdminWarrantyStatus.value,
+      evidence: ui.editAdminEvidence.value,
+      coachingStatus: ui.editAdminCoachingStatus.value,
+      coachingAction: ui.editAdminCoachingAction.value
+    };
+  }
   function openEdit(id, origin = "table") { const record = model.state.records.find((r) => r.id === id); if (!record) return; model.selectedId = id; model.editOrigin = origin; const ids = origin === "focus" ? visibleFocusIds() : visibleRecordIds(), position = ids.indexOf(id), clarification = clarificationFor(record), currentStatus=statusForRecord(record), statusChoices=selectableStatusesFor(record); ui.dialogTitle.textContent = "RO "+record.ro; ui.editPosition.textContent = position >= 0 ? (position + 1)+" of "+ids.length+" "+(origin === "focus" ? "daily focus" : "shown") : ""; ui.editClarification.hidden = !clarification; ui.editClarification.textContent = clarification ? "Review needed: "+clarification : ""; ui.editValidation.hidden = true; ui.editValidation.textContent = ""; ui.recordSummary.replaceChildren(); [record.advisorCode ? record.advisor+" · "+record.advisorCode : record.advisor, record.customer, record.vehicle || record.tagNumber, record.vin].filter(Boolean).forEach((value) => { const item = document.createElement("span"); item.textContent = value; ui.recordSummary.append(item); }); populateSelect(ui.editStatus,statusChoices); ui.editStatus.value=statusChoices.includes(currentStatus)?currentStatus:""; updateStatusDetailEditor(record);renderCdkStatusIndicator(record); ui.editOwner.value = record.management.owner || ""; ui.editNextAction.value = record.management.nextAction || ""; ui.editReviewDate.value = record.management.reviewDate || ""; ui.editAdminBlocker.value = record.management.adminCloseout?.blocker || ""; ui.editAdminTaskDate.value = record.management.adminCloseout?.taskDate || ""; ui.editAdminCloseDate.value = record.management.adminCloseout?.expectedCloseDate || ""; ui.editAdminChangeReason.value = ""; restoreSelectValue(ui.editCommunication, normalizeCommunication(record.management.communication), COMMUNICATION_STATUSES); ui.editNote.value = record.management.note || ""; editDraftDirty=false; if (!ui.editDialog.open) ui.editDialog.showModal(); requestAnimationFrame(() => (ui.editStatus.value?ui.editNextAction:ui.editStatus).focus()); }
+  const openEditWithoutCloseoutEvidence = openEdit;
+  openEdit = function(id, origin = "table") {
+    openEditWithoutCloseoutEvidence(id, origin);
+    const record = model.state.records.find((item) => item.id === id);
+    if (record) loadAdminCloseoutEvidence(record);
+  };
   function editValidationError(message) { ui.editValidation.textContent = message; ui.editValidation.hidden = false; throw new Error(message); }
   async function saveRecord(event, advance = false) { event?.preventDefault(); const record = model.state.records.find((r) => r.id === model.selectedId); if (!record) return; const nextAction = ui.editNextAction.value.trim(), commitmentDate = ui.editReviewDate.value, selectedStatus=canonicalReviewStatus(ui.editStatus.value), selectedStatusId=resolveStatusId(selectedStatus,"",true),detailOptions=statusDetailsFor(selectedStatus),statusDetail=detailOptions.length?normalizedStatusDetail(selectedStatus,ui.editStatusDetail.value):"",statusDetailOther=statusDetail==="Other"?ui.editStatusDetailOther.value.trim():""; ui.editValidation.hidden = true; if (!selectedStatus||!statusAllowedForSave(selectedStatus,record)) editValidationError("Choose one of the seven current CDK workflow statuses before saving."); if(detailOptions.length&&!statusDetail)editValidationError("Choose the status detail before saving.");if(statusDetail==="Other"&&!statusDetailOther)editValidationError("Describe the Other status detail before saving."); if (!COMMUNICATION_STATUSES.includes(ui.editCommunication.value)) editValidationError("Choose a recognized customer communication state before saving."); const adminBlocker=ui.editAdminBlocker.value;
     if (!nextAction || (!commitmentDate && !adminBlocker)) editValidationError("Enter the next action and a commitment date, or identify a confirmed admin blocker awaiting an advisor commitment.");
     let adminCloseout=null;
-    if(adminBlocker || record.management.adminCloseout?.blocker)try{adminCloseout=nextAdminCloseout(record.management.adminCloseout,adminBlocker,ui.editAdminTaskDate.value,ui.editAdminCloseDate.value,ui.editAdminChangeReason.value,now());}catch(error){editValidationError(error.message);}
+    if(adminBlocker || record.management.adminCloseout?.blocker)try{const commitments=nextAdminCloseout(record.management.adminCloseout,adminBlocker,ui.editAdminTaskDate.value,ui.editAdminCloseDate.value,ui.editAdminChangeReason.value,now());adminCloseout=nextAdminCloseoutEvidence(commitments,currentAdminCloseoutEvidence(),now());}catch(error){editValidationError(error.message);}
     const origin = model.editOrigin, ids = origin === "focus" ? visibleFocusIds() : visibleRecordIds(), nextId = ids[ids.indexOf(record.id) + 1] || null, priorState = JSON.parse(JSON.stringify(model.state)), before = { ...record.management }, proposed = { ...record.management, ...(dailySaveAdditions || {}), statusId:selectedStatusId, status:selectedStatus, statusDetail, statusDetailOther, owner: ui.editOwner.value.trim(), nextAction, reviewDate: commitmentDate, communication: ui.editCommunication.value, note: ui.editNote.value.trim(), ...(adminCloseout ? { adminCloseout } : {}), clarification: null, managerReviewedOn: localDateKey(), updatedAt: now() }; record.management = proposed; try { await saveState("Updated RO "+record.ro, priorState); } catch (error) { model.state = priorState; ui.editValidation.textContent = "Service Operations Dashboard could not save this RO to durable storage. Your entries are still shown; check the folder connection and try again."; ui.editValidation.hidden = false; recordDiagnostic("QUICK UPDATE SAVE FAILED", "Durable Open RO update failed ("+(error.name || "Error")+")"); return; } try { await addHistory("ro-update", "Updated RO "+record.ro, { ro: record.ro, before, after: proposed, dailyFocus: origin === "focus" }); } catch (error) { recordDiagnostic("HISTORY WRITE FAILED", "Open RO update was saved but its history event could not be written ("+(error.name || "Error")+")"); } await markSupervisorWorkbookStale("Open RO management state changed after the last Supervisor Workbook generation"); renderAll(); editDraftDirty=false; if (advance && nextId) openEdit(nextId, origin); else ui.editDialog.close(); status("RO "+record.ro+" was saved to durable state."+(advance && nextId ? " Continue with the next displayed RO." : "")+" Supervisor Workbook is out of date; generate a new workbook before importing advisor changes.", "success"); return true; }
   async function closeRo(id=model.selectedId){
     const record=model.state.records.find((item)=>item.id===id);if(!record)return false;const priorState=structuredClone(model.state),closedAt=now(),archive={...record,closedAt,closedReason:"manual-manager-close"};
@@ -3724,6 +3818,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       ui.editAdminBlocker.value=record.management.adminCloseout?.blocker||'';
       ui.editAdminTaskDate.value=record.management.adminCloseout?.taskDate||'';
       ui.editAdminCloseDate.value=record.management.adminCloseout?.expectedCloseDate||'';
+      loadAdminCloseoutEvidence(record);
       ui.editAdminChangeReason.value='';
       const saved=await saveRecord(null,false,{currentTechnician:values.currentTechnician||'',reviewTime:values.reviewTime||''});
       if (!saved) throw new Error(ui.editValidation.textContent||'This RO could not be saved. Check folder access and try again.');
