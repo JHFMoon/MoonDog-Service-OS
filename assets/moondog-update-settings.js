@@ -330,6 +330,12 @@
         clearProgress();
         return;
       }
+      // Always verify recovery immediately before the first install mutation,
+      // even if the initial connection event has not completed its scan.
+      await refreshRecovery();
+      if (state.hasRecoverable || state.recoveryScanPending || offeredFor.root !== appRoot()) {
+        throw new Error("Update recovery backups are unresolved or cannot be verified. Check folder access and resolve recovery before installing.");
+      }
       await setProgress({ phase: "install", percent: 28, label: "Starting installation", detail: "Please keep this window open" });
       const outcome = await global.MoonDogUpdateInstall.apply({ verifiedPackage: verified,
         appDirectoryHandle: await applicationFiles(), workspaceDirectoryHandle: appRoot(),
