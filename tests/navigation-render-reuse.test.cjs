@@ -199,11 +199,10 @@ test("240 synthetic navigation cycles preserve current views without repeated he
   context.navigateTo("performance");flush();
   context.navigateTo("open-ro");flush();
   for(let i=0;i<240;i++){
-    context.navigateTo("home");
-    context.navigateTo("meeting");
-    context.navigateTo("performance");
-    context.navigateTo("open-ro");
-    flush();
+    context.navigateTo("home");flush();
+    context.navigateTo("meeting");flush();
+    context.navigateTo("performance");flush();
+    context.navigateTo("open-ro");flush();
   }
   assert.equal(draw.meeting,1,"Meeting data should not be rebuilt from repeated navigation alone");
   assert.equal(draw.performance,1,"Performance data should not be rebuilt from repeated navigation alone");
