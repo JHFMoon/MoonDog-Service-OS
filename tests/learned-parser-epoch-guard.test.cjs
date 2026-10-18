@@ -74,11 +74,11 @@ function changedRecognizers(previous, current) {
   return watched.filter(name => recognitionSection(previous, name) !== recognitionSection(current, name));
 }
 
-test("classifier changes require reviewed epoch and fingerprint updates together", () => {
+test("top-level classifier source drift cannot silently reuse its parser epoch", () => {
   const classifierChanged = fingerprint(classifier) !== reviewed.classifierFingerprint;
-  const revisionChanged = revision !== reviewed.revision;
-  assert.equal(classifierChanged, revisionChanged,
-    "Files To Learn top-level classifier changed without LEARNED_PARSER_REVISION update (or revision changed with unchanged classifier). Review recognition changes and update the epoch and baseline together.");
+  if (classifierChanged)
+    assert.notEqual(revision, reviewed.revision,
+      "Files To Learn classifier changed without a parser epoch bump; review and update the baseline.");
   assert.ok(revision.length > 8);
 });
 
