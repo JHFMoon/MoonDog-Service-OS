@@ -46,7 +46,7 @@
       const decline=Number.isFinite(task.actual)&&Number.isFinite(d.actual)&&task.actual<d.actual-(task.key==='cpElr'?5:3);
       if(decline)return true; // Substantial deterioration overrides a prior acknowledgment.
       if(d.action==='not-an-issue'&&d.fingerprint===task.fingerprint)return false;
-      const configured=root.__moondogSettingsModel?.settings?.future?.managementSchedule?.days;
+      const configured=root.__moondogSettingsModel?.settings?.future?.managerSchedule?.days;
       const next=followUpAt(Date.parse(event.at||''),d.action==='not-an-issue'?7:3,configured);
       if(at<next)return false;
       return d.fingerprint!==task.fingerprint; // Requires new evidence before resurfacing.
