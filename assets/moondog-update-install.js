@@ -255,7 +255,9 @@
         if (compatibility && await digest(await read(workspace, "index.html"), subtle) !== await digest(compatibility, subtle))
           throw new Error("Origin compatibility verification failed.");
         await assertAuthority(workspace);
-        await journal(backup, { status: "verified", inventory: record });
+        await journal(backup, { status: "verified", inventory: record,
+          verifiedUpdate: { version: verifiedPackage.version, channel: verifiedPackage.channel,
+            sha256: verifiedPackage.sha256.toLowerCase(), verifiedAt: new Date().toISOString() } });
         await progress(onProgress, { phase: "complete", percent: 100, label: "Update installed", detail: "Installation verified successfully" });
         return { status: "installed", version: verifiedPackage.version, backupName };
       } catch (error) {

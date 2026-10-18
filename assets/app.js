@@ -1728,6 +1728,52 @@
   // Read-only catalog-to-disk check after an installed update, never on each
   // normal connection. Only public runtime filenames are inspected. Protected
   // Workspace files and Files To Learn are never traversed, moved or deleted.
+  async function findVerifiedUpdateFollowup(root, version=VERSION) {
+    if(!root)throw new Error("Connected application folder is unavailable.");
+    const notFound=error=>error?.name==="NotFoundError";
+    let backups;
+    try{
+      const system=await root.getDirectoryHandle("System Files",{create:false});
+      const workspace=await system.getDirectoryHandle("Workspace",{create:false});
+      const backupFolder=await workspace.getDirectoryHandle("backups",{create:false});
+      backups=await backupFolder.getDirectoryHandle("system-updates",{create:false});
+    }catch(error){if(notFound(error))return null;throw error;}
+    if(typeof backups.entries!=="function")throw new Error("Verified update backup listing is unavailable.");
+    const names=[];
+    for await(const [name,handle] of backups.entries()){
+      if(handle.kind==="directory"&&/^MoonDog-Update-Backup-[A-Za-z0-9-]+$/.test(name))names.push(name);
+    }
+    names.sort();
+    const name=names.at(-1);
+    if(!name)return null;
+    const directory=await backups.getDirectoryHandle(name,{create:false});
+    let journal;
+    try{
+      const file=await directory.getFileHandle("journal.json",{create:false});
+      journal=JSON.parse(await (await file.getFile()).text());
+    }catch(error){
+      if(notFound(error))return null;
+      if(error instanceof SyntaxError)return null;
+      throw error;
+    }
+    const proof=journal?.verifiedUpdate;
+    if(journal?.status!=="verified"||proof?.version!==version||
+       !["stable","beta"].includes(proof?.channel)||!/^[0-9a-f]{64}$/.test(proof?.sha256||"")||
+       !Number.isFinite(Date.parse(proof?.verifiedAt||"")))return null;
+    return {directory,journal,version,
+      completed:journal?.followup?.version===version&&journal.followup.status==="complete"};
+  }
+  async function markVerifiedUpdateFollowupComplete(receipt) {
+    if(!receipt?.directory||!receipt?.journal||!receipt?.version)throw new Error("Verified update receipt is incomplete.");
+    const completed={...receipt.journal,followup:{version:receipt.version,status:"complete",completedAt:new Date().toISOString()}};
+    const file=await receipt.directory.getFileHandle("journal.json",{create:false});
+    const writable=await file.createWritable();
+    try{await writable.write(JSON.stringify(completed));await writable.close();}
+    catch(error){try{await writable.abort();}catch(_){}throw error;}
+    const actual=JSON.parse(await (await file.getFile()).text());
+    if(actual?.followup?.version!==receipt.version||actual.followup.status!=="complete"||
+       actual.followup.completedAt!==completed.followup.completedAt)throw new Error("Verified update follow-up receipt read-back failed.");
+  }
   async function auditInstalledRuntimeLayout(root, catalog = HANDOFF_RUNTIME_PATHS) {
     const report = { missing: 0, misplacedReports: 0, unexpectedRuntime: 0, scanned: 0, compatibilityIndexPresent: false, needsReview: false };
     if (!root || !Array.isArray(catalog) || !catalog.length) throw new Error("Trusted runtime inventory is unavailable.");
@@ -1785,11 +1831,27 @@
   }
 
   async function runVerifiedUpdateFollowup() {
-    // The updater writes the local receipt only after a verified installation.
-    // A failed installation or rollback never triggers these heavier checks.
-    const key="moondog-verified-update-followup-v1";let receipt;
-    try{receipt=JSON.parse(localStorage.getItem(key)||"null");}catch(_){return;}
-    if(receipt?.version!==VERSION||!model.root||!writeAuthority.canWrite)return;
+    // The updater receipt is preferred; its verified backup journal is a
+    // durable fallback when browser storage could not retain the marker.
+    const key="moondog-verified-update-followup-v1";let receipt=null;
+    try{receipt=JSON.parse(localStorage.getItem(key)||"null");}catch(_){}
+    if(!model.root||!writeAuthority.canWrite)return;
+    let durableReceipt;
+    try{durableReceipt=await findVerifiedUpdateFollowup(model.applicationRoot);}
+    catch(error){
+      if(receipt?.version!==VERSION){
+        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Receipt lookup deferred: "+String(error?.name||"Error")+"; no files changed.");
+        return;
+      }
+    }
+    if(durableReceipt?.completed){
+      try{localStorage.removeItem(key);}catch(error){
+        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Completed receipt cleanup deferred: "+String(error?.name||"Error")+".");
+      }
+      return;
+    }
+    if(receipt?.version!==VERSION&&!durableReceipt)return;
+    const followupReceipt=durableReceipt?.version===VERSION&&!durableReceipt.completed?durableReceipt:null;
     try{
       const layout=await auditInstalledRuntimeLayout(model.applicationRoot);
       if(layout.needsReview){
@@ -1813,6 +1875,7 @@
         model.autoImport.learnedParserRevision=LEARNED_PARSER_REVISION;
         await writeJson(AUTO_IMPORT_PATH,model.autoImport);
       }
+      if(followupReceipt)await markVerifiedUpdateFollowupComplete(followupReceipt);
       localStorage.removeItem(key);
       recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Verified "+VERSION+" · attempted "+(result?.attempts||0)+" learned files · skipped "+(result?.skipped||0)+" · recovered "+(result?.recovered||0)+" · still unsupported "+(result?.unsupported||0)+". Unchanged parser revisions do not trigger reclassification.");
     }catch(error){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.name||"Error")+"; receipt retained, originals unchanged.");}

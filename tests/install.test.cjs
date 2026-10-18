@@ -84,7 +84,8 @@ async function fixture() {
   ];
   const bytes = Buffer.from(JSON.stringify({ formatVersion: 1, version: "1.1.0",
     approvedFiles: files.map(file => file.path), files }));
-  const verifiedPackage = { status: "verified", version: "1.1.0", migrationRequired: false,
+  const verifiedPackage = { status: "verified", version: "1.1.0", channel: "beta",
+    migrationRequired: false,
     bytes, sha256: hash(bytes) };
   const trustedAllowlist = ["index.html", "assets/new.js", "assets/old.js"];
   const expectedPlan = await context.MoonDogPackagePlan.dryRun({ verifiedPackage,
@@ -119,6 +120,12 @@ test("verified workspace backup precedes approved writes and preserves protected
   assert.equal(setup.workspace.store.files.get("System Files/Workspace/data/current-state.json").toString(), "synthetic private state");
   const base = "System Files/Workspace/backups/system-updates/" + result.backupName + "/";
   assert.ok(setup.workspace.store.writes.includes(base + "journal.json"));
+  const journal = JSON.parse(setup.workspace.store.files.get(base + "journal.json").toString());
+  assert.deepEqual(journal.verifiedUpdate, {
+    version: "1.1.0", channel: "beta", sha256: setup.verifiedPackage.sha256,
+    verifiedAt: journal.verifiedUpdate.verifiedAt
+  });
+  assert.ok(Number.isFinite(Date.parse(journal.verifiedUpdate.verifiedAt)));
   assert.equal(setup.workspace.store.files.get(base + "index.html").toString(), setup.oldHtml);
   assert.equal(setup.workspace.store.files.get(base + "origin-compatibility/index.html").toString(), compatibility(setup.oldHtml));
 });
