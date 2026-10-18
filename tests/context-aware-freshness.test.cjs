@@ -123,3 +123,27 @@ test('invalid month keys never normalize into neighboring months or years', () =
   assert.equal(F.previousMonth('2026-01-15'), '2025-12');
   assert.equal(F.finalOperatingDay('2026-02'), '2026-02-28');
 });
+
+test('history maintenance uses newest valid report day regardless of import enumeration order', () => {
+  const presentDates=['2026-10-19','2026-10-17','2026-10-18','2026-02-30','2026-10-21'];
+  for(const key of ['sapr','nextAppointments','vir','sor']){
+    const plan=F.trendMaintenance({key,today:'2026-10-20',coverage:{presentDates}});
+    assert.equal(plan.last,'2026-10-19',key+' must choose newest valid, nonfuture date');
+    assert.equal(plan.next,'2026-10-20',key+' next operating day');
+  }
+  assert.deepEqual(presentDates,['2026-10-19','2026-10-17','2026-10-18','2026-02-30','2026-10-21'],
+    'read-only freshness calculation must not change the canonical source order');
+  assert.equal(F.trendMaintenance({key:'sapr',today:'2026-10-20',coverage:{presentDates:['invalid']}}).last,'');
+  assert.equal(F.trendMaintenance({key:'sapr',today:'2026-10-20',coverage:{lastPoint:'2026-10-17',presentDates}}).last,'2026-10-17',
+    'an explicitly verified lastPoint retains existing source precedence');
+});
+
+test('Menu weekly report history picks latest release without assuming import sort', () => {
+  const releases=['2026-10-19','2026-10-05','2026-10-12','2026-10-26','2026-13-01'];
+  const plan=F.trendMaintenance({key:'menu',today:'2026-10-20',coverage:{presentReleases:releases}});
+  assert.equal(plan.last,'2026-10-19');
+  assert.equal(plan.status,'Current through 2026-10-19');
+  assert.equal(plan.next,'2026-10-26');
+  assert.deepEqual(releases,['2026-10-19','2026-10-05','2026-10-12','2026-10-26','2026-13-01']);
+  assert.equal(F.trendMaintenance({key:'menu',today:'2026-10-20',coverage:{presentReleases:['invalid']}}).last,'');
+});
