@@ -270,7 +270,8 @@
     if (!closeout?.blocker || isClosedManagement(record?.management)) {
       return { active: false, overdue: false, dueToday: false, needsCommitment: false };
     }
-    const taskDate = closeout.taskDate || record.management?.reviewDate || "";
+    // A manager review/reminder date is not proof of an advisor task commitment.
+    const taskDate = closeout.taskDate || "";
     const closeDate = closeout.expectedCloseDate || "";
     const taskOverdue = Boolean(taskDate && taskDate < today);
     const closeOverdue = Boolean(closeDate && closeDate < today);
