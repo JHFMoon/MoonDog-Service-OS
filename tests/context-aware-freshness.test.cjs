@@ -35,3 +35,17 @@ test('validated report observation can establish CSI currentness without scope',
   const source = F.evaluateSource({key:'csi',exists:true,today,observationVerified:true,sourceDate:'2026-10-06'});
   assert.equal(source.status,'current');
 });
+
+test('Gregorian date keys reject impossible dates without silently rolling into a new month', () => {
+  for (const date of ['2026-02-30','2026-04-31','2025-02-29','2026-00-15','2026-13-01','2026-01-00','2026-01-32','2026-1-01']) {
+    assert.equal(F.validDateKey(date), false, date);
+  }
+  for (const date of ['2024-02-29','2000-02-29','2026-02-28','2026-04-30','2026-12-31']) {
+    assert.equal(F.validDateKey(date), true, date);
+  }
+  assert.equal(F.validDateKey('1900-02-29'), false);
+  assert.equal(F.addDays('2026-02-30', 1), '');
+  assert.equal(F.previousOperatingDay('2026-04-31'), '');
+  assert.deepEqual(F.operatingDays('2026-02-30', '2026-03-02'), []);
+  assert.equal(F.addDays('2024-02-28', 1), '2024-02-29');
+});
