@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.101 — current Beta
+
+- Allow explicit fail-closed recovery inventory retry without implicit restore (#164). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.100 — current Beta
 
 - Correct SAPR/Next Appointments period coverage while preserving VIR observations (#59). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
