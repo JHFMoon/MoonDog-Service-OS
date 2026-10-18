@@ -27,5 +27,18 @@ class BetaDispatchTests(unittest.TestCase):
         self.assertIn('gh workflow run clean-install-proof.yml', text)
 
 
+    def test_postmerge_beta_uses_reviewed_commit_subject_instead_of_generic_notes(self):
+        workflow = PACKAGE.read_text(encoding="utf-8")
+        builder = (ROOT / "scripts/build_beta_package.py").read_text(encoding="utf-8")
+        self.assertNotIn(
+            '--release-notes "Automatically packaged merged runtime from current main; Stable unchanged."',
+            workflow,
+            "post-merge release notes must describe the actual reviewed change",
+        )
+        self.assertIn('subject = git_value(root, "%s")', builder)
+        self.assertIn('notes = args.release_notes.strip() or (', builder)
+        self.assertIn('Verified automated Beta from reviewed source.', builder)
+
+
 if __name__ == "__main__":
     unittest.main()
