@@ -3585,6 +3585,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       for (const [key, field] of Object.entries({owner:'editOwner',nextAction:'editNextAction',reviewDate:'editReviewDate',communication:'editCommunication',note:'editNote'})) ui[field].value=values[key]||'';
       // Home does not expose admin-closeout fields; preserve the target RO's commitments.
       ui.editAdminBlocker.value=record.management.adminCloseout?.blocker||'';
+      ui.editAdminTaskDate.value=record.management.adminCloseout?.taskDate||'';
       ui.editAdminCloseDate.value=record.management.adminCloseout?.expectedCloseDate||'';
       ui.editAdminChangeReason.value='';
       const saved=await saveRecord(null,false,{currentTechnician:values.currentTechnician||'',reviewTime:values.reviewTime||''});
