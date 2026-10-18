@@ -54,7 +54,7 @@
       const management=record.management||{};
       const reviewDate=String(management.reviewDate||'');
       const currentDay=businessDate(at);
-      const planned=Boolean(/^20[0-9]{2}-[0-9]{2}-[0-9]{2}$/.test(reviewDate));
+      const planned=validDate(reviewDate);
       const reviewed=String(management.managerReviewedOn||'');
       const newEscalation=Number.isFinite(Number(d.rank))&&Number(task.rank)<Number(d.rank);
       if(planned && reviewDate>currentDay && !newEscalation)return false;
