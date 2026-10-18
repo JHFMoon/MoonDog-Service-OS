@@ -3414,7 +3414,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         name: row.name, archivePath, size: bytes.byteLength, lastModified: row.lastModified,
         sha256: digest, diagnostic: row.diagnostic, handle: row.handle, metadata: row.metadata
       };
-      zip.file(archivePath, bytes);
+      // No implicit directory entry: read-back inventory must contain only
+      // the selected originals and the two diagnostics files.
+      zip.file(archivePath, bytes, {createFolders: false});
       sources.push(source);
     }
     const diagnosticManifest = {
