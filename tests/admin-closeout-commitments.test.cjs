@@ -76,3 +76,18 @@ test('Supervisor Workbook updates do not silently replace an existing admin comm
   assert.ok(app.includes('adminCloseoutState(record,today).dueToday ? 3'));
   assert.match(app,/!record\.management\.nextAction \? \d+ : \d+/);
 });
+
+test('a manager review reminder is not an advisor closeout commitment', () => {
+  const pending=nextAdminCloseout(null,'Warranty approval or processing','','2026-10-16','','2026-10-11T12:00:00Z');
+  const record={management:{reviewDate:'2026-10-10',adminCloseout:pending}};
+  const state=adminCloseoutState(record,'2026-10-11');
+  assert.equal(state.active,true);
+  assert.equal(state.taskDate,'');
+  assert.equal(state.needsCommitment,true);
+  assert.equal(state.taskOverdue,false);
+  assert.equal(state.dueToday,false);
+  assert.equal(state.closeDate,'2026-10-16');
+  // Only an explicitly entered admin promise can establish the task due date.
+  const promised=nextAdminCloseout(pending,pending.blocker,'2026-10-12','2026-10-16','Advisor committed to finish by October 12','2026-10-11T16:00:00Z');
+  assert.equal(adminCloseoutState({management:{reviewDate:'2026-10-10',adminCloseout:promised}},'2026-10-11').taskDate,'2026-10-12');
+});
