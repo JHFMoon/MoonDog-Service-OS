@@ -148,3 +148,16 @@ test('manager editor wires the evidence fields into durable save without custome
   assert.match(app, /await saveState\("Updated RO "\+record\.ro, priorState\)/);
   assert.doesNotMatch(app, /sendCustomerMessage|closeRo\(record\.id\)/);
 });
+
+test('legacy blocker and dated promise are not evidence that physical repair is complete', () => {
+  const legacy = {blocker: 'Customer pickup', taskDate: '2026-10-11', expectedCloseDate: '2026-10-12', revisions: []};
+  const record = {management: {status: 'Ready for Review', adminCloseout: legacy}};
+  const state = adminCloseoutState(record, '2026-10-17');
+  assert.equal(state.active, false);
+  assert.equal(state.verified, false);
+  assert.equal(state.overdue, false);
+  const confirmed = nextAdminCloseoutEvidence(legacy, {physicalWorkStatus: 'verified'}, at);
+  assert.equal(adminCloseoutState({management:{adminCloseout:confirmed}}, '2026-10-17').active, true);
+  assert.equal(confirmed.evidenceHistory[0].previous.physicalWorkStatus, 'unverified');
+  assert.equal(confirmed.evidenceHistory[0].next.physicalWorkStatus, 'verified');
+});
