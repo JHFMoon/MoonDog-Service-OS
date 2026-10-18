@@ -49,8 +49,20 @@ jobs:
             fi
             echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
           fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.json
+          # A workflow_run may refer to an older PR head after packaging or a
+          # branch update. Skip that obsolete event; never use its checks to merge.
+          CURRENT_PR_HEAD="$(jq -r '.head.sha // empty' /tmp/pr.json)"
+          if [ -z "$HEAD_SHA" ] || [ -z "$CURRENT_PR_HEAD" ]; then
+            echo "Missing verified event/PR head; refusing to proceed." >&2
+            exit 1
+          fi
+          if [ "$CURRENT_PR_HEAD" != "$HEAD_SHA" ]; then
+            echo "PR head moved since this verification event; skipping obsolete run."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
           if [ "$(jq -r '.state' /tmp/pr.json)" != "open" ]; then
             echo "PR is closed or not authorized for automatic merge; skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
