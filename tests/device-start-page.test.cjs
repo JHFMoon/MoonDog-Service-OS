@@ -6,7 +6,11 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const root = path.join(__dirname, "..");
-const script = fs.readFileSync(path.join(root, "assets/device-preferences.js"), "utf8");
+const appSource = fs.readFileSync(path.join(root, "assets/app.js"), "utf8");
+const blockStart = appSource.indexOf("  // BEGIN DEVICE START VIEW");
+const blockEnd = appSource.indexOf("  // END DEVICE START VIEW", blockStart);
+assert.ok(blockStart >= 0 && blockEnd > blockStart, "actual production browser preference module exists");
+const script = appSource.slice(blockStart, blockEnd);
 
 function createHarness(store) {
   const context = { localStorage: store };
@@ -55,9 +59,11 @@ test("installed runtime, Settings control and startup preference are wired toget
   assert.match(html,/<select id="deviceStartPage">/);
   assert.match(html,/id="deviceStartPageReset" type="button"/);
   assert.match(html,/id="deviceStartPageFeedback" role="status"/);
-  assert.ok(html.indexOf('src="assets/device-preferences.js"')>=0);
-  assert.ok(html.indexOf('src="assets/device-preferences.js"')<html.indexOf('src="assets/app.js"'));
-  assert.match(app,/const HANDOFF_RUNTIME_PATHS=\[[^;]+assets\/device-preferences\.js/);
+  assert.doesNotMatch(html,/src="assets\\/device-preferences\\.js"/);
+  assert.match(app,/const HANDOFF_RUNTIME_PATHS=\\[[^;]+assets\\/daily-ops\\.css/);
+  assert.doesNotMatch(app,/const HANDOFF_RUNTIME_PATHS=\\[[^;]+assets\\/device-preferences\\.js/);
+  assert.match(app,/querySelectorAll\\("\\.settings-card:not\\(#settings-device-start-page\\)"\\)/);
+  assert.match(html,/id="settings-device-start-page"/);
   assert.match(app,/MoonDogDevicePreferences\?\.readLanding\(\)/);
   assert.match(app,/MoonDogDevicePreferences\?\.writeLanding\(/);
   assert.match(app,/if\(ui\["view-home"\]\?\.classList\.contains\("active"\)\)/);
