@@ -16,7 +16,7 @@ const compatibility = html => html.replace("<head>", '<head><base href="System F
 
 function folder(name, files = {}, directories = []) {
   const store = { dirs: new Set(["", ...directories]), files: new Map(Object.entries(files).map(([key, value]) =>
-    [key, Buffer.from(value)])), failOnce: null, writes: [] };
+    [key, Buffer.from(value)])), failOnce: null, writes: [], readDelayMs: 0, activeReads: 0, peakReads: 0 };
   const handle = prefix => ({
     name: prefix.split("/").filter(Boolean).at(-1) || name,
     kind: "directory",
@@ -39,6 +39,12 @@ function folder(name, files = {}, directories = []) {
         getFile: async () => {
           const value = store.files.get(key);
           if (!value) throw notFound();
+          if (store.readDelayMs) {
+            store.activeReads++;
+            store.peakReads = Math.max(store.peakReads, store.activeReads);
+            try { await new Promise(resolve => setTimeout(resolve, store.readDelayMs)); }
+            finally { store.activeReads--; }
+          }
           return { arrayBuffer: async () => value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength), size: value.length };
         },
         createWritable: async () => {
@@ -283,4 +289,32 @@ test("tampered recovery backup is rejected without overwriting installed or prot
   assert.equal(setup.workspace.store.files.get("System Files/Workspace/data/current-state.json").toString(), "synthetic private state");
   assert.equal(JSON.parse(setup.workspace.store.files.get(journalPath)).status, "applying",
     "incomplete recovery journal remains available for investigation");
+});
+
+test("large recovery inventory reads bounded batches without modifying protected backups", async () => {
+  const setup = await fixture();
+  const base = "System Files/Workspace/backups/system-updates/";
+  const expected = [];
+  for (let i = 0; i < 70; i++) {
+    const name = "MoonDog-Update-Backup-20261018-" + String(i).padStart(3, "0");
+    setup.workspace.store.dirs.add(base + name);
+    const status = i % 3 === 0 ? "applying" : i % 3 === 1 ? "prepared" : "restored";
+    if (i !== 11) {
+      setup.workspace.store.files.set(base + name + "/journal.json",
+        Buffer.from(i === 25 ? "{invalid json" : JSON.stringify({ status })));
+    }
+    if (status !== "restored" && i !== 11 && i !== 25) expected.push(name);
+  }
+  setup.workspace.store.dirs.add(base + "Unrelated-Backup-20261018");
+  const originalDirs = setup.workspace.store.dirs.size;
+  const originalFiles = setup.workspace.store.files.size;
+  setup.workspace.store.readDelayMs = 2;
+  const result = await context.MoonDogUpdateInstall.listBackups(setup.workspace.root);
+  assert.deepEqual(Array.from(result), expected.sort().reverse());
+  assert.ok(setup.workspace.store.peakReads >= 2, "must avoid sequential OneDrive journal reads");
+  assert.ok(setup.workspace.store.peakReads <= 6, "must bound simultaneous journal reads");
+  assert.equal(setup.workspace.store.activeReads, 0);
+  assert.equal(setup.workspace.store.dirs.size, originalDirs, "listing never deletes backup folders");
+  assert.equal(setup.workspace.store.files.size, originalFiles, "listing never deletes journal bytes");
+  assert.deepEqual(setup.workspace.store.writes, [], "listing must never mutate Workspace");
 });

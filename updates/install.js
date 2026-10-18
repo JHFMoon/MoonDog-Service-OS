@@ -50,14 +50,22 @@
   async function listBackups(app) {
     try {
       const root = await backupRoot(app);
-      const names = [];
+      // Enumerate names first, then read bounded batches. OneDrive reads can
+      // be slow, but unbounded concurrent journal reads can starve the UI.
+      const candidates = [];
       for await (const [name, handle] of root.entries()) {
-        if (handle.kind !== "directory" || !name.startsWith(BACKUP_PREFIX) ||
-            !/^[A-Za-z0-9-]+$/.test(name)) continue;
-        try {
-          const record = JSON.parse(decoder.decode(await read(handle, "journal.json")));
-          if (["applying", "prepared"].includes(record?.status)) names.push(name);
-        } catch (_) { /* A malformed record is not offered for recovery. */ }
+        if (handle.kind === "directory" && name.startsWith(BACKUP_PREFIX) &&
+            /^[A-Za-z0-9-]+$/.test(name)) candidates.push([name, handle]);
+      }
+      const names = [];
+      for (let index = 0; index < candidates.length; index += 6) {
+        const batch = await Promise.all(candidates.slice(index, index + 6).map(async ([name, handle]) => {
+          try {
+            const record = JSON.parse(decoder.decode(await read(handle, "journal.json")));
+            return ["applying", "prepared"].includes(record?.status) ? name : null;
+          } catch (_) { return null; /* Malformed or unavailable journals are never offered for recovery. */ }
+        }));
+        for (const name of batch) if (name) names.push(name);
       }
       return names.sort().reverse();
     } catch (error) {
