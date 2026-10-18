@@ -86,6 +86,7 @@ const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
 const settings=fs.readFileSync(path.join(__dirname,"..","assets","moondog-update-settings.js"),"utf8");
 assert(app.includes("Automatic rolling retention backup"),"runtime must refresh a verified rolling full backup");
 assert(app.includes("Rolling retention: full backups"),"retention limits must be visible in Backup & Recovery");
-assert(settings.includes("state.hasRecoverable || !currentOffer()"),"a second update must be blocked while interrupted recovery exists");
+assert.match(settings,/installButton\.disabled = state\.busy \|\| state\.recoveryRequired \|\| state\.hasRecoverable \|\| state\.recoveryScanPending \|\| !currentOffer\(\)/,
+  "a second update must be blocked during interrupted or unverifiable recovery");
 
 console.log("PASS bounded backup retention policy");
