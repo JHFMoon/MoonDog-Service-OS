@@ -246,6 +246,14 @@
     for (const id of ["editAdminBlocker", "editAdminTaskDate", "editAdminCloseDate", "editAdminChangeReason"]) ui[id] = document.getElementById(id);
   }
   installAdminCloseoutUi();
+  if (ui.moondogNeeds) {
+    const panel = document.createElement("div");
+    panel.id = "adminCloseoutAttention";
+    panel.className = "needs-content";
+    panel.hidden = true;
+    ui.moondogNeeds.before(panel);
+    ui.adminCloseoutAttention = panel;
+  }
   if(ui.moondogNeeds){ui.trendCoverageSummary=document.createElement("div");ui.trendCoverageSummary.id="trendCoverageSummary";ui.trendCoverageSummary.className="trend-coverage-summary";ui.trendCoverageSummary.setAttribute("aria-label","Current Month Trend Coverage");ui.moondogNeeds.after(ui.trendCoverageSummary);const nextSection=ui.nextAppointmentsSummary?.closest("section");if(nextSection){ui.previousMonthTotals=document.createElement("section");ui.previousMonthTotals.id="previousMonthTotals";ui.previousMonthTotals.className="card previous-month-totals";nextSection.after(ui.previousMonthTotals);}}
   function migratedSettings(source = {}, hasExistingOperations = true) { const result = { ...DEFAULTS, ...source, store: { ...DEFAULTS.store, ...(source.store || {}) }, meeting: { ...DEFAULTS.meeting, ...(source.meeting || {}) }, performanceStandards: { ...DEFAULTS.performanceStandards, ...(source.performanceStandards || {}) }, advisors: { ...(source.advisors || {}) }, openRo: { managementStatuses: FRESH_MANAGEMENT_STATUSES.map(statusRecord) }, dailyWalk: { ...DEFAULTS.dailyWalk, ...(source.dailyWalk || {}) }, supervisorWorkbook: { ...DEFAULTS.supervisorWorkbook, ...(source.supervisorWorkbook || {}) }, setup: { ...DEFAULTS.setup, ...(source.setup || {}), sourceExpectations: { ...SETUP_SOURCE_DEFAULTS, ...(source.setup?.sourceExpectations || {}) } }, future: { ...DEFAULTS.future, ...(source.future || {}), managerSchedule: { ...DEFAULTS.future.managerSchedule, ...(source.future?.managerSchedule || {}) } } }; if(!source.meetingVoiceMode&&source.meetingCustomerVoiceSurveyId){result.meetingVoiceMode="customer-quote";result.meetingCustomerVoiceSourceMethod="saved";} result.store.name = source.store?.name || source.storeName || DEFAULTS.store.name; result.storeName = result.store.name; result.supervisorWorkbook.filename = source.supervisorWorkbook?.filename || source.exportName || DEFAULTS.supervisorWorkbook.filename; result.exportName=result.supervisorWorkbook.filename; for (const [code, name] of Object.entries(LEGACY_ADVISORS)) { const prior = result.advisors[code] || {}; result.advisors[code] = { number: code, name: prior.name || name, active: prior.active !== false, removed: prior.removed === true, setupRequired: prior.setupRequired === true, firstSeenSapr: prior.firstSeenSapr || "legacy-migration", lastSeenSapr: prior.lastSeenSapr || "", participation: { ...LEGACY_PARTICIPATION[code], ...(prior.participation || {}) } }; } const included=Object.values(result.advisors).filter((advisor)=>advisor.participation?.supervisorWorkbook).map((advisor)=>advisor.number); result.supervisorWorkbook.worksheetOrder=[...(result.supervisorWorkbook.worksheetOrder||[]).filter((code)=>included.includes(code)),...included.filter((code)=>!(result.supervisorWorkbook.worksheetOrder||[]).includes(code))]; result.schemaVersion = 5; return result; }
   function managementStatusDefinitions(){return FRESH_MANAGEMENT_STATUSES.map(statusRecord);}
@@ -264,6 +272,11 @@
   function reviewStatusDetail(record){const parent=reviewedCanonicalStatus(record);return normalizedStatusDetail(parent,record?.management?.statusDetail);}
   function reviewStatusDetailLabel(record){const detail=reviewStatusDetail(record);if(!detail)return"";return detail==="Other"&&record?.management?.statusDetailOther?record.management.statusDetailOther:detail;}
   const ADMIN_CLOSEOUT_BLOCKERS = Object.freeze(["", "Customer pickup", "MaxCare / extended-warranty claim", "Warranty approval or processing", "Billing / paperwork", "Other administrative blocker"]);
+  function adminCloseoutDaysLate(date, today) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) || !/^\d{4}-\d{2}-\d{2}$/.test(String(today || ""))) return 0;
+    const due = Date.parse(date + "T12:00:00Z"), current = Date.parse(today + "T12:00:00Z");
+    return Number.isFinite(due) && Number.isFinite(current) ? Math.max(0, Math.round((current - due) / 86400000)) : 0;
+  }
   function adminCloseoutState(record, today = localDateKey()) {
     const closeout = record?.management?.adminCloseout;
     // Never resurface administrative follow-ups once the RO is verified closed.
@@ -282,6 +295,12 @@
       needsCommitment: !taskDate || !closeDate,
       taskOverdue, closeOverdue, overdue: taskOverdue || closeOverdue,
       taskDueToday, closeDueToday, dueToday: taskDueToday || closeDueToday,
+      taskDaysLate: adminCloseoutDaysLate(taskDate, today),
+      closeDaysLate: adminCloseoutDaysLate(closeDate, today),
+      missedRevisions: (Array.isArray(closeout.revisions) ? closeout.revisions : []).filter((revision) =>
+        Boolean(revision.previous?.taskDate && revision.at && String(revision.at).slice(0, 10) > revision.previous.taskDate) ||
+        Boolean(revision.previous?.expectedCloseDate && revision.at && String(revision.at).slice(0, 10) > revision.previous.expectedCloseDate)
+      ).length,
       revisionCount: Array.isArray(closeout.revisions) ? closeout.revisions.length : 0
     };
   }
@@ -294,6 +313,17 @@
     const revisions = Array.isArray(previous.revisions) ? previous.revisions.slice(-49) : [];
     if (revised) revisions.push({ at, reason: String(reason).trim(), previous: { blocker: previous.blocker, taskDate: previous.taskDate || "", expectedCloseDate: previous.expectedCloseDate || "" }, next: { blocker, taskDate, expectedCloseDate } });
     return { blocker, taskDate, expectedCloseDate, revisions, updatedAt: at };
+  }
+  function adminCloseoutEscalations(records, today = localDateKey()) {
+    return (records || []).map((record) => {
+      const admin = adminCloseoutState(record, today);
+      if (!admin.active || (!admin.overdue && !admin.needsCommitment && !admin.dueToday)) return null;
+      return { record, admin, priority: admin.overdue ? 0 : admin.needsCommitment ? 1 : 2 };
+    }).filter(Boolean).sort((a, b) =>
+      a.priority - b.priority ||
+      Math.max(b.admin.taskDaysLate, b.admin.closeDaysLate) - Math.max(a.admin.taskDaysLate, a.admin.closeDaysLate) ||
+      String(a.record.ro).localeCompare(String(b.record.ro), undefined, { numeric: true })
+    );
   }
   function cdkStatusIndicator(record){const current=canonicalReviewStatus(record?.cdkOperational?.status);if(record?.cdkOperational?.stale&&current)return{kind:"stale",text:"Last confirmed CDK: "+current+" · not confirmed by latest import"};const reviewed=reviewedCanonicalStatus(record);if(current&&reviewed&&current!==reviewed)return{kind:"delta",text:"CDK now: "+current};return null;}
   function normalizeCommunication(value){return ({"attempted":"Attempted / no response","contact needed":"Needs update"})[norm(value)]||value||"";}
@@ -2904,8 +2934,52 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function compactMonthlyMetrics(metrics){const values=[];if(Number.isFinite(metrics?.totalGross))values.push(`Gross ${performanceFormat(metrics.totalGross,"money")}`);if(Number.isFinite(metrics?.roCount))values.push(`ROs ${performanceFormat(metrics.roCount,"count")}`);if(Number.isFinite(metrics?.cpHoursPerRo))values.push(`CP Hrs/RO ${performanceFormat(metrics.cpHoursPerRo,"number")}`);if(Number.isFinite(metrics?.cpElr))values.push(`ELR ${performanceFormat(metrics.cpElr,"money")}`);if(Number.isFinite(metrics?.vir))values.push(`VIR ${performanceFormat(metrics.vir,"percent")}`);if(Number.isFinite(metrics?.menuPresentation)||Number.isFinite(metrics?.menuPenetration))values.push(`Menu ${performanceFormat(metrics.menuPresentation,"percent")} / ${performanceFormat(metrics.menuPenetration,"percent")}`);if(Number.isFinite(metrics?.mediaViewed))values.push(`Media ${performanceFormat(metrics.mediaViewed,"percent")}`);if(Number.isFinite(metrics?.nps))values.push(`NPS ${performanceFormat(metrics.nps,"number")}`);return values;}
   function renderPreviousMonthTotals(){if(!ui.previousMonthTotals)return;const month=priorMonthKey(),summary=model.operationalMetrics.monthlySummaries?.[month]||buildMonthEndSummary(month),label=new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined,{month:"long",year:"numeric"});ui.previousMonthTotals.replaceChildren();const head=document.createElement("div");head.className="section-head";const title=document.createElement("div"),eyebrow=document.createElement("p"),heading=document.createElement("h2"),note=document.createElement("p");eyebrow.className="eyebrow";eyebrow.textContent=summary.status==="locked"?"Locked month-end scoreboard":"Pending finalization";heading.textContent="Previous Month Totals";note.textContent=label;title.append(eyebrow,heading,note);head.append(title);ui.previousMonthTotals.append(head);if(summary.status!=="locked"){const pending=document.createElement("p"),names=(summary.needed||[]).map((key)=>SOURCE_COVERAGE_RULES[key]?.label||key);pending.className="empty";pending.textContent=`${label} final totals pending · Needed: ${names.join(", ")||"verified month-end sources"}`;ui.previousMonthTotals.append(pending);return;}const correction=monthEndCorrectionCandidate(month);if(correction){const notice=document.createElement("div"),button=document.createElement("button");notice.className="month-correction-notice";notice.textContent=summary.schemaVersion<2?"This legacy lock predates explicit source readiness. Verified late sources can be applied deliberately.":"Verified late month-end data is available.";button.type="button";button.dataset.applyMonthCorrection=month;button.textContent="Apply verified late correction";notice.append(button);ui.previousMonthTotals.append(notice);}const storeGrid=document.createElement("div");storeGrid.className="month-total-grid";compactMonthlyMetrics(summary.store).forEach((value)=>{const card=document.createElement("div"),parts=value.split(" "),name=document.createElement("span"),metric=document.createElement("strong");name.textContent=parts.shift();metric.textContent=parts.join(" ");card.append(name,metric);storeGrid.append(card);});const advisors=document.createElement("div");advisors.className="month-advisor-list";Object.values(summary.advisors||{}).sort((a,b)=>a.name.localeCompare(b.name)).forEach((advisor)=>{const row=document.createElement("div"),name=document.createElement("strong"),metrics=document.createElement("div");row.className="month-advisor-row";name.textContent=advisor.name;metrics.className="month-advisor-metrics";metrics.textContent=compactMonthlyMetrics(advisor.metrics).join(" · ");row.append(name,metrics);advisors.append(row);});ui.previousMonthTotals.append(storeGrid,advisors);}
   const renderPreviousMonthTotalsWithLegacyReadiness=renderPreviousMonthTotals;renderPreviousMonthTotals=function(){renderPreviousMonthTotalsWithLegacyReadiness();const month=priorMonthKey(),existing=model.operationalMetrics.monthlySummaries?.[month];if(existing?.status!=="locked"||existing.schemaVersion>=2)return;const readiness=monthEndSourceReadiness(month),pending=Object.entries(readiness.sources).filter(([,item])=>item.state==="pending").map(([key])=>SOURCE_COVERAGE_RULES[key]?.label||key),eyebrow=ui.previousMonthTotals.querySelector(".eyebrow");if(eyebrow)eyebrow.textContent=pending.length?"Pending source reconciliation":"Legacy lock ready for verification";if(pending.length&&!ui.previousMonthTotals.querySelector(".month-correction-notice")){const notice=document.createElement("div");notice.className="month-correction-notice";notice.textContent=`Existing totals are preserved. Finalization is waiting for: ${pending.join(", ")}.`;ui.previousMonthTotals.querySelector(".section-head")?.after(notice);}};
+  function renderAdminCloseoutAttention(today = localDateKey()) {
+    const host = ui.adminCloseoutAttention;
+    if (!host) return;
+    const escalations = adminCloseoutEscalations(model.state.records, today);
+    host.replaceChildren();
+    host.hidden = !escalations.length;
+    if (!escalations.length) return;
+    const title = document.createElement("strong");
+    title.textContent = `ADMIN CLOSEOUT · ${escalations.length} ITEM${escalations.length === 1 ? "" : "S"} REQUIRING FOLLOW-UP`;
+    const list = document.createElement("ul");
+    for (const {record, admin} of escalations.slice(0, 3)) {
+      const item = document.createElement("li"), button = document.createElement("button");
+      button.type = "button";
+      button.className = "link-button";
+      const taskStatus = admin.taskDaysLate ? `Task missed by ${admin.taskDaysLate} day${admin.taskDaysLate === 1 ? "" : "s"}` : admin.taskDueToday ? "Task due today" : "";
+      const closeStatus = admin.closeDaysLate ? `RO close missed by ${admin.closeDaysLate} day${admin.closeDaysLate === 1 ? "" : "s"}` : admin.closeDueToday ? "RO close due today" : "";
+      const urgency = [taskStatus, closeStatus, admin.needsCommitment ? "Advisor commitment needed" : "", admin.missedRevisions >= 2 ? `${admin.missedRevisions} previous missed commitments · coach advisor` : ""].filter(Boolean).join(" · ");
+      button.textContent = `RO ${record.ro} · ${admin.blocker} · ${urgency} · Owner: ${record.management?.owner || record.advisor || "Assign owner"} · Next: ${record.management?.nextAction || "Obtain specific next action"}`;
+      button.addEventListener("click", () => {
+        ui.searchInput.value = String(record.ro);
+        ui.attentionFilter.value = "admin-closeout";
+        navigateTo("open-ro");
+        renderTable();
+        openEdit(record.id);
+      });
+      item.append(button);
+      list.append(item);
+    }
+    host.append(title, list);
+    if (escalations.length > 3) {
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "link-button";
+      more.textContent = `See all ${escalations.length} admin follow-ups in Open RO Control`;
+      more.addEventListener("click", () => {
+        ui.searchInput.value = "";
+        ui.attentionFilter.value = "admin-closeout";
+        navigateTo("open-ro");
+        renderTable();
+      });
+      host.append(more);
+    }
+  }
   function renderOverviewIntelligence() {
     if (!ui.moondogNeeds || !ui.nextAppointmentsSummary) return;
+    renderAdminCloseoutAttention();
     const snapshots = model.operationalMetrics?.nextAppointments?.snapshots || {}, dates = Object.keys(snapshots).sort(), latest = latestNextAppointmentsSnapshot(), latestVir = latestVirObservation(), menuSnapshots = model.operationalMetrics?.menu?.snapshots || {}, menuWeeks = Object.keys(menuSnapshots).sort(), latestMenu = menuSnapshots[menuWeeks.at(-1)], allCsiSurveys = model.operationalMetrics?.csi?.surveys || {}, csiSurveys = currentCsiSurveys(), csiDates = Object.values(allCsiSurveys).map((survey) => survey.surveyDate).sort(), csiCoverage = csiDates.at(-1), actions = managerAttentionRequests(), coverageAudit = trendCoverageAudit(), csiRefreshDate = latestCsiRefreshDate();
     if(latest?.identityConflicts?.length)actions.push(`Resolve ${latest.identityConflicts.length} advisor name/number conflict${latest.identityConflicts.length===1?"":"s"} in Next Appointments`);
     ui.moondogNeeds.replaceChildren();
@@ -3009,7 +3083,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       const customer = document.createElement("td"), customerStack = document.createElement("div"), customerName = document.createElement("strong"), vehicle = document.createElement("small"); customerStack.className = "ro-cell-stack"; customerName.textContent = record.customer || "—"; vehicle.textContent = record.vehicle || record.tagNumber || "—"; customerStack.append(customerName, vehicle); customer.append(customerStack);
       const source = document.createElement("td"), sourcePill = document.createElement("span"); sourcePill.className = "status-pill source-pill"; sourcePill.textContent = record.sourceStatus || "—"; source.append(sourcePill);
       const management = document.createElement("td"), managementPill = document.createElement("span"); managementPill.className = "status-pill"; managementPill.textContent = statusForRecord(record); management.append(managementPill); if (clarification) { const ask = document.createElement("small"); ask.className = "ask-label"; ask.textContent = "Ask in person"; management.append(ask); }
-      const action = document.createElement("td"), actionStack = document.createElement("div"), actionText = document.createElement("strong"), review = document.createElement("time"); action.className = "ro-action-cell"; actionStack.className = "ro-cell-stack"; actionText.textContent = record.management.nextAction || "No next action"; review.className = `commitment-label${record.management.reviewDate && record.management.reviewDate < today ? " overdue" : record.management.reviewDate === today ? " due" : ""}`; review.textContent = closed ? "Closed" : record.management.reviewDate ? `${record.management.reviewDate < today ? "OVERDUE" : record.management.reviewDate === today ? "DUE TODAY" : "Committed"} · ${record.management.reviewDate}` : "Commitment date required"; actionStack.append(actionText, review); if(admin.active){const closeout=document.createElement("small");closeout.textContent="Admin: "+admin.blocker+" · Task: "+(admin.taskDate||"Commitment needed")+(admin.taskOverdue?" · MISSED":admin.taskDueToday?" · DUE TODAY":"")+" · RO close: "+(admin.closeDate||"Commitment needed")+(admin.closeOverdue?" · MISSED":admin.closeDueToday?" · DUE TODAY":"");actionStack.append(closeout);} action.append(actionStack);
+      const action = document.createElement("td"), actionStack = document.createElement("div"), actionText = document.createElement("strong"), review = document.createElement("time"); action.className = "ro-action-cell"; actionStack.className = "ro-cell-stack"; actionText.textContent = record.management.nextAction || "No next action"; review.className = `commitment-label${record.management.reviewDate && record.management.reviewDate < today ? " overdue" : record.management.reviewDate === today ? " due" : ""}`; review.textContent = closed ? "Closed" : record.management.reviewDate ? `${record.management.reviewDate < today ? "OVERDUE" : record.management.reviewDate === today ? "DUE TODAY" : "Committed"} · ${record.management.reviewDate}` : "Commitment date required"; actionStack.append(actionText, review); if(admin.active){const closeout=document.createElement("small");closeout.textContent="Admin: "+admin.blocker+" · Task: "+(admin.taskDate||"Commitment needed")+(admin.taskOverdue?" · MISSED "+admin.taskDaysLate+"d":admin.taskDueToday?" · DUE TODAY":"")+" · RO close: "+(admin.closeDate||"Commitment needed")+(admin.closeOverdue?" · MISSED "+admin.closeDaysLate+"d":admin.closeDueToday?" · DUE TODAY":"");actionStack.append(closeout);} action.append(actionStack);
       const control = document.createElement("td"), button = document.createElement("button"); button.className = "link-button"; button.textContent = "Update"; button.dataset.id = record.id; control.append(button); row.append(ro, advisor, customer, source, management, action, control); tableRows.append(row);
     }
     ui.roTable.append(tableRows);

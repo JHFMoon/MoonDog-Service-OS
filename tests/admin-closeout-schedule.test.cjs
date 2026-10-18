@@ -6,7 +6,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
-const start = source.indexOf("  function adminCloseoutState(record, today = localDateKey()) {");
+const start = source.indexOf("  function adminCloseoutDaysLate(");
 const end = source.indexOf("  function nextAdminCloseout(", start);
 assert.ok(start !== -1 && end > start, "manager-only closeout deadline logic is available");
 const implementation = source.slice(start, end);
