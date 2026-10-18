@@ -37,7 +37,7 @@ function loadAdmin() {
       String(management?.status || '').toLowerCase() === 'closed'
   };
   return vm.runInNewContext(
-    app.slice(start, end) + '\n({nextAdminCloseout, adminCloseoutState})',
+    app.slice(start, end) + '\n({nextAdminCloseout, nextAdminCloseoutEvidence, adminCloseoutState})',
     context
   );
 }
@@ -54,6 +54,14 @@ function existing(overrides = {}) {
         blocker: 'Warranty approval or processing',
         taskDate: '2026-10-18',
         expectedCloseDate: '2026-10-20',
+        physicalWorkStatus: 'verified',
+        warrantyStatus: 'processing',
+        evidence: 'Synthetic manager-confirmed repair completion and claim processing.',
+        evidenceHistory: [{
+          at: '2026-10-15T12:00:00Z',
+          previous: {warrantyStatus: 'submitted'},
+          next: {warrantyStatus: 'processing'}
+        }],
         updatedAt: '2026-10-15T12:00:00Z',
         revisions: [{
           at: '2026-10-15T12:00:00Z',
@@ -86,6 +94,9 @@ test('complete-source reimports preserve actual manager commitment, owner, date 
   assert.equal(record.management.reviewDate, '2026-10-19');
   assert.equal(record.management.adminCloseout.revisions.length, 1);
   assert.equal(record.management.adminCloseout.revisions[0].reason, 'Advisor revised filing expectation');
+  assert.equal(record.management.adminCloseout.physicalWorkStatus, 'verified');
+  assert.equal(record.management.adminCloseout.warrantyStatus, 'processing');
+  assert.equal(record.management.adminCloseout.evidenceHistory.length, 1);
   assert.equal(record.daysOpen, 5, 'verified source fields still refresh');
   assert.equal(state.records[0], prior, 'pure merge must not modify existing persisted state');
 
@@ -117,6 +128,7 @@ test('complete-source omission retains a closed RO; reopening restores its admin
   assert.equal(reopened.reopenedCount, 1);
   assert.equal(reopened.closedRecords.length, 0);
   assert.strictEqual(reopened.records[0].management.adminCloseout, prior.management.adminCloseout);
+  assert.equal(reopened.records[0].management.adminCloseout.warrantyStatus, 'processing');
   assert.equal(reopened.records[0].closedAt, undefined);
 });
 
@@ -132,11 +144,11 @@ test('new ROs get defaults, not a fabricated administrative promise', () => {
 });
 
 test('real closeout logic does not fabricate advisor promises from manager reminder dates', () => {
-  const { nextAdminCloseout, adminCloseoutState } = loadAdmin();
-  const closeout = nextAdminCloseout(
+  const { nextAdminCloseout, nextAdminCloseoutEvidence, adminCloseoutState } = loadAdmin();
+  const closeout = nextAdminCloseoutEvidence(nextAdminCloseout(
     null, 'Warranty approval or processing', '', '2026-10-20', '',
     '2026-10-17T12:00:00Z'
-  );
+  ), {physicalWorkStatus: 'verified'}, '2026-10-17T12:00:00Z');
   const record = { management: { status: 'Ready for Review',
     reviewDate: '2026-10-16', adminCloseout: closeout } };
   const current = adminCloseoutState(record, '2026-10-17');
@@ -153,11 +165,11 @@ test('real closeout logic does not fabricate advisor promises from manager remin
 });
 
 test('real closeout revisions preserve prior promise and require a reason', () => {
-  const { nextAdminCloseout, adminCloseoutState } = loadAdmin();
-  const first = nextAdminCloseout(
+  const { nextAdminCloseout, nextAdminCloseoutEvidence, adminCloseoutState } = loadAdmin();
+  const first = nextAdminCloseoutEvidence(nextAdminCloseout(
     null, 'Customer pickup', '2026-10-16', '2026-10-18', '',
     '2026-10-15T12:00:00Z'
-  );
+  ), {physicalWorkStatus: 'verified'}, '2026-10-15T12:00:00Z');
   assert.equal(adminCloseoutState({management:{adminCloseout:first}},'2026-10-17').taskOverdue, true);
   assert.throws(() => nextAdminCloseout(
     first, 'Customer pickup', '2026-10-19', '2026-10-21', '',

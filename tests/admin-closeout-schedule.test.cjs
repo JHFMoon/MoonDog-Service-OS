@@ -22,7 +22,7 @@ function openAdmin(taskDate, expectedCloseDate, extras = {}) {
     management: {
       status: "Ready for Review", reviewDate: taskDate,
       adminCloseout: {
-        blocker: "MaxCare / extended-warranty claim", taskDate,
+        blocker: "MaxCare / extended-warranty claim", physicalWorkStatus: "verified", taskDate,
         expectedCloseDate, revisions: [], ...extras
       }
     }
