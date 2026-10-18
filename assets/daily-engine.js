@@ -22,7 +22,12 @@
     return new Date(at+delay*minutes).toISOString();
   }
   function followUpAt(at,days=3,scheduledDays) {
-    const working = Array.isArray(scheduledDays) && scheduledDays.length ? scheduledDays : [2,3,4,5,6];
+    // A corrupt or older saved schedule must never create an unbounded calendar loop.
+    // Only real JavaScript weekdays (Sun=0 through Sat=6) are eligible.
+    const configuredDays = Array.isArray(scheduledDays)
+      ? scheduledDays.filter(day => Number.isInteger(day) && day >= 0 && day <= 6)
+      : [];
+    const working = configuredDays.length ? configuredDays : [2,3,4,5,6];
     const date=new Date(at); if (!Number.isFinite(date.valueOf())) return at;
     date.setHours(12,0,0,0);
     let count=0;
@@ -41,7 +46,7 @@
       const decline=Number.isFinite(task.actual)&&Number.isFinite(d.actual)&&task.actual<d.actual-(task.key==='cpElr'?5:3);
       if(decline)return true; // Substantial deterioration overrides a prior acknowledgment.
       if(d.action==='not-an-issue'&&d.fingerprint===task.fingerprint)return false;
-      const configured=root.__moondogSettingsModel?.settings?.future?.managementSchedule?.days;
+      const configured=root.__moondogSettingsModel?.settings?.future?.managerSchedule?.days;
       const next=followUpAt(Date.parse(event.at||''),d.action==='not-an-issue'?7:3,configured);
       if(at<next)return false;
       return d.fingerprint!==task.fingerprint; // Requires new evidence before resurfacing.
