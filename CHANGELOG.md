@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.108 — current Beta
+
+- Prevent invalid manager workdays from hanging coaching follow-ups (#164) (#245). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.107 — current Beta
 
 - Prevent invalid commitment dates appearing as completed Daily Walk plans (#60) (#243). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
