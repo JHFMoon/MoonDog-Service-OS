@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.89 — current Beta
+
+- Automatically packaged merged runtime from current main; Stable unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.88 — current Beta
 
 - Integrated Supervisor Workbook recovery, independent advisor handoff, staged unsigned RO verification and strict merge authorization. Review candidate; no Workspace migration. Stable remains 0.10.17.
