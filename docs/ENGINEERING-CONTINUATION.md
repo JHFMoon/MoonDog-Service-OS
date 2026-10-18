@@ -9,6 +9,22 @@ This is a non-sensitive execution checkpoint, not proof of a continuously runnin
 - Work in small, independently testable increments. Do not skip a failing check or claim an unverified publication.
 - An agent needs a separately configured, authorized runner to resume execution after a session ends. No continuously running code agent has been verified here.
 
+## Latest verified GitHub checkpoint (October 18, 2026)
+
+**Read this section first, but treat it as a dated snapshot.** Re-fetch GitHub `main`, open issues/PRs, required checks and the active manifest on every continuation. The older October 17 record below is retained solely for historical evidence, **not** for current branch, release or PR decisions.
+
+- Last checked `main`: `d0459abf1fd9ee65533287dab7b4ba458ffc5dbc`.
+- Manifest Beta: `0.10.18-beta.98`, SHA-256 `e7c4af07bff3d83104cb58e2735c42fe7476be47e547626b6cdb3dfa1f4fbea1`. **Published is not installed.**
+- Protected Stable: `0.10.17`; no Stable promotion authorized.
+- Open GitHub issues: **#164, #58, #59, #60, #61, #212** (six). #212 is deliberately deferred.
+- Merged and verified: PR #219 bounded update-recovery inventory scan; PR #221 trusted Beta 98 publication; PR #222 hardware-validation procedure `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md`.
+- **Draft PR #220** on `feature/59-history-workspace-isolation-20261018` (last verified head `56e0d2224aa6c49a1f487897996b7d2e61216239`) preserves the per-Workspace history-cache isolation fix. Existing CI passed, but the required new overlapping-workspace regression was denied by a GitHub tool safety control. Do **not** merge or attempt the denied operation via another route. Record the limitation and work on independent requirements.
+- **PR #223** on `feature/164-backup-list-io-fail-closed-20261018` addresses transient recovery-journal read errors so OneDrive locks cannot silently enable a second update. A substantive review found the update-settings caller would clear the recovery flag on scan failure; this was corrected with fail-closed install/UI gates and more synthetic tests. **Exact-head CI and review outcome must be rechecked before any merge.**
+- **PR #224** on `tests/58-164-navigation-endurance-20261018` adds 240-cycle synthetic Meeting/Performance/Open RO navigation-regression coverage. Its last observed exact-head Publication Check and Clean Install Proof passed, but it was still **unmerged** at this checkpoint.
+- Real Windows Edge/OneDrive and installed-app validation are **not performed**. Use the privacy-safe guide from PR #222, and do not upload raw traces, private Workspace files or machine-local paths.
+
+**Next action:** Verify PR #223's latest required checks and resolve substantive review feedback; once independently green, deliver through protected merge and confirm post-merge Beta. Then reconcile the latest `main` into #224, rerun exact-head checks and deliver the validated synthetic endurance increment. Keep #220 draft until its regression blocker is resolved through an explicitly authorized path. Continue independent #58/#59/#60/#61 requirements without duplicating existing work.
+
 ## Verified baseline at checkpoint (October 17, 2026)
 - Public `main`, local `main`, and the recovery work branch base: `50ebbdfdfe5386fa77a90883eeac16317ed36f68`.
 - Public Stable manifest: `0.10.17`, package SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`.
