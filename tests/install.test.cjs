@@ -258,3 +258,29 @@ test("failed install reports rollback progress and restores exact files", async 
   assert.equal(setup.workspace.store.files.get("System Files/index.html").toString(), setup.oldHtml);
   assert.equal(setup.workspace.store.files.get("index.html").toString(), compatibility(setup.oldHtml));
 });
+
+test("tampered recovery backup is rejected without overwriting installed or protected bytes", async () => {
+  const setup = await fixture();
+  const completed = await apply(setup);
+  assert.equal(completed.status, "installed");
+  const prefix = "System Files/Workspace/backups/system-updates/" + completed.backupName + "/";
+  const journalPath = prefix + "journal.json";
+  const saved = JSON.parse(setup.workspace.store.files.get(journalPath).toString());
+  saved.status = "applying"; // Simulate interruption after the application files were installed.
+  setup.workspace.store.files.set(journalPath, Buffer.from(JSON.stringify(saved)));
+  setup.workspace.store.files.set(prefix + "assets/old.js", Buffer.from("altered synthetic backup"));
+
+  const result = await context.MoonDogUpdateInstall.recover({
+    appDirectoryHandle: setup.app, workspaceDirectoryHandle: setup.workspace.root,
+    backupName: completed.backupName, trustedAllowlist: setup.trustedAllowlist, confirmed: true
+  });
+  assert.equal(result.status, "recovery-required");
+  assert.match(result.reason, /Backup verification failed/);
+  assert.equal(setup.workspace.store.files.get("System Files/index.html").toString(), setup.newHtml);
+  assert.equal(setup.workspace.store.files.get("index.html").toString(), compatibility(setup.newHtml));
+  assert.equal(setup.workspace.store.files.get("System Files/assets/new.js").toString(), "added");
+  assert.equal(setup.workspace.store.files.has("System Files/assets/old.js"), false);
+  assert.equal(setup.workspace.store.files.get("System Files/Workspace/data/current-state.json").toString(), "synthetic private state");
+  assert.equal(JSON.parse(setup.workspace.store.files.get(journalPath)).status, "applying",
+    "incomplete recovery journal remains available for investigation");
+});

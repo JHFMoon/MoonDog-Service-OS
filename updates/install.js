@@ -115,6 +115,16 @@
 
   async function restore(app, workspace, backup, inventory, subtle, onProgress, startPercent = 0, endPercent = 100) {
     const span = Math.max(0, endPercent - startPercent), total = Math.max(inventory.length, 1);
+    // Validate every existing backup before restoring even the first file.
+    // A corrupt later member must never produce a partially restored application.
+    for (const item of inventory) {
+      await assertAuthority(workspace);
+      if (!item.existed) continue;
+      const savedBytes = await read(backup, backupPath(item));
+      if (!savedBytes || await digest(savedBytes, subtle) !== item.sha256) {
+        throw new Error("Backup verification failed: " + item.path);
+      }
+    }
     for (let index = 0; index < inventory.length; index += 1) {
       await assertAuthority(workspace);
       const item = inventory[index];
