@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.107 — current Beta
+
+- Prevent invalid commitment dates appearing as completed Daily Walk plans (#60) (#243). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.106 — current Beta
 
 - Reject impossible RO review dates in manager follow-up suppression (#59) (#240). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
