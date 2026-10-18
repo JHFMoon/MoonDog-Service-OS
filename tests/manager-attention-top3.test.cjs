@@ -100,3 +100,42 @@ test('Five-day ROs require owner, communication, and next review even if an acti
  assert.equal(engine.stuckWork({...base,management:{...base.management,communication:''}},'2026-10-13').kind,'missing-plan');
  assert.equal(engine.stuckWork({...base,management:{...base.management,reviewDate:''}},'2026-10-13').kind,'missing-plan');
 });
+
+test('controllable coaching ignores small percentage gaps and requires meaningful volume', () => {
+  const context = vm.createContext({Date, Intl});
+  vm.runInContext(read('assets/daily-engine.js'), context);
+  const engine = context.MoonDogDailyEngine;
+  const advisors = [{number:101,name:'Advisor A'}];
+  const snapshot = (cpRO,actual,brandAverage,eligibleVins=cpRO) => ({
+    periodEnd:'2026-10-17', importedAt:'2026-10-17T17:00:00Z',
+    validation:{saprDaysVerified:true,finalTotalsVerified:true,advisorDetailSheets:true,
+      controllables:7,controllableVinDenominator:'cp-ro'},
+    advisors:{'101':{cpRO,[['cp','Elr'].join('')]:210,[['media','Viewed'].join('')]:90}},
+    controllables:{advisors:{'101':{tires:{actual,brandAverage,eligibleVins}}}}
+  });
+  const configured = { [['cp','Elr'].join('')]:210, [['media','Viewed'].join('')]:85 };
+  const coaching = value => engine.coachingTasks(value,advisors,configured,true,'2026-10-17');
+  assert.equal(coaching(snapshot(200,3.3,3.4)).length,0,
+    'A 0.1 percentage-point miss should never consume a coaching slot.');
+  assert.equal(coaching(snapshot(20,0,3.4)).length,0,
+    'A large percentage gap based on less than one projected lost opportunity is too noisy.');
+  assert.equal(coaching(snapshot(100,74,80)).length,0,
+    'A shortfall smaller than 10% of a high benchmark is not material.');
+  assert.equal(coaching(snapshot(100,0,3.4,99)).length,0,
+    'Invalid eligible-VIN denominator must not generate a coaching alert.');
+  const meaningful = coaching(snapshot(100,2.3,3.4));
+  assert.equal(meaningful.length,1);
+  assert.equal(meaningful[0].key,'tires');
+  assert.match(meaningful[0].description,/100 CP ROs/);
+  assert.match(meaningful[0].next,/inspection findings/);
+  assert.equal(coaching(snapshot(50,0,3.4)).length,1,
+    'A zero result on enough CP ROs remains actionable for low-incidence products.');
+  assert.equal(coaching(snapshot(100,70,80)).length,1,
+    'A clearly substantial high-frequency shortfall must still appear.');
+  assert.equal(coaching(snapshot(100,17.1,19)).length,1,
+    'A precise decimal boundary remains actionable after scaled comparison.');
+  assert.equal(coaching(snapshot(100,17.11,19)).length,0,
+    'A near miss above the relative gap boundary must stay suppressed.');
+  assert.equal(coaching({...snapshot(100,0,3.4),validation:{...snapshot(100,0,3.4).validation,saprDaysVerified:false}}).length,0,
+    'Unverified SAPR data must never generate coaching.');
+});
