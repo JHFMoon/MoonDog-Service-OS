@@ -10,7 +10,7 @@ const offered={status:"newer-version",channel:"beta",version:"0.10.18-beta.68",
   sha256:"a".repeat(64),packageUrl:"https://example.test/moondog-beta.json"};
 
 async function runCase({result={status:"installed",version:offered.version},
-  confirms=true,canReload=true,verifyFails=false,recoveryFails=false}={}){
+  confirms=true,canReload=true,verifyFails=false,recoveryFails=false,skipRecoveryEvent=false}={}){
   const fields=new Map(),listeners=new Map(),scheduled=[],storageWrites=[],reloads=[];
   const field=id=>{
     if(!fields.has(id))fields.set(id,{textContent:"",value:"",disabled:false,hidden:false,
@@ -50,7 +50,7 @@ async function runCase({result={status:"installed",version:offered.version},
   };
   vm.runInNewContext(source,globals);
   await new Promise(resolve=>setImmediate(resolve));
-  if(recoveryFails){
+  if(recoveryFails&&!skipRecoveryEvent){
     listeners.get("document:moondog-data")();
     await new Promise(resolve=>setImmediate(resolve));
   }
@@ -111,5 +111,14 @@ test("unreadable recovery inventory blocks an offered update before package inst
   assert.equal(result.fields.get("installMoonDogUpdate").disabled,true,
     "a failed OneDrive recovery scan must not enable the install button");
   assert.match(result.fields.get("updateChannelNote").textContent,/recovery backups could not be checked/i);
+  assert.equal(result.reloads.length,0);
+});
+
+test("installation rechecks recovery before writing even when startup scan has not run",async()=>{
+  const result=await runCase({recoveryFails:true,skipRecoveryEvent:true});
+  assert.equal(result.applied,0,"the installer must reject a late OneDrive backup read failure");
+  assert.equal(result.fields.get("installMoonDogUpdate").disabled,true,
+    "the failed preflight must hold the install button disabled");
+  assert.match(result.fields.get("updateStatus").textContent,/recovery backups are unresolved or cannot be verified/i);
   assert.equal(result.reloads.length,0);
 });
