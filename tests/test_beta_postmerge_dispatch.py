@@ -27,5 +27,27 @@ class BetaDispatchTests(unittest.TestCase):
         self.assertIn('gh workflow run clean-install-proof.yml', text)
 
 
+    def test_postmerge_beta_uses_reviewed_commit_subject_instead_of_generic_notes(self):
+        workflow = PACKAGE.read_text(encoding="utf-8")
+        builder = (ROOT / "scripts/build_beta_package.py").read_text(encoding="utf-8")
+        self.assertNotIn(
+            '--release-notes "Automatically packaged merged runtime from current main; Stable unchanged."',
+            workflow,
+            "post-merge release notes must describe the actual reviewed change",
+        )
+        self.assertIn('notes = args.release_notes.strip() or (', builder)
+        self.assertIn('subject = git_value(root, "%s")', builder)
+        self.assertIn('Verified automated Beta from reviewed source.', builder)
+        self.assertIn('echo "reviewed_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"', workflow)
+        self.assertIn('REVIEWED_SHA: ${{ steps.detect.outputs.reviewed_sha }}', workflow)
+        self.assertIn('git cat-file -e "$REVIEWED_SHA^{commit}"', workflow)
+        self.assertIn('git show -s --format=%s "$REVIEWED_SHA"', workflow)
+        self.assertIn('--release-notes "$REVIEWED_SUBJECT.', workflow)
+        self.assertIn('Stable remains $STABLE_VERSION.', workflow)
+        self.assertLess(workflow.index('git merge-base --is-ancestor "$TARGET_SHA" "$MAIN_SHA"'),
+                        workflow.index('echo "reviewed_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"'),
+                        "Only the validated reviewed commit may be used for release notes")
+
+
 if __name__ == "__main__":
     unittest.main()
