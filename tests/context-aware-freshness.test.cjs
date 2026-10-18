@@ -50,6 +50,63 @@ test('Gregorian date keys reject impossible dates without silently rolling into 
   assert.equal(F.addDays('2024-02-28', 1), '2024-02-29');
 });
 
+test('prior-operating-day freshness requires the report period to include that day', () => {
+  const today = '2026-10-20'; // Tuesday; the preceding completed operating day is Monday.
+  for (const key of ['sapr', 'nextAppointments']) {
+    const complete = F.evaluateSource({key, exists:true, today,
+      periodStart:'2026-10-01', periodEnd:'2026-10-20'});
+    assert.equal(complete.status, 'current', key + ' valid cumulative period');
+
+    const lateStart = F.evaluateSource({key, exists:true, today,
+      periodStart:'2026-10-20', periodEnd:'2026-10-20'});
+    assert.equal(lateStart.status, 'stale', key + ' cannot represent Monday from a Tuesday-only report');
+    assert.match(lateStart.reason, /does not establish coverage/);
+    assert.equal(lateStart.safeForCurrent, false);
+
+    const invalidStart = F.evaluateSource({key, exists:true, today,
+      periodStart:'2026-02-30', periodEnd:'2026-10-20'});
+    assert.equal(invalidStart.status, 'stale', key + ' invalid start date');
+
+    const unknownStart = F.evaluateSource({key, exists:true, today,
+      periodEnd:'2026-10-19'});
+    assert.equal(unknownStart.status, 'current',
+      key + ' legacy reports without a stated start retain prior handling');
+  }
+});
+
+test('Monday freshness never treats a Sunday-only period as covering Saturday', () => {
+  const today = '2026-10-19'; // Monday; Sunday is not an operating day.
+  const sundayOnly = F.evaluateSource({key:'sapr', exists:true, today,
+    periodStart:'2026-10-18', periodEnd:'2026-10-19'});
+  assert.equal(sundayOnly.expectedPeriod, '2026-10-17');
+  assert.equal(sundayOnly.status, 'stale');
+  const includesSaturday = F.evaluateSource({key:'sapr', exists:true, today,
+    periodStart:'2026-10-17', periodEnd:'2026-10-19'});
+  assert.equal(includesSaturday.status, 'current');
+});
+
+test('VIR point-in-time provenance stays current without falsely inventing interval coverage', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const app = fs.readFileSync(path.join(__dirname,'..','assets','app.js'), 'utf8');
+  const start = app.indexOf('if (key === "vir") { const item = options.item || latestVirObservation();');
+  const end = app.indexOf('if (key === "menu")', start);
+  assert.ok(start > 0 && end > start, 'production VIR evidence adapter exists');
+  const adapter = app.slice(start,end);
+  assert.match(adapter,/periodEnd: virObservationDate\(item\)/);
+  assert.doesNotMatch(adapter,/periodStart:/,
+    'point-in-time VIR observations cannot claim coverage of an interval');
+
+  const today = '2026-10-20';
+  for (const observation of ['2026-10-19','2026-10-20']) {
+    assert.equal(F.evaluateSource({key:'vir',exists:true,today,
+      periodEnd:observation}).status,'current', observation);
+  }
+  assert.equal(F.evaluateSource({key:'vir',exists:true,today,
+    periodEnd:'2026-10-18'}).status,'stale',
+    'an old VIR observation cannot be made current by a missing period start');
+});
+
 test('invalid month keys never normalize into neighboring months or years', () => {
   for (const month of ['2026-00','2026-13','0000-12','0099-01','2026-1','2026-14']) {
     assert.equal(F.lastDayOfMonth(month), '', month + ' last day');

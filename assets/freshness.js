@@ -188,8 +188,19 @@
       expectedPeriod = today; current = input.periodStart === today || input.periodEnd === today;
       reason = current ? "The source represents the current store business date." : `Loaded period does not represent ${today}.`;
     } else if (cadence === "prior-operating-day") {
-      const expected = previousOperatingDay(today); expectedPeriod = expected; current = validDateKey(input.periodEnd) && input.periodEnd >= expected && input.periodEnd <= today;
-      reason = current ? `Reporting period covers the prior completed operating day (${expected}).` : `Report ends ${input.periodEnd || "on an unknown date"}; expected coverage through ${expected}.`;
+      const expected = previousOperatingDay(today);
+      expectedPeriod = expected;
+      // A recent end date does not prove that a daily/cumulative report
+      // actually covers the required completed operating day.
+      const start = input.periodStart;
+      const startKnown = start !== undefined && start !== null && start !== "";
+      const startCoversExpected = !startKnown || (validDateKey(start) && start <= expected);
+      current = validDateKey(expected) && validDateKey(input.periodEnd) &&
+        input.periodEnd >= expected && input.periodEnd <= today && startCoversExpected;
+      reason = current ? `Reporting period covers the prior completed operating day (${expected}).` :
+        startKnown && (!validDateKey(start) || start > expected)
+          ? `Report starts ${String(start)} and does not establish coverage of ${expected}.`
+          : `Report ends ${input.periodEnd || "on an unknown date"}; expected coverage through ${expected}.`;
     } else if (cadence === "weekly-monday") {
       const expected = mondayFor(today), represented = input.releaseWeek || input.periodEnd; expectedPeriod = expected; current = validDateKey(represented) && represented >= expected && represented <= today;
       reason = current ? `Current Monday release (${expected}) is loaded.` : `Loaded release is ${represented || "unknown"}; expected Monday ${expected}.`;
