@@ -62,7 +62,7 @@
   function trendMaintenance(input) {
     const {key,today,coverage={}}=input, unavailable=['not-used','temporarily-unavailable'].includes(coverage.state),
       validPoint=date=>validDateKey(date)&&date<=today,
-      last=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentDates||[]).filter(validPoint).at(-1)||'',missing=coverage.missingDates||[],
+      last=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentDates||[]).filter(validPoint).sort().at(-1)||'',missing=coverage.missingDates||[],
       required=key==='sapr'||key==='menu',optional=['nextAppointments','vir','mediaAsr','mediaAsrTech','efficiency','sor'].includes(key),
       format=input.formatDate||((date)=>date),operatingFrom=date=>{while(isSunday(date))date=addDays(date,1);return date;},
       result={kind:required?'required':optional?'optional':key==='csi'?'recoverable':'none',cadence:'',last:'',next:'',missing:[],status:'',recovery:'',note:''};
@@ -70,7 +70,7 @@
     if(['openRo','appointments','appointmentActivity','openRoSummary'].includes(key))return{...result,cadence:key==='openRo'||key==='appointments'?'Current operational snapshot':'Reference only',status:'NONE REQUIRED',importDate:validPoint(input.currentImportDate)?input.currentImportDate:'',snapshotDate:validPoint(input.sourceSnapshotDate)?input.sourceSnapshotDate:'',lastActivityDate:validPoint(input.lastActivityDate)?input.lastActivityDate:'',note:key==='openRo'||key==='appointments'?'Historical daily trend: Not required.':'No historical trend maintenance required.'};
     if(unavailable)return{...result,status:coverage.state==='not-used'?'NOT USED':'UNAVAILABLE',note:coverage.state==='not-used'?'No report action for this store.':'Trend evidence remains pending until the source is available.'};
     if(key==='menu'){
-      const latest=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentReleases||[]).filter(validPoint).at(-1)||'',currentMonday=mondayFor(today),nextRelease=addDays(currentMonday,7),gaps=coverage.missingReleases||[];
+      const latest=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentReleases||[]).filter(validPoint).sort().at(-1)||'',currentMonday=mondayFor(today),nextRelease=addDays(currentMonday,7),gaps=coverage.missingReleases||[];
       return{...result,cadence:'Weekly — Monday release',last:latest,next:gaps.includes(currentMonday)?currentMonday:nextRelease,missing:gaps,status:gaps.length?'Missing required releases':latest?`Current through ${format(latest)}`:'No verified release yet',recovery:'Each missing release needs its actual retained Menu Sales report; a current release does not rebuild prior weeks.'};
     }
     if(key==='csi'){
