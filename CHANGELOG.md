@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.106 — current Beta
+
+- Reject impossible RO review dates in manager follow-up suppression (#59) (#240). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.105 — current Beta
 
 - Device-only start page preference without shared Workspace writes (#61) (#237). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
