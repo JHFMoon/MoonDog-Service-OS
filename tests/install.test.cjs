@@ -268,7 +268,7 @@ test("tampered recovery backup is rejected without overwriting installed or prot
   const saved = JSON.parse(setup.workspace.store.files.get(journalPath).toString());
   saved.status = "applying"; // Simulate interruption after the application files were installed.
   setup.workspace.store.files.set(journalPath, Buffer.from(JSON.stringify(saved)));
-  setup.workspace.store.files.set(prefix + "index.html", Buffer.from("altered synthetic backup"));
+  setup.workspace.store.files.set(prefix + "assets/old.js", Buffer.from("altered synthetic backup"));
 
   const result = await context.MoonDogUpdateInstall.recover({
     appDirectoryHandle: setup.app, workspaceDirectoryHandle: setup.workspace.root,
@@ -278,6 +278,8 @@ test("tampered recovery backup is rejected without overwriting installed or prot
   assert.match(result.reason, /Backup verification failed/);
   assert.equal(setup.workspace.store.files.get("System Files/index.html").toString(), setup.newHtml);
   assert.equal(setup.workspace.store.files.get("index.html").toString(), compatibility(setup.newHtml));
+  assert.equal(setup.workspace.store.files.get("System Files/assets/new.js").toString(), "added");
+  assert.equal(setup.workspace.store.files.has("System Files/assets/old.js"), false);
   assert.equal(setup.workspace.store.files.get("System Files/Workspace/data/current-state.json").toString(), "synthetic private state");
   assert.equal(JSON.parse(setup.workspace.store.files.get(journalPath)).status, "applying",
     "incomplete recovery journal remains available for investigation");
