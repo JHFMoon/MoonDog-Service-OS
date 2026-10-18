@@ -100,7 +100,7 @@
       return `${plan.status} · Next required release: ${date(plan.next)}${missing.length?` · Missing required releases: ${missing.map(date).join(', ')}`:''}`;
     }
     if(key==='sor'){
-      const month=/^\d{4}-\d{2}$/.test(plan.financialMonth||'')?new Date(`${plan.financialMonth}-01T12:00:00Z`).toLocaleDateString(undefined,{timeZone:'UTC',month:'long'}):'not established';
+      const month=lastDayOfMonth(plan.financialMonth||'')?new Date(`${plan.financialMonth}-01T12:00:00Z`).toLocaleDateString(undefined,{timeZone:'UTC',month:'long'}):'not established';
       return `Current observation: ${date(plan.last)} · Financial month: ${month} · Next optional observation: ${date(plan.next)}`;
     }
     return `${plan.status} · Next optional: ${date(plan.next)}`;
