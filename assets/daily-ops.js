@@ -495,29 +495,36 @@
     items.push(...engine.coachingTasks(api.latestSapr(),api.advisors(),model.settings.performanceStandards,globalThis.__moondogFreshness.sourceFreshness('sapr',{today:day}).safeForCurrent,day));
     return items;
   }
-  const historyFileCache=new Map();
+  let historyFileCache=new Map();
   let historyCacheRoot=null;
   async function loadHistory(includeAll=false,searchToken=null){
-    if(historyCacheRoot!==model.root){historyFileCache.clear();historyCacheRoot=model.root;}
+    const originRoot=model.root;
+    // Each in-flight read must retain its own cache. A late read from the old
+    // Workspace must never contaminate a newly connected Workspace cache.
+    if(historyCacheRoot!==originRoot){historyFileCache=new Map();historyCacheRoot=originRoot;}
+    const cache=historyFileCache;
+    const current=()=>originRoot===model.root&&(searchToken===null||searchToken===state.searchToken);
     const entries=await api.readEntries('data/history'),events=[];
+    if(!current())return false;
     // Daily priorities need only daily-task events; full history is loaded on
     // demand for search, not during every workspace connection.
     const relevant=entries.filter(({name})=>name.endsWith('.json')&&(includeAll||name.startsWith('daily-')));
     for(let i=0;i<relevant.length;i+=12){
-      if(searchToken!==null&&searchToken!==state.searchToken)return false;
+      if(!current())return false;
       const batch=await Promise.all(relevant.slice(i,i+12).map(async({name,handle})=>{
-        if(historyFileCache.has(name))return historyFileCache.get(name);
+        if(cache.has(name))return cache.get(name);
         try{
           const event=JSON.parse(await(await handle.getFile()).text());
-          historyFileCache.set(name,event);
-          if(historyFileCache.size>4000)historyFileCache.delete(historyFileCache.keys().next().value);
+          cache.set(name,event);
+          if(cache.size>4000)cache.delete(cache.keys().next().value);
           return event;
         }catch(error){if(error.name==='SyntaxError')return null;throw error;}
       }));
+      if(!current())return false;
       events.push(...batch.filter(Boolean));
       if(i+12<relevant.length)await new Promise(resolve=>setTimeout(resolve,0));
     }
-    if(searchToken!==null&&searchToken!==state.searchToken)return false;
+    if(!current())return false;
     events.sort((a,b)=>String(a.at).localeCompare(String(b.at))||String(a.id).localeCompare(String(b.id)));
     state.history=events;state.events=events.filter(e=>e.type==='daily-task');
     return true;
@@ -674,8 +681,21 @@
   async function ready(){
     if(!model.root||model.connectionState!=='CONNECTED'){if(!state.current&&active()==='home')renderHome();return;}
     if(state.loadedRoot===model.root){await checkOperatingDate();refreshCurrent();return;}
-    if(state.loading)return;state.loading=true;
-    try{await loadHistory();state.loadedRoot=model.root;await selectNext();}catch(error){say('Service Operations Dashboard could not read its task history. Check folder access and reconnect.');}finally{state.loading=false;}
+    if(state.loading)return;
+    const originRoot=model.root;
+    state.loading=true;
+    try{
+      if(!await loadHistory()||model.root!==originRoot)return;
+      state.loadedRoot=originRoot;
+      await selectNext();
+    }catch(error){say('Service Operations Dashboard could not read its task history. Check folder access and reconnect.');}
+    finally{
+      state.loading=false;
+      // A newer folder may have connected while the old read was pending.
+      // Retry only on an actual folder change, never a persistent read failure.
+      if(model.root&&model.root!==originRoot&&model.connectionState==='CONNECTED')
+        queueMicrotask(()=>{void ready();});
+    }
   }
   async function checkOperatingDate(){
     if(!model.root||model.connectionState!=='CONNECTED'||state.loading||state.busy)return;
