@@ -327,9 +327,13 @@ test("recovery inventory surfaces transient OneDrive read failures instead of hi
   const setup = await fixture();
   const dir = "System Files/Workspace/backups/system-updates/";
   const name = "MoonDog-Update-Backup-20261018-synthetic-lock";
+  const validName = "MoonDog-Update-Backup-20261018-known-incomplete";
   const journal = dir + name + "/journal.json";
   setup.workspace.store.dirs.add(dir + name);
+  setup.workspace.store.dirs.add(dir + validName);
   setup.workspace.store.files.set(journal, Buffer.from(JSON.stringify({ status: "applying" })));
+  setup.workspace.store.files.set(dir + validName + "/journal.json",
+    Buffer.from(JSON.stringify({ status: "prepared" })));
   setup.workspace.store.failReadOnce = journal;
 
   await assert.rejects(
@@ -339,7 +343,7 @@ test("recovery inventory surfaces transient OneDrive read failures instead of hi
   );
   assert.deepEqual(
     Array.from(await context.MoonDogUpdateInstall.listBackups(setup.workspace.root)),
-    [name], "a subsequent permitted read can find the same incomplete backup"
+    [name, validName].sort().reverse(), "a retry finds every incomplete backup without hidden entries"
   );
   assert.equal(setup.workspace.store.files.get(journal).toString(),
     JSON.stringify({ status: "applying" }), "the journal remains intact");
