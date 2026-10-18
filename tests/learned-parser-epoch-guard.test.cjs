@@ -41,6 +41,8 @@ const watched = Object.freeze([
   "parseAppointmentsCreatedSummaryCsv",
   "parseVirCsv",
   "parseCsiRows",
+  "parseCsiCsv",
+  "parseCsiWorkbook",
   "parseCdkRepairOrdersDocx",
   "cdkRepairOrdersLayout",
   "parseSorWorkbook",
@@ -53,7 +55,18 @@ const watched = Object.freeze([
   "parseAppointmentActivityWorkbook",
   "parseSupplementalDocxReport",
   "legacyReport",
-  "findTable"
+  "findTable",
+  "parseCsv",
+  "workbookGrid",
+  "pdfSignatureText",
+  "docxText",
+  "isMoonDogGreeterOutput",
+  "isAppointmentPdf",
+  "supplementalPdfFamily",
+  "referenceOnlyDocumentType",
+  "workbookIsHandoff",
+  "workbookHasReturnIdentity",
+  "workbookHasReturnSchema"
 ]);
 
 function recognitionSection(source, name) {
@@ -62,7 +75,9 @@ function recognitionSection(source, name) {
     const end = source.indexOf("  async function moveToLearn(", start);
     return start >= 0 && end > start ? source.slice(start, end).replace(/\r\n/g, "\n") : "";
   }
-  const marker = "\n  function " + name + "(";
+  const normal = "\n  function " + name + "(";
+  const asynchronous = "\n  async function " + name + "(";
+  const marker = source.includes(normal) ? normal : asynchronous;
   const start = source.indexOf(marker);
   if (start < 0) return "";
   const remainder = source.slice(start + marker.length);
