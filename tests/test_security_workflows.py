@@ -148,6 +148,25 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertLess(offline.index("Wait for matching Stable GitHub Release"), offline.index("Check out immutable Stable source"))
         self.assertLess(offline.index("Check out immutable Stable source"), offline.index("Build deterministic clean-install ZIP"))
 
+    def test_guarded_merge_skips_stale_heads_before_reviewing_approval(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        guard = merge.split("      - name: Verify automation authorization and PR safety", 1)[1]
+        guard = guard.split("      - name: Keep Stable promotion explicit", 1)[0]
+        fetch = 'gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.json'
+        self.assertEqual(guard.count(fetch), 1)
+        self.assertIn("CURRENT_PR_HEAD=", guard)
+        self.assertIn('[ -z "$HEAD_SHA" ] || [ -z "$CURRENT_PR_HEAD" ]', guard)
+        self.assertIn('if [ "$CURRENT_PR_HEAD" != "$HEAD_SHA" ]; then', guard)
+        stale = guard.index('if [ "$CURRENT_PR_HEAD" != "$HEAD_SHA" ]; then')
+        end = guard.index("\\n          fi", stale)
+        self.assertIn('echo "skip=true" >> "$GITHUB_OUTPUT"', guard[stale:end])
+        self.assertIn("exit 0", guard[stale:end])
+        self.assertLess(guard.index(fetch), guard.index("CURRENT_PR_HEAD="))
+        self.assertLess(stale, guard.index("python3 scripts/guarded_merge_authorization.py"))
+        self.assertLess(stale, guard.index('echo "skip=false" >> "$GITHUB_OUTPUT"'))
+        self.assertIn("'head': pr.get('head',{}).get('sha')==expected", merge)
+        self.assertIn("Final guarded merge refused", merge)
+
     def test_generated_beta_merge_dispatches_post_merge_main_proof(self):
         workflow = (ROOT / ".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
         package_job = workflow.split("  package-unadvertised-main-runtime:", 1)[1]
