@@ -245,7 +245,8 @@
     installButton.disabled = state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer();
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
-    field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable;
+    field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable && !state.recoveryScanFailed;
+    field("recoverMoonDogUpdate").textContent = state.recoveryScanFailed ? "Retry recovery check" : "Recover interrupted update";
     paintNotice();
   }
 
@@ -382,9 +383,20 @@
     }
   });
   field("recoverMoonDogUpdate").addEventListener("click", async () => {
-    if (state.busy) return;
+    if (state.busy || state.recoveryScanPending) return;
     if (!appRoot()) {
       status.textContent = "Connect Service Operations Dashboard in a browser with folder access first.";
+      return;
+    }
+    if (state.recoveryScanFailed) {
+      // A retry may update the recovery inventory, but it must never directly
+      // trigger installation or restore. User approval remains separate.
+      await refreshRecovery();
+      status.textContent = state.recoveryScanFailed ?
+        "Recovery backup check failed. Check folder access and try again. No files were changed." :
+        state.hasRecoverable ?
+          "Interrupted update backups were found. Select Recover interrupted update to review a restore." :
+          "Recovery check complete. No interrupted update backups were found.";
       return;
     }
     try {
