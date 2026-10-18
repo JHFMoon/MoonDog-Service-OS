@@ -314,7 +314,7 @@ jobs:
           mkdir -p /tmp/moondog-beta-base
           git archive "$BASE_SHA" | tar -x -C /tmp/moondog-beta-base
           cp updates/manifest.json /tmp/moondog-beta-base-manifest.json
-          python3 scripts/build_beta_package.py             --root .             --base-root /tmp/moondog-beta-base             --base-manifest /tmp/moondog-beta-base-manifest.json             --release-notes "Automatically packaged merged runtime from current main; Stable unchanged."
+          python3 scripts/build_beta_package.py             --root .             --base-root /tmp/moondog-beta-base             --base-manifest /tmp/moondog-beta-base-manifest.json
 
           CHANGED="$(git status --porcelain)"
           if echo "$CHANGED" | grep -Ev '^( M|M |A |\?\?) (CHANGELOG\.md|README\.md|updates/manifest\.json|updates/packages/moondog-[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+\.json)$' | grep -q .; then
