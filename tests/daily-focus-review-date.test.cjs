@@ -40,6 +40,11 @@ test("legitimate overdue, due-today, future and missing-action plans preserve th
   assert.equal(reason(ro("2026-01-20"),"2026-01-20")[0],"DUE TODAY");
   assert.equal(prioritize(ro("2026-02-28"),"2026-01-20"),4);
   assert.equal(reason(ro("2026-02-28"),"2026-01-20")[0],"Committed · 2026-02-28");
+  // A missed valid promise is urgent even if action text was lost or never entered.
+  assert.equal(prioritize(ro("2026-01-19",""),"2026-01-20"),1);
+  assert.equal(reason(ro("2026-01-19",""),"2026-01-20")[0],"OVERDUE · 2026-01-19");
+  assert.equal(prioritize(ro("2026-01-20",""),"2026-01-20"),2);
+  assert.equal(reason(ro("2026-01-20",""),"2026-01-20")[0],"DUE TODAY");
   assert.equal(prioritize(ro("2026-02-28",""),"2026-01-20"),3);
   assert.equal(prioritize(ro(""),"2026-01-20"),3);
 });
