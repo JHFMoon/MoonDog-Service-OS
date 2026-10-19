@@ -147,6 +147,36 @@ test("direct report updates refresh cache stamp and still redraw when requested"
   assert.equal(draw.performance,2,"direct performance redraw must remain authoritative");
 });
 
+test("queued navigation skips reports already refreshed by an intervening import redraw",()=>{
+  for(const view of ["performance","meeting"]){
+    const {context,draw,calls,flush}=harness();
+    context.navigateTo(view);
+    const render=view==="meeting"?"renderMeeting":"renderPerformance";
+    context[render]();
+    flush();
+    assert.equal(draw[view],1,view+" should reuse the intervening current render");
+    assert.equal(calls.paint,view==="meeting"?1:0,"reused Meeting markup must receive its current presenter slide");
+    context.invalidateNavigationRenders();
+    context.navigateTo(view);
+    context[render]();
+    context.invalidateNavigationRenders();
+    flush();
+    assert.equal(draw[view],3,view+" still rebuilds if data changes again before its callback");
+  }
+});
+
+test("queued report render still refreshes when the business clock changes after a direct redraw",()=>{
+  for(const view of ["performance","meeting"]){
+    const {context,draw,flush,setBusinessDate,setBusinessHour}=harness();
+    context.navigateTo(view);
+    context[view==="meeting"?"renderMeeting":"renderPerformance"]();
+    if(view==="meeting")setBusinessDate("2026-10-13");
+    else setBusinessHour(18);
+    flush();
+    assert.equal(draw[view],2,view+" must not reuse a render from the previous business clock");
+  }
+});
+
 
 test("Open RO heavy table is cached on repeated visits and refreshed for data and business-date changes",()=>{
   const {context,calls,flush,setBusinessDate}=harness();

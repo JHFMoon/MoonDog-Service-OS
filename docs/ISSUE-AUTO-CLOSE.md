@@ -57,6 +57,8 @@ When all gates pass, the workflow adds a single marker-bearing completion commen
 
 An API failure, missing engineering proof, blocked required software work, unmerged code, outdated package, failed tests or unresolved substantive review keeps the issue open. Absence of user/browser or physical Windows/OneDrive testing NEVER blocks closure by itself. The tool cannot complete unfinished engineering in the background. Do not use PR text with Closes #... on partial umbrella work.
 
+Transient verification reads retry at most twice after the initial attempt, with a 15-second network timeout, bounded backoff/Retry-After and a shared 420-second scheduling budget. Only GET requests and the evaluator's fixed review GraphQL query may retry. Comment and state-change requests never replay after ambiguous failures: the next serialized reconciliation re-reads issue state and the completion marker. Exhausted transport failures are isolated per issue and make the workflow fail visibly; the hourly trigger rechecks. Incomplete acceptance alone is an expected successful evaluation that leaves the issue open.
+
 For a non-mutating proof, run GitHub Actions > Verified Issue Closure > Run workflow with dry_run set true. After a complete evidence update reaches protected main and authorized CI succeeds, the workflow closes an eligible issue automatically without a separate instruction to press Close.
 
 Preserve real customer/employee/VIN/RO privacy, Workspace state, Stable protections, and Advisor Meeting behavior. Any real Windows results published to GitHub must be de-identified summaries only.
