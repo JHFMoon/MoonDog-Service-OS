@@ -53,7 +53,7 @@ def parse_matrix(source: str) -> dict[int, dict[str, bool]]:
             raise ValueError("Malformed acceptance criterion row: " + key)
         # Status must occur in the last cell, never merely in evidence prose.
         last = cells[-1].strip()
-        seen[issue][key] = bool(re.search(r"\*\*VERIFIED COMPLETE\*\*", last))
+        seen[issue][key] = bool(re.search(r"(?:^|;)\s*\*\*VERIFIED COMPLETE\*\*(?:\s+for\b[^*]*)?\s*$", last))
     return seen
 
 
@@ -267,8 +267,7 @@ def verify_live_evidence(api: GitHub, issue: int, record: dict, manifest: dict,
             merged_sha = source_pr["merge_commit_sha"]
             if not source_in_beta(api, merged_sha, commit_sha):
                 raise ValueError(key + " cited PR has not reached current main")
-            if proof["kind"] == "runtime" and any(
-                    p.startswith("assets/") or p == "index.html" for p in paths):
+            if any(p.startswith("assets/") or p == "index.html" for p in paths):
                 if not source_in_beta(api, merged_sha, package_pr["base"]["sha"]):
                     raise ValueError(key + " runtime source is newer than the trusted published Beta")
 
@@ -364,17 +363,32 @@ def main() -> int:
     if set(proof["issues"]) - set(str(n) for n in matrix):
         raise ValueError("Registry contains unrecognized issues without an acceptance matrix")
     summary = []
+    verification_error = False
     for key, record in proof["issues"].items():
         try:
             if not re.fullmatch(r"[1-9]\d*", key) or not isinstance(record, dict):
                 raise ValueError("Malformed issue record")
             summary.append(close_if_ready(api, int(key), record, matrix, manifest, main_ref, dry))
         except (ValueError, KeyError, TypeError, HTTPError) as error:
+            verification_error = True
             summary.append({"issue": key, "status": "open/verification-blocked",
                             "reason": type(error).__name__ + ": " + str(error)[:300]})
     print(json.dumps({"main": main_ref, "beta": manifest["beta"]["version"],
                       "dry_run": dry, "issues": summary}, indent=2))
-    return 0
+    # Incomplete acceptance is normal; actual API/provenance exceptions must
+    # visibly fail the workflow rather than masquerade as a successful audit.
+    # Hourly reconciliation retries the same fail-closed transaction.
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        with open(summary_path, "a", encoding="utf-8") as out:
+            out.write("## Verified issue-closeout reconciliation\\n\\n")
+            out.write("| Issue | Result | Details |\\n|---|---|---|\\n")
+            for item in summary:
+                detail = "; ".join(item.get("reasons", [])) or item.get("reason", "—")
+                safe = str(detail).replace("|", "/").replace("\\n", " ")[:500]
+                out.write("| #" + str(item["issue"]) + " | " +
+                          item["status"] + " | " + safe + " |\\n")
+    return 1 if verification_error else 0
 
 
 if __name__ == "__main__":
