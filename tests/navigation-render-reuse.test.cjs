@@ -155,7 +155,7 @@ test("queued navigation skips reports already refreshed by an intervening import
     context[render]();
     flush();
     assert.equal(draw[view],1,view+" should reuse the intervening current render");
-    assert.equal(calls.paint,0,"skipped Meeting work must not reset presenter state");
+    assert.equal(calls.paint,view==="meeting"?1:0,"reused Meeting markup must receive its current presenter slide");
     context.invalidateNavigationRenders();
     context.navigateTo(view);
     context[render]();
