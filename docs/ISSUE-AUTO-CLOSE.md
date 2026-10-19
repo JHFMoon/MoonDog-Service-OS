@@ -19,7 +19,7 @@ The workflow runs trusted code checked out from **protected main** after success
 3. Every cited PR must have successful **exact-head Publication Check** and **prove-clean-install** from the ruleset-authorized GitHub Actions app (15368), and no outstanding review threads.
 4. The exact current main must also have an authorized successful Publication Check; a failed, missing or stale check prevents closure.
 5. The registered Beta package PR must be a successfully checked merged trusted PR containing the package and manifest matching the current live Beta. Runtime changes must be ancestors of the package's base; test-only changes must already be on current main. Stable 0.10.17 remains unchanged.
-6. Issues #164 and #58 also require an **owner-authored GitHub issue comment** with standalone marker MoonDog-Field-Verified: yes, the currently tested Beta version, and scenario identifiers EDGE-01 through EDGE-08 for #164 or EDGE-01, EDGE-02, EDGE-07 for #58. These correspond to measured results gathered on a disposable synthetic Windows/Edge/OneDrive environment under docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md. The checker validates authorship and references; it cannot independently confirm the physical measurements. Never mark field tests verified without real evidence.
+6. **No live/browser test from the owner is ever required to close an issue.** Windows Edge, OneDrive, physical-device performance, installation, owner attestations, and EDGE-01…EDGE-08 are optional post-engineering field follow-up, not blocking acceptance. Record them honestly as untested unless performed. Automated source tests, synthetic fault injection, trusted CI and release provenance remain mandatory for applicable production requirements.
 7. The issue must still be open when the verified closure transaction starts.
 
 ## Future issues
@@ -47,7 +47,7 @@ Register the issue in the evidence registry and create a corresponding matrix se
       }
     }
 
-This record is **only an illustrative schema example**, not proof that issue 999 or any MoonDog acceptance criterion is satisfied. The supported kinds are runtime, test and field; field kind requires the applicable protected field policy. For issues #164/#58, provide a numeric field_comment property referencing the owner's real field-verification summary.
+This record is **only an illustrative schema example**, not proof that issue 999 or any MoonDog acceptance criterion is satisfied. The supported required proof kinds are runtime and test. Field-only proof is not an accepted completion substitute. Do not require or fabricate a field_comment; owner field evidence is optional supplemental feedback outside the closure gate.
 
 Initially all six issues are registered with intentionally empty evidence. They must stay open. A merged PR, a checked box, or a general completion comment is never sufficient by itself.
 
@@ -55,7 +55,7 @@ Initially all six issues are registered with intentionally empty evidence. They 
 
 When all gates pass, the workflow adds a single marker-bearing completion comment, changes the GitHub issue state to closed/completed and re-reads the state. Repeated runs do not post duplicate comments or close anything twice. If the comment succeeds but the PATCH fails, the next run reuses its marker without repeating the comment.
 
-An API failure, missing proof, blocked #220, unmerged code, absent field results, outdated package, failed tests or unresolved substantive review keeps the issue open. The tool cannot complete unfinished engineering in the background. Do not use PR text with Closes #... on partial umbrella work.
+An API failure, missing engineering proof, blocked required software work, unmerged code, outdated package, failed tests or unresolved substantive review keeps the issue open. Absence of user/browser or physical Windows/OneDrive testing NEVER blocks closure by itself. The tool cannot complete unfinished engineering in the background. Do not use PR text with Closes #... on partial umbrella work.
 
 For a non-mutating proof, run GitHub Actions > Verified Issue Closure > Run workflow with dry_run set true. After a complete evidence update reaches protected main and authorized CI succeeds, the workflow closes an eligible issue automatically without a separate instruction to press Close.
 
