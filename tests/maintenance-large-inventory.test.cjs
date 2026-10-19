@@ -73,7 +73,7 @@ function fixture({corruptCurrent=false,contended=false}={}){
   const api={
     now:()=>now,day:()=>"2026-10-19",recovery:()=>recovery,
     busy:()=>false,references:()=>[],ensureFolders:async()=>{},
-    validateCurrent:async()=>true,
+    validateCurrent:async()=>{if(corruptCurrent)throw Error("synthetic current Workspace validation failed");return true;},
     validateBackup:async bytes=>{
       const doc=JSON.parse(decoder.decode(bytes));
       if(!doc?.manifest?.createdAt)throw Error("Invalid test backup");
@@ -122,18 +122,15 @@ test("source file changed mid-cleanup is not deleted as if it were verified",asy
   assert.equal(f.files.has(key),true,"externally changed backup retained");
   assert.equal(f.removed.includes(key),false,"unverified bytes must never be removed");
 });
-test("incomplete current Workspace validation prevents backup retention",async()=>{
-  const f=fixture();
-  // Production policy is used directly, with 76 valid entries and currentValid:false.
-  const records=[...f.files].filter(([p])=>p.includes("synthetic-")).map(([p,obj])=>({
-    path:p,area:"manager-full",family:"manager-full",valid:true,
-    modified:obj.modified,createdAt:obj.modified
-  }));
-  const choices=maintenance.policy(records,{
-    now,day:"2026-10-19",references:[],currentValid:false,restoreBusy:false,
-    currentWorkbookValid:false,fullBackups:records
-  });
-  assert.equal(choices.length,0);
+test("actual maintenance engine never prunes verified full backups when current Workspace validation fails",async()=>{
+  const f=fixture({corruptCurrent:true});
+  const fullBefore=[...f.files.keys()].filter(p=>p.startsWith("backups/MoonDog Full Backup -")).sort();
+  const run=await f.engine.run({force:true});
+  assert.equal(run.failed,undefined,"validation failure is handled explicitly, not a hidden scan crash");
+  assert.ok(run.issues.some(x=>x.path==="data"&&x.reason.includes("validation failed")),"manager is alerted to unverified current state");
+  assert.deepEqual([...f.files.keys()].filter(p=>p.startsWith("backups/MoonDog Full Backup -")).sort(),
+    fullBefore,"retention must not remove any full backup without current-state validation");
+  assert.equal(f.removed.some(p=>p.startsWith("backups/MoonDog Full Backup -")),false);
 });
 test("repeated large inventory runs report measured synthetic p50/p95, without real field claims",async()=>{
   const durations=[];
