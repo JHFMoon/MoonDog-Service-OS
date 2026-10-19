@@ -41,7 +41,7 @@ def main():
     registry = json.loads(EVIDENCE.read_text(encoding="utf-8"))["issues"]
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     invalid_ids = sorted(
-        issue for issue in registry if re.fullmatch(r"[1-9]\\d*", issue) is None
+        issue for issue in registry if re.fullmatch(r"[1-9]\d*", issue) is None
     )
     if invalid_ids:
         raise ValueError("Non-canonical roadmap registry issue IDs: "
