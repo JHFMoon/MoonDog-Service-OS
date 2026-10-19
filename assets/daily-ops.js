@@ -444,6 +444,19 @@
   const businessHour=()=>globalThis.MoonDogFreshness?.timeParts(new Date(),globalThis.__moondogFreshness?.timeZone?.()||'America/Los_Angeles')?.hour??new Date().getHours();
   function say(message){state.error=message;let target=active()==='home'?$('dailyError'):$('dailyToolError');if(!target&&message&&active()!=='home'){target=document.createElement('p');target.id='dailyToolError';target.setAttribute('role','alert');document.querySelector('.view.active')?.prepend(target);}if(target){target.hidden=!message;target.textContent=message;}}
   function discardDraftOk(){return !state.editing||globalThis.confirm('You have an unsaved Home update. Leave this task and discard the draft?');}
+  function suspendForWorkspaceChange(){
+    // Folder roots are assigned before asynchronous data loading completes.
+    // Drop A's actionable task and historical/search data immediately, not at
+    // the later connection-ready notification, so A cannot write into B.
+    state.searchToken++;state.searchResults=[];
+    state.current=null;state.loadedRoot=null;state.editing=false;state.pending=false;
+    state.history=[];state.events=[];
+    if(state.mobile.timer){clearTimeout(state.mobile.timer);state.mobile.timer=null;}
+    const host=$('dailyTask');
+    if(host){host.replaceChildren();host.textContent='Connecting working folder…';}
+    const results=$('findResults');
+    if(results){results.replaceChildren();results.hidden=true;}
+  }
   function go(view,anchor=''){if(active()==='home'&&!discardDraftOk())return;api.navigate(view,anchor);}
   function wrap(el,label){if(!el||el.closest('.daily-disclosure'))return;const detail=document.createElement('details');detail.className='daily-disclosure';const summary=document.createElement('summary');summary.textContent=label;el.before(detail);detail.append(summary,el);}
 
@@ -496,28 +509,37 @@
     return items;
   }
   const historyFileCache=new Map();
-  let historyCacheRoot=null;
+  let historyCacheRoot=null,historyCacheGeneration=0;
   async function loadHistory(includeAll=false,searchToken=null){
-    if(historyCacheRoot!==model.root){historyFileCache.clear();historyCacheRoot=model.root;}
+    const originRoot=model.root;
+    // A shared cache is cleared on root changes. Generation and root guards
+    // prevent stale reads from contaminating the connected Workspace.
+    if(historyCacheRoot!==originRoot){historyFileCache.clear();historyCacheRoot=originRoot;historyCacheGeneration++;}
+    const generation=historyCacheGeneration,cache=historyFileCache;
+    const current=()=>generation===historyCacheGeneration&&originRoot===model.root&&(searchToken===null||searchToken===state.searchToken);
     const entries=await api.readEntries('data/history'),events=[];
+    if(!current())return false;
     // Daily priorities need only daily-task events; full history is loaded on
     // demand for search, not during every workspace connection.
     const relevant=entries.filter(({name})=>name.endsWith('.json')&&(includeAll||name.startsWith('daily-')));
     for(let i=0;i<relevant.length;i+=12){
-      if(searchToken!==null&&searchToken!==state.searchToken)return false;
+      if(!current())return false;
       const batch=await Promise.all(relevant.slice(i,i+12).map(async({name,handle})=>{
-        if(historyFileCache.has(name))return historyFileCache.get(name);
+        if(cache.has(name))return cache.get(name);
         try{
           const event=JSON.parse(await(await handle.getFile()).text());
-          historyFileCache.set(name,event);
-          if(historyFileCache.size>4000)historyFileCache.delete(historyFileCache.keys().next().value);
+          if(generation===historyCacheGeneration){
+            cache.set(name,event);
+            if(cache.size>4000)cache.delete(cache.keys().next().value);
+          }
           return event;
         }catch(error){if(error.name==='SyntaxError')return null;throw error;}
       }));
+      if(!current())return false;
       events.push(...batch.filter(Boolean));
       if(i+12<relevant.length)await new Promise(resolve=>setTimeout(resolve,0));
     }
-    if(searchToken!==null&&searchToken!==state.searchToken)return false;
+    if(!current())return false;
     events.sort((a,b)=>String(a.at).localeCompare(String(b.at))||String(a.id).localeCompare(String(b.id)));
     state.history=events;state.events=events.filter(e=>e.type==='daily-task');
     return true;
@@ -609,7 +631,7 @@
       .filter((item,index,items)=>items.findIndex(other=>other.id===item.id)===index).slice(0,3);
   }
   async function publishMobilePage(interactive=false){
-    if(!model.root||model.connectionState!=='CONNECTED')return {status:'not-connected'};
+    if(!model.root||model.connectionState!=='CONNECTED'||model.workspaceConnectionCommittedRoot!==model.root)return {status:'not-connected'};
     if(state.mobile.busy)return {status:'busy'};
     state.mobile.busy=true;
     try{
@@ -672,10 +694,35 @@
     // Do not write a surfaced entry during a navigation action.
   }
   async function ready(){
-    if(!model.root||model.connectionState!=='CONNECTED'){if(!state.current&&active()==='home')renderHome();return;}
+    // A new root is assigned before its records and settings finish loading.
+    // CONNECTED may still describe the previous root until that work completes.
+    if(!model.root||model.connectionState!=='CONNECTED'||model.workspaceConnectionCommittedRoot!==model.root){
+      if(!state.current&&active()==='home')renderHome();
+      return;
+    }
+    // Do not keep a Home task object from the prior Workspace while B loads.
+    if(state.loadedRoot!==model.root&&state.current){
+      state.current=null;state.editing=false;
+      if(active()==='home')renderHome();
+    }
     if(state.loadedRoot===model.root){await checkOperatingDate();refreshCurrent();return;}
-    if(state.loading)return;state.loading=true;
-    try{await loadHistory();state.loadedRoot=model.root;await selectNext();}catch(error){say('Service Operations Dashboard could not read its task history. Check folder access and reconnect.');}finally{state.loading=false;}
+    if(state.loading)return;
+    const originRoot=model.root;
+    state.loading=true;
+    try{
+      if(!await loadHistory()||model.root!==originRoot||model.workspaceConnectionCommittedRoot!==originRoot)return;
+      state.loadedRoot=originRoot;
+      await selectNext();
+    }catch(error){say('Service Operations Dashboard could not read its task history. Check folder access and reconnect.');}
+    finally{
+      state.loading=false;
+      // Retry an old-root read only after the new root's connection is complete.
+      // The normal moondog-data event then also handles transitions after this
+      // old read already settled; persistent same-root failures never self-retry.
+      if(model.root&&model.root!==originRoot&&model.connectionState==='CONNECTED'&&
+          model.workspaceConnectionCommittedRoot===model.root)
+        queueMicrotask(()=>{void ready();});
+    }
   }
   async function checkOperatingDate(){
     if(!model.root||model.connectionState!=='CONNECTED'||state.loading||state.busy)return;
@@ -687,6 +734,7 @@
     await action(selectNext);
   }
   function refreshCurrent(){
+    if(typeof model!=='undefined'&&model.workspaceConnectionCommittedRoot&&model.root&&model.workspaceConnectionCommittedRoot!==model.root)return;
     if(state.busy||state.loading)return;
     if(!state.editing){
       const top=attentionTopThree(),next=top[0];
@@ -847,6 +895,11 @@
   }
 
   function renderHome(prioritizedTop=null){
+    if(typeof model!=='undefined'&&model.workspaceConnectionCommittedRoot&&model.root&&model.workspaceConnectionCommittedRoot!==model.root){
+      const host=$('dailyTask');
+      if(host){host.replaceChildren();host.textContent='Connecting working folder…';}
+      return;
+    }
     // Automatic inbox ingestion can change the ranked tasks without a navigation.
     // Never let a completed report request remain the visible primary action.
     // Preserve any in-progress RO draft: only reconcile outside edit mode.
@@ -1366,6 +1419,8 @@
   const matches=(value,q)=>{const content=JSON.stringify(value).toLowerCase();return q.split(/\s+/).every(word=>content.includes(word));};
   async function searchAll(){
     const token=++state.searchToken,q=$('findAnything').value.trim().toLowerCase(),host=$('findResults');host.replaceChildren();host.hidden=!q;if(!q)return;
+    if(model.root&&model.workspaceConnectionCommittedRoot!==model.root){host.hidden=true;return;}
+    const searchRoot=model.root;
     const results=[],seen=new Set();
     const add=(key,label,detail,open)=>{if(seen.has(key))return;seen.add(key);results.push({key,label,detail,open});};
     const addRo=(r,historical=false,path='')=>{if(!matches(r,q))return;add(`${historical?'past':'ro'}:${r.id}:${historical?path:''}`,`${historical?'Historical ':''}RO ${r.ro} · ${r.customer||''}`,`${r.advisor||''} · ${r.vehicle||''} · ${r.management?.nextAction||''}`,()=>historical?showReadOnly(`Historical RO ${r.ro}`,r):api.openEdit(r.id));};
@@ -1379,16 +1434,17 @@
     for(const task of allTasks()){const event=engine.lastEvent(state.events,task.id);if(matches([task.title,task.description,event?.details?.action,task.recordId],q))add(`task:${task.id}`,`${task.title}${event?' · '+event.details.action:''}`,task.description||'Current task',()=>task.recordId?api.openEdit(task.recordId):showReadOnly(task.title,{status:event?.details?.action||'available',description:task.description||'',until:event?.details?.until||''}));}
     for(const event of state.history)if(matches(event,q))add(`history:${event.id}`,`${event.summary||event.type} · ${String(event.at).slice(0,10)}`,'Saved activity',()=>showReadOnly('Saved activity',event));
     for(const [family,value] of Object.entries({...model.operationalMetrics,advisorPerformance:model.performance,assignNext:model.assignNext,unmatchedQuestions:model.state.reviewQueue}))if(value&&typeof value==='object'&&matches({[family]:value},q))add(`metrics:${family}`,family.replace(/([a-z])([A-Z])/g,'$1 $2'),'Saved report information',()=>showReadOnly('Report information',{[family]:value}));
-    function paint(loading=false){if(token!==state.searchToken)return;host.replaceChildren();const count=document.createElement('p');count.textContent=`${results.length} result${results.length===1?'':'s'}${loading?' · Searching saved history…':''}`;host.append(count);for(const item of results){const row=button(item.label,()=>{host.hidden=true;item.open();},'find-result');const detail=document.createElement('small');detail.textContent=item.detail;row.append(detail);host.append(row);}state.searchResults=results;}
+    function paint(loading=false){if(token!==state.searchToken||model.root!==searchRoot||(searchRoot&&model.workspaceConnectionCommittedRoot!==searchRoot))return;host.replaceChildren();const count=document.createElement('p');count.textContent=`${results.length} result${results.length===1?'':'s'}${loading?' · Searching saved history…':''}`;host.append(count);for(const item of results){const row=button(item.label,()=>{host.hidden=true;item.open();},'find-result');const detail=document.createElement('small');detail.textContent=item.detail;row.append(detail);host.append(row);}state.searchResults=results;}
     paint(Boolean(model.root));if(!model.root)return;
     try{
       if(!await loadHistory(true,token))return;
       for(const event of state.history)if(matches(event,q))add(`history:${event.id}`,`${event.summary||event.type} · ${String(event.at).slice(0,10)}`,'Saved activity',()=>showReadOnly('Saved activity',event));
       for(const {name,handle} of await api.readEntries('backups')){if(token!==state.searchToken)return;if(!name.endsWith('.json'))continue;let value;try{value=JSON.parse(await(await handle.getFile()).text());}catch(_){continue;}for(const r of value.records||[])addRo(r,true,name);}
       paint();
-    }catch(error){paint();const p=document.createElement('p');p.textContent='Some saved files could not be searched. Check folder access and try again.';host.append(p);}
+    }catch(error){if(token!==state.searchToken||model.root!==searchRoot)return;paint();const p=document.createElement('p');p.textContent='Some saved files could not be searched. Check folder access and try again.';host.append(p);}
   }
   document.addEventListener('moondog-recovered',async()=>{historyFileCache.clear();historyCacheRoot=null;state.current=null;state.editing=false;state.loadedRoot=null;await ready();});
+  document.addEventListener('moondog-workspace-changing',suspendForWorkspaceChange);
   document.addEventListener('moondog-data',ready);
   document.addEventListener('moondog-data',()=>queueMobilePublish());
   document.addEventListener('moondog-data',()=>{const name=$('hubStoreName');if(name)name.textContent=model.settings.store?.code&&model.settings.store?.name?.trim()?model.settings.store.name.trim():'Offline operations';});
@@ -1425,7 +1481,7 @@
   window.addEventListener('focus',checkOperatingDate);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkOperatingDate();});
   installThemeToggle();installShell();renderHome();ready();queueMobilePublish(3500);
-  globalThis.__moondogDailyUI=Object.freeze({state,candidates:allTasks,selectNext,renderHome,renderTools,searchAll,settingsCategory,ready});
+  globalThis.__moondogDailyUI=Object.freeze({state,candidates:allTasks,selectNext,renderHome,renderTools,searchAll,settingsCategory,ready,confirmWorkspaceChange:discardDraftOk});
 })();
 /* Service Operations Dashboard theme Beta 0.10.7-beta.2. */
 // BEGIN GENERATED MEETING PRESENTER (see src/meeting-presenter.js)

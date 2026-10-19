@@ -828,6 +828,8 @@
   async function finishReadOnlyConnection(handle) {
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot;
     model.root = wrapOperationalRoot(await operationalRoot(handle)); model.applicationRoot = handle;
+    // Synchronously revoke old Daily task/search actions before any B async load.
+    document.dispatchEvent(new Event("moondog-workspace-changing"));
     try {
       const paths = [
         ["state", STATE_PATH], ["appointments", APPOINTMENTS_PATH], ["performance", PERFORMANCE_PATH],
@@ -858,19 +860,36 @@
       await Promise.allSettled([scanFiles(), scanAppointmentFiles(), scanPerformanceFiles(), scanRecoveryBackups()]);
       connectedNativeRoot = handle;
       try { await rememberRoot(handle); } catch (_) { /* Manual folder reconnection remains available without browser storage. */ }
+      // Only a fully loaded Workspace may drive Daily history and task selection.
+      model.workspaceConnectionCommittedRoot=model.root;
       setConnectionState("CONNECTED");
       renderSetup();
       document.dispatchEvent(new Event("moondog-data"));
     } catch (error) { model.root = previousRoot; model.applicationRoot = previousNativeRoot; connectedNativeRoot = previousNativeRoot; throw error; }
   }
 
+  // All folder changes, including automatic restoration, share one exclusive
+  // connection operation. A second picker must not overlap this root's model load.
+  let workspaceConnectionBusy=false;
   async function finishConnection(handle, ask) {
+    if(workspaceConnectionBusy){
+      const error=new Error("Another Workspace connection is still finishing. Try again when it completes.");
+      error.code="WORKSPACE_CONNECTION_BUSY";
+      throw error;
+    }
+    workspaceConnectionBusy=true;
+    try{return await completeWorkspaceConnection(handle,ask);}
+    finally{workspaceConnectionBusy=false;}
+  }
+  async function completeWorkspaceConnection(handle, ask) {
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)throw new Error("Service Operations Dashboard is finishing an import. Reconnect after it finishes.");
     const permissionWasPending=model.pendingRoot===handle;
     if (await permission(handle, ask) !== "granted") throw new Error("Folder access was not granted.");
     await writeAuthority.validate(handle, ask);
     if (!writeAuthority.canWrite) return finishReadOnlyConnection(handle);
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot; model.root = wrapOperationalRoot(await operationalRoot(handle)); model.applicationRoot = handle;
+    // Synchronously revoke old Daily task/search actions before any B async load.
+    document.dispatchEvent(new Event("moondog-workspace-changing"));
     try {
       const pendingSettings = await readJson(SETTINGS_PATH, {});
       const pendingAdapter = pendingSettings.sourceAdapters || await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
@@ -948,19 +967,26 @@
       }
     },1200);
   }
-  async function postConnectReconciliation(permissionWasPending = false) {
+  async function postConnectReconciliation(permissionWasPending = false, connectedRoot = model.root) {
     // Learning-file reconciliation runs after the first usable render.
     model.recovery.lastSuccessfulConnectionAt=now(); model.recovery.status="Ready"; await writeJson(RECOVERY_PATH,model.recovery);
     if(permissionWasPending) recordDiagnostic("FOLDER CONNECTION","Permission restored using the saved folder handle");
     // finishConnection performs the first UI paint immediately after reconciliation.
     // Avoid rendering every view twice while the browser is reconnecting.
+    // model.root changes before its records/settings have loaded. Publish readiness
+    // only when this connection's authoritative operational data is ready.
+    if(model.root!==connectedRoot)throw new Error("Workspace changed during connection reconciliation.");
+    model.workspaceConnectionCommittedRoot=connectedRoot;
     setConnectionState("CONNECTED");
   }
   async function connect() {
+    const dailyUi=globalThis.__moondogDailyUI;
+    if(!dailyUi?.confirmWorkspaceChange)throw new Error("Daily Operations is still initializing. Try changing folders again.");
+    if(!dailyUi.confirmWorkspaceChange())return;
     if (!window.showDirectoryPicker) throw new Error("This Edge version does not support local folder access from this page.");
-    if (model.pendingRoot) { setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(model.pendingRoot, true); } catch (error) { writeAuthority.disable(); setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder."); throw error; } }
+    if (model.pendingRoot) { setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(model.pendingRoot, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){writeAuthority.disable();setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder.");} throw error; } }
     const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "read" });
-    try { return await finishConnection(handle, true); } catch (error) { writeAuthority.disable(); throw error; }
+    try { return await finishConnection(handle, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY")writeAuthority.disable(); throw error; }
   }
   async function restoreConnection() {
     setConnectionState("RESTORING SAVED CONNECTION", "RECONNECTING TO SERVICE OPERATIONS DASHBOARD DATA");
@@ -975,6 +1001,8 @@
       stopFolderWatch("FOLDER PERMISSION REQUIRED");
       setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder.");
     } catch (error) {
+      // An overlapping restore must not revoke authority for the active connection.
+      if(error?.code==="WORKSPACE_CONNECTION_BUSY")return;
       writeAuthority.disable();
       model.root = null; model.pendingRoot = null;
       setConnectionState("CONNECTION ERROR", "Service Operations Dashboard could not restore the saved folder handle. Choose the working folder to reconnect.");
