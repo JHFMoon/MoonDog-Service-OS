@@ -76,7 +76,7 @@ test('Supervisor Workbook updates do not silently replace an existing admin comm
   assert.ok(app.includes('proposed.nextAction !== (current.nextAction || "")'));
   assert.ok(!app.includes('proposed.reviewDate !== (current.adminCloseout.taskDate || "")'));
   assert.match(app,/adminCloseoutState\(record,today\)\.dueToday\s*\?\s*3/,"admin due-today priority is preserved after refactoring into the production sort helper");
-  assert.match(app,/!record\.management\.nextAction \? \d+ : \d+/);
+  assert.match(app,/!record\.management\.nextAction\s*\?\s*\d+\s*:\s*\d+/,"missing next action remains a distinct priority tier in the shipped sort helper");
 });
 
 test('a manager review reminder is not an advisor closeout commitment', () => {
