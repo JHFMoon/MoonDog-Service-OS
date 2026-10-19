@@ -144,15 +144,35 @@
         if (!["file", "empty-directory"].includes(journal.kind)) throw Error("Delete journal type is invalid.");
         if (journal.kind === "file" && !validByteList(journal.before)) throw Error("Delete journal bytes are invalid.");
         if (revision.revision === journal.revisionBefore) {
-          if (journal.kind === "file") await writeBytesRaw(root, target, new Uint8Array(journal.before));
-          else { const directory = target.slice(0, -1).reduce(async (prior, name) => (await prior).getDirectoryHandle(name), Promise.resolve(root)); await (await directory).getDirectoryHandle(target.at(-1), { create: true }); }
+          if (journal.kind === "file") {
+            const before = new Uint8Array(journal.before), current = await readBytes(root, target);
+            if (!sameBytes(current, null) && !sameBytes(current, before))
+              throw Error("Uncommitted delete journal conflicts with independent file changes.");
+            if (current === null) await writeBytesRaw(root, target, before);
+          } else {
+            const directory = target.slice(0, -1).reduce(async (prior, name) => (await prior).getDirectoryHandle(name), Promise.resolve(root));
+            await (await directory).getDirectoryHandle(target.at(-1), { create: true });
+          }
         } else {
           if (!await absent(root, target)) throw Error("Committed deletion differs from its journal.");
         }
       } else {
         if (!["file", "directory"].includes(journal.kind)) throw Error("Create journal type is invalid.");
         if (revision.revision === journal.revisionBefore) {
-          if (!await absent(root, target)) await removeRaw(root, target);
+          if (!await absent(root, target)) {
+            // A new independently-populated file or directory is not safely
+            // attributable to this unfinished create transaction. Keep it.
+            if (journal.kind === "file") {
+              if (!sameBytes(await readBytes(root, target), new Uint8Array()))
+                throw Error("Uncommitted create journal conflicts with populated file.");
+            } else {
+              const directory = target.slice(0, -1).reduce(async (prior, name) => (await prior).getDirectoryHandle(name), Promise.resolve(root));
+              const created = await (await directory).getDirectoryHandle(target.at(-1));
+              for await (const _ of created.entries())
+                throw Error("Uncommitted create journal conflicts with populated directory.");
+            }
+            await removeRaw(root, target);
+          }
         } else if (await absent(root, target)) throw Error("Committed creation differs from its journal.");
       }
       await removeRaw(root, journalPath.split("/"));
