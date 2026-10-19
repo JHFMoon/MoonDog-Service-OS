@@ -245,7 +245,7 @@ class AutoCloseTests(unittest.TestCase):
 
     def test_false_matrix_status_cannot_embed_verified_complete_in_a_warning(self):
         s = ("## #987 — Sample\n"
-             "| 987-01 | Work | Existing | Gap | P1 | NOT **VERIFIED COMPLETE** |\\n")
+             "| 987-01 | Work | Existing | Gap | P1 | NOT **VERIFIED COMPLETE** |\n")
         self.assertEqual(parse_matrix(s), {987: {"987-01": False}})
         s = ("## #987 — Sample\n"
              "| 987-01 | Work | Existing | Gap | P1 | still pending; "
