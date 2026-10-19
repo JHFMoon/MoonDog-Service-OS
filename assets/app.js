@@ -3321,6 +3321,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     } catch(error) {
       recordDiagnostic("HISTORY WRITE FAILED",
         "Open RO update saved, but history could not be written ("+(error.name||"Error")+")");
+      if(transientWorkspaceState(error)&&connectedNativeRoot)scheduleAuthorityRevalidation(connectedNativeRoot);
       warnings.push("Activity history could not be verified; review diagnostics.");
     }
     try {
@@ -3328,6 +3329,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     } catch(error) {
       recordDiagnostic("WORKBOOK STALE MARK FAILED",
         "Open RO update saved, but Supervisor Workbook invalidation failed ("+(error.name||"Error")+")");
+      if(transientWorkspaceState(error)&&connectedNativeRoot)scheduleAuthorityRevalidation(connectedNativeRoot);
       warnings.push("Supervisor Workbook invalidation could not be verified. Do not import the previous workbook; regenerate it after restoring storage access.");
     }
     renderAll();
