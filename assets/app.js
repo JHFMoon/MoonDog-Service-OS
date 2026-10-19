@@ -3311,11 +3311,41 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if (record) loadAdminCloseoutEvidence(record);
   };
   function editValidationError(message) { ui.editValidation.textContent = message; ui.editValidation.hidden = false; throw new Error(message); }
+  // The state write is already read-back verified by writeJson. Never reinterpret a
+  // later history/recovery failure as an unsaved RO or block Save & Next.
+  async function finishSavedOpenRo(record, before, proposed, origin, advance, nextId) {
+    const warnings = [];
+    try {
+      await addHistory("ro-update", "Updated RO "+record.ro,
+        {ro:record.ro,before,after:proposed,dailyFocus:origin==="focus"});
+    } catch(error) {
+      recordDiagnostic("HISTORY WRITE FAILED",
+        "Open RO update saved, but history could not be written ("+(error.name||"Error")+")");
+      warnings.push("Activity history could not be verified; review diagnostics.");
+    }
+    try {
+      await markSupervisorWorkbookStale("Open RO management state changed after the last Supervisor Workbook generation");
+    } catch(error) {
+      recordDiagnostic("WORKBOOK STALE MARK FAILED",
+        "Open RO update saved, but Supervisor Workbook invalidation failed ("+(error.name||"Error")+")");
+      warnings.push("Supervisor Workbook invalidation could not be verified. Do not import the previous workbook; regenerate it after restoring storage access.");
+    }
+    renderAll();
+    editDraftDirty=false;
+    const canAdvance=Boolean(advance&&nextId&&model.state.records.some(item=>item.id===nextId));
+    if(canAdvance)openEdit(nextId,origin);
+    else ui.editDialog.close();
+    status("RO "+record.ro+" was saved and read-back verified."+
+      (canAdvance?" Continue with the next displayed RO.":"")+
+      (warnings.length?" "+warnings.join(" "):" Supervisor Workbook is out of date; generate a new workbook before importing advisor changes."),
+      warnings.length?"error":"success");
+    return true;
+  }
   async function saveRecord(event, advance = false) { event?.preventDefault(); const record = model.state.records.find((r) => r.id === model.selectedId); if (!record) return; const nextAction = ui.editNextAction.value.trim(), commitmentDate = ui.editReviewDate.value, selectedStatus=canonicalReviewStatus(ui.editStatus.value), selectedStatusId=resolveStatusId(selectedStatus,"",true),detailOptions=statusDetailsFor(selectedStatus),statusDetail=detailOptions.length?normalizedStatusDetail(selectedStatus,ui.editStatusDetail.value):"",statusDetailOther=statusDetail==="Other"?ui.editStatusDetailOther.value.trim():""; ui.editValidation.hidden = true; if (!selectedStatus||!statusAllowedForSave(selectedStatus,record)) editValidationError("Choose one of the seven current CDK workflow statuses before saving."); if(detailOptions.length&&!statusDetail)editValidationError("Choose the status detail before saving.");if(statusDetail==="Other"&&!statusDetailOther)editValidationError("Describe the Other status detail before saving."); if (!COMMUNICATION_STATUSES.includes(ui.editCommunication.value)) editValidationError("Choose a recognized customer communication state before saving."); const adminBlocker=ui.editAdminBlocker.value;
     if (!nextAction || (!commitmentDate && !adminBlocker)) editValidationError("Enter the next action and a commitment date, or identify a confirmed admin blocker awaiting an advisor commitment.");
     let adminCloseout=null;
     if(adminBlocker || record.management.adminCloseout?.blocker)try{const commitments=nextAdminCloseout(record.management.adminCloseout,adminBlocker,ui.editAdminTaskDate.value,ui.editAdminCloseDate.value,ui.editAdminChangeReason.value,now());adminCloseout=nextAdminCloseoutEvidence(commitments,currentAdminCloseoutEvidence(),now());}catch(error){editValidationError(error.message);}
-    const origin = model.editOrigin, ids = origin === "focus" ? visibleFocusIds() : visibleRecordIds(), nextId = ids[ids.indexOf(record.id) + 1] || null, priorState = JSON.parse(JSON.stringify(model.state)), before = { ...record.management }, proposed = { ...record.management, ...(dailySaveAdditions || {}), statusId:selectedStatusId, status:selectedStatus, statusDetail, statusDetailOther, owner: ui.editOwner.value.trim(), nextAction, reviewDate: commitmentDate, communication: ui.editCommunication.value, note: ui.editNote.value.trim(), ...(adminCloseout ? { adminCloseout } : {}), clarification: null, managerReviewedOn: localDateKey(), updatedAt: now() }; record.management = proposed; try { await saveState("Updated RO "+record.ro, priorState); } catch (error) { model.state = priorState; ui.editValidation.textContent = "Service Operations Dashboard could not save this RO to durable storage. Your entries are still shown; check the folder connection and try again."; ui.editValidation.hidden = false; recordDiagnostic("QUICK UPDATE SAVE FAILED", "Durable Open RO update failed ("+(error.name || "Error")+")"); return; } try { await addHistory("ro-update", "Updated RO "+record.ro, { ro: record.ro, before, after: proposed, dailyFocus: origin === "focus" }); } catch (error) { recordDiagnostic("HISTORY WRITE FAILED", "Open RO update was saved but its history event could not be written ("+(error.name || "Error")+")"); } await markSupervisorWorkbookStale("Open RO management state changed after the last Supervisor Workbook generation"); renderAll(); editDraftDirty=false; if (advance && nextId) openEdit(nextId, origin); else ui.editDialog.close(); status("RO "+record.ro+" was saved to durable state."+(advance && nextId ? " Continue with the next displayed RO." : "")+" Supervisor Workbook is out of date; generate a new workbook before importing advisor changes.", "success"); return true; }
+    const origin = model.editOrigin, ids = origin === "focus" ? visibleFocusIds() : visibleRecordIds(), nextId = ids[ids.indexOf(record.id) + 1] || null, priorState = JSON.parse(JSON.stringify(model.state)), before = { ...record.management }, proposed = { ...record.management, ...(dailySaveAdditions || {}), statusId:selectedStatusId, status:selectedStatus, statusDetail, statusDetailOther, owner: ui.editOwner.value.trim(), nextAction, reviewDate: commitmentDate, communication: ui.editCommunication.value, note: ui.editNote.value.trim(), ...(adminCloseout ? { adminCloseout } : {}), clarification: null, managerReviewedOn: localDateKey(), updatedAt: now() }; record.management = proposed; try { await saveState("Updated RO "+record.ro, priorState); } catch (error) { model.state = priorState; ui.editValidation.textContent = "Service Operations Dashboard could not save this RO to durable storage. Your entries are still shown; check the folder connection and try again."; ui.editValidation.hidden = false; recordDiagnostic("QUICK UPDATE SAVE FAILED", "Durable Open RO update failed ("+(error.name || "Error")+")"); return; } return finishSavedOpenRo(record,before,proposed,origin,advance,nextId); }
   async function closeRo(id=model.selectedId){
     const record=model.state.records.find((item)=>item.id===id);if(!record)return false;const priorState=structuredClone(model.state),closedAt=now(),archive={...record,closedAt,closedReason:"manual-manager-close"};
     model.state.records=model.state.records.filter((item)=>item.id!==id);model.state.closedRecords=pruneClosedRecords([...(model.state.closedRecords||[]).filter((item)=>item.id!==id),archive]);model.state.updatedAt=closedAt;
