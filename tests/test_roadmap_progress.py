@@ -69,7 +69,7 @@ class RoadmapProgressTests(unittest.TestCase):
             })
 
     def test_noncanonical_registry_issue_ids_are_rejected(self):
-        matrix = "## #58 — existing\\n| 58-01 | test | **PARTIALLY COMPLETE** |\\n"
+        matrix = "## #58 — existing\n| 58-01 | test | **PARTIALLY COMPLETE** |\n"
         for issues in (
             {"058": {"criteria": {}}},
             {"+58": {"criteria": {}}},
