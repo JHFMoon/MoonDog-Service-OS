@@ -52,3 +52,15 @@
 @media screen and (max-width:390px){
   #view-open-ro .ro-worklist tbody tr[data-id] td{grid-template-columns:minmax(0,1fr);gap:3px}
 }
+
+/* Device-only Open RO presentation controls: keep all seven fields visible. */
+#view-open-ro .filter-bar{grid-template-columns:repeat(auto-fit,minmax(145px,1fr))}
+#view-open-ro .open-ro-view-preferences{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px}
+#view-open-ro .open-ro-view-preferences p{margin:0;color:#52677a;font-size:12px}
+#view-open-ro .ro-worklist tbody.ro-density-compact td{padding:4px 8px}
+#view-open-ro .ro-worklist tbody.ro-density-compact .ro-cell-stack{gap:1px}
+@media screen and (max-width:1280px){
+  #view-open-ro .ro-worklist tbody.ro-density-compact{gap:7px}
+  #view-open-ro .ro-worklist tbody.ro-density-compact tr[data-id]{padding:4px 9px}
+  #view-open-ro .ro-worklist tbody.ro-density-compact tr[data-id] td{padding:5px 3px}
+}
