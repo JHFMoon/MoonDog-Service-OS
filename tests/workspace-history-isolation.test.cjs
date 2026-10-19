@@ -315,7 +315,7 @@ test("new root synchronously revokes A Home task and search controls", async () 
   assert.equal(h.state.current,null,"No A action remains available under B");
   const dispatches=app.match(/model\.root = wrapOperationalRoot\(await operationalRoot\(handle\)\); model\.applicationRoot = handle;\s*\/\/ Synchronously revoke old Daily task\/search actions before any B async load\.\s*document\.dispatchEvent\(new Event\("moondog-workspace-changing"\)\)/g)||[];
   assert.equal(dispatches.length,2,"Both writable and read-only root assignments revoke A actions synchronously");
-  assert.match(daily,/if\(typeof model!==['"]undefined['"]&&model\.root&&model\.workspaceConnectionCommittedRoot!==model\.root\)\{\s*const host=\$\('dailyTask'\)/);
+  assert.match(daily,/if\(typeof model!==['"]undefined['"]&&model\.workspaceConnectionCommittedRoot&&model\.root&&model\.workspaceConnectionCommittedRoot!==model\.root\)\{\s*const host=\$\('dailyTask'\)/);
 });
 
 test("overlapping connection attempts serialize across restore and manual switching", async () => {
