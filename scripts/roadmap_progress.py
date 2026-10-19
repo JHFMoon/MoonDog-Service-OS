@@ -8,8 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "docs/ROADMAP-ACCEPTANCE-MATRIX.md"
 EVIDENCE = ROOT / "docs/ISSUE-CLOSEOUT-EVIDENCE.json"
 MANIFEST = ROOT / "updates/manifest.json"
-PARENTS = (164, 58, 59, 60, 61)
-DEFERRED = (212,)
+DEFERRED = frozenset({212})
 HEADER = re.compile(r"^## #([1-9]\d*)\b")
 CRITERION = re.compile(r"^\|\s*([1-9]\d*-\d{2})\s*\|")
 
@@ -41,11 +40,17 @@ def main():
     matrix = collect(MATRIX.read_text(encoding="utf-8"))
     registry = json.loads(EVIDENCE.read_text(encoding="utf-8"))["issues"]
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    matrix_issues = set(matrix)
+    registry_issues = {int(issue) for issue in registry}
+    if matrix_issues != registry_issues:
+        raise ValueError("Roadmap issue mismatch: matrix only "
+                         + str(sorted(matrix_issues - registry_issues))
+                         + "; registry only "
+                         + str(sorted(registry_issues - matrix_issues)))
     print("MoonDog roadmap — Beta " + manifest["beta"]["version"])
     print("Issue | Verified | Remaining | Proof records | Status")
     verified_total = total = 0
-    for issue in (*PARENTS, *DEFERRED):
-        criteria = matrix.get(issue, {})
+    for issue, criteria in matrix.items():
         if not criteria:
             raise ValueError("Missing matrix entry for issue #" + str(issue))
         verified = sum(criteria.values())
@@ -54,7 +59,7 @@ def main():
         remaining = len(criteria) - verified
         status = "DEFERRED" if issue in DEFERRED else (
             "READY FOR CLOSURE REVIEW" if remaining == 0 else "OPEN REQUIREMENTS")
-        if issue in PARENTS:
+        if issue not in DEFERRED:
             verified_total += verified
             total += len(criteria)
         print(f"#{issue} | {verified}/{len(criteria)} | {remaining} | "
