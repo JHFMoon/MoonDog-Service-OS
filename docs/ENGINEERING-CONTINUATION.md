@@ -2,6 +2,8 @@
 
 This is a non-sensitive execution checkpoint, not proof of a continuously running coding agent. Always reconcile it against the latest GitHub commits, pull requests, manifests, workflow runs, and protected release policy before acting.
 
+**Current closure-policy override — 2026-10-19 (owner-directed):** No issue may be held open solely because the owner has not performed a live Windows, Edge, OneDrive or browser test. Remove mandatory physical validation and owner-attestation gates from #164/#58; treat `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md` only as a voluntary diagnostic protocol. The remaining synthetic engineering tests, reliability/security requirements, protected exact-head checks and Beta provenance stay mandatory. This directive supersedes historical references to mandatory field evidence in the dated checkpoint entries below. Live #164 software criteria 164-02…09 (minus the former field-only 164-01) are not all verified and #164 must stay open for those reasons, not for missing browser testing.
+
 ## Authoritative current engineering checkpoint — October 18, 2026 Pacific (October 19 UTC)
 
 **This supersedes all earlier checkpoint entries in this document.** For the criterion-level requirements and evidence, see [Roadmap acceptance matrix](ROADMAP-ACCEPTANCE-MATRIX.md). GitHub is the system of record; this checkpoint is a dated snapshot, not a promise of unattended continuation.

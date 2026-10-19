@@ -23,11 +23,9 @@ OWNER = "JHFMoon"
 APP_ID = 15368
 SAFE_REPO = "JHFMoon/MoonDog-Service-OS"
 CLOSE_MARKER = "<!-- moondog-verified-auto-close:v1 issue="
-# A field result is not inferred from synthetic CI or from a PR description.
-FIELD_SCENARIOS = {
-    164: ("EDGE-01", "EDGE-02", "EDGE-03", "EDGE-04", "EDGE-05", "EDGE-06", "EDGE-07", "EDGE-08"),
-    58: ("EDGE-01", "EDGE-02", "EDGE-07"),
-}
+# Browser/Windows/OneDrive field reports are optional diagnostic follow-up.
+# Closure is determined by verified engineering and synthetic CI, never by
+# requiring the owner to interact with an installed browser.
 ISSUE_HEADER = re.compile(r"^## #([1-9]\d*)\b")
 CRITERION = re.compile(r"^\|\s*([1-9]\d*-\d{2})\s*\|")
 
@@ -84,7 +82,7 @@ def evidence_shape(issue: int, matrix: dict[int, dict[str, bool]], record: dict)
             p.startswith("tests/../") for p in paths
         ):
             reasons.append(key + " missing a valid synthetic regression test path")
-        if proof.get("kind") not in {"runtime", "test", "field"}:
+        if proof.get("kind") not in {"runtime", "test"}:
             reasons.append(key + " has no recognized verification kind")
     return reasons
 
@@ -103,8 +101,6 @@ def eligible_snapshot(issue: int, state: str, matrix: dict[int, dict[str, bool]]
         reasons.append("Published Beta manifest SHA-256 is malformed")
     if not isinstance(record.get("package_pr"), int) or record["package_pr"] < 1:
         reasons.append("Missing verified trusted Beta package PR")
-    if issue in FIELD_SCENARIOS and not isinstance(record.get("field_comment"), int):
-        reasons.append("Missing owner-verified Windows/Edge field report")
     return reasons
 
 
@@ -215,19 +211,6 @@ def source_in_beta(api: GitHub, source_commit: str, package_base_sha: str) -> bo
             data.get("status") in {"ahead", "identical"})
 
 
-def owner_field_report(api: GitHub, issue: int, comment_id: int, beta: str) -> bool:
-    comment = api.request("GET", "repos/" + api.repo + "/issues/comments/" + str(comment_id))
-    if comment.get("user", {}).get("login") != OWNER:
-        return False
-    if not comment.get("html_url", "").startswith(
-            "https://github.com/" + api.repo + "/issues/" + str(issue) + "#"):
-        return False
-    body = comment.get("body", "")
-    if "MoonDog-Field-Verified: yes" not in body or beta not in body:
-        return False
-    return all(scenario in body for scenario in FIELD_SCENARIOS[issue])
-
-
 def verify_live_evidence(api: GitHub, issue: int, record: dict, manifest: dict,
                          commit_sha: str) -> None:
     cache: dict = {}
@@ -247,17 +230,12 @@ def verify_live_evidence(api: GitHub, issue: int, record: dict, manifest: dict,
         if proof["kind"] == "runtime" and not any(
                 p.startswith("assets/") or p == "index.html" for p in paths):
             raise ValueError(key + " has no production runtime diff")
-        if proof["kind"] == "field" and issue not in FIELD_SCENARIOS:
-            raise ValueError(key + " field validation lacks a protected field policy")
         if proof["kind"] == "runtime":
             if not source_in_beta(api, source_pr["merge_commit_sha"],
                                   package_pr["base"]["sha"]):
                 raise ValueError(key + " runtime source is newer than the trusted published Beta")
         elif not source_in_beta(api, source_pr["merge_commit_sha"], commit_sha):
             raise ValueError(key + " test/field proof has not reached current main")
-    if issue in FIELD_SCENARIOS and not owner_field_report(
-            api, issue, record["field_comment"], beta["version"]):
-        raise ValueError("Owner Windows/Edge evidence is absent or incomplete")
 
 
 def close_if_ready(api: GitHub, issue: int, record: dict, matrix: dict,
@@ -301,8 +279,6 @@ def close_if_ready(api: GitHub, issue: int, record: dict, matrix: dict,
             "; regression " + ", ".join(proof["tests"])
             for key, proof in sorted(proofs.items())
         ]
-        fields = ("\n- Owner field attestation comment #" + str(record["field_comment"])
-                  if issue in FIELD_SCENARIOS else "")
         completion = (
             marker + "\nAll acceptance matrix criteria VERIFIED COMPLETE. "
             "Source PRs and package passed authorized exact-head Publication Check "
@@ -313,7 +289,6 @@ def close_if_ready(api: GitHub, issue: int, record: dict, matrix: dict,
             + "\n- Published Beta: " + manifest["beta"]["version"]
             + "\n- Manifest package SHA-256: " + manifest["beta"]["sha256"]
             + "\n- Protected main at closeout: " + main_sha
-            + fields
             + "\n- Evidence registry: docs/ISSUE-CLOSEOUT-EVIDENCE.json."
             + "\nStable 0.10.17 unchanged; publication does not assert an installed update."
         )
