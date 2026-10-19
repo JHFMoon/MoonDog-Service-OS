@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.117 — current Beta
+
+- Restore whole-state backup compatibility with current Settings schema while retaining legacy backups and rejecting unsupported versions. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.116 — current Beta
 
 - Avoid redundant deferred Meeting and Performance redraws after source refresh. Preserve source invalidation and business-date refresh. No Workspace migration; Stable remains 0.10.17.
