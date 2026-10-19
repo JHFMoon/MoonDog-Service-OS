@@ -734,7 +734,7 @@
     await action(selectNext);
   }
   function refreshCurrent(){
-    if(typeof model!=='undefined'&&model.root&&model.workspaceConnectionCommittedRoot!==model.root)return;
+    if(typeof model!=='undefined'&&model.workspaceConnectionCommittedRoot&&model.root&&model.workspaceConnectionCommittedRoot!==model.root)return;
     if(state.busy||state.loading)return;
     if(!state.editing){
       const top=attentionTopThree(),next=top[0];
@@ -895,7 +895,7 @@
   }
 
   function renderHome(prioritizedTop=null){
-    if(typeof model!=='undefined'&&model.root&&model.workspaceConnectionCommittedRoot!==model.root){
+    if(typeof model!=='undefined'&&model.workspaceConnectionCommittedRoot&&model.root&&model.workspaceConnectionCommittedRoot!==model.root){
       const host=$('dailyTask');
       if(host){host.replaceChildren();host.textContent='Connecting working folder…';}
       return;
