@@ -97,7 +97,7 @@ def eligible_snapshot(issue: int, state: str, matrix: dict[int, dict[str, bool]]
     if manifest.get("stable", {}).get("version") != "0.10.17":
         reasons.append("Stable invariant differs from protected 0.10.17")
     beta = manifest.get("beta", {})
-    if not re.fullmatch(r"0\.10\.18-beta\.[1-9]\d*", beta.get("version", "")):
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-beta\.[1-9]\d*", beta.get("version", "")):
         reasons.append("Published Beta version is not recognized")
     if not re.fullmatch(r"[a-f0-9]{64}", beta.get("sha256", "")):
         reasons.append("Published Beta manifest SHA-256 is malformed")
@@ -172,11 +172,16 @@ def verified_checks(api: GitHub, head: str) -> bool:
     if data.get("total_count", 0) > 100:
         return False
     required = ("Publication Check", "prove-clean-install")
-    return all(any(c.get("name") == name and c.get("status") == "completed" and
-                       c.get("conclusion") == "success" and
-                       c.get("head_sha") == head and
-                       c.get("app", {}).get("id") == APP_ID for c in checks)
-               for name in required)
+    for name in required:
+        matching = [c for c in checks if c.get("name") == name and
+                    c.get("head_sha") == head and c.get("app", {}).get("id") == APP_ID]
+        if not matching:
+            return False
+        latest = max(matching, key=lambda c: (
+            c.get("started_at") or c.get("created_at") or "", c.get("id") or 0))
+        if latest.get("status") != "completed" or latest.get("conclusion") != "success":
+            return False
+    return True
 
 
 def validated_pr(api: GitHub, number: int, cache: dict):
@@ -265,13 +270,16 @@ def close_if_ready(api: GitHub, issue: int, record: dict, matrix: dict,
     # Fail closed if the current main Publication Check is absent or failing.
     current_checks = api.request("GET", "repos/" + api.repo + "/commits/" +
                                  main_sha + "/check-runs?per_page=100")
-    if current_checks.get("total_count", 0) > 100 or not any(
-            c.get("name") == "Publication Check" and
-            c.get("conclusion") == "success" and
-            c.get("status") == "completed" and
-            c.get("head_sha") == main_sha and
-            c.get("app", {}).get("id") == APP_ID
-            for c in current_checks.get("check_runs", [])):
+    main_check_runs = [c for c in current_checks.get("check_runs", [])
+                       if c.get("name") == "Publication Check" and
+                       c.get("head_sha") == main_sha and
+                       c.get("app", {}).get("id") == APP_ID]
+    if current_checks.get("total_count", 0) > 100 or not main_check_runs:
+        return {"issue": issue, "status": "open/current-main-ci-unverified"}
+    latest_main_check = max(main_check_runs, key=lambda c: (
+        c.get("started_at") or c.get("created_at") or "", c.get("id") or 0))
+    if (latest_main_check.get("status") != "completed" or
+        latest_main_check.get("conclusion") != "success"):
         return {"issue": issue, "status": "open/current-main-ci-unverified"}
     verify_live_evidence(api, issue, record, manifest, main_sha)
     marker = CLOSE_MARKER + str(issue) + " -->"
