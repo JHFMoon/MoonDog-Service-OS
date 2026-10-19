@@ -886,6 +886,9 @@
     setConnectionState("CONNECTED");
   }
   async function connect() {
+    const dailyUi=globalThis.__moondogDailyUI;
+    if(!dailyUi?.confirmWorkspaceChange)throw new Error("Daily Operations is still initializing. Try changing folders again.");
+    if(!dailyUi.confirmWorkspaceChange())return;
     if (!window.showDirectoryPicker) throw new Error("This Edge version does not support local folder access from this page.");
     if (model.pendingRoot) { setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(model.pendingRoot, true); } catch (error) { writeAuthority.disable(); setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder."); throw error; } }
     const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "read" });

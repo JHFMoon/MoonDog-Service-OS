@@ -1447,7 +1447,7 @@
   window.addEventListener('focus',checkOperatingDate);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkOperatingDate();});
   installThemeToggle();installShell();renderHome();ready();queueMobilePublish(3500);
-  globalThis.__moondogDailyUI=Object.freeze({state,candidates:allTasks,selectNext,renderHome,renderTools,searchAll,settingsCategory,ready});
+  globalThis.__moondogDailyUI=Object.freeze({state,candidates:allTasks,selectNext,renderHome,renderTools,searchAll,settingsCategory,ready,confirmWorkspaceChange:discardDraftOk});
 })();
 /* Service Operations Dashboard theme Beta 0.10.7-beta.2. */
 // BEGIN GENERATED MEETING PRESENTER (see src/meeting-presenter.js)
