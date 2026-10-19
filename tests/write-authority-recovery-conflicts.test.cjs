@@ -1,0 +1,222 @@
+"use strict";
+const test=require("node:test");
+const assert=require("node:assert/strict");
+const fs=require("node:fs");
+const path=require("node:path");
+const vm=require("node:vm");
+
+const source=fs.readFileSync(path.join(__dirname,"..","assets/moondog-write-authority.js"),"utf8");
+const begin=source.indexOf("  async function at("),end=source.indexOf("  async function validate(",begin);
+assert.ok(begin>=0&&end>begin,"exercise actual production recovery and file operations");
+const production=source.slice(begin,end);
+const validationEnd=source.indexOf("  async function provision(",end);
+assert.ok(validationEnd>end,"execute the production validate gate");
+const validation=source.slice(end,validationEnd);
+const encode=value=>new TextEncoder().encode(JSON.stringify(value));
+const asBytes=value=>value===null?null:new Uint8Array(value);
+const missing=()=>Object.assign(Error("Synthetic missing"),{name:"NotFoundError"});
+const before=encode({value:"prior"});
+const after=encode({value:"interrupted write"});
+const another=encode({value:"independent writer"});
+
+function fixture(current=after,options={}){
+  const files=new Map(),dirs=new Set(["data"]),actions=[];
+  if(current!==null)files.set("data/state.json",asBytes(current));
+  const journal=options.journalFormat==="moondog-delete-v1"?
+    {format:"moondog-delete-v1",target:"data/state.json",kind:"file",before:[...before],revisionBefore:4}:
+    options.journalFormat==="moondog-create-v1"?
+    {format:"moondog-create-v1",target:"data/state.json",kind:"file",revisionBefore:4}:
+    {format:"moondog-write-v1",target:"data/state.json",
+      before:options.beforeNull?null:[...before],after:[...after],
+      revisionBefore:4};
+  files.set("data/.moondog-txn-synthetic.json",encode(journal));
+  files.set("data/store-revision.json",encode({schemaVersion:1,revision:4}));
+  const directory=(prefix="")=>({
+    kind:"directory",
+    queryPermission:async()=>"granted",
+    async getDirectoryHandle(name,{create=false}={}){
+      const k=prefix?prefix+"/"+name:name;
+      if(!dirs.has(k)){if(!create)throw missing();dirs.add(k);}
+      return directory(k);
+    },
+    async getFileHandle(name,{create=false}={}){
+      const k=prefix?prefix+"/"+name:name;
+      if(!files.has(k)){if(!create)throw missing();files.set(k,new Uint8Array());}
+      return {
+        kind:"file",
+        async getFile(){const b=files.get(k);if(!b)throw missing();return{
+          text:async()=>new TextDecoder().decode(b),
+          arrayBuffer:async()=>b.slice().buffer
+        };},
+        async createWritable(){
+          let pending=new Uint8Array();
+          return{
+            async write(bytes){actions.push(["write",k]);pending=new Uint8Array(bytes);},
+            async close(){actions.push(["close",k]);files.set(k,pending);},
+            async abort(){actions.push(["abort",k]);}
+          };
+        }
+      };
+    },
+    async removeEntry(name){
+      const k=prefix?prefix+"/"+name:name;
+      actions.push(["remove",k]);
+      if(!files.delete(k))throw missing();
+    },
+    async *entries(){
+      const parent=prefix?prefix+"/":"",seen=new Set();
+      for(const name of [...files.keys(),...dirs]){
+        if(!name.startsWith(parent)||name===prefix)continue;
+        const suffix=name.slice(parent.length),child=suffix.split("/")[0];
+        if(!child||seen.has(child))continue;
+        seen.add(child);
+        yield [child,dirs.has(parent+child)?directory(parent+child):{kind:"file",name:child}];
+      }
+    }
+  });
+  const context=vm.createContext({TextEncoder,TextDecoder,Uint8Array,Promise,crypto:globalThis.crypto,
+    console:{warn(){}},setTimeout});
+  const setup="const encoder=new TextEncoder();const REVISION=['data','store-revision.json'];"+
+    "const originals=new WeakMap();let nativeRoot=null,loadedRevision=null,activeToken=null;"+
+    "let editable=true;const transientValidationDelays=[0];"+
+    "const sleep=async()=>{};const denied=()=>new Error('read only');"+
+    "const transientInterfaceState=()=>false;"+
+    "function setEditable(value){editable=value;}function setTransientValidation(_){};";
+  vm.runInContext(setup+"\n"+production+"\n"+validation+
+    "\nglobalThis.recoverPending=recoverPending;globalThis.validate=validate;globalThis.isEditable=()=>editable;",context);
+  return{
+    files,actions,journal,
+    recover:revision=>context.recoverPending(directory(),{schemaVersion:1,revision}),
+    validate:()=>context.validate(directory(),false),
+    editable:()=>context.isEditable(),
+    current:()=>files.get("data/state.json"),
+    pending:()=>files.has("data/.moondog-txn-synthetic.json")
+  };
+}
+
+test("unfinished journal never destructively rolls back recorded after bytes",async()=>{
+  const f=fixture(after);
+  await assert.rejects(f.recover(4),/requires controlled recovery/i);
+  assert.deepEqual(f.current(),after);
+  assert.equal(f.pending(),true);
+  assert.equal(f.actions.some(([act,name])=>name==="data/state.json"&&["write","remove"].includes(act)),false);
+});
+
+test("uncommitted journal with intact prior bytes is removed without affecting state",async()=>{
+  const f=fixture(before);
+  await f.recover(4);
+  assert.deepEqual(f.current(),before);
+  assert.equal(f.pending(),false);
+});
+
+test("conflicting replacement by a separate writer MUST NOT be overwritten on recovery",async()=>{
+  const f=fixture(another);
+  await assert.rejects(f.recover(4),/conflict|differs|changed|unrecognized/i);
+  assert.deepEqual(f.current(),another,"independent writer bytes survive unchanged");
+  assert.equal(f.pending(),true,"uncertain journal retained for manual review");
+  assert.equal(f.actions.some(([act,name])=>name==="data/state.json"&&["write","remove"].includes(act)),false);
+});
+
+test("a journal from an unfinished new-file creation cannot delete unrelated bytes",async()=>{
+  const f=fixture(another,{beforeNull:true});
+  await assert.rejects(f.recover(4),/conflict|differs|changed|unrecognized/i);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true);
+});
+
+test("uncommitted new-file save cannot automatically delete bytes",async()=>{
+  const f=fixture(after,{beforeNull:true});
+  await assert.rejects(f.recover(4),/requires controlled recovery/i);
+  assert.deepEqual(f.current(),after);
+  assert.equal(f.pending(),true);
+});
+
+test("uncommitted new-file write with already absent target clears stale journal safely",async()=>{
+  const f=fixture(null,{beforeNull:true});
+  await f.recover(4);
+  assert.equal(f.current(),undefined);
+  assert.equal(f.pending(),false);
+});
+
+test("committed journal with verified after bytes keeps committed value",async()=>{
+  const f=fixture(after);
+  await f.recover(5);
+  assert.deepEqual(f.current(),after);
+  assert.equal(f.pending(),false);
+});
+
+test("committed journal with contradictory bytes is blocked without rewriting data",async()=>{
+  const f=fixture(another);
+  await assert.rejects(f.recover(5),/differs|conflict/i);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true);
+});
+
+test("malformed journal prior-byte arrays never trigger recovery writes",async()=>{
+  const f=fixture(another);
+  f.journal.before=[300];
+  f.files.set("data/.moondog-txn-synthetic.json",encode(f.journal));
+  await assert.rejects(f.recover(4),/bytes are invalid/i);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true);
+});
+
+test("interrupted file deletion never overwrites different independent bytes",async()=>{
+  const f=fixture(another,{journalFormat:"moondog-delete-v1"});
+  await assert.rejects(f.recover(4),/conflicts with independent/i);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true);
+});
+
+test("interrupted file deletion does not race another writer by recreating the original",async()=>{
+  const f=fixture(null,{journalFormat:"moondog-delete-v1"});
+  await assert.rejects(f.recover(4),/requires controlled recovery/i);
+  assert.equal(f.current(),undefined);
+  assert.equal(f.pending(),true);
+});
+
+test("interrupted deletion before touching target does not rewrite the prior bytes",async()=>{
+  const f=fixture(before,{journalFormat:"moondog-delete-v1"});
+  await f.recover(4);
+  assert.deepEqual(f.current(),before);
+  assert.equal(f.pending(),false);
+  assert.equal(f.actions.some(([act,name])=>act==="write"&&name==="data/state.json"),false);
+});
+
+test("interrupted creation never deletes a new independently populated file",async()=>{
+  const f=fixture(another,{journalFormat:"moondog-create-v1"});
+  await assert.rejects(f.recover(4),/requires controlled recovery/i);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true);
+});
+
+test("interrupted creation preserves even an empty file until controlled recovery",async()=>{
+  const f=fixture(new Uint8Array(),{journalFormat:"moondog-create-v1"});
+  await assert.rejects(f.recover(4),/requires controlled recovery/i);
+  assert.deepEqual(f.current(),new Uint8Array());
+  assert.equal(f.pending(),true);
+});
+
+test("interrupted creation with already missing target clears journal",async()=>{
+  const f=fixture(null,{journalFormat:"moondog-create-v1"});
+  await f.recover(4);
+  assert.equal(f.current(),undefined);
+  assert.equal(f.pending(),false);
+});
+
+test("actual write-authority validation disables editing when pending write needs controlled recovery",async()=>{
+  const f=fixture(after);
+  assert.equal(f.editable(),true);
+  assert.equal(await f.validate(),false);
+  assert.equal(f.editable(),false,"unverified transaction leaves write authority read-only");
+  assert.deepEqual(f.current(),after,"unverified bytes cannot be automatically rolled back");
+  assert.equal(f.pending(),true,"journal must be retained for deliberate verified recovery");
+});
+
+test("actual write-authority validation permits intact original and journal cleanup",async()=>{
+  const f=fixture(before);
+  assert.equal(await f.validate(),true);
+  assert.equal(f.editable(),true);
+  assert.deepEqual(f.current(),before);
+  assert.equal(f.pending(),false);
+});
