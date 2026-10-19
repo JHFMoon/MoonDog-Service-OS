@@ -256,6 +256,38 @@
       }catch(_){return false;}
     }
   });
+  // Browser-only Open RO view preferences are explicit allowlisted values.
+  // No RO, advisor, customer, VIN, or other operational fields are stored.
+  const DEVICE_OPEN_RO_KEY="moondog-device-open-ro-v1";
+  const DEVICE_OPEN_RO_SORTS=Object.freeze(["priority","longest","advisor","ro"]);
+  const DEVICE_OPEN_RO_DENSITIES=Object.freeze(["comfortable","compact"]);
+  const DEVICE_OPEN_RO_ATTENTION=Object.freeze(["","ask-in-person","missing-action","has-action","due-today","overdue","long-2","long-5","needs-update","comeback","admin-closeout","admin-commitment-needed","admin-due-today","admin-overdue","reviewed"]);
+  const DEFAULT_DEVICE_OPEN_RO=Object.freeze({sort:"priority",density:"comfortable",attention:""});
+  const deviceOpenRoAllowed=(value)=>value&&typeof value==="object"&&
+    DEVICE_OPEN_RO_SORTS.includes(value.sort)&&DEVICE_OPEN_RO_DENSITIES.includes(value.density)&&
+    DEVICE_OPEN_RO_ATTENTION.includes(value.attention);
+  globalThis.MoonDogDevicePreferences=Object.freeze({
+    ...globalThis.MoonDogDevicePreferences,
+    readOpenRo(){
+      try{
+        const raw=globalThis.localStorage?.getItem(DEVICE_OPEN_RO_KEY);
+        if(!raw)return {...DEFAULT_DEVICE_OPEN_RO};
+        const saved=JSON.parse(raw);
+        return deviceOpenRoAllowed(saved)?
+          {sort:saved.sort,density:saved.density,attention:saved.attention}:{...DEFAULT_DEVICE_OPEN_RO};
+      }catch(_){return {...DEFAULT_DEVICE_OPEN_RO};}
+    },
+    writeOpenRo(value){
+      if(!deviceOpenRoAllowed(value))return false;
+      try{
+        const store=globalThis.localStorage;
+        if(!store||typeof store.setItem!=="function"||typeof store.removeItem!=="function")return false;
+        if(value.sort==="priority"&&value.density==="comfortable"&&value.attention==="")store.removeItem(DEVICE_OPEN_RO_KEY);
+        else store.setItem(DEVICE_OPEN_RO_KEY,JSON.stringify({sort:value.sort,density:value.density,attention:value.attention}));
+        return true;
+      }catch(_){return false;}
+    }
+  });
   // END DEVICE START VIEW
   const ui = Object.fromEntries([...document.querySelectorAll("[id]")].map((x) => [x.id, x]));
   function installAdminCloseoutUi() {
@@ -3232,6 +3264,15 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function trustedManagerReviewTime(record){const reviewed=text(record?.management?.managerReviewedOn),updated=text(record?.management?.updatedAt);if(!validManagerReviewDate(record)||!updated)return"";const date=new Date(updated);return !Number.isNaN(date.getTime())&&storeDateKey(date)===reviewed?updated:"";}
   function ensureOpenRoRetrievalUi(){if(ui.recentlyReviewed)return;const option=new Option("Reviewed","reviewed");ui.attentionFilter.add(option);const actions=ui.searchInput.closest(".toolbar-actions"),button=document.createElement("button"),panel=document.createElement("div"),message=document.createElement("small"),styles=document.createElement("style");button.id="recentlyReviewed";button.type="button";button.className="secondary";button.textContent="Recently Reviewed";button.setAttribute("aria-expanded","false");panel.id="recentlyReviewedPanel";panel.className="recently-reviewed-panel";panel.hidden=true;message.id="exactRoFilterNotice";message.className="exact-ro-filter-notice";message.hidden=true;actions.append(button);actions.after(message,panel);styles.textContent='.recently-reviewed-panel{margin-top:8px;padding:8px;border:1px solid #c9d9de;border-radius:10px;background:#fff;box-shadow:0 8px 24px rgba(18,53,66,.12);display:grid;gap:4px;max-height:360px;overflow:auto}.recently-reviewed-panel[hidden]{display:none}.recently-reviewed-panel button{display:grid;grid-template-columns:minmax(80px,.7fr) minmax(110px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;width:100%;padding:8px 10px;border:0;border-radius:7px;background:transparent;text-align:left;color:inherit}.recently-reviewed-panel button:hover,.recently-reviewed-panel button:focus{background:#eef5f7}.recently-reviewed-panel span,.recently-reviewed-panel small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.exact-ro-filter-notice{display:block;margin-top:7px;color:#6b5316;font-weight:700}.recently-reviewed-empty{padding:8px;color:#59717a}@media(max-width:760px){.recently-reviewed-panel button{grid-template-columns:1fr 1fr}.recently-reviewed-panel button span:nth-child(3){grid-column:1/-1}}';document.head.append(styles);for(const id of ["recentlyReviewed","recentlyReviewedPanel","exactRoFilterNotice"])ui[id]=document.getElementById(id);}
   function renderRecentlyReviewed(){if(!ui.recentlyReviewedPanel)return;const rows=(model.state.records||[]).filter(validManagerReviewDate).sort((a,b)=>{const at=trustedManagerReviewTime(a),bt=trustedManagerReviewTime(b);return String(bt||b.management.managerReviewedOn).localeCompare(String(at||a.management.managerReviewedOn))||String(a.ro).localeCompare(String(b.ro),undefined,{numeric:true});}).slice(0,15);ui.recentlyReviewedPanel.replaceChildren();if(!rows.length){const empty=document.createElement("div");empty.className="recently-reviewed-empty";empty.textContent="No reviewed current ROs.";ui.recentlyReviewedPanel.append(empty);return;}for(const record of rows){const button=document.createElement("button"),ro=document.createElement("strong"),advisor=document.createElement("span"),context=document.createElement("span"),review=document.createElement("small"),time=trustedManagerReviewTime(record);button.type="button";button.dataset.recentlyReviewedId=record.id;ro.textContent=`RO ${record.ro}`;advisor.textContent=record.advisor||record.advisorCode||"—";context.textContent=[record.customer,record.vehicle||record.tagNumber].filter(Boolean).join(" · ")||"Current Open RO";review.textContent=time?`${record.management.managerReviewedOn} · ${new Date(time).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`:record.management.managerReviewedOn;button.append(ro,advisor,context,review);ui.recentlyReviewedPanel.append(button);}}
+  // Sorting is presentation-only; manager priorities remain the first-run default.
+  function sortOpenRoRows(rows,today,mode="priority"){
+    const byRo=(a,b)=>String(a.ro||"").localeCompare(String(b.ro||""),undefined,{numeric:true});
+    const byAdvisor=(a,b)=>String(a.advisor||"").localeCompare(String(b.advisor||""))||byRo(a,b);
+    const byLongest=(a,b)=>(Number(b.daysOpen)||0)-(Number(a.daysOpen)||0)||byRo(a,b);
+    const priority=(record)=>clarificationFor(record)?0:isClosedManagement(record.management)?8:adminCloseoutState(record,today).overdue?1:adminCloseoutState(record,today).needsCommitment?2:adminCloseoutState(record,today).dueToday?3:record.management.reviewDate&&record.management.reviewDate<today?4:record.management.reviewDate===today?5:!record.management.nextAction?6:7;
+    const byPriority=(a,b)=>priority(a)-priority(b)||String(a.management.reviewDate||"9999-12-31").localeCompare(String(b.management.reviewDate||"9999-12-31"))||byAdvisor(a,b);
+    return [...rows].sort(mode==="longest"?byLongest:mode==="advisor"?byAdvisor:mode==="ro"?byRo:byPriority);
+  }
   function renderTable() {
     ensureOpenRoRetrievalUi();const rawQuery=ui.searchInput.value.trim(),query=norm(rawQuery),advisor = ui.advisorFilter.value, sourceStatus = ui.sourceStatusFilter.value, managementStatus = ui.managementStatusFilter.value, attention = ui.attentionFilter.value, today = localDateKey(), all = model.state.records, exactRos=rawQuery?all.filter((record)=>norm(record.ro)===query):[];
     const passesActiveFilters=(record,includeSearch=true)=>{
@@ -3254,7 +3295,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       if (attention === "comeback" && (isClosedManagement(record.management) || !/comeback/i.test([statusForRecord(record), record.sourceStatus, reviewStatusDetail(record)].join(" ")))) return false;
       if (attention === "reviewed" && !validManagerReviewDate(record)) return false;
       return true;
-    },records=(exactRos.length?exactRos:all.filter((record)=>passesActiveFilters(record))).sort((a, b) => { const priority = (record) => clarificationFor(record) ? 0 : isClosedManagement(record.management) ? 8 : adminCloseoutState(record,today).overdue ? 1 : adminCloseoutState(record,today).needsCommitment ? 2 : adminCloseoutState(record,today).dueToday ? 3 : record.management.reviewDate && record.management.reviewDate < today ? 4 : record.management.reviewDate === today ? 5 : !record.management.nextAction ? 6 : 7; return priority(a) - priority(b) || String(a.management.reviewDate || "9999-12-31").localeCompare(String(b.management.reviewDate || "9999-12-31")) || String(a.advisor).localeCompare(String(b.advisor)) || String(a.ro).localeCompare(String(b.ro), undefined, { numeric: true }); });
+    },records=sortOpenRoRows(exactRos.length?exactRos:all.filter((record)=>passesActiveFilters(record)),today,ui.openRoSort?.value);
     const filtersBypassed=exactRos.some((record)=>!passesActiveFilters(record,false));ui.exactRoFilterNotice.hidden=!filtersBypassed;ui.exactRoFilterNotice.textContent=filtersBypassed?"Found outside current filters":"";renderRecentlyReviewed();
     const clarificationCount = all.filter((record) => clarificationFor(record)).length, unmatchedCount = (model.state.reviewQueue || []).length, questionCount = clarificationCount + unmatchedCount; ui.clarificationBanner.hidden = !questionCount; ui.clarificationBanner.replaceChildren(); if (questionCount) { const strong = document.createElement("strong"), detail = document.createElement("span"); strong.textContent = `${questionCount} update${questionCount === 1 ? " needs" : "s need"} an in-person question`; detail.textContent = unmatchedCount ? `${clarificationCount} matched to current ROs · ${unmatchedCount} could not be matched. Use the Ask in person filter and Activity history.` : "Use the Ask in person filter to work through them."; ui.clarificationBanner.append(strong, detail); }
     ui.recordCount.textContent = records.length === all.length ? `${all.length} records · select any row to update` : `Showing ${records.length} of ${all.length} records`;
@@ -3757,6 +3798,32 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   }
   ui.refreshPerformanceFiles.addEventListener("click", () => run(scanPerformanceFiles)); ui.performanceSourceSelect.addEventListener("change", () => { ui.importPerformance.disabled = !ui.performanceSourceSelect.value; }); ui.importPerformance.addEventListener("click", () => run(importPerformanceFile)); ui.performanceAdvisor.addEventListener("change", renderPerformance); ui.performanceMetric.addEventListener("change", renderPerformance); ui.assignAdvisorGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-assign-availability]"); if (button) run(() => toggleAssignAvailability(button.dataset.assignAvailability)); }); ui.meetingSapr.addEventListener("click", () => showMeetingPanel("sapr")); ui.meetingCsi.addEventListener("click", () => showMeetingPanel("csi")); ui.meetingFullscreen.addEventListener("click", () => run(toggleMeetingFullscreen)); document.addEventListener("fullscreenchange", () => { const active = Boolean(document.fullscreenElement); /* The Arena goes fullscreen on its own element. Do not toggle a BODY class and reflow every other dashboard view. The legacy whole-document fullscreen path still uses its existing body rules. */ const arenaIsPresenting=Boolean(document.querySelector("#view-meeting.meeting-scoreboard.presentation-active.active")); document.body.classList.toggle("meeting-fullscreen", document.fullscreenElement === document.documentElement && !arenaIsPresenting); ui.meetingFullscreen.textContent = active ? "Exit full screen" : "Enter full screen"; });
   ensureOpenRoRetrievalUi();ensureAdvisorHandoffUi();
+  // These controls do not save to the connected Workspace or change RO records.
+  const storedOpenRoView=globalThis.MoonDogDevicePreferences?.readOpenRo()||{sort:"priority",density:"comfortable",attention:""};
+  ui.openRoSort.value=storedOpenRoView.sort;
+  ui.openRoDensity.value=storedOpenRoView.density;
+  if([...ui.attentionFilter.options].some(option=>option.value===storedOpenRoView.attention))
+    ui.attentionFilter.value=storedOpenRoView.attention;
+  const applyRoDensity=()=>ui.roTable.classList.toggle("ro-density-compact",ui.openRoDensity.value==="compact");
+  const saveRoDeviceView=()=>{
+    const ok=globalThis.MoonDogDevicePreferences?.writeOpenRo({
+      sort:ui.openRoSort.value,density:ui.openRoDensity.value,attention:ui.attentionFilter.value
+    })===true;
+    ui.openRoPreferenceFeedback.textContent=ok?
+      "View preferences saved in this browser only; no RO data stored.":
+      "Browser storage unavailable; this view still works, but choices will not persist.";
+  };
+  applyRoDensity();
+  ui.openRoSort.addEventListener("change",()=>{saveRoDeviceView();renderTable();});
+  ui.openRoDensity.addEventListener("change",()=>{applyRoDensity();saveRoDeviceView();});
+  ui.attentionFilter.addEventListener("change",saveRoDeviceView);
+  ui.clearFilters.addEventListener("click",saveRoDeviceView);
+  ui.openRoPreferenceReset.addEventListener("click",()=>{
+    ui.openRoSort.value="priority";
+    ui.openRoDensity.value="comfortable";
+    ui.attentionFilter.value="";
+    applyRoDensity();saveRoDeviceView();renderTable();
+  });
   ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", () => run(connect)); ui.homeConnect.addEventListener("click", () => run(connect)); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input", renderTable); [ui.advisorFilter, ui.sourceStatusFilter, ui.managementStatusFilter, ui.attentionFilter].forEach((select) => select.addEventListener("change", renderTable)); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",()=>{editDraftDirty=true;}); ui.editForm.addEventListener("change",()=>{editDraftDirty=true;}); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(importAppointmentFile)); ui.appointmentDate.addEventListener("change", renderArrivals); ui.arrivalSearch.addEventListener("input", renderArrivals); ui.printArrivals.addEventListener("click", () => run(printPorterList)); ui.arrivalTimeline.addEventListener("change", (event) => { const select = event.target.closest("select[data-appointment-id]"); if (select) run(() => updateArrivalStatus(select.dataset.appointmentId, select.value)); }); ui.saveSettings.addEventListener("click", () => run(saveSettings)); const saveMeetingVoiceDraft=()=>{syncMeetingVoiceDraftSettings();queueSettingsAutosave();renderVoiceControlVisibility();};ui.meetingVoiceSurvey.addEventListener("change",()=>{previewMeetingVoiceSelection();saveMeetingVoiceDraft();});ui.meetingVoiceMode.addEventListener("change",saveMeetingVoiceDraft);ui.meetingVoiceSourceMethod.addEventListener("change",()=>{if(ui.meetingVoiceSourceMethod.value==="saved")previewMeetingVoiceSelection();else ui.meetingVoiceExcerpt.value=ui.meetingVoicePastedSource.value;saveMeetingVoiceDraft();});[ui.meetingVoicePastedSource,ui.meetingVoiceExcerpt,ui.meetingTeamMessage].forEach((field)=>field.addEventListener("input",saveMeetingVoiceDraft));ui.meetingVoiceUseFull.addEventListener("click",()=>{useFullMeetingVoice();saveMeetingVoiceDraft();}); ui.pinMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(true))); ui.clearMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(false)));
   ui.recentlyReviewed.addEventListener("click",()=>{ui.recentlyReviewedPanel.hidden=!ui.recentlyReviewedPanel.hidden;ui.recentlyReviewed.setAttribute("aria-expanded",String(!ui.recentlyReviewedPanel.hidden));if(!ui.recentlyReviewedPanel.hidden)renderRecentlyReviewed();});ui.recentlyReviewedPanel.addEventListener("click",(event)=>{const button=event.target.closest("button[data-recently-reviewed-id]");if(!button)return;ui.recentlyReviewedPanel.hidden=true;ui.recentlyReviewed.setAttribute("aria-expanded","false");openEdit(button.dataset.recentlyReviewedId,"recent");});
   ui.openFirstRecord.addEventListener("click", () => { const id = visibleRecordIds()[0]; if (id) openEdit(id); });
