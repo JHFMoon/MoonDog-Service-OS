@@ -681,21 +681,33 @@
     // Do not write a surfaced entry during a navigation action.
   }
   async function ready(){
-    if(!model.root||model.connectionState!=='CONNECTED'){if(!state.current&&active()==='home')renderHome();return;}
+    // A new root is assigned before its records and settings finish loading.
+    // CONNECTED may still describe the previous root until that work completes.
+    if(!model.root||model.connectionState!=='CONNECTED'||model.workspaceConnectionCommittedRoot!==model.root){
+      if(!state.current&&active()==='home')renderHome();
+      return;
+    }
+    // Do not keep a Home task object from the prior Workspace while B loads.
+    if(state.loadedRoot!==model.root&&state.current){
+      state.current=null;state.editing=false;
+      if(active()==='home')renderHome();
+    }
     if(state.loadedRoot===model.root){await checkOperatingDate();refreshCurrent();return;}
     if(state.loading)return;
     const originRoot=model.root;
     state.loading=true;
     try{
-      if(!await loadHistory()||model.root!==originRoot)return;
+      if(!await loadHistory()||model.root!==originRoot||model.workspaceConnectionCommittedRoot!==originRoot)return;
       state.loadedRoot=originRoot;
       await selectNext();
     }catch(error){say('Service Operations Dashboard could not read its task history. Check folder access and reconnect.');}
     finally{
       state.loading=false;
-      // A newer folder may have connected while the old read was pending.
-      // Retry only on an actual folder change, never a persistent read failure.
-      if(model.root&&model.root!==originRoot&&model.connectionState==='CONNECTED')
+      // Retry an old-root read only after the new root's connection is complete.
+      // The normal moondog-data event then also handles transitions after this
+      // old read already settled; persistent same-root failures never self-retry.
+      if(model.root&&model.root!==originRoot&&model.connectionState==='CONNECTED'&&
+          model.workspaceConnectionCommittedRoot===model.root)
         queueMicrotask(()=>{void ready();});
     }
   }
