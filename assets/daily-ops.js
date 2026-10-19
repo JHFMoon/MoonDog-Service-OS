@@ -444,6 +444,19 @@
   const businessHour=()=>globalThis.MoonDogFreshness?.timeParts(new Date(),globalThis.__moondogFreshness?.timeZone?.()||'America/Los_Angeles')?.hour??new Date().getHours();
   function say(message){state.error=message;let target=active()==='home'?$('dailyError'):$('dailyToolError');if(!target&&message&&active()!=='home'){target=document.createElement('p');target.id='dailyToolError';target.setAttribute('role','alert');document.querySelector('.view.active')?.prepend(target);}if(target){target.hidden=!message;target.textContent=message;}}
   function discardDraftOk(){return !state.editing||globalThis.confirm('You have an unsaved Home update. Leave this task and discard the draft?');}
+  function suspendForWorkspaceChange(){
+    // Folder roots are assigned before asynchronous data loading completes.
+    // Drop A's actionable task and historical/search data immediately, not at
+    // the later connection-ready notification, so A cannot write into B.
+    state.searchToken++;state.searchResults=[];
+    state.current=null;state.loadedRoot=null;state.editing=false;state.pending=false;
+    state.history=[];state.events=[];
+    if(state.mobile.timer){clearTimeout(state.mobile.timer);state.mobile.timer=null;}
+    const host=$('dailyTask');
+    if(host){host.replaceChildren();host.textContent='Connecting working folder…';}
+    const results=$('findResults');
+    if(results){results.replaceChildren();results.hidden=true;}
+  }
   function go(view,anchor=''){if(active()==='home'&&!discardDraftOk())return;api.navigate(view,anchor);}
   function wrap(el,label){if(!el||el.closest('.daily-disclosure'))return;const detail=document.createElement('details');detail.className='daily-disclosure';const summary=document.createElement('summary');summary.textContent=label;el.before(detail);detail.append(summary,el);}
 
@@ -618,7 +631,7 @@
       .filter((item,index,items)=>items.findIndex(other=>other.id===item.id)===index).slice(0,3);
   }
   async function publishMobilePage(interactive=false){
-    if(!model.root||model.connectionState!=='CONNECTED')return {status:'not-connected'};
+    if(!model.root||model.connectionState!=='CONNECTED'||model.workspaceConnectionCommittedRoot!==model.root)return {status:'not-connected'};
     if(state.mobile.busy)return {status:'busy'};
     state.mobile.busy=true;
     try{
@@ -721,6 +734,7 @@
     await action(selectNext);
   }
   function refreshCurrent(){
+    if(model.root&&model.workspaceConnectionCommittedRoot!==model.root)return;
     if(state.busy||state.loading)return;
     if(!state.editing){
       const top=attentionTopThree(),next=top[0];
@@ -881,6 +895,11 @@
   }
 
   function renderHome(prioritizedTop=null){
+    if(model.root&&model.workspaceConnectionCommittedRoot!==model.root){
+      const host=$('dailyTask');
+      if(host){host.replaceChildren();host.textContent='Connecting working folder…';}
+      return;
+    }
     // Automatic inbox ingestion can change the ranked tasks without a navigation.
     // Never let a completed report request remain the visible primary action.
     // Preserve any in-progress RO draft: only reconcile outside edit mode.
@@ -1400,6 +1419,8 @@
   const matches=(value,q)=>{const content=JSON.stringify(value).toLowerCase();return q.split(/\s+/).every(word=>content.includes(word));};
   async function searchAll(){
     const token=++state.searchToken,q=$('findAnything').value.trim().toLowerCase(),host=$('findResults');host.replaceChildren();host.hidden=!q;if(!q)return;
+    if(model.root&&model.workspaceConnectionCommittedRoot!==model.root){host.hidden=true;return;}
+    const searchRoot=model.root;
     const results=[],seen=new Set();
     const add=(key,label,detail,open)=>{if(seen.has(key))return;seen.add(key);results.push({key,label,detail,open});};
     const addRo=(r,historical=false,path='')=>{if(!matches(r,q))return;add(`${historical?'past':'ro'}:${r.id}:${historical?path:''}`,`${historical?'Historical ':''}RO ${r.ro} · ${r.customer||''}`,`${r.advisor||''} · ${r.vehicle||''} · ${r.management?.nextAction||''}`,()=>historical?showReadOnly(`Historical RO ${r.ro}`,r):api.openEdit(r.id));};
@@ -1413,16 +1434,17 @@
     for(const task of allTasks()){const event=engine.lastEvent(state.events,task.id);if(matches([task.title,task.description,event?.details?.action,task.recordId],q))add(`task:${task.id}`,`${task.title}${event?' · '+event.details.action:''}`,task.description||'Current task',()=>task.recordId?api.openEdit(task.recordId):showReadOnly(task.title,{status:event?.details?.action||'available',description:task.description||'',until:event?.details?.until||''}));}
     for(const event of state.history)if(matches(event,q))add(`history:${event.id}`,`${event.summary||event.type} · ${String(event.at).slice(0,10)}`,'Saved activity',()=>showReadOnly('Saved activity',event));
     for(const [family,value] of Object.entries({...model.operationalMetrics,advisorPerformance:model.performance,assignNext:model.assignNext,unmatchedQuestions:model.state.reviewQueue}))if(value&&typeof value==='object'&&matches({[family]:value},q))add(`metrics:${family}`,family.replace(/([a-z])([A-Z])/g,'$1 $2'),'Saved report information',()=>showReadOnly('Report information',{[family]:value}));
-    function paint(loading=false){if(token!==state.searchToken)return;host.replaceChildren();const count=document.createElement('p');count.textContent=`${results.length} result${results.length===1?'':'s'}${loading?' · Searching saved history…':''}`;host.append(count);for(const item of results){const row=button(item.label,()=>{host.hidden=true;item.open();},'find-result');const detail=document.createElement('small');detail.textContent=item.detail;row.append(detail);host.append(row);}state.searchResults=results;}
+    function paint(loading=false){if(token!==state.searchToken||model.root!==searchRoot||(searchRoot&&model.workspaceConnectionCommittedRoot!==searchRoot))return;host.replaceChildren();const count=document.createElement('p');count.textContent=`${results.length} result${results.length===1?'':'s'}${loading?' · Searching saved history…':''}`;host.append(count);for(const item of results){const row=button(item.label,()=>{host.hidden=true;item.open();},'find-result');const detail=document.createElement('small');detail.textContent=item.detail;row.append(detail);host.append(row);}state.searchResults=results;}
     paint(Boolean(model.root));if(!model.root)return;
     try{
       if(!await loadHistory(true,token))return;
       for(const event of state.history)if(matches(event,q))add(`history:${event.id}`,`${event.summary||event.type} · ${String(event.at).slice(0,10)}`,'Saved activity',()=>showReadOnly('Saved activity',event));
       for(const {name,handle} of await api.readEntries('backups')){if(token!==state.searchToken)return;if(!name.endsWith('.json'))continue;let value;try{value=JSON.parse(await(await handle.getFile()).text());}catch(_){continue;}for(const r of value.records||[])addRo(r,true,name);}
       paint();
-    }catch(error){paint();const p=document.createElement('p');p.textContent='Some saved files could not be searched. Check folder access and try again.';host.append(p);}
+    }catch(error){if(token!==state.searchToken||model.root!==searchRoot)return;paint();const p=document.createElement('p');p.textContent='Some saved files could not be searched. Check folder access and try again.';host.append(p);}
   }
   document.addEventListener('moondog-recovered',async()=>{historyFileCache.clear();historyCacheRoot=null;state.current=null;state.editing=false;state.loadedRoot=null;await ready();});
+  document.addEventListener('moondog-workspace-changing',suspendForWorkspaceChange);
   document.addEventListener('moondog-data',ready);
   document.addEventListener('moondog-data',()=>queueMobilePublish());
   document.addEventListener('moondog-data',()=>{const name=$('hubStoreName');if(name)name.textContent=model.settings.store?.code&&model.settings.store?.name?.trim()?model.settings.store.name.trim():'Offline operations';});
