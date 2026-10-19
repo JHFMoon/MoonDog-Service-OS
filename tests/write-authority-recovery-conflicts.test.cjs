@@ -79,11 +79,12 @@ function fixture(current=after,options={}){
   };
 }
 
-test("unfinished journal rolls back verified after bytes to the exact original",async()=>{
+test("unfinished journal never destructively rolls back recorded after bytes",async()=>{
   const f=fixture(after);
-  await f.recover(4);
-  assert.deepEqual(f.current(),before);
-  assert.equal(f.pending(),false);
+  await assert.rejects(f.recover(4),/requires controlled recovery/i);
+  assert.deepEqual(f.current(),after);
+  assert.equal(f.pending(),true);
+  assert.equal(f.actions.some(([act,name])=>name==="data/state.json"&&["write","remove"].includes(act)),false);
 });
 
 test("uncommitted journal with intact prior bytes is removed without affecting state",async()=>{
@@ -108,11 +109,11 @@ test("a journal from an unfinished new-file creation cannot delete unrelated byt
   assert.equal(f.pending(),true);
 });
 
-test("uncommitted new-file save removes only the recorded new bytes",async()=>{
+test("uncommitted new-file save cannot automatically delete bytes",async()=>{
   const f=fixture(after,{beforeNull:true});
-  await f.recover(4);
-  assert.equal(f.current(),undefined);
-  assert.equal(f.pending(),false);
+  await assert.rejects(f.recover(4),/requires controlled recovery/i);
+  assert.deepEqual(f.current(),after);
+  assert.equal(f.pending(),true);
 });
 
 test("uncommitted new-file write with already absent target clears stale journal safely",async()=>{
@@ -152,11 +153,11 @@ test("interrupted file deletion never overwrites different independent bytes",as
   assert.equal(f.pending(),true);
 });
 
-test("interrupted file deletion restores only a verified missing original",async()=>{
+test("interrupted file deletion does not race another writer by recreating the original",async()=>{
   const f=fixture(null,{journalFormat:"moondog-delete-v1"});
-  await f.recover(4);
-  assert.deepEqual(f.current(),before);
-  assert.equal(f.pending(),false);
+  await assert.rejects(f.recover(4),/requires controlled recovery/i);
+  assert.equal(f.current(),undefined);
+  assert.equal(f.pending(),true);
 });
 
 test("interrupted deletion before touching target does not rewrite the prior bytes",async()=>{
@@ -169,16 +170,16 @@ test("interrupted deletion before touching target does not rewrite the prior byt
 
 test("interrupted creation never deletes a new independently populated file",async()=>{
   const f=fixture(another,{journalFormat:"moondog-create-v1"});
-  await assert.rejects(f.recover(4),/conflicts with populated file/i);
+  await assert.rejects(f.recover(4),/requires controlled recovery/i);
   assert.deepEqual(f.current(),another);
   assert.equal(f.pending(),true);
 });
 
-test("interrupted creation may remove only a still-empty created file",async()=>{
+test("interrupted creation preserves even an empty file until controlled recovery",async()=>{
   const f=fixture(new Uint8Array(),{journalFormat:"moondog-create-v1"});
-  await f.recover(4);
-  assert.equal(f.current(),undefined);
-  assert.equal(f.pending(),false);
+  await assert.rejects(f.recover(4),/requires controlled recovery/i);
+  assert.deepEqual(f.current(),new Uint8Array());
+  assert.equal(f.pending(),true);
 });
 
 test("interrupted creation with already missing target clears journal",async()=>{
