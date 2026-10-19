@@ -828,6 +828,8 @@
   async function finishReadOnlyConnection(handle) {
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot;
     model.root = wrapOperationalRoot(await operationalRoot(handle)); model.applicationRoot = handle;
+    // Synchronously revoke old Daily task/search actions before any B async load.
+    document.dispatchEvent(new Event("moondog-workspace-changing"));
     try {
       const paths = [
         ["state", STATE_PATH], ["appointments", APPOINTMENTS_PATH], ["performance", PERFORMANCE_PATH],
@@ -866,13 +868,24 @@
     } catch (error) { model.root = previousRoot; model.applicationRoot = previousNativeRoot; connectedNativeRoot = previousNativeRoot; throw error; }
   }
 
+  // All folder changes, including automatic restoration, share one exclusive
+  // connection operation. A second picker must not overlap this root's model load.
+  let workspaceConnectionBusy=false;
   async function finishConnection(handle, ask) {
+    if(workspaceConnectionBusy)throw new Error("Another Workspace connection is still finishing. Try again when it completes.");
+    workspaceConnectionBusy=true;
+    try{return await completeWorkspaceConnection(handle,ask);}
+    finally{workspaceConnectionBusy=false;}
+  }
+  async function completeWorkspaceConnection(handle, ask) {
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)throw new Error("Service Operations Dashboard is finishing an import. Reconnect after it finishes.");
     const permissionWasPending=model.pendingRoot===handle;
     if (await permission(handle, ask) !== "granted") throw new Error("Folder access was not granted.");
     await writeAuthority.validate(handle, ask);
     if (!writeAuthority.canWrite) return finishReadOnlyConnection(handle);
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot; model.root = wrapOperationalRoot(await operationalRoot(handle)); model.applicationRoot = handle;
+    // Synchronously revoke old Daily task/search actions before any B async load.
+    document.dispatchEvent(new Event("moondog-workspace-changing"));
     try {
       const pendingSettings = await readJson(SETTINGS_PATH, {});
       const pendingAdapter = pendingSettings.sourceAdapters || await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
@@ -907,7 +920,7 @@
     renderSettings();
     ui.homeConnect.hidden = true; openSetupIfRequired();
     ["scanFiles", "refreshAppointmentFiles", "refreshPerformanceFiles", "pinMeetingVoice", "clearMeetingVoice"].forEach((id) => { if (ui[id]) ui[id].disabled = false; });
-    await postConnectReconciliation(permissionWasPending);
+    await postConnectReconciliation(permissionWasPending,model.root);
     // Show usable Home immediately. Report scans and archive maintenance do not
     // need to block the first frame; keep them ordered to avoid concurrent writes.
     renderAll(); renderSetup(); renderRecovery(); openSetupIfRequired(); startFolderWatch();
@@ -950,7 +963,7 @@
       }
     },1200);
   }
-  async function postConnectReconciliation(permissionWasPending = false) {
+  async function postConnectReconciliation(permissionWasPending = false, connectedRoot = model.root) {
     // Learning-file reconciliation runs after the first usable render.
     model.recovery.lastSuccessfulConnectionAt=now(); model.recovery.status="Ready"; await writeJson(RECOVERY_PATH,model.recovery);
     if(permissionWasPending) recordDiagnostic("FOLDER CONNECTION","Permission restored using the saved folder handle");
@@ -958,7 +971,8 @@
     // Avoid rendering every view twice while the browser is reconnecting.
     // model.root changes before its records/settings have loaded. Publish readiness
     // only when this connection's authoritative operational data is ready.
-    model.workspaceConnectionCommittedRoot=model.root;
+    if(model.root!==connectedRoot)throw new Error("Workspace changed during connection reconciliation.");
+    model.workspaceConnectionCommittedRoot=connectedRoot;
     setConnectionState("CONNECTED");
   }
   async function connect() {
