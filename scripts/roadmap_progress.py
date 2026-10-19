@@ -8,19 +8,22 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "docs/ROADMAP-ACCEPTANCE-MATRIX.md"
 EVIDENCE = ROOT / "docs/ISSUE-CLOSEOUT-EVIDENCE.json"
 MANIFEST = ROOT / "updates/manifest.json"
-DEFERRED = frozenset({212})
 HEADER = re.compile(r"^## #([1-9]\d*)\b")
 CRITERION = re.compile(r"^\|\s*([1-9]\d*-\d{2})\s*\|")
 
 
 def collect(text):
     found = {}
+    deferred = {}
     current = None
     for line in text.splitlines():
         match = HEADER.match(line)
         if match:
             current = int(match.group(1))
-            found.setdefault(current, {})
+            if current in found:
+                raise ValueError("Duplicate matrix issue section: #" + str(current))
+            found[current] = {}
+            deferred[current] = True
             continue
         match = CRITERION.match(line)
         if not match:
@@ -31,13 +34,17 @@ def collect(text):
         if key in found[current]:
             raise ValueError("Duplicate criterion: " + key)
         # The final table column is authoritative, not an incidental mention.
-        status = line.strip().strip("|").split("|")[-1]
+        cells = line.strip().strip("|").split("|")
+        if len(cells) < 4:
+            raise ValueError("Malformed acceptance criterion row: " + key)
+        status = cells[-1].strip()
         found[current][key] = bool(re.search(r"\*\*VERIFIED COMPLETE\*\*", status))
-    return found
+        deferred[current] = deferred[current] and "**DEFERRED**" in status
+    return found, {issue for issue in found if found[issue] and deferred[issue]}
 
 
 def main():
-    matrix = collect(MATRIX.read_text(encoding="utf-8"))
+    matrix, deferred = collect(MATRIX.read_text(encoding="utf-8"))
     registry = json.loads(EVIDENCE.read_text(encoding="utf-8"))["issues"]
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     invalid_ids = sorted(
@@ -63,9 +70,9 @@ def main():
         supplied = registry.get(str(issue), {}).get("criteria", {})
         matched = sum(1 for key in criteria if key in supplied and criteria[key])
         remaining = len(criteria) - verified
-        status = "DEFERRED" if issue in DEFERRED else (
+        status = "DEFERRED" if issue in deferred else (
             "READY FOR CLOSURE REVIEW" if remaining == 0 else "OPEN REQUIREMENTS")
-        if issue not in DEFERRED:
+        if issue not in deferred:
             verified_total += verified
             total += len(criteria)
         print(f"#{issue} | {verified}/{len(criteria)} | {remaining} | "
