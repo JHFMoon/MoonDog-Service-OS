@@ -33,7 +33,7 @@ const eventFile = (id, name = "daily-same.json", type = "daily-task") => ({
 });
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function historyHarness(root, readEntries) {
-  const model = {root, connectionState:"CONNECTED"};
+  const model = {root, connectionState:"CONNECTED", workspaceConnectionCommittedRoot:root};
   const state = {history:[], events:[], searchToken:0, loadedRoot:null, loading:false, busy:false, current:null, editing:false};
   const api = {readEntries: location => readEntries(location, model.root)};
   const context = vm.createContext({model,state,api,Promise,setTimeout,queueMicrotask});
@@ -184,6 +184,8 @@ test("ready retries exactly once for latest connected root after overlapping cha
   await h.context.ready();
   h.model.root=C;
   await h.context.ready();
+  // The new root is now fully initialized while the A history read is pending.
+  h.model.workspaceConnectionCommittedRoot=C;
   gate.resolve([eventFile("Fake-A")]);
   await initial;
   await tick();
@@ -192,6 +194,71 @@ test("ready retries exactly once for latest connected root after overlapping cha
   assert.equal(h.state.events[0].id,"Fake-C");
   assert.equal(calls.join(","),"Fake-A,Fake-C");
   assert.equal(selected.join(","),"Fake-C");
+});
+
+test("old CONNECTED status cannot select A operational data under B before B connection finishes", async () => {
+  const A={name:"Fake-A"}, B={name:"Fake-B"}, gate=deferred();
+  const calls=[], selected=[];
+  const h=historyHarness(A,(_path,root)=>{
+    calls.push(root.name);
+    return root===A?gate.promise:[eventFile("B-history")];
+  });
+  h.model.state={records:[{id:"same-id",fingerprint:"same-fingerprint",customer:"A-customer"}]};
+  Object.assign(h.context,{
+    active:()=>"home",renderHome:()=>{},
+    checkOperatingDate:async()=>{},refreshCurrent:()=>{},
+    selectNext:async()=>{
+      const record=h.model.state.records[0];
+      selected.push(record.customer);
+      h.state.current={...record};
+    },
+    say:()=>{}
+  });
+  vm.runInContext(readiness+"\nthis.ready=ready;",h.context);
+  const old=h.context.ready();
+  // finishConnection assigns B before reading B's records/settings and before
+  // postConnectReconciliation can mark B as completely connected.
+  h.model.root=B;
+  assert.equal(h.model.connectionState,"CONNECTED","A's stale status remains CONNECTED");
+  await h.context.ready();
+  gate.resolve([eventFile("A-history")]);
+  await old;
+  await tick();
+  assert.equal(calls.join(","),"Fake-A","No B history before B's operational model is complete");
+  assert.equal(selected.length,0,"No task may be selected using A data under B");
+  assert.equal(h.state.loadedRoot,null,"B must not be prematurely marked loaded");
+  // Completing the actual B connection replaces the operational model and
+  // records readiness before the moondog-data listener calls ready().
+  h.model.state={records:[{id:"same-id",fingerprint:"same-fingerprint",customer:"B-customer"}]};
+  h.model.workspaceConnectionCommittedRoot=B;
+  await h.context.ready();
+  assert.equal(calls.join(","),"Fake-A,Fake-B");
+  assert.equal(selected.join(","),"B-customer");
+  assert.equal(h.state.loadedRoot,B);
+  assert.equal(h.state.history[0].id,"B-history");
+  assert.equal(h.state.events[0].id,"B-history");
+});
+
+test("connection completion publishes its root only after reconciliation settles", async () => {
+  const code=extract(app,"  async function postConnectReconciliation(","  async function connect() {");
+  const B={name:"Fake-B"}, gate=deferred(),signals=[];
+  const model={root:B,recovery:{},workspaceConnectionCommittedRoot:null};
+  const context=vm.createContext({
+    model,RECOVERY_PATH:["data","recovery.json"], now:()=>42,
+    writeJson:async()=>gate.promise,
+    setConnectionState:s=>signals.push(s),
+    recordDiagnostic:()=>{}
+  });
+  vm.runInContext(code+"\nthis.reconcile=postConnectReconciliation;",context);
+  const pending=context.reconcile(false);
+  assert.equal(model.workspaceConnectionCommittedRoot,null);
+  assert.equal(signals.length,0);
+  gate.resolve();
+  await pending;
+  assert.equal(model.workspaceConnectionCommittedRoot,B);
+  assert.equal(signals.join(","),"CONNECTED");
+  // The read-only connection must also publish readiness after all model loads.
+  assert.match(app,/model\.workspaceConnectionCommittedRoot=model\.root;\s*setConnectionState\("CONNECTED"\);\s*renderSetup\(\);\s*document\.dispatchEvent\(new Event\("moondog-data"\)\)/);
 });
 
 test("ready does not loop or retry persistent read failure on unchanged root", async () => {
