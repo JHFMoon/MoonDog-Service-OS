@@ -3839,18 +3839,27 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     });
   };
   const saveBeforeDaily = saveRecord;
+  let openRoSaveInFlight = false;
   saveRecord = async function(event, advance = false, additions = null) {
+    event?.preventDefault();
+    // One durable mutation at a time protects the previous-state backup and read-back.
+    if(openRoSaveInFlight){
+      ui.editValidation.textContent="This RO save is still being verified. Finish the current save before trying again.";
+      ui.editValidation.hidden=false;
+      return false;
+    }
     const id = model.selectedId, record = model.state.records.find(r => r.id === id);
     if (!record) throw new Error('This RO is no longer in the current report. Refresh the task to continue.');
     if (additions?.reviewTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(additions.reviewTime)) throw new Error('Choose a valid follow-up time.');
     // The established save builds its proposed management from the current object.
     // Additional Home fields are supplied separately so the pre-change backup remains exact.
+    openRoSaveInFlight = true;
     dailySaveAdditions = additions;
     try {
       const saved = await saveBeforeDaily(event, advance);
       if (saved) dailyNotify('moondog-saved', { id, origin: model.editOrigin });
       return saved;
-    } finally { dailySaveAdditions = null; }
+    } finally { dailySaveAdditions = null; openRoSaveInFlight = false; }
   };
   let dailySaveAdditions = null;
   // Paste & Learn uses an ephemeral preview token; only a separately
