@@ -40,8 +40,14 @@ def main():
     matrix = collect(MATRIX.read_text(encoding="utf-8"))
     registry = json.loads(EVIDENCE.read_text(encoding="utf-8"))["issues"]
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    matrix_issues = set(matrix)
-    registry_issues = {int(issue) for issue in registry}
+    invalid_ids = sorted(
+        issue for issue in registry if re.fullmatch(r"[1-9]\\d*", issue) is None
+    )
+    if invalid_ids:
+        raise ValueError("Non-canonical roadmap registry issue IDs: "
+                         + str(invalid_ids))
+    matrix_issues = {str(issue) for issue in matrix}
+    registry_issues = set(registry)
     if matrix_issues != registry_issues:
         raise ValueError("Roadmap issue mismatch: matrix only "
                          + str(sorted(matrix_issues - registry_issues))
