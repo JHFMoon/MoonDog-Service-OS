@@ -3,7 +3,7 @@ import unittest
 
 from scripts.issue_auto_close import (
     APP_ID, CLOSE_MARKER, close_if_ready, eligible_snapshot, evidence_shape,
-    parse_matrix, verified_checks,
+    parse_matrix, proof_pr_numbers, verified_checks,
 )
 
 SOURCE_HEAD = "a" * 40
@@ -73,6 +73,18 @@ class FakeAPI:
             return {"merged": True, "merged_at": "2026-10-19T02:00:00Z",
                     "base": {"ref": "main"}, "merge_commit_sha": SOURCE_MERGE,
                     "head": {"sha": SOURCE_HEAD, "repo": {"full_name": self.repo}}}
+        if endpoint.endswith("/pulls/43"):
+            return {"merged": True, "merged_at": "2026-10-19T02:00:01Z",
+                    "base": {"ref": "main"}, "merge_commit_sha": "1" * 40,
+                    "head": {"sha": "2" * 40, "repo": {"full_name": self.repo}}}
+        if endpoint.endswith("/pulls/44"):
+            return {"merged": True, "merged_at": "2026-10-19T02:00:02Z",
+                    "base": {"ref": "main"}, "merge_commit_sha": "3" * 40,
+                    "head": {"sha": "4" * 40, "repo": {"full_name": self.repo}}}
+        if endpoint.endswith("/pulls/45"):
+            return {"merged": False, "merged_at": None,
+                    "base": {"ref": "main"}, "merge_commit_sha": "5" * 40,
+                    "head": {"sha": "6" * 40, "repo": {"full_name": self.repo}}}
         if endpoint.endswith("/pulls/42"):
             return {"merged": True, "merged_at": "2026-10-19T02:01:00Z",
                     "base": {"ref": "main", "sha": PACKAGE_BASE},
@@ -92,6 +104,12 @@ class FakeAPI:
         if endpoint.endswith("/pulls/41/files"):
             return [{"filename": "assets/app.js"},
                     {"filename": "tests/verified.test.cjs"}]
+        if endpoint.endswith("/pulls/43/files"):
+            return [{"filename": "assets/app.js"}]
+        if endpoint.endswith("/pulls/44/files"):
+            return [{"filename": "tests/verified.test.cjs"}]
+        if endpoint.endswith("/pulls/45/files"):
+            return [{"filename": "tests/verified.test.cjs"}]
         if endpoint.endswith("/pulls/42/files"):
             return [{"filename": "updates/manifest.json"},
                     {"filename": "updates/packages/moondog-0.10.18-beta.114.json"}]
@@ -167,6 +185,72 @@ class AutoCloseTests(unittest.TestCase):
         }}}
         self.assertTrue(any("recognized verification kind" in x
                             for x in evidence_shape(164, matrix, record)))
+
+    def test_incrementally_recorded_criteria_get_actionable_missing_evidence_diagnostics(self):
+        matrix = {164: {"164-04": False, "164-06": True, "164-08": True}}
+        record = {"package_pr": 42, "criteria": {
+            "164-06": {"kind": "test", "pr": 44, "tests": ["tests/verified.test.cjs"]}
+        }}
+        reasons = evidence_shape(164, matrix, record)
+        self.assertTrue(any("164-04 has not reached VERIFIED COMPLETE" in r for r in reasons))
+        self.assertTrue(any("164-04 missing structured proof" in r for r in reasons))
+        self.assertTrue(any("164-08 missing structured proof" in r for r in reasons))
+        self.assertFalse(any("164-06" in r for r in reasons))
+
+    def test_legacy_single_pr_and_multiple_pr_proofs_are_both_valid(self):
+        self.assertEqual(proof_pr_numbers(RECORD["criteria"][CRITERION]), [41])
+        self.assertEqual(proof_pr_numbers({"prs": [43, 44]}), [43, 44])
+        for invalid in [{"prs": []}, {"prs": [43, 43]}, {"prs": [True]},
+                        {"prs": [43], "pr": 41}, {"pr": 0}]:
+            with self.assertRaises(ValueError):
+                proof_pr_numbers(invalid)
+
+    def test_real_cumulative_runtime_and_regression_prs_close_when_all_verified(self):
+        record = {"package_pr": 42, "criteria": {
+            CRITERION: {"kind": "runtime", "prs": [43, 44],
+                        "tests": ["tests/verified.test.cjs"]}
+        }}
+        fake = FakeAPI()
+        result = close_if_ready(fake, ISSUE, record, MATRIX, MANIFEST, MAIN, False)
+        self.assertEqual(result["status"], "closed")
+        self.assertEqual(fake.state, "closed")
+        self.assertIn("#43, #44", fake.comments[0]["body"])
+
+    def test_missing_regression_among_multiple_prs_blocks_closure_without_mutations(self):
+        record = {"package_pr": 42, "criteria": {
+            CRITERION: {"kind": "runtime", "prs": [43],
+                        "tests": ["tests/verified.test.cjs"]}
+        }}
+        fake = FakeAPI()
+        with self.assertRaisesRegex(ValueError, "regression test paths"):
+            close_if_ready(fake, ISSUE, record, MATRIX, MANIFEST, MAIN, False)
+        self.assertFalse(any(method in {"PATCH", "POST"} for method, _ in fake.actions))
+
+    def test_unmerged_multiple_pr_contributor_blocks_closure(self):
+        record = {"package_pr": 42, "criteria": {
+            CRITERION: {"kind": "runtime", "prs": [43, 44, 45],
+                        "tests": ["tests/verified.test.cjs"]}
+        }}
+        with self.assertRaisesRegex(ValueError, "not a merged"):
+            close_if_ready(FakeAPI(), ISSUE, record, MATRIX, MANIFEST, MAIN, False)
+
+    def test_runtime_diff_requires_published_beta_even_when_proof_is_typed_test(self):
+        record = {"package_pr": 42, "criteria": {
+            CRITERION: {"kind": "test", "prs": [43, 44],
+                        "tests": ["tests/verified.test.cjs"]}
+        }}
+        with self.assertRaisesRegex(ValueError, "trusted published Beta"):
+            close_if_ready(FakeAPI(beta=False), ISSUE, record, MATRIX,
+                           MANIFEST, MAIN, False)
+
+    def test_false_matrix_status_cannot_embed_verified_complete_in_a_warning(self):
+        s = ("## #987 — Sample\n"
+             "| 987-01 | Work | Existing | Gap | P1 | NOT **VERIFIED COMPLETE** |\\n")
+        self.assertEqual(parse_matrix(s), {987: {"987-01": False}})
+        s = ("## #987 — Sample\n"
+             "| 987-01 | Work | Existing | Gap | P1 | still pending; "
+             "**VERIFIED COMPLETE** but requires external approval |\n")
+        self.assertEqual(parse_matrix(s), {987: {"987-01": False}})
 
     def test_incomplete_issue_stays_open_with_no_mutations(self):
         fake = FakeAPI()
