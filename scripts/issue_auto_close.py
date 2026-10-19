@@ -244,9 +244,12 @@ def verify_live_evidence(api: GitHub, issue: int, record: dict, manifest: dict,
             raise ValueError(key + " has no production runtime diff")
         if proof["kind"] == "field" and issue not in FIELD_SCENARIOS:
             raise ValueError(key + " field validation lacks a protected field policy")
-        if not source_in_beta(api, source_pr["merge_commit_sha"],
-                              package_pr["base"]["sha"]):
-            raise ValueError(key + " source PR is newer than the trusted published Beta")
+        if proof["kind"] == "runtime":
+            if not source_in_beta(api, source_pr["merge_commit_sha"],
+                                  package_pr["base"]["sha"]):
+                raise ValueError(key + " runtime source is newer than the trusted published Beta")
+        elif not source_in_beta(api, source_pr["merge_commit_sha"], commit_sha):
+            raise ValueError(key + " test/field proof has not reached current main")
     if issue in FIELD_SCENARIOS and not owner_field_report(
             api, issue, record["field_comment"], beta["version"]):
         raise ValueError("Owner Windows/Edge evidence is absent or incomplete")
@@ -258,6 +261,18 @@ def close_if_ready(api: GitHub, issue: int, record: dict, matrix: dict,
     reasons = eligible_snapshot(issue, details.get("state"), matrix, record, manifest)
     if reasons:
         return {"issue": issue, "status": "open/not-eligible", "reasons": reasons}
+    # A green source PR alone does not prove the current main checkout is safe.
+    # Fail closed if the current main Publication Check is absent or failing.
+    current_checks = api.request("GET", "repos/" + api.repo + "/commits/" +
+                                 main_sha + "/check-runs?per_page=100")
+    if current_checks.get("total_count", 0) > 100 or not any(
+            c.get("name") == "Publication Check" and
+            c.get("conclusion") == "success" and
+            c.get("status") == "completed" and
+            c.get("head_sha") == main_sha and
+            c.get("app", {}).get("id") == APP_ID
+            for c in current_checks.get("check_runs", [])):
+        return {"issue": issue, "status": "open/current-main-ci-unverified"}
     verify_live_evidence(api, issue, record, manifest, main_sha)
     marker = CLOSE_MARKER + str(issue) + " -->"
     comments = api.pages("repos/" + api.repo + "/issues/" + str(issue) + "/comments")
