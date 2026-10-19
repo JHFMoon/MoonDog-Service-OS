@@ -1,5 +1,125 @@
 # Changelog
 
+## 0.10.18-beta.117 — current Beta
+
+- Restore whole-state backup compatibility with current Settings schema while retaining legacy backups and rejecting unsupported versions. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.116 — current Beta
+
+- Avoid redundant deferred Meeting and Performance redraws after source refresh. Preserve source invalidation and business-date refresh. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.115 — current Beta
+
+- fix: refuse destructive interrupted-journal auto-recovery (#164). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.114 — current Beta
+
+- feat: persist browser-only Open RO view preferences (#61). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.113 — current Beta
+
+- Fail closed on invalid administrative commitment dates (#59 #60) (#257). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.112 — current Beta
+
+- Keep Beta smoke check valid across reviewed schedule-aware runtime publication (#61) (#255). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.111 — current Beta
+
+- Serialize Open RO Save and Save & Next operations (#60) (#251). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.110 — current Beta
+
+- Keep verified Open RO saves actionable when secondary follow-ups fail (#60) (#249). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.109 — current Beta
+
+- Prevent malformed RO review times from raising false overdue alarms (#60) (#247). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.108 — current Beta
+
+- Prevent invalid manager workdays from hanging coaching follow-ups (#164) (#245). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.107 — current Beta
+
+- Prevent invalid commitment dates appearing as completed Daily Walk plans (#60) (#243). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.106 — current Beta
+
+- Reject impossible RO review dates in manager follow-up suppression (#59) (#240). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.105 — current Beta
+
+- Device-only start page preference without shared Workspace writes (#61) (#237). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.104 — current Beta
+
+- Reject impossible SOR financial month display as not established (#59). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.103 — current Beta
+
+- Choose latest verified history periods independent of import order (#59). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.102 — current Beta
+
+- Reject invalid historical month keys before calendar arithmetic (#59). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.101 — current Beta
+
+- Allow explicit fail-closed recovery inventory retry without implicit restore (#164). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.100 — current Beta
+
+- Correct SAPR/Next Appointments period coverage while preserving VIR observations (#59). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.99 — current Beta
+
+- Automatically packaged merged runtime from current main; Stable unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.98 — current Beta
+
+- Automatically packaged merged runtime from current main; Stable unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.97 — current Beta
 
 - Automatically packaged merged runtime from current main; Stable unchanged.

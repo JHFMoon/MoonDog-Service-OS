@@ -2,12 +2,49 @@
 
 This is a non-sensitive execution checkpoint, not proof of a continuously running coding agent. Always reconcile it against the latest GitHub commits, pull requests, manifests, workflow runs, and protected release policy before acting.
 
+**Current closure-policy override — 2026-10-19 (owner-directed):** No issue may be held open solely because the owner has not performed a live Windows, Edge, OneDrive or browser test. Remove mandatory physical validation and owner-attestation gates from #164/#58; treat `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md` only as a voluntary diagnostic protocol. The remaining synthetic engineering tests, reliability/security requirements, protected exact-head checks and Beta provenance stay mandatory. This directive supersedes historical references to mandatory field evidence in the dated checkpoint entries below. Live #164 software criteria 164-02…09 (minus the former field-only 164-01) are not all verified and #164 must stay open for those reasons, not for missing browser testing.
+
+## Authoritative current engineering checkpoint — October 18, 2026 Pacific (October 19 UTC)
+
+**This supersedes all earlier checkpoint entries in this document.** For the criterion-level requirements and evidence, see [Roadmap acceptance matrix](ROADMAP-ACCEPTANCE-MATRIX.md). GitHub is the system of record; this checkpoint is a dated snapshot, not a promise of unattended continuation.
+
+- **Main:** `a970bb7ee04b949d23a9db59c6969385a7edd55d`, trusted Beta 113 merge from PR #258.
+- **Published Beta:** `0.10.18-beta.113`; exact live manifest SHA-256 `dbdaabb552f47cfbbdd98a20a8ed7289a4bd71cfe65a1d6322a62d00333fac4a`. Package URL is `https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.113.json`.
+- **Stable:** `0.10.17`, unchanged; no promotion, migration or installed Windows confirmation.
+- **Protected source merges:** PR #253 Daily Walk calendar (merge `7b2194afffef0edb0a1df1760ae6e6859c85aa91`); PR #255 corrected release regression (merge `b451852bc792d4d146477874e7cf11a0d831a78c`); PR #257 invalid administrative dates (merge `edcf56a56e9dbdca49b0f6d17f56c552ad8e5e2d`).
+- **Trusted Beta merges:** PR #256 Beta 112 (merge `5fbe82d16e71f0754ab1d5400269d02357056fc3`); PR #258 Beta 113 (merge current main). Superseded failed package PR #254 closed without merge.
+- **Latest exact-head verification:** Beta 113 package PR #258 head `de656aa5514b3c808a80818dcb9e077a3bcb3188`; Publication Check run `39186603987` / job `117850235313` success, Clean Install Proof run `39186605860` / job `117850240324` success, both GitHub Actions source app `15368`. Latest logs report 79 Python and 365 Node tests passed, zero failures; browser/Meeting and synthetic package install checks passed. Post-merge live manifest checked separately.
+- **Review evidence:** PR #257 year-zero date edge case corrected at `0e230b14c9eb3c5dc66589bacaf4d69fc3ff9a30`, synthetic regression commit `4134420e0af8ca4b3e896aef036f161b2ccc8431`; substantive review thread resolved. No unresolved review finding was present at that protected merge; later PR #259 review correctly identified a separate historical-revision edge case not covered by PR #257.
+- **Verified acceptance criteria:** #60 60-04 (configured manager workdays, including selected Sunday and excluded Monday). **60-08 is PARTIALLY COMPLETE, NOT VERIFIED COMPLETE:** current administrative dates now reject impossible/year-zero values, but production `adminCloseoutState` still counts malformed prior dates in `closeout.revisions` as missed promises. The P2 review on PR #259 surfaced this untested legacy/import path. #60 and #59 remain open.
+- **Open roadmap issues:** #164, #58, #59, #60, #61, #212. None should be closed without all respective closure conditions. #212 trend-aware coaching deferred behind source/operational reliability.
+- **Open PRs:** #259 documentation-only acceptance checkpoint (new P2 review finding about invalid historical revision dates; correct docs and require fresh exact-head CI before protected merge); draft #220 Workspace history isolation remains blocked for missing authorized overlapping-root regression. No bypass or reattempt of denied operation. Restricted #183 and #189 untouched.
+- **External field gap:** Windows/Edge/OneDrive folder picker, startup/hydration, true multi-computer behavior and measured hardware performance require separately collected evidence per `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md`. Synthetic Chromium and clean-install CI do not prove that field behavior.
+- **Remaining engineering:** P0 #164/#59 storage recovery and read-back/concurrency fault matrix, source authority, #58 measurable startup/latency p50/p95, #60 broader manager RO/carryover workflow completeness, #61 user preferences/lineage/release notes and other regressions, and deferred #212 sustained coaching. Source/program test work is partial; only criterion 60-04 above is now fully verified complete. Current-date validation is published but historical revision handling still blocks criterion 60-08. Beta 112 changelog references the release-test repair (#255) rather than clearly naming the operational calendar change (#253); document and improve future release-note provenance without bypassing trusted workflow rules.
+- **Exact next executable engineering action:** when an authorized code-branch operation is available, add a real-function synthetic `adminCloseoutState` regression with malformed prior commitment dates and valid missed revisions; reject malformed historical dates/timestamps when counting `missedRevisions` without losing legitimate misses. Verify protected source PR and trusted Beta before upgrading 60-08. A separate new branch creation on 2026-10-18 Pacific was blocked by OpenAI safety checks; do **not** retry it via another route. Meanwhile continue independent #164/#59 interrupted storage-write, stale-handle and read-back-mismatch investigation read-only; protect Workspace and Stable.
+
 ## Standing guardrails
 - Approved direction: scalable, offline-capable Fixed Operations platform; progressive modernization; action-first command center; constrained autonomous internal operations.
 - Routine verified changes may enter Beta only through approved gates. Stable promotion always requires separate explicit authorization.
 - Customer, VIN, employee, repair-order, source-report, Files To Learn, backup, and Workspace data never belong in this public repository.
 - Work in small, independently testable increments. Do not skip a failing check or claim an unverified publication.
 - An agent needs a separately configured, authorized runner to resume execution after a session ends. No continuously running code agent has been verified here.
+
+## Historical GitHub checkpoint (October 18, 2026, Beta 99; superseded)
+
+**Read this first as a dated snapshot.** Re-fetch public `main`, open issues/PRs, CI and the live manifest whenever resuming. The older October 17 record below is preserved only as historical evidence; its Beta, PR and local-branch statuses are not current.
+
+- Last verified `main`: `9d8d3ce7cf8ed45297811a85b6e3644995be8b44`.
+- Manifest Beta: `0.10.18-beta.99`, SHA-256 `34e3b982012688c6b0821e47ded75ecc6f73429387712bb52fc783ae80611277`. Published **does not mean installed**.
+- Protected Stable: `0.10.17`; no promotion authorized.
+- Six open issues: **#164, #58, #59, #60, #61, #212**. #212 remains explicitly deferred.
+- Merged/verified increments: PR #219 bounded backup scan, PR #221 Beta 98, PR #222 Windows/Edge field-validation guide, **PR #223** fail-closed OneDrive recovery journal/installer UI preflight (squash `70db8c773f0b381286597da97fcf100c81aacfcb`), and **PR #226** trusted Beta 99 publication (`f6c5a46c64e890d3d146b11fcd4ef1ca8d30fc80`). PR #223's last exact-head Publication Check and Clean Install Proof passed, and the substantive review thread was resolved.
+- **Draft PR #220**, `feature/59-history-workspace-isolation-20261018`, head `56e0d2224aa6c49a1f487897996b7d2e61216239`: production cache-generation safeguard is preserved but the needed *new* overlapping-workspace regression write was blocked by tool safety. Existing CI green is not sufficient for merge. Do not bypass denial or merge this draft.
+- **PR #224 merged** as `9d8d3ce7cf8ed45297811a85b6e3644995be8b44` after exact-head Publication Check, Clean Install Proof and P2 review correction. Its 240-cycle test flushes each completed Home, Meeting, Performance and Open RO visit, checks cache reuse, and verifies source/day refresh. This is synthetic coverage, not a real hardware speed benchmark.
+- **PR #225**, `docs/61-refresh-continuation-ledger-20261018`: this date-stamped continuation update. This documentation-only PR must pass current exact-head checks and protected merge.
+- **Draft PR #227**, `fix/61-reviewed-beta-release-notes-20261018`: removes generic post-merge Beta note override so the existing builder can summarize the reviewed commit title. Protected workflow/test modification **not yet reviewed or merged**; do not auto-merge before validation.
+- Real Windows Edge/OneDrive, installed dashboard, and hardware startup/memory metrics have **not** been verified. Field protocol: `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md`. Do not upload raw traces or protected operational files.
+
+**Next executable sequence:** Merge this documentation PR #225 through fresh exact-head CI after bringing forward current `main`. Review the protected workflow/test diff in draft PR #227 independently before any merge, keep #220 draft under its denied regression-writing constraint, then continue remaining #164/#58/#59/#60/#61 work with real Windows Edge evidence only where available.
 
 ## Verified baseline at checkpoint (October 17, 2026)
 - Public `main`, local `main`, and the recovery work branch base: `50ebbdfdfe5386fa77a90883eeac16317ed36f68`.

@@ -499,8 +499,8 @@
   let historyCacheRoot=null,historyCacheGeneration=0;
   async function loadHistory(includeAll=false,searchToken=null){
     const originRoot=model.root;
-    // Each in-flight read must retain its own cache. A late read from the old
-    // Workspace must never contaminate a newly connected Workspace cache.
+    // A shared cache is cleared on root changes. Generation and root guards
+    // prevent stale reads from contaminating the connected Workspace.
     if(historyCacheRoot!==originRoot){historyFileCache.clear();historyCacheRoot=originRoot;historyCacheGeneration++;}
     const generation=historyCacheGeneration,cache=historyFileCache;
     const current=()=>generation===historyCacheGeneration&&originRoot===model.root&&(searchToken===null||searchToken===state.searchToken);

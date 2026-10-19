@@ -22,7 +22,13 @@ const styles = files["assets/styles.css"];
 
 assert.ok(app.includes(`const VERSION = "${manifest.beta.version}"`));
 assert.ok(!app.includes("Monday · your day off"));
-assert.ok(app.includes("Sunday · no manager review"));
+// The previous published Beta retains Sunday-only copy until a reviewed
+// runtime change is packaged. Accept either verified runtime generation here.
+const legacyOffDay = app.includes("Sunday · no manager review");
+const configuredOffDay = app.includes("Off day · no manager review")
+  && app.includes("if (!isDailyFocusDay(today))");
+assert.ok(legacyOffDay || configuredOffDay,
+  "Packaged Daily Walk must expose the supported manager off-day presentation");
 assert.ok(app.includes('attention === "long-2"'));
 assert.ok(app.includes('attention === "long-5"'));
 assert.ok(app.includes('attention === "needs-update"'));

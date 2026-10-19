@@ -27,7 +27,8 @@
   const state = { channel: saved.channel === "beta" ? "beta" : "stable",
     lastCheck: saved.lastCheck || null, lastAutomatic: saved.lastAutomatic || "",
     dismissed: saved.dismissed || null, check: null, checkFor: null,
-    recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false, busy: false, progress: null };
+    recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false,
+    recoveryScanPending: false, recoveryScanFailed: false, busy: false, progress: null };
   const appRoot = () => global.__moondogSettingsModel?.applicationRoot || null;
   const applicationFiles = async () => {
     const workspace = appRoot();
@@ -43,10 +44,30 @@
       /^[0-9a-f]{64}$/.test(result.sha256 || "");
   }
   async function refreshRecovery() {
-    try { state.hasRecoverable = !!appRoot() &&
-      (await global.MoonDogUpdateInstall.listBackups(appRoot())).length > 0; }
-    catch (_) { state.hasRecoverable = false; }
+    const root = appRoot();
+    if (!root) {
+      state.hasRecoverable = false; state.recoveryScanFailed = false;
+      state.recoveryScanPending = false; render(); return;
+    }
+    state.recoveryScanPending = true;
     render();
+    try {
+      const backups = await global.MoonDogUpdateInstall.listBackups(root);
+      if (root !== appRoot()) return;
+      state.hasRecoverable = backups.length > 0;
+      state.recoveryScanFailed = false;
+    } catch (_) {
+      if (root !== appRoot()) return;
+      // Unknown recovery inventory must fail closed. A second update could
+      // overwrite an interrupted rollback while OneDrive is unreadable.
+      state.hasRecoverable = true;
+      state.recoveryScanFailed = true;
+    } finally {
+      if (root === appRoot()) {
+        state.recoveryScanPending = false;
+        render();
+      }
+    }
   }
   async function inspectInstalledTestVersion() {
     const root = appRoot();
@@ -153,7 +174,7 @@
     if (!notice) return;
     const offered = currentOffer(), value = state.check;
     const dismissed = state.dismissed?.day === localDay() && state.dismissed?.channel === state.channel && state.dismissed?.version === value?.version;
-    notice.hidden = !offered || dismissed || state.recoveryRequired || state.hasRecoverable;
+    notice.hidden = !offered || dismissed || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending;
     if (notice.hidden) return;
     notice.querySelector("[data-update-title]").textContent = (value.status === "channel-switch" ? "Return to Stable " : value.channel === "beta" ? "Beta " : "Stable ") + value.version + " available";
     notice.querySelector("[data-update-install]").textContent = value.status === "channel-switch" ? "Return to Stable" : "Install Update";
@@ -204,7 +225,10 @@
     field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
     field("updateChannelNote").textContent = (state.channel === "beta" ?
       "Beta is the test channel. A verified return to Stable remains available." :
-      "Stable is the normal operating channel.") + (state.hasRecoverable ? " Resolve the interrupted update recovery before installing another update." : "");
+      "Stable is the normal operating channel.") +
+      (state.recoveryScanFailed ? " Recovery backups could not be checked. Reconnect folder access before installing another update." :
+        state.recoveryScanPending ? " Checking recovery backups before permitting installation." :
+        state.hasRecoverable ? " Resolve the interrupted update recovery before installing another update." : "");
     field("updateLastCheck").textContent = state.lastCheck ? new Date(state.lastCheck).toLocaleString() : "Never";
     const result = state.check;
     availability.textContent = result?.status === "newer-version" ?
@@ -218,10 +242,11 @@
     field("updateFolders").textContent = `Connected workspace: ${appRoot()?.name || "not connected"}. Application files: System Files/. Update rollback backups: System Files/Workspace/backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
       state.channel === "beta" ? "Install Beta" : "Install Update";
-    installButton.disabled = state.busy || state.recoveryRequired || state.hasRecoverable || !currentOffer();
+    installButton.disabled = state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer();
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
-    field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable;
+    field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable && !state.recoveryScanFailed;
+    field("recoverMoonDogUpdate").textContent = state.recoveryScanFailed ? "Retry recovery check" : "Recover interrupted update";
     paintNotice();
   }
 
@@ -267,7 +292,7 @@
   });
   field("checkMoonDogUpdate").addEventListener("click", () => check(true));
   installButton.addEventListener("click", async () => {
-    if (state.busy || !currentOffer()) return;
+    if (state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer()) return;
     const offered = state.check, offeredFor = state.checkFor;
     let verifiedReloadVersion = null;
     state.busy = true; render();
@@ -305,6 +330,12 @@
         status.textContent = "Installation cancelled. No application files changed.";
         clearProgress();
         return;
+      }
+      // Always verify recovery immediately before the first install mutation,
+      // even if the initial connection event has not completed its scan.
+      await refreshRecovery();
+      if (state.hasRecoverable || state.recoveryScanPending || offeredFor.root !== appRoot()) {
+        throw new Error("Update recovery backups are unresolved or cannot be verified. Check folder access and resolve recovery before installing.");
       }
       await setProgress({ phase: "install", percent: 28, label: "Starting installation", detail: "Please keep this window open" });
       const outcome = await global.MoonDogUpdateInstall.apply({ verifiedPackage: verified,
@@ -352,9 +383,20 @@
     }
   });
   field("recoverMoonDogUpdate").addEventListener("click", async () => {
-    if (state.busy) return;
+    if (state.busy || state.recoveryScanPending) return;
     if (!appRoot()) {
       status.textContent = "Connect Service Operations Dashboard in a browser with folder access first.";
+      return;
+    }
+    if (state.recoveryScanFailed) {
+      // A retry may update the recovery inventory, but it must never directly
+      // trigger installation or restore. User approval remains separate.
+      await refreshRecovery();
+      status.textContent = state.recoveryScanFailed ?
+        "Recovery backup check failed. Check folder access and try again. No files were changed." :
+        state.hasRecoverable ?
+          "Interrupted update backups were found. Select Recover interrupted update to review a restore." :
+          "Recovery check complete. No interrupted update backups were found.";
       return;
     }
     try {

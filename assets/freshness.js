@@ -26,7 +26,9 @@
     const year = Number(value.slice(0, 4));
     const month = Number(value.slice(5, 7));
     const day = Number(value.slice(8, 10));
-    if (month < 1 || month > 12 || day < 1) return false;
+    // JavaScript Date.UTC remaps 00–99 to 1900–1999; reject that ambiguous
+    // range rather than silently changing the stated source/reporting year.
+    if (year < 100 || month < 1 || month > 12 || day < 1) return false;
     const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
     const lastDay = month === 2 ? (leap ? 29 : 28)
       : (month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31);
@@ -60,7 +62,7 @@
   function trendMaintenance(input) {
     const {key,today,coverage={}}=input, unavailable=['not-used','temporarily-unavailable'].includes(coverage.state),
       validPoint=date=>validDateKey(date)&&date<=today,
-      last=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentDates||[]).filter(validPoint).at(-1)||'',missing=coverage.missingDates||[],
+      last=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentDates||[]).filter(validPoint).sort().at(-1)||'',missing=coverage.missingDates||[],
       required=key==='sapr'||key==='menu',optional=['nextAppointments','vir','mediaAsr','mediaAsrTech','efficiency','sor'].includes(key),
       format=input.formatDate||((date)=>date),operatingFrom=date=>{while(isSunday(date))date=addDays(date,1);return date;},
       result={kind:required?'required':optional?'optional':key==='csi'?'recoverable':'none',cadence:'',last:'',next:'',missing:[],status:'',recovery:'',note:''};
@@ -68,7 +70,7 @@
     if(['openRo','appointments','appointmentActivity','openRoSummary'].includes(key))return{...result,cadence:key==='openRo'||key==='appointments'?'Current operational snapshot':'Reference only',status:'NONE REQUIRED',importDate:validPoint(input.currentImportDate)?input.currentImportDate:'',snapshotDate:validPoint(input.sourceSnapshotDate)?input.sourceSnapshotDate:'',lastActivityDate:validPoint(input.lastActivityDate)?input.lastActivityDate:'',note:key==='openRo'||key==='appointments'?'Historical daily trend: Not required.':'No historical trend maintenance required.'};
     if(unavailable)return{...result,status:coverage.state==='not-used'?'NOT USED':'UNAVAILABLE',note:coverage.state==='not-used'?'No report action for this store.':'Trend evidence remains pending until the source is available.'};
     if(key==='menu'){
-      const latest=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentReleases||[]).filter(validPoint).at(-1)||'',currentMonday=mondayFor(today),nextRelease=addDays(currentMonday,7),gaps=coverage.missingReleases||[];
+      const latest=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentReleases||[]).filter(validPoint).sort().at(-1)||'',currentMonday=mondayFor(today),nextRelease=addDays(currentMonday,7),gaps=coverage.missingReleases||[];
       return{...result,cadence:'Weekly — Monday release',last:latest,next:gaps.includes(currentMonday)?currentMonday:nextRelease,missing:gaps,status:gaps.length?'Missing required releases':latest?`Current through ${format(latest)}`:'No verified release yet',recovery:'Each missing release needs its actual retained Menu Sales report; a current release does not rebuild prior weeks.'};
     }
     if(key==='csi'){
@@ -98,7 +100,7 @@
       return `${plan.status} · Next required release: ${date(plan.next)}${missing.length?` · Missing required releases: ${missing.map(date).join(', ')}`:''}`;
     }
     if(key==='sor'){
-      const month=/^\d{4}-\d{2}$/.test(plan.financialMonth||'')?new Date(`${plan.financialMonth}-01T12:00:00Z`).toLocaleDateString(undefined,{timeZone:'UTC',month:'long'}):'not established';
+      const month=lastDayOfMonth(plan.financialMonth||'')?new Date(`${plan.financialMonth}-01T12:00:00Z`).toLocaleDateString(undefined,{timeZone:'UTC',month:'long'}):'not established';
       return `Current observation: ${date(plan.last)} · Financial month: ${month} · Next optional observation: ${date(plan.next)}`;
     }
     return `${plan.status} · Next optional: ${date(plan.next)}`;
@@ -135,8 +137,8 @@
   }
   function trendMaintenanceActions(rows,format=(value)=>value) { return rows.map(row=>trendMaintenanceAction(row,format)).filter(Boolean); }
   function mondayFor(date) { const weekday = dayOfWeek(date); return weekday === undefined ? "" : addDays(date, -((weekday + 6) % 7)); }
-  function lastDayOfMonth(month) { const match = String(month || "").match(/^(\d{4})-(\d{2})$/); if (!match) return ""; return new Date(Date.UTC(Number(match[1]), Number(match[2]), 0, 12)).toISOString().slice(0, 10); }
-  function previousMonth(date) { const match = String(date || "").match(/^(\d{4})-(\d{2})/); if (!match) return ""; return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 2, 1, 12)).toISOString().slice(0, 7); }
+  function lastDayOfMonth(month) { const match = String(month || "").match(/^(\d{4})-(\d{2})$/); if (!match || !validDateKey(`${match[1]}-${match[2]}-01`)) return ""; return new Date(Date.UTC(Number(match[1]), Number(match[2]), 0, 12)).toISOString().slice(0, 10); }
+  function previousMonth(date) { const match = String(date || "").match(/^(\d{4})-(\d{2})/); if (!match || !validDateKey(`${match[1]}-${match[2]}-01`)) return ""; return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 2, 1, 12)).toISOString().slice(0, 7); }
   function finalOperatingDay(month) { let value = lastDayOfMonth(month); while (isSunday(value)) value = addDays(value, -1); return value; }
   function adjacentWindows(end, length = 7) { const currentStart = addDays(end, -(length - 1)), priorEnd = addDays(currentStart, -1), priorStart = addDays(priorEnd, -(length - 1)); return { current: { start: currentStart, end }, previous: { start: priorStart, end: priorEnd } }; }
 
@@ -186,8 +188,19 @@
       expectedPeriod = today; current = input.periodStart === today || input.periodEnd === today;
       reason = current ? "The source represents the current store business date." : `Loaded period does not represent ${today}.`;
     } else if (cadence === "prior-operating-day") {
-      const expected = previousOperatingDay(today); expectedPeriod = expected; current = validDateKey(input.periodEnd) && input.periodEnd >= expected && input.periodEnd <= today;
-      reason = current ? `Reporting period covers the prior completed operating day (${expected}).` : `Report ends ${input.periodEnd || "on an unknown date"}; expected coverage through ${expected}.`;
+      const expected = previousOperatingDay(today);
+      expectedPeriod = expected;
+      // A recent end date does not prove that a daily/cumulative report
+      // actually covers the required completed operating day.
+      const start = input.periodStart;
+      const startKnown = start !== undefined && start !== null && start !== "";
+      const startCoversExpected = !startKnown || (validDateKey(start) && start <= expected);
+      current = validDateKey(expected) && validDateKey(input.periodEnd) &&
+        input.periodEnd >= expected && input.periodEnd <= today && startCoversExpected;
+      reason = current ? `Reporting period covers the prior completed operating day (${expected}).` :
+        startKnown && (!validDateKey(start) || start > expected)
+          ? `Report starts ${String(start)} and does not establish coverage of ${expected}.`
+          : `Report ends ${input.periodEnd || "on an unknown date"}; expected coverage through ${expected}.`;
     } else if (cadence === "weekly-monday") {
       const expected = mondayFor(today), represented = input.releaseWeek || input.periodEnd; expectedPeriod = expected; current = validDateKey(represented) && represented >= expected && represented <= today;
       reason = current ? `Current Monday release (${expected}) is loaded.` : `Loaded release is ${represented || "unknown"}; expected Monday ${expected}.`;

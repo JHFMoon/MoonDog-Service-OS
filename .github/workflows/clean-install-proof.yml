@@ -17,6 +17,8 @@ jobs:
           fetch-depth: 2  # Keep PR merge parent for package-only source-parity proof
 
       - name: Run repository safety checks
+        env:
+          LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           python3 -m unittest discover -s tests -p 'test_*.py'
           node --test tests/*.test.cjs
