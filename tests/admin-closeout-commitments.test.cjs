@@ -75,7 +75,7 @@ test('Supervisor Workbook updates do not silently replace an existing admin comm
   assert.ok(app.includes('Administrative closeout action changed in workbook: confirm changes to advisor task commitments directly with the manager in Open RO Control.'));
   assert.ok(app.includes('proposed.nextAction !== (current.nextAction || "")'));
   assert.ok(!app.includes('proposed.reviewDate !== (current.adminCloseout.taskDate || "")'));
-  assert.ok(app.includes('adminCloseoutState(record,today).dueToday ? 3'));
+  assert.match(app,/adminCloseoutState\(record,today\)\.dueToday\s*\?\s*3/,"admin due-today priority is preserved after refactoring into the production sort helper");
   assert.match(app,/!record\.management\.nextAction \? \d+ : \d+/);
 });
 
