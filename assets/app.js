@@ -3523,7 +3523,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       if(meetingRenderedRevision!==navigationDataRevision||meetingRenderedDate!==localDateKey()){
         requestAnimationFrame(()=>setTimeout(()=>{
           if(ticket!==meetingNavigationTicket||!ui["view-meeting"]?.classList.contains("active"))return;
-          if(meetingRenderedRevision===navigationDataRevision&&meetingRenderedDate===localDateKey())return;
+          if(meetingRenderedRevision===navigationDataRevision&&meetingRenderedDate===localDateKey()){globalThis.__serviceMeetingPresenter?.paint?.();return;}
           const started=performance.now();
           renderMeeting();
           globalThis.__serviceMeetingPresenter?.paint?.();
