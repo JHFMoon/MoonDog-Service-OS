@@ -102,7 +102,13 @@ test("view controls are in shipped HTML and operate without a new runtime file",
   for(const id of ["openRoSort","openRoDensity","openRoPreferenceReset","openRoPreferenceFeedback"])assert.ok(html.includes('id="'+id+'"'),id);
   assert.match(app,/MoonDogDevicePreferences\?\.readOpenRo\(\)/);
   assert.match(app,/MoonDogDevicePreferences\?\.writeOpenRo\(/);
-  assert.match(app,/ui\.clearFilters\.addEventListener\("click",saveRoDeviceView\)/);
+  const clearStart=app.indexOf('ui.clearFilters.addEventListener("click", () => {');
+  const clearEnd=app.indexOf("});",clearStart);
+  assert.ok(clearStart>=0&&clearEnd>clearStart,"actual clear handler exists");
+  const clearHandler=app.slice(clearStart,clearEnd);
+  assert.ok(clearHandler.indexOf('ui.attentionFilter.value = "";')>=0,"clear resets visible follow-up");
+  assert.ok(clearHandler.indexOf("saveRoDeviceView();")>clearHandler.indexOf('ui.attentionFilter.value = "";'),"reset must be persisted after the filter clears");
+  assert.ok(clearHandler.indexOf("renderTable();")>clearHandler.indexOf("saveRoDeviceView();"),"render reflects the persisted choice");
   assert.match(app,/sortOpenRoRows\(exactRos\.length\?exactRos:/);
   assert.match(css,/tbody\.ro-density-compact/);
   assert.doesNotMatch(html,/src="assets\/device-preferences\.js"/);
