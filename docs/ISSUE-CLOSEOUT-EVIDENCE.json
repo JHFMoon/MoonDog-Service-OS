@@ -1,11 +1,10 @@
 {
   "schemaVersion": 1,
-  "description": "On protected main, all matrix criteria must be VERIFIED COMPLETE and accompanied by independently verifiable, merged, tested proof. Empty records are intentionally ineligible.",
+  "description": "Engineering closure requires every authoritative software criterion VERIFIED COMPLETE with independently validated protected PR, synthetic test and trusted Beta evidence. Owner browser/Windows/OneDrive field testing is optional and never a closure prerequisite.",
   "issues": {
     "58": {
       "criteria": {},
-      "package_pr": null,
-      "field_comment": null
+      "package_pr": null
     },
     "59": {
       "criteria": {},
@@ -21,8 +20,7 @@
     },
     "164": {
       "criteria": {},
-      "package_pr": null,
-      "field_comment": null
+      "package_pr": null
     },
     "212": {
       "criteria": {},
