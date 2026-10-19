@@ -130,7 +130,15 @@
         const after = journal.after === null ? null : new Uint8Array(journal.after);
         const current = await readBytes(root, target);
         if (revision.revision === journal.revisionBefore) {
-          if (before === null) await removeRaw(root, target); else await writeBytesRaw(root, target, before);
+          // Another tab or a stale OneDrive handle can replace the target while
+          // the journal revision remains unchanged. Never roll unrelated bytes
+          // back to an older snapshot or remove a newly-created independent file.
+          if (!sameBytes(current, before) && !sameBytes(current, after))
+            throw Error("Uncommitted write journal conflicts with independent file changes.");
+          if (!sameBytes(current, before)) {
+            if (before === null) await removeRaw(root, target);
+            else await writeBytesRaw(root, target, before);
+          }
         } else if (after === null || !sameBytes(current, after)) throw Error("Committed write differs from its journal.");
       } else if (journal.format === "moondog-delete-v1") {
         if (!["file", "empty-directory"].includes(journal.kind)) throw Error("Delete journal type is invalid.");
