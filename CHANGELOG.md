@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.109 — current Beta
+
+- Prevent malformed RO review times from raising false overdue alarms (#60) (#247). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.108 — current Beta
 
 - Prevent invalid manager workdays from hanging coaching follow-ups (#164) (#245). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
