@@ -56,7 +56,7 @@ test("preference API rejects unapproved fields, personal data and malformed stor
   ];
   // Extraneous properties may be supplied by UI integrations, but are never persisted.
   assert.equal(prefs.writeOpenRo(invalid[3]),true);
-  assert.deepEqual(JSON.parse(map.get("moondog-device-open-ro-v1")),defaults);
+  assert.equal(map.has("moondog-device-open-ro-v1"),false,"a default preference and extraneous personal fields are never stored");
   for(const candidate of invalid.slice(0,3)){
     assert.equal(prefs.writeOpenRo(candidate),false);
     assert.deepEqual(plain(prefs.readOpenRo()),defaults);
