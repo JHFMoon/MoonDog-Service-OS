@@ -24,7 +24,10 @@ function fixture(options={}){
     async beginMutation(){operations.push(["begin"]);started++;return{expected:revision};},
     async rawWrite(path,bytes,token,restore=false){
       operations.push([restore?"restore":"write",path]);
-      if(!restore&&path.includes(".moondog-txn-")&&options.failJournal)throw Error("synthetic journal write interruption");
+      if(!restore&&path.includes(".moondog-txn-")&&options.failJournal){
+        files.set(path,new Uint8Array([123,34,116]));
+        throw Error("synthetic journal write interruption");
+      }
       if(restore&&options.failRestore)throw Error("synthetic rollback denied");
       if(!restore&&path===target&&options.partialTarget){
         files.set(path,new Uint8Array([12,13]));return;
@@ -78,6 +81,7 @@ test("interrupted temporary journal creation refuses save and preserves original
   assert.deepEqual(f.files.get(target),f.original);
   assert.equal(f.counts.completed,0);
   assert.equal(f.failed.length,1);
+  assert.equal(journals(f).length,0,"truncated journal residue removed after a rejected preparation");
 });
 
 test("partial target write rolls back exact old bytes and refuses success",async()=>{
