@@ -146,7 +146,7 @@ class AutoCloseTests(unittest.TestCase):
         self.assertEqual(result["status"], "open/not-eligible")
         self.assertEqual(fake.state, "open")
         stale = FakeAPI(beta=False)
-        with self.assertRaisesRegex(ValueError, "trusted published Beta"):
+        with self.assertRaisesRegex(ValueError, "Published Beta package"):
             close_if_ready(stale, ISSUE, RECORD, MATRIX, MANIFEST, MAIN, False)
 
     def test_blocked_requirement_and_unresolved_review_prevent_closure(self):
