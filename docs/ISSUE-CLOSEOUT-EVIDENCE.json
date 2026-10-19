@@ -11,8 +11,23 @@
       "package_pr": null
     },
     "60": {
-      "criteria": {},
-      "package_pr": null
+      "criteria": {
+        "60-04": {
+          "kind": "runtime",
+          "pr": 253,
+          "tests": [
+            "tests/daily-focus-configured-days.test.cjs"
+          ]
+        },
+        "60-07": {
+          "kind": "runtime",
+          "pr": 145,
+          "tests": [
+            "tests/advisor-meeting-30-second.test.cjs"
+          ]
+        }
+      },
+      "package_pr": 269
     },
     "61": {
       "criteria": {},
@@ -35,7 +50,7 @@
           ]
         }
       },
-      "package_pr": 266
+      "package_pr": 269
     },
     "212": {
       "criteria": {},
