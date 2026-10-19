@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "description": "On protected main, all matrix criteria must be VERIFIED COMPLETE and accompanied by independently verifiable, merged, tested proof. Empty records are intentionally ineligible.",
+  "issues": {
+    "58": {
+      "criteria": {},
+      "package_pr": null,
+      "field_comment": null
+    },
+    "59": {
+      "criteria": {},
+      "package_pr": null
+    },
+    "60": {
+      "criteria": {},
+      "package_pr": null
+    },
+    "61": {
+      "criteria": {},
+      "package_pr": null
+    },
+    "164": {
+      "criteria": {},
+      "package_pr": null,
+      "field_comment": null
+    },
+    "212": {
+      "criteria": {},
+      "package_pr": null
+    }
+  }
+}
