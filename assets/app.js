@@ -872,7 +872,11 @@
   // connection operation. A second picker must not overlap this root's model load.
   let workspaceConnectionBusy=false;
   async function finishConnection(handle, ask) {
-    if(workspaceConnectionBusy)throw new Error("Another Workspace connection is still finishing. Try again when it completes.");
+    if(workspaceConnectionBusy){
+      const error=new Error("Another Workspace connection is still finishing. Try again when it completes.");
+      error.code="WORKSPACE_CONNECTION_BUSY";
+      throw error;
+    }
     workspaceConnectionBusy=true;
     try{return await completeWorkspaceConnection(handle,ask);}
     finally{workspaceConnectionBusy=false;}
@@ -980,9 +984,9 @@
     if(!dailyUi?.confirmWorkspaceChange)throw new Error("Daily Operations is still initializing. Try changing folders again.");
     if(!dailyUi.confirmWorkspaceChange())return;
     if (!window.showDirectoryPicker) throw new Error("This Edge version does not support local folder access from this page.");
-    if (model.pendingRoot) { setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(model.pendingRoot, true); } catch (error) { writeAuthority.disable(); setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder."); throw error; } }
+    if (model.pendingRoot) { setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(model.pendingRoot, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){writeAuthority.disable();setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder.");} throw error; } }
     const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "read" });
-    try { return await finishConnection(handle, true); } catch (error) { writeAuthority.disable(); throw error; }
+    try { return await finishConnection(handle, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY")writeAuthority.disable(); throw error; }
   }
   async function restoreConnection() {
     setConnectionState("RESTORING SAVED CONNECTION", "RECONNECTING TO SERVICE OPERATIONS DASHBOARD DATA");
@@ -997,6 +1001,8 @@
       stopFolderWatch("FOLDER PERMISSION REQUIRED");
       setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder.");
     } catch (error) {
+      // An overlapping restore must not revoke authority for the active connection.
+      if(error?.code==="WORKSPACE_CONNECTION_BUSY")return;
       writeAuthority.disable();
       model.root = null; model.pendingRoot = null;
       setConnectionState("CONNECTION ERROR", "Service Operations Dashboard could not restore the saved folder handle. Choose the working folder to reconnect.");
