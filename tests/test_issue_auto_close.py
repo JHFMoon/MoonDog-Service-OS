@@ -141,7 +141,7 @@ class AutoCloseTests(unittest.TestCase):
             "kind": "runtime", "pr": 41, "tests": ["tests/verified.test.cjs"]
         }}}
         self.assertEqual(eligible_snapshot(164, "open", matrix, record, MANIFEST), [])
-        self.assertEqual(closure.evidence_shape(164, matrix, record), [])
+        self.assertEqual(evidence_shape(164, matrix, record), [])
         self.assertNotIn("field_comment", record)
 
     def test_personal_field_comment_cannot_replace_missing_engineering_proofs(self):
