@@ -1,0 +1,84 @@
+# Roadmap acceptance matrix — MoonDog Service OS
+
+**Inventory baseline:** 2026-10-18 Pacific; live `main` `b08732e1e7b50671006dd531d8953fa3ae312ab0`; live Beta `0.10.18-beta.111` (manifest SHA-256 `a17d629881ba96cf0795c7f95ab8e1356cc3cf7f87a5ad25c737ec9d17d663a5`); Stable `0.10.17`. Six open issues: #164, #58, #59, #60, #61, #212. Draft #220 is blocked and must not be merged or worked around. This is a *criterion-level* tracker, not evidence that a broad issue is complete.
+
+**Allowed statuses:** VERIFIED COMPLETE; IMPLEMENTED — VALIDATION PENDING; NOT IMPLEMENTED; PARTIALLY COMPLETE; BLOCKED — TOOL OR PERMISSION; NEEDS WINDOWS FIELD EVIDENCE; DEFERRED.
+
+**Evidence policy:** an automated Chromium/file-mode check is not installed Windows Edge/OneDrive evidence; a PR is not a merged commit; a protected merge is not a published package; a published package is not an installed update. Evidence below indicates what was located on the baseline. Entries marked PARTIALLY COMPLETE require additional tests or code inspection; unverified items are not automatically failures. All fixtures must be synthetic. No protected Workspace, dealership data, customer messages, Stable promotion or rule bypass.
+
+## #164 — Windows Edge, parsing and storage reliability
+
+| ID | Testable acceptance outcome | Existing implementation and evidence | Remaining gap / production requirement | Priority and dependency | Verification and status |
+|---|---|---|---|---|---|
+| 164-01 | Actual Windows Edge/OneDrive cold/warm launch and hanging-page profile | `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md`; PR #222 field protocol | Real device profile, CPU/memory, startup and delayed hydration timings | P0; physical disposable Windows/Edge environment | EDGE-01/05/07, reproducible synthetic files; **NEEDS WINDOWS FIELD EVIDENCE** |
+| 164-02 | Large XLSX parsing does not lock the UI | `assets/app.js` classification; `tests/learned-parser-epoch-guard.test.cjs` | Investigate supported `file://` worker and CSP, transfer/fallback, or measured compatible chunking | P1; Edge compatibility | Synthetic worker/large-XLSX fault tests then EDGE-02; **PARTIALLY COMPLETE** |
+| 164-03 | Delayed/dehydrated source startup never claims stale verified Home | `assets/app.js` connection sequence; `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md` | Synthetic delayed read/reconnect, starved jobs and permission recovery | P1; #58, #59 | Inject delayed/denied reads and verify authority; **PARTIALLY COMPLETE** |
+| 164-04 | 2,100+ history records stay responsive and scoped | `assets/daily-ops.js` lazy history cache; `tests/reliability-sweep.test.cjs` | Benchmark read counts/memory; rebuildable indexing only if needed | P1; #58 | Repeated-history synthetic benchmark + EDGE-02; **PARTIALLY COMPLETE** |
+| 164-05 | Interrupted/partial writes, competing tabs and bad recovery journals fail closed | `assets/app.js` durable revision/journal flows; `tests/workbook-transaction.test.cjs`, `tests/supervisor-workbook-recovery.test.cjs` | Expanded fault matrix with real-function read-back and multi-file preflight | P0; #59 | Synthetic denied, transient-lock, partial, conflicting and rollback tests; **PARTIALLY COMPLETE** |
+| 164-06 | 70+ backups do not cause unbounded recovery inventory scans or unsafe deletion | PR #219 bounded batch scan; `tests/backup-retention.test.cjs`; `tests/reliability-sweep.test.cjs` | Full malformed/incomplete journal retention and Windows timing matrix | P1; #58 | 70+ synthetic backups, EDGE-03; **PARTIALLY COMPLETE** |
+| 164-07 | Navigation/import/idle resumes do not leak timers/listeners/observers | PR #224 240-cycle synthetic navigation; `tests/navigation-render-reuse.test.cjs` | Repeated imports and idle-resume memory growth; hardware evidence | P1; #58 | Multi-hundred cycles + EDGE-07; **PARTIALLY COMPLETE** |
+| 164-08 | Parser revision epoch must accompany delegated recognition changes | PR #242 merged as `02f192d14f1660615310f36e7755bcbcf56d9b48`; `tests/learned-parser-epoch-guard.test.cjs` | Preserve regression guard whenever classifiers change | P0 prerequisite for parser changes | Exact-head CI #39172168267 and #39172168280 passed on PR #242; **VERIFIED COMPLETE** for this criterion |
+| 164-09 | Safe degraded startup and privacy-safe diagnostics | `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md` | Audit existing circuit breakers/safe-start states, avoid unbounded retries | P2; permission UX | Synthetic read-only recovery test; **PARTIALLY COMPLETE** |
+
+## #58 — performance and responsiveness
+
+| ID | Testable acceptance outcome | Existing implementation and evidence | Remaining gap / production requirement | Priority and dependency | Verification and status |
+|---|---|---|---|---|---|
+| 58-01 | Measure cold/warm launch through first **verified usable Home**, not only shell | PR #197 launcher-to-shell baseline; `tests/navigation-metrics.test.cjs` | Connected-use baseline, p50/p95, and clear verification boundary | P1; #164/59 | Same-fixture repeated startup measurements; **PARTIALLY COMPLETE** |
+| 58-02 | Folder connect/reconnect and Files To Learn remain responsive | `assets/app.js`; learned parser revision safeguards | Profile serial I/O, avoid unneeded startup full reprocessing, preserve source completeness | P1; #59 | Inject controlled slow I/O, before/after p50/p95; **PARTIALLY COMPLETE** |
+| 58-03 | Inactive Meeting/Performance/Home do not redundantly rebuild | `assets/app.js`; PR #224; `tests/navigation-render-reuse.test.cjs`, `tests/home-hidden-render.test.cjs` | Quantify benefit and verify every invalidation on date/source changes | P2; meeting preservation | Browser timing before/after + regression; **PARTIALLY COMPLETE** |
+| 58-04 | Open RO editing/search and Assign Next render quickly with large/empty data | `assets/app.js`; `tests/navigation-metrics.test.cjs` | Baseline, measured bottleneck, safe targeted improvement | P1; #60 | Synthetic p50/p95 and lossless edits; **NOT IMPLEMENTED** as a complete benchmark |
+| 58-05 | Report imports, Meeting rotation, fullscreen and first navigation remain stable | Clean Install Proof; `tests/advisor-meeting-30-second.test.cjs` | Main-thread long task and repeated import measurements | P2; Meeting unchanged | Synthetic fixtures and EDGE-07; **PARTIALLY COMPLETE** |
+| 58-06 | Performance improvement is demonstrated without stale, lost or partial data | Synthetic clean-install navigation artifact | Before/after latency, memory, permission/rollover and background refresh faults | P1; #164/59 | Measured comparison and authority tests; **NOT IMPLEMENTED** as a completed comparison |
+
+## #59 — architecture and data authority
+
+| ID | Testable acceptance outcome | Existing implementation and evidence | Remaining gap / production requirement | Priority and dependency | Verification and status |
+|---|---|---|---|---|---|
+| 59-01 | Each metric and Open RO field has one source-authority/lineage contract | `docs/ARCHITECTURE.md`, `docs/OPERATING-INTELLIGENCE.md` | Audit priority for SAPR, CSI, VIR, menu, WIP, history, manual overrides | P0 | Cross-view provenance and source-conflict tests; **PARTIALLY COMPLETE** |
+| 59-02 | Reused business calculations agree across views | `assets/freshness.js`, `assets/daily-engine.js`, app selectors | Inventory repeated calculations; extract only demonstrably conflicting ones | P1 | Same-input cross-view synthetic assertions; **PARTIALLY COMPLETE** |
+| 59-03 | Refresh/import/backup/update tasks are coalesced and cannot conflict | Existing per-operation guards in app/storage | Inventory schedules, cancellation, safe retry and revision checks | P0; #164 | Concurrent and interrupted operation tests; **PARTIALLY COMPLETE** |
+| 59-04 | Duplicate/missing/stale/unsupported sources report confidence without silent replacement | Existing source boundary and freshness tests | Verify complete source coverage and conflict states | P0 | Synthetic conflicting-month, missing/duplicate sources; **PARTIALLY COMPLETE** |
+| 59-05 | Durable recovery, original-state backup, month correction and rollback are idempotent | `tests/workbook-transaction.test.cjs`; `tests/supervisor-workbook-recovery.test.cjs` | Broader interrupted multi-file and correction verification | P0; #164 | Real-function faults, preflight and reimport; **PARTIALLY COMPLETE** |
+| 59-06 | Workspace history cannot cross-contaminate on overlapping folder reads | Draft PR #220, head `56e0d2224aa6c49a1f487897996b7d2e61216239` | Regression creation was denied; **do not reroute or reattempt** the denied action; never merge unproven draft | P0; authorized evidence required | Accepted actual-function overlapping-root regression missing; **BLOCKED — TOOL OR PERMISSION** |
+| 59-07 | Prior-month snapshots have explicit readiness and safe late corrections | `assets/app.js` snapshot/summary flows | Verify source completeness and provenance before lock/restore | P1 | Month rollover/late arrival synthetic test; **PARTIALLY COMPLETE** |
+| 59-08 | Modular adapters and health checks are safe, bounded and measurable | `docs/ARCHITECTURE.md`, scripts and modules | Source/scheduler audit and incremental, testable refactor | P2; #58 | Startup checks, no false warnings, measured cost; **PARTIALLY COMPLETE** |
+
+## #60 — manager control and workflow
+
+| ID | Testable acceptance outcome | Existing implementation and evidence | Remaining gap / production requirement | Priority and dependency | Verification and status |
+|---|---|---|---|---|---|
+| 60-01 | Manager Home shows actionable Top 3 with owner, blocker, next step and source confidence | `assets/daily-ops.js`; `tests/manager-attention-top3.test.cjs` | Audit every action's recorded owner, due, source and acknowledgment | P1 | Real-function synthetic candidate ordering and UX; **PARTIALLY COMPLETE** |
+| 60-02 | Open RO Save/Save & Next protects prior state and reports truthful durability | PR #249 and #251; `tests/open-ro-post-save.test.cjs`, `tests/open-ro-save-serialization.test.cjs` | Continue full workflow interruption, draft-loss and concurrent source change matrix | P0 | Both PRs protected-merged/published by Beta 111; **PARTIALLY COMPLETE** |
+| 60-03 | 2+/5+ day RO plans, parts/approval/dispatch and customer updates are actionable | `assets/daily-engine.js`; `tests/manager-attention-top3.test.cjs` | Source-specific missing/promise and carryover cases | P1 | Synthetic stale and 5+ day record cases; **PARTIALLY COMPLETE** |
+| 60-04 | Daily Walk rendering honors configured manager workdays including excluded Mondays and selected Sundays | `assets/app.js:renderDailyFocus`; `tests/manager-work-schedule.test.cjs` covers calendar helpers only | Baseline renderer hardcodes Sunday off and Monday resume; use `isDailyFocusDay`, add real-renderer regression | P1; managerSchedule setting | New `tests/daily-focus-configured-days.test.cjs`, exact-head CI and trusted Beta; **IMPLEMENTED — VALIDATION PENDING** on this branch |
+| 60-05 | Carryover, tomorrow, promises and incomplete diagnostics show verified ownership | `assets/daily-ops.js` + RO status inputs | Audit missing actions and source confidence; never invent promises | P1 | Workflow click and fixture evidence; **PARTIALLY COMPLETE** |
+| 60-06 | Unsaved drafts survive navigation/refresh/storage errors | `assets/app.js` edit and save flows | Extended edit interruption and retry matrix | P0 | Browser synthetic draft persistence and rollback evidence; **PARTIALLY COMPLETE** |
+| 60-07 | Advisor Meeting six lanes, slides, rotation and 16:9/9:16 remain unchanged | `tests/advisor-meeting-30-second.test.cjs`; Clean Install Proof TV smoke | Preserve untouched; any changes require visual evidence | P1 dependency | Existing proof, monitor on each Beta; **VERIFIED COMPLETE** for regression preservation baseline |
+
+## #61 — release automation and operational completeness
+
+| ID | Testable acceptance outcome | Existing implementation and evidence | Remaining gap / production requirement | Priority and dependency | Verification and status |
+|---|---|---|---|---|---|
+| 61-01 | Exact-head required Publication Check with approved source and branch rules | `.github/workflows/publication-check.yml`; ruleset 24665513 requires `Publication Check` integration 15368 | Verify bot-generated PR `action_required` versus genuine checks; no shortcut through dispatch | P0 | Read live suites/required source before protected merge; **PARTIALLY COMPLETE** |
+| 61-02 | Clean Install Proof and trusted package publish Beta with stable unchanged | `.github/workflows/clean-install-proof.yml`, `prepare-beta-package.yml`; Beta 111 live manifest | Reverify each PR's head and package proof; no installed claim | P0; 61-01 | Required exact-head CI and live manifest after merge; **PARTIALLY COMPLETE** |
+| 61-03 | Permanent synthetic fault regression matrix | Node and Python tests under `tests/` | Fill coverage holes for OneDrive-like contention, browser permission, damaged history and concurrency | P0; #164 | Fault-injection with real functions; **PARTIALLY COMPLETE** |
+| 61-04 | Critical source lineage shows source, period, import, refresh, override and durability | `assets/freshness.js`, `docs/OPERATING-INTELLIGENCE.md` | Audit fields and distinguish missing/stale/zero | P1; #59 | Cross-screen synthetic provenance tests; **PARTIALLY COMPLETE** |
+| 61-05 | Verified exceptions deduplicate acknowledged conditions and missed customer promises | `assets/daily-engine.js`, `assets/daily-ops.js` | End-to-end duplicate/freshness tests | P1; #60 | Simulated report rollover and reimport; **PARTIALLY COMPLETE** |
+| 61-06 | Landing page, filters, order and density persist per device, not operational Workspace | `tests/device-start-page.test.cjs` for initial landing behavior | Inventory filter/sort/density persistence and clear reset | P2 | Browser locale/permission tests; **PARTIALLY COMPLETE** |
+| 61-07 | Source, recovery, release and field guides remain current and reflect shipped code | `docs/ARCHITECTURE.md`, `docs/RELEASE-PROCESS.md`, `docs/ENGINEERING-CONTINUATION.md` | Maintain a single superseding live checkpoint, eliminate stale “latest” claims | P2 | Consistency check at package release; **PARTIALLY COMPLETE** |
+
+## #212 — sustained-trend coaching (deferred until higher-priority dependencies)
+
+| ID | Testable acceptance outcome | Existing implementation and evidence | Remaining gap / production requirement | Priority and dependency | Verification and status |
+|---|---|---|---|---|---|
+| 212-01 | Compare verified complete, comparable multi-period advisor evidence | `assets/daily-engine.js:coachingTasks` currently works on current SAPR snapshot | Verify actual weekly series availability and correct denominators | P3; #59/60 | Comparable multi-period fixtures; **DEFERRED** |
+| 212-02 | Suppress trivial 0.1-point gaps and distinguish sustained vs isolated decline | `tests/manager-attention-top3.test.cjs` covers current controllable gap; no sustained trend detector | Design defensible magnitude/duration thresholds without invented policies | P3; source readiness | Synthetic trend/sparse data scenarios; **DEFERRED** |
+| 212-03 | Preserve urgent severe current underperformance, advisor privacy, Top 3 dedup | `assets/daily-engine.js`, `assets/daily-ops.js` | Extend trend logic without hiding hard risk or changing Meeting | P3; 212-01 | Synthetic severe/acknowledged/reimport cases; **DEFERRED** |
+| 212-04 | Manager sees evidence: values, periods, samples and next coaching action | Existing single-period coaching description | Add manager-only explanatory trend line when source proves it | P3; 212-01/02 | Advisor privacy checks and UI review; **DEFERRED** |
+
+## Release and closeout control
+
+Before calling any *new* criterion VERIFIED COMPLETE: capture exact PR head/base, required check runs **from the ruleset-authorized source**, substantive review outcomes, synthetic regression result, protected merge commit, then—if runtime changed—trusted package PR, live manifest/version/sha256, and Stable unchanged. Put evidence against each relevant criterion even when one implementation covers several issues. Do not close an umbrella issue unless every criterion meets its issue-specific closure rule. Live Windows/Edge/OneDrive proof remains external; it cannot be invented from GitHub CI.
+
+**Next executable:** protect the Daily Walk schedule display in #60 via a real-production renderer synthetic regression; run exact-head Publication Check/Clean Install Proof; review and merge under ruleset if green; verify automated Beta publication. Then move to #164/#59 durable fault injection rather than repeatedly publishing cosmetic changes.
