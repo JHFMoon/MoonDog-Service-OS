@@ -7,11 +7,13 @@ Updating this protected script or workflow requires a separately reviewed merge.
 from __future__ import annotations
 
 import json
+from http.client import HTTPException
 import os
 from pathlib import Path
 import re
 import sys
-from urllib.error import HTTPError
+import time
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -111,6 +113,8 @@ class GitHub:
         if not token:
             raise ValueError("Missing GitHub Actions token")
         self.token, self.repo = token, repository
+        # Leave headroom inside the ten-minute job for checkout and reporting.
+        self.deadline = time.monotonic() + 420
 
     def request(self, method: str, endpoint: str, data=None):
         if not endpoint.startswith("repos/" + self.repo + "/"):
@@ -134,8 +138,41 @@ class GitHub:
             "Content-Type": "application/json",
             "User-Agent": "MoonDog-Verified-Issue-Closeout",
         })
-        with urlopen(req, timeout=35) as response:
-            result = response.read()
+        # Retry reads only. A lost mutation response may already have created
+        # the completion comment; the next serialized reconciliation must read
+        # its marker before trying again. Never replay a mutation blindly.
+        read_only = method == "GET" or (
+            method == "POST" and url == "https://api.github.com/graphql" and
+            isinstance(data, dict) and data.get("query") == REVIEW_QUERY
+        )
+        for attempt in range(3):
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError("GitHub verification time budget exhausted; hourly reconciliation will retry")
+            try:
+                with urlopen(req, timeout=min(15, remaining)) as response:
+                    result = response.read()
+                break
+            except (URLError, TimeoutError, ConnectionError, HTTPException) as error:
+                retryable = not isinstance(error, HTTPError) or error.code in {
+                    429, 500, 502, 503, 504
+                }
+                delay = 2 ** attempt
+                if isinstance(error, HTTPError):
+                    retry_after = error.headers.get("Retry-After") if error.headers else None
+                    if retry_after is not None:
+                        # Longer server cooldowns are left to hourly reconciliation.
+                        if not retry_after.isdigit() or int(retry_after) > 30:
+                            retryable = False
+                        else:
+                            delay = max(delay, int(retry_after))
+                if not read_only or not retryable or attempt == 2:
+                    raise
+                if time.monotonic() + delay >= self.deadline:
+                    raise ValueError("GitHub verification retry exceeds time budget; hourly reconciliation will retry") from error
+                print("GitHub verification read temporarily unavailable; retry " +
+                      str(attempt + 1) + "/2 in " + str(delay) + "s", file=sys.stderr)
+                time.sleep(delay)
         return json.loads(result) if result else {}
 
     def pages(self, endpoint: str):
@@ -330,12 +367,16 @@ def main() -> int:
             if not re.fullmatch(r"[1-9]\d*", key) or not isinstance(record, dict):
                 raise ValueError("Malformed issue record")
             summary.append(close_if_ready(api, int(key), record, matrix, manifest, main_ref, dry))
-        except (ValueError, KeyError, TypeError, HTTPError) as error:
+        except (ValueError, KeyError, TypeError, URLError, TimeoutError,
+                ConnectionError, HTTPException) as error:
             summary.append({"issue": key, "status": "open/verification-blocked",
-                            "reason": type(error).__name__ + ": " + str(error)[:300]})
+                            "reason": type(error).__name__ + ": " + str(error)[:300],
+                            "next_action": "Resolve verification failure; hourly reconciliation will recheck"})
     print(json.dumps({"main": main_ref, "beta": manifest["beta"]["version"],
                       "dry_run": dry, "issues": summary}, indent=2))
-    return 0
+    # Missing acceptance is expected. Broken verification is an actionable
+    # workflow failure, not a green assurance that every issue was evaluated.
+    return int(any(item["status"] == "open/verification-blocked" for item in summary))
 
 
 if __name__ == "__main__":

@@ -3509,6 +3509,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       // stale callbacks when a different tab is selected in the meantime.
       requestAnimationFrame(()=>setTimeout(()=>{
         if(ticket!==meetingNavigationTicket||!ui["view-performance"]?.classList.contains("active"))return;
+        if(performanceRenderedRevision===navigationDataRevision&&performanceRenderedClock===reportClockToken())return;
         const started=performance.now();
         renderPerformance();
         const elapsed=performance.now()-started;
@@ -3522,6 +3523,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       if(meetingRenderedRevision!==navigationDataRevision||meetingRenderedDate!==localDateKey()){
         requestAnimationFrame(()=>setTimeout(()=>{
           if(ticket!==meetingNavigationTicket||!ui["view-meeting"]?.classList.contains("active"))return;
+          if(meetingRenderedRevision===navigationDataRevision&&meetingRenderedDate===localDateKey())return;
           const started=performance.now();
           renderMeeting();
           globalThis.__serviceMeetingPresenter?.paint?.();

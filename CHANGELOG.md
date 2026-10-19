@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.116 — current Beta
+
+- Avoid redundant deferred Meeting and Performance redraws after source refresh. Preserve source invalidation and business-date refresh. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.115 — current Beta
 
 - fix: refuse destructive interrupted-journal auto-recovery (#164). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
