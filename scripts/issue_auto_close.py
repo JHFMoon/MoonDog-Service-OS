@@ -57,35 +57,62 @@ def parse_matrix(source: str) -> dict[int, dict[str, bool]]:
     return seen
 
 
+def proof_pr_numbers(proof: dict) -> list[int]:
+    """A legacy one-PR proof or multiple independently checked source/test PRs.
+
+    Every cited PR must pass validation; a multi-PR criterion cannot silently
+    ignore a failed or unmerged contributor. Duplicate/booleans are rejected.
+    """
+    if "prs" in proof:
+        numbers = proof["prs"]
+        if "pr" in proof or not isinstance(numbers, list) or not numbers:
+            raise ValueError("Choose exactly one of pr or nonempty prs")
+    else:
+        numbers = [proof.get("pr")]
+    if (any(type(n) is not int or n < 1 for n in numbers) or
+            len(set(numbers)) != len(numbers) or len(numbers) > 16):
+        raise ValueError("Proof PRs must be unique positive integer IDs (max 16)")
+    return numbers
+
+
 def evidence_shape(issue: int, matrix: dict[int, dict[str, bool]], record: dict) -> list[str]:
     reasons: list[str] = []
     listed = matrix.get(issue) or {}
     proofs = record.get("criteria")
     if not listed:
         return ["Issue has no authoritative acceptance matrix criteria"]
-    if not isinstance(proofs, dict) or set(proofs) != set(listed):
-        return ["Evidence criterion IDs do not exactly match the authoritative acceptance matrix"]
+    if not isinstance(proofs, dict):
+        return ["Issue evidence criteria must be an object"]
+    extra = set(proofs) - set(listed)
+    if extra:
+        reasons.append("Unrecognized evidence criterion IDs: " + ", ".join(sorted(extra)))
+    # Record verified criteria as they arrive. Missing entries block closure
+    # individually, without erasing already validated partial progress.
     for key, verified in listed.items():
         if not verified:
             reasons.append(key + " has not reached VERIFIED COMPLETE")
+        if key not in proofs:
+            reasons.append(key + " missing structured proof")
+            continue
         proof = proofs[key]
         if not isinstance(proof, dict):
             reasons.append(key + " has no structured proof")
             continue
-        if not isinstance(proof.get("pr"), int) or proof["pr"] < 1:
-            reasons.append(key + " missing merged source/test PR")
+        try:
+            proof_pr_numbers(proof)
+        except ValueError as error:
+            reasons.append(key + " " + str(error))
         paths = proof.get("tests")
         if not isinstance(paths, list) or not paths or any(
             not isinstance(p, str) or
             not p.startswith("tests/") or
             not (p.endswith(".test.cjs") or (p.startswith("tests/test_") and p.endswith(".py"))) or
-            p.startswith("tests/../") for p in paths
-        ):
-            reasons.append(key + " missing a valid synthetic regression test path")
+            ".." in p.split("/") or len(p) > 256 for p in paths
+        ) or len(set(paths)) != len(paths):
+            reasons.append(key + " missing unique valid synthetic regression test paths")
         if proof.get("kind") not in {"runtime", "test"}:
             reasons.append(key + " has no recognized verification kind")
     return reasons
-
 
 def eligible_snapshot(issue: int, state: str, matrix: dict[int, dict[str, bool]], record: dict,
                       manifest: dict) -> list[str]:
@@ -224,18 +251,26 @@ def verify_live_evidence(api: GitHub, issue: int, record: dict, manifest: dict,
     if not source_in_beta(api, package_pr["merge_commit_sha"], commit_sha):
         raise ValueError("Published Beta package is not an ancestor of current main")
     for key, proof in record["criteria"].items():
-        source_pr, paths = validated_pr(api, proof["pr"], cache)
-        if not set(proof["tests"]).intersection(paths):
-            raise ValueError(key + " regression test was not delivered in linked PR")
+        contributors = [validated_pr(api, number, cache)
+                        for number in proof_pr_numbers(proof)]
+        delivered = set().union(*(files for _, files in contributors))
+        if not set(proof["tests"]).issubset(delivered):
+            raise ValueError(key + " regression test paths were not delivered by cited PRs")
         if proof["kind"] == "runtime" and not any(
-                p.startswith("assets/") or p == "index.html" for p in paths):
+                any(p.startswith("assets/") or p == "index.html" for p in paths)
+                for _, paths in contributors):
             raise ValueError(key + " has no production runtime diff")
-        if proof["kind"] == "runtime":
-            if not source_in_beta(api, source_pr["merge_commit_sha"],
-                                  package_pr["base"]["sha"]):
-                raise ValueError(key + " runtime source is newer than the trusted published Beta")
-        elif not source_in_beta(api, source_pr["merge_commit_sha"], commit_sha):
-            raise ValueError(key + " test/field proof has not reached current main")
+        # All PRs must have reached protected main. The actual runtime changes
+        # (whichever PRs supplied them) must precede the trusted Beta package;
+        # subsequent test-only improvements can be newer than that package.
+        for source_pr, paths in contributors:
+            merged_sha = source_pr["merge_commit_sha"]
+            if not source_in_beta(api, merged_sha, commit_sha):
+                raise ValueError(key + " cited PR has not reached current main")
+            if proof["kind"] == "runtime" and any(
+                    p.startswith("assets/") or p == "index.html" for p in paths):
+                if not source_in_beta(api, merged_sha, package_pr["base"]["sha"]):
+                    raise ValueError(key + " runtime source is newer than the trusted published Beta")
 
 
 def close_if_ready(api: GitHub, issue: int, record: dict, matrix: dict,
@@ -275,7 +310,8 @@ def close_if_ready(api: GitHub, issue: int, record: dict, matrix: dict,
     if not any(marker in c.get("body", "") for c in comments):
         proofs = record["criteria"]
         proof_lines = [
-            "- " + key + ": merged PR #" + str(proof["pr"]) +
+            "- " + key + ": merged PRs " +
+            ", ".join("#" + str(n) for n in proof_pr_numbers(proof)) +
             "; regression " + ", ".join(proof["tests"])
             for key, proof in sorted(proofs.items())
         ]
@@ -324,6 +360,9 @@ def main() -> int:
         raise ValueError("Unsupported closure evidence schema")
     if not proof["issues"]:
         raise ValueError("No tracked issues; refusing silent empty completion")
+    # Scope only explicitly registered issue numbers, never arbitrary PRs.
+    if set(proof["issues"]) - set(str(n) for n in matrix):
+        raise ValueError("Registry contains unrecognized issues without an acceptance matrix")
     summary = []
     for key, record in proof["issues"].items():
         try:
