@@ -278,7 +278,11 @@ def close_if_ready(api: GitHub, issue: int, record: dict, matrix: dict,
     comments = api.pages("repos/" + api.repo + "/issues/" + str(issue) + "/comments")
     if dry_run:
         return {"issue": issue, "status": "eligible/dry-run", "main": main_sha}
-    # Re-read before mutation; scheduled/merge-event jobs serialize globally.
+    # Re-read before mutation; jobs serialize with one another, not with
+    # unrelated main pushes. Never close from a superseded source snapshot.
+    latest_main = api.request("GET", "repos/" + api.repo + "/branches/main")
+    if latest_main.get("commit", {}).get("sha") != main_sha:
+        return {"issue": issue, "status": "open/main-advanced-recheck-required"}
     current = api.request("GET", "repos/" + api.repo + "/issues/" + str(issue))
     if current.get("state") != "open":
         return {"issue": issue, "status": "already-closed"}
@@ -307,6 +311,10 @@ def close_if_ready(api: GitHub, issue: int, record: dict, matrix: dict,
         )
         api.request("POST", "repos/" + api.repo + "/issues/" + str(issue) +
                     "/comments", {"body": completion})
+    # A completion comment is harmless if main moved; a false issue closure is not.
+    latest_main = api.request("GET", "repos/" + api.repo + "/branches/main")
+    if latest_main.get("commit", {}).get("sha") != main_sha:
+        return {"issue": issue, "status": "open/main-advanced-recheck-required"}
     api.request("PATCH", "repos/" + api.repo + "/issues/" + str(issue), {
         "state": "closed", "state_reason": "completed"
     })
