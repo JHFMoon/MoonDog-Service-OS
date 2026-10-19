@@ -19,8 +19,23 @@
       "package_pr": null
     },
     "164": {
-      "criteria": {},
-      "package_pr": null
+      "criteria": {
+        "164-06": {
+          "kind": "test",
+          "pr": 265,
+          "tests": [
+            "tests/maintenance-large-inventory.test.cjs"
+          ]
+        },
+        "164-08": {
+          "kind": "test",
+          "pr": 242,
+          "tests": [
+            "tests/learned-parser-epoch-guard.test.cjs"
+          ]
+        }
+      },
+      "package_pr": 266
     },
     "212": {
       "criteria": {},
