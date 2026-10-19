@@ -35,11 +35,11 @@ class RoadmapProgressTests(unittest.TestCase):
     def test_newly_registered_issue_is_included_without_script_edits(self):
         matrix = (
             "## #58 — existing active\n"
-            "| 58-01 | test | **PARTIALLY COMPLETE** |\n"
+            "| 58-01 | test | evidence | **PARTIALLY COMPLETE** |\n"
             "## #999 — newly registered active\n"
-            "| 999-01 | test | **VERIFIED COMPLETE** |\n"
+            "| 999-01 | test | evidence | **VERIFIED COMPLETE** |\n"
             "## #212 — deferred\n"
-            "| 212-01 | test | **DEFERRED** |\n"
+            "| 212-01 | test | evidence | **DEFERRED** |\n"
         )
         issues = {
             "58": {"criteria": {}},
@@ -54,14 +54,14 @@ class RoadmapProgressTests(unittest.TestCase):
 
     def test_unregistered_matrix_issue_fails_loudly(self):
         matrix = (
-            "## #58 — existing\n| 58-01 | test | **PARTIALLY COMPLETE** |\n"
-            "## #999 — unregistered\n| 999-01 | test | **PARTIALLY COMPLETE** |\n"
+            "## #58 — existing\n| 58-01 | test | evidence | **PARTIALLY COMPLETE** |\n"
+            "## #999 — unregistered\n| 999-01 | test | evidence | **PARTIALLY COMPLETE** |\n"
         )
         with self.assertRaisesRegex(ValueError, "Roadmap issue mismatch"):
             self.report(matrix, {"58": {"criteria": {}}})
 
     def test_registry_issue_missing_from_matrix_fails_loudly(self):
-        matrix = "## #58 — existing\n| 58-01 | test | **PARTIALLY COMPLETE** |\n"
+        matrix = "## #58 — existing\n| 58-01 | test | evidence | **PARTIALLY COMPLETE** |\n"
         with self.assertRaisesRegex(ValueError, "Roadmap issue mismatch"):
             self.report(matrix, {
                 "58": {"criteria": {}},
@@ -69,7 +69,7 @@ class RoadmapProgressTests(unittest.TestCase):
             })
 
     def test_noncanonical_registry_issue_ids_are_rejected(self):
-        matrix = "## #58 — existing\n| 58-01 | test | **PARTIALLY COMPLETE** |\n"
+        matrix = "## #58 — existing\n| 58-01 | test | evidence | **PARTIALLY COMPLETE** |\n"
         for issues in (
             {"058": {"criteria": {}}},
             {"+58": {"criteria": {}}},
@@ -81,6 +81,65 @@ class RoadmapProgressTests(unittest.TestCase):
                     ValueError, "Non-canonical roadmap registry issue IDs"
                 ):
                     self.report(matrix, issues)
+
+    def test_duplicate_issue_sections_are_rejected(self):
+        matrix = (
+            "## #58 — original\n"
+            "| 58-01 | test | evidence | **PARTIALLY COMPLETE** |\n"
+            "## #58 — duplicate\n"
+            "| 58-02 | test | evidence | **VERIFIED COMPLETE** |\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Duplicate matrix issue section"):
+            self.report(matrix, {"58": {"criteria": {}}})
+
+    def test_malformed_criterion_row_is_rejected(self):
+        matrix = (
+            "## #58 — active\n"
+            "| 58-01 | **VERIFIED COMPLETE** |\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Malformed acceptance criterion row"):
+            self.report(matrix, {"58": {"criteria": {}}})
+
+    def test_deferral_is_derived_from_last_status_cells(self):
+        matrix = (
+            "## #212 — temporarily deferred\n"
+            "| 212-01 | test | evidence | **DEFERRED** |\n"
+            "| 212-02 | test | evidence | **DEFERRED** |\n"
+        )
+        output = self.report(matrix, {"212": {"criteria": {}}})
+        self.assertIn("#212 | 0/2 | 2 | 0/0 credited | DEFERRED", output)
+        self.assertIn("ACTIVE TOTAL | 0/0 | 0 remaining", output)
+
+    def test_reactivated_issue_joins_active_totals_without_code_change(self):
+        matrix = (
+            "## #212 — dependencies satisfied\n"
+            "| 212-01 | test | evidence | **VERIFIED COMPLETE** |\n"
+            "| 212-02 | test | evidence | **PARTIALLY COMPLETE** |\n"
+        )
+        output = self.report(matrix, {"212": {"criteria": {}}})
+        self.assertIn("#212 | 1/2 | 1 | 0/1 credited | OPEN REQUIREMENTS", output)
+        self.assertIn("ACTIVE TOTAL | 1/2 | 1 remaining", output)
+
+    def test_mixed_deferred_and_active_status_is_not_hidden(self):
+        matrix = (
+            "## #212 — partial activation\n"
+            "| 212-01 | test | evidence | **DEFERRED** |\n"
+            "| 212-02 | test | evidence | **PARTIALLY COMPLETE** |\n"
+        )
+        output = self.report(matrix, {"212": {"criteria": {}}})
+        self.assertIn("#212 | 0/2 | 2 | 0/0 credited | OPEN REQUIREMENTS", output)
+        self.assertIn("ACTIVE TOTAL | 0/2 | 2 remaining", output)
+
+    def test_deferred_words_in_evidence_do_not_hide_active_issue(self):
+        matrix = (
+            "## #212 — newly active\n"
+            "| 212-01 | test | previously **DEFERRED** evidence | **PARTIALLY COMPLETE** |\n"
+        )
+        output = self.report(matrix, {"212": {"criteria": {}}})
+        self.assertIn("#212 | 0/1 | 1 | 0/0 credited | OPEN REQUIREMENTS", output)
+        self.assertIn("ACTIVE TOTAL | 0/1 | 1 remaining", output)
+
+
 
 
 if __name__ == "__main__":
