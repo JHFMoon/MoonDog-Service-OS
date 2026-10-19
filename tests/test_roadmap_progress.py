@@ -68,6 +68,20 @@ class RoadmapProgressTests(unittest.TestCase):
                 "999": {"criteria": {}},
             })
 
+    def test_noncanonical_registry_issue_ids_are_rejected(self):
+        matrix = "## #58 — existing\\n| 58-01 | test | **PARTIALLY COMPLETE** |\\n"
+        for issues in (
+            {"058": {"criteria": {}}},
+            {"+58": {"criteria": {}}},
+            {"58 ": {"criteria": {}}},
+            {"58": {"criteria": {}}, "058": {"criteria": {}}},
+        ):
+            with self.subTest(keys=sorted(issues)):
+                with self.assertRaisesRegex(
+                    ValueError, "Non-canonical roadmap registry issue IDs"
+                ):
+                    self.report(matrix, issues)
+
 
 if __name__ == "__main__":
     unittest.main()
