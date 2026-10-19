@@ -29,7 +29,7 @@ const record = (taskDate, expectedCloseDate, additions = {}) => ({
 });
 
 test("impossible saved advisor-task dates cannot create false overdue administrative promises", () => {
-  for (const invalid of ["2026-02-29", "2026-02-31", "2026-04-31", "2026-13-01", "2026-00-11", "bad", "2026-10-1"]) {
+  for (const invalid of ["2026-02-29", "2026-02-31", "2026-04-31", "2026-13-01", "2026-00-11", "0000-01-01", "bad", "2026-10-1"]) {
     const state = logic.adminCloseoutState(record(invalid, "2026-03-05"), "2026-03-01");
     assert.equal(state.taskDate, "", invalid + " is not a proven task promise");
     assert.equal(state.needsCommitment, true, invalid + " must request an actual commitment");
@@ -50,7 +50,7 @@ test("invalid expected-close dates are missing evidence rather than overdue RO d
 });
 
 test("new or revised administrative commitments reject impossible dates before creating history", () => {
-  for (const invalid of ["2026-02-29", "2026-02-31", "2026-13-01", "not-a-date"]) {
+  for (const invalid of ["2026-02-29", "2026-02-31", "2026-13-01", "0000-01-01", "not-a-date"]) {
     assert.throws(() => logic.nextAdminCloseout(null, "Customer pickup", invalid, "2026-03-05", "", "2026-03-01T09:00:00Z"), /valid advisor task date/, invalid);
     assert.throws(() => logic.nextAdminCloseout(null, "Customer pickup", "2026-03-05", invalid, "", "2026-03-01T09:00:00Z"), /valid expected RO close date/, invalid);
   }
@@ -59,6 +59,7 @@ test("new or revised administrative commitments reject impossible dates before c
 test("real leap days and legitimate due, missed and future dates keep their established behavior", () => {
   assert.equal(logic.adminCloseoutDaysLate("2028-02-29", "2028-03-02"), 2);
   assert.equal(logic.adminCloseoutDaysLate("2026-02-31", "2026-03-02"), 0);
+  assert.equal(logic.adminCloseoutDaysLate("0000-01-01", "2026-03-02"), 0);
   const prior = logic.nextAdminCloseout(null, "Customer pickup", "2028-02-29", "2028-03-05", "", "2028-02-28T09:00:00Z");
   assert.equal(prior.taskDate, "2028-02-29");
   const overdue = logic.adminCloseoutState(record("2026-02-28", "2026-03-05"), "2026-03-01");
