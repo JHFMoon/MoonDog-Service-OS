@@ -299,9 +299,14 @@
   function reviewStatusDetailLabel(record){const detail=reviewStatusDetail(record);if(!detail)return"";return detail==="Other"&&record?.management?.statusDetailOther?record.management.statusDetailOther:detail;}
   const ADMIN_CLOSEOUT_BLOCKERS = Object.freeze(["", "Customer pickup", "MaxCare / extended-warranty claim", "Warranty approval or processing", "Billing / paperwork", "Other administrative blocker"]);
   function adminCloseoutDaysLate(date, today) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) || !/^\d{4}-\d{2}-\d{2}$/.test(String(today || ""))) return 0;
+    if (!adminCloseoutValidDate(date) || !adminCloseoutValidDate(today)) return 0;
     const due = Date.parse(date + "T12:00:00Z"), current = Date.parse(today + "T12:00:00Z");
-    return Number.isFinite(due) && Number.isFinite(current) ? Math.max(0, Math.round((current - due) / 86400000)) : 0;
+    return Math.max(0, Math.round((current - due) / 86400000));
+  }
+  function adminCloseoutValidDate(value) {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const time = Date.parse(value + "T12:00:00Z");
+    return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value;
   }
   const ADMIN_CLOSEOUT_WORK_STATUSES = Object.freeze(["unverified", "verified"]);
   const ADMIN_CLOSEOUT_PICKUP_STATUSES = Object.freeze(["", "contact-attempted", "notified", "pickup-expected", "picked-up-verified"]);
@@ -354,8 +359,10 @@
       return { active: false, verified: false, overdue: false, dueToday: false, needsCommitment: false };
     }
     // A manager review/reminder date is not proof of an advisor task commitment.
-    const taskDate = closeout.taskDate || "";
-    const closeDate = closeout.expectedCloseDate || "";
+    // Legacy/imported malformed dates are not evidence of real missed promises.
+    // Keep the closeout actionable as a missing verified commitment instead.
+    const taskDate = adminCloseoutValidDate(closeout.taskDate) ? closeout.taskDate : "";
+    const closeDate = adminCloseoutValidDate(closeout.expectedCloseDate) ? closeout.expectedCloseDate : "";
     const taskOverdue = Boolean(taskDate && taskDate < today);
     const closeOverdue = Boolean(closeDate && closeDate < today);
     const taskDueToday = taskDate === today;
@@ -385,6 +392,8 @@
   }
   function nextAdminCloseout(prior, blocker, taskDate, expectedCloseDate, reason, at) {
     if (!ADMIN_CLOSEOUT_BLOCKERS.includes(blocker)) throw new Error("Select a recognized administrative blocker.");
+    if (taskDate && !adminCloseoutValidDate(taskDate)) throw new Error("Enter a valid advisor task date.");
+    if (expectedCloseDate && !adminCloseoutValidDate(expectedCloseDate)) throw new Error("Enter a valid expected RO close date.");
     const previous = prior && typeof prior === "object" ? prior : {};
     const revised = Boolean(previous.blocker) && (previous.blocker !== blocker || previous.taskDate !== taskDate || previous.expectedCloseDate !== expectedCloseDate);
     if (revised && !String(reason || "").trim()) throw new Error("Explain why the advisor's previous administrative commitment changed.");
