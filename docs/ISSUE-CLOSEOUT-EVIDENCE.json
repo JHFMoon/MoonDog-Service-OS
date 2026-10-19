@@ -30,8 +30,16 @@
       "package_pr": 270
     },
     "61": {
-      "criteria": {},
-      "package_pr": null
+      "criteria": {
+        "61-06": {
+          "kind": "runtime",
+          "pr": 260,
+          "tests": [
+            "tests/device-open-ro-preferences.test.cjs"
+          ]
+        }
+      },
+      "package_pr": 270
     },
     "164": {
       "criteria": {
