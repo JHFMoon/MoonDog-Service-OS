@@ -42,12 +42,14 @@ def runs(sha, *, publication=True, clean=True):
 class FakeAPI:
     repo = "JHFMoon/MoonDog-Service-OS"
 
-    def __init__(self, *, verified=True, beta=True, blocked=False, duplicate=False):
+    def __init__(self, *, verified=True, beta=True, blocked=False, duplicate=False, advance_main_at=0):
         self.verification = verified
         self.beta = beta
         self.blocked = blocked
         self.state = "open"
         self.actions = []
+        self.advance_main_at = advance_main_at
+        self.main_reads = 0
         self.comments = [{
             "body": CLOSE_MARKER + str(ISSUE) + " -->"
         }] if duplicate else []
@@ -60,6 +62,10 @@ class FakeAPI:
         if method == "POST":
             self.comments.append({"body": data["body"]})
             return {"id": 9}
+        if endpoint.endswith("/branches/main"):
+            self.main_reads += 1
+            changed = self.advance_main_at and self.main_reads >= self.advance_main_at
+            return {"commit": {"sha": "0" * 40 if changed else MAIN}}
         if endpoint.endswith("/issues/" + str(ISSUE)):
             return {"state": self.state}
         if endpoint.endswith("/pulls/41"):
@@ -166,6 +172,21 @@ class AutoCloseTests(unittest.TestCase):
         result = close_if_ready(fake, ISSUE, RECORD, MATRIX, MANIFEST, MAIN, False)
         self.assertEqual(result["status"], "closed")
         self.assertFalse(any(x[0] == "POST" for x in fake.actions))
+
+    def test_main_advances_before_comment_leaves_issue_open(self):
+        fake = FakeAPI(advance_main_at=1)
+        outcome = close_if_ready(fake, ISSUE, RECORD, MATRIX, MANIFEST, MAIN, False)
+        self.assertEqual(outcome["status"], "open/main-advanced-recheck-required")
+        self.assertEqual(fake.state, "open")
+        self.assertFalse(any(op[0] in {"POST", "PATCH"} for op in fake.actions))
+
+    def test_main_advances_after_comment_never_changes_issue_state(self):
+        fake = FakeAPI(advance_main_at=2)
+        outcome = close_if_ready(fake, ISSUE, RECORD, MATRIX, MANIFEST, MAIN, False)
+        self.assertEqual(outcome["status"], "open/main-advanced-recheck-required")
+        self.assertEqual(fake.state, "open")
+        self.assertEqual(len(fake.comments), 1)
+        self.assertFalse(any(op[0] == "PATCH" for op in fake.actions))
 
     def test_dry_run_never_comments_or_changes_issue(self):
         fake = FakeAPI()
