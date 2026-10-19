@@ -135,6 +135,33 @@ class AutoCloseTests(unittest.TestCase):
         self.assertEqual(retry["status"], "open/not-eligible")
         self.assertEqual(len(fake.comments), 1)
 
+    def test_issue_164_can_close_without_user_browser_test_when_engineering_is_verified(self):
+        matrix = {164: {"164-05": True}}
+        record = {"package_pr": 42, "criteria": {"164-05": {
+            "kind": "runtime", "pr": 41, "tests": ["tests/verified.test.cjs"]
+        }}}
+        self.assertEqual(eligible_snapshot(164, "open", matrix, record, MANIFEST), [])
+        self.assertEqual(closure.evidence_shape(164, matrix, record), [])
+        self.assertNotIn("field_comment", record)
+
+    def test_personal_field_comment_cannot_replace_missing_engineering_proofs(self):
+        matrix = {164: {"164-05": False}}
+        record = {"package_pr": 42, "field_comment": 999, "criteria": {
+            "164-05": {"kind": "runtime", "pr": 41,
+                        "tests": ["tests/verified.test.cjs"]}
+        }}
+        reasons = eligible_snapshot(164, "open", matrix, record, MANIFEST)
+        self.assertTrue(any("has not reached VERIFIED COMPLETE" in x for x in reasons))
+        self.assertFalse(any("field report" in x for x in reasons))
+
+    def test_field_only_proof_cannot_substitute_for_runtime_or_test_coverage(self):
+        matrix = {164: {"164-05": True}}
+        record = {"package_pr": 42, "criteria": {"164-05": {
+            "kind": "field", "pr": 41, "tests": ["tests/verified.test.cjs"]
+        }}}
+        self.assertTrue(any("recognized verification kind" in x
+                            for x in evidence_shape(164, matrix, record)))
+
     def test_incomplete_issue_stays_open_with_no_mutations(self):
         fake = FakeAPI()
         result = close_if_ready(fake, ISSUE, RECORD, {ISSUE: {CRITERION: False}},
