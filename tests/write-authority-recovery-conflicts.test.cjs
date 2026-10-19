@@ -19,11 +19,13 @@ const another=encode({value:"independent writer"});
 function fixture(current=after,options={}){
   const files=new Map(),dirs=new Set(["data"]),actions=[];
   if(current!==null)files.set("data/state.json",asBytes(current));
-  const journal={
-    format:"moondog-write-v1",target:"data/state.json",
-    before:options.beforeNull?null:[...before],after:[...after],
-    revisionBefore:4
-  };
+  const journal=options.journalFormat==="moondog-delete-v1"?
+    {format:"moondog-delete-v1",target:"data/state.json",kind:"file",before:[...before],revisionBefore:4}:
+    options.journalFormat==="moondog-create-v1"?
+    {format:"moondog-create-v1",target:"data/state.json",kind:"file",revisionBefore:4}:
+    {format:"moondog-write-v1",target:"data/state.json",
+      before:options.beforeNull?null:[...before],after:[...after],
+      revisionBefore:4};
   files.set("data/.moondog-txn-synthetic.json",encode(journal));
   const directory=(prefix="")=>({
     kind:"directory",
@@ -141,4 +143,47 @@ test("malformed journal prior-byte arrays never trigger recovery writes",async()
   await assert.rejects(f.recover(4),/bytes are invalid/i);
   assert.deepEqual(f.current(),another);
   assert.equal(f.pending(),true);
+});
+
+test("interrupted file deletion never overwrites different independent bytes",async()=>{
+  const f=fixture(another,{journalFormat:"moondog-delete-v1"});
+  await assert.rejects(f.recover(4),/conflicts with independent/i);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true);
+});
+
+test("interrupted file deletion restores only a verified missing original",async()=>{
+  const f=fixture(null,{journalFormat:"moondog-delete-v1"});
+  await f.recover(4);
+  assert.deepEqual(f.current(),before);
+  assert.equal(f.pending(),false);
+});
+
+test("interrupted deletion before touching target does not rewrite the prior bytes",async()=>{
+  const f=fixture(before,{journalFormat:"moondog-delete-v1"});
+  await f.recover(4);
+  assert.deepEqual(f.current(),before);
+  assert.equal(f.pending(),false);
+  assert.equal(f.actions.some(([act,name])=>act==="write"&&name==="data/state.json"),false);
+});
+
+test("interrupted creation never deletes a new independently populated file",async()=>{
+  const f=fixture(another,{journalFormat:"moondog-create-v1"});
+  await assert.rejects(f.recover(4),/conflicts with populated file/i);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true);
+});
+
+test("interrupted creation may remove only a still-empty created file",async()=>{
+  const f=fixture(new Uint8Array(),{journalFormat:"moondog-create-v1"});
+  await f.recover(4);
+  assert.equal(f.current(),undefined);
+  assert.equal(f.pending(),false);
+});
+
+test("interrupted creation with already missing target clears journal",async()=>{
+  const f=fixture(null,{journalFormat:"moondog-create-v1"});
+  await f.recover(4);
+  assert.equal(f.current(),undefined);
+  assert.equal(f.pending(),false);
 });
