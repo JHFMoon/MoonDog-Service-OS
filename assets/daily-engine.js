@@ -176,7 +176,12 @@
     const m=record.management||{};
     if(api.closed(m))return null;
     const core=api.priority(record,day), text=[api.status(record),record.sourceStatus,m.nextAction].join(' ').toLowerCase();
-    const [reviewHour,reviewMinute]=String(m.reviewTime||'').split(':').map(Number),overdueTime=m.reviewDate===day&&Number.isFinite(reviewHour)&&Number.isFinite(reviewMinute)&&reviewHour*60+reviewMinute<=businessMinute(at);
+    // A malformed clock value must not turn an RO into a false overdue promise.
+    // Accept legacy one-digit hours but normalize sort keys to HH:MM.
+    const reviewMatch=/^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(m.reviewTime||'').trim());
+    const reviewMinutes=reviewMatch?Number(reviewMatch[1])*60+Number(reviewMatch[2]):null;
+    const verifiedReviewTime=reviewMatch?`${reviewMatch[1].padStart(2,'0')}:${reviewMatch[2]}`:'23:59';
+    const overdueTime=m.reviewDate===day&&reviewMinutes!==null&&reviewMinutes<=businessMinute(at);
     const needsCustomerUpdate=m.communication==='Needs update',comeback=/comeback/.test(text),waiter=/waiter/.test(text),promisedToday=/promised today/.test(text);
     const risk=needsCustomerUpdate||comeback||waiter||promisedToday;
     const stuck=stuckWork(record,day),meaningful=core<4||risk||Number(record.daysOpen)>=2||/parts|authoriz|approv|dispatch|diagnos|waiting/.test(text);
@@ -184,7 +189,7 @@
     let title='Review this RO';
     if(core===0)title='Resolve this RO question';else if(core===1||overdueTime)title='Follow up on this commitment';else if(core===2)title='Keep this commitment today';else if(m.communication==='Needs update')title='Update this customer';else if(/waiter/.test(text))title='Check this waiter';else if(/comeback/.test(text))title='Review this comeback';else if(stuck)title=stuck.title;else if(/parts/.test(text))title='Follow up on parts';else if(/authoriz|approv/.test(text))title='Follow up on approval';else if(/dispatch/.test(text))title='Check dispatch';else if(/diagnos/.test(text))title='Follow up on diagnosis';
     const rank=core===0?0:core===1||overdueTime?1:core===2?2:needsCustomerUpdate?2.25:comeback?2.5:(waiter||promisedToday)?3:stuck?.rank??(core===3?4:5);
-    return {id:`ro:${record.id}`,type:'ro',title,recordId:record.id,advisor:String(record.advisorCode||record.advisor||'unassigned'),rank,hard:rank<=3,age:Number(record.daysOpen)||0,deadline:m.reviewDate?`${m.reviewDate}T${m.reviewTime||'23:59'}:00`:null,fingerprint:JSON.stringify(record),record};
+    return {id:`ro:${record.id}`,type:'ro',title,recordId:record.id,advisor:String(record.advisorCode||record.advisor||'unassigned'),rank,hard:rank<=3,age:Number(record.daysOpen)||0,deadline:validDate(m.reviewDate)?`${m.reviewDate}T${verifiedReviewTime}:00`:null,fingerprint:JSON.stringify(record),record};
   }
   const api=Object.freeze({choose,eligible,preference,deferUntil,roTask,stuckWork,hasFuturePlan,phase,phaseWeight,compare,lastEvent,coachingTasks,coachingTurn});
   root.MoonDogDailyEngine=api;if(typeof module!=='undefined')module.exports=api;
