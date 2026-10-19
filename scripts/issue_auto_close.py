@@ -283,13 +283,30 @@ def close_if_ready(api: GitHub, issue: int, record: dict, matrix: dict,
     if current.get("state") != "open":
         return {"issue": issue, "status": "already-closed"}
     if not any(marker in c.get("body", "") for c in comments):
-        api.request("POST", "repos/" + api.repo + "/issues/" + str(issue) + "/comments", {
-            "body": marker + "\nAll acceptance matrix criteria VERIFIED COMPLETE; "
-            "exact-head GitHub Actions checks, merged source PRs, published Beta and "
-            "applicable owner field evidence independently verified against GitHub. "
-            "Evidence manifest: docs/ISSUE-CLOSEOUT-EVIDENCE.json. "
-            "Main: " + main_sha + ". Published Beta: " + manifest["beta"]["version"] + "."
-        })
+        proofs = record["criteria"]
+        proof_lines = [
+            "- " + key + ": merged PR #" + str(proof["pr"]) +
+            "; regression " + ", ".join(proof["tests"])
+            for key, proof in sorted(proofs.items())
+        ]
+        fields = ("\n- Owner field attestation comment #" + str(record["field_comment"])
+                  if issue in FIELD_SCENARIOS else "")
+        completion = (
+            marker + "\nAll acceptance matrix criteria VERIFIED COMPLETE. "
+            "Source PRs and package passed authorized exact-head Publication Check "
+            "and Clean Install Proof from GitHub Actions app 15368; relevant "
+            "review threads are resolved.\n\n"
+            + "\n".join(proof_lines)
+            + "\n- Trusted Beta package PR #" + str(record["package_pr"])
+            + "\n- Published Beta: " + manifest["beta"]["version"]
+            + "\n- Manifest package SHA-256: " + manifest["beta"]["sha256"]
+            + "\n- Protected main at closeout: " + main_sha
+            + fields
+            + "\n- Evidence registry: docs/ISSUE-CLOSEOUT-EVIDENCE.json."
+            + "\nStable 0.10.17 unchanged; publication does not assert an installed update."
+        )
+        api.request("POST", "repos/" + api.repo + "/issues/" + str(issue) +
+                    "/comments", {"body": completion})
     api.request("PATCH", "repos/" + api.repo + "/issues/" + str(issue), {
         "state": "closed", "state_reason": "completed"
     })
