@@ -339,6 +339,40 @@ class AutoCloseTests(unittest.TestCase):
         reasons = evidence_shape(ISSUE, data, RECORD)
         self.assertTrue(any("do not exactly match" in x for x in reasons))
 
+    def test_repo_matrix_and_registry_never_lose_verified_completion_proofs(self):
+        # Every future PR that advances the authoritative matrix to VERIFIED
+        # COMPLETE must carry a corresponding structured proof. Runs in the
+        # existing protected Publication Check and Clean Install Proof suites.
+        import json
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[1]
+        matrix = parse_matrix((root / "docs/ROADMAP-ACCEPTANCE-MATRIX.md").read_text())
+        registry = json.loads((root / "docs/ISSUE-CLOSEOUT-EVIDENCE.json").read_text())
+        self.assertEqual(registry.get("schemaVersion"), 1)
+        self.assertEqual(set(str(n) for n in matrix), set(registry["issues"]))
+        for issue, listed in matrix.items():
+            item = registry["issues"][str(issue)]
+            proofs = item["criteria"]
+            self.assertFalse(set(proofs) - set(listed),
+                "obsolete evidence criterion in #" + str(issue))
+            for criterion, complete in listed.items():
+                if complete:
+                    self.assertIn(criterion, proofs,
+                        "verified criterion has no closeout registry entry: " + criterion)
+                    isolated = evidence_shape(issue, {issue: {criterion: True}},
+                                              {"criteria": {criterion: proofs[criterion]}})
+                    self.assertEqual(isolated, [], criterion + ": " + str(isolated))
+
+    def test_standalone_test_only_pr_after_beta_requires_no_new_runtime_package(self):
+        record = {"package_pr": 42, "criteria": {
+            CRITERION: {"kind": "test", "pr": 44,
+                        "tests": ["tests/verified.test.cjs"]}
+        }}
+        fake = FakeAPI()
+        result = close_if_ready(fake, ISSUE, record, MATRIX, MANIFEST, MAIN, False)
+        self.assertEqual(result["status"], "closed")
+        self.assertEqual(fake.state, "closed")
+
     def test_invalid_stable_version_blocks_even_fully_completed_issue(self):
         changed = {**MANIFEST, "stable": {"version": "0.10.18"}}
         reasons = eligible_snapshot(ISSUE, "open", MATRIX, RECORD, changed)
