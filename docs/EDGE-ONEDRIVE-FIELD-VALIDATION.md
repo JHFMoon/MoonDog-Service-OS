@@ -1,6 +1,6 @@
 # Windows Edge / OneDrive field-validation protocol
 
-**Scope:** Open issues #164, #58, #59 and #61. This protocol defines what must be measured on an actual Windows Microsoft Edge installation. GitHub Actions Chromium/Linux green results are useful synthetic regression evidence, **not proof** that Windows Edge or OneDrive works on an installed machine.
+**Scope:** Optional, non-blocking field investigation for #164, #58, #59 and #61. There is **no requirement that the owner test in Windows, Edge, OneDrive, or any browser in order to close a GitHub issue**. When collected, genuine device results supplement synthetic regression evidence; GitHub Chromium/Linux must never be presented as physical Windows/OneDrive proof.
 
 ## Non-negotiable evidence boundary
 
@@ -10,15 +10,15 @@
 - Record the exact tested Beta version and SHA-256 from `updates/manifest.json`; verify the installed application's own version separately. Beta publication is not installation proof.
 - Do not claim Stable approval or automatic installation based on this procedure.
 
-## Required measurement record
+## Optional measurement record (only if someone voluntarily performs field testing)
 
 For each scenario capture: scenario ID; Windows/Edge version and architecture; tested MoonDog version; whether the folder is local or OneDrive-synced; cold versus warm start; dataset size; number of runs; p50/p95 elapsed milliseconds; peak browser CPU and memory; main-thread long tasks and interaction delay; outcome; whether a permission prompt appeared; and any locally retained diagnostic reference (never its raw contents in GitHub).
 
-**Timing definition:** start at the user's launcher action and end at the first verified, usable Home state (not merely first rendered HTML). Measure navigation separately from first usable Home. Keep baseline and candidate tests on the same machine and dataset. Use at least five repetitions where feasible; do not invent latency budgets.
+**Optional timing definition:** start at the user's launcher action and end at the first verified, usable Home state (not merely first rendered HTML). Measure navigation separately from first usable Home. Keep baseline and candidate tests on the same machine and dataset. Use at least five repetitions where feasible; do not invent latency budgets.
 
-## Synthetic field matrix
+## Optional synthetic field matrix for future investigation
 
-| ID | Situation | Required outcome |
+| ID | Situation | Outcome to evaluate when run (not a closure gate) |
 |---|---|---|
 | EDGE-01 | Cold and warm `file://` launches with empty synthetic Workspace | Usable Home; safe source confidence; no unexplained spinner or unhandled rejection |
 | EDGE-02 | Synthetic 2,100+ event records, realistic mixed reports, repeated Search and tab changes | p50/p95 and peak memory recorded; current data remains correct |
@@ -31,7 +31,7 @@ For each scenario capture: scenario ID; Windows/Edge version and architecture; t
 
 Synthetic scenarios must validate no real customer-facing messages, no unauthorized RO changes and no migration of protected Workspace material. Never perform destructive interruption against a real installation.
 
-## On-device capture procedure
+## Optional on-device capture procedure — never required from the owner
 
 1. Record the version and hash from the verified package/manifest. Create a **separate synthetic copy** of the installation and ensure its synthetic Workspace is not a link into the operational Workspace.
 2. Open the copy in Windows Microsoft Edge. Use Edge Browser Task Manager (`Shift+Esc`) to record CPU and memory for the application's tab while reproducing each scenario.
@@ -43,4 +43,4 @@ Synthetic scenarios must validate no real customer-facing messages, no unauthori
 
 ## Release decision
 
-An improvement may ship to Beta on trusted synthetic CI, but #164 cannot be declared fully verified until its high-priority Windows/Edge/OneDrive outcomes have genuine field evidence or an explicit recorded external-environment blocker. Keep Stable unchanged without separate owner authorization.
+An engineering issue may close when all **software acceptance criteria** have verified synthetic/automated evidence and protected releases as applicable, without any physical Windows/Edge/OneDrive test or owner action. Do not claim device compatibility was measured when it was not. Optional field results may be investigated in a new, separate regression issue if a real problem is later observed; they must not reopen or hold an otherwise complete software issue solely for lack of a live test. Keep Stable unchanged without separate owner authorization.
