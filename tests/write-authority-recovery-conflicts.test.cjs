@@ -9,6 +9,9 @@ const source=fs.readFileSync(path.join(__dirname,"..","assets/moondog-write-auth
 const begin=source.indexOf("  async function at("),end=source.indexOf("  async function validate(",begin);
 assert.ok(begin>=0&&end>begin,"exercise actual production recovery and file operations");
 const production=source.slice(begin,end);
+const validationEnd=source.indexOf("  async function provision(",end);
+assert.ok(validationEnd>end,"execute the production validate gate");
+const validation=source.slice(end,validationEnd);
 const encode=value=>new TextEncoder().encode(JSON.stringify(value));
 const asBytes=value=>value===null?null:new Uint8Array(value);
 const missing=()=>Object.assign(Error("Synthetic missing"),{name:"NotFoundError"});
@@ -27,8 +30,10 @@ function fixture(current=after,options={}){
       before:options.beforeNull?null:[...before],after:[...after],
       revisionBefore:4};
   files.set("data/.moondog-txn-synthetic.json",encode(journal));
+  files.set("data/store-revision.json",encode({schemaVersion:1,revision:4}));
   const directory=(prefix="")=>({
     kind:"directory",
+    queryPermission:async()=>"granted",
     async getDirectoryHandle(name,{create=false}={}){
       const k=prefix?prefix+"/"+name:name;
       if(!dirs.has(k)){if(!create)throw missing();dirs.add(k);}
@@ -69,11 +74,21 @@ function fixture(current=after,options={}){
       }
     }
   });
-  const context=vm.createContext({TextEncoder,TextDecoder,Uint8Array,Promise,crypto:globalThis.crypto});
-  vm.runInContext("const encoder=new TextEncoder();\n"+production+"\nglobalThis.recoverPending=recoverPending;",context);
+  const context=vm.createContext({TextEncoder,TextDecoder,Uint8Array,Promise,crypto:globalThis.crypto,
+    console:{warn(){}},setTimeout});
+  const setup="const encoder=new TextEncoder();const REVISION=['data','store-revision.json'];"+
+    "const originals=new WeakMap();let nativeRoot=null,loadedRevision=null,activeToken=null;"+
+    "let editable=true;const transientValidationDelays=[0];"+
+    "const sleep=async()=>{};const denied=()=>new Error('read only');"+
+    "const transientInterfaceState=()=>false;"+
+    "function setEditable(value){editable=value;}function setTransientValidation(_){};";
+  vm.runInContext(setup+"\n"+production+"\n"+validation+
+    "\nglobalThis.recoverPending=recoverPending;globalThis.validate=validate;globalThis.isEditable=()=>editable;",context);
   return{
     files,actions,journal,
     recover:revision=>context.recoverPending(directory(),{schemaVersion:1,revision}),
+    validate:()=>context.validate(directory(),false),
+    editable:()=>context.isEditable(),
     current:()=>files.get("data/state.json"),
     pending:()=>files.has("data/.moondog-txn-synthetic.json")
   };
@@ -186,5 +201,22 @@ test("interrupted creation with already missing target clears journal",async()=>
   const f=fixture(null,{journalFormat:"moondog-create-v1"});
   await f.recover(4);
   assert.equal(f.current(),undefined);
+  assert.equal(f.pending(),false);
+});
+
+test("actual write-authority validation disables editing when pending write needs controlled recovery",async()=>{
+  const f=fixture(after);
+  assert.equal(f.editable(),true);
+  assert.equal(await f.validate(),false);
+  assert.equal(f.editable(),false,"unverified transaction leaves write authority read-only");
+  assert.deepEqual(f.current(),after,"unverified bytes cannot be automatically rolled back");
+  assert.equal(f.pending(),true,"journal must be retained for deliberate verified recovery");
+});
+
+test("actual write-authority validation permits intact original and journal cleanup",async()=>{
+  const f=fixture(before);
+  assert.equal(await f.validate(),true);
+  assert.equal(f.editable(),true);
+  assert.deepEqual(f.current(),before);
   assert.equal(f.pending(),false);
 });
