@@ -138,6 +138,7 @@ test("overlapping A/B searches paint only the newest root's results", async () =
   h.input.value="Alpha";
   const old=h.context.searchAll();
   h.model.root=B;
+  h.model.workspaceConnectionCommittedRoot=B;
   h.input.value="Beta";
   await h.context.searchAll();
   gate.resolve([eventFile("Alpha-result")]);
@@ -277,6 +278,63 @@ test("ready does not loop or retry persistent read failure on unchanged root", a
   assert.equal(errors.length,1);
   assert.equal(h.state.loading,false);
   assert.equal(h.state.loadedRoot,null);
+});
+
+test("new root synchronously revokes A Home task and search controls", async () => {
+  const A={name:"Fake-A"},B={name:"Fake-B"},gate=deferred();
+  const h=searchHarness(A,(path)=>path==="backups"?[]:gate.promise);
+  h.model.state.records=[{id:"A",customer:"Alpha-customer"}];
+  h.state.loadedRoot=A;
+  h.state.current={id:"A",customer:"Alpha-customer"};
+  h.state.searchResults=[];
+  h.state.mobile={timer:null};
+  const task={children:[{textContent:"Old A task"}],replaceChildren(...items){this.children=items;},textContent:""};
+  const get=h.context.$;
+  h.context.$=id=>id==="dailyTask"?task:get(id);
+  h.context.clearTimeout=()=>{};
+  const source=extract(daily,"  function suspendForWorkspaceChange(){","  function go(");
+  vm.runInContext(source+"\nthis.suspendForWorkspaceChange=suspendForWorkspaceChange;",h.context);
+  h.input.value="Alpha";
+  const search=h.context.searchAll();
+  assert.ok(h.host.children.some(row=>String(row.textContent).includes("Alpha-customer")));
+  // Actual root replacement emits a synchronous event before any B file reads.
+  h.model.root=B;
+  h.context.suspendForWorkspaceChange();
+  assert.equal(h.state.current,null);
+  assert.equal(h.state.loadedRoot,null);
+  assert.equal(h.state.history.length,0);
+  assert.equal(h.state.events.length,0);
+  assert.equal(h.state.searchResults.length,0);
+  assert.equal(h.host.hidden,true);
+  assert.equal(h.host.children.length,0);
+  assert.equal(task.children.length,0);
+  assert.equal(task.textContent,"Connecting working folder…");
+  gate.resolve([eventFile("A-history")]);
+  await search;
+  assert.equal(h.host.children.length,0,"Late A search must not repaint A content");
+  assert.equal(h.state.current,null,"No A action remains available under B");
+  const dispatches=app.match(/model\.root = wrapOperationalRoot\(await operationalRoot\(handle\)\); model\.applicationRoot = handle;\s*\/\/ Synchronously revoke old Daily task\/search actions before any B async load\.\s*document\.dispatchEvent\(new Event\("moondog-workspace-changing"\)\)/g)||[];
+  assert.equal(dispatches.length,2,"Both writable and read-only root assignments revoke A actions synchronously");
+  assert.match(daily,/if\(model\.root&&model\.workspaceConnectionCommittedRoot!==model\.root\)\{\s*const host=\$\('dailyTask'\)/);
+});
+
+test("overlapping connection attempts serialize across restore and manual switching", async () => {
+  const code=extract(app,"  let workspaceConnectionBusy=false;","  async function completeWorkspaceConnection(handle, ask) {");
+  const gate=deferred(),calls=[];
+  const context=vm.createContext({completeWorkspaceConnection:async(handle)=>{
+    calls.push(handle);
+    if(handle==="Fake-B")await gate.promise;
+    return handle;
+  }});
+  vm.runInContext(code+"\nthis.finishConnection=finishConnection;",context);
+  const B=context.finishConnection("Fake-B",true);
+  await tick();
+  await assert.rejects(()=>context.finishConnection("Fake-C",true),/Another Workspace connection/);
+  assert.equal(calls.join(","),"Fake-B");
+  gate.resolve();
+  assert.equal(await B,"Fake-B");
+  assert.equal(await context.finishConnection("Fake-C",true),"Fake-C");
+  assert.equal(calls.join(","),"Fake-B,Fake-C");
 });
 
 test("declined Home draft confirmation stops Workspace picker without changing root or draft", async () => {
