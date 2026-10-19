@@ -194,6 +194,29 @@ class AutoCloseTests(unittest.TestCase):
         self.assertEqual(result["status"], "eligible/dry-run")
         self.assertFalse(any(x[0] in {"POST", "PATCH"} for x in fake.actions))
 
+    def test_recent_failed_authorized_ci_overrides_older_success(self):
+        class CheckAPI:
+            repo = "JHFMoon/MoonDog-Service-OS"
+            def request(self, method, endpoint):
+                return {"total_count": 3, "check_runs": [
+                    {"id": 1, "name": "Publication Check", "head_sha": SOURCE_HEAD,
+                     "started_at": "2026-10-19T01:00:00Z",
+                     "status": "completed", "conclusion": "success", "app": {"id": APP_ID}},
+                    {"id": 2, "name": "Publication Check", "head_sha": SOURCE_HEAD,
+                     "started_at": "2026-10-19T02:00:00Z",
+                     "status": "completed", "conclusion": "failure", "app": {"id": APP_ID}},
+                    {"id": 3, "name": "prove-clean-install", "head_sha": SOURCE_HEAD,
+                     "started_at": "2026-10-19T02:00:00Z",
+                     "status": "completed", "conclusion": "success", "app": {"id": APP_ID}}
+                ]}
+        self.assertFalse(verified_checks(CheckAPI(), SOURCE_HEAD))
+
+    def test_future_beta_versions_remain_supported_without_stable_promotion(self):
+        future = {**MANIFEST, "beta": {
+            "version": "0.10.19-beta.1", "sha256": "1" * 64
+        }}
+        self.assertEqual(eligible_snapshot(ISSUE, "open", MATRIX, RECORD, future), [])
+
     def test_evidence_cannot_omit_a_criterion(self):
         data = {ISSUE: {"987-01": True, "987-02": True}}
         reasons = evidence_shape(ISSUE, data, RECORD)
