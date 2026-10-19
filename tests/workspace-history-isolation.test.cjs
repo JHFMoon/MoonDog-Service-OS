@@ -337,6 +337,72 @@ test("overlapping connection attempts serialize across restore and manual switch
   assert.equal(calls.join(","),"Fake-B,Fake-C");
 });
 
+test("rejected overlapping manual switch preserves active connection write authority", async () => {
+  const A={name:"Fake-A"}, B={name:"Fake-B"}, C={name:"Fake-C"};
+  const gate=deferred(),calls=[];
+  const writeAuthority={canWrite:true,disableCalls:0,disable(){this.disableCalls++;this.canWrite=false;}};
+  const context=vm.createContext({
+    completeWorkspaceConnection:async handle=>{
+      calls.push(handle.name);
+      if(handle===B)await gate.promise;
+      return handle;
+    },
+    model:{root:A,pendingRoot:null},
+    __moondogDailyUI:{confirmWorkspaceChange:()=>true},
+    window:{showDirectoryPicker:async()=>C},
+    writeAuthority,
+    setConnectionState:()=>{}
+  });
+  const wrapper=extract(app,"  let workspaceConnectionBusy=false;","  async function completeWorkspaceConnection(handle, ask) {");
+  vm.runInContext(wrapper+"\n"+connection+"\nthis.finishConnection=finishConnection;this.connect=connect;",context);
+  const first=context.finishConnection(B,true);
+  await tick();
+  await assert.rejects(()=>context.connect(),error=>{
+    assert.equal(error.code,"WORKSPACE_CONNECTION_BUSY");
+    return true;
+  });
+  assert.equal(writeAuthority.disableCalls,0,"Rejected second switch must not revoke B's authority");
+  assert.equal(writeAuthority.canWrite,true);
+  assert.equal(calls.join(","),"Fake-B","C never starts");
+  gate.resolve();
+  assert.equal(await first,B);
+  assert.equal(writeAuthority.canWrite,true,"B stays writable after it finishes");
+});
+
+test("ordinary folder-connection failure still disables write authority", async () => {
+  const model={root:{name:"Fake-A"},pendingRoot:null};
+  const writeAuthority={canWrite:true,disableCalls:0,disable(){this.disableCalls++;this.canWrite=false;}};
+  const context=vm.createContext({
+    model,writeAuthority,
+    __moondogDailyUI:{confirmWorkspaceChange:()=>true},
+    window:{showDirectoryPicker:async()=>({name:"Fake-B"})},
+    finishConnection:async()=>{throw new Error("Synthetic permission failure");},
+    setConnectionState:()=>{}
+  });
+  vm.runInContext(connection+"\nthis.connect=connect;",context);
+  await assert.rejects(()=>context.connect(),/Synthetic permission failure/);
+  assert.equal(writeAuthority.disableCalls,1,"Real connection failures retain prior fail-closed policy");
+  assert.equal(writeAuthority.canWrite,false);
+});
+
+test("busy saved-folder restore does not show a false permission-required error", async () => {
+  const A={name:"Fake-A"},pending={name:"Fake-B"};
+  const states=[],writeAuthority={canWrite:true,disableCalls:0,disable(){this.disableCalls++;this.canWrite=false;}};
+  const context=vm.createContext({
+    model:{root:A,pendingRoot:pending},
+    __moondogDailyUI:{confirmWorkspaceChange:()=>true},
+    window:{showDirectoryPicker:async()=>pending},
+    finishConnection:async()=>{const error=new Error("Busy");error.code="WORKSPACE_CONNECTION_BUSY";throw error;},
+    writeAuthority,setConnectionState:state=>states.push(state)
+  });
+  vm.runInContext(connection+"\nthis.connect=connect;",context);
+  await assert.rejects(()=>context.connect(),error=>error.code==="WORKSPACE_CONNECTION_BUSY");
+  assert.equal(writeAuthority.disableCalls,0);
+  assert.equal(writeAuthority.canWrite,true);
+  assert.equal(states.includes("PERMISSION REQUIRED"),false);
+  assert.equal(context.model.root,A);
+});
+
 test("declined Home draft confirmation stops Workspace picker without changing root or draft", async () => {
   const A={name:"Fake-A"},B={name:"Fake-B"};
   const state={editing:true},model={root:A,pendingRoot:null};
