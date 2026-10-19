@@ -858,6 +858,8 @@
       await Promise.allSettled([scanFiles(), scanAppointmentFiles(), scanPerformanceFiles(), scanRecoveryBackups()]);
       connectedNativeRoot = handle;
       try { await rememberRoot(handle); } catch (_) { /* Manual folder reconnection remains available without browser storage. */ }
+      // Only a fully loaded Workspace may drive Daily history and task selection.
+      model.workspaceConnectionCommittedRoot=model.root;
       setConnectionState("CONNECTED");
       renderSetup();
       document.dispatchEvent(new Event("moondog-data"));
@@ -954,6 +956,9 @@
     if(permissionWasPending) recordDiagnostic("FOLDER CONNECTION","Permission restored using the saved folder handle");
     // finishConnection performs the first UI paint immediately after reconciliation.
     // Avoid rendering every view twice while the browser is reconnecting.
+    // model.root changes before its records/settings have loaded. Publish readiness
+    // only when this connection's authoritative operational data is ready.
+    model.workspaceConnectionCommittedRoot=model.root;
     setConnectionState("CONNECTED");
   }
   async function connect() {
