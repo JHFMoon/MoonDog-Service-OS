@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.111",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.111.json",
-    "sha256": "a17d629881ba96cf0795c7f95ab8e1356cc3cf7f87a5ad25c737ec9d17d663a5",
+    "version": "0.10.18-beta.112",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.112.json",
+    "sha256": "0e3be7035bb24a75080c4e57ef5cc2d752d8cc9bca1d568e6ff7435d2d3329dc",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Serialize Open RO Save and Save & Next operations (#60) (#251). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17."
+    "releaseNotes": "Honor configured manager workdays in Daily Walk (#60) (#253). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17."
   }
 }
