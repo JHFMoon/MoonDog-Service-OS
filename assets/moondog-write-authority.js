@@ -130,21 +130,43 @@
         const after = journal.after === null ? null : new Uint8Array(journal.after);
         const current = await readBytes(root, target);
         if (revision.revision === journal.revisionBefore) {
-          if (before === null) await removeRaw(root, target); else await writeBytesRaw(root, target, before);
+          // Another tab or a stale OneDrive handle can replace the target while
+          // the journal revision remains unchanged. Never roll unrelated bytes
+          // back to an older snapshot or remove a newly-created independent file.
+          if (!sameBytes(current, before) && !sameBytes(current, after))
+            throw Error("Uncommitted write journal conflicts with independent file changes; requires controlled recovery.");
+          // Comparing followed by an automatic rollback has a cross-tab and
+          // OneDrive time-of-check/time-of-use window. Leave potentially
+          // committed bytes untouched; a separate controlled restore is needed.
+          if (!sameBytes(current, before))
+            throw Error("Uncommitted write journal requires controlled recovery.");
         } else if (after === null || !sameBytes(current, after)) throw Error("Committed write differs from its journal.");
       } else if (journal.format === "moondog-delete-v1") {
         if (!["file", "empty-directory"].includes(journal.kind)) throw Error("Delete journal type is invalid.");
         if (journal.kind === "file" && !validByteList(journal.before)) throw Error("Delete journal bytes are invalid.");
         if (revision.revision === journal.revisionBefore) {
-          if (journal.kind === "file") await writeBytesRaw(root, target, new Uint8Array(journal.before));
-          else { const directory = target.slice(0, -1).reduce(async (prior, name) => (await prior).getDirectoryHandle(name), Promise.resolve(root)); await (await directory).getDirectoryHandle(target.at(-1), { create: true }); }
+          if (journal.kind === "file") {
+            const before = new Uint8Array(journal.before), current = await readBytes(root, target);
+            if (!sameBytes(current, null) && !sameBytes(current, before))
+              throw Error("Uncommitted delete journal conflicts with independent file changes; requires controlled recovery.");
+            if (current === null)
+              throw Error("Uncommitted delete journal requires controlled recovery.");
+          } else {
+            const directory = target.slice(0, -1).reduce(async (prior, name) => (await prior).getDirectoryHandle(name), Promise.resolve(root));
+            await (await directory).getDirectoryHandle(target.at(-1), { create: true });
+          }
         } else {
           if (!await absent(root, target)) throw Error("Committed deletion differs from its journal.");
         }
       } else {
         if (!["file", "directory"].includes(journal.kind)) throw Error("Create journal type is invalid.");
         if (revision.revision === journal.revisionBefore) {
-          if (!await absent(root, target)) await removeRaw(root, target);
+          if (!await absent(root, target)) {
+            // We cannot distinguish an unfinished blank creation from an
+            // independently written file after a cross-tab/OneDrive race.
+            // Refuse destructive automatic deletion, even for empty objects.
+            throw Error("Uncommitted create journal requires controlled recovery.");
+          }
         } else if (await absent(root, target)) throw Error("Committed creation differs from its journal.");
       }
       await removeRaw(root, journalPath.split("/"));
@@ -175,10 +197,16 @@
         if (!activeToken) {
           try { await recoverPending(root, revision); }
           catch (error) {
-            // A stale/inconsistent legacy journal must not put the whole dashboard
-            // back into read-only mode. Preserve the journal for later review and
-            // continue from the durable files currently on disk.
-            console.warn("MoonDog: stale transaction journal left in place; open editing continues.", error);
+            // A pending current transaction cannot be resolved with an atomic
+            // file compare-and-swap across Edge tabs or OneDrive devices.
+            // Fail closed for those cases; leave the journal and target intact.
+            if (/Uncommitted (?:write|delete|create) journal .*controlled recovery\./.test(String(error?.message || ""))) {
+              console.warn("MoonDog: uncommitted journal requires controlled recovery; editing disabled.", error);
+              throw error;
+            }
+            // An unrelated legacy journal can remain for later review, but its
+            // existence alone does not establish a recoverable current write.
+            console.warn("MoonDog: unrelated legacy transaction journal left in place.", error);
           }
           revision = await read(root, REVISION);
           if (!validRevision(revision)) {
