@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.113 — current Beta
+
+- Fail closed on invalid administrative commitment dates (#59 #60) (#257). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.112 — current Beta
 
 - Keep Beta smoke check valid across reviewed schedule-aware runtime publication (#61) (#255). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
