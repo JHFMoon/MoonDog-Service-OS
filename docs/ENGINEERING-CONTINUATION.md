@@ -2,6 +2,24 @@
 
 This is a non-sensitive execution checkpoint, not proof of a continuously running coding agent. Always reconcile it against the latest GitHub commits, pull requests, manifests, workflow runs, and protected release policy before acting.
 
+## Authoritative current engineering checkpoint — October 18, 2026 Pacific (October 19 UTC)
+
+**This supersedes all earlier checkpoint entries in this document.** For the criterion-level requirements and evidence, see [Roadmap acceptance matrix](ROADMAP-ACCEPTANCE-MATRIX.md). GitHub is the system of record; this checkpoint is a dated snapshot, not a promise of unattended continuation.
+
+- **Main:** `a970bb7ee04b949d23a9db59c6969385a7edd55d`, trusted Beta 113 merge from PR #258.
+- **Published Beta:** `0.10.18-beta.113`; exact live manifest SHA-256 `dbdaabb552f47cfbbdd98a20a8ed7289a4bd71cfe65a1d6322a62d00333fac4a`. Package URL is `https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.113.json`.
+- **Stable:** `0.10.17`, unchanged; no promotion, migration or installed Windows confirmation.
+- **Protected source merges:** PR #253 Daily Walk calendar (merge `7b2194afffef0edb0a1df1760ae6e6859c85aa91`); PR #255 corrected release regression (merge `b451852bc792d4d146477874e7cf11a0d831a78c`); PR #257 invalid administrative dates (merge `edcf56a56e9dbdca49b0f6d17f56c552ad8e5e2d`).
+- **Trusted Beta merges:** PR #256 Beta 112 (merge `5fbe82d16e71f0754ab1d5400269d02357056fc3`); PR #258 Beta 113 (merge current main). Superseded failed package PR #254 closed without merge.
+- **Latest exact-head verification:** Beta 113 package PR #258 head `de656aa5514b3c808a80818dcb9e077a3bcb3188`; Publication Check run `39186603987` / job `117850235313` success, Clean Install Proof run `39186605860` / job `117850240324` success, both GitHub Actions source app `15368`. Latest logs report 79 Python and 365 Node tests passed, zero failures; browser/Meeting and synthetic package install checks passed. Post-merge live manifest checked separately.
+- **Review evidence:** PR #257 year-zero date edge case corrected at `0e230b14c9eb3c5dc66589bacaf4d69fc3ff9a30`, synthetic regression commit `4134420e0af8ca4b3e896aef036f161b2ccc8431`; substantive review thread resolved. No unresolved review finding was present at protected merge.
+- **Verified acceptance criteria:** #60 60-04 (configured manager workdays incl selected Sunday and excluded Monday); #60 60-08 (reject impossible/year-zero administrative commitments; malformed legacy dates are missing verification instead of false overdue). Broader #60 and #59 remain partial.
+- **Open roadmap issues:** #164, #58, #59, #60, #61, #212. None should be closed without all respective closure conditions. #212 trend-aware coaching deferred behind source/operational reliability.
+- **Open PR:** draft #220 (Workspace history isolation) blocked for missing authorized overlapping-root regression. No bypass, no reattempt of denied operation. Restricted #183 and #189 untouched. No other open PR was observed at checkpoint.
+- **External field gap:** Windows/Edge/OneDrive folder picker, startup/hydration, true multi-computer behavior and measured hardware performance require separately collected evidence per `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md`. Synthetic Chromium and clean-install CI do not prove that field behavior.
+- **Remaining engineering:** P0 #164/#59 storage recovery and read-back/concurrency fault matrix, source authority, #58 measurable startup/latency p50/p95, #60 broader manager RO/carryover workflow completeness, #61 user preferences/lineage/release notes and other regressions, and deferred #212 sustained coaching. Source/program test work is partial; only two criteria above are newly verified complete. Beta 112 changelog references the release-test repair (#255) rather than clearly naming the operational calendar change (#253); document and improve future release-note provenance without bypassing trusted workflow rules.
+- **Exact next action:** extend the shipped `assets/app.js` storage/backup real-function synthetic harness with a stale file-handle and read-back-mismatch after concurrent source refresh; demonstrate that original bytes, recovery journal and manager manual overrides survive without false save success. Fix code only after reproducing the failure. Advance another independently testable #164/#59 requirement if blocked; preserve all protected Workspace boundaries.
+
 ## Standing guardrails
 - Approved direction: scalable, offline-capable Fixed Operations platform; progressive modernization; action-first command center; constrained autonomous internal operations.
 - Routine verified changes may enter Beta only through approved gates. Stable promotion always requires separate explicit authorization.
@@ -9,7 +27,7 @@ This is a non-sensitive execution checkpoint, not proof of a continuously runnin
 - Work in small, independently testable increments. Do not skip a failing check or claim an unverified publication.
 - An agent needs a separately configured, authorized runner to resume execution after a session ends. No continuously running code agent has been verified here.
 
-## Latest verified GitHub checkpoint (October 18, 2026)
+## Historical GitHub checkpoint (October 18, 2026, Beta 99; superseded)
 
 **Read this first as a dated snapshot.** Re-fetch public `main`, open issues/PRs, CI and the live manifest whenever resuming. The older October 17 record below is preserved only as historical evidence; its Beta, PR and local-branch statuses are not current.
 
