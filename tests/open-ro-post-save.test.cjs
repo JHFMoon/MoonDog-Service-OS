@@ -12,14 +12,17 @@ const to=app.indexOf("  async function saveRecord(",from);
 assert.ok(from>=0&&to>from,"production save completion helper is available");
 const production=app.slice(from,to);
 
-async function scenario({historyFails=false,workbookFails=false,advance=true,nextId="next"}={}) {
+async function scenario({historyFails=false,workbookFails=false,workbookTransient=false,advance=true,nextId="next"}={}) {
   const events=[],diagnostics=[],messages=[];
   const model={state:{records:[{id:"synthetic"},{id:"next"}]}};
   const ui={editDialog:{close:()=>events.push("closed")}};
   const context={
     model,ui,editDraftDirty:true,
+    connectedNativeRoot:{id:"synthetic-native-root"},
+    transientWorkspaceState:error=>["AbortError","NotReadableError","InvalidStateError"].includes(error?.name),
+    scheduleAuthorityRevalidation:()=>events.push("revalidate"),
     addHistory:async()=>{events.push("history");if(historyFails)throw Object.assign(new Error("Synthetic journal failure"),{name:"NotReadableError"});},
-    markSupervisorWorkbookStale:async()=>{events.push("workbook");if(workbookFails)throw Object.assign(new Error("Synthetic recovery failure"),{name:"NotAllowedError"});},
+    markSupervisorWorkbookStale:async()=>{events.push("workbook");if(workbookFails)throw Object.assign(new Error("Synthetic recovery failure"),{name:workbookTransient?"AbortError":"NotAllowedError"});},
     recordDiagnostic:(kind,text)=>diagnostics.push({kind,text}),
     renderAll:()=>events.push("render"),
     openEdit:(id,origin)=>events.push("next:"+id+":"+origin),
@@ -44,7 +47,7 @@ test("verified RO save advances and confirms successful follow-ups",async()=>{
 
 test("failed activity history does not block workbook invalidation or Save & Next",async()=>{
   const result=await scenario({historyFails:true});
-  assert.deepEqual(result.events,["history","workbook","render","next:next:table"]);
+  assert.deepEqual(result.events,["history","revalidate","workbook","render","next:next:table"]);
   assert.equal(result.messages[0].type,"error");
   assert.match(result.messages[0].message,/saved and read-back verified/);
   assert.match(result.messages[0].message,/Activity history could not be verified/);
@@ -63,7 +66,7 @@ test("failed workbook invalidation never implies rollback or permits trust in ol
 
 test("both secondary failures remain visible and saved RO still completes",async()=>{
   const result=await scenario({historyFails:true,workbookFails:true,advance:false});
-  assert.deepEqual(result.events,["history","workbook","render","closed"]);
+  assert.deepEqual(result.events,["history","revalidate","workbook","render","closed"]);
   assert.equal(result.messages[0].type,"error");
   assert.equal(result.diagnostics.length,2);
   assert.equal(result.dirty,false);
@@ -80,4 +83,17 @@ test("production entry only delegates follow-ups after read-back verified saveSt
   assert.match(portion,/await saveState\("Updated RO "\+record\.ro, priorState\)/);
   assert.match(portion,/return finishSavedOpenRo\(record,before,proposed,origin,advance,nextId\)/);
   assert.ok(portion.indexOf("await saveState(")<portion.indexOf("return finishSavedOpenRo("));
+});
+
+test("transient workbook invalidation schedules guarded authority revalidation but keeps saved RO",async()=>{
+  const result=await scenario({workbookFails:true,workbookTransient:true});
+  assert.equal(result.saved,true);
+  assert.deepEqual(result.events,["history","workbook","revalidate","render","next:next:table"]);
+  assert.match(result.messages[0].message,/saved and read-back verified/);
+  assert.match(result.messages[0].message,/Do not import the previous workbook/);
+});
+
+test("nontransient workbook errors do not create speculative reconnect loops",async()=>{
+  const result=await scenario({workbookFails:true});
+  assert.equal(result.events.includes("revalidate"),false);
 });
