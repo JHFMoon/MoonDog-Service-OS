@@ -42,7 +42,8 @@ def runs(sha, *, publication=True, clean=True):
 class FakeAPI:
     repo = "JHFMoon/MoonDog-Service-OS"
 
-    def __init__(self, *, verified=True, beta=True, blocked=False, duplicate=False, advance_main_at=0):
+    def __init__(self, *, verified=True, beta=True, blocked=False, duplicate=False, advance_main_at=0, issue=ISSUE):
+        self.issue = issue
         self.verification = verified
         self.beta = beta
         self.blocked = blocked
@@ -51,7 +52,7 @@ class FakeAPI:
         self.advance_main_at = advance_main_at
         self.main_reads = 0
         self.comments = [{
-            "body": CLOSE_MARKER + str(ISSUE) + " -->"
+            "body": CLOSE_MARKER + str(issue) + " -->"
         }] if duplicate else []
 
     def request(self, method, endpoint, data=None):
@@ -66,7 +67,7 @@ class FakeAPI:
             self.main_reads += 1
             changed = self.advance_main_at and self.main_reads >= self.advance_main_at
             return {"commit": {"sha": "0" * 40 if changed else MAIN}}
-        if endpoint.endswith("/issues/" + str(ISSUE)):
+        if endpoint.endswith("/issues/" + str(self.issue)):
             return {"state": self.state}
         if endpoint.endswith("/pulls/41"):
             return {"merged": True, "merged_at": "2026-10-19T02:00:00Z",
@@ -94,7 +95,7 @@ class FakeAPI:
         if endpoint.endswith("/pulls/42/files"):
             return [{"filename": "updates/manifest.json"},
                     {"filename": "updates/packages/moondog-0.10.18-beta.114.json"}]
-        if endpoint.endswith("/issues/" + str(ISSUE) + "/comments"):
+        if endpoint.endswith("/issues/" + str(self.issue) + "/comments"):
             return self.comments
         raise AssertionError("Unexpected collection: " + endpoint)
 
@@ -143,6 +144,11 @@ class AutoCloseTests(unittest.TestCase):
         self.assertEqual(eligible_snapshot(164, "open", matrix, record, MANIFEST), [])
         self.assertEqual(evidence_shape(164, matrix, record), [])
         self.assertNotIn("field_comment", record)
+        fake = FakeAPI(issue=164)
+        outcome = close_if_ready(fake, 164, record, matrix, MANIFEST, MAIN, False)
+        self.assertEqual(outcome["status"], "closed")
+        self.assertEqual(fake.state, "closed")
+        self.assertEqual(len(fake.comments), 1)
 
     def test_personal_field_comment_cannot_replace_missing_engineering_proofs(self):
         matrix = {164: {"164-05": False}}
