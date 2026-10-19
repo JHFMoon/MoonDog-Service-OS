@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.110 — current Beta
+
+- Keep verified Open RO saves actionable when secondary follow-ups fail (#60) (#249). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.109 — current Beta
 
 - Prevent malformed RO review times from raising false overdue alarms (#60) (#247). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
