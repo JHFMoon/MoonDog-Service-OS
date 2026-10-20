@@ -12,7 +12,7 @@ async function safeWrite(io,path,bytes,options={}){
   let old=null;try{old=await io.read(path)}catch(e){if(e.name!=='NotFoundError')throw e;}
   const tmp=path.slice(0,path.lastIndexOf('/')+1)+'.moondog-txn-'+crypto.randomUUID()+'.json';
   let prepared=false,touched=false,token=await io.beginMutation?.();
-  const txn={format:'moondog-write-v1',target:path,at:new Date().toISOString(),before:old?Array.from(old):null,after:Array.from(bytes),revisionBefore:Number.isSafeInteger(token?.expected)?token.expected:null};
+  const txn={format:'moondog-write-v1',target:io.journalTarget?io.journalTarget(path):path,at:new Date().toISOString(),before:old?Array.from(old):null,after:Array.from(bytes),revisionBefore:Number.isSafeInteger(token?.expected)?token.expected:null};
   try{
    await io.rawWrite(tmp,encode(JSON.stringify(txn)),token);if(!equal(await io.read(tmp),encode(JSON.stringify(txn))))throw Error('Temporary write verification failed');prepared=true;
    let current=null;try{current=await io.read(path)}catch(e){if(e.name!=='NotFoundError')throw e;}
