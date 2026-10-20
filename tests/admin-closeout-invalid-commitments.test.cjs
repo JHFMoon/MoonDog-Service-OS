@@ -78,3 +78,45 @@ test("unverified physical work and closed ROs remain excluded from manager admin
   closed.management.status = "Closed";
   assert.equal(logic.adminCloseoutState(closed, "2026-03-01").active, false);
 });
+
+test("malformed historical commitment dates do not create false missed-promise coaching", () => {
+  const revisions = [
+    {at:"2026-03-01T10:00:00.000Z",previous:{taskDate:"2026-02-31",expectedCloseDate:"2026-03-10"}},
+    {at:"2026-03-01T10:00:00.000Z",previous:{taskDate:"0000-01-01",expectedCloseDate:"2026-03-10"}},
+    {at:"2026-03-01T10:00:00.000Z",previous:{taskDate:"bad-date",expectedCloseDate:"2026-03-10"}},
+    {at:"2026-03-01T10:00:00.000Z",previous:{taskDate:"2026-03-01",expectedCloseDate:"2026-03-10"}}
+  ];
+  const state = logic.adminCloseoutState(record("2026-03-05","2026-03-10",{revisions}),"2026-03-01");
+  assert.equal(state.revisionCount,4,"retain full administrative revision audit history");
+  assert.equal(state.missedRevisions,0,"no false manager missed-promise coaching");
+  assert.equal(state.needsCommitment,false,"valid current commitments remain unaffected");
+});
+
+test("missing or malformed revision timestamps and entries are not verified misses", () => {
+  const revisions = [
+    null, 42, {},
+    {at:"2026-03-01garbage",previous:{taskDate:"2026-02-28"}},
+    {at:"2026-02-31T10:00:00Z",previous:{taskDate:"2026-02-28"}},
+    {at:"2026-03-01T25:00:00Z",previous:{taskDate:"2026-02-28"}},
+    {at:"2026-03-01T10:61:00Z",previous:{taskDate:"2026-02-28"}},
+    {at:"2026-03-01T10:00:00",previous:{taskDate:"2026-02-28"}},
+    {at:"2026-03-01T10:00:00+14:30",previous:{taskDate:"2026-02-28"}},
+    {at:"2026-03-01T10:00:00.000Z"}
+  ];
+  const state = logic.adminCloseoutState(record("2026-03-05","2026-03-10",{revisions}),"2026-03-01");
+  assert.equal(state.revisionCount,revisions.length);
+  assert.equal(state.missedRevisions,0);
+});
+
+test("valid historical missed commitments still count once per revision", () => {
+  const revisions = [
+    {at:"2026-03-01T10:00:00.000Z",previous:{taskDate:"2026-02-28",expectedCloseDate:"2026-02-27"}},
+    {at:"2026-03-02T10:00:00-07:00",previous:{taskDate:"2026-03-01",expectedCloseDate:"2026-03-10"}},
+    {at:"2026-03-02T10:00:00Z",previous:{taskDate:"2026-03-02",expectedCloseDate:"2026-03-10"}},
+    {at:"2026-03-02T10:00:00Z",previous:{taskDate:"2026-03-10",expectedCloseDate:"2026-03-12"}}
+  ];
+  const state = logic.adminCloseoutState(record("2026-03-05","2026-03-10",{revisions}),"2026-03-02");
+  assert.equal(state.missedRevisions,2,"real late revisions still trigger manager follow-up");
+  assert.equal(state.revisionCount,4);
+  assert.equal(state.overdue,false,"revision audit history is not a current overdue promise");
+});
