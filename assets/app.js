@@ -3878,7 +3878,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       const rechecked=new Map();
       for(const path of Object.keys(BACKUP_FILES)){
         try{rechecked.set(path,await readFileBytes(path.split("/")));}
-        catch(_){result.unreadable++;result.state="unreadable-files";}
+        catch(error){
+          // A previously observed canonical file disappearing is drift.
+          // Permission denial or other I/O failure cannot be called an absence.
+          if(error.name!=="NotFoundError"){result.unreadable++;result.state="unreadable-files";}
+        }
       }
       try{
         for(const file of await directoryFiles(["data","history"]))
