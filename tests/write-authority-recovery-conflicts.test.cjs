@@ -67,7 +67,7 @@ function fixture(current=after,options={}){
             async write(bytes){actions.push(["write",k]);pending=typeof bytes==="string"?new TextEncoder().encode(bytes):new Uint8Array(bytes);},
             async close(){
               actions.push(["close",k]);files.set(k,pending);
-              if(k.startsWith(prefix+"data/.moondog-txn-")&&
+              if(k.includes("/.moondog-txn-")&&
                 (options.foreignBeforeDelete||options.foreignBeforeCreate))
                 files.set(statePath,new Uint8Array(another));
             },
