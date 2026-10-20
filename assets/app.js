@@ -4342,6 +4342,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function nativeFileAt(path,create=false){let dir=connectedNativeRoot;for(const part of physicalWorkspacePath(path).slice(0,-1))dir=await dir.getDirectoryHandle(part,{create});return dir.getFileHandle(path.at(-1),{create});}
   async function nativeDirectory(path){let dir=connectedNativeRoot;for(const part of physicalWorkspacePath(path))dir=await dir.getDirectoryHandle(part);return dir;}
   const maintenanceIO={
+    // Recovery validation walks the physical selected-folder root, not the
+    // Workspace-relative app paths used for file I/O.
+    journalTarget:p=>physicalWorkspacePath(p.split('/')).join('/'),
     beginMutation:()=>writeAuthority.beginMutation(),
     completeMutation:token=>writeAuthority.completeMutation(token),
     cancelMutation:token=>writeAuthority.cancelMutation(token),
