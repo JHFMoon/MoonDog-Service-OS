@@ -6,7 +6,7 @@
   let editable = false;
   // Local permission to finish an explicitly in-progress whole-state restore.
   // On another tab or after reload, a durable restore marker blocks editing.
-  let localRestoreInProgress = false;
+  let localRestoreOwner = null;
   let nativeRoot = null;
   let loadedRevision = null;
   const ID_KEY = "authoritative-computer-v1";
@@ -222,9 +222,13 @@
         // A crash can leave canonical files from different restore stages.
         // The initiating tab alone may continue while its in-memory restore
         // session is active; every reconnect or other tab must fail closed.
-        if(!localRestoreInProgress &&
-            await readBytes(root,["System Files","Workspace","data","restore-in-progress.json"])!==null)
-          throw Error("Unfinished whole-state restore requires controlled recovery.");
+        const pendingRestore=await readBytes(root,["System Files","Workspace","data","restore-in-progress.json"]);
+        if(pendingRestore!==null){
+          let recorded;
+          try{recorded=JSON.parse(new TextDecoder().decode(pendingRestore));}catch(_){}
+          if(!localRestoreOwner || recorded?.restoreId!==localRestoreOwner)
+            throw Error("Another restore owns the durable hold; controlled recovery is required.");
+        }
         nativeRoot = root; loadedRevision = revision.revision; setTransientValidation(false); setEditable(true); return true;
       } catch (error) {
         lastTransient = transientInterfaceState(error);
@@ -464,9 +468,19 @@
       if (!testEnabled) throw denied();
       setEditable(true);
     },
-    beginRestore() { requireWrite(); localRestoreInProgress = true; },
-    endRestore() { localRestoreInProgress = false; },
-    disable() { localRestoreInProgress = false; setTransientValidation(false); setEditable(false); loadedRevision = null; nativeRoot = null; }
+    async beginRestore(restoreId) {
+      requireWrite();
+      if(typeof restoreId!=="string" || !/^[a-f0-9-]{36}$/i.test(restoreId) || localRestoreOwner)
+        throw denied();
+      // Do not grant a bypass to another already-writable tab that starts
+      // while someone else's persistent restore hold is present.
+      if(!await validate(nativeRoot) ||
+         await readBytes(nativeRoot,["System Files","Workspace","data","restore-in-progress.json"])!==null)
+        throw denied();
+      localRestoreOwner=restoreId;
+    },
+    endRestore() { localRestoreOwner = null; },
+    disable() { localRestoreOwner = null; setTransientValidation(false); setEditable(false); loadedRevision = null; nativeRoot = null; }
   };
   global.MoonDogWriteAuthority = Object.freeze(authority);
 })(globalThis);
