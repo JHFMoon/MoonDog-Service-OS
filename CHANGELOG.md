@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.124 — current Beta
+
+- Preflight whole-state restore from durable safety snapshot (#164 #59 #61). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.123 — current Beta
 
 - Fail closed on uncertain delete/create recovery (#164 #59 #61). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
