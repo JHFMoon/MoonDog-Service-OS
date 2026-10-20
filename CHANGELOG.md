@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.128 — current Beta
+
+- Fix historical admin commitment date validation (#297). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.127 — current Beta
 
 - Show read-only interrupted restore recovery evidence (#164 #59 #61). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
