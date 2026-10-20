@@ -3721,13 +3721,22 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   // written. Check every live durable object and history record against the
   // persisted safety snapshot BEFORE replacing any operational file. This is
   // a preflight guard, not a distributed transaction or cross-device lock.
+  // Compare parsed JSON by value, not source key insertion order. Array
+  // positions still matter, but equivalent object field order must not make
+  // a valid unchanged Workspace look like a competing writer's modification.
+  function sameRestoreValue(a,b){
+    if(a===b)return true;
+    if(!a||!b||typeof a!=="object"||typeof b!=="object"||Array.isArray(a)!==Array.isArray(b))return false;
+    const keys=Object.keys(a);
+    return keys.length===Object.keys(b).length&&keys.every(key=>Object.hasOwn(b,key)&&sameRestoreValue(a[key],b[key]));
+  }
   async function preflightRestoreState(safetySnapshot){
     const fail=(reason)=>{throw new Error("Restore preflight stopped before changes: "+reason+". Reconnect and retry after reviewing the current Workspace.");};
     for(const path of Object.keys(BACKUP_FILES)){
       let current;
       try{current=JSON.parse(decodeUtf8(await readFileBytes(path.split("/"))));}
       catch(_){fail("current state cannot be verified");}
-      if(JSON.stringify(current)!==JSON.stringify(safetySnapshot.values[path]))fail("current state changed after the safety snapshot");
+      if(!sameRestoreValue(current,safetySnapshot.values[path]))fail("current state changed after the safety snapshot");
     }
     const expected=safetySnapshot.manifest.entries.filter(e=>e.path.startsWith("data/history/"));
     let history;
