@@ -3857,16 +3857,47 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     const paths=new Set([...Object.keys(BACKUP_FILES),
       ...[...before.keys(),...after.keys(),...actual.keys()].filter(p=>p.startsWith("data/history/"))]);
+    const observed=new Map();
     for(const path of paths){
       if(!path.startsWith("data/history/")&&!actual.has(path))continue;
       const bytes=actual.get(path)||null;
       const hash=bytes?await sha256(bytes):null;
+      if(bytes)observed.set(path,`${bytes.byteLength}:${hash}`);
       const matches=entry=>!entry?bytes===null:bytes!==null&&bytes.byteLength===entry.size&&hash===entry.sha256;
       const old=matches(before.get(path)),newer=matches(after.get(path));
       if(old&&newer)result.both++;
       else if(old)result.old++;
       else if(newer)result.restored++;
       else result.conflict++;
+    }
+    // Only on a held, fully readable Workspace: revisit the live file inventory
+    // before showing a classification. A concurrent writer can otherwise leave
+    // apparently verified counts from bytes that already changed mid-assessment.
+    // This is a read-only drift warning, never an atomic lock or recovery approval.
+    if(result.state==="held"){
+      const rechecked=new Map();
+      for(const path of Object.keys(BACKUP_FILES)){
+        try{rechecked.set(path,await readFileBytes(path.split("/")));}
+        catch(error){
+          // A previously observed canonical file disappearing is drift.
+          // Permission denial or other I/O failure cannot be called an absence.
+          if(error.name!=="NotFoundError"){result.unreadable++;result.state="unreadable-files";}
+        }
+      }
+      try{
+        for(const file of await directoryFiles(["data","history"]))
+          rechecked.set("data/history/"+file.name,file.bytes);
+      }catch(error){
+        if(error.name!=="NotFoundError"){result.unreadable++;result.state="unreadable-files";}
+      }
+      if(result.state==="unreadable-files")return result;
+      let unstable=0;
+      for(const path of new Set([...observed.keys(),...rechecked.keys()])){
+        const bytes=rechecked.get(path);
+        const fingerprint=bytes?`${bytes.byteLength}:${await sha256(bytes)}`:null;
+        if((observed.get(path)||null)!==fingerprint)unstable++;
+      }
+      if(unstable){result.state="unstable-files";result.unstable=unstable;}
     }
     return result;
   }
@@ -4086,7 +4117,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function copyReportInboxPath(){const value=`${model.root?.name||"working folder"}\\${REPORT_INBOX}`;try{await navigator.clipboard.writeText(value);}catch(_){const area=document.createElement("textarea");area.value=value;document.body.append(area);area.select();document.execCommand("copy");area.remove();}ui.reportInboxLocation.hidden=false;ui.reportInboxLocation.textContent=`Copied: ${value}`;}
   function ensureManagerEntryCues(){if(!ui["view-imports"].querySelector(".report-inbox-cue")){const cue=document.createElement("p");cue.className="report-inbox-cue settings-note";cue.innerHTML=`For automatic imports, place supported reports in <strong>${REPORT_INBOX}</strong>.`;ui["view-imports"].prepend(cue);}if(!ui["view-setup"].querySelector(".manager-entry-cue")){const cue=document.createElement("p");cue.className="manager-entry-cue settings-note";cue.innerHTML=`Open Service Operations Dashboard: <strong>00 - OPEN DASHBOARD.html</strong> · Add reports: <strong>${REPORT_INBOX}</strong>`;ui["view-setup"].querySelector(".setup-heading").after(cue);}}
   async function copyDiagnosticsPath(){const value=`${model.root?.name||"working folder"}\\MOONDOG_DIAGNOSTICS.md`;try{await navigator.clipboard.writeText(value);}catch(_){const area=document.createElement("textarea");area.value=value;document.body.append(area);area.select();document.execCommand("copy");area.remove();}ui.diagnosticsLocation.hidden=false;ui.diagnosticsLocation.textContent=`Copied: ${value}`;}
-  function renderRecovery(){ensureRecoveryUi();const recoveryStatus=model.recovery.status||"Ready";ui.recoveryStatus.textContent=String(recoveryStatus).toUpperCase();ui.lastBackupDisplay.textContent=model.recovery.lastBackup?.createdAt?`${new Date(model.recovery.lastBackup.createdAt).toLocaleString()} · ${model.recovery.lastBackup.validationStatus}`:"None yet";ui.currentRecoveryDisplay.textContent=model.recovery.interruptedRestoreReview?(()=>{const r=model.recovery.interruptedRestoreReview;return r.state==="held"||r.state==="unreadable-files"?`Read-only recovery assessment (${r.state}): safety ${r.safety}; source ${r.source}; ${r.old} original, ${r.restored} restored, ${r.both} unchanged, ${r.conflict} conflicting, ${r.unreadable} unreadable files. Recovery marker retained.`:`Recovery hold: ${r.state}. Safety ${r.safety}; source ${r.source}. No automatic repair or marker removal.`;})():/failed|creating/i.test(recoveryStatus)?recoveryStatus:model.recovery.lastRestore?.restoredAt?`Last restore verified ${new Date(model.recovery.lastRestore.restoredAt).toLocaleString()}`:recoveryStatus;const summary=sanitizedSupportSummary(),sourceRows=summary.sources.map((row)=>`<li><strong>${row.source}</strong><span>${row.status}</span><small>${row.lastSuccessfulImport}</small></li>`).join("");ui.diagnosticsOverview.innerHTML=`<div class="diagnostic-build"><div><span>SERVICE OPERATIONS DASHBOARD VERSION / BUILD</span><strong>${VERSION}</strong><small>Build date ${BUILD_DATE} · updates are manual</small></div><div><span>LAST FOLDER CONNECTION</span><strong>${summary.recovery.lastSuccessfulConnectionAt?new Date(summary.recovery.lastSuccessfulConnectionAt).toLocaleString():"Not connected"}</strong><small>${summary.recovery.status}</small></div></div><h3>Sources and freshness</h3><ul>${sourceRows}</ul><p><strong>Diagnostics:</strong> ${summary.diagnosticsPath}</p>`;}
+  function renderRecovery(){ensureRecoveryUi();const recoveryStatus=model.recovery.status||"Ready";ui.recoveryStatus.textContent=String(recoveryStatus).toUpperCase();ui.lastBackupDisplay.textContent=model.recovery.lastBackup?.createdAt?`${new Date(model.recovery.lastBackup.createdAt).toLocaleString()} · ${model.recovery.lastBackup.validationStatus}`:"None yet";ui.currentRecoveryDisplay.textContent=model.recovery.interruptedRestoreReview?(()=>{const r=model.recovery.interruptedRestoreReview;return r.state==="held"||r.state==="unreadable-files"||r.state==="unstable-files"?`Read-only recovery assessment (${r.state}): safety ${r.safety}; source ${r.source}; ${r.old} original, ${r.restored} restored, ${r.both} unchanged, ${r.conflict} conflicting, ${r.unreadable} unreadable, ${r.unstable||0} changed during inspection. Recovery marker retained; no automatic repair.`:`Recovery hold: ${r.state}. Safety ${r.safety}; source ${r.source}. No automatic repair or marker removal.`;})():/failed|creating/i.test(recoveryStatus)?recoveryStatus:model.recovery.lastRestore?.restoredAt?`Last restore verified ${new Date(model.recovery.lastRestore.restoredAt).toLocaleString()}`:recoveryStatus;const summary=sanitizedSupportSummary(),sourceRows=summary.sources.map((row)=>`<li><strong>${row.source}</strong><span>${row.status}</span><small>${row.lastSuccessfulImport}</small></li>`).join("");ui.diagnosticsOverview.innerHTML=`<div class="diagnostic-build"><div><span>SERVICE OPERATIONS DASHBOARD VERSION / BUILD</span><strong>${VERSION}</strong><small>Build date ${BUILD_DATE} · updates are manual</small></div><div><span>LAST FOLDER CONNECTION</span><strong>${summary.recovery.lastSuccessfulConnectionAt?new Date(summary.recovery.lastSuccessfulConnectionAt).toLocaleString():"Not connected"}</strong><small>${summary.recovery.status}</small></div></div><h3>Sources and freshness</h3><ul>${sourceRows}</ul><p><strong>Diagnostics:</strong> ${summary.diagnosticsPath}</p>`;}
   const HANDOFF_CLEAR_DIRS=["backups","imports","exports","support",REPORT_INBOX],HANDOFF_ROOT_SOURCE_PATTERN=/\.(?:xlsx?|csv|pdf)$/i,HANDOFF_LEARN_PATTERN=/\.(?:xlsx?|csv|pdf|zip|json)$/i;
   function freshProductSettings(){return{schemaVersion:5,storeName:"",exportName:"Service Operations Supervisor Workbook.xlsx",csiPeriodStart:"",meetingVoiceMode:"automatic",meetingCustomerVoiceSourceMethod:"saved",meetingCustomerVoiceSurveyId:"",meetingCustomerVoicePastedSource:"",meetingCustomerVoiceExcerpt:"",meetingTeamMessage:"",store:{name:"",code:"",brand:"",timeZone:"",confirmed:{}},advisors:{},meeting:{dayOfWeek:2,startTime:"06:30",resetTime:"07:00",grossMinimum:null,grossStretch:null},performanceStandards:{vir:null,menuPresentation:null,menuPenetration:null,mediaViewed:null,texting:null,cpElr:null,cpHoursPerRo:null,storeGrossTarget:null,dealerNps:null},openRo:{managementStatuses:FRESH_MANAGEMENT_STATUSES.map(statusRecord)},dailyWalk:{rosPerAdvisor:3},supervisorWorkbook:{filename:"Service Operations Supervisor Workbook.xlsx",worksheetOrder:[]},setup:{completedAt:"",reopened:false,newStorePrepared:true,sourceExpectations:{...SETUP_SOURCE_DEFAULTS}},future:{folderWatch:{enabled:true,intervalSeconds:15},managerSchedule:{days:[2,3,4,5,6],startTime:"07:30",endTime:"16:00"}}};}
   function freshProductState(){return{"data/current-state.json":{schemaVersion:1,appVersion:VERSION,updatedAt:null,source:null,records:[],closedRecords:[]},"data/settings.json":freshProductSettings(),"data/appointments.json":{schemaVersion:1,updatedAt:null,days:{}},"data/advisor-performance.json":{schemaVersion:1,updatedAt:null,snapshots:{}},"data/assign-next.json":{schemaVersion:3,updatedAt:null,days:{},currentOpenRo:null},"data/auto-import.json":{schemaVersion:1,initializedAt:null,updatedAt:null,seen:{}},"data/operational-metrics.json":{schemaVersion:1,updatedAt:null,nextAppointments:{snapshots:{}},vir:{snapshots:{}},menu:{snapshots:{}},csi:{surveys:{},imports:[]},monthlySummaries:{},sor:{snapshots:{}},appointmentActivity:{snapshots:{}},efficiency:{snapshots:{}},mediaAsr:{snapshots:{}},openRoSummary:{snapshots:{}}},"data/meeting-cycle.json":{schemaVersion:1,cycleStart:"",resetAt:"",capturedAt:"",metrics:{}}};}
