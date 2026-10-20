@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.117",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.117.json",
-    "sha256": "3291bfc25ca732d5b4880eae680a476389080740452871233ee9de587ae8b463",
+    "version": "0.10.18-beta.119",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.119.json",
+    "sha256": "6edf5e8257764d837c28dab15efec8c19d9edb9a157866e1347691941b072a78",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Restore whole-state backup compatibility with current Settings schema while retaining legacy backups and rejecting unsupported versions. Preserve Meeting presenter synchronization when reusing refreshed cards. No Workspace migration; Stable remains 0.10.17."
+    "releaseNotes": "Persist Open RO filters as privacy-safe device preferences (#61). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17."
   }
 }
