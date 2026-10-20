@@ -3805,13 +3805,14 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     let mutationStarted=false;
     const previousLastRestore=model.recovery.lastRestore;
     const restoreMarkerPath=["data","restore-in-progress.json"];
+    const restoreId=crypto.randomUUID();
     try{
-      writeAuthority.beginRestore();
+      await writeAuthority.beginRestore(restoreId);
       // Persist an unmistakable interrupted-restore marker BEFORE touching any
       // operational file. Other tabs and reconnects must refuse edits until
       // the complete restore and its audit finish successfully.
       mutationStarted=true;
-      await writeJson(restoreMarkerPath,{schemaVersion:1,sourceFile:name,safetyBackup:safety.name,startedAt:now()});
+      await writeJson(restoreMarkerPath,{schemaVersion:1,restoreId,sourceFile:name,safetyBackup:safety.name,startedAt:now()});
       for(const path of Object.keys(BACKUP_FILES)){
         // Preflight can go stale between writes. Check each target against
         // persisted safety bytes again immediately before replacing it.
