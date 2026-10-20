@@ -239,7 +239,7 @@ test("actual event handlers persist all three presentation filters and both rese
     assert.ok(app.includes(field),field);
   }
   assert.match(app,/saveOpenRoFilter\(field,select\);renderTable\(\)/);
-  assert.match(app,/ui\.clearFilters\.addEventListener\("click",\(\)=>\{[^}]*clearSavedOpenRoFilters\(\)/);
+  assert.match(app,/ui\.clearFilters\.addEventListener\("click",\s*\(\)\s*=>\s*\{[^}]*clearSavedOpenRoFilters\(\)/);
   assert.match(app,/ui\.openRoPreferenceReset\.addEventListener\("click",\(\)=>\{[^}]*clearSavedOpenRoFilters\(\)/);
   assert.doesNotMatch(app,/writeJson\([^)]*DEVICE_OPEN_RO_FILTER_KEY/);
 });
