@@ -14,7 +14,7 @@ function extract(begin,end){
   assert.ok(a>=0&&b>a,"production section not found: "+begin);
   return app.slice(a,b);
 }
-const preflight=extract("  async function preflightRestoreState(","  async function replaceHistoryFromBackup(");
+const preflight=extract("  function sameRestoreValue(","  async function replaceHistoryFromBackup(");
 const restore=extract("  async function restoreSelectedBackup()","  function latestImportSummary()");
 const encode=value=>new TextEncoder().encode(value);
 const decode=bytes=>new TextDecoder().decode(bytes);
@@ -85,6 +85,13 @@ test("matching durable objects and history pass the real restore preflight",asyn
   const f=fixture();
   await f.preflight();
   assert.equal(f.changedPaths.length,0);
+});
+
+test("equivalent JSON property order is not a false multi-file conflict",async()=>{
+  const f=fixture();
+  f.files.set("data/settings.json",encode('{"store":{"name":"synthetic"},"schemaVersion":4}\n'));
+  await f.preflight();
+  assert.deepEqual(f.changedPaths,[]);
 });
 
 test("changed canonical source blocks multi-file restore before any replacement",async()=>{
