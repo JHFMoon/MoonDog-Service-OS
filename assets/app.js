@@ -415,7 +415,7 @@
   // Historic imported revisions do not prove a missed promise unless the
   // previous deadline and the revision timestamp are both valid evidence.
   function adminCloseoutRevisionDay(at) {
-    const match = typeof at === "string" && at.match(/^(\d{4}-\d{2}-\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:(?:0\d|1[0-3]):[0-5]\d|14:00))$/);
+    const match = typeof at === "string" && at.match(/^(\d{4}-\d{2}-\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:(?:0\d|1[0-3]):[0-5]\d|14:00))$/);
     return match && adminCloseoutValidDate(match[1]) && Number.isFinite(Date.parse(at)) ? match[1] : "";
   }
   const ADMIN_CLOSEOUT_WORK_STATUSES = Object.freeze(["unverified", "verified"]);
