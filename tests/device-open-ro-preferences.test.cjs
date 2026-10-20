@@ -113,3 +113,133 @@ test("view controls are in shipped HTML and operate without a new runtime file",
   assert.match(css,/tbody\.ro-density-compact/);
   assert.doesNotMatch(html,/src="assets\/device-preferences\.js"/);
 });
+
+
+function filterStore(){
+  const map=new Map(),events=[];
+  return {map,events,
+    getItem(key){events.push(["get",key]);return map.get(key)||null;},
+    setItem(key,value){events.push(["set",key,value]);map.set(key,value);},
+    removeItem(key){events.push(["remove",key]);map.delete(key);}
+  };
+}
+const filterKey="moondog-device-open-ro-filter-choice-v1";
+
+test("privacy-safe selections survive reload without storing advisor or status names",()=>{
+  const store=filterStore(),prefs=harness(store);
+  const advisor=["","Alex Smith","Zoe Example"];
+  const sources=["","Verified","Missing"];
+  const management=["","Needs plan","Updated"];
+  assert.equal(prefs.writeOpenRoFilter("advisor",advisor,"Zoe Example"),true);
+  assert.equal(prefs.writeOpenRoFilter("sourceStatus",sources,"Missing"),true);
+  assert.equal(prefs.writeOpenRoFilter("managementStatus",management,"Needs plan"),true);
+  const saved=store.map.get(filterKey);
+  assert.ok(saved,"browser-only selection record persisted");
+  for(const word of ["Alex","Zoe","Example","Verified","Missing","Needs plan","Updated"]){
+    assert.equal(saved.includes(word),false,"operational labels must not be serialized: "+word);
+  }
+  assert.equal(store.map.size,1,"only one device-scoped storage key");
+  const reread=harness(store);
+  assert.equal(reread.readOpenRoFilter("advisor",advisor),"Zoe Example");
+  assert.equal(reread.readOpenRoFilter("sourceStatus",sources),"Missing");
+  assert.equal(reread.readOpenRoFilter("managementStatus",management),"Needs plan");
+  assert.equal(reread.readOpenRoFilter("invalid",advisor),"");
+});
+
+test("changed available advisors or statuses fail closed instead of selecting a different record",()=>{
+  const store=filterStore(),prefs=harness(store);
+  assert.equal(prefs.writeOpenRoFilter("advisor",["","Alex","Zoe"],"Zoe"),true);
+  assert.equal(prefs.readOpenRoFilter("advisor",["","Alex","Bob"]),"");
+  assert.equal(prefs.readOpenRoFilter("advisor",["","Zoe","Alex"]),"");
+  assert.equal(prefs.readOpenRoFilter("advisor",["","Alex"]),"");
+  assert.equal(prefs.readOpenRoFilter("advisor",["","Alex","Zoe"]),"Zoe");
+  assert.equal(prefs.writeOpenRoFilter("sourceStatus",["","Verified","Missing"],"Missing"),true);
+  assert.equal(prefs.readOpenRoFilter("sourceStatus",["","Verified","Other"]),"");
+  assert.equal(prefs.writeOpenRoFilter("managementStatus",["","Open","Closed"],"Closed"),true);
+  assert.equal(prefs.readOpenRoFilter("managementStatus",["","Open","Changed"]),"");
+});
+
+test("invalid, denied and malformed browser filter preference data fails to safe defaults",()=>{
+  const store=filterStore(),prefs=harness(store);
+  const advisors=["","Alex","Zoe"];
+  assert.equal(prefs.writeOpenRoFilter("advisor",advisors,"Not present"),false);
+  assert.equal(prefs.writeOpenRoFilter("unknown",advisors,"Alex"),false);
+  assert.equal(prefs.writeOpenRoFilter("advisor",["","x".repeat(300)],"x".repeat(300)),false);
+  for(const bad of ["{","null","[]","42",JSON.stringify({advisor:{index:1000000,signature:"spoof"}})]){
+    store.map.set(filterKey,bad);
+    assert.equal(prefs.readOpenRoFilter("advisor",advisors),"");
+  }
+  const denied={getItem(){throw Error("denied");},setItem(){throw Error("denied");},removeItem(){throw Error("denied");}};
+  const pDenied=harness(denied),pMissing=harness(undefined);
+  for(const p of [pDenied,pMissing]){
+    assert.equal(p.readOpenRoFilter("advisor",advisors),"");
+    assert.equal(p.writeOpenRoFilter("advisor",advisors,"Alex"),false);
+    assert.equal(p.clearOpenRoFilters(),false);
+  }
+});
+
+test("clear/reset removes device filter selections without altering existing sort or Workspace data",()=>{
+  const store=filterStore(),prefs=harness(store);
+  const advisors=["","Alex"];
+  assert.equal(prefs.writeOpenRoFilter("advisor",advisors,"Alex"),true);
+  assert.equal(prefs.writeOpenRoFilter("advisor",advisors,""),true);
+  assert.equal(store.map.has(filterKey),false,"clearing last individual filter deletes key");
+  assert.equal(prefs.writeOpenRoFilter("advisor",advisors,"Alex"),true);
+  assert.equal(prefs.writeOpenRo({sort:"longest",density:"compact",attention:"overdue"}),true);
+  assert.equal(prefs.clearOpenRoFilters(),true);
+  assert.equal(store.map.has(filterKey),false);
+  assert.deepEqual(plain(prefs.readOpenRo()),{sort:"longest",density:"compact",attention:"overdue"});
+  assert.equal(prefs.readOpenRoFilter("advisor",advisors),"");
+});
+
+test("production filter-render function restores device choices only against matching current options",()=>{
+  const store=filterStore(),prefs=harness(store);
+  const advisors=["","Alex","Zoe"],sources=["","Missing","Verified"],status=["","Open","Reviewed"];
+  assert.equal(prefs.writeOpenRoFilter("advisor",advisors,"Zoe"),true);
+  assert.equal(prefs.writeOpenRoFilter("sourceStatus",sources,"Missing"),true);
+  assert.equal(prefs.writeOpenRoFilter("managementStatus",status,"Reviewed"),true);
+  const makeSelect=()=>({value:"",options:[]});
+  const ui={advisorFilter:makeSelect(),sourceStatusFilter:makeSelect(),managementStatusFilter:makeSelect()};
+  const records=[
+    {advisor:"Alex",sourceStatus:"Verified",management:{status:"Open"}},
+    {advisor:"Zoe",sourceStatus:"Missing",management:{status:"Reviewed"}}
+  ];
+  const renderCode=production("  function renderFilters() {","  function renderTrendCoverageSummary(");
+  const context=vm.createContext({
+    ui,model:{root:{name:"fake"},state:{records}},
+    renderAdvisorHandoff(){},
+    statusForRecord(record){return record.management.status;},
+    syncFilter(select,placeholder,values){
+      const previous=select.value;
+      select.options=[{value:""},...new Set(values.filter(Boolean))].sort((a,b)=>String(a.value||a).localeCompare(String(b.value||b))).map(x=>typeof x==="object"?x:{value:x});
+      // Always retain the placeholder as the first choice.
+      select.options=select.options.filter(item=>item.value!=="");
+      select.options.unshift({value:""});
+      select.value=select.options.some(item=>item.value===previous)?previous:"";
+    },
+    MoonDogDevicePreferences:prefs
+  });
+  vm.runInContext(renderCode+"\nthis.renderFilters=renderFilters;",context);
+  context.renderFilters();
+  assert.equal(ui.advisorFilter.value,"Zoe");
+  assert.equal(ui.sourceStatusFilter.value,"Missing");
+  assert.equal(ui.managementStatusFilter.value,"Reviewed");
+  context.model.state.records=[
+    {advisor:"Alex",sourceStatus:"Other",management:{status:"Open"}},
+    {advisor:"Bob",sourceStatus:"Verified",management:{status:"Changed"}}
+  ];
+  context.renderFilters();
+  assert.equal(ui.advisorFilter.value,"");
+  assert.equal(ui.sourceStatusFilter.value,"");
+  assert.equal(ui.managementStatusFilter.value,"");
+});
+
+test("actual event handlers persist all three presentation filters and both resets clear them",()=>{
+  for(const field of ['["advisor",ui.advisorFilter]','["sourceStatus",ui.sourceStatusFilter]','["managementStatus",ui.managementStatusFilter]']){
+    assert.ok(app.includes(field),field);
+  }
+  assert.match(app,/saveOpenRoFilter\(field,select\);renderTable\(\)/);
+  assert.match(app,/ui\.clearFilters\.addEventListener\("click",\(\)=>\{[^}]*clearSavedOpenRoFilters\(\)/);
+  assert.match(app,/ui\.openRoPreferenceReset\.addEventListener\("click",\(\)=>\{[^}]*clearSavedOpenRoFilters\(\)/);
+  assert.doesNotMatch(app,/writeJson\([^)]*DEVICE_OPEN_RO_FILTER_KEY/);
+});
