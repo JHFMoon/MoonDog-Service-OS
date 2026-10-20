@@ -39,7 +39,7 @@ function fixture(options={}){
   ]);
   const selected={
     manifest:{createdAt:"2026-01-01T00:00:00Z",appVersion:"synthetic",
-      entries:[...incoming].map(([p,b])=>({path:p,sha256:digest(b)}))},
+      entries:[...incoming].map(([p,b])=>({path:p,size:b.length,sha256:digest(b)}))},
     zip:{file:p=>({async:async()=>new Uint8Array(incoming.get(p.slice("payload/".length)))})}
   };
   const actions=[],diagnostics=[],model={recovery:{status:"Ready",lastRestore:{sourceFile:"previous.zip"}}};
@@ -203,4 +203,16 @@ test("restore marker carries a unique owner for later write-authority validation
   const marker=JSON.parse(decode(f.files.get("data/restore-in-progress.json")));
   assert.equal(marker.restoreId,"123e4567-e89b-42d3-a456-426614174000");
   assert.equal(f.actions.find(([event])=>event==="restore-begun")[1],marker.restoreId);
+});
+
+test("foreign modification of an already-restored file is caught by final hash verification",async()=>{
+  const f=fixture({afterWrite:(p,files)=>{
+    if(p===keys[1])files.set(keys[0],json({records:[{id:"foreign-late-edit"}]}));
+  }});
+  await assert.rejects(f.restore(),/Restore post-write verification failed/);
+  assert.equal(JSON.parse(decode(f.files.get(keys[0]))).records[0].id,"foreign-late-edit");
+  assert.equal(f.files.has("data/restore-in-progress.json"),true);
+  assert.equal(f.disabled,1);
+  assert.equal(f.model.recovery.lastRestore.sourceFile,"previous.zip");
+  assert.equal(f.actions.some(([action])=>action==="restore-marker-removed"),false);
 });
