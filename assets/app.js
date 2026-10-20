@@ -3765,7 +3765,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const format=(value,style)=>!Number.isFinite(value)?"—":style==="percent"
       ?value.toFixed(1)+"%":style==="hours"?value.toFixed(2)+" hrs":Math.round(value).toLocaleString();
     const cards=[
-      ["Tasks assigned",values.totalTasks,"count"],
+      ["Total tasks",values.totalTasks,"count"],
       ["Completed tasks",values.completedTasks,"count"],
       ["Completion rate",values.completionRate,"percent"],
       ["Avg completion time",values.avgCompletionHours,"hours"],
