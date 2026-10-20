@@ -111,7 +111,7 @@ function fixture(current=after,options={}){
     "globalThis.isEditable=()=>editable;globalThis.deleteTarget=journaledDelete;"+
     "globalThis.createTarget=journaledCreate;",context);
   return{
-    files,actions,journal,
+    files,dirs,actions,journal,
     recover:revision=>context.recoverPending(directory(),{schemaVersion:1,revision}),
     validate:()=>context.validate(directory(),false),
     editable:()=>context.isEditable(),
@@ -317,4 +317,34 @@ test("successful journaled create commits and cleans up without leaving read-onl
   assert.deepEqual(f.current(),new Uint8Array());
   assert.equal(f.pending(),false);
   assert.equal(await f.validate(),true);
+});
+
+test("uncommitted empty-directory deletion stays read-only and cannot recreate a missing directory",async()=>{
+  const f=fixture(null,{physicalWorkspace:true,journalFormat:"moondog-delete-v1"});
+  const dir="System Files/Workspace/data/old-empty-folder";
+  f.journal.target=dir;
+  f.journal.kind="empty-directory";
+  f.journal.before=null;
+  f.files.set("System Files/Workspace/data/.moondog-txn-synthetic.json",encode(f.journal));
+  assert.equal(f.dirs.has(dir),false);
+  assert.equal(await f.validate(),false,"uncommitted directory removal must require controlled recovery");
+  assert.equal(f.editable(),false);
+  assert.equal(f.dirs.has(dir),false,"recovery must not recreate the deleted directory");
+  assert.equal(f.pending(),true,"uncommitted journal must remain intact");
+});
+
+test("uncommitted empty-directory journal does not dismiss a competing directory replacement",async()=>{
+  const f=fixture(null,{physicalWorkspace:true,journalFormat:"moondog-delete-v1"});
+  const dir="System Files/Workspace/data/old-empty-folder";
+  f.journal.target=dir;
+  f.journal.kind="empty-directory";
+  f.journal.before=null;
+  f.files.set("System Files/Workspace/data/.moondog-txn-synthetic.json",encode(f.journal));
+  f.dirs.add(dir);
+  f.files.set(dir+"/independent-state.json",encode({owner:"external-writer"}));
+  assert.equal(await f.validate(),false);
+  assert.equal(f.editable(),false);
+  assert.equal(f.dirs.has(dir),true);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(f.files.get(dir+"/independent-state.json"))),{owner:"external-writer"});
+  assert.equal(f.pending(),true,"do not silently clear an uncertain delete journal");
 });
