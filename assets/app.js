@@ -3804,7 +3804,14 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     let mutationStarted=false;
     const previousLastRestore=model.recovery.lastRestore;
+    const restoreMarkerPath=["data","restore-in-progress.json"];
     try{
+      writeAuthority.beginRestore();
+      // Persist an unmistakable interrupted-restore marker BEFORE touching any
+      // operational file. Other tabs and reconnects must refuse edits until
+      // the complete restore and its audit finish successfully.
+      mutationStarted=true;
+      await writeJson(restoreMarkerPath,{schemaVersion:1,sourceFile:name,safetyBackup:safety.name,startedAt:now()});
       for(const path of Object.keys(BACKUP_FILES)){
         // Preflight can go stale between writes. Check each target against
         // persisted safety bytes again immediately before replacing it.
@@ -3829,6 +3836,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       await writeJson(RECOVERY_PATH,model.recovery);
       await addHistory("full-restore-complete","Restored and verified complete Service Operations Dashboard state",{sourceFile:name,safetyBackup:safety.name,openRos:model.state.records.length});
       renderAll();renderSettings();await scanRecoveryBackups();renderRecovery();
+      await maintenanceIO.remove(restoreMarkerPath.join("/"));
+      writeAuthority.endRestore();
       status("Service Operations Dashboard was restored and every durable file was verified.","success");
     }catch(error){
       // Multi-file restore has no distributed compare-and-swap. Blind rollback
@@ -3839,6 +3848,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         ?"Restore interrupted; safety backup retained; controlled recovery required"
         :"Restore stopped before changing operational files";
       if(mutationStarted)writeAuthority.disable();
+      else writeAuthority.endRestore();
       recordDiagnostic("RESTORE FAILED",`Restore stopped without automatic rollback (${error.name||"Error"}); safety backup retained for review`);
       renderRecovery();
       throw error;
