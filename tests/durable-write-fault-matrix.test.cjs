@@ -35,6 +35,10 @@ function fixture(options={}){
       files.set(path,new Uint8Array(bytes));
       if(path.includes(".moondog-txn-")&&options.concurrentExternalEdit)
         files.set(target,encode({schemaVersion:1,updatedAt:"external-tab",records:[]}));
+      if(!restore&&path===target&&options.externalAfterTargetWrite)
+        files.set(target,encode({schemaVersion:1,updatedAt:"external-after-write",records:[{id:"independent"}]}));
+      if(!restore&&path===target&&options.rejectAfterTargetWrite)
+        throw Error("synthetic target write interrupted after replacement");
       await Promise.resolve();
     },
     async remove(path){operations.push(["remove",path]);files.delete(path);},
@@ -84,22 +88,25 @@ test("interrupted temporary journal creation refuses save and preserves original
   assert.equal(journals(f).length,0,"truncated journal residue removed after a rejected preparation");
 });
 
-test("partial target write rolls back exact old bytes and refuses success",async()=>{
+test("partial target write fails closed and retains journal and original snapshot",async()=>{
   const f=fixture({partialTarget:true});
   await assert.rejects(safeWrite(f.io,target,next),/read-back mismatch/);
-  assert.deepEqual(f.files.get(target),f.original);
+  assert.deepEqual(f.files.get(target),new Uint8Array([12,13]));
   assert.equal(f.counts.completed,0);
-  assert.equal(journals(f).length,0);
+  assert.equal(journals(f).length,1);
   assert.equal(f.failed.length,1);
-  assert.equal(f.failed[0].recovered,true);
+  assert.equal(f.failed[0].recovered,false);
+  assert.deepEqual(decode(f.files.get(journals(f)[0])).before,[...f.original]);
+  assert.equal(f.operations.some(([op,path])=>path===target&&["restore","remove"].includes(op)),false);
 });
 
-test("unrecoverable partial target write keeps verified journal for recovery",async()=>{
+test("uncertain target write never attempts destructive rollback, even if restoration would fail",async()=>{
   const f=fixture({partialTarget:true,failRestore:true});
   await assert.rejects(safeWrite(f.io,target,next),/read-back mismatch/);
   assert.equal(f.counts.completed,0);
   assert.equal(journals(f).length,1);
   assert.equal(f.failed[0].recovered,false);
+  assert.equal(f.operations.some(([op,path])=>op==="restore"&&path===target),false);
   const journal=decode(f.files.get(journals(f)[0]));
   assert.equal(journal.format,"moondog-write-v1");
   assert.deepEqual(journal.before,[...f.original]);
@@ -115,12 +122,14 @@ test("out-of-band concurrent replacement is detected before touching another wri
   assert.equal(f.failed[0].recovered,true);
 });
 
-test("new-file partial save rolls back by removal, never retaining unverified target",async()=>{
+test("new-file partial save preserves uncertain bytes and journal, not a blind deletion",async()=>{
   const f=fixture({empty:true,partialTarget:true});
   await assert.rejects(safeWrite(f.io,target,next),/read-back mismatch/);
-  assert.equal(f.files.has(target),false);
-  assert.equal(journals(f).length,0);
+  assert.deepEqual(f.files.get(target),new Uint8Array([12,13]));
+  assert.equal(journals(f).length,1);
+  assert.equal(decode(f.files.get(journals(f)[0])).before,null);
   assert.equal(f.counts.completed,0);
+  assert.equal(f.operations.some(([op,path])=>op==="remove"&&path===target),false);
 });
 
 test("completed commit stays valid when journal cleanup transiently fails",async()=>{
@@ -137,4 +146,25 @@ test("invalid JSON fails before mutation or journal creation",async()=>{
   assert.deepEqual(f.files.get(target),f.original);
   assert.equal(f.counts.started,0);
   assert.equal(journals(f).length,0);
+});
+
+test("foreign replacement after target write cannot be overwritten by rollback",async()=>{
+  const f=fixture({externalAfterTargetWrite:true});
+  await assert.rejects(safeWrite(f.io,target,next),/read-back mismatch/);
+  assert.equal(decode(f.files.get(target)).updatedAt,"external-after-write");
+  assert.equal(f.counts.completed,0);
+  assert.equal(f.failed[0].recovered,false);
+  assert.equal(journals(f).length,1,"journal preserves old and attempted bytes for controlled recovery");
+  assert.deepEqual(decode(f.files.get(journals(f)[0])).before,[...f.original]);
+  assert.equal(f.operations.some(([op,path])=>path===target&&["restore","remove"].includes(op)),false);
+});
+
+test("foreign replacement survives even when the stale file handle throws after writing",async()=>{
+  const f=fixture({externalAfterTargetWrite:true,rejectAfterTargetWrite:true});
+  await assert.rejects(safeWrite(f.io,target,next),/synthetic target write interrupted/);
+  assert.equal(decode(f.files.get(target)).updatedAt,"external-after-write");
+  assert.equal(f.counts.completed,0);
+  assert.equal(f.failed[0].recovered,false);
+  assert.equal(journals(f).length,1);
+  assert.equal(f.operations.some(([op,path])=>path===target&&["restore","remove"].includes(op)),false);
 });
