@@ -1667,7 +1667,7 @@
     const lines=reportTextLines(firstPage);
     const last=(label,percent=false)=>{
       const line=lines.find((value)=>new RegExp("^"+label+"\\s+","i").test(value));
-      const values=line?[...line.matchAll(/(\d[\d,]*(?:\.\d+)?)(%)?/g)]:[];
+      const values=line?[...line.matchAll(/(?:^|\s)(\d[\d,]*(?:\.\d+)?)(%)?(?=\s|$)/g)]:[];
       const match=values.at(-1);
       if(!match||(percent&&!match[2]))return null;
       return Number(match[1].replace(/,/g,""));
