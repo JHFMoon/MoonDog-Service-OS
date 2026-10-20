@@ -37,6 +37,12 @@ function fixture(current=after,options={}){
       revisionBefore:4};
   if(!options.noInitialJournal)files.set(journalPath,encode(journal));
   files.set(revisionPath,encode({schemaVersion:1,revision:4}));
+  if(options.restoreMarker){
+    const marker=prefix+"data/restore-in-progress.json";
+    files.set(marker,options.restoreMarker==="invalid"?encode({restoreId:"broken-marker"}):
+      encode({schemaVersion:1,restoreId:"123e4567-e89b-42d3-a456-426614174000",
+        sourceFile:"synthetic-source.zip",safetyBackup:"synthetic-safety.zip"}));
+  }
   const directory=(prefix="")=>({
     kind:"directory",
     queryPermission:async()=>"granted",
@@ -109,7 +115,7 @@ function fixture(current=after,options={}){
   vm.runInContext(setup+"\n"+production+"\n"+validation+"\n"+mutation+
     "\nglobalThis.recoverPending=recoverPending;globalThis.validate=validate;"+
     "globalThis.isEditable=()=>editable;globalThis.deleteTarget=journaledDelete;"+
-    "globalThis.createTarget=journaledCreate;",context);
+    "globalThis.createTarget=journaledCreate;globalThis.setRestoreOwner=id=>{localRestoreOwner=id;};",context);
   return{
     files,dirs,actions,journal,
     recover:revision=>context.recoverPending(directory(),{schemaVersion:1,revision}),
@@ -118,7 +124,8 @@ function fixture(current=after,options={}){
     current:()=>files.get(statePath),
     pending:()=>[...files.keys()].some(p=>p.startsWith(prefix+"data/.moondog-txn-")),
     deleteTarget:()=>context.deleteTarget(statePath),
-    createTarget:()=>context.createTarget(statePath,"file")
+    createTarget:()=>context.createTarget(statePath,"file"),
+    setRestoreOwner:id=>context.setRestoreOwner(id)
   };
 }
 
@@ -347,4 +354,41 @@ test("uncommitted empty-directory journal does not dismiss a competing directory
   assert.equal(f.dirs.has(dir),true);
   assert.deepEqual(JSON.parse(new TextDecoder().decode(f.files.get(dir+"/independent-state.json"))),{owner:"external-writer"});
   assert.equal(f.pending(),true,"do not silently clear an uncertain delete journal");
+});
+
+test("orphaned restore marker blocks journal cleanup before any recovery write",async()=>{
+  const f=fixture(before,{physicalWorkspace:true,restoreMarker:true});
+  const journal="System Files/Workspace/data/.moondog-txn-synthetic.json";
+  const marker="System Files/Workspace/data/restore-in-progress.json";
+  const originalJournal=new Uint8Array(f.files.get(journal));
+  const originalMarker=new Uint8Array(f.files.get(marker));
+  assert.equal(await f.validate(),false,"a reconnecting tab must remain read-only");
+  assert.equal(f.editable(),false);
+  assert.deepEqual(f.current(),before);
+  assert.deepEqual(f.files.get(journal),originalJournal,"no automatic journal recovery/cleanup during restore hold");
+  assert.deepEqual(f.files.get(marker),originalMarker);
+  assert.deepEqual(f.actions,[],"no rollback, deletion or revision writes may precede the hold check");
+});
+
+test("invalid or unowned restore marker forbids revision initialization and edits",async()=>{
+  for(const restoreMarker of [true,"invalid"]){
+    const f=fixture(before,{physicalWorkspace:true,noInitialJournal:true,restoreMarker});
+    const revision="System Files/Workspace/data/store-revision.json";
+    f.files.set(revision,encode({schemaVersion:1,revision:-2}));
+    const old=new Uint8Array(f.files.get(revision));
+    assert.equal(await f.validate(),false);
+    assert.equal(f.editable(),false);
+    assert.deepEqual(f.files.get(revision),old,"revision bootstrap must not run through an orphaned hold");
+    assert.deepEqual(f.actions,[]);
+  }
+});
+
+test("currently owning restore session retains its scoped validation behavior",async()=>{
+  const f=fixture(before,{physicalWorkspace:true,restoreMarker:true});
+  f.setRestoreOwner("123e4567-e89b-42d3-a456-426614174000");
+  assert.equal(await f.validate(),true,"initiating tab may continue a known restore");
+  assert.equal(f.editable(),true);
+  assert.equal(f.pending(),false,"verified original journal is recovered by its still-running owner");
+  assert.equal(f.files.has("System Files/Workspace/data/restore-in-progress.json"),true,
+    "validation itself must never dismiss an active restore hold");
 });
