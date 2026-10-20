@@ -16,6 +16,7 @@ function fixture(options={}){
   const files=new Map(options.empty?[]:[[target,original.slice()]]);
   const failed=[],operations=[];let revision=0,started=0,completed=0,cancelled=0;
   const io={
+    journalTarget(path){return "System Files/Workspace/"+path;},
     async read(path){
       operations.push(["read",path]);
       if(options.denyRead&&path===target)throw Object.assign(Error("permission denied"),{name:"NotAllowedError"});
@@ -109,6 +110,7 @@ test("uncertain target write never attempts destructive rollback, even if restor
   assert.equal(f.operations.some(([op,path])=>op==="restore"&&path===target),false);
   const journal=decode(f.files.get(journals(f)[0]));
   assert.equal(journal.format,"moondog-write-v1");
+  assert.equal(journal.target,"System Files/Workspace/data/current-state.json");
   assert.deepEqual(journal.before,[...f.original]);
   assert.deepEqual(journal.after,[...next]);
 });
