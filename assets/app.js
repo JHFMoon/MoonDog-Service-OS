@@ -1401,7 +1401,52 @@
   const isoCell = (value) => value instanceof Date ? localDateKey(value) : workbookDate(value);
   function workbookGrid(bytes, preferred) { const book = XLSX.read(bytes, { type: "array", raw: true, cellDates: true }), sheet = book.Sheets[preferred] || book.Sheets[book.SheetNames[0]]; if (!sheet) throw new Error("The workbook has no readable worksheet."); return { book, rows: XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true }) }; }
   function parseSorWorkbook(bytes, fileName) { const { rows } = workbookGrid(bytes), title = text(rows[0]?.[1] || rows[0]?.[0]).trim(), match = title.match(/After-Sales SOR\s*-\s*([A-Za-z]+)\s+(20\d{2})\s*\/\s*(\d+)\s*-/i); if (!match || match[3] !== reportStoreCode("sor")) throw new Error("This is not the configured store After-Sales SOR."); const headers = rows[2] || [], actualColumns = headers.map((value, index) => norm(value) === "actual" ? index : -1).filter((index) => index >= 0); if (actualColumns.length < 2 || norm(headers[3]) !== "prior year") throw new Error("The SOR comparison columns changed."); const metrics = {}; rows.slice(3).forEach((row) => { const label = text(row[0]).trim(); if (!label) return; metrics[label] = { ytdActual: performanceNumber(row[2]), ytdPriorYear: performanceNumber(row[3]), currentActual: performanceNumber(row[5]), currentPriorYear: performanceNumber(row[6]), priorMonthActual: performanceNumber(row[9]) }; }); for (const key of ["CP Labor Rev", "CP Labor Gross", "CP GM %", "CP RO Count", "CP ELR", "CP Hours p/RO"]) if (!metrics[key]) throw new Error(`SOR is missing ${key}.`); const month = `${match[2]}-${String(new Date(`${match[1]} 1, ${match[2]}`).getMonth() + 1).padStart(2, "0")}`; return { period: month, sourceFile: fileName, importedAt: now(), storeCode: reportStoreCode("sor"), scope: "store", metrics, validation: { parser: "sor-v1", currentActualColumn: 5, priorMonthColumn: 9 } }; }
-  function parseAppointmentActivityWorkbook(bytes, fileName) { const { rows } = workbookGrid(bytes, "Merged"), header = (rows[0] || []).map(norm), required = ["store code", "interaction", "contacted date", "appt creation date", "appt set date", "appt time"]; if (!required.every((key) => header.includes(key))) throw new Error("This is not an Appointment Activity report."); const index = Object.fromEntries(header.map((key, position) => [key, position])), storeRows = rows.slice(1).filter((row) => text(row[index["store code"]]).trim() === reportStoreCode("appointmentActivity")), stores = new Set(rows.slice(1).map((row) => text(row[index["store code"]]).trim()).filter(Boolean)); if (!storeRows.length || stores.size < 2) throw new Error("Appointment Activity store filtering could not be verified."); const dates = storeRows.map((row) => isoCell(row[index["appt creation date"]])).filter(Boolean).sort(), byInteraction = {}; storeRows.forEach((row) => { const key = text(row[index.interaction]).trim() || "Unknown"; byInteraction[key] = (byInteraction[key] || 0) + 1; }); return { periodStart: dates[0], periodEnd: dates.at(-1), sourceFile: fileName, importedAt: now(), storeCode: reportStoreCode("appointmentActivity"), rowCount: storeRows.length, byInteraction, fieldsRetained: ["aggregate counts only"], validation: { parser: "appointment-activity-v1", sourceStores: stores.size, piiRowsNotRetained: storeRows.length } }; }
+  function parseAppointmentActivityWorkbook(bytes, fileName) {
+    // Source exports can use "Merged" (daily) or "Sheet1" (multi-day), and may omit Remarks.
+    // Never retain source rows, VINs, customer identifiers, names or free-text notes.
+    const { rows } = workbookGrid(bytes, "Merged");
+    const header = (rows[0] || []).map((value) => norm(value).replace(/\s+/g, " "));
+    const required = ["store code", "interaction", "contacted date", "appt creation date", "appt set date", "appt time"];
+    if (!required.every((key) => header.includes(key))) throw new Error("This is not an Appointment Activity report.");
+    const col = Object.fromEntries(header.map((key, index) => [key, index]));
+    const configuredStore = reportStoreCode("appointmentActivity");
+    const stores = new Set(), storeRows = [];
+    for (const row of rows.slice(1)) {
+      const store = text(row[col["store code"]]).trim();
+      if (!store) continue;
+      stores.add(store);
+      if (store === configuredStore) storeRows.push(row);
+    }
+    if (stores.size < 2 || !storeRows.length) throw new Error("Appointment Activity store filtering could not be verified.");
+    const byInteraction = {}, byCreationDate = {}, leadTimeBuckets = {sameDay:0, days1to7:0, days8to30:0, over30:0};
+    let validCreationDates = 0, validLeadTimes = 0;
+    const dates = [];
+    for (const row of storeRows) {
+      const creation = isoCell(row[col["appt creation date"]]);
+      const appointment = isoCell(row[col["appt set date"]]);
+      if (creation) { dates.push(creation); byCreationDate[creation] = (byCreationDate[creation] || 0) + 1; validCreationDates += 1; }
+      // Interaction is an operational category, not a free-text note.
+      const raw = text(row[col.interaction]).trim();
+      const interaction = /^[a-z0-9_. -]{1,70}$/i.test(raw) ? raw : "Unclassified";
+      byInteraction[interaction] = (byInteraction[interaction] || 0) + 1;
+      if (!creation || !appointment) continue;
+      const days = Math.round((Date.parse(appointment + "T00:00:00Z") - Date.parse(creation + "T00:00:00Z")) / 86400000);
+      if (!Number.isInteger(days) || days < 0 || days > 366) continue;
+      validLeadTimes += 1;
+      const band = days === 0 ? "sameDay" : days <= 7 ? "days1to7" : days <= 30 ? "days8to30" : "over30";
+      leadTimeBuckets[band] += 1;
+    }
+    dates.sort();
+    if (!dates.length) throw new Error("Appointment Activity has no valid appointment creation dates for the configured store.");
+    return {
+      periodStart:dates[0],periodEnd:dates.at(-1),sourceFile:fileName,importedAt:now(),
+      storeCode:configuredStore,rowCount:storeRows.length,byInteraction,byCreationDate,
+      leadTimeBuckets,validLeadTimes,fieldsRetained:["aggregate counts only"],
+      validation:{parser:"appointment-activity-v2-aggregates",supplementalOnly:true,
+        kpiPromotion:false,sourceStores:stores.size,validCreationDates,
+        piiRowsNotRetained:storeRows.length,acceptsMissingRemarks:true}
+    };
+  }
   function normalizedPerson(value) { return text(value).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
   function serviceAdvisorNumber(value) {
     const codes=new Set(),key=normalizedPerson(value),coded=text(value).match(/^(.+)\[(\d+)\]$/);
@@ -1551,6 +1596,11 @@
   }
   function supplementalPdfFamily(source,fileName="") {
     const s=String(source||"").replace(/\s+/g," "),name=String(fileName||"");
+    if(/\bTASK_WEEK\b|\bTASK_DATE\b/i.test(s)
+      &&/\bAFTERSALES_SUBMARKET_NAME\b/i.test(s)
+      &&/\bCompleted Tasks\b/i.test(s)&&/\bAvg Completion Hours\b/i.test(s))return"ato-task-performance";
+    if(/Events Calendar usage for identifying/i.test(s)
+      &&/Registered classes/i.test(s))return"training-registration-guide";
     if(/Mopar Retail Rewards has four pre-qualifiers|Pre-qualifiers[\s\S]{0,250}Loyalty[\s\S]{0,150}ARO[\s\S]{0,150}Maintenance[\s\S]{0,150}Bulk Oil/i.test(s))return"retail-rewards-core";
     if(/LOYALTY EQUATION/i.test(s)&&/Mopar Parts/i.test(s))return"retail-rewards-parts-loyalty";
     if(/MAINTENANCE PENETRATION EQUATION/i.test(s))return"retail-rewards-maintenance";
@@ -1608,8 +1658,51 @@
     return{family:"customer-outreach-transcript",sourceFile:fileName,sourceFormat:"pdf",importedAt:now(),periodStart:dates[0]||"",periodEnd:dates.at(-1)||dates[0]||"",variant:slug(customer)||"customer",metrics:{customer,agent,messageCount:messages.length,customerMessageCount:messages.filter((m)=>m.speaker==="customer").length,agentMessageCount:messages.filter((m)=>m.speaker==="agent").length,lastCustomerRequest:lastQuestion?.text||"",needsFollowUp,followUpReason:needsFollowUp?"Customer request remains in a handoff/follow-up state at the end of the transcript":"",messages:messages.slice(-40)},validation:{parser:"customer-outreach-transcript-v1",supplementalOnly:true,kpiPromotion:false,workflowFollowUp:true}};
   }
 
+  function parseAtoTaskPerformancePdf(source,fileName){
+    // ATO PDF can be filtered at market, store, task category or time range.
+    // Its first-page grand total is NOT an authoritative store total.
+    const firstPage=String(source||"").split("__PAGE_BREAK__")[0];
+    if(!/TASK_WEEK|TASK_DATE/i.test(firstPage)||!/Completed Tasks/i.test(firstPage)
+      ||!/Completion Rate/i.test(firstPage))throw new Error("ATO Task Performance summary is incomplete.");
+    const lines=reportTextLines(firstPage);
+    const last=(label,percent=false)=>{
+      const line=lines.find((value)=>new RegExp("^"+label+"\\s+","i").test(value));
+      const values=line?[...line.matchAll(/(\d[\d,]*(?:\.\d+)?)(%)?/g)]:[];
+      const match=values.at(-1);
+      if(!match||(percent&&!match[2]))return null;
+      return Number(match[1].replace(/,/g,""));
+    };
+    const total=last("Total Tasks"),completed=last("Completed Tasks"),rate=last("Completion Rate",true);
+    const verified=Number.isFinite(total)&&Number.isFinite(completed)&&completed<=total
+      &&Number.isFinite(rate)&&rate>=0&&rate<=100;
+    return {family:"ato-task-performance",sourceFile:fileName,sourceFormat:"pdf",importedAt:now(),
+      periodStart:"",periodEnd:"",variant:"source-filtered-market-summary",
+      metrics:{scope:"Source filters not independently verified; do not treat as dealership KPI.",
+        verifiedSummary:verified?{totalTasks:total,completedTasks:completed,completionRate:rate,
+          avgCompletionHours:last("Avg Completion Hours"),
+          pctUnderOneHour:last("Pct Under 1 Hour",true),
+          pctOver24Hours:last("Pct Over 24 Hours",true)}:null,
+        availableDimensions:["task category","submarket","store","role","date range"]},
+      validation:{parser:"ato-task-performance-v1",supplementalOnly:true,kpiPromotion:false,
+        sourceScopeVerified:false,grandTotalsVerified:verified,employeeRowsNotRetained:true}};
+  }
+  function parseTrainingRegistrationGuide(source,fileName){
+    const normalized=String(source||"").replace(/\s+/g," ");
+    if(!/Events Calendar usage for identifying/i.test(normalized)
+      ||!/Registered classes/i.test(normalized))throw new Error("Training registration guide structure changed.");
+    return {family:"training-registration-guide",sourceFile:fileName,sourceFormat:"pdf",importedAt:now(),
+      periodStart:"",periodEnd:"",variant:"procedural-reference",
+      metrics:{statusRule:"Only Registered confirms an enrolled seat.",
+        procedure:["Open the Events Calendar.","Select My Events.","Disable all status filters except Registered.",
+          "A session remaining on the calendar is Registered; a disappearing session is not a confirmed seat."],
+        warning:"Do not rely on calendar colors or Approved status to establish Registered."},
+      validation:{parser:"training-registration-guide-v1",supplementalOnly:true,kpiPromotion:false,
+        trainingRosterVerified:false,employeeDataNotRetained:true}};
+  }
   function parseSupplementalPdfReport(source,fileName,context={}) {
     const family=supplementalPdfFamily(source,fileName);if(!family)throw new Error("This PDF is not a supported supplemental report.");
+    if(family==="ato-task-performance")return parseAtoTaskPerformancePdf(source,fileName);
+    if(family==="training-registration-guide")return parseTrainingRegistrationGuide(source,fileName);
     if(family==="parts-quality-alert")return parsePartsQualityAlert(source,fileName);
     if(family==="service-consulting-audit")return parseServiceConsultingAudit(source,fileName);
     if(family==="customer-outreach-transcript")return parseOutreachTranscript(source,fileName);
@@ -1676,7 +1769,43 @@
     const sdl=book.Sheets["Service Daily Log"];if(sdl){const rows=XLSX.utils.sheet_to_json(sdl,{header:1,defval:null,raw:true}),nonblank=rows.flat().filter((value)=>text(value).trim());if(!nonblank.length)return{family:"service-daily-log-empty",sourceFile:fileName,sourceFormat:"xlsx",importedAt:now(),periodStart:"",periodEnd:"",variant:"blank-export",metrics:{dataRows:0},validation:{parser:"recognized-empty-workbook-v1",supplementalOnly:true,kpiPromotion:false,reason:"Recognized Service Daily Log workbook is blank"}};}
     return null;
   }
-  function parseSupplementalWorkbook(bytes,fileName) { return parseCashClearingWorkbook(bytes,fileName)||parseCreditHoldsWorkbook(bytes,fileName)||parseEmptyKnownWorkbook(bytes,fileName); }
+  function parseOpenRoAgingByAsmWorkbook(bytes,fileName) {
+    // The advisor-grouped AN671 export is NOT an authoritative complete Open RO roster.
+    // Individual ROs, tags, customer names and financial amounts must not be retained here.
+    const {rows} = workbookGrid(bytes);
+    const report = rows.slice(0,15).map((row)=>row.map((value)=>text(value)).join(" ")).join(" ");
+    if(!/REPORT OF OPEN ROS BY ADVISOR/i.test(report))return null;
+    const headings=rows.filter((row)=>norm(row[1])==="ro" && norm(row[2])==="tag-no"
+      && norm(row[5])==="days" && norm(row[6])==="customername" && norm(row[7])==="status");
+    if(!headings.length)throw new Error("The advisor-grouped Open RO export structure changed.");
+    const statusCounts={},aging={under2:0,days2to4:0,days5plus:0};
+    let verifiedRows=0,oldestDays=0;
+    for(const row of rows){
+      const ro=text(row[1]).trim(),days=Number(row[5]),status=text(row[7]).trim();
+      if(!/^\d{3,9}$/.test(ro)||!Number.isInteger(days)||days<0||days>3650
+        ||!/^[a-z][a-z .-]{2,40}$/i.test(status))continue;
+      verifiedRows+=1;
+      const category=status.toUpperCase();
+      statusCounts[category]=(statusCounts[category]||0)+1;
+      oldestDays=Math.max(oldestDays,days);
+      aging[days>=5?"days5plus":days>=2?"days2to4":"under2"]+=1;
+    }
+    if(!verifiedRows)throw new Error("The advisor-grouped Open RO export has no verified detail rows.");
+    const claimed=report.match(/(\d[\d,]*)\s+Rows Returned/i);
+    const reportedRows=claimed?Number(claimed[1].replace(/,/g,"")):null;
+    return {family:"open-ro-advisor-aging",sourceFile:fileName,sourceFormat:"xlsx",importedAt:now(),
+      periodStart:"",periodEnd:"",variant:"undated-advisor-groups",
+      metrics:{verifiedRows,reportedRows,oldestDays,aging,statusCounts,storeScopeVerified:false},
+      validation:{parser:"open-ro-advisor-aging-v1",supplementalOnly:true,kpiPromotion:false,
+        authoritativeRoster:false,completenessVerified:false,identitiesNotRetained:true,
+        reportedAndVerifiedCountsMatch:reportedRows===verifiedRows}};
+  }
+  function parseSupplementalWorkbook(bytes,fileName) {
+    return parseOpenRoAgingByAsmWorkbook(bytes,fileName)
+      ||parseCashClearingWorkbook(bytes,fileName)
+      ||parseCreditHoldsWorkbook(bytes,fileName)
+      ||parseEmptyKnownWorkbook(bytes,fileName);
+  }
   async function docxText(bytes) {
     if(!globalThis.JSZip)throw new Error("The local DOCX reader is unavailable.");const zip=await JSZip.loadAsync(bytes),entry=zip.file("word/document.xml");if(!entry)throw new Error("The DOCX document body is missing.");const xml=await entry.async("string"),source=xml.replace(/<w:tab[^>]*\/>/g,"\t").replace(/<w:br[^>]*\/>/g,"\n").replace(/<\/w:p>/g,"\n").replace(/<[^>]+>/g," ");const area=document.createElement("textarea");area.innerHTML=source;return area.value.replace(/[ \t]+/g," ").replace(/\n\s+/g,"\n").trim();
   }
