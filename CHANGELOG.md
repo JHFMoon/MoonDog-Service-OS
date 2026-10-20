@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.121 — current Beta
+
+- Clarify stale-only CDK records in Open RO and Daily Focus (#59). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.120 — current Beta
 
 - Prevent stale CDK status from masquerading as live Open RO authority (#59). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.

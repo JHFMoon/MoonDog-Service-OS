@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.120",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.120.json",
-    "sha256": "8f62a872471431212a21c5ca3dc5ba769a1142a52ba97d812f7c90e320a1c4f6",
+    "version": "0.10.18-beta.121",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.121.json",
+    "sha256": "aba93087e10c71c90fb0c170533d029f9f8199f6847cd87745aa40a57c41be91",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Prevent stale CDK status from masquerading as live Open RO authority (#59). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17."
+    "releaseNotes": "Clarify stale-only CDK records in Open RO and Daily Focus (#59). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17."
   }
 }
