@@ -69,13 +69,15 @@ function fixture(options={}){
       const prefix=parts.join("/")+"/";
       return [...files].filter(([p])=>p.startsWith(prefix)).map(([p,b])=>({name:p.slice(prefix.length),bytes:new Uint8Array(b)}));
     },
-    writeBytes:async(parts,bytes)=>{
+    writeBytes:async(parts,bytes,restoreId)=>{
+      assert.equal(restoreId,"123e4567-e89b-42d3-a456-426614174000","restore writes require explicit owner capability");
       const p=parts.join("/");actions.push(["write",p]);
       files.set(p,new Uint8Array(bytes));
       options.afterWrite?.(p,files);
       if(options.throwAfterWrite===p)throw Error("synthetic interrupted writable");
     },
-    replaceHistoryFromBackup:async()=>{
+    replaceHistoryFromBackup:async(_zip,_entries,restoreId)=>{
+      assert.equal(restoreId,"123e4567-e89b-42d3-a456-426614174000","history replacement requires restore scope");
       historyStarted++;
       actions.push(["history-replacement"]);
       if(options.throwDuringHistory){
@@ -88,14 +90,18 @@ function fixture(options={}){
     sha256:async bytes=>digest(bytes),decodeUtf8:decode,
     renderRecovery:()=>actions.push(["render"]),
     readJson:async parts=>JSON.parse(decode(files.get(parts.join("/")))),
-    writeJson:async(parts,value)=>{
+    writeJson:async(parts,value,restoreId)=>{
+      assert.equal(restoreId,"123e4567-e89b-42d3-a456-426614174000","restoration metadata must carry owner capability");
       const p=parts.join("/");
       if(p==="data/restore-in-progress.json"){
         actions.push(["restore-marker-created"]);
         files.set(p,json(value));
       }else actions.push(["persist-recovery"]);
     },
-    maintenanceIO:{remove:async p=>{actions.push(["restore-marker-removed"]);files.delete(p);}},
+    maintenanceIO:{remove:async(p,_token,_restore,restoreId)=>{
+      assert.equal(restoreId,"123e4567-e89b-42d3-a456-426614174000","restore marker deletion must be scoped");
+      actions.push(["restore-marker-removed"]);files.delete(p);
+    }},
     writeAuthority:{
       beginRestore:async restoreId=>{actions.push(["restore-begun",restoreId]);},
       endRestore:()=>actions.push(["restore-ended"]),
@@ -103,7 +109,10 @@ function fixture(options={}){
     },
     recordDiagnostic:(kind,message)=>diagnostics.push({kind,message}),
     now:()=>"2026-10-20T00:00:00Z",
-    addHistory:async()=>actions.push(["add-history"]),
+    addHistory:async(_type,_summary,_details,restoreId)=>{
+      assert.equal(restoreId,"123e4567-e89b-42d3-a456-426614174000","restore audit history must use same owner");
+      actions.push(["add-history"]);
+    },
     renderAll:()=>{},renderSettings:()=>{},
     scanRecoveryBackups:async()=>{},status:()=>{},
     confirm:()=>true
