@@ -3759,28 +3759,91 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const keys=Object.keys(a);
     return keys.length===Object.keys(b).length&&keys.every(key=>Object.hasOwn(b,key)&&sameRestoreValue(a[key],b[key]));
   }
-  async function preflightRestoreState(safetySnapshot){
-    const fail=(reason)=>{throw new Error("Restore preflight stopped before changes: "+reason+". Reconnect and retry after reviewing the current Workspace.");};
-    for(const path of Object.keys(BACKUP_FILES)){
-      let current;
-      try{current=JSON.parse(decodeUtf8(await readFileBytes(path.split("/"))));}
-      catch(_){fail("current state cannot be verified");}
-      if(!sameRestoreValue(current,safetySnapshot.values[path]))fail("current state changed after the safety snapshot");
-    }
+  function rejectUnsafeRestore(reason){
+    throw new Error("Restore preflight stopped before changes: "+reason+". Reconnect and retry after reviewing the current Workspace.");
+  }
+  async function verifyRestoreFileUnchanged(path,safetySnapshot){
+    let current;
+    try{current=JSON.parse(decodeUtf8(await readFileBytes(path.split("/"))));}
+    catch(_){rejectUnsafeRestore("current state cannot be verified");}
+    if(!sameRestoreValue(current,safetySnapshot.values[path]))
+      rejectUnsafeRestore("current state changed after the safety snapshot");
+  }
+  async function verifyRestoreHistoryUnchanged(safetySnapshot){
     const expected=safetySnapshot.manifest.entries.filter(e=>e.path.startsWith("data/history/"));
     let history;
     try{history=await directoryFiles(["data","history"]);}
-    catch(error){if(error.name!=="NotFoundError")fail("history cannot be verified");history=[];}
-    if(history.length!==expected.length)fail("history inventory changed after the safety snapshot");
+    catch(error){if(error.name!=="NotFoundError")rejectUnsafeRestore("history cannot be verified");history=[];}
+    if(history.length!==expected.length)rejectUnsafeRestore("history inventory changed after the safety snapshot");
     const index=new Map(expected.map(e=>[e.path,e]));
     for(const file of history){
       const entry=index.get("data/history/"+file.name);
       if(!entry||file.bytes.byteLength!==entry.size||await sha256(file.bytes)!==entry.sha256)
-        fail("history records changed after the safety snapshot");
+        rejectUnsafeRestore("history records changed after the safety snapshot");
     }
   }
+  async function preflightRestoreState(safetySnapshot){
+    for(const path of Object.keys(BACKUP_FILES))await verifyRestoreFileUnchanged(path,safetySnapshot);
+    await verifyRestoreHistoryUnchanged(safetySnapshot);
+  }
   async function replaceHistoryFromBackup(zip,entries){const dir=await directory(["data","history"],true);for await(const[name,handle]of dir.entries())if(handle.kind==="file"&&name.endsWith(".json"))await dir.removeEntry(name);for(const entry of entries.filter((item)=>item.path.startsWith("data/history/"))){const bytes=await zip.file(`payload/${entry.path}`).async("uint8array");await writeBytes(entry.path.split("/"),bytes);}}
-  async function restoreSelectedBackup(){const name=ui.restoreBackupSelect.value;if(!name)throw new Error("Choose a validated backup first.");const selectedPath=["backups",name],selected=await validateBackupBytes(await readFileBytes(selectedPath));if(!confirm(`Restore the complete Service Operations Dashboard state from ${new Date(selected.manifest.createdAt).toLocaleString()}?\n\nVersion: ${selected.manifest.appVersion}\n\nA safety backup of the current state will be created first.`))return;model.recovery.status="Creating restore safety backup";renderRecovery();const safety=await writeValidatedBackup(`Safety backup before restoring ${name}`,"MoonDog Restore Safety");try{await preflightRestoreState(await validateBackupBytes(await readFileBytes(safety.path.split("/"))));}catch(error){model.recovery.status="Restore stopped before changing operational files";renderRecovery();throw error;}try{for(const path of Object.keys(BACKUP_FILES)){const entry=selected.manifest.entries.find((item)=>item.path===path),bytes=await selected.zip.file(`payload/${path}`).async("uint8array");await writeBytes(path.split("/"),bytes);if(await sha256(await readFileBytes(path.split("/")))!==entry.sha256)throw new Error(`Restore verification failed for ${path}.`);}await replaceHistoryFromBackup(selected.zip,selected.manifest.entries);const verified=[];for(const path of Object.keys(BACKUP_FILES))verified.push(await readJson(path.split("/"),null));if(verified.some((value)=>!value))throw new Error("Post-restore durable file verification failed.");[model.state,model.settings,model.appointments,model.performance,model.assignNext,model.autoImport,model.operationalMetrics,model.meetingCycle]=verified;model.recovery.lastRestore={sourceFile:name,restoredAt:now(),sourceCreatedAt:selected.manifest.createdAt,safetyBackup:safety.name,validationStatus:"Verified"};model.recovery.status="Restore verified";await writeJson(RECOVERY_PATH,model.recovery);await addHistory("full-restore-complete","Restored and verified complete Service Operations Dashboard state",{sourceFile:name,safetyBackup:safety.name,openRos:model.state.records.length});renderAll();renderSettings();await scanRecoveryBackups();renderRecovery();status("Service Operations Dashboard was restored and every durable file was verified.","success");}catch(error){const rollback=await validateBackupBytes(await readFileBytes(safety.path.split("/"))),restored=[];for(const path of Object.keys(BACKUP_FILES)){const bytes=await rollback.zip.file(`payload/${path}`).async("uint8array");await writeBytes(path.split("/"),bytes);restored.push(rollback.values[path]);}await replaceHistoryFromBackup(rollback.zip,rollback.manifest.entries);[model.state,model.settings,model.appointments,model.performance,model.assignNext,model.autoImport,model.operationalMetrics,model.meetingCycle]=restored;model.recovery.status="Restore failed; current state recovered from safety backup";await writeJson(RECOVERY_PATH,model.recovery);recordDiagnostic("RESTORE FAILED",`Restore failed and safety state was recovered (${error.name||"Error"})`);renderAll();renderSettings();renderRecovery();throw error;}}
+  async function restoreSelectedBackup(){
+    const name=ui.restoreBackupSelect.value;
+    if(!name)throw new Error("Choose a validated backup first.");
+    const selected=await validateBackupBytes(await readFileBytes(["backups",name]));
+    if(!confirm(`Restore the complete Service Operations Dashboard state from ${new Date(selected.manifest.createdAt).toLocaleString()}?\n\nVersion: ${selected.manifest.appVersion}\n\nA safety backup of the current state will be created first.`))return;
+    model.recovery.status="Creating restore safety backup";
+    renderRecovery();
+    const safety=await writeValidatedBackup(`Safety backup before restoring ${name}`,"MoonDog Restore Safety");
+    const safetySnapshot=await validateBackupBytes(await readFileBytes(safety.path.split("/")));
+    try{await preflightRestoreState(safetySnapshot);}
+    catch(error){
+      model.recovery.status="Restore stopped before changing operational files";
+      renderRecovery();
+      throw error;
+    }
+    let mutationStarted=false;
+    const previousLastRestore=model.recovery.lastRestore;
+    try{
+      for(const path of Object.keys(BACKUP_FILES)){
+        // Preflight can go stale between writes. Check each target against
+        // persisted safety bytes again immediately before replacing it.
+        await verifyRestoreFileUnchanged(path,safetySnapshot);
+        const entry=selected.manifest.entries.find(item=>item.path===path);
+        const bytes=await selected.zip.file(`payload/${path}`).async("uint8array");
+        mutationStarted=true;
+        await writeBytes(path.split("/"),bytes);
+        if(await sha256(await readFileBytes(path.split("/")))!==entry.sha256)
+          throw new Error(`Restore verification failed for ${path}.`);
+      }
+      // Preserve new history written by another tab after initial preflight.
+      await verifyRestoreHistoryUnchanged(safetySnapshot);
+      mutationStarted=true;
+      await replaceHistoryFromBackup(selected.zip,selected.manifest.entries);
+      const verified=[];
+      for(const path of Object.keys(BACKUP_FILES))verified.push(await readJson(path.split("/"),null));
+      if(verified.some(value=>!value))throw new Error("Post-restore durable file verification failed.");
+      [model.state,model.settings,model.appointments,model.performance,model.assignNext,model.autoImport,model.operationalMetrics,model.meetingCycle]=verified;
+      model.recovery.lastRestore={sourceFile:name,restoredAt:now(),sourceCreatedAt:selected.manifest.createdAt,safetyBackup:safety.name,validationStatus:"Verified"};
+      model.recovery.status="Restore verified";
+      await writeJson(RECOVERY_PATH,model.recovery);
+      await addHistory("full-restore-complete","Restored and verified complete Service Operations Dashboard state",{sourceFile:name,safetyBackup:safety.name,openRos:model.state.records.length});
+      renderAll();renderSettings();await scanRecoveryBackups();renderRecovery();
+      status("Service Operations Dashboard was restored and every durable file was verified.","success");
+    }catch(error){
+      // Multi-file restore has no distributed compare-and-swap. Blind rollback
+      // could erase independent changes made after preflight or during a write.
+      // Keep the verified safety ZIP, preserve live bytes and require review.
+      model.recovery.lastRestore=previousLastRestore;
+      model.recovery.status=mutationStarted
+        ?"Restore interrupted; safety backup retained; controlled recovery required"
+        :"Restore stopped before changing operational files";
+      if(mutationStarted)writeAuthority.disable();
+      recordDiagnostic("RESTORE FAILED",`Restore stopped without automatic rollback (${error.name||"Error"}); safety backup retained for review`);
+      renderRecovery();
+      throw error;
+    }
+  }
   function latestImportSummary(){const todayKey=localDateKey(),audit=trendCoverageAudit(todayKey),coverage=audit.importRows,needs=reportNeeds(todayKey);return ["openRo","sapr","csi","nextAppointments","vir","menu","appointments","mediaAsr","mediaAsrTech","efficiency","sor","appointmentActivity","openRoSummary","supervisorWorkbook"].map((key)=>{const evidence=sourceFreshness(key),item=key==='sor'?latestOperationalSnapshot('sor'):null;return{key,source:evidence.label,lastSuccessfulImport:evidence.sourceTimestamp||"Not loaded",status:sourceStatusLabel(evidence),period:key==='sor'&&item?.period?`Financial month ${item.period}; verified observation ${dailyEvidenceDate('sor',item)||'not established'}`:evidence.periodStart&&evidence.periodEnd&&evidence.periodStart!==evidence.periodEnd?`${evidence.periodStart} through ${evidence.periodEnd}`:evidence.periodEnd||evidence.periodStart||"Not established",expected:evidence.expectedPeriod||evidence.cadence,coverage:coverage[key],trend:trendMaintenance(key,audit,todayKey,evidence),need:needs[key]};});}
   function sanitizedSupportSummary(){return{generatedAt:now(),app:{version:VERSION,buildDate:BUILD_DATE},store:{name:model.settings.store?.name||"",code:model.settings.store?.code||"",brand:model.settings.store?.brand||"",timeZone:model.settings.store?.timeZone||""},configuration:{settingsSchema:model.settings.schemaVersion,advisorCounts:{configured:Object.keys(model.settings.advisors||{}).length,active:configuredAdvisors(null).length,setupRequired:Object.values(model.settings.advisors||{}).filter((advisor)=>advisor.setupRequired).length},enabledManagementStatuses:managementStatusDefinitions().filter((item)=>item.enabled).length,dailyWalkCount:dailyWalkCount(),setupComplete:Boolean(model.settings.setup?.completedAt),sourceExpectations:{...model.settings.setup?.sourceExpectations}},sources:latestImportSummary(),recovery:{lastSuccessfulConnectionAt:model.recovery.lastSuccessfulConnectionAt,lastBackup:model.recovery.lastBackup,lastRestore:model.recovery.lastRestore,status:model.recovery.status},diagnosticsPath:`${model.root?.name||"working folder"}\\MOONDOG_DIAGNOSTICS.md`};}
   async function diagnosticsText(){try{return await(await(await fileAt(["MOONDOG_DIAGNOSTICS.md"])).getFile()).text();}catch(error){if(error.name==="NotFoundError")return"# Service Operations Dashboard Diagnostics\n\nNo diagnostic events are available.\n";throw error;}}
