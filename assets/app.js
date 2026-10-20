@@ -412,6 +412,12 @@
     const time = Date.parse(value + "T12:00:00Z");
     return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value;
   }
+  // Historic imported revisions do not prove a missed promise unless the
+  // previous deadline and the revision timestamp are both valid evidence.
+  function adminCloseoutRevisionDay(at) {
+    const match = typeof at === "string" && at.match(/^(\d{4}-\d{2}-\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:(?:0\d|1[0-3]):[0-5]\d|14:00))$/);
+    return match && adminCloseoutValidDate(match[1]) && Number.isFinite(Date.parse(at)) ? match[1] : "";
+  }
   const ADMIN_CLOSEOUT_WORK_STATUSES = Object.freeze(["unverified", "verified"]);
   const ADMIN_CLOSEOUT_PICKUP_STATUSES = Object.freeze(["", "contact-attempted", "notified", "pickup-expected", "picked-up-verified"]);
   const ADMIN_CLOSEOUT_WARRANTY_STATUSES = Object.freeze(["", "not-filed", "submitted", "processing", "approval-received", "action-needed"]);
@@ -487,10 +493,15 @@
       taskDueToday, closeDueToday, dueToday: taskDueToday || closeDueToday,
       taskDaysLate: adminCloseoutDaysLate(taskDate, today),
       closeDaysLate: adminCloseoutDaysLate(closeDate, today),
-      missedRevisions: (Array.isArray(closeout.revisions) ? closeout.revisions : []).filter((revision) =>
-        Boolean(revision.previous?.taskDate && revision.at && String(revision.at).slice(0, 10) > revision.previous.taskDate) ||
-        Boolean(revision.previous?.expectedCloseDate && revision.at && String(revision.at).slice(0, 10) > revision.previous.expectedCloseDate)
-      ).length,
+      missedRevisions: (Array.isArray(closeout.revisions) ? closeout.revisions : []).filter((revision) => {
+        const changedOn = adminCloseoutRevisionDay(revision?.at);
+        if (!changedOn) return false;
+        const previous = revision?.previous;
+        return Boolean(previous && (
+          (adminCloseoutValidDate(previous.taskDate) && changedOn > previous.taskDate) ||
+          (adminCloseoutValidDate(previous.expectedCloseDate) && changedOn > previous.expectedCloseDate)
+        ));
+      }).length,
       revisionCount: Array.isArray(closeout.revisions) ? closeout.revisions.length : 0
     };
   }
