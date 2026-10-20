@@ -50,6 +50,35 @@ source labels, safe example locations, and reusable logic.
 - All unavailable data remain unknown, not zero.
 - Existing source parser validation and authority checks are retained.
 
+## Open RO status authority and source lineage
+
+Open RO status presentation has two distinct inputs, neither of which authorizes
+closing an RO, dispatching work, or changing a manager's saved follow-up plan:
+
+- **Manager-reviewed state:** A saved management status with a recorded
+  `management.updatedAt` takes precedence for the management-status view and
+  editor. An incoming CDK status disagreement is separately visible as source
+  evidence; an import does not silently replace a manager's decision.
+- **Latest confirmed CDK observation:** Where no manager review is recorded, a
+  recognized status from the latest complete CDK import can supply the current
+  management-status presentation. `cdkOperational.confirmedAt` identifies its
+  original observation, while `sourceStatus` preserves the new report's raw
+  source label.
+- **Unconfirmed newer import:** If the next import contains an unsupported
+  status, `cdkOperational.stale` is true and the older CDK observation is kept
+  only as historical provenance. It must **not** appear as a current status.
+  With no saved management status, Open RO displays **CDK status not confirmed**;
+  the editor retains the **Last confirmed CDK** explanation. An existing saved
+  management value is preserved, but never credited as a fresh CDK observation.
+- **Unknown is not zero or confirmed:** Missing source and unrecognized status
+  are not translated into a fabricated current stage. The user must confirm
+  the real status from a verified source or perform an explicit manager review.
+
+These rules are covered by synthetic production-function cases in
+`tests/cdk-operational-status.test.cjs`. They are one scoped source-authority
+safeguard under criterion 59-01, **not** verification that SAPR, CSI, VIR, menu,
+WIP, history and all manual override lineage are already reconciled.
+
 ## Advisor Meeting: one slide at a time
 
 The Meeting view uses one Store card, then one full advisor card at a time,
