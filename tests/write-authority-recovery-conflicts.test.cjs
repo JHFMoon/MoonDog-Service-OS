@@ -99,7 +99,7 @@ function fixture(current=after,options={}){
   const context=vm.createContext({TextEncoder,TextDecoder,Uint8Array,Promise,crypto:globalThis.crypto,
     console:{warn(){}},setTimeout});
   const setup="const encoder=new TextEncoder();const REVISION="+JSON.stringify(revisionPath.split("/"))+";"+
-    "const originals=new WeakMap();let nativeRoot=null,loadedRevision=null;"+
+    "const originals=new WeakMap();let localRestoreInProgress=false,nativeRoot=null,loadedRevision=null;"+
     "const WORKSPACE=['System Files','Workspace'];const testEnabled=false;"+
     "let editable=true;const transientValidationDelays=[0];"+
     "const sleep=async()=>{};const denied=()=>new Error('read only');"+
