@@ -4,9 +4,18 @@ This is a non-sensitive execution checkpoint, not proof of a continuously runnin
 
 **Current closure-policy override — 2026-10-19 (owner-directed):** No issue may be held open solely because the owner has not performed a live Windows, Edge, OneDrive or browser test. Remove mandatory physical validation and owner-attestation gates from #164/#58; treat `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md` only as a voluntary diagnostic protocol. The remaining synthetic engineering tests, reliability/security requirements, protected exact-head checks and Beta provenance stay mandatory. This directive supersedes historical references to mandatory field evidence in the dated checkpoint entries below. Live #164 software criteria 164-02…09 (minus the former field-only 164-01) are not all verified and #164 must stay open for those reasons, not for missing browser testing.
 
-## Authoritative current engineering checkpoint — October 18, 2026 Pacific (October 19 UTC)
+## Authoritative current engineering checkpoint — October 19, 2026 Pacific (October 20 UTC)
 
-**This supersedes all earlier checkpoint entries in this document.** For the criterion-level requirements and evidence, see [Roadmap acceptance matrix](ROADMAP-ACCEPTANCE-MATRIX.md). GitHub is the system of record; this checkpoint is a dated snapshot, not a promise of unattended continuation.
+**This supersedes the October 18 checkpoint and every older dated checkpoint below.** The [Roadmap acceptance matrix](ROADMAP-ACCEPTANCE-MATRIX.md), [structured closeout evidence](ISSUE-CLOSEOUT-EVIDENCE.json), current GitHub PRs and the live manifest are authoritative for criterion-specific status. This is a dated engineering handoff, not a continuously running agent.
+
+- **User/device preferences 61-06: VERIFIED COMPLETE in the reviewed runtime and trusted Beta.** Start-page preference shipped in PR #237, browser-only Open RO attention/sort/density in PR #260, and the remaining advisor/source-status/management-status filter selections in PR #275. New saved choices are device-only option positions with option-list fingerprints; no raw advisor names, source-status text, RO/customer records or shared Workspace files are written. Invalid or changed option lists clear the selection safely. Deterministic tests are in `tests/device-start-page.test.cjs` and `tests/device-open-ro-preferences.test.cjs`.
+- **Protected delivery:** Source PR #275 merged at `dc1dd78ef945d8e4de06921374a477c60b1b81a5`; trusted Beta package PR #276 merged at `1d578fa04aee3259d2149b75e009a9ca4e610c87`. Current verified Beta is `0.10.18-beta.119`; Stable remains `0.10.17`. The separate documentation credit is PR #272.
+- **Remaining #61 work:** automation/provenance, synthetic fault coverage, critical metric lineage, proactive exception reconciliation, and living release documentation remain criterion-specific work where the live matrix says PARTIALLY COMPLETE. **Do not re-open the completed device-preferences scope** merely because this historical ledger once listed `#61 user preferences` as remaining.
+- **Parent issue boundaries:** #61 remains OPEN until all criteria and package evidence are complete. #59, #60, #58, #164 and deferred #212 are separate roadmaps. No installed hardware field test is mandatory for criterion completion; no Stable promotion is authorized.
+
+## Historical engineering checkpoint — October 18, 2026 Pacific (October 19 UTC) — superseded
+
+**This is a retained historical snapshot and does not supersede the current October 19 checkpoint above.** For current status use the linked matrix and live GitHub evidence.
 
 - **Main:** `a970bb7ee04b949d23a9db59c6969385a7edd55d`, trusted Beta 113 merge from PR #258.
 - **Published Beta:** `0.10.18-beta.113`; exact live manifest SHA-256 `dbdaabb552f47cfbbdd98a20a8ed7289a4bd71cfe65a1d6322a62d00333fac4a`. Package URL is `https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.113.json`.
