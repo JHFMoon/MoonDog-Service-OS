@@ -241,23 +241,25 @@
   async function canProvision() { return false; }
   async function recoverOwner(root) { return validate(root, true); }
   let tail = Promise.resolve(), activeToken = null;
-  async function beginMutation() {
-    requireWrite();
+  async function beginMutation(restoreId) {
+    requireWrite(restoreId);
     let release;
     const previous = tail;
     tail = new Promise(resolve => { release = resolve; });
     await previous.catch(() => {});
+    try{requireWrite(restoreId);}catch(error){release();throw error;}
     const root = nativeRoot, expected = loadedRevision;
     if (!(testEnabled && !root) && (!await validate(root) || loadedRevision !== expected)) {
       setEditable(false); release(); throw denied();
     }
-    const token = { root, expected, release };
+    const token = { root, expected, release, restoreId };
     activeToken = token;
     return token;
   }
-  function requireToken(token, restore = false) { if (!token || token !== activeToken) throw denied(); if (!restore) requireWrite(); }
+  function requireToken(token, restore = false) { if (!token || token !== activeToken) throw denied(); if (!restore) requireWrite(token.restoreId); }
   async function completeMutation(token) {
     if (!token || token !== activeToken) throw denied();
+    requireWrite(token.restoreId);
     let revisionWriteStarted = false;
     try {
       if (testEnabled && !token.root) { activeToken = null; token.release(); return; }
@@ -280,13 +282,13 @@
     }
   }
   function cancelMutation(token) { if (token === activeToken) { activeToken = null; token.release(); } }
-  async function mutation(operation) {
-    const token = await beginMutation();
+  async function mutation(operation,restoreId) {
+    const token = await beginMutation(restoreId);
     try { const result = await operation(); await completeMutation(token); return result; }
     catch (error) { cancelMutation(token); throw error; }
   }
   async function journaledDelete(path, options = {}) {
-    requireWrite();
+    requireWrite(options.restoreId);
     if (protectedPath(path) || path === [...WORKSPACE, "data"].join("/") && options.recursive) throw denied();
     const parts = path.split("/"), name = parts.at(-1);
     if (parts.some(part => !part || part === "." || part === "..") || name.startsWith(".moondog-txn-")) throw denied();
@@ -301,7 +303,7 @@
       for await (const _ of directory.entries()) throw Error("Nonempty directory removal needs a separate verified recovery path.");
       kind = "empty-directory";
     }
-    const token = await beginMutation();
+    const token = await beginMutation(options.restoreId);
     const journalPath = [...parts.slice(0, -1), `.moondog-txn-${crypto.randomUUID()}.json`];
     const journal = { format: "moondog-delete-v1", target: path, kind, before: kind === "file" ? Array.from(before) : null, revisionBefore: token.expected };
     let touched = false;
@@ -325,13 +327,13 @@
       throw error;
     }
   }
-  async function journaledCreate(path, kind) {
-    requireWrite();
+  async function journaledCreate(path, kind,options={}) {
+    requireWrite(options.restoreId);
     const parts = path.split("/"), name = parts.at(-1), root = nativeRoot;
     if (!root || parts.some(part => !part || part === "." || part === "..") || protectedPath(path)) throw denied();
     const parent = await parts.slice(0, -1).reduce(async (prior, part) => (await prior).getDirectoryHandle(part), Promise.resolve(root));
     if (!await absent(root, parts)) throw Error("File or directory already exists.");
-    const token = await beginMutation();
+    const token = await beginMutation(options.restoreId);
     const journalPath = [...parts.slice(0, -1), `.moondog-txn-${crypto.randomUUID()}.json`];
     const journal = { format: "moondog-create-v1", target: path, kind, revisionBefore: token.expected };
     let touched = false;
@@ -356,7 +358,11 @@
   }
   const originals = new WeakMap();
   const denied = () => new DOMException("This Dashboard is read-only. Your draft has not been saved.", "NoModificationAllowedError");
-  function requireWrite() { if (!editable) throw denied(); }
+  function requireWrite(restoreId) {
+    // Ordinary same-page mutations must not interleave between restore files.
+    // Only operations explicitly carrying this restore's session ID may write.
+    if(!editable || localRestoreOwner && restoreId!==localRestoreOwner)throw denied();
+  }
   function wrapWritable(writable, handle, before, path) {
     return Object.freeze({
       write(value) { requireWrite(); return writable.write(value); },
@@ -472,8 +478,10 @@
       requireWrite();
       if(typeof restoreId!=="string" || !/^[a-f0-9-]{36}$/i.test(restoreId) || localRestoreOwner)
         throw denied();
-      // Do not grant a bypass to another already-writable tab that starts
-      // while someone else's persistent restore hold is present.
+      // Wait for this tab's prior queued mutations, then refuse any hold
+      // already owned by another tab. No distributed CAS is available.
+      await tail.catch(()=>{});
+      requireWrite();
       if(!await validate(nativeRoot) ||
          await readBytes(nativeRoot,["System Files","Workspace","data","restore-in-progress.json"])!==null)
         throw denied();
