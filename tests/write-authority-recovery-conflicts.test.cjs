@@ -12,6 +12,10 @@ const production=source.slice(begin,end);
 const validationEnd=source.indexOf("  async function provision(",end);
 assert.ok(validationEnd>end,"execute the production validate gate");
 const validation=source.slice(end,validationEnd);
+const mutationBegin=source.indexOf("  let tail = Promise.resolve(), activeToken = null;",validationEnd);
+const mutationEnd=source.indexOf("  const originals =",mutationBegin);
+assert.ok(mutationBegin>=0&&mutationEnd>mutationBegin,"exercise actual production journaled delete/create");
+const mutation=source.slice(mutationBegin,mutationEnd);
 const encode=value=>new TextEncoder().encode(JSON.stringify(value));
 const asBytes=value=>value===null?null:new Uint8Array(value);
 const missing=()=>Object.assign(Error("Synthetic missing"),{name:"NotFoundError"});
@@ -31,7 +35,7 @@ function fixture(current=after,options={}){
     {format:"moondog-write-v1",target:statePath,
       before:options.beforeNull?null:[...before],after:[...after],
       revisionBefore:4};
-  files.set(journalPath,encode(journal));
+  if(!options.noInitialJournal)files.set(journalPath,encode(journal));
   files.set(revisionPath,encode({schemaVersion:1,revision:4}));
   const directory=(prefix="")=>({
     kind:"directory",
@@ -43,7 +47,14 @@ function fixture(current=after,options={}){
     },
     async getFileHandle(name,{create=false}={}){
       const k=prefix?prefix+"/"+name:name;
-      if(!files.has(k)){if(!create)throw missing();files.set(k,new Uint8Array());}
+      if(!files.has(k)){
+        if(!create)throw missing();
+        if(k===statePath&&options.foreignOnCreate){
+          files.set(k,new Uint8Array(another));
+          throw Error("synthetic competing replacement after create");
+        }
+        files.set(k,new Uint8Array());
+      }
       return {
         kind:"file",
         async getFile(){const b=files.get(k);if(!b)throw missing();return{
@@ -53,8 +64,13 @@ function fixture(current=after,options={}){
         async createWritable(){
           let pending=new Uint8Array();
           return{
-            async write(bytes){actions.push(["write",k]);pending=new Uint8Array(bytes);},
-            async close(){actions.push(["close",k]);files.set(k,pending);},
+            async write(bytes){actions.push(["write",k]);pending=typeof bytes==="string"?new TextEncoder().encode(bytes):new Uint8Array(bytes);},
+            async close(){
+              actions.push(["close",k]);files.set(k,pending);
+              if(k.startsWith(prefix+"data/.moondog-txn-")&&
+                (options.foreignBeforeDelete||options.foreignBeforeCreate))
+                files.set(statePath,new Uint8Array(another));
+            },
             async abort(){actions.push(["abort",k]);}
           };
         }
@@ -63,6 +79,10 @@ function fixture(current=after,options={}){
     async removeEntry(name){
       const k=prefix?prefix+"/"+name:name;
       actions.push(["remove",k]);
+      if(k===statePath&&options.foreignOnDelete){
+        files.delete(k);files.set(k,new Uint8Array(another));
+        throw Error("synthetic competing replacement after delete");
+      }
       if(!files.delete(k))throw missing();
     },
     async *entries(){
@@ -79,20 +99,26 @@ function fixture(current=after,options={}){
   const context=vm.createContext({TextEncoder,TextDecoder,Uint8Array,Promise,crypto:globalThis.crypto,
     console:{warn(){}},setTimeout});
   const setup="const encoder=new TextEncoder();const REVISION="+JSON.stringify(revisionPath.split("/"))+";"+
-    "const originals=new WeakMap();let nativeRoot=null,loadedRevision=null,activeToken=null;"+
+    "const originals=new WeakMap();let nativeRoot=null,loadedRevision=null;"+
+    "const WORKSPACE=['System Files','Workspace'];const testEnabled=false;"+
     "let editable=true;const transientValidationDelays=[0];"+
     "const sleep=async()=>{};const denied=()=>new Error('read only');"+
     "const transientInterfaceState=()=>false;"+
-    "function setEditable(value){editable=value;}function setTransientValidation(_){};";
-  vm.runInContext(setup+"\n"+production+"\n"+validation+
-    "\nglobalThis.recoverPending=recoverPending;globalThis.validate=validate;globalThis.isEditable=()=>editable;",context);
+    "function setEditable(value){editable=value;}function setTransientValidation(_){};"+
+    "function protectedPath(_){return false;}function requireWrite(){if(!editable)throw denied();}";
+  vm.runInContext(setup+"\n"+production+"\n"+validation+"\n"+mutation+
+    "\nglobalThis.recoverPending=recoverPending;globalThis.validate=validate;"+
+    "globalThis.isEditable=()=>editable;globalThis.deleteTarget=journaledDelete;"+
+    "globalThis.createTarget=journaledCreate;",context);
   return{
     files,actions,journal,
     recover:revision=>context.recoverPending(directory(),{schemaVersion:1,revision}),
     validate:()=>context.validate(directory(),false),
     editable:()=>context.isEditable(),
     current:()=>files.get(statePath),
-    pending:()=>files.has(journalPath)
+    pending:()=>[...files.keys()].some(p=>p.startsWith(prefix+"data/.moondog-txn-")),
+    deleteTarget:()=>context.deleteTarget(statePath),
+    createTarget:()=>context.createTarget(statePath,"file")
   };
 }
 
@@ -233,4 +259,62 @@ test("physical Workspace journal blocks subsequent writes after an independent r
   assert.equal(f.pending(),true);
   assert.equal(f.actions.some(([operation,name])=>name==="System Files/Workspace/data/state.json"&&
     ["write","remove"].includes(operation)),false);
+});
+
+test("uncertain journaled deletion never overwrites an independent writer's replacement",async()=>{
+  const f=fixture(before,{physicalWorkspace:true,noInitialJournal:true,foreignOnDelete:true});
+  assert.equal(await f.validate(),true);
+  await assert.rejects(f.deleteTarget(),/synthetic competing replacement after delete/);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true,"uncommitted deletion journal must survive");
+  assert.equal(f.editable(),false);
+  assert.equal(await f.validate(),false,"subsequent edits must fail closed");
+  assert.equal(f.actions.some(([action,path])=>action==="write"&&path==="System Files/Workspace/data/state.json"),false);
+});
+
+test("uncertain journaled creation never removes an independently populated file",async()=>{
+  const f=fixture(null,{physicalWorkspace:true,noInitialJournal:true,foreignOnCreate:true});
+  assert.equal(await f.validate(),true);
+  await assert.rejects(f.createTarget(),/synthetic competing replacement after create/);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true);
+  assert.equal(f.editable(),false);
+  assert.equal(await f.validate(),false);
+  assert.equal(f.actions.some(([action,path])=>action==="remove"&&path==="System Files/Workspace/data/state.json"),false);
+});
+
+test("pre-delete foreign write is preserved without an unnecessary retained journal",async()=>{
+  const f=fixture(before,{physicalWorkspace:true,noInitialJournal:true,foreignBeforeDelete:true});
+  assert.equal(await f.validate(),true);
+  await assert.rejects(f.deleteTarget(),/File changed during deletion/);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),false,"no target mutation began");
+  assert.equal(f.actions.some(([action,path])=>action==="write"&&path==="System Files/Workspace/data/state.json"),false);
+});
+
+test("pre-create foreign write is preserved without deleting the other writer's bytes",async()=>{
+  const f=fixture(null,{physicalWorkspace:true,noInitialJournal:true,foreignBeforeCreate:true});
+  assert.equal(await f.validate(),true);
+  await assert.rejects(f.createTarget(),/File or directory changed during creation/);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),false);
+  assert.equal(f.actions.some(([action,path])=>action==="remove"&&path==="System Files/Workspace/data/state.json"),false);
+});
+
+test("successful journaled delete commits and cleans up without leaving read-only state",async()=>{
+  const f=fixture(before,{physicalWorkspace:true,noInitialJournal:true});
+  assert.equal(await f.validate(),true);
+  await f.deleteTarget();
+  assert.equal(f.current(),undefined);
+  assert.equal(f.pending(),false);
+  assert.equal(await f.validate(),true);
+});
+
+test("successful journaled create commits and cleans up without leaving read-only state",async()=>{
+  const f=fixture(null,{physicalWorkspace:true,noInitialJournal:true});
+  assert.equal(await f.validate(),true);
+  await f.createTarget();
+  assert.deepEqual(f.current(),new Uint8Array());
+  assert.equal(f.pending(),false);
+  assert.equal(await f.validate(),true);
 });
