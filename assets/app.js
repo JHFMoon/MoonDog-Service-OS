@@ -4341,12 +4341,16 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   const physicalWorkspacePath=p=>[...WORKSPACE_PREFIX,...p];
   async function nativeFileAt(path,create=false){let dir=connectedNativeRoot;for(const part of physicalWorkspacePath(path).slice(0,-1))dir=await dir.getDirectoryHandle(part,{create});return dir.getFileHandle(path.at(-1),{create});}
   async function nativeDirectory(path){let dir=connectedNativeRoot;for(const part of physicalWorkspacePath(path))dir=await dir.getDirectoryHandle(part);return dir;}
+  const maintenanceReadPath=p=>{const prefix=WORKSPACE_PREFIX.join('/')+'/';return p.startsWith(prefix)?p.slice(prefix.length):p;};
   const maintenanceIO={
+    // Recovery validation walks the physical selected-folder root, not the
+    // Workspace-relative app paths used for file I/O.
+    journalTarget:p=>physicalWorkspacePath(p.split('/')).join('/'),
     beginMutation:()=>writeAuthority.beginMutation(),
     completeMutation:token=>writeAuthority.completeMutation(token),
     cancelMutation:token=>writeAuthority.cancelMutation(token),
     cleanupJournal:async p=>{writeAuthority.requireWrite();const parts=p.split('/'),name=parts.pop();await(await nativeDirectory(parts)).removeEntry(name);},
-    read:async p=>new Uint8Array(await(await(await fileAt(p.split('/'))).getFile()).arrayBuffer()),
+    read:async p=>new Uint8Array(await(await(await fileAt(maintenanceReadPath(p).split('/'))).getFile()).arrayBuffer()),
     rawWrite:async(p,b,token,restore=false)=>{const work=async()=>{const h=await nativeFileAt(p.split('/'),true);let w;try{w=await h.createWritable();await w.write(b);await w.close();const actual=new Uint8Array(await(await h.getFile()).arrayBuffer());if(actual.length!==b.length||actual.some((v,i)=>v!==b[i]))throw Error('Write read-back mismatch');}catch(e){try{await w?.abort()}catch(_){}throw e;}};if(token){writeAuthority.requireToken(token,restore);return work();}return writeAuthority.mutation(work);},
     remove:async(p,token,restore=false)=>{const work=async()=>{const a=p.split('/'),n=a.pop();try{await(await nativeDirectory(a)).removeEntry(n);}catch(e){if(e.name!=='NotFoundError')throw e;}};if(token){writeAuthority.requireToken(token,restore);return work();}try{return await writeAuthority.journaledDelete(physicalWorkspacePath(p.split('/')).join('/'));}catch(e){if(e.name!=='NotFoundError')throw e;}},
     exists:async p=>{try{await fileAt(p.split('/'));return true}catch(e){if(e.name==='NotFoundError')return false;throw e;}},

@@ -20,17 +20,19 @@ const after=encode({value:"interrupted write"});
 const another=encode({value:"independent writer"});
 
 function fixture(current=after,options={}){
-  const files=new Map(),dirs=new Set(["data"]),actions=[];
-  if(current!==null)files.set("data/state.json",asBytes(current));
+  const prefix=options.physicalWorkspace?"System Files/Workspace/":"";
+  const statePath=prefix+"data/state.json",journalPath=prefix+"data/.moondog-txn-synthetic.json",revisionPath=prefix+"data/store-revision.json";
+  const files=new Map(),dirs=new Set(options.physicalWorkspace?["System Files","System Files/Workspace",prefix+"data"]:["data"]),actions=[];
+  if(current!==null)files.set(statePath,asBytes(current));
   const journal=options.journalFormat==="moondog-delete-v1"?
-    {format:"moondog-delete-v1",target:"data/state.json",kind:"file",before:[...before],revisionBefore:4}:
+    {format:"moondog-delete-v1",target:statePath,kind:"file",before:[...before],revisionBefore:4}:
     options.journalFormat==="moondog-create-v1"?
-    {format:"moondog-create-v1",target:"data/state.json",kind:"file",revisionBefore:4}:
-    {format:"moondog-write-v1",target:"data/state.json",
+    {format:"moondog-create-v1",target:statePath,kind:"file",revisionBefore:4}:
+    {format:"moondog-write-v1",target:statePath,
       before:options.beforeNull?null:[...before],after:[...after],
       revisionBefore:4};
-  files.set("data/.moondog-txn-synthetic.json",encode(journal));
-  files.set("data/store-revision.json",encode({schemaVersion:1,revision:4}));
+  files.set(journalPath,encode(journal));
+  files.set(revisionPath,encode({schemaVersion:1,revision:4}));
   const directory=(prefix="")=>({
     kind:"directory",
     queryPermission:async()=>"granted",
@@ -76,7 +78,7 @@ function fixture(current=after,options={}){
   });
   const context=vm.createContext({TextEncoder,TextDecoder,Uint8Array,Promise,crypto:globalThis.crypto,
     console:{warn(){}},setTimeout});
-  const setup="const encoder=new TextEncoder();const REVISION=['data','store-revision.json'];"+
+  const setup="const encoder=new TextEncoder();const REVISION="+JSON.stringify(revisionPath.split("/"))+";"+
     "const originals=new WeakMap();let nativeRoot=null,loadedRevision=null,activeToken=null;"+
     "let editable=true;const transientValidationDelays=[0];"+
     "const sleep=async()=>{};const denied=()=>new Error('read only');"+
@@ -89,8 +91,8 @@ function fixture(current=after,options={}){
     recover:revision=>context.recoverPending(directory(),{schemaVersion:1,revision}),
     validate:()=>context.validate(directory(),false),
     editable:()=>context.isEditable(),
-    current:()=>files.get("data/state.json"),
-    pending:()=>files.has("data/.moondog-txn-synthetic.json")
+    current:()=>files.get(statePath),
+    pending:()=>files.has(journalPath)
   };
 }
 
@@ -219,4 +221,16 @@ test("actual write-authority validation permits intact original and journal clea
   assert.equal(f.editable(),true);
   assert.deepEqual(f.current(),before);
   assert.equal(f.pending(),false);
+});
+
+test("physical Workspace journal blocks subsequent writes after an independent replacement",async()=>{
+  const f=fixture(another,{physicalWorkspace:true});
+  assert.equal(f.journal.target,"System Files/Workspace/data/state.json");
+  assert.equal(await f.validate(),false,
+    "actual production validator must reject an uncertain physical-path journal");
+  assert.equal(f.editable(),false);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true);
+  assert.equal(f.actions.some(([operation,name])=>name==="System Files/Workspace/data/state.json"&&
+    ["write","remove"].includes(operation)),false);
 });
