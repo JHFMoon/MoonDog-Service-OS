@@ -848,7 +848,7 @@
   async function directory(path, create = true) { let current = model.root; for (const part of path) current = await current.getDirectoryHandle(part, { create }); return current; }
   async function fileAt(path, create = false) { const parts = [...path]; const name = parts.pop(); return (await directory(parts, create)).getFileHandle(name, { create }); }
   async function readJson(path, fallback) { try { return JSON.parse(await (await (await fileAt(path)).getFile()).text()); } catch (error) { if (error.name === "NotFoundError") return fallback; throw error; } }
-  async function writeBytes(path,bytes){writeAuthority.requireWrite();await MoonDogMaintenance.safeWrite(maintenanceIO,path.join('/'),bytes,{validateJson:false});return fileAt(path);}
+  async function writeBytes(path,bytes,restoreId){writeAuthority.requireWrite(restoreId);await MoonDogMaintenance.safeWrite(maintenanceIO,path.join('/'),bytes,{validateJson:false,restoreId});return fileAt(path);}
   let diagnosticsQueue = Promise.resolve(),diagnosticTimer=null;
   const pendingDiagnostics=[];
   function diagnosticLine(kind, message, at = now()) { return `- ${at} | ${String(kind).replace(/[^A-Z -]/gi, "").slice(0, 32)} | ${String(message).replace(/[\r\n|]/g, " ").slice(0, 240)}`; }
@@ -883,10 +883,10 @@
     return diagnosticsQueue;
   }
   document.addEventListener('visibilitychange',()=>{if(document.hidden)void flushDiagnostics();});
-  async function writeJson(path, value) { writeAuthority.requireWrite(); const bytes = new TextEncoder().encode(JSON.stringify(value, null, 2) + "\n");
-    try { await writeBytes(path, bytes); const check = await readJson(path, null); if (JSON.stringify(check)!==JSON.stringify(value)) throw new Error(`Read-back verification failed for ${path.join("/")}.`); recordDiagnostic("DURABLE WRITE", `${path.join("/")} saved and verified`); } catch (error) { recordDiagnostic("DURABLE WRITE FAILED", `${path.join("/")} could not be saved (${error.name || "Error"})`); throw error; } }
+  async function writeJson(path, value,restoreId) { writeAuthority.requireWrite(restoreId); const bytes = new TextEncoder().encode(JSON.stringify(value, null, 2) + "\n");
+    try { await writeBytes(path, bytes,restoreId); const check = await readJson(path, null); if (JSON.stringify(check)!==JSON.stringify(value)) throw new Error(`Read-back verification failed for ${path.join("/")}.`); recordDiagnostic("DURABLE WRITE", `${path.join("/")} saved and verified`); } catch (error) { recordDiagnostic("DURABLE WRITE FAILED", `${path.join("/")} could not be saved (${error.name || "Error"})`); throw error; } }
   async function backupState(reason, state = model.state) { if (state.updatedAt) await writeJson(["backups", `${stamp()}-${slug(reason)}.json`], state); }
-  async function addHistory(type, summary, details = {}) { const event = { schemaVersion: 1, id: `${stamp()}-${slug(type)}`, at: now(), type, summary, details }; await writeJson(["data", "history", `${event.id}.json`], event); if (/import|source|migration|settings|workbook|export|fallback|coverage/i.test(type)) recordDiagnostic("OPERATION", `${type} completed`); }
+  async function addHistory(type, summary, details = {},restoreId) { const event = { schemaVersion: 1, id: `${stamp()}-${slug(type)}`, at: now(), type, summary, details }; await writeJson(["data", "history", `${event.id}.json`], event,restoreId); if (/import|source|migration|settings|workbook|export|fallback|coverage/i.test(type)) recordDiagnostic("OPERATION", `${type} completed`); }
   function migrateOpenRoFieldIdentity(){let changed=false;for(const record of model.state.records||[]){record.management||={};const id=resolveStatusId(record.management.status,record.management.statusId,true);if(id&&record.management.statusId!==id){record.management.statusId=id;changed=true;}const communication=normalizeCommunication(record.management.communication);if(record.management.communication!==communication){record.management.communication=communication;changed=true;}}return changed;}
   async function initializeFolders() { for (const path of [["data"], ["data", "history"], ["backups"], ["imports"], ["exports"], ["support"], [REPORT_INBOX]]) await directory(path, true); }
   async function reportInbox(create = false) { try { return await directory([REPORT_INBOX], create); } catch (error) { if (create) throw new Error(`Service Operations Dashboard could not create the Report Inbox: ${REPORT_INBOX}. Confirm folder write access and reconnect.`); throw error; } }
@@ -3786,7 +3786,16 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     for(const path of Object.keys(BACKUP_FILES))await verifyRestoreFileUnchanged(path,safetySnapshot);
     await verifyRestoreHistoryUnchanged(safetySnapshot);
   }
-  async function replaceHistoryFromBackup(zip,entries){const dir=await directory(["data","history"],true);for await(const[name,handle]of dir.entries())if(handle.kind==="file"&&name.endsWith(".json"))await dir.removeEntry(name);for(const entry of entries.filter((item)=>item.path.startsWith("data/history/"))){const bytes=await zip.file(`payload/${entry.path}`).async("uint8array");await writeBytes(entry.path.split("/"),bytes);}}
+  async function replaceHistoryFromBackup(zip,entries,restoreId){
+    const dir=await directory(["data","history"],false);
+    for await(const[name,handle]of dir.entries())
+      if(handle.kind==="file"&&name.endsWith(".json"))
+        await writeAuthority.journaledDelete(physicalWorkspacePath(["data","history",name]).join("/"),{restoreId});
+    for(const entry of entries.filter(item=>item.path.startsWith("data/history/"))){
+      const bytes=await zip.file(`payload/${entry.path}`).async("uint8array");
+      await writeBytes(entry.path.split("/"),bytes,restoreId);
+    }
+  }
   async function restoreSelectedBackup(){
     const name=ui.restoreBackupSelect.value;
     if(!name)throw new Error("Choose a validated backup first.");
@@ -3812,7 +3821,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       // operational file. Other tabs and reconnects must refuse edits until
       // the complete restore and its audit finish successfully.
       mutationStarted=true;
-      await writeJson(restoreMarkerPath,{schemaVersion:1,restoreId,sourceFile:name,safetyBackup:safety.name,startedAt:now()});
+      await writeJson(restoreMarkerPath,{schemaVersion:1,restoreId,sourceFile:name,safetyBackup:safety.name,startedAt:now()},restoreId);
       for(const path of Object.keys(BACKUP_FILES)){
         // Preflight can go stale between writes. Check each target against
         // persisted safety bytes again immediately before replacing it.
@@ -3820,24 +3829,24 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         const entry=selected.manifest.entries.find(item=>item.path===path);
         const bytes=await selected.zip.file(`payload/${path}`).async("uint8array");
         mutationStarted=true;
-        await writeBytes(path.split("/"),bytes);
+        await writeBytes(path.split("/"),bytes,restoreId);
         if(await sha256(await readFileBytes(path.split("/")))!==entry.sha256)
           throw new Error(`Restore verification failed for ${path}.`);
       }
       // Preserve new history written by another tab after initial preflight.
       await verifyRestoreHistoryUnchanged(safetySnapshot);
       mutationStarted=true;
-      await replaceHistoryFromBackup(selected.zip,selected.manifest.entries);
+      await replaceHistoryFromBackup(selected.zip,selected.manifest.entries,restoreId);
       const verified=[];
       for(const path of Object.keys(BACKUP_FILES))verified.push(await readJson(path.split("/"),null));
       if(verified.some(value=>!value))throw new Error("Post-restore durable file verification failed.");
       [model.state,model.settings,model.appointments,model.performance,model.assignNext,model.autoImport,model.operationalMetrics,model.meetingCycle]=verified;
       model.recovery.lastRestore={sourceFile:name,restoredAt:now(),sourceCreatedAt:selected.manifest.createdAt,safetyBackup:safety.name,validationStatus:"Verified"};
       model.recovery.status="Restore verified";
-      await writeJson(RECOVERY_PATH,model.recovery);
-      await addHistory("full-restore-complete","Restored and verified complete Service Operations Dashboard state",{sourceFile:name,safetyBackup:safety.name,openRos:model.state.records.length});
+      await writeJson(RECOVERY_PATH,model.recovery,restoreId);
+      await addHistory("full-restore-complete","Restored and verified complete Service Operations Dashboard state",{sourceFile:name,safetyBackup:safety.name,openRos:model.state.records.length},restoreId);
       renderAll();renderSettings();await scanRecoveryBackups();renderRecovery();
-      await maintenanceIO.remove(restoreMarkerPath.join("/"));
+      await maintenanceIO.remove(restoreMarkerPath.join("/"),null,false,restoreId);
       writeAuthority.endRestore();
       status("Service Operations Dashboard was restored and every durable file was verified.","success");
     }catch(error){
@@ -4482,13 +4491,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     // Recovery validation walks the physical selected-folder root, not the
     // Workspace-relative app paths used for file I/O.
     journalTarget:p=>physicalWorkspacePath(p.split('/')).join('/'),
-    beginMutation:()=>writeAuthority.beginMutation(),
+    beginMutation:restoreId=>writeAuthority.beginMutation(restoreId),
     completeMutation:token=>writeAuthority.completeMutation(token),
     cancelMutation:token=>writeAuthority.cancelMutation(token),
-    cleanupJournal:async p=>{writeAuthority.requireWrite();const parts=p.split('/'),name=parts.pop();await(await nativeDirectory(parts)).removeEntry(name);},
+    cleanupJournal:async(p,restoreId)=>{writeAuthority.requireWrite(restoreId);const parts=p.split('/'),name=parts.pop();await(await nativeDirectory(parts)).removeEntry(name);},
     read:async p=>new Uint8Array(await(await(await fileAt(maintenanceReadPath(p).split('/'))).getFile()).arrayBuffer()),
     rawWrite:async(p,b,token,restore=false)=>{const work=async()=>{const h=await nativeFileAt(p.split('/'),true);let w;try{w=await h.createWritable();await w.write(b);await w.close();const actual=new Uint8Array(await(await h.getFile()).arrayBuffer());if(actual.length!==b.length||actual.some((v,i)=>v!==b[i]))throw Error('Write read-back mismatch');}catch(e){try{await w?.abort()}catch(_){}throw e;}};if(token){writeAuthority.requireToken(token,restore);return work();}return writeAuthority.mutation(work);},
-    remove:async(p,token,restore=false)=>{const work=async()=>{const a=p.split('/'),n=a.pop();try{await(await nativeDirectory(a)).removeEntry(n);}catch(e){if(e.name!=='NotFoundError')throw e;}};if(token){writeAuthority.requireToken(token,restore);return work();}try{return await writeAuthority.journaledDelete(physicalWorkspacePath(p.split('/')).join('/'));}catch(e){if(e.name!=='NotFoundError')throw e;}},
+    remove:async(p,token,restore=false,restoreId)=>{const work=async()=>{const a=p.split('/'),n=a.pop();try{await(await nativeDirectory(a)).removeEntry(n);}catch(e){if(e.name!=='NotFoundError')throw e;}};if(token){writeAuthority.requireToken(token,restore);return work();}try{return await writeAuthority.journaledDelete(physicalWorkspacePath(p.split('/')).join('/'),{restoreId});}catch(e){if(e.name!=='NotFoundError')throw e;}},
     exists:async p=>{try{await fileAt(p.split('/'));return true}catch(e){if(e.name==='NotFoundError')return false;throw e;}},
     stat:async p=>{const f=await(await fileAt(p.split('/'))).getFile();return{size:f.size,modified:f.lastModified};},
     list:async(p,recursive)=>{const output=[];async function walk(d,base){for await(const[n,h]of d.entries()){const q=base?base+'/'+n:n;if(h.kind==='file')output.push(q);else if(recursive)await walk(h,q);}}try{await walk(await directory(p?p.split('/'):[],false),p);}catch(e){if(e.name!=='NotFoundError')throw e;}return output;},
