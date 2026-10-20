@@ -86,6 +86,8 @@ const olderUnreviewed={
   cdkOperational:api.operationalStatusFromImport({sourceStatus:"Working"},null,"2026-10-06T18:00:00.000Z")
 };
 assert.equal(api.statusForRecord(olderUnreviewed),"Being Repaired","fresh CDK is current when manager has not reviewed");
+context.model.state.records=[olderUnreviewed];
+context.model.state.closedRecords=[];
 const unsupported=api.mergeCompleteOpenRoRecords([
   {id:"source-gap",ro:"60001",sourceStatus:"PREASSIGNED",advisor:"Advisor A"}
 ],"2026-10-07T18:00:00.000Z","synthetic");
