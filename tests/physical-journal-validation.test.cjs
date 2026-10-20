@@ -95,7 +95,7 @@ function fixture({foreign=false,interrupted=false}={}){
     "const transientInterfaceState=()=>false;"+
     "function setEditable(v){editable=v;}function setTransientValidation(_){};";
   vm.runInContext(setup+"\n"+production+
-    "\nglobalThis.validate=validate;globalThis.isEditable=()=>editable;",ctx);
+    "\nglobalThis.validate=validate;globalThis.isEditable=()=>editable;globalThis.setRestoreSession=v=>{localRestoreInProgress=Boolean(v)};",ctx);
   function physicalPath(p){return "System Files/Workspace/"+p;}
   function read(p){const b=files.get(physicalPath(p));if(!b)throw missing();return Promise.resolve(new Uint8Array(b));}
   const io={
@@ -119,6 +119,7 @@ function fixture({foreign=false,interrupted=false}={}){
     io,files,actions,events,
     validate:()=>ctx.validate(directory(),false),
     editable:()=>ctx.isEditable(),
+    setRestoreSession:value=>ctx.setRestoreSession(value),
     journals:()=>[...files.keys()].filter(p=>p.startsWith(journalParent+".moondog-txn-"))
   };
 }
@@ -158,4 +159,24 @@ test("verified successful write clears journal and keeps subsequent editing avai
   assert.equal(f.journals().length,0);
   assert.equal(await f.validate(),true);
   assert.equal(f.editable(),true);
+});
+
+test("unfinished durable restore marker blocks editing after a reconnect",async()=>{
+  const f=fixture();
+  const marker="System Files/Workspace/data/restore-in-progress.json";
+  f.files.set(marker,encode({schemaVersion:1,safetyBackup:"synthetic-safety.zip"}));
+  assert.equal(await f.validate(),false,"actual production write validator must block unfinished restores");
+  assert.equal(f.editable(),false);
+  assert.equal(f.files.has(marker),true,"never remove an uncertain restore hold automatically");
+});
+
+test("only the initiating restore session may validate while a recovery hold is active",async()=>{
+  const f=fixture();
+  const marker="System Files/Workspace/data/restore-in-progress.json";
+  f.files.set(marker,encode({schemaVersion:1,safetyBackup:"synthetic-safety.zip"}));
+  f.setRestoreSession(true);
+  assert.equal(await f.validate(),true,"same initiating tab must be able to finish its protected writes");
+  f.setRestoreSession(false);
+  assert.equal(await f.validate(),false,"other tabs/reconnects must not bypass the durable hold");
+  assert.equal(f.files.has(marker),true);
 });
