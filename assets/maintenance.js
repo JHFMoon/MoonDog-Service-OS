@@ -11,7 +11,7 @@ async function safeWrite(io,path,bytes,options={}){
   bytes=new Uint8Array(bytes);if(path.endsWith('.json')&&options.validateJson!==false)json(bytes);
   let old=null;try{old=await io.read(path)}catch(e){if(e.name!=='NotFoundError')throw e;}
   const tmp=path.slice(0,path.lastIndexOf('/')+1)+'.moondog-txn-'+crypto.randomUUID()+'.json';
-  let prepared=false,touched=false,token=await io.beginMutation?.();
+  let prepared=false,touched=false,token=await io.beginMutation?.(options.restoreId);
   const txn={format:'moondog-write-v1',target:io.journalTarget?io.journalTarget(path):path,at:new Date().toISOString(),before:old?Array.from(old):null,after:Array.from(bytes),revisionBefore:Number.isSafeInteger(token?.expected)?token.expected:null};
   try{
    await io.rawWrite(tmp,encode(JSON.stringify(txn)),token);if(!equal(await io.read(tmp),encode(JSON.stringify(txn))))throw Error('Temporary write verification failed');prepared=true;
@@ -19,7 +19,7 @@ async function safeWrite(io,path,bytes,options={}){
    if((old===null)!==(current===null)||(old&&!equal(old,current)))throw Error('File changed during write');
    touched=true;await io.rawWrite(path,bytes,token);if(!equal(await io.read(path),bytes))throw Error('Durable read-back mismatch');
    await io.completeMutation?.(token);token=null;
-   if(io.cleanupJournal)try{await io.cleanupJournal(tmp)}catch(_){}else await io.remove(tmp);
+   if(io.cleanupJournal)try{await io.cleanupJournal(tmp,options.restoreId)}catch(_){}else await io.remove(tmp);
    return true;
   }catch(error){
    // Once a target write starts, a mismatched read-back may be another tab's
