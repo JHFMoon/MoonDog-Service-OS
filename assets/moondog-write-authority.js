@@ -152,8 +152,10 @@
             if (current === null)
               throw Error("Uncommitted delete journal requires controlled recovery.");
           } else {
-            const directory = target.slice(0, -1).reduce(async (prior, name) => (await prior).getDirectoryHandle(name), Promise.resolve(root));
-            await (await directory).getDirectoryHandle(target.at(-1), { create: true });
+            // A completed but uncommitted empty-directory deletion can race
+            // another writer. Do not recreate the old directory or dismiss
+            // its journal without exclusive ownership of that path.
+            throw Error("Uncommitted delete journal requires controlled recovery.");
           }
         } else {
           if (!await absent(root, target)) throw Error("Committed deletion differs from its journal.");
