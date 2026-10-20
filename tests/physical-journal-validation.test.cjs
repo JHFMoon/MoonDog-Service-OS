@@ -94,7 +94,7 @@ function fixture({foreign=false,interrupted=false}={}){
   const setup="const encoder=new TextEncoder();"+
     "const REVISION=['System Files','Workspace','data','store-revision.json'];"+
     "const originals=new WeakMap();let localRestoreOwner=null,nativeRoot=null,loadedRevision=null,activeToken=null;"+
-    "let editable=true;const transientValidationDelays=[0];"+
+    "let editable=true;let tail=Promise.resolve();const transientValidationDelays=[0];"+
     "const sleep=async()=>{};const denied=()=>new Error('read only');"+
     "const transientInterfaceState=()=>false;"+
     "function setEditable(v){editable=v;}function setTransientValidation(_){};"+
