@@ -17,7 +17,7 @@ assert.match(app,/const interruptedRestoreReview=await inspectInterruptedRestore
   "read-only connection must assess the hold");
 assert.match(app,/if\(interruptedRestoreReview\)status\("INTERRUPTED RESTORE:/,
   "read-only connection must warn the manager without clearing the hold");
-assert.match(app,/r\.state==="held"\|\|r\.state==="unreadable-files"\?`Read-only recovery assessment/,
+assert.match(app,/r\.state==="held"\|\|r\.state==="unreadable-files"\|\|r\.state==="unstable-files"\?`Read-only recovery assessment/,
   "read-only Recovery view must show evidence counts even for denied files");
 const enc=o=>new TextEncoder().encode(JSON.stringify(o));
 const hash=bytes=>crypto.createHash("sha256").update(bytes).digest("hex");
@@ -42,6 +42,7 @@ const entries=files=>Object.entries(files).map(([p,b])=>({path:p,size:b.length,s
 function fixture(options={}){
   const live=new Map(Object.entries(old).map(([p,b])=>[p,new Uint8Array(b)]));
   const operations=[];
+  let firstCanonicalObserved=false,historyLists=0;
   if(options.overrides)for(const [p,b]of Object.entries(options.overrides)){if(b===null)live.delete(p);else live.set(p,enc(b));}
   const archives={
     [marker.safetyBackup]:{manifest:{entries:entries(old)}},
@@ -54,10 +55,18 @@ function fixture(options={}){
     readFileBytes:async parts=>{
       const p=parts.join("/");
       operations.push(["readFile",p]);
-      if(p.startsWith("backups/"))return enc({archive:p.slice("backups/".length)});
+      if(p.startsWith("backups/")){
+        if(options.missingArchive===p.slice("backups/".length))throw absent();
+        return enc({archive:p.slice("backups/".length)});
+      }
       if(options.denied===p)throw denied();
       if(!live.has(p))throw absent();
-      return new Uint8Array(live.get(p));
+      const observed=new Uint8Array(live.get(p));
+      if(!firstCanonicalObserved&&p==="data/current-state.json"){
+        firstCanonicalObserved=true;
+        options.afterFirstCanonicalRead?.(live);
+      }
+      return observed;
     },
     validateBackupBytes:async bytes=>{
       const name=JSON.parse(new TextDecoder().decode(bytes)).archive;
@@ -68,8 +77,10 @@ function fixture(options={}){
     directoryFiles:async parts=>{
       operations.push(["readHistory",parts.join("/")]);
       if(options.denyHistory)throw denied();
-      return [...live.entries()].filter(([p])=>p.startsWith("data/history/"))
+      const snapshot=[...live.entries()].filter(([p])=>p.startsWith("data/history/"))
         .map(([p,b])=>({name:p.slice("data/history/".length),bytes:new Uint8Array(b)}));
+      if(++historyLists===1)options.afterFirstHistoryRead?.(live);
+      return snapshot;
     },
     sha256:async bytes=>hash(bytes)
   });
@@ -136,4 +147,46 @@ test("an unchanged file identical in both archives is classified as both",async(
   // default source is different, so this remains old rather than 'both'.
   const r=await f.run();
   assert.equal(r.old,3);assert.equal(r.both,0);
+});
+
+test("read-only reconnect reports a canonical file replaced during assessment",async()=>{
+  const f=fixture({afterFirstCanonicalRead:live=>
+    live.set("data/current-state.json",enc({records:[{id:"concurrent-writer"}]}))});
+  const first=await f.run();
+  assert.equal(first.state,"unstable-files");
+  assert.equal(first.unstable,1);
+  assert.equal(first.safety,"verified");
+  assert.equal(first.source,"verified");
+  assert.equal(f.operations.some(([action])=>/write|remove|delete/i.test(action)),false);
+  assert.equal(JSON.parse(new TextDecoder().decode(f.live.get("data/current-state.json"))).records[0].id,"concurrent-writer");
+  const second=await f.run();
+  assert.equal(second.state,"held","a later stable assessment may report the foreign bytes as a conflict");
+  assert.equal(second.conflict,1,"unrelated edits never become verified restore bytes");
+});
+
+test("new OneDrive-like history arriving mid-assessment cannot look like a stable inventory",async()=>{
+  const f=fixture({afterFirstHistoryRead:live=>
+    live.set("data/history/new-foreign.json",enc({history:[{id:"outside"}]}))});
+  const report=await f.run();
+  assert.equal(report.state,"unstable-files");
+  assert.equal(report.unstable,1);
+  assert.equal(f.live.has("data/history/new-foreign.json"),true);
+  assert.equal(f.operations.some(([action])=>/write|remove|delete/i.test(action)),false);
+});
+
+test("file missing during second inspection remains unreadable and cannot authorize recovery",async()=>{
+  const f=fixture({afterFirstCanonicalRead:live=>live.delete("data/current-state.json")});
+  const report=await f.run();
+  assert.equal(report.state,"unreadable-files");
+  assert.equal(report.unreadable,1);
+  assert.equal(f.operations.some(([action])=>/write|remove|delete/i.test(action)),false);
+});
+
+test("missing safety ZIP cannot be treated as verified recovery evidence",async()=>{
+  const f=fixture({missingArchive:marker.safetyBackup});
+  const report=await f.run();
+  assert.equal(report.state,"missing-evidence");
+  assert.equal(report.safety,"unavailable-or-invalid");
+  assert.equal(f.operations.filter(([action])=>action==="readHistory").length,0);
+  assert.equal(f.operations.some(([action])=>/write|remove|delete/i.test(action)),false);
 });
