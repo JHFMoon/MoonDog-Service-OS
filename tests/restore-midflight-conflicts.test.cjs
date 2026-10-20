@@ -45,7 +45,7 @@ function fixture(options={}){
   const actions=[],diagnostics=[],model={recovery:{status:"Ready",lastRestore:{sourceFile:"previous.zip"}}};
   let disabled=0,historyStarted=0,safetyExists=false;
   const context=vm.createContext({
-    BACKUP_FILES:Object.fromEntries(keys.map(p=>[p,()=>null])),Date,
+    BACKUP_FILES:Object.fromEntries(keys.map(p=>[p,()=>null])),Date,RECOVERY_PATH:["data","recovery.json"],
     model,ui:{restoreBackupSelect:{value:"source.zip"}},
     readFileBytes:async parts=>{
       const p=parts.join("/");
@@ -88,8 +88,19 @@ function fixture(options={}){
     sha256:async bytes=>digest(bytes),decodeUtf8:decode,
     renderRecovery:()=>actions.push(["render"]),
     readJson:async parts=>JSON.parse(decode(files.get(parts.join("/")))),
-    writeJson:async()=>actions.push(["persist-recovery"]),
-    writeAuthority:{disable:()=>{disabled++;actions.push(["read-only"])}},
+    writeJson:async(parts,value)=>{
+      const p=parts.join("/");
+      if(p==="data/restore-in-progress.json"){
+        actions.push(["restore-marker-created"]);
+        files.set(p,json(value));
+      }else actions.push(["persist-recovery"]);
+    },
+    maintenanceIO:{remove:async p=>{actions.push(["restore-marker-removed"]);files.delete(p);}},
+    writeAuthority:{
+      beginRestore:()=>actions.push(["restore-begun"]),
+      endRestore:()=>actions.push(["restore-ended"]),
+      disable:()=>{disabled++;actions.push(["read-only"]);}
+    },
     recordDiagnostic:(kind,message)=>diagnostics.push({kind,message}),
     now:()=>"2026-10-20T00:00:00Z",
     addHistory:async()=>actions.push(["add-history"]),
@@ -117,6 +128,7 @@ test("an external writer changing a later file after preflight is never overwrit
   assert.equal(f.historyStarted,0);
   assert.equal(f.disabled,1);
   assert.equal(f.safetyExists,true);
+  assert.equal(f.files.has("data/restore-in-progress.json"),true,"crash recovery hold must persist");
   assert.match(f.model.recovery.status,/controlled recovery required/);
   assert.deepEqual(f.model.recovery.lastRestore,{sourceFile:"previous.zip"});
   assert.equal(f.actions.some(([a])=>a==="persist-recovery"),false);
@@ -164,6 +176,7 @@ test("an unchanged synthetic restore still succeeds without disabling write auth
   assert.equal(JSON.parse(decode(f.files.get(history))).records[0].id,"restored-history");
   assert.equal(f.model.recovery.lastRestore.validationStatus,"Verified");
   assert.equal(f.model.recovery.status,"Restore verified");
+  assert.equal(f.files.has("data/restore-in-progress.json"),false,"successful restore must remove hold");
   assert.equal(f.actions.some(([a])=>a==="persist-recovery"),true);
 });
 
