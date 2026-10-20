@@ -7,8 +7,16 @@
       "package_pr": null
     },
     "59": {
-      "criteria": {},
-      "package_pr": null
+      "criteria": {
+        "59-06": {
+          "kind": "runtime",
+          "pr": 220,
+          "tests": [
+            "tests/workspace-history-isolation.test.cjs"
+          ]
+        }
+      },
+      "package_pr": 276
     },
     "60": {
       "criteria": {
