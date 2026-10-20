@@ -33,13 +33,13 @@
       "criteria": {
         "61-06": {
           "kind": "runtime",
-          "pr": 260,
+          "pr": 275,
           "tests": [
             "tests/device-open-ro-preferences.test.cjs"
           ]
         }
       },
-      "package_pr": 270
+      "package_pr": 276
     },
     "164": {
       "criteria": {
