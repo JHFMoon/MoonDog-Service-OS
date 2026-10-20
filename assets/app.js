@@ -1427,7 +1427,7 @@
       if (creation) { dates.push(creation); byCreationDate[creation] = (byCreationDate[creation] || 0) + 1; validCreationDates += 1; }
       // Interaction is an operational category, not a free-text note.
       const raw = text(row[col.interaction]).trim();
-      const interaction = /^[a-z0-9_. -]{1,70}$/i.test(raw) ? raw : "Unclassified";
+      const interaction = /^[A-Z0-9][A-Z0-9_-]{2,69}$/.test(raw) ? raw : "Unclassified";
       byInteraction[interaction] = (byInteraction[interaction] || 0) + 1;
       if (!creation || !appointment) continue;
       const days = Math.round((Date.parse(appointment + "T00:00:00Z") - Date.parse(creation + "T00:00:00Z")) / 86400000);
@@ -1783,9 +1783,11 @@
     for(const row of rows){
       const ro=text(row[1]).trim(),days=Number(row[5]),status=text(row[7]).trim();
       if(!/^\d{3,9}$/.test(ro)||!Number.isInteger(days)||days<0||days>3650
-        ||!/^[a-z][a-z .-]{2,40}$/i.test(status))continue;
+        ||!status)continue;
       verifiedRows+=1;
-      const category=status.toUpperCase();
+      const knownStatuses=new Set(["READY TO POST","PREASSIGNED","ALL LAB. POSTED",
+        "WORKING","OPENED","PRE-INVOICED","VEH. DISABLED","LINE ON HOLD"]);
+      const category=knownStatuses.has(status.toUpperCase())?status.toUpperCase():"OTHER/UNMAPPED";
       statusCounts[category]=(statusCounts[category]||0)+1;
       oldestDays=Math.max(oldestDays,days);
       aging[days>=5?"days5plus":days>=2?"days2to4":"under2"]+=1;
