@@ -45,7 +45,7 @@ function fixture(options={}){
   const actions=[],diagnostics=[],model={recovery:{status:"Ready",lastRestore:{sourceFile:"previous.zip"}}};
   let disabled=0,historyStarted=0,safetyExists=false;
   const context=vm.createContext({
-    BACKUP_FILES:Object.fromEntries(keys.map(p=>[p,()=>null])),Date,RECOVERY_PATH:["data","recovery.json"],
+    BACKUP_FILES:Object.fromEntries(keys.map(p=>[p,()=>null])),Date,crypto:{randomUUID:()=> "123e4567-e89b-42d3-a456-426614174000"},RECOVERY_PATH:["data","recovery.json"],
     model,ui:{restoreBackupSelect:{value:"source.zip"}},
     readFileBytes:async parts=>{
       const p=parts.join("/");
@@ -97,7 +97,7 @@ function fixture(options={}){
     },
     maintenanceIO:{remove:async p=>{actions.push(["restore-marker-removed"]);files.delete(p);}},
     writeAuthority:{
-      beginRestore:()=>actions.push(["restore-begun"]),
+      beginRestore:async restoreId=>{actions.push(["restore-begun",restoreId]);},
       endRestore:()=>actions.push(["restore-ended"]),
       disable:()=>{disabled++;actions.push(["read-only"]);}
     },
@@ -186,4 +186,12 @@ test("preflight conflict before first mutation does not disable an otherwise hea
   assert.equal(f.disabled,0);
   assert.equal(f.actions.some(([a])=>a==="write"),false);
   assert.equal(JSON.parse(decode(f.files.get(keys[0]))).records[0].id,"external-prior");
+});
+
+test("restore marker carries a unique owner for later write-authority validation",async()=>{
+  const f=fixture({throwAfterWrite:keys[0]});
+  await assert.rejects(f.restore(),/synthetic interrupted writable/);
+  const marker=JSON.parse(decode(f.files.get("data/restore-in-progress.json")));
+  assert.equal(marker.restoreId,"123e4567-e89b-42d3-a456-426614174000");
+  assert.equal(f.actions.find(([event])=>event==="restore-begun")[1],marker.restoreId);
 });
