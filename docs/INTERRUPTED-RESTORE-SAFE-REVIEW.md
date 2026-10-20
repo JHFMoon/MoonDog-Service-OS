@@ -6,7 +6,7 @@ An interrupted whole-state restore can leave a mixture of original and restored 
 
 A persistent `System Files/Workspace/data/restore-in-progress.json` hold is written before operational restore mutations. A reconnecting browser cannot authorize edits while the hold is present. Beta 126 checks that hold **before** journal recovery or revision initialization.
 
-On a read-only reconnect, the Dashboard may inspect the marker, validated restore-safety ZIP and original restore-source ZIP and compare their SHA-256 file inventories with the current canonical and history files. The summary counts files that match the original safety snapshot, the restore source, both, or neither. If a file cannot be read or a backup cannot be verified, the Dashboard reports that it cannot prove recovery readiness. The read-only assessment performs a second inventory/byte-hash pass while the restore hold is active. A file that appears, disappears, or changes between those two observations is reported as **unstable-files**, and a permission/read failure is reported as **unreadable-files**; neither should be treated as verified recovery readiness. This extra check is a **snapshot in time**, not a distributed lock: a writer could still change files after the second read. It does not authorize manager recovery, resume writes, remove the marker, or resolve any conflicting independent edits.
+On a read-only reconnect, the Dashboard may inspect the marker, validated restore-safety ZIP and original restore-source ZIP and compare their SHA-256 file inventories with the current canonical and history files. The summary counts files that match the original safety snapshot, the restore source, both, or neither. If a file cannot be read or a backup cannot be verified, the Dashboard reports that it cannot prove recovery readiness. The read-only assessment performs a second inventory/byte-hash pass while the restore hold is active. A file that appears, disappears, or changes between those two observations is reported as **unstable-files**. An absent canonical file confirmed by `NotFoundError` is reported separately as **missing-files** and counted as a conflict; a denied or otherwise failed read is **unreadable-files**. If a previously missing file reappears or becomes unreadable during recheck, the second-pass drift or access failure takes priority. None of these states should be treated as verified recovery readiness. This extra check is a **snapshot in time**, not a distributed lock: a writer could still change files after the second read. It does not authorize manager recovery, resume writes, remove the marker, or resolve any conflicting independent edits.
 
 ## Manager / support decision procedure
 
@@ -23,6 +23,7 @@ No developer should report recovery completed, restored customer data, cleared j
 - Missing, corrupt or inaccessible safety backup or source ZIP
 - Malformed marker and unsafe/relative ZIP paths
 - Original-only, restore-only and mixed canonical files
+- Missing canonical JSON, late appearance and permission denial on recheck
 - New, missing, modified or unreadable history files
 - Independent changes after the assessment (TOCTOU)
 - Any recovery attempt that writes or deletes data without a separate, authorized conflict-aware process

@@ -17,8 +17,9 @@ assert.match(app,/const interruptedRestoreReview=await inspectInterruptedRestore
   "read-only connection must assess the hold");
 assert.match(app,/if\(interruptedRestoreReview\)status\("INTERRUPTED RESTORE:/,
   "read-only connection must warn the manager without clearing the hold");
-assert.match(app,/r\.state==="held"\|\|r\.state==="unreadable-files"\|\|r\.state==="unstable-files"\?`Read-only recovery assessment/,
-  "read-only Recovery view must show evidence counts even for denied files");
+assert.match(app,/r\.state==="held"\|\|r\.state==="missing-files"\|\|r\.state==="unreadable-files"\|\|r\.state==="unstable-files"\?`Read-only recovery assessment/,
+  "read-only Recovery view must show evidence counts even for missing or denied files");
+assert.match(app,/\$\{r\.missing\|\|0\} missing/, "read-only Recovery must display missing count separately");
 const enc=o=>new TextEncoder().encode(JSON.stringify(o));
 const hash=bytes=>crypto.createHash("sha256").update(bytes).digest("hex");
 const absent=()=>Object.assign(Error("synthetic missing"),{name:"NotFoundError"});
@@ -199,5 +200,40 @@ test("missing safety ZIP cannot be treated as verified recovery evidence",async(
   assert.equal(report.state,"missing-evidence");
   assert.equal(report.safety,"unavailable-or-invalid");
   assert.equal(f.operations.filter(([action])=>action==="readHistory").length,0);
+  assert.equal(f.operations.some(([action])=>/write|remove|delete/i.test(action)),false);
+});
+
+test("verified missing canonical file is a conflict, not a permission failure",async()=>{
+  const f=fixture({overrides:{"data/settings.json":null}});
+  const report=await f.run();
+  assert.equal(report.state,"missing-files");
+  assert.equal(report.missing,1);
+  assert.equal(report.unreadable,0);
+  assert.equal(report.conflict,1);
+  assert.equal(report.safety,"verified");
+  assert.equal(report.source,"verified");
+  assert.equal(f.live.has("data/settings.json"),false);
+  assert.equal(f.operations.some(([action])=>/write|remove|delete/i.test(action)),false);
+});
+
+test("missing canonical file appearing on second inspection is unstable",async()=>{
+  const f=fixture({overrides:{"data/settings.json":null},afterFirstHistoryRead:live=>
+    live.set("data/settings.json",enc({schemaVersion:4,store:{name:"outside"}}))});
+  const report=await f.run();
+  assert.equal(report.state,"unstable-files");
+  assert.equal(report.missing,1);
+  assert.equal(report.unstable,1);
+  assert.equal(report.unreadable,0);
+  assert.equal(f.operations.some(([action])=>/write|remove|delete/i.test(action)),false);
+});
+
+test("missing canonical followed by denial never becomes verified absence",async()=>{
+  const options={overrides:{"data/settings.json":null},afterFirstHistoryRead:()=>{
+    options.denied="data/settings.json";
+  }};
+  const f=fixture(options),report=await f.run();
+  assert.equal(report.state,"unreadable-files");
+  assert.equal(report.missing,1);
+  assert.equal(report.unreadable,1);
   assert.equal(f.operations.some(([action])=>/write|remove|delete/i.test(action)),false);
 });
