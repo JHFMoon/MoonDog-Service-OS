@@ -20,7 +20,7 @@ const source = [
   statusFns,
   "const model={state:{records:[],closedRecords:[]}};globalThis.model=model;",
   mergeFns,
-  "globalThis.api={canonicalCdkStatus,canonicalReviewStatus,statusDetailsFor,operationalStatusFromImport,mergeCompleteOpenRoRecords,pruneClosedRecords};"
+  "globalThis.api={canonicalCdkStatus,canonicalReviewStatus,statusDetailsFor,statusForRecord,cdkStatusIndicator,operationalStatusFromImport,mergeCompleteOpenRoRecords,pruneClosedRecords};"
 ].join("\n");
 // Freeze the clock used by retention logic so this fixture does not expire in real time.
 class FrozenNowDate extends Date { static now(){return Date.parse("2026-10-08T12:00:00.000Z");} }
@@ -77,5 +77,41 @@ context.model.state.closedRecords=[{...merged.closedRecords[0],management:{statu
 const reopened=api.mergeCompleteOpenRoRecords([{id:"ro-b",ro:"10002",sourceStatus:"Open",advisor:"Advisor B"}],"2026-10-07T18:00:00.000Z","synthetic");
 assert.equal(reopened.records[0].management.nextAction,"Dispatch");
 assert.equal(reopened.reopenedCount,1);
+
+// 59-01 source authority: a prior observed status cannot silently become the
+// current operational status when a subsequent complete source cannot confirm it.
+const olderUnreviewed={
+  id:"source-gap",ro:"60001",sourceStatus:"Working",
+  management:{status:"",statusId:"",updatedAt:null},
+  cdkOperational:api.operationalStatusFromImport({sourceStatus:"Working"},null,"2026-10-06T18:00:00.000Z")
+};
+assert.equal(api.statusForRecord(olderUnreviewed),"Being Repaired","fresh CDK is current when manager has not reviewed");
+const unsupported=api.mergeCompleteOpenRoRecords([
+  {id:"source-gap",ro:"60001",sourceStatus:"PREASSIGNED",advisor:"Advisor A"}
+],"2026-10-07T18:00:00.000Z","synthetic");
+const sourceGap=unsupported.records[0];
+assert.equal(sourceGap.cdkOperational.stale,true,"unsupported new status invalidates old CDK confirmation");
+assert.equal(sourceGap.cdkOperational.status,"Being Repaired","historical observation remains available");
+assert.equal(api.statusForRecord(sourceGap),"","stale CDK must not be silently promoted as current");
+assert.equal(api.cdkStatusIndicator(sourceGap).kind,"stale");
+assert.match(api.cdkStatusIndicator(sourceGap).text,/not confirmed by latest import/);
+assert.match(app,/managementPill\.textContent = statusForRecord\(record\) \|\| \(record\?\.cdkOperational\?\.stale === true \? "CDK status not confirmed" : "—"\)/,"the Open RO table must visibly flag a stale observation instead of rendering a current status");
+
+const reviewedManager={...sourceGap,management:{
+  status:"Pending Authorization",statusId:"",updatedAt:"2026-10-07T12:00:00.000Z"
+}};
+assert.equal(api.statusForRecord(reviewedManager),"Pending Authorization","verified manager status wins over stale CDK");
+const observedNow={...reviewedManager,cdkOperational:api.operationalStatusFromImport(
+  {sourceStatus:"Review"},reviewedManager,"2026-10-07T19:00:00.000Z"
+)};
+assert.equal(api.statusForRecord(observedNow),"Pending Authorization","manager decision is not overwritten by a fresh conflicting CDK observation");
+assert.equal(api.cdkStatusIndicator(observedNow).kind,"delta","live CDK disagreement stays visible");
+const withoutReview={...observedNow,management:{status:"Awaiting Assignment",updatedAt:null}};
+assert.equal(api.statusForRecord(withoutReview),"Ready for Review","fresh CDK wins over unreviewed legacy status");
+const oldManager={...sourceGap,management:{status:"Awaiting Assignment",updatedAt:null}};
+assert.equal(api.statusForRecord(oldManager),"Awaiting Assignment","an existing saved status survives, but stale CDK cannot displace it");
+assert.equal(api.statusForRecord({management:{},cdkOperational:{stale:true,status:"Being Repaired"}}),"");
+assert.equal(api.statusForRecord({management:{},cdkOperational:null}),"");
+console.log("PASS 59-01 stale CDK source authority, manager precedence and visible provenance");
 
 console.log("PASS canonical CDK status, subtype, stale, close retention, and reopen rules");
