@@ -1987,6 +1987,7 @@
     else if(kind==="supplemental-docx")snapshot=parseSupplementalDocxReport(await docxText(bytes),candidate.name);
     if(!snapshot)throw new Error("The supplemental report structure could not be verified.");sourceLocations.set(candidate.name,candidate.location);const sourceFile=await(await sourceFileHandle(candidate.name)).getFile();snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString();model.operationalMetrics.supplementalReports||={snapshots:{}};const key=supplementalSnapshotKey(snapshot),replacing=Boolean(model.operationalMetrics.supplementalReports.snapshots[key]),prior=structuredClone(model.operationalMetrics.supplementalReports);model.operationalMetrics.supplementalReports.snapshots[key]=snapshot;model.operationalMetrics.supplementalReports.snapshots=pruneSupplementalSnapshots(model.operationalMetrics.supplementalReports.snapshots);model.operationalMetrics.updatedAt=now();
     try{await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);const check=await readJson(OPERATIONAL_METRICS_PATH,null);if(JSON.stringify(check?.supplementalReports?.snapshots?.[key])!==JSON.stringify(snapshot))throw new Error("The supplemental report snapshot could not be verified after saving.");}catch(error){model.operationalMetrics.supplementalReports=prior;throw error;}
+    if(snapshot.family==="ato-task-performance"){invalidateNavigationRenders();if(ui["view-performance"]?.classList.contains("active"))renderAtoTaskPerformance();}
     await addHistory("supplemental-report-import",(replacing?"Replaced ":"Added ")+snapshot.family+" supplemental report",{fileName:candidate.name,family:snapshot.family,periodStart:snapshot.periodStart,periodEnd:snapshot.periodEnd,asOfDate:snapshot.asOfDate||"",supplementalOnly:true});if(deleteAfterSuccess)await removeSourceEntry(candidate.name);
   }
 
@@ -3736,9 +3737,58 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     meetingRenderedDate=localDateKey();
     return output;
   };
+  function renderAtoTaskPerformance() {
+    // Supplemental-only: never place an unverified ATO grand total on an advisor KPI.
+    // The source PDF may aggregate multiple markets, stores and roles.
+    const panel=document.getElementById("atoTaskPerformance");
+    const scope=document.getElementById("atoTaskPerformanceScope");
+    const metricsHost=document.getElementById("atoTaskPerformanceKpis");
+    const footnote=document.getElementById("atoTaskPerformanceFootnote");
+    if(!panel||!scope||!metricsHost||!footnote)return;
+    const snapshots=Object.values(model.operationalMetrics?.supplementalReports?.snapshots||{})
+      .filter(item=>item&&item.family==="ato-task-performance"&&item.validation?.supplementalOnly===true
+        &&item.validation?.kpiPromotion===false)
+      .sort((a,b)=>String(b.importedAt||"").localeCompare(String(a.importedAt||"")));
+    const current=snapshots[0],values=current?.metrics?.verifiedSummary;
+    metricsHost.replaceChildren();
+    if(!current){
+      scope.textContent="No ATO task report imported yet. Import the ATO PDF in Tools → Import or refresh data.";
+      footnote.textContent="This is supplemental reporting. Individual advisor task results require an authenticated advisor-level export.";
+      return;
+    }
+    if(!values||current.validation?.grandTotalsVerified!==true){
+      scope.textContent="ATO source recognized, but its task totals could not be verified. The source remains supplemental.";
+      footnote.textContent="No task percentages or advisor results are shown until verified.";
+      return;
+    }
+    scope.textContent="ATO source-wide summary · Filters, store scope and reporting dates are not verified. These are NOT this store's or any advisor's confirmed KPIs.";
+    const format=(value,style)=>!Number.isFinite(value)?"—":style==="percent"
+      ?value.toFixed(1)+"%":style==="hours"?value.toFixed(2)+" hrs":Math.round(value).toLocaleString();
+    const cards=[
+      ["Tasks assigned",values.totalTasks,"count"],
+      ["Completed tasks",values.completedTasks,"count"],
+      ["Completion rate",values.completionRate,"percent"],
+      ["Avg completion time",values.avgCompletionHours,"hours"],
+      ["Completed in <1 hour",values.pctUnderOneHour,"percent"],
+      ["Completed after 24 hours",values.pctOver24Hours,"percent"]
+    ];
+    for(const [label,value,style] of cards){
+      const card=document.createElement("article"),title=document.createElement("span");
+      const amount=document.createElement("strong"),note=document.createElement("small");
+      title.textContent=label;
+      amount.textContent=format(value,style);
+      note.textContent="ATO source-wide · not advisor-specific";
+      card.append(title,amount,note);
+      metricsHost.append(card);
+    }
+    const count=snapshots.length;
+    footnote.textContent="ATO reporting observations: "+count+
+      ". No verified advisor-level breakdown or store-specific denominator is available. MoonDog daily follow-up tasks remain under Home.";
+  }
   const renderPerformanceBeforeNavigationReuse=renderPerformance;
   renderPerformance=function(...args){
     const output=renderPerformanceBeforeNavigationReuse(...args);
+    renderAtoTaskPerformance();
     performanceRenderedRevision=navigationDataRevision;
     performanceRenderedClock=reportClockToken();
     return output;
