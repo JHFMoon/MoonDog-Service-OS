@@ -3786,6 +3786,26 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     for(const path of Object.keys(BACKUP_FILES))await verifyRestoreFileUnchanged(path,safetySnapshot);
     await verifyRestoreHistoryUnchanged(safetySnapshot);
   }
+  // A different computer may change an earlier file even after our per-file
+  // write verifies. Reconcile the complete restored inventory before declaring
+  // success or releasing the persistent recovery hold.
+  async function verifyRestoredBackupState(entries){
+    const index=new Map(entries.map(entry=>[entry.path,entry]));
+    for(const path of Object.keys(BACKUP_FILES)){
+      const entry=index.get(path);
+      if(!entry||await sha256(await readFileBytes(path.split("/")))!==entry.sha256)
+        throw new Error("Restore post-write verification failed for a durable file.");
+    }
+    const expected=entries.filter(entry=>entry.path.startsWith("data/history/"));
+    const actual=await directoryFiles(["data","history"]);
+    if(expected.length!==actual.length)
+      throw new Error("Restore post-write history inventory failed verification.");
+    for(const file of actual){
+      const entry=index.get("data/history/"+file.name);
+      if(!entry||entry.size!==file.bytes.byteLength||await sha256(file.bytes)!==entry.sha256)
+        throw new Error("Restore post-write history verification failed.");
+    }
+  }
   async function replaceHistoryFromBackup(zip,entries,restoreId){
     const dir=await directory(["data","history"],false);
     for await(const[name,handle]of dir.entries())
@@ -3837,6 +3857,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       await verifyRestoreHistoryUnchanged(safetySnapshot);
       mutationStarted=true;
       await replaceHistoryFromBackup(selected.zip,selected.manifest.entries,restoreId);
+      await verifyRestoredBackupState(selected.manifest.entries);
       const verified=[];
       for(const path of Object.keys(BACKUP_FILES))verified.push(await readJson(path.split("/"),null));
       if(verified.some(value=>!value))throw new Error("Post-restore durable file verification failed.");
