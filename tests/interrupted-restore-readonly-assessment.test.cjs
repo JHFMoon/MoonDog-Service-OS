@@ -174,11 +174,22 @@ test("new OneDrive-like history arriving mid-assessment cannot look like a stabl
   assert.equal(f.operations.some(([action])=>/write|remove|delete/i.test(action)),false);
 });
 
-test("file missing during second inspection remains unreadable and cannot authorize recovery",async()=>{
+test("canonical deletion on second pass is classified as file drift, not permission denial",async()=>{
   const f=fixture({afterFirstCanonicalRead:live=>live.delete("data/current-state.json")});
+  const report=await f.run();
+  assert.equal(report.state,"unstable-files");
+  assert.equal(report.unstable,1);
+  assert.equal(report.unreadable,0);
+  assert.equal(f.operations.some(([action])=>/write|remove|delete/i.test(action)),false);
+});
+
+test("late canonical permission denial stays unreadable, not an assumed file deletion",async()=>{
+  const options={afterFirstCanonicalRead:()=>{options.denied="data/current-state.json";}};
+  const f=fixture(options);
   const report=await f.run();
   assert.equal(report.state,"unreadable-files");
   assert.equal(report.unreadable,1);
+  assert.equal(report.unstable||0,0);
   assert.equal(f.operations.some(([action])=>/write|remove|delete/i.test(action)),false);
 });
 
