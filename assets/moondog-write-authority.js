@@ -152,8 +152,10 @@
             if (current === null)
               throw Error("Uncommitted delete journal requires controlled recovery.");
           } else {
-            const directory = target.slice(0, -1).reduce(async (prior, name) => (await prior).getDirectoryHandle(name), Promise.resolve(root));
-            await (await directory).getDirectoryHandle(target.at(-1), { create: true });
+            // A completed but uncommitted empty-directory deletion can race
+            // another writer. Do not recreate the old directory or dismiss
+            // its journal without exclusive ownership of that path.
+            throw Error("Uncommitted delete journal requires controlled recovery.");
           }
         } else {
           if (!await absent(root, target)) throw Error("Committed deletion differs from its journal.");
@@ -289,23 +291,23 @@
     const token = await beginMutation();
     const journalPath = [...parts.slice(0, -1), `.moondog-txn-${crypto.randomUUID()}.json`];
     const journal = { format: "moondog-delete-v1", target: path, kind, before: kind === "file" ? Array.from(before) : null, revisionBefore: token.expected };
+    let touched = false;
     try {
       await writeBytesRaw(root, journalPath, encoder.encode(JSON.stringify(journal)));
       if (kind === "file" && !sameBytes(await readBytes(root, parts), before)) throw Error("File changed during deletion.");
       if (kind === "empty-directory") for await (const _ of (await parent.getDirectoryHandle(name)).entries()) throw Error("Directory changed during deletion.");
+      touched = true;
       await parent.removeEntry(name, options);
       if (!await absent(root, parts)) throw Error("Removal did not verify.");
       await completeMutation(token);
       try { await removeRaw(root, journalPath); } catch (_) {}
     } catch (error) {
-      let recovered = false;
-      try {
-        if (kind === "file") await writeBytesRaw(root, parts, before);
-        else await parent.getDirectoryHandle(name, { create: true });
-        recovered = !await absent(root, parts);
-      } catch (_) {}
-      if (recovered) try { await removeRaw(root, journalPath); } catch (_) { setEditable(false); }
-      if (!recovered) setEditable(false);
+      // A failed removal may race a second tab/OneDrive writer. Restoring a
+      // prior file or recreating a directory after touching the target could
+      // overwrite independent state. Retain the journal and require recovery.
+      if (touched) setEditable(false);
+      else try { await removeRaw(root, journalPath); }
+      catch (_) { setEditable(false); }
       cancelMutation(token);
       throw error;
     }
@@ -319,19 +321,22 @@
     const token = await beginMutation();
     const journalPath = [...parts.slice(0, -1), `.moondog-txn-${crypto.randomUUID()}.json`];
     const journal = { format: "moondog-create-v1", target: path, kind, revisionBefore: token.expected };
+    let touched = false;
     try {
       await writeBytesRaw(root, journalPath, encoder.encode(JSON.stringify(journal)));
       if (!await absent(root, parts)) throw Error("File or directory changed during creation.");
+      touched = true;
       const child = await parent[kind === "file" ? "getFileHandle" : "getDirectoryHandle"](name, { create: true });
       if (await absent(root, parts)) throw Error("Creation did not verify.");
       await completeMutation(token);
       try { await removeRaw(root, journalPath); } catch (_) {}
       return child;
     } catch (error) {
-      let recovered = false;
-      try { if (!await absent(root, parts)) await removeRaw(root, parts); recovered = await absent(root, parts); } catch (_) {}
-      if (recovered) try { await removeRaw(root, journalPath); } catch (_) { setEditable(false); }
-      if (!recovered) setEditable(false);
+      // A newly created name may already belong to an independent writer.
+      // Never automatically delete it after an attempted create.
+      if (touched) setEditable(false);
+      else try { await removeRaw(root, journalPath); }
+      catch (_) { setEditable(false); }
       cancelMutation(token);
       throw error;
     }
