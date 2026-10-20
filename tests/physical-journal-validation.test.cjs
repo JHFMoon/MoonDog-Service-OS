@@ -20,6 +20,10 @@ const begin=authority.indexOf("  async function at(");
 const end=authority.indexOf("  async function provision(",begin);
 assert.ok(begin>=0&&end>begin,"execute actual production recovery and validate functions");
 const production=authority.slice(begin,end);
+const restoreBegin=authority.indexOf("    async beginRestore(restoreId) {");
+const restoreEnd=authority.indexOf("    endRestore()",restoreBegin);
+assert.ok(restoreBegin>=0&&restoreEnd>restoreBegin,"extract production restore ownership method");
+const actualBeginRestore=authority.slice(restoreBegin,restoreEnd);
 const logical="data/current-state.json";
 const physical="System Files/Workspace/"+logical;
 const journalParent="System Files/Workspace/data/";
@@ -93,8 +97,10 @@ function fixture({foreign=false,interrupted=false}={}){
     "let editable=true;const transientValidationDelays=[0];"+
     "const sleep=async()=>{};const denied=()=>new Error('read only');"+
     "const transientInterfaceState=()=>false;"+
-    "function setEditable(v){editable=v;}function setTransientValidation(_){};";
+    "function setEditable(v){editable=v;}function setTransientValidation(_){};"+
+    "function requireWrite(){if(!editable)throw denied();}";
   vm.runInContext(setup+"\n"+production+
+    "\nglobalThis.beginRestore=({"+actualBeginRestore+"}).beginRestore;"+
     "\nglobalThis.validate=validate;globalThis.isEditable=()=>editable;globalThis.setRestoreSession=v=>{localRestoreOwner=v};",ctx);
   function physicalPath(p){return "System Files/Workspace/"+p;}
   function read(p){const b=files.get(physicalPath(p));if(!b)throw missing();return Promise.resolve(new Uint8Array(b));}
@@ -120,6 +126,7 @@ function fixture({foreign=false,interrupted=false}={}){
     validate:()=>ctx.validate(directory(),false),
     editable:()=>ctx.isEditable(),
     setRestoreSession:value=>ctx.setRestoreSession(value),
+    beginRestore:owner=>ctx.beginRestore(owner),
     journals:()=>[...files.keys()].filter(p=>p.startsWith(journalParent+".moondog-txn-"))
   };
 }
@@ -181,4 +188,27 @@ test("only the initiating restore session may validate while a recovery hold is 
   f.setRestoreSession(null);
   assert.equal(await f.validate(),false,"other tabs/reconnects must not bypass the durable hold");
   assert.equal(f.files.has(marker),true);
+});
+
+test("production beginRestore rejects an existing hold from a separately writable session",async()=>{
+  const f=fixture();
+  assert.equal(await f.validate(),true,"tab B was already editable before tab A started");
+  const marker="System Files/Workspace/data/restore-in-progress.json";
+  const anotherOwner="123e4567-e89b-42d3-a456-426614174001";
+  f.files.set(marker,encode({schemaVersion:1,restoreId:"123e4567-e89b-42d3-a456-426614174000",safetyBackup:"synthetic.zip"}));
+  await assert.rejects(f.beginRestore(anotherOwner),/read only/);
+  assert.equal(f.editable(),false);
+  assert.equal(f.files.has(marker),true);
+});
+
+test("production beginRestore accepts only a fresh unique owner and checks recorded owner",async()=>{
+  const f=fixture();
+  assert.equal(await f.validate(),true);
+  const id="123e4567-e89b-42d3-a456-426614174001";
+  await f.beginRestore(id);
+  const marker="System Files/Workspace/data/restore-in-progress.json";
+  f.files.set(marker,encode({schemaVersion:1,restoreId:id,safetyBackup:"synthetic.zip"}));
+  assert.equal(await f.validate(),true,"initiating tab retains its write permission");
+  f.files.set(marker,encode({schemaVersion:1,restoreId:"123e4567-e89b-42d3-a456-426614174002",safetyBackup:"other.zip"}));
+  assert.equal(await f.validate(),false,"changed hold owner must revoke write authority");
 });
