@@ -11,16 +11,25 @@ function extractBetween(startToken, endToken) {
   return app.slice(start, end);
 }
 const constants = extractBetween("  const FRESH_MANAGEMENT_STATUSES", "  const LEGACY_MANAGEMENT_STATUSES");
+const statusRecordFn = extractBetween("  const statusRecord =", "  const SETUP_SOURCE_DEFAULTS");
+const lookupFns = extractBetween("  function managementStatusDefinitions()", "  function canonicalReviewStatus");
 const statusFns = extractBetween("  function canonicalReviewStatus", "  function normalizeCommunication");
 const mergeFns = extractBetween("  function defaultManagementFor", "  async function importCdkRepairOrdersDocx");
+const clarificationFns = extractBetween("  function semanticFieldIssue(", "  function restoreSelectValue(");
+const priorityFn = extractBetween("  function dailyFocusPriority(", "  const MANAGER_WORK_DAYS");
 const source = [
   "const norm=(v)=>String(v??'').trim().toLowerCase().replace(/\\s+/g,' ');",
   constants,
-  "const statusById=()=>null;",
+  statusRecordFn,
+  lookupFns,
   statusFns,
+  clarificationFns,
+  "const freshness={validDateKey:value=>/^\\d{4}-\\d{2}-\\d{2}$/.test(String(value||''))};",
+  "const localDateKey=()=> '2026-10-08';",
+  priorityFn,
   "const model={state:{records:[],closedRecords:[]}};globalThis.model=model;",
   mergeFns,
-  "globalThis.api={canonicalCdkStatus,canonicalReviewStatus,statusDetailsFor,statusForRecord,cdkStatusIndicator,operationalStatusFromImport,mergeCompleteOpenRoRecords,pruneClosedRecords};"
+  "globalThis.api={canonicalCdkStatus,canonicalReviewStatus,currentCdkReviewStatus,semanticFieldIssue,clarificationFor,dailyFocusPriority,statusDetailsFor,statusForRecord,cdkStatusIndicator,operationalStatusFromImport,mergeCompleteOpenRoRecords,pruneClosedRecords};"
 ].join("\n");
 // Freeze the clock used by retention logic so this fixture does not expire in real time.
 class FrozenNowDate extends Date { static now(){return Date.parse("2026-10-08T12:00:00.000Z");} }
@@ -95,6 +104,12 @@ const sourceGap=unsupported.records[0];
 assert.equal(sourceGap.cdkOperational.stale,true,"unsupported new status invalidates old CDK confirmation");
 assert.equal(sourceGap.cdkOperational.status,"Being Repaired","historical observation remains available");
 assert.equal(api.statusForRecord(sourceGap),"","stale CDK must not be silently promoted as current");
+assert.equal(api.currentCdkReviewStatus(sourceGap),"","stale source must not count as confirmed");
+assert.match(api.semanticFieldIssue(sourceGap),/Choose a current CDK workflow status/,"stale-only source needs manager clarification");
+assert.match(api.clarificationFor(sourceGap),/Choose a current CDK workflow status/,"Ask in person must flag a stale-only current RO");
+const staleWithFuturePlan={...sourceGap,management:{...sourceGap.management,nextAction:"Contact advisor",reviewDate:"2026-10-09"}};
+assert.equal(api.dailyFocusPriority(staleWithFuturePlan,"2026-10-08"),0,"stale-only status takes priority even when a future action/date is recorded");
+assert.equal(api.clarificationFor(olderUnreviewed),"","a current confirmed source status is not a false clarification");
 assert.equal(api.cdkStatusIndicator(sourceGap).kind,"stale");
 assert.match(api.cdkStatusIndicator(sourceGap).text,/not confirmed by latest import/);
 assert.match(app,/managementPill\.textContent = statusForRecord\(record\) \|\| \(record\?\.cdkOperational\?\.stale === true \? "CDK status not confirmed" : "—"\)/,"the Open RO table must visibly flag a stale observation instead of rendering a current status");
@@ -112,6 +127,14 @@ const withoutReview={...observedNow,management:{status:"Awaiting Assignment",upd
 assert.equal(api.statusForRecord(withoutReview),"Ready for Review","fresh CDK wins over unreviewed legacy status");
 const oldManager={...sourceGap,management:{status:"Awaiting Assignment",updatedAt:null}};
 assert.equal(api.statusForRecord(oldManager),"Awaiting Assignment","an existing saved status survives, but stale CDK cannot displace it");
+assert.equal(api.clarificationFor(oldManager),"","a valid local management status is not a false clarification");
+const migratedById={...sourceGap,management:{status:"",statusId:"status-pending-authorization",updatedAt:null}};
+assert.equal(api.statusForRecord(migratedById),"Pending Authorization","a valid migrated ID is an authoritative local status");
+assert.equal(api.clarificationFor(migratedById),"","a recognized saved status ID must avoid false Ask in person");
+const migratedWithPlan={...migratedById,management:{...migratedById.management,nextAction:"Check parts",reviewDate:"2026-10-09"}};
+assert.equal(api.dailyFocusPriority(migratedWithPlan,"2026-10-08"),4,"valid migrated ID with a plan must not be falsely escalated");
+const invalidStatusId={...sourceGap,management:{status:"",statusId:"unknown-status",updatedAt:null}};
+assert.match(api.clarificationFor(invalidStatusId),/Choose a current CDK workflow status/,"unknown ID and stale evidence still require clarification");
 assert.equal(api.statusForRecord({management:{},cdkOperational:{stale:true,status:"Being Repaired"}}),"");
 assert.equal(api.statusForRecord({management:{},cdkOperational:null}),"");
 console.log("PASS 59-01 stale CDK source authority, manager precedence and visible provenance");

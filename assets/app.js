@@ -385,11 +385,12 @@
   function canonicalCdkStatus(value){return CDK_OPERATIONAL_STATUS_MAP[norm(value)]||"";}
   function statusDetailsFor(value){return REVIEW_STATUS_DETAILS[canonicalReviewStatus(value)]||[];}
   function reviewedCanonicalStatus(record){return record?.management?.updatedAt?canonicalReviewStatus(statusById(record.management.statusId)?.name||record.management.status):"";}
+  function currentCdkReviewStatus(record){return record?.cdkOperational?.stale===true?"":canonicalReviewStatus(record?.cdkOperational?.status);}
   function statusForRecord(record){
     const managerStatus=statusById(record?.management?.statusId)?.name||record?.management?.status||"";
     // A prior CDK status is retained for traceability after a new import cannot
     // confirm it. Never promote that stale observation back to the live status.
-    const cdkStatus=record?.cdkOperational?.stale===true?"":canonicalReviewStatus(record?.cdkOperational?.status);
+    const cdkStatus=currentCdkReviewStatus(record);
     if(!record?.management?.updatedAt&&cdkStatus)return cdkStatus;
     return managerStatus||cdkStatus||"";
   }
@@ -564,7 +565,7 @@
     else if (state === "CONNECTED" && /RECONNECTING|RESTORING|FOLDER ACCESS REQUIRED/i.test(ui.status.textContent || "")) status("SERVICE OPERATIONS DASHBOARD CONNECTED", "success");
   }
   const norm = (v) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-  function semanticFieldIssue(record) { const management = record?.management || {}; if (management.updatedAt&&!canonicalReviewStatus(statusById(management.statusId)?.name||management.status)) return `Previous review status “${management.status}” is retired. Choose the current CDK workflow status at this review.`; if (!management.updatedAt&&!canonicalReviewStatus(record?.cdkOperational?.status)&&!canonicalReviewStatus(management.status)) return "Choose a current CDK workflow status at this review."; if (management.communication && !COMMUNICATION_STATUSES.includes(normalizeCommunication(management.communication))) return `Customer communication “${management.communication}” is not a communication state. Choose a listed communication state.`; return ""; }
+  function semanticFieldIssue(record) { const management = record?.management || {}; if (management.updatedAt&&!canonicalReviewStatus(statusById(management.statusId)?.name||management.status)) return `Previous review status “${management.status}” is retired. Choose the current CDK workflow status at this review.`; if (!management.updatedAt&&!currentCdkReviewStatus(record)&&!canonicalReviewStatus(statusById(management.statusId)?.name||management.status)) return "Choose a current CDK workflow status at this review."; if (management.communication && !COMMUNICATION_STATUSES.includes(normalizeCommunication(management.communication))) return `Customer communication “${management.communication}” is not a communication state. Choose a listed communication state.`; return ""; }
   function clarificationFor(record) { return record?.management?.clarification?.reason || semanticFieldIssue(record); }
   function restoreSelectValue(select, value, values, blankValue = "") { [...select.options].filter((option) => option.dataset.invalid === "true").forEach((option) => option.remove()); const restored = value || blankValue; if (restored && !values.includes(restored)) { const option = document.createElement("option"); option.value = restored; option.textContent = `Needs correction: ${restored}`; option.dataset.invalid = "true"; select.append(option); } select.value = restored; }
   const freshness = globalThis.MoonDogFreshness;
