@@ -120,3 +120,14 @@ test("valid historical missed commitments still count once per revision", () => 
   assert.equal(state.revisionCount,4);
   assert.equal(state.overdue,false,"revision audit history is not a current overdue promise");
 });
+
+test("valid high-precision RFC 3339 revision timestamps keep genuine missed commitments", () => {
+  const revisions = [
+    {at:"2026-03-02T10:00:00.123456Z",previous:{taskDate:"2026-03-01"}},
+    {at:"2026-03-02T10:00:00.123456789-07:00",previous:{taskDate:"2026-03-01"}},
+    {at:"2026-03-02T10:00:00.Z",previous:{taskDate:"2026-03-01"}}
+  ];
+  const state = logic.adminCloseoutState(record("2026-03-05","2026-03-10",{revisions}),"2026-03-02");
+  assert.equal(state.missedRevisions,2,"valid precision never hides a proven repeat miss");
+  assert.equal(state.revisionCount,3,"unverified history remains visible for audit");
+});
