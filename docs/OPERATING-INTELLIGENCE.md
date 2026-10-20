@@ -68,8 +68,14 @@ closing an RO, dispatching work, or changing a manager's saved follow-up plan:
   status, `cdkOperational.stale` is true and the older CDK observation is kept
   only as historical provenance. It must **not** appear as a current status.
   With no saved management status, Open RO displays **CDK status not confirmed**;
-  the editor retains the **Last confirmed CDK** explanation. An existing saved
-  management value is preserved, but never credited as a fresh CDK observation.
+  the editor retains the **Last confirmed CDK** explanation.
+  A stale-only record with no valid local management status also appears under
+  **Ask in person** and gets the top Daily Focus clarification priority, even
+  if its existing next action and due date look routine. A valid saved
+  management status, including a recognized saved `management.statusId` on a
+  migrated RO with blank legacy status text, does not trigger that clarification.
+  An existing saved management value is preserved, but never credited as a
+  fresh CDK observation.
 - **Unknown is not zero or confirmed:** Missing source and unrecognized status
   are not translated into a fabricated current stage. The user must confirm
   the real status from a verified source or perform an explicit manager review.
