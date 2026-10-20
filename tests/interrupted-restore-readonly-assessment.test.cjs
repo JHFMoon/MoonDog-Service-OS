@@ -17,6 +17,8 @@ assert.match(app,/const interruptedRestoreReview=await inspectInterruptedRestore
   "read-only connection must assess the hold");
 assert.match(app,/if\(interruptedRestoreReview\)status\("INTERRUPTED RESTORE:/,
   "read-only connection must warn the manager without clearing the hold");
+assert.match(app,/r\.state==="held"\|\|r\.state==="unreadable-files"\?`Read-only recovery assessment/,
+  "read-only Recovery view must show evidence counts even for denied files");
 const enc=o=>new TextEncoder().encode(JSON.stringify(o));
 const hash=bytes=>crypto.createHash("sha256").update(bytes).digest("hex");
 const absent=()=>Object.assign(Error("synthetic missing"),{name:"NotFoundError"});
