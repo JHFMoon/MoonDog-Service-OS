@@ -190,6 +190,17 @@
         let permission = await root.queryPermission({ mode: "readwrite" });
         if (permission !== "granted" && ask && attempt === 0) permission = await root.requestPermission({ mode: "readwrite" });
         if (permission !== "granted") throw denied();
+        // Check the durable restore hold before repairing any transaction
+        // journals or initializing a missing revision. After a crash those
+        // writes could modify a partial restore before the owner reviews it.
+        // Only the still-running initiating session may validate the hold.
+        const pendingRestore=await readBytes(root,["System Files","Workspace","data","restore-in-progress.json"]);
+        if(pendingRestore!==null){
+          let recorded;
+          try{recorded=JSON.parse(new TextDecoder().decode(pendingRestore));}catch(_){}
+          if(!localRestoreOwner || recorded?.restoreId!==localRestoreOwner)
+            throw Error("Another restore owns the durable hold; controlled recovery is required.");
+        }
         let revision = null;
         try { revision = await read(root, REVISION); }
         catch (error) {
@@ -218,16 +229,6 @@
             revision = { schemaVersion: 1, revision: 0 };
             await write(root, REVISION, revision);
           }
-        }
-        // A crash can leave canonical files from different restore stages.
-        // The initiating tab alone may continue while its in-memory restore
-        // session is active; every reconnect or other tab must fail closed.
-        const pendingRestore=await readBytes(root,["System Files","Workspace","data","restore-in-progress.json"]);
-        if(pendingRestore!==null){
-          let recorded;
-          try{recorded=JSON.parse(new TextDecoder().decode(pendingRestore));}catch(_){}
-          if(!localRestoreOwner || recorded?.restoreId!==localRestoreOwner)
-            throw Error("Another restore owns the durable hold; controlled recovery is required.");
         }
         nativeRoot = root; loadedRevision = revision.revision; setTransientValidation(false); setEditable(true); return true;
       } catch (error) {
