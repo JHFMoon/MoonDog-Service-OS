@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.119 — current Beta
+
+- Persist Open RO filters as privacy-safe device preferences (#61). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.118 — current Beta
 
 - Merge pull request #220 from JHFMoon/feature/59-history-workspace-isolation-20261018. Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
