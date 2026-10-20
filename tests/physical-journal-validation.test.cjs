@@ -89,13 +89,13 @@ function fixture({foreign=false,interrupted=false}={}){
   });
   const setup="const encoder=new TextEncoder();"+
     "const REVISION=['System Files','Workspace','data','store-revision.json'];"+
-    "const originals=new WeakMap();let localRestoreInProgress=false,nativeRoot=null,loadedRevision=null,activeToken=null;"+
+    "const originals=new WeakMap();let localRestoreOwner=null,nativeRoot=null,loadedRevision=null,activeToken=null;"+
     "let editable=true;const transientValidationDelays=[0];"+
     "const sleep=async()=>{};const denied=()=>new Error('read only');"+
     "const transientInterfaceState=()=>false;"+
     "function setEditable(v){editable=v;}function setTransientValidation(_){};";
   vm.runInContext(setup+"\n"+production+
-    "\nglobalThis.validate=validate;globalThis.isEditable=()=>editable;globalThis.setRestoreSession=v=>{localRestoreInProgress=Boolean(v)};",ctx);
+    "\nglobalThis.validate=validate;globalThis.isEditable=()=>editable;globalThis.setRestoreSession=v=>{localRestoreOwner=v};",ctx);
   function physicalPath(p){return "System Files/Workspace/"+p;}
   function read(p){const b=files.get(physicalPath(p));if(!b)throw missing();return Promise.resolve(new Uint8Array(b));}
   const io={
@@ -174,9 +174,11 @@ test("only the initiating restore session may validate while a recovery hold is 
   const f=fixture();
   const marker="System Files/Workspace/data/restore-in-progress.json";
   f.files.set(marker,encode({schemaVersion:1,safetyBackup:"synthetic-safety.zip"}));
-  f.setRestoreSession(true);
+  const owner="123e4567-e89b-42d3-a456-426614174000";
+  f.files.set(marker,encode({schemaVersion:1,restoreId:owner,safetyBackup:"synthetic-safety.zip"}));
+  f.setRestoreSession(owner);
   assert.equal(await f.validate(),true,"same initiating tab must be able to finish its protected writes");
-  f.setRestoreSession(false);
+  f.setRestoreSession(null);
   assert.equal(await f.validate(),false,"other tabs/reconnects must not bypass the durable hold");
   assert.equal(f.files.has(marker),true);
 });
