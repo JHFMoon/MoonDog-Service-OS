@@ -3828,7 +3828,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     try{marker=await readJson(["data","restore-in-progress.json"],null);}
     catch(_){return{state:"unreadable",safety:"unknown",source:"unknown"};}
     if(marker===null)return null;
-    const result={state:"held",safety:"unverified",source:"unverified",old:0,restored:0,both:0,conflict:0,unreadable:0};
+    const result={state:"held",safety:"unverified",source:"unverified",old:0,restored:0,both:0,conflict:0,missing:0,unreadable:0};
     const safeName=(name,prefix="")=>typeof name==="string"&&name.length<=220&&name.endsWith(".zip")&&name.startsWith(prefix)&&!/[\\/]/.test(name)&&!name.includes("..");
     if(marker?.schemaVersion!==1||typeof marker.restoreId!=="string"||
        !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(marker.restoreId)||
@@ -3845,10 +3845,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if(!safety||!source){result.state="missing-evidence";return result;}
     const index=entries=>new Map(entries.map(e=>[e.path,e]));
     const before=index(safety.manifest.entries),after=index(source.manifest.entries);
-    const actual=new Map();
+    const actual=new Map(),missingPaths=new Set();
     for(const path of Object.keys(BACKUP_FILES)){
       try{actual.set(path,await readFileBytes(path.split("/")));}
-      catch(_){result.unreadable++;result.state="unreadable-files";}
+      catch(error){
+        if(error.name==="NotFoundError"){result.missing++;missingPaths.add(path);}
+        else{result.unreadable++;result.state="unreadable-files";}
+      }
     }
     try{
       for(const file of await directoryFiles(["data","history"]))actual.set("data/history/"+file.name,file.bytes);
@@ -3859,7 +3862,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       ...[...before.keys(),...after.keys(),...actual.keys()].filter(p=>p.startsWith("data/history/"))]);
     const observed=new Map();
     for(const path of paths){
-      if(!path.startsWith("data/history/")&&!actual.has(path))continue;
+      if(!path.startsWith("data/history/")&&!actual.has(path)){
+        if(missingPaths.has(path))result.conflict++;
+        continue;
+      }
       const bytes=actual.get(path)||null;
       const hash=bytes?await sha256(bytes):null;
       if(bytes)observed.set(path,`${bytes.byteLength}:${hash}`);
@@ -3898,6 +3904,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         if((observed.get(path)||null)!==fingerprint)unstable++;
       }
       if(unstable){result.state="unstable-files";result.unstable=unstable;}
+      else if(result.missing)result.state="missing-files";
     }
     return result;
   }
@@ -4117,7 +4124,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function copyReportInboxPath(){const value=`${model.root?.name||"working folder"}\\${REPORT_INBOX}`;try{await navigator.clipboard.writeText(value);}catch(_){const area=document.createElement("textarea");area.value=value;document.body.append(area);area.select();document.execCommand("copy");area.remove();}ui.reportInboxLocation.hidden=false;ui.reportInboxLocation.textContent=`Copied: ${value}`;}
   function ensureManagerEntryCues(){if(!ui["view-imports"].querySelector(".report-inbox-cue")){const cue=document.createElement("p");cue.className="report-inbox-cue settings-note";cue.innerHTML=`For automatic imports, place supported reports in <strong>${REPORT_INBOX}</strong>.`;ui["view-imports"].prepend(cue);}if(!ui["view-setup"].querySelector(".manager-entry-cue")){const cue=document.createElement("p");cue.className="manager-entry-cue settings-note";cue.innerHTML=`Open Service Operations Dashboard: <strong>00 - OPEN DASHBOARD.html</strong> · Add reports: <strong>${REPORT_INBOX}</strong>`;ui["view-setup"].querySelector(".setup-heading").after(cue);}}
   async function copyDiagnosticsPath(){const value=`${model.root?.name||"working folder"}\\MOONDOG_DIAGNOSTICS.md`;try{await navigator.clipboard.writeText(value);}catch(_){const area=document.createElement("textarea");area.value=value;document.body.append(area);area.select();document.execCommand("copy");area.remove();}ui.diagnosticsLocation.hidden=false;ui.diagnosticsLocation.textContent=`Copied: ${value}`;}
-  function renderRecovery(){ensureRecoveryUi();const recoveryStatus=model.recovery.status||"Ready";ui.recoveryStatus.textContent=String(recoveryStatus).toUpperCase();ui.lastBackupDisplay.textContent=model.recovery.lastBackup?.createdAt?`${new Date(model.recovery.lastBackup.createdAt).toLocaleString()} · ${model.recovery.lastBackup.validationStatus}`:"None yet";ui.currentRecoveryDisplay.textContent=model.recovery.interruptedRestoreReview?(()=>{const r=model.recovery.interruptedRestoreReview;return r.state==="held"||r.state==="unreadable-files"||r.state==="unstable-files"?`Read-only recovery assessment (${r.state}): safety ${r.safety}; source ${r.source}; ${r.old} original, ${r.restored} restored, ${r.both} unchanged, ${r.conflict} conflicting, ${r.unreadable} unreadable, ${r.unstable||0} changed during inspection. Recovery marker retained; no automatic repair.`:`Recovery hold: ${r.state}. Safety ${r.safety}; source ${r.source}. No automatic repair or marker removal.`;})():/failed|creating/i.test(recoveryStatus)?recoveryStatus:model.recovery.lastRestore?.restoredAt?`Last restore verified ${new Date(model.recovery.lastRestore.restoredAt).toLocaleString()}`:recoveryStatus;const summary=sanitizedSupportSummary(),sourceRows=summary.sources.map((row)=>`<li><strong>${row.source}</strong><span>${row.status}</span><small>${row.lastSuccessfulImport}</small></li>`).join("");ui.diagnosticsOverview.innerHTML=`<div class="diagnostic-build"><div><span>SERVICE OPERATIONS DASHBOARD VERSION / BUILD</span><strong>${VERSION}</strong><small>Build date ${BUILD_DATE} · updates are manual</small></div><div><span>LAST FOLDER CONNECTION</span><strong>${summary.recovery.lastSuccessfulConnectionAt?new Date(summary.recovery.lastSuccessfulConnectionAt).toLocaleString():"Not connected"}</strong><small>${summary.recovery.status}</small></div></div><h3>Sources and freshness</h3><ul>${sourceRows}</ul><p><strong>Diagnostics:</strong> ${summary.diagnosticsPath}</p>`;}
+  function renderRecovery(){ensureRecoveryUi();const recoveryStatus=model.recovery.status||"Ready";ui.recoveryStatus.textContent=String(recoveryStatus).toUpperCase();ui.lastBackupDisplay.textContent=model.recovery.lastBackup?.createdAt?`${new Date(model.recovery.lastBackup.createdAt).toLocaleString()} · ${model.recovery.lastBackup.validationStatus}`:"None yet";ui.currentRecoveryDisplay.textContent=model.recovery.interruptedRestoreReview?(()=>{const r=model.recovery.interruptedRestoreReview;return r.state==="held"||r.state==="missing-files"||r.state==="unreadable-files"||r.state==="unstable-files"?`Read-only recovery assessment (${r.state}): safety ${r.safety}; source ${r.source}; ${r.old} original, ${r.restored} restored, ${r.both} unchanged, ${r.conflict} conflicting, ${r.missing||0} missing, ${r.unreadable} unreadable, ${r.unstable||0} changed during inspection. Recovery marker retained; no automatic repair.`:`Recovery hold: ${r.state}. Safety ${r.safety}; source ${r.source}. No automatic repair or marker removal.`;})():/failed|creating/i.test(recoveryStatus)?recoveryStatus:model.recovery.lastRestore?.restoredAt?`Last restore verified ${new Date(model.recovery.lastRestore.restoredAt).toLocaleString()}`:recoveryStatus;const summary=sanitizedSupportSummary(),sourceRows=summary.sources.map((row)=>`<li><strong>${row.source}</strong><span>${row.status}</span><small>${row.lastSuccessfulImport}</small></li>`).join("");ui.diagnosticsOverview.innerHTML=`<div class="diagnostic-build"><div><span>SERVICE OPERATIONS DASHBOARD VERSION / BUILD</span><strong>${VERSION}</strong><small>Build date ${BUILD_DATE} · updates are manual</small></div><div><span>LAST FOLDER CONNECTION</span><strong>${summary.recovery.lastSuccessfulConnectionAt?new Date(summary.recovery.lastSuccessfulConnectionAt).toLocaleString():"Not connected"}</strong><small>${summary.recovery.status}</small></div></div><h3>Sources and freshness</h3><ul>${sourceRows}</ul><p><strong>Diagnostics:</strong> ${summary.diagnosticsPath}</p>`;}
   const HANDOFF_CLEAR_DIRS=["backups","imports","exports","support",REPORT_INBOX],HANDOFF_ROOT_SOURCE_PATTERN=/\.(?:xlsx?|csv|pdf)$/i,HANDOFF_LEARN_PATTERN=/\.(?:xlsx?|csv|pdf|zip|json)$/i;
   function freshProductSettings(){return{schemaVersion:5,storeName:"",exportName:"Service Operations Supervisor Workbook.xlsx",csiPeriodStart:"",meetingVoiceMode:"automatic",meetingCustomerVoiceSourceMethod:"saved",meetingCustomerVoiceSurveyId:"",meetingCustomerVoicePastedSource:"",meetingCustomerVoiceExcerpt:"",meetingTeamMessage:"",store:{name:"",code:"",brand:"",timeZone:"",confirmed:{}},advisors:{},meeting:{dayOfWeek:2,startTime:"06:30",resetTime:"07:00",grossMinimum:null,grossStretch:null},performanceStandards:{vir:null,menuPresentation:null,menuPenetration:null,mediaViewed:null,texting:null,cpElr:null,cpHoursPerRo:null,storeGrossTarget:null,dealerNps:null},openRo:{managementStatuses:FRESH_MANAGEMENT_STATUSES.map(statusRecord)},dailyWalk:{rosPerAdvisor:3},supervisorWorkbook:{filename:"Service Operations Supervisor Workbook.xlsx",worksheetOrder:[]},setup:{completedAt:"",reopened:false,newStorePrepared:true,sourceExpectations:{...SETUP_SOURCE_DEFAULTS}},future:{folderWatch:{enabled:true,intervalSeconds:15},managerSchedule:{days:[2,3,4,5,6],startTime:"07:30",endTime:"16:00"}}};}
   function freshProductState(){return{"data/current-state.json":{schemaVersion:1,appVersion:VERSION,updatedAt:null,source:null,records:[],closedRecords:[]},"data/settings.json":freshProductSettings(),"data/appointments.json":{schemaVersion:1,updatedAt:null,days:{}},"data/advisor-performance.json":{schemaVersion:1,updatedAt:null,snapshots:{}},"data/assign-next.json":{schemaVersion:3,updatedAt:null,days:{},currentOpenRo:null},"data/auto-import.json":{schemaVersion:1,initializedAt:null,updatedAt:null,seen:{}},"data/operational-metrics.json":{schemaVersion:1,updatedAt:null,nextAppointments:{snapshots:{}},vir:{snapshots:{}},menu:{snapshots:{}},csi:{surveys:{},imports:[]},monthlySummaries:{},sor:{snapshots:{}},appointmentActivity:{snapshots:{}},efficiency:{snapshots:{}},mediaAsr:{snapshots:{}},openRoSummary:{snapshots:{}}},"data/meeting-cycle.json":{schemaVersion:1,cycleStart:"",resetAt:"",capturedAt:"",metrics:{}}};}
