@@ -22,11 +22,14 @@ async function safeWrite(io,path,bytes,options={}){
    if(io.cleanupJournal)try{await io.cleanupJournal(tmp)}catch(_){}else await io.remove(tmp);
    return true;
   }catch(error){
-   let recovered=!touched;
-   if(touched)try{if(old){await io.rawWrite(path,old,token,true);recovered=equal(await io.read(path),old);}else{await io.remove(path,token,true);recovered=true;}}catch(_){}
+   // Once a target write starts, a mismatched read-back may be another tab's
+   // or OneDrive's replacement. There is no cross-device compare-and-swap:
+   // restoring old bytes or removing a new file could destroy that writer's work.
+   // Keep the attempted target and journal for controlled recovery instead.
+   const recovered=!touched;
    if(recovered)try{await io.remove(tmp,token,true)}catch(_){}
    io.cancelMutation?.(token);token=null;
-   // A failed rollback retains the verified journal; it is never garbage-collected as clutter.
+   // Never garbage-collect a journal for a target that may have been touched.
    io.failure?.({kind:'DURABLE WRITE FAILED',recovered,prepared});throw error;
   }
  });map.set(path,job);try{return await job}finally{if(map.get(path)===job)map.delete(path);}
