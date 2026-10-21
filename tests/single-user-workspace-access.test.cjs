@@ -60,7 +60,7 @@ test("browser permission and protected durable-writing rules remain enabled",()=
   assert.match(guard,/await recoverPending\(root, revision\)/);
   assert.match(guard,/restore-in-progress\.json/);
   assert.match(guard,/if\(!editable \|\| localRestoreOwner/);
-  assert.match(guard,/revision\.revision !== expected/);
+  assert.match(guard,/current\.revision !== expected/);
   assert.match(guard,/File changed during write/);
   assert.match(guard,/journal\.revisionBefore/);
   assert.match(guard,/if \(editable === value\) return/);
