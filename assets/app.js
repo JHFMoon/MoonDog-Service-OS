@@ -161,7 +161,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-ro-groups-activity";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-ro-groups-activity-primary";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -1734,10 +1734,15 @@
     try { parseEfficiencyWorkbook(bytes, name); return "efficiency"; } catch (_) {}
     try { return parseMediaAsrWorkbook(bytes,name).sourceScope==="technician"?"media-asr-tech":"media-asr"; } catch (_) {}
     try { parseOpenRoSummaryWorkbook(bytes, name); return "open-ro-summary"; } catch (_) {}
+    // A strictly reconciled advisor-grouped Open RO source is an eligible primary
+    // roster only after the global total, every section and each identity validate.
+    // The supplemental aging detector recognizes the same signature but cannot
+    // establish active RO authority or clear the current-source warning.
+    try { if (legacyReport(book)) return "open-ro"; } catch (_) {}
     try { if (parseSupplementalWorkbook(bytes,name)) return "supplemental-workbook"; } catch (_) {}
     const appointmentSheet = book.Sheets["Service Daily Log"] || book.Sheets[book.SheetNames[0]], appointmentRows = appointmentSheet ? XLSX.utils.sheet_to_json(appointmentSheet, { header: 1, defval: "", raw: false }) : [], isAppointment = appointmentRows.some((row) => row.some((value) => text(value).trim() === "Time") && row.some((value) => text(value).trim() === "Customer") && row.some((value) => text(value).trim() === "SA"));
     if (isAppointment) return "appointments";
-    try { if (legacyReport(book) || findTable(book)) return "open-ro"; } catch (_) {}
+    try { if (findTable(book)) return "open-ro"; } catch (_) {}
     return null;
   }
   async function moveToLearn(candidate, reason) {
