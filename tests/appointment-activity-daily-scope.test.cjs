@@ -69,6 +69,21 @@ test("vendor serial dates and ISO dates produce separate verified store days",()
   assert.equal(snapshot.validation.noInferredZeroDays,true);
   assert.doesNotMatch(JSON.stringify(snapshot),/Synthetic Private|SYNTHETIC-ONLY|Synthetic note/);
 });
+test("Excel Date cells retain their UTC civil day rather than Pacific previous day",()=>{
+  const workbookDay=new Date("2026-10-20T00:00:00.000Z");
+  const f=fixture([row("9001",workbookDay,workbookDay),row("1002","2026-10-19","2026-10-19")]);
+  const snapshot=f.parse();
+  assert.equal(snapshot.periodStart,"2026-10-20");
+  assert.equal(snapshot.periodEnd,"2026-10-20");
+  assert.equal(snapshot.dailyCounts["2026-10-20"].rowCount,1);
+  assert.equal(snapshot.dailyCounts["2026-10-19"],undefined);
+  assert.equal(snapshot.leadTimeBuckets.sameDay,1);
+  assert.doesNotMatch(JSON.stringify(snapshot),/Synthetic Private|SYNTHETIC-ONLY|Synthetic note/);
+});
+test("invalid Date objects fail closed without persisting partial daily counts",()=>{
+  const f=fixture([row("9001",new Date(NaN),"2026-10-20"),row("1002","2026-10-20","2026-10-20")]);
+  assert.throws(()=>f.parse(),/unreadable appointment creation date/);
+});
 test("other-store-only dates never become fabricated local zero rows",()=>{
   const skipped=serialDate(46311);
   const s=fixture([row("9001",46310,46310),row("1002",46311,46311),row("9001",46312,46312)]).parse();
