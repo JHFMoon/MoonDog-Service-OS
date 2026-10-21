@@ -640,7 +640,9 @@
     let items=[...Object.values(family.snapshots||{}),...Object.values(family.dailySnapshots||{})];
     if(key==='vir')items=allVirObservations();
     if(['mediaAsr','mediaAsrTech'].includes(key))items=sourceTrendObservations(key);
-    if(key==='openRo')items.push(model.state.source);
+    // Open RO is one current operational roster, not a historical trend.
+    // Old cached observations must never compete with the active verified source.
+    if(key==='openRo')items=[model.state.source];
     if(key==='appointments')items=Object.values(model.appointments.days||{});
     if(key==='supervisorWorkbook')items.push(model.recovery.supervisorWorkbook);
     const present=new Set(items.map(item=>dailyEvidenceDate(key,item)).filter(Boolean));
@@ -650,9 +652,13 @@
   // Retain compact reports in the existing family; latest-value consumers keep
   // their original snapshots branch. A month-only export stays an observation.
   async function retainDailyReport(key,snapshot) {
-    const date=dailyEvidenceDate(key,snapshot);if(!date||date>localDateKey())return;
-    const prior=structuredClone(model.operationalMetrics),family=model.operationalMetrics[key]||={};
-    family.dailySnapshots||={};family.dailySnapshots[date]={...snapshot,coverageDate:date};
+    // A verified Open RO import represents the current roster as observed when
+    // it was accepted. The original file time is retained separately for audit.
+    const date=key==='openRo'?coverageTimestamp(snapshot?.importedAt):dailyEvidenceDate(key,snapshot);
+    if(!date||date>localDateKey())return;
+    const prior=structuredClone(model.operationalMetrics),family=model.operationalMetrics[key]||=( {} );
+    if(key==='openRo')family.dailySnapshots={[date]:{...snapshot,coverageDate:date}};
+    else {family.dailySnapshots||={};family.dailySnapshots[date]={...snapshot,coverageDate:date};}
     model.operationalMetrics.updatedAt=now();
     try{await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);}catch(error){model.operationalMetrics=prior;throw error;}
   }
@@ -3522,7 +3528,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function workloadDate(value) { if(value instanceof Date&&!Number.isNaN(value.valueOf()))return localDateKey(value);const source=text(value).trim();if(!source)return "";if(/^20\d{2}-\d{2}-\d{2}/.test(source))return source.slice(0,10);const match=source.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s|$)/);if(!match)return "";return `${match[3].length===2?`20${match[3]}`:match[3]}-${match[1].padStart(2,"0")}-${match[2].padStart(2,"0")}`; }
   function sourceRecordIsOpen(value) { return !["closed","closed / invoiced","invoiced","posted"].includes(norm(value)); }
   function canonicalWorkloadRecords(records) { const unique=new Map();for(const input of records){const ro=text(input.ro).trim(),advisorCode=text(input.advisorCode).trim();if(!/^\d+$/.test(ro)||/^WEB\*/i.test(ro)||!/^\d+$/.test(advisorCode))continue;const record={ro,advisorCode,openedDate:workloadDate(input.openedDate??input.opened),isOpen:input.isOpen!==false};const prior=unique.get(ro);if(prior&&(prior.advisorCode!==record.advisorCode||prior.isOpen!==record.isOpen||prior.openedDate!==record.openedDate))throw new Error(`Workload source contains conflicting rows for RO ${ro}.`);unique.set(ro,record);}return [...unique.values()]; }
-  function openRoWorkloadSnapshot(records,source={},sourceModifiedAt="") { const observedAt=source.importedAt||now(),asOf=sourceModifiedAt||source.sourceModifiedAt||observedAt,normalized=canonicalWorkloadRecords(records.map((record)=>({ro:record.ro,advisorCode:record.advisorCode,openedDate:record.openedDate??record.opened,isOpen:record.isOpen??sourceRecordIsOpen(record.sourceStatus)})));return{sourceType:"open-ro",sourceFile:source.fileName||"Open RO report",observedAt,sourceModifiedAt:sourceModifiedAt||source.sourceModifiedAt||"",asOf,coverageDate:storeDateKey(new Date(asOf)),records:normalized,validation:{canonicalRecords:normalized.length,customerDataRetained:false}}; }
+  function openRoWorkloadSnapshot(records,source={},sourceModifiedAt="") { const observedAt=source.importedAt||now(),asOf=observedAt,normalized=canonicalWorkloadRecords(records.map((record)=>({ro:record.ro,advisorCode:record.advisorCode,openedDate:record.openedDate??record.opened,isOpen:record.isOpen??sourceRecordIsOpen(record.sourceStatus)})));return{sourceType:"open-ro",sourceFile:source.fileName||"Open RO report",observedAt,sourceModifiedAt:sourceModifiedAt||source.sourceModifiedAt||"",asOf,coverageDate:storeDateKey(new Date(asOf)),records:normalized,validation:{canonicalRecords:normalized.length,customerDataRetained:false}}; }
   function ensureAssignDay(date=storeDateKey()) { if (model.assignNext.days[date]) { model.assignNext.days[date].openedToday||={};Object.entries(ASSIGN_NEXT_ADVISORS).forEach(([code, name]) => { model.assignNext.days[date].advisors[code] ||= { code, name, available: true }; }); return model.assignNext.days[date]; } const advisors = {}; Object.entries(ASSIGN_NEXT_ADVISORS).forEach(([code, name]) => { advisors[code] = { code, name, available: true }; }); model.assignNext.days[date] = { date, updatedAt: null, advisors,openedToday:{} }; return model.assignNext.days[date]; }
   function activeWorkloadSnapshot(today=storeDateKey()) {
     const snapshot=model.assignNext.currentOpenRo, records=snapshot?.records;
