@@ -161,7 +161,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-20";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-menu";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -1296,24 +1296,104 @@
     return before !== after;
   }
   function mondayFor(dateKey) { return freshness.mondayFor(dateKey); }
+  function menuSalesAccountKey(value) {
+    // Compare a configured dealership name against the export's Account value.
+    // No hard-coded dealer identifiers or public account mappings.
+    return norm(value).replace(/\bcdjr\b/g,"chrysler dodge jeep ram")
+      .replace(/\bcdj\b/g,"chrysler dodge jeep")
+      .replace(/\b&\b/g," and ").replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim();
+  }
   function parseMenuSalesWorkbook(bytes, fileName) {
-    const book = XLSX.read(bytes, { type: "array", raw: true, cellDates: true }), reportSheet = book.Sheets["HyperBi Report"], parameterSheet = book.Sheets.Parameters;
-    if (!reportSheet || !parameterSheet) throw new Error("This is not a recognized Menu Sales workbook.");
-    const rows = XLSX.utils.sheet_to_json(reportSheet, { header: 1, defval: null, raw: true }), headers = (rows[0] || []).map((value) => norm(value).replace(/\s+/g, " ")), required = ["account", "advisor code", "advisor", "ros", "% presented", "sold", "% penetration", "menu $", "total $", "$/menu", "hrs/menu"];
-    if (!required.every((header) => headers.includes(header))) throw new Error("The Menu Sales column structure changed.");
-    const column = (name) => headers.indexOf(name), accountGroups = new Map(), configuredCodes = new Set(configuredAdvisors().map((advisor) => advisor.number).filter(validAdvisorIdentity));
-    rows.slice(1).forEach((row) => { const code = text(row[column("advisor code")]).trim(), rawName = text(row[column("advisor")]).trim(), account = text(row[column("account")]).trim(); if (!configuredCodes.has(code) || !account || !rawName || /^(not found|total|grand total)$/i.test(rawName)) return; if (!accountGroups.has(account)) accountGroups.set(account, []); accountGroups.get(account).push(row); });
-    const rankedAccounts = [...accountGroups].map(([account, group]) => ({ account, group, matches: new Set(group.map((row) => text(row[column("advisor code")]).trim())).size })).filter((candidate) => candidate.matches >= Math.min(2, configuredCodes.size)).sort((a, b) => b.matches - a.matches || a.account.localeCompare(b.account)), best = rankedAccounts[0];
-    if (!best || rankedAccounts.some((candidate, index) => index > 0 && candidate.matches === best.matches)) throw new Error("The Menu Sales store could not be identified uniquely from configured advisor numbers.");
-    const { account, group: advisorRows } = best, storeRow = rows.slice(1).find((row) => text(row[column("account")]).trim() === account && !text(row[column("advisor code")]).trim() && Number.isFinite(csvNumber(row[column("ros")])));
-    if (!storeRow) throw new Error("The Menu Sales store summary row is missing.");
-    const percentCell = (value) => { const number = csvNumber(value); return number == null ? null : number * 100; }, metricRow = (row) => ({ roCount: csvNumber(row[column("ros")]), presentation: percentCell(row[column("% presented")]), sold: csvNumber(row[column("sold")]), penetration: percentCell(row[column("% penetration")]), menuDollars: csvNumber(row[column("menu $")]), totalDollars: csvNumber(row[column("total $")]), dollarsPerMenu: csvNumber(row[column("$/menu")]), hoursPerMenu: csvNumber(row[column("hrs/menu")]), prepaid: headers.includes("# prepaid") ? csvNumber(row[headers.indexOf("# prepaid")]) : null });
-    const advisors = {};
-    advisorRows.forEach((row) => { const code = text(row[column("advisor code")]).trim(), metrics = metricRow(row); if (![metrics.roCount, metrics.presentation, metrics.sold, metrics.penetration].every(Number.isFinite)) throw new Error(`Menu Sales contains incomplete core values for advisor ${code}.`); advisors[code] = { code, name: advisorDisplayName(code), ...metrics }; });
-    const parameterRows = XLSX.utils.sheet_to_json(parameterSheet, { header: 1, defval: "", raw: false }), parameter = (label) => text(parameterRows.find((row) => norm(row[0]) === norm(label))?.[1]).trim(), range = parameter("Date range:").match(/(\d{1,2}\/\d{1,2}\/20\d{2})\s*-\s*(\d{1,2}\/\d{1,2}\/20\d{2})/), ran = parameter("Ran Date/Time:").match(/\d{1,2}\/\d{1,2}\/20\d{2}/);
-    if (!range || !ran || !/menu sales/i.test(parameter("Report:"))) throw new Error("The Menu Sales reporting period or report identity could not be verified.");
-    const periodStart = usDateToIso(range[1]), periodEnd = usDateToIso(range[2]), ranDate = usDateToIso(ran[0]);
-    return { periodStart, periodEnd, ranDate, releaseWeek: mondayFor(ranDate), cadence: "weekly Monday", sourceFile: fileName, importedAt: now(), account, store: metricRow(storeRow), advisors, validation: { parser: "menu-sales-v1", advisorRows: Object.keys(advisors).length, configuredAdvisorMatches: best.matches, presentationAndPenetrationSeparate: true } };
+    const book=XLSX.read(bytes,{type:"array",raw:true,cellDates:true}),
+      reportSheet=book.Sheets["HyperBi Report"],parameterSheet=book.Sheets.Parameters;
+    if(!reportSheet||!parameterSheet)throw new Error("This is not a recognized Menu Sales workbook.");
+    const rows=XLSX.utils.sheet_to_json(reportSheet,{header:1,defval:null,raw:true}),
+      headers=(rows[0]||[]).map(value=>norm(value)),
+      required=["account","advisor code","advisor","ros","% presented","sold","% penetration","menu $","total $","$/menu","hrs/menu"];
+    if(!required.every(header=>headers.includes(header)))throw new Error("The Menu Sales column structure changed.");
+    const column=name=>headers.indexOf(name),groups=new Map(),summaries=new Map(),
+      configuredCodes=new Set(configuredAdvisors().map(advisor=>String(advisor.number)).filter(validAdvisorIdentity));
+    for(const row of rows.slice(1)){
+      const account=text(row[column("account")]).trim();
+      if(!account||norm(account)==="total")continue;
+      const code=text(row[column("advisor code")]).trim(),
+        label=text(row[column("advisor")]).trim();
+      if(!code){
+        if(Number.isFinite(csvNumber(row[column("ros")]))){
+          if(summaries.has(account))throw new Error("Menu Sales includes duplicate store summaries for the same account.");
+          summaries.set(account,row);
+        }
+        continue;
+      }
+      if(!validAdvisorIdentity(code,label))continue;
+      if(!groups.has(account))groups.set(account,[]);
+      groups.get(account).push(row);
+    }
+    const options=[...summaries.keys()].map(account=>{
+      const group=groups.get(account)||[],
+        matches=new Set(group.map(row=>text(row[column("advisor code")]).trim())
+          .filter(code=>configuredCodes.has(code))).size;
+      return{account,group,matches};
+    });
+    // The source is multistore. Prefer the local configured dealership name
+    // over overlapping staff numbers; only a unique, exact normalized match is accepted.
+    const names=[sourceAdapter.reports?.menuSales?.accountName,
+      sourceAdapter.reports?.menu?.accountName,model.settings?.store?.name,model.settings?.storeName]
+      .map(menuSalesAccountKey).filter(Boolean);
+    const distinctNames=new Set(names);
+    const byName=options.filter(option=>distinctNames.has(menuSalesAccountKey(option.account)));
+    let selected,storeIdentityMethod;
+    if(byName.length===1){
+      selected=byName[0];storeIdentityMethod="configured-store-name";
+    }else if(byName.length>1){
+      throw new Error("Menu Sales configured dealership name matched multiple accounts. Review the store settings.");
+    }else{
+      const ranked=options.filter(option=>option.matches>=2)
+        .sort((a,b)=>b.matches-a.matches||a.account.localeCompare(b.account));
+      if(!ranked.length||ranked.length>1&&ranked[0].matches===ranked[1].matches)
+        throw new Error("Menu Sales store could not be verified. Configure the exact dealership name from the Account column, or verify at least two matching advisor codes.");
+      selected=ranked[0];storeIdentityMethod="configured-advisor-codes";
+    }
+    const {account,group}=selected,storeRow=summaries.get(account);
+    if(!storeRow)throw new Error("The Menu Sales store summary row is missing.");
+    const percentCell=value=>{const number=csvNumber(value);return number==null?null:number*100;},
+      metricRow=row=>({roCount:csvNumber(row[column("ros")]),
+        presentation:percentCell(row[column("% presented")]),
+        sold:csvNumber(row[column("sold")]),
+        penetration:percentCell(row[column("% penetration")]),
+        menuDollars:csvNumber(row[column("menu $")]),
+        totalDollars:csvNumber(row[column("total $")]),
+        dollarsPerMenu:csvNumber(row[column("$/menu")]),
+        hoursPerMenu:csvNumber(row[column("hrs/menu")]),
+        prepaid:headers.includes("# prepaid")?csvNumber(row[column("# prepaid")]):null});
+    const store=metricRow(storeRow);
+    if(![store.roCount,store.presentation,store.sold,store.penetration].every(Number.isFinite))
+      throw new Error("The selected Menu Sales store summary has incomplete core values.");
+    const advisors={};
+    for(const row of group){
+      const code=text(row[column("advisor code")]).trim();
+      if(!configuredCodes.has(code))continue;
+      const metrics=metricRow(row);
+      if(![metrics.roCount,metrics.presentation,metrics.sold,metrics.penetration].every(Number.isFinite))
+        throw new Error("Menu Sales has incomplete core values for a configured advisor.");
+      if(advisors[code])throw new Error("Menu Sales includes duplicate advisor codes in the selected account.");
+      advisors[code]={code,name:advisorDisplayName(code),...metrics};
+    }
+    const parameterRows=XLSX.utils.sheet_to_json(parameterSheet,{header:1,defval:"",raw:false}),
+      parameter=label=>text(parameterRows.find(row=>norm(row[0])===norm(label))?.[1]).trim(),
+      range=parameter("Date range:").match(/(\d{1,2}\/\d{1,2}\/20\d{2})\s*-\s*(\d{1,2}\/\d{1,2}\/20\d{2})/),
+      ran=parameter("Ran Date/Time:").match(/\d{1,2}\/\d{1,2}\/20\d{2}/);
+    if(!range||!ran||!/menu sales/i.test(parameter("Report:")))
+      throw new Error("The Menu Sales reporting period or report identity could not be verified.");
+    const periodStart=usDateToIso(range[1]),periodEnd=usDateToIso(range[2]),ranDate=usDateToIso(ran[0]);
+    if(!periodStart||!periodEnd||!ranDate||periodStart>periodEnd)
+      throw new Error("The Menu Sales reporting period is invalid.");
+    return{periodStart,periodEnd,ranDate,releaseWeek:mondayFor(ranDate),
+      cadence:"weekly Monday",sourceFile:fileName,importedAt:now(),account,store,advisors,
+      validation:{parser:"menu-sales-v2-store-identity",storeIdentityMethod,
+        advisorRows:Object.keys(advisors).length,configuredAdvisorMatches:selected.matches,
+        unmatchedSourceAdvisorRows:group.length-Object.keys(advisors).length,
+        storeSummaryVerified:true,presentationAndPenetrationSeparate:true}};
   }
   async function importMenuSalesFile(name, deleteAfterSuccess = false) {
     const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer(), snapshot = parseMenuSalesWorkbook(bytes, name); model.operationalMetrics.menu.snapshots[snapshot.releaseWeek] = snapshot; model.operationalMetrics.menu.snapshots = pruneDatedSnapshots(model.operationalMetrics.menu.snapshots, 156); model.operationalMetrics.updatedAt = now(); await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics);
