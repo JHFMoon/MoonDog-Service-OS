@@ -656,7 +656,7 @@
     // it was accepted. The original file time is retained separately for audit.
     const date=key==='openRo'?coverageTimestamp(snapshot?.importedAt):dailyEvidenceDate(key,snapshot);
     if(!date||date>localDateKey())return;
-    const prior=structuredClone(model.operationalMetrics),family=model.operationalMetrics[key]||={};
+    const prior=structuredClone(model.operationalMetrics),family=model.operationalMetrics[key]||=( {} );
     if(key==='openRo')family.dailySnapshots={[date]:{...snapshot,coverageDate:date}};
     else {family.dailySnapshots||={};family.dailySnapshots[date]={...snapshot,coverageDate:date};}
     model.operationalMetrics.updatedAt=now();
