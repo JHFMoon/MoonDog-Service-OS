@@ -1507,6 +1507,9 @@
       if (typeof value === "number") {
         if (!Number.isFinite(value) || value < 36526 || value >= 73051) return "";
         value = new Date(Date.UTC(1899, 11, 30) + Math.floor(value) * 86400000).toISOString().slice(0, 10);
+      } else if (Object.prototype.toString.call(value) === "[object Date]") {
+        // XLSX cellDates uses UTC civil dates; local time zones must not shift the day.
+        value = Number.isFinite(value.getTime()) ? value.toISOString().slice(0, 10) : "";
       } else value = isoCell(value);
       if (!/^20\d{2}-\d{2}-\d{2}$/.test(value)) return "";
       const parsed = Date.parse(value + "T00:00:00Z");
