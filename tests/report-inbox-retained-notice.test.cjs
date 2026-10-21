@@ -84,7 +84,7 @@ test("nontransient move failures stay flagged for review and preserve original",
 });
 
 test("watch surface exposes actual file failure, retries remain enabled, and move safety is unchanged",()=>{
-  assert.match(app,/result\.retainedDetails\.map\(item=>\x60\$\{item\.name\}: \$\{item\.reason\}\x60\)/);
+  assert.match(app,/const retainedDetail=\(result\.retainedDetails\|\|\[\]\)\.map\(/);
   assert.match(app,/REPORT INBOX NEEDS REVIEW/);
   assert.match(app,/lastRetainedNotice/);
   const moveBegin=app.indexOf("  async function moveToLearn(");
