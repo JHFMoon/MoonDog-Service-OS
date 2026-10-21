@@ -161,7 +161,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-q1";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-activity";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -1483,12 +1483,14 @@
   function workbookGrid(bytes, preferred) { const book = XLSX.read(bytes, { type: "array", raw: true, cellDates: true }), sheet = book.Sheets[preferred] || book.Sheets[book.SheetNames[0]]; if (!sheet) throw new Error("The workbook has no readable worksheet."); return { book, rows: XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true }) }; }
   function parseSorWorkbook(bytes, fileName) { const { rows } = workbookGrid(bytes), title = text(rows[0]?.[1] || rows[0]?.[0]).trim(), match = title.match(/After-Sales SOR\s*-\s*([A-Za-z]+)\s+(20\d{2})\s*\/\s*(\d+)\s*-/i); if (!match || match[3] !== reportStoreCode("sor")) throw new Error("This is not the configured store After-Sales SOR."); const headers = rows[2] || [], actualColumns = headers.map((value, index) => norm(value) === "actual" ? index : -1).filter((index) => index >= 0); if (actualColumns.length < 2 || norm(headers[3]) !== "prior year") throw new Error("The SOR comparison columns changed."); const metrics = {}; rows.slice(3).forEach((row) => { const label = text(row[0]).trim(); if (!label) return; metrics[label] = { ytdActual: performanceNumber(row[2]), ytdPriorYear: performanceNumber(row[3]), currentActual: performanceNumber(row[5]), currentPriorYear: performanceNumber(row[6]), priorMonthActual: performanceNumber(row[9]) }; }); for (const key of ["CP Labor Rev", "CP Labor Gross", "CP GM %", "CP RO Count", "CP ELR", "CP Hours p/RO"]) if (!metrics[key]) throw new Error(`SOR is missing ${key}.`); const month = `${match[2]}-${String(new Date(`${match[1]} 1, ${match[2]}`).getMonth() + 1).padStart(2, "0")}`; return { period: month, sourceFile: fileName, importedAt: now(), storeCode: reportStoreCode("sor"), scope: "store", metrics, validation: { parser: "sor-v1", currentActualColumn: 5, priorMonthColumn: 9 } }; }
   function parseAppointmentActivityWorkbook(bytes, fileName) {
-    // Source exports can use "Merged" (daily) or "Sheet1" (multi-day), and may omit Remarks.
-    // Never retain source rows, VINs, customer identifiers, names or free-text notes.
+    // Multi-store exports may cover multiple creation days. Only verified rows
+    // for the configured store can create a day's activity observation.
+    // Source customer/VIN/notes and row-level identities are never retained.
     const { rows } = workbookGrid(bytes, "Merged");
-    const header = (rows[0] || []).map((value) => norm(value).replace(/\s+/g, " "));
+    const header = (rows[0] || []).map(value => norm(value).replace(/\s+/g, " "));
     const required = ["store code", "interaction", "contacted date", "appt creation date", "appt set date", "appt time"];
-    if (!required.every((key) => header.includes(key))) throw new Error("This is not an Appointment Activity report.");
+    if (!required.every(key => header.filter(item => item === key).length === 1))
+      throw new Error("This is not an Appointment Activity report.");
     const col = Object.fromEntries(header.map((key, index) => [key, index]));
     const configuredStore = reportStoreCode("appointmentActivity");
     const stores = new Set(), storeRows = [];
@@ -1498,34 +1500,55 @@
       stores.add(store);
       if (store === configuredStore) storeRows.push(row);
     }
-    if (stores.size < 2 || !storeRows.length) throw new Error("Appointment Activity store filtering could not be verified.");
-    const byInteraction = {}, byCreationDate = {}, leadTimeBuckets = {sameDay:0, days1to7:0, days8to30:0, over30:0};
+    if (stores.size < 2 || !storeRows.length)
+      throw new Error("Appointment Activity store filtering could not be verified.");
+    const dateCell = value => {
+      // Not all vendor XLSX exports format Excel date serials as date cells.
+      if (typeof value === "number") {
+        if (!Number.isFinite(value) || value < 36526 || value >= 73051) return "";
+        value = new Date(Date.UTC(1899, 11, 30) + Math.floor(value) * 86400000).toISOString().slice(0, 10);
+      } else value = isoCell(value);
+      if (!/^20\d{2}-\d{2}-\d{2}$/.test(value)) return "";
+      const parsed = Date.parse(value + "T00:00:00Z");
+      return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value ? value : "";
+    };
+    const byInteraction = {}, byCreationDate = {}, dailyCounts = {};
+    const leadTimeBuckets = {sameDay:0, days1to7:0, days8to30:0, over30:0};
     let validCreationDates = 0, validLeadTimes = 0;
-    const dates = [];
     for (const row of storeRows) {
-      const creation = isoCell(row[col["appt creation date"]]);
-      const appointment = isoCell(row[col["appt set date"]]);
-      if (creation) { dates.push(creation); byCreationDate[creation] = (byCreationDate[creation] || 0) + 1; validCreationDates += 1; }
-      // Interaction is an operational category, not a free-text note.
+      const creation = dateCell(row[col["appt creation date"]]);
+      if (!creation) throw new Error("Appointment Activity contains an unreadable appointment creation date.");
+      const appointment = dateCell(row[col["appt set date"]]);
       const raw = text(row[col.interaction]).trim();
       const interaction = /^[A-Z0-9][A-Z0-9_-]{2,69}$/.test(raw) ? raw : "Unclassified";
+      byCreationDate[creation] = (byCreationDate[creation] || 0) + 1;
       byInteraction[interaction] = (byInteraction[interaction] || 0) + 1;
-      if (!creation || !appointment) continue;
-      const days = Math.round((Date.parse(appointment + "T00:00:00Z") - Date.parse(creation + "T00:00:00Z")) / 86400000);
+      const daily = dailyCounts[creation] ||= {rowCount:0, byInteraction:{},
+        leadTimeBuckets:{sameDay:0, days1to7:0, days8to30:0, over30:0}, validLeadTimes:0};
+      daily.rowCount++;
+      daily.byInteraction[interaction] = (daily.byInteraction[interaction] || 0) + 1;
+      validCreationDates++;
+      if (!appointment) continue;
+      const days = Math.round((Date.parse(appointment + "T00:00:00Z") -
+        Date.parse(creation + "T00:00:00Z")) / 86400000);
       if (!Number.isInteger(days) || days < 0 || days > 366) continue;
-      validLeadTimes += 1;
-      const band = days === 0 ? "sameDay" : days <= 7 ? "days1to7" : days <= 30 ? "days8to30" : "over30";
-      leadTimeBuckets[band] += 1;
+      const bucket = days === 0 ? "sameDay" : days <= 7 ? "days1to7" : days <= 30 ? "days8to30" : "over30";
+      leadTimeBuckets[bucket]++;
+      daily.leadTimeBuckets[bucket]++;
+      daily.validLeadTimes++;
+      validLeadTimes++;
     }
-    dates.sort();
-    if (!dates.length) throw new Error("Appointment Activity has no valid appointment creation dates for the configured store.");
+    const dates = Object.keys(dailyCounts).sort();
+    if (!dates.length) throw new Error("Appointment Activity has no verified creation dates for the configured store.");
     return {
-      periodStart:dates[0],periodEnd:dates.at(-1),sourceFile:fileName,importedAt:now(),
-      storeCode:configuredStore,rowCount:storeRows.length,byInteraction,byCreationDate,
-      leadTimeBuckets,validLeadTimes,fieldsRetained:["aggregate counts only"],
-      validation:{parser:"appointment-activity-v2-aggregates",supplementalOnly:true,
-        kpiPromotion:false,sourceStores:stores.size,validCreationDates,
-        piiRowsNotRetained:storeRows.length,acceptsMissingRemarks:true}
+      periodStart:dates[0], periodEnd:dates.at(-1), sourceFile:fileName, importedAt:now(),
+      storeCode:configuredStore, rowCount:storeRows.length, byInteraction, byCreationDate,
+      dailyCounts, scopeVerified:true, leadTimeBuckets, validLeadTimes,
+      fieldsRetained:["aggregate counts only"],
+      validation:{parser:"appointment-activity-v3-daily-scope", supplementalOnly:true,
+        kpiPromotion:false, sourceStores:stores.size, validCreationDates,
+        verifiedDailyCounts:dates.length, piiRowsNotRetained:storeRows.length,
+        acceptsMissingRemarks:true, noInferredZeroDays:true}
     };
   }
   function normalizedPerson(value) { return text(value).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
@@ -1609,7 +1632,7 @@
   }
 
   function parseOpenRoSummaryWorkbook(bytes, fileName) { const { rows } = workbookGrid(bytes, "Open RO"), heading = text(rows[0]?.[0]), title = text(rows[11]?.[0]), date = usDateToIso(title.match(/OPEN RO'?S\s+(\d{1,2}\/\d{1,2}\/20\d{2})/i)?.[1]); if (!new RegExp("^Open RO for " + escapeSourceCode(reportStoreCode("openRoSummary")) + "\\s+-", "i").test(heading) || !date || !norm(rows[10]?.[2]).includes("customer pay")) throw new Error("This is not the configured store aggregate Open RO report."); const map = (row) => ({ customerPay: { open: performanceNumber(row[2]), over5: performanceNumber(row[3]), over5Rate: performancePercent(row[4]), oldest: workbookDate(row[5]), daysOpen: performanceNumber(row[6]), revenue: performanceNumber(row[7]) }, warranty: { open: performanceNumber(row[9]), over5: performanceNumber(row[10]), over5Rate: performancePercent(row[11]), oldest: workbookDate(row[12]), daysOpen: performanceNumber(row[13]), revenue: performanceNumber(row[14]) }, internal: { open: performanceNumber(row[16]), over5: performanceNumber(row[17]), over5Rate: performancePercent(row[18]), oldest: workbookDate(row[19]), daysOpen: performanceNumber(row[20]), revenue: performanceNumber(row[21]) }, other: { open: performanceNumber(row[23]), revenue: performanceNumber(row[24]) }, total: { open: performanceNumber(row[27]), revenue: performanceNumber(row[28]) } }); const store = map(rows[13]), advisors = {}; rows.slice(14).forEach((row) => { const code = text(row[0]).trim(); if (ADVISOR_NAMES[code]) advisors[code] = { code, name: ADVISOR_NAMES[code], ...map(row) }; }); if (!Number.isFinite(store.total.open) || !Object.keys(advisors).length) throw new Error("Aggregate Open RO totals or advisor rows are missing."); return { date, periodStart: date, periodEnd: date, sourceFile: fileName, importedAt: now(), storeCode: reportStoreCode("openRoSummary"), store, advisors, validation: { parser: "open-ro-summary-v1", configuredAdvisors: Object.keys(advisors).length, separateFromDetailedTracker: true } }; }
-  async function importManagerSource(name, kind, bytes, deleteAfterSuccess = false) { const parsers = { sor: parseSorWorkbook, "appointment-activity": parseAppointmentActivityWorkbook, efficiency: parseEfficiencyWorkbook, "media-asr": parseMediaAsrAdvisorWorkbook, "media-asr-tech":parseMediaAsrTechWorkbook, "open-ro-summary": parseOpenRoSummaryWorkbook }, families = { sor: "sor", "appointment-activity": "appointmentActivity", efficiency: "efficiency", "media-asr": "mediaAsr", "media-asr-tech":"mediaAsrTech", "open-ro-summary": "openRoSummary" }, snapshot = parsers[kind](bytes, name), family = families[kind], key = snapshot.period || snapshot.periodEnd || snapshot.date; const sourceFile=await (await sourceFileHandle(name)).getFile(); snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString(); snapshot.coverageDate=["sor","appointmentActivity"].includes(family)?internalObservationDate(workbookGrid(bytes).rows)||dailyEvidenceDate(family,snapshot):dailyEvidenceDate(family,snapshot); const priorMetrics=structuredClone(model.operationalMetrics); if(family==="mediaAsrTech")learnTechnicians(snapshot); if(family==="efficiency"){const directory=model.operationalMetrics.mediaAsrTech?.directory;for(const row of snapshot.technicians||[]){if(row.number&&directory?.[row.number])directory[row.number].sourceAliases=[...new Set([...(directory[row.number].sourceAliases||[]),row.name])].slice(-30);}} model.operationalMetrics[family] ||= { snapshots: {} }; model.operationalMetrics[family].snapshots[key] = snapshot; if(snapshot.coverageDate&&snapshot.coverageDate<=localDateKey()){model.operationalMetrics[family].dailySnapshots||={};model.operationalMetrics[family].dailySnapshots[snapshot.coverageDate]=structuredClone(snapshot);model.operationalMetrics[family].dailySnapshots=pruneDatedSnapshots(model.operationalMetrics[family].dailySnapshots);} model.operationalMetrics[family].snapshots = pruneDatedSnapshots(model.operationalMetrics[family].snapshots); model.operationalMetrics.updatedAt = now(); try{await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics); const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (JSON.stringify(check?.[family])!==JSON.stringify(model.operationalMetrics[family])) throw new Error(`${kind} snapshot could not be verified after saving.`);}catch(error){model.operationalMetrics=priorMetrics;throw error;} await addHistory(`${kind}-import`, `Saved verified ${kind} snapshot`, { fileName: name, periodStart: snapshot.periodStart || snapshot.period, periodEnd: snapshot.periodEnd || snapshot.period, compact: true }); if (deleteAfterSuccess) await removeSourceEntry(name); }
+  async function importManagerSource(name, kind, bytes, deleteAfterSuccess = false) { const parsers = { sor: parseSorWorkbook, "appointment-activity": parseAppointmentActivityWorkbook, efficiency: parseEfficiencyWorkbook, "media-asr": parseMediaAsrAdvisorWorkbook, "media-asr-tech":parseMediaAsrTechWorkbook, "open-ro-summary": parseOpenRoSummaryWorkbook }, families = { sor: "sor", "appointment-activity": "appointmentActivity", efficiency: "efficiency", "media-asr": "mediaAsr", "media-asr-tech":"mediaAsrTech", "open-ro-summary": "openRoSummary" }, snapshot = parsers[kind](bytes, name), family = families[kind], key = snapshot.period || snapshot.periodEnd || snapshot.date; const sourceFile=await (await sourceFileHandle(name)).getFile(); snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString(); snapshot.coverageDate=family==="appointmentActivity"?snapshot.periodEnd:["sor"].includes(family)?internalObservationDate(workbookGrid(bytes).rows)||dailyEvidenceDate(family,snapshot):dailyEvidenceDate(family,snapshot); const priorMetrics=structuredClone(model.operationalMetrics); if(family==="mediaAsrTech")learnTechnicians(snapshot); if(family==="efficiency"){const directory=model.operationalMetrics.mediaAsrTech?.directory;for(const row of snapshot.technicians||[]){if(row.number&&directory?.[row.number])directory[row.number].sourceAliases=[...new Set([...(directory[row.number].sourceAliases||[]),row.name])].slice(-30);}} model.operationalMetrics[family] ||= { snapshots: {} }; model.operationalMetrics[family].snapshots[key] = snapshot; if(snapshot.coverageDate&&snapshot.coverageDate<=localDateKey()){model.operationalMetrics[family].dailySnapshots||={};if(family==="appointmentActivity"){const {dailyCounts,...overall}=snapshot;for(const [day,metrics] of Object.entries(dailyCounts||{})){if(day>localDateKey()||!Number.isInteger(metrics.rowCount)||metrics.rowCount<1)continue;model.operationalMetrics[family].dailySnapshots[day]={...structuredClone(overall),periodStart:day,periodEnd:day,coverageDate:day,rowCount:metrics.rowCount,byInteraction:structuredClone(metrics.byInteraction),byCreationDate:{[day]:metrics.rowCount},leadTimeBuckets:structuredClone(metrics.leadTimeBuckets),validLeadTimes:metrics.validLeadTimes,validation:{...snapshot.validation,dailyScope:true}};}}else model.operationalMetrics[family].dailySnapshots[snapshot.coverageDate]=structuredClone(snapshot);model.operationalMetrics[family].dailySnapshots=pruneDatedSnapshots(model.operationalMetrics[family].dailySnapshots);} model.operationalMetrics[family].snapshots = pruneDatedSnapshots(model.operationalMetrics[family].snapshots); model.operationalMetrics.updatedAt = now(); try{await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics); const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (JSON.stringify(check?.[family])!==JSON.stringify(model.operationalMetrics[family])) throw new Error(`${kind} snapshot could not be verified after saving.`);}catch(error){model.operationalMetrics=priorMetrics;throw error;} await addHistory(`${kind}-import`, `Saved verified ${kind} snapshot`, { fileName: name, periodStart: snapshot.periodStart || snapshot.period, periodEnd: snapshot.periodEnd || snapshot.period, compact: true }); if (deleteAfterSuccess) await removeSourceEntry(name); }
   async function classifyImportFile(name, file, bytes) {
     if (/\.csv$/i.test(name)) { const source = await file.text(); try { parseNextAppointmentsCsv(source, name); return "next-appointments"; } catch (_) {} try { parseAppointmentsCreatedSummaryCsv(source,name); return "supplemental-csv"; } catch (_) {} try { parseVirCsv(source, name); return "vir"; } catch (_) {} try { parseCsiCsv(source, name); return "csi"; } catch (_) { return null; } }
     if (/\.pdf$/i.test(name)) {const signature=await pdfSignatureText(bytes);if(await isMoonDogGreeterOutput(bytes,signature))return "disposable-greeter";if(isAppointmentPdf(signature))return"appointments";if(supplementalPdfFamily(signature,name))return"supplemental-pdf";return referenceOnlyDocumentType(name,signature)?"known-non-service":null;}
