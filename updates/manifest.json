@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.131",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.131.json",
-    "sha256": "4c767086a553b479adc242fb5c04e7f1e3e8c0b777949f4f11ef8797b9c65af7",
+    "version": "0.10.18-beta.132",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.132.json",
+    "sha256": "eff259c60038e383d3aca3f4a567771acc82ffd0ccc407c8be1fa775f2832146",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Safe intake for additional report families (#303). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17."
+    "releaseNotes": "Show ATO Task Performance in Advisor Performance (#305). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17."
   }
 }
