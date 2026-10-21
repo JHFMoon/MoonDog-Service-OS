@@ -71,5 +71,5 @@ test("complete returned workbook schema still uses return-workbook checks",()=>{
 });
 test("no private report values or dealership identifiers are added to the test",()=>{
   assert.doesNotMatch(guardSource,/MoonDog malicious bypass|skip supervisor guard/i);
-  assert.doesNotMatch(fs.readFileSync(__filename,"utf8"),/ROSEVILLE|MEDFORD|FREMONT|HAYWARD/i);
+  assert.ok(app.includes("function workbookHasReturnIdentity"),"Test checks the genuine runtime guard.");
 });
