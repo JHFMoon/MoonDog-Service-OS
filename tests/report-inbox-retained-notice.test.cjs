@@ -75,8 +75,8 @@ test("new failure information is reported once and then clears after verified pr
 });
 
 test("nontransient move failures stay flagged for review and preserve original",async()=>{
-  const h=harness(["locked.csv"]);
-  h.failures.set("locked.csv",Object.assign(new Error("No verified destination"),{name:"IntegrityError"}));
+  const h=harness(["locked.xlsx"]);
+  h.failures.set("locked.xlsx",Object.assign(new Error("No verified destination"),{name:"IntegrityError"}));
   const result=await h.scan();
   assert.equal(result.retainedDetails[0].disposition,"review");
   assert.match(result.retainedDetails[0].reason,/IntegrityError/);
