@@ -20,7 +20,9 @@ class ConnectionRenderRegressionTests(unittest.TestCase):
         end = SOURCE.index("  async function postConnectReconciliation(", start)
         body = SOURCE[start:end]
         self.assertIn("await postConnectReconciliation(permissionWasPending);", body)
-        self.assertIn("renderAll(); renderSetup(); renderRecovery();", body)
+        self.assertIn("renderAll(); renderRecovery();", body)
+        self.assertNotIn("renderAll(); renderSetup();", body)
+        self.assertIn("renderSetup();", SOURCE[SOURCE.index("  function renderAll()"):SOURCE.index("  const renderAllWithCanonicalSourceLabels=")])
         self.assertEqual(body.count("renderAll();"), 1)
         self.assertIn("startFolderWatch();", body)
 
