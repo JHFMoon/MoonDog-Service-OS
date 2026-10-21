@@ -2415,9 +2415,9 @@
     }catch(error){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.name||"Error")+"; receipt retained, originals unchanged.");}
   }
 
-  const folderWatch={timer:null,busy:false,pending:new Map(),lastChecked:"",state:"OFF",message:""};
+  const folderWatch={timer:null,busy:false,pending:new Map(),lastChecked:"",state:"OFF",message:"",lastRetainedNotice:""};
   function folderWatchEnabled(){return model.settings?.future?.folderWatch?.enabled!==false;}
-  function watchStatus(state,message=""){folderWatch.state=state;folderWatch.message=message;folderWatch.lastChecked=state==="CHECKING REPORT INBOX"?folderWatch.lastChecked:now();if(ui.folderWatchStatus){ui.folderWatchStatus.textContent=`${state}${folderWatch.lastChecked?` · Last checked ${new Date(folderWatch.lastChecked).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`:""}`;ui.folderWatchStatus.className=`badge ${/MISSING|REQUIRED|ERROR/.test(state)?"watch-error":/WAITING|IMPORTING|CHECKING/.test(state)?"watch-working":""}`;}if(ui.folderWatchDetail)ui.folderWatchDetail.textContent=message||`Watches ${REPORT_INBOX} every 15 seconds while Service Operations Dashboard is open.`;}
+  function watchStatus(state,message=""){folderWatch.state=state;folderWatch.message=message;folderWatch.lastChecked=state==="CHECKING REPORT INBOX"?folderWatch.lastChecked:now();if(ui.folderWatchStatus){ui.folderWatchStatus.textContent=`${state}${folderWatch.lastChecked?` · Last checked ${new Date(folderWatch.lastChecked).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`:""}`;ui.folderWatchStatus.className=`badge ${/MISSING|REQUIRED|ERROR|NEEDS REVIEW/.test(state)?"watch-error":/WAITING|IMPORTING|CHECKING/.test(state)?"watch-working":""}`;}if(ui.folderWatchDetail)ui.folderWatchDetail.textContent=message||`Watches ${REPORT_INBOX} every 15 seconds while Service Operations Dashboard is open.`;}
   function stopFolderWatch(reason="WATCH OFF"){if(folderWatch.timer)clearInterval(folderWatch.timer);folderWatch.timer=null;watchStatus(reason,reason==="FOLDER PERMISSION REQUIRED"?"Reconnect the working folder to resume Report Inbox intake.":"Automatic intake remains available when Report Inbox Watch is turned on.");}
   function startFolderWatch(){if(!model.root||!folderWatchEnabled()){stopFolderWatch("WATCH OFF");return;}if(folderWatch.timer)clearInterval(folderWatch.timer);folderWatch.timer=setInterval(()=>{if(!document.hidden)void folderWatchScan("poll");},15000);watchStatus("REPORT INBOX WATCHING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox watch started at a 15-second interval");}
   function watchedInboxFile(name) { return Boolean(String(name || "").trim()); }
@@ -2438,7 +2438,11 @@
       const present=new Set(candidates.map(item=>item.relativePath)),stable=new Set();
       for(const candidate of candidates){const prior=folderWatch.pending.get(candidate.relativePath);if(candidate.readError){if(!prior?.readPending)recordDiagnostic("REPORT INBOX PENDING","Temporary file read failure; retry scheduled");folderWatch.pending.set(candidate.relativePath,{readPending:true,firstSeenAt:prior?.firstSeenAt||now()});continue;}if(/^~\$/.test(candidate.name)){folderWatch.pending.set(candidate.relativePath,{temporary:true,firstSeenAt:prior?.firstSeenAt||now()});continue;}if(!candidateNeedsImport(candidate)){folderWatch.pending.delete(candidate.relativePath);continue;}if(prior?.signature===candidate.signature){prior.confirmations+=1;if(prior.confirmations>=2)stable.add(candidate.signature);}else{folderWatch.pending.set(candidate.relativePath,{signature:candidate.signature,confirmations:1,firstSeenAt:now()});recordDiagnostic("REPORT INBOX PENDING","File is still awaiting stability confirmation");}}
       for(const name of [...folderWatch.pending.keys()])if(!present.has(name))folderWatch.pending.delete(name);
-      if(stable.size){watchStatus("IMPORTING");const scrollX=window.scrollX,scrollY=window.scrollY,result=await autoSurveyFolder(stable);for(const candidate of candidates.filter(item=>stable.has(item.signature)))folderWatch.pending.delete(candidate.relativePath);renderAll();renderSetup();renderRecovery();window.scrollTo(scrollX,scrollY);folderWatch.lastChecked=now();if(result.imported.length){watchStatus("REPORT INBOX WATCHING",`${result.imported.length} supported report${result.imported.length===1?"":"s"} updated automatically`);recordDiagnostic("REPORT INBOX WATCH",`${result.imported.length} supported source file(s) imported automatically from the Report Inbox`);}else watchStatus(result.retained.length?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",result.learned.length?`${result.learned.length} unsupported or failed file(s) moved safely to Files To Learn.`:"");}
+      if(stable.size){watchStatus("IMPORTING");const scrollX=window.scrollX,scrollY=window.scrollY,result=await autoSurveyFolder(stable);for(const candidate of candidates.filter(item=>stable.has(item.signature)))folderWatch.pending.delete(candidate.relativePath);renderAll();renderSetup();renderRecovery();window.scrollTo(scrollX,scrollY);folderWatch.lastChecked=now();if(result.imported.length){watchStatus("REPORT INBOX WATCHING",`${result.imported.length} supported report${result.imported.length===1?"":"s"} updated automatically`);recordDiagnostic("REPORT INBOX WATCH",`${result.imported.length} supported source file(s) imported automatically from the Report Inbox`);}else {
+        const retainedDetail=(result.retainedDetails||[]).map(item=>`${item.name}: ${item.reason}`).join(" | ");
+        const needsReview=(result.retainedDetails||[]).some(item=>item.disposition==="review");
+        watchStatus(result.retained.length?(needsReview?"REPORT INBOX NEEDS REVIEW":"WAITING FOR FILE TO FINISH SYNCING"):"REPORT INBOX WATCHING",retainedDetail||(result.learned.length?`${result.learned.length} unsupported or failed file(s) moved safely to Files To Learn.`:""));
+      }}
       else{folderWatch.lastChecked=now();watchStatus(folderWatch.pending.size?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",folderWatch.pending.size?`${folderWatch.pending.size} file(s) remain pending stability or temporary read recovery.`:"");}
     }catch(error){if(error.name==="NotFoundError"){stopFolderWatch("REPORT INBOX MISSING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox is missing");}else if(error.name==="NotAllowedError"||error.name==="SecurityError"){stopFolderWatch("FOLDER PERMISSION REQUIRED");recordDiagnostic("REPORT INBOX WATCH","Folder permission error paused watching");}else{watchStatus("REPORT INBOX ERROR","The last scan failed; Service Operations Dashboard will retry automatically.");recordDiagnostic("REPORT INBOX WATCH",`Report Inbox scan failed (${error.name||"Error"})`);}}finally{folderWatch.busy=false;}
   }
@@ -2447,7 +2451,11 @@
     for (const candidate of candidates) { candidate.modified=candidate.file.lastModified; candidate.structurePriority=10; if (/\.csv$/i.test(candidate.name)) { const start=(await candidate.file.slice(0,160).text()).trim().toLowerCase(); candidate.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     candidates.sort((a, b) => a.structurePriority - b.structurePriority || a.modified - b.modified || a.name.localeCompare(b.name, undefined, { numeric: true }));
     model.autoImport.seen ||= {};
-    const imported = [], learned = [], retired = [], retained = [];
+    const imported = [], learned = [], retired = [], retained = [], retainedDetails = [];
+    const retain=(candidate,error,disposition)=>{
+      retained.push(candidate.name);
+      retainedDetails.push({name:candidate.name,relativePath:candidate.relativePath,disposition,reason:`${error?.name||"Error"}: ${String(error?.message||error||"Unspecified failure").replace(/\s+/g," ").slice(0,220)}`});
+    };
     let ledgerChanged = false, pdfFailureMessage="";
     for (const candidate of candidates.filter((item)=>item.signature).filter(candidateNeedsImport).filter((item) => !eligibleSignatures || eligibleSignatures.has(item.signature))) {
       let kind = null, bytes = null;
@@ -2466,7 +2474,7 @@
         if(outcome?.retired)retired.push(candidate.name);else imported.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, relativePath:candidate.relativePath, importedAt: now(), kind, retired:Boolean(outcome?.retired) }; ledgerChanged = true;recordDiagnostic("REPORT INBOX",outcome?.retired?`${kind} recognized and retired outside Service OS`:`${kind} recognized and imported or safely deduplicated`);
       } catch (error) {
         console.warn(`Automatic import retained ${candidate.name}:`, error);if(/\.pdf$/i.test(candidate.name)){pdfFailureMessage=`PDF intake failed: ${error.message||error}. Source kept for retry/review.`;recordDiagnostic("PDF INTAKE",error.name+": "+(error.message||error));}
-        if(transientIntakeError(error)){retained.push(candidate.name);recordDiagnostic("REPORT INBOX PENDING","Temporary read, permission, or durable-write failure; retry scheduled");continue;}
+        if(transientIntakeError(error)){retain(candidate,error,"retry");recordDiagnostic("REPORT INBOX PENDING","Temporary read, permission, or durable-write failure; retry scheduled");continue;}
         try {
           const diagnostic=error.message||String(error),storedAs=await moveToLearn(candidate,diagnostic);
           learned.push(candidate.name);
@@ -2474,15 +2482,21 @@
           ledgerChanged=true;
           recordDiagnostic("REPORT INBOX","Moved to Files To Learn - recognized but invalid");
         }
-        catch (moveError) { retained.push(candidate.name); try { await addHistory("auto-import-retained", `Automatic import retained ${candidate.name}`, { fileName: candidate.name, reason: moveError.message || String(moveError) }); } catch (_) {} }
+        catch (moveError) { retain(candidate,moveError,transientIntakeError(moveError)?"retry":"review"); try { await addHistory("auto-import-retained", `Automatic import retained ${candidate.name}`, { fileName: candidate.name, reason: moveError.message || String(moveError) }); } catch (_) {} }
       }
     }
     if (ledgerChanged) { const entries = Object.entries(model.autoImport.seen); if (entries.length > 1000) model.autoImport.seen = Object.fromEntries(entries.slice(-1000)); model.autoImport.updatedAt = now(); await writeJson(AUTO_IMPORT_PATH, model.autoImport); }
     const learnNote = learned.length ? ` ${learned.length} file${learned.length === 1 ? " was" : "s were"} moved safely to Files To Learn.` : "", retiredNote = retired.length ? ` ${retired.length} known non-service file${retired.length === 1 ? " was" : "s were"} retired from Service OS intake.` : "", retainedNote = retained.length ? ` ${retained.length} file${retained.length === 1 ? " remains" : "s remain"} in place because it could not be moved safely.` : "";
+// Report Inbox checks repeat every 15 seconds. Retry safely without
+    // repainting the global status banner with identical warnings each time.
+    // The local Watch detail preserves file names and failure reasons.
+    const retainedNotice=retainedDetails.map(item=>[item.relativePath,item.disposition,item.reason].join("|")).sort().join("\n");
+    const repeatedRetention=Boolean(retainedNotice&&retainedNotice===folderWatch.lastRetainedNotice);
     if (imported.length) status(`Folder checked automatically. Imported and removed ${imported.length} verified source file${imported.length === 1 ? "" : "s"}.${retiredNote}${learnNote}${retainedNote}`, retained.length ? "info" : "success");
-    else if (retired.length || learned.length || retained.length) status(`Folder checked automatically.${retiredNote}${learnNote}${retainedNote}`, retained.length ? "info" : "success");
+    else if (retired.length || learned.length || (retained.length && !repeatedRetention)) status(`Folder checked automatically.${retiredNote}${learnNote}${retainedNote}`, retained.length ? "info" : "success");
+    folderWatch.lastRetainedNotice=retainedNotice;
     if(pdfFailureMessage)status(pdfFailureMessage,"error");
-    return { imported, retired, learned, retained, initialized: false };
+    return { imported, retired, learned, retained, retainedDetails, initialized: false };
   }
 
   async function importReturnedWorkbook(selectedName, deleteAfterSuccess = false) {
