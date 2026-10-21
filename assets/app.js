@@ -161,7 +161,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-menu";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-q1";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -842,7 +842,8 @@
   function workbookHasReturnIdentity(book) {
     return Boolean(book.Custprops?.MoonDogSupervisorIssuanceV1) || /Service Operations Open RO Round Trip/i.test(text(book.Props?.Keywords)) || book.SheetNames.some(name => {
       const sheet = book.Sheets[name];
-      if (sheet?.Q1?.v) return true;
+      const issuanceMarker=text(sheet?.[RETURN_ISSUANCE_CELL]?.v).trim();
+      if(issuanceMarker==="MoonDog outbound handoff" || /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(issuanceMarker))return true;
       return XLSX.utils.sheet_to_json(sheet, {header: 1, defval: "", raw: false}).some(row => row.some(value => /^__MoonDog /i.test(text(value))) || ["Next action", "Commitment date", "Customer communication", "Update note"].filter(header => row.includes(header)).length >= 2);
     });
   }
