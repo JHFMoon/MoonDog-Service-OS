@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.10.18-beta.140 — current Beta
+
+- Simplify single-user Workspace permission UX (#327). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.139 — current Beta
+
+- Make Open RO a rolling current snapshot (#325). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.138 — current Beta
+
+- Fix validated Open ROs by Advisor source routing (#323). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.137 — current Beta
+
+- Fix Appointment Activity daily records on current main (#319). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.136 — current Beta
 
 - Prevent incomplete grouped Open RO sources from changing active vehicles (#316). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.

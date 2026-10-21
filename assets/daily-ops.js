@@ -1078,8 +1078,9 @@
     const lines=[
       'Status: '+(row.status||'Unverified'),
       'Last validated import: '+(row.lastSuccessfulImport||'Not loaded'),
-      'Represented period: '+(row.period||'Not established'),
-      'Evidence: '+(row.trend?.status||'Not established'),
+      ...(row.key==='openRo'
+        ? ['Coverage: current verified snapshot only; no historical date range or trend is required.']
+        : ['Represented period: '+(row.period||'Not established'),'Evidence: '+(row.trend?.status||'Not established')]),
       row.coverage?.summary||'',
       row.trend?.recovery||'',
       row.trend?.note||''

@@ -127,10 +127,6 @@
   "use strict";
   const writeAuthority = globalThis.MoonDogWriteAuthority;
   if (!writeAuthority) throw new Error("Workspace write guard is unavailable.");
-  const authorityDot = document.getElementById("writeAuthorityDot");
-  function renderWriteAuthority() { if (!authorityDot) return; authorityDot.dataset.editable = String(writeAuthority.canWrite); authorityDot.title = authorityDot.ariaLabel = writeAuthority.canWrite ? "Workspace writable" : "Folder permission required"; }
-  globalThis.addEventListener("moondog-write-authority", renderWriteAuthority);
-  renderWriteAuthority();
   const responsiveRefinements = document.createElement("style"); responsiveRefinements.textContent = `.performance-svg{display:block;width:100%;height:auto;aspect-ratio:760/260}.meeting-cycle-label{display:block;margin-top:1px;font-size:11px;line-height:1.1;letter-spacing:.12em;color:#76d7b2}.meeting-cycle-delta{display:block;font-style:normal;font-size:10px;line-height:1.1;letter-spacing:.04em;color:#b9ced6}.meeting-v3-nps .meeting-cycle-delta{font-size:11px;margin-top:3px}.trend-coverage-summary{margin-top:14px;padding-top:12px;border-top:1px solid #d6e2e7}.trend-coverage-summary>strong{display:block;margin-bottom:7px}.trend-coverage-grid{display:flex;flex-wrap:wrap;gap:7px}.trend-coverage-grid span{padding:6px 9px;border-radius:8px;background:#eef5f7;font-size:12px}.previous-month-totals{margin-top:18px}.previous-month-totals .month-total-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px;margin:12px 0}.previous-month-totals .month-total-grid div,.previous-month-totals .month-advisor-row{padding:10px;border-radius:9px;background:#f3f7f8}.previous-month-totals .month-total-grid span,.previous-month-totals .month-advisor-row span{display:block;font-size:11px;color:#59717a}.previous-month-totals .month-total-grid strong{font-size:18px}.month-advisor-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.month-advisor-row strong{display:block;margin-bottom:5px}.month-advisor-metrics{font-size:12px;line-height:1.5}`; document.head.append(responsiveRefinements);
   const correctionStyles=document.createElement("style");correctionStyles.textContent=".month-correction-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;padding:10px 12px;border:1px solid #dfbd69;border-radius:9px;background:#fff8e5;color:#6b5316}.month-correction-notice button{white-space:nowrap}.voice-mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.customer-voice-manager [hidden]{display:none!important}.voice-use-full{align-self:flex-start}@media(max-width:760px){.voice-mode-grid{grid-template-columns:1fr}}";document.head.append(correctionStyles);
   const VERSION = "0.10.17";
@@ -161,7 +157,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-ro-groups-activity";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-ro-groups-activity-primary";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -570,11 +566,28 @@
     if (state === "PERMISSION REQUIRED") { ui.permissionBadge.textContent = "Folder access required"; ui.connectButton.textContent = "RESTORE FOLDER ACCESS"; ui.connectButton.disabled = false; }
     if (state === "SAVED HANDLE UNAVAILABLE") { ui.permissionBadge.textContent = "Folder not connected"; ui.connectButton.textContent = "Choose working folder"; ui.connectButton.disabled = false; }
     if (state === "CONNECTION ERROR") { ui.permissionBadge.textContent = "Connection error"; ui.connectButton.textContent = model.pendingRoot ? "RESTORE FOLDER ACCESS" : "Choose working folder"; ui.connectButton.disabled = false; }
-    if (state === "CONNECTED") { ui.permissionBadge.textContent = `Connected: ${model.root?.name || "working folder"}`; ui.permissionBadge.className = "badge"; ui.connectButton.textContent = "Change folder"; ui.connectButton.disabled = false; }
+    if (state === "CONNECTED") {
+      // A readable folder is not automatically writable. No extra MoonDog
+      // owner confirmation: rely on Edge's actual folder permission and the
+      // existing durable write protection.
+      const writable = writeAuthority.canWrite;
+      ui.permissionBadge.textContent = `${writable ? "Connected" : "Read-only"}: ${model.root?.name || "working folder"}`;
+      ui.permissionBadge.className = writable ? "badge" : "badge muted";
+      ui.connectButton.textContent = writable ? "Change folder" : "Restore editing";
+      ui.connectButton.disabled = false;
+    }
     else ui.permissionBadge.className = "badge muted";
     if (message) status(message, state === "CONNECTION ERROR" ? "error" : "info");
     else if (state === "CONNECTED" && /RECONNECTING|RESTORING|FOLDER ACCESS REQUIRED/i.test(ui.status.textContent || "")) status("SERVICE OPERATIONS DASHBOARD CONNECTED", "success");
   }
+  // Only update the connection cue when write capability actually changes.
+  // Once Edge has granted access, normal operations require no second approval.
+  globalThis.addEventListener("moondog-write-authority", () => {
+    if (model.connectionState !== "CONNECTED" || !model.root) return;
+    if (!writeAuthority.canWrite && connectedNativeRoot) model.pendingRoot = connectedNativeRoot;
+    if (writeAuthority.canWrite && model.pendingRoot === connectedNativeRoot) model.pendingRoot = null;
+    setConnectionState("CONNECTED");
+  });
   const norm = (v) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   function semanticFieldIssue(record) { const management = record?.management || {}; if (management.updatedAt&&!canonicalReviewStatus(statusById(management.statusId)?.name||management.status)) return `Previous review status “${management.status}” is retired. Choose the current CDK workflow status at this review.`; if (!management.updatedAt&&!currentCdkReviewStatus(record)&&!canonicalReviewStatus(statusById(management.statusId)?.name||management.status)) return "Choose a current CDK workflow status at this review."; if (management.communication && !COMMUNICATION_STATUSES.includes(normalizeCommunication(management.communication))) return `Customer communication “${management.communication}” is not a communication state. Choose a listed communication state.`; return ""; }
   function clarificationFor(record) { return record?.management?.clarification?.reason || semanticFieldIssue(record); }
@@ -640,7 +653,9 @@
     let items=[...Object.values(family.snapshots||{}),...Object.values(family.dailySnapshots||{})];
     if(key==='vir')items=allVirObservations();
     if(['mediaAsr','mediaAsrTech'].includes(key))items=sourceTrendObservations(key);
-    if(key==='openRo')items.push(model.state.source);
+    // Open RO is one current operational roster, not a historical trend.
+    // Old cached observations must never compete with the active verified source.
+    if(key==='openRo')items=[model.state.source];
     if(key==='appointments')items=Object.values(model.appointments.days||{});
     if(key==='supervisorWorkbook')items.push(model.recovery.supervisorWorkbook);
     const present=new Set(items.map(item=>dailyEvidenceDate(key,item)).filter(Boolean));
@@ -650,9 +665,13 @@
   // Retain compact reports in the existing family; latest-value consumers keep
   // their original snapshots branch. A month-only export stays an observation.
   async function retainDailyReport(key,snapshot) {
-    const date=dailyEvidenceDate(key,snapshot);if(!date||date>localDateKey())return;
-    const prior=structuredClone(model.operationalMetrics),family=model.operationalMetrics[key]||={};
-    family.dailySnapshots||={};family.dailySnapshots[date]={...snapshot,coverageDate:date};
+    // A verified Open RO import represents the current roster as observed when
+    // it was accepted. The original file time is retained separately for audit.
+    const date=key==='openRo'?coverageTimestamp(snapshot?.importedAt):dailyEvidenceDate(key,snapshot);
+    if(!date||date>localDateKey())return;
+    const prior=structuredClone(model.operationalMetrics),family=model.operationalMetrics[key]||=( {} );
+    if(key==='openRo')family.dailySnapshots={[date]:{...snapshot,coverageDate:date}};
+    else {family.dailySnapshots||={};family.dailySnapshots[date]={...snapshot,coverageDate:date};}
     model.operationalMetrics.updatedAt=now();
     try{await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);}catch(error){model.operationalMetrics=prior;throw error;}
   }
@@ -940,7 +959,9 @@
       const interruptedRestoreReview=await inspectInterruptedRestore();
       model.recovery.interruptedRestoreReview=interruptedRestoreReview;
       if(interruptedRestoreReview)model.recovery.status="Interrupted restore: controlled recovery review required";
-      model.pendingRoot = null;
+      // Keep the saved folder handle for one-click Restore editing. Never
+      // require selecting a different Workspace just to request Edge access.
+      model.pendingRoot = handle;
       stopFolderWatch("Folder write permission unavailable");
       ui.homeConnect.hidden = true;
       renderSettings(); renderAll(); renderRecovery();
@@ -1073,7 +1094,7 @@
     if(!dailyUi.confirmWorkspaceChange())return;
     if (!window.showDirectoryPicker) throw new Error("This Edge version does not support local folder access from this page.");
     if (model.pendingRoot) { setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(model.pendingRoot, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){writeAuthority.disable();setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder.");} throw error; } }
-    const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "read" });
+    const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "readwrite" });
     try { return await finishConnection(handle, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY")writeAuthority.disable(); throw error; }
   }
   async function restoreConnection() {
@@ -1749,10 +1770,15 @@
     try { parseEfficiencyWorkbook(bytes, name); return "efficiency"; } catch (_) {}
     try { return parseMediaAsrWorkbook(bytes,name).sourceScope==="technician"?"media-asr-tech":"media-asr"; } catch (_) {}
     try { parseOpenRoSummaryWorkbook(bytes, name); return "open-ro-summary"; } catch (_) {}
+    // A strictly reconciled advisor-grouped Open RO source is an eligible primary
+    // roster only after the global total, every section and each identity validate.
+    // The supplemental aging detector recognizes the same signature but cannot
+    // establish active RO authority or clear the current-source warning.
+    try { if (legacyReport(book)) return "open-ro"; } catch (_) {}
     try { if (parseSupplementalWorkbook(bytes,name)) return "supplemental-workbook"; } catch (_) {}
     const appointmentSheet = book.Sheets["Service Daily Log"] || book.Sheets[book.SheetNames[0]], appointmentRows = appointmentSheet ? XLSX.utils.sheet_to_json(appointmentSheet, { header: 1, defval: "", raw: false }) : [], isAppointment = appointmentRows.some((row) => row.some((value) => text(value).trim() === "Time") && row.some((value) => text(value).trim() === "Customer") && row.some((value) => text(value).trim() === "SA"));
     if (isAppointment) return "appointments";
-    try { if (legacyReport(book) || findTable(book)) return "open-ro"; } catch (_) {}
+    try { if (findTable(book)) return "open-ro"; } catch (_) {}
     return null;
   }
   async function moveToLearn(candidate, reason) {
@@ -3532,7 +3558,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function workloadDate(value) { if(value instanceof Date&&!Number.isNaN(value.valueOf()))return localDateKey(value);const source=text(value).trim();if(!source)return "";if(/^20\d{2}-\d{2}-\d{2}/.test(source))return source.slice(0,10);const match=source.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s|$)/);if(!match)return "";return `${match[3].length===2?`20${match[3]}`:match[3]}-${match[1].padStart(2,"0")}-${match[2].padStart(2,"0")}`; }
   function sourceRecordIsOpen(value) { return !["closed","closed / invoiced","invoiced","posted"].includes(norm(value)); }
   function canonicalWorkloadRecords(records) { const unique=new Map();for(const input of records){const ro=text(input.ro).trim(),advisorCode=text(input.advisorCode).trim();if(!/^\d+$/.test(ro)||/^WEB\*/i.test(ro)||!/^\d+$/.test(advisorCode))continue;const record={ro,advisorCode,openedDate:workloadDate(input.openedDate??input.opened),isOpen:input.isOpen!==false};const prior=unique.get(ro);if(prior&&(prior.advisorCode!==record.advisorCode||prior.isOpen!==record.isOpen||prior.openedDate!==record.openedDate))throw new Error(`Workload source contains conflicting rows for RO ${ro}.`);unique.set(ro,record);}return [...unique.values()]; }
-  function openRoWorkloadSnapshot(records,source={},sourceModifiedAt="") { const observedAt=source.importedAt||now(),asOf=sourceModifiedAt||source.sourceModifiedAt||observedAt,normalized=canonicalWorkloadRecords(records.map((record)=>({ro:record.ro,advisorCode:record.advisorCode,openedDate:record.openedDate??record.opened,isOpen:record.isOpen??sourceRecordIsOpen(record.sourceStatus)})));return{sourceType:"open-ro",sourceFile:source.fileName||"Open RO report",observedAt,sourceModifiedAt:sourceModifiedAt||source.sourceModifiedAt||"",asOf,coverageDate:storeDateKey(new Date(asOf)),records:normalized,validation:{canonicalRecords:normalized.length,customerDataRetained:false}}; }
+  function openRoWorkloadSnapshot(records,source={},sourceModifiedAt="") { const observedAt=source.importedAt||now(),asOf=observedAt,normalized=canonicalWorkloadRecords(records.map((record)=>({ro:record.ro,advisorCode:record.advisorCode,openedDate:record.openedDate??record.opened,isOpen:record.isOpen??sourceRecordIsOpen(record.sourceStatus)})));return{sourceType:"open-ro",sourceFile:source.fileName||"Open RO report",observedAt,sourceModifiedAt:sourceModifiedAt||source.sourceModifiedAt||"",asOf,coverageDate:storeDateKey(new Date(asOf)),records:normalized,validation:{canonicalRecords:normalized.length,customerDataRetained:false}}; }
   function ensureAssignDay(date=storeDateKey()) { if (model.assignNext.days[date]) { model.assignNext.days[date].openedToday||={};Object.entries(ASSIGN_NEXT_ADVISORS).forEach(([code, name]) => { model.assignNext.days[date].advisors[code] ||= { code, name, available: true }; }); return model.assignNext.days[date]; } const advisors = {}; Object.entries(ASSIGN_NEXT_ADVISORS).forEach(([code, name]) => { advisors[code] = { code, name, available: true }; }); model.assignNext.days[date] = { date, updatedAt: null, advisors,openedToday:{} }; return model.assignNext.days[date]; }
   function activeWorkloadSnapshot(today=storeDateKey()) {
     const snapshot=model.assignNext.currentOpenRo, records=snapshot?.records;
@@ -4542,7 +4568,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
 
   ensurePhase2SettingsUi();ensurePhase3Ui();ensureRecoveryUi();ensureFolderWatchUi();ensureManagerEntryCues();ensureFailedLearnedReportUi();ensureNewStoreUi();ui.setupSettingsSummary=document.getElementById("setupSettingsSummary");
   let authorityRevalidationTimer=null;
-  function scheduleAuthorityRevalidation(root){if(authorityRevalidationTimer||!root)return;authorityRevalidationTimer=setTimeout(async()=>{authorityRevalidationTimer=null;if(root!==connectedNativeRoot||writeAuthority.canWrite)return;const ok=await writeAuthority.validate(root,false).catch(()=>false);if(root!==connectedNativeRoot)return;renderWriteAuthority();renderSetup();if(ok)status("Workspace files finished updating. Editing restored.","success");},1200);}
+  function scheduleAuthorityRevalidation(root){if(authorityRevalidationTimer||!root)return;authorityRevalidationTimer=setTimeout(async()=>{authorityRevalidationTimer=null;if(root!==connectedNativeRoot||writeAuthority.canWrite)return;const ok=await writeAuthority.validate(root,false).catch(()=>false);if(root!==connectedNativeRoot)return;renderSetup();if(ok)status("Workspace files finished updating. Editing restored.","success");},1200);}
   ui.worksheetOrderSettings.addEventListener("click",(event)=>{const button=event.target.closest("button[data-worksheet-move]");if(!button)return;const codes=supervisorAdvisorCodes(),index=codes.indexOf(button.dataset.worksheetMove),moved=moveArrayItem(codes,index,Number(button.dataset.direction));model.settings.supervisorWorkbook.worksheetOrder=moved;queueSettingsAutosave();renderPhase2Settings();});
   ui.dailyWalkCount.addEventListener("change",()=>{const value=Number(ui.dailyWalkCount.value);if(Number.isInteger(value)&&value>=1&&value<=10)model.settings.dailyWalk.rosPerAdvisor=value;queueSettingsAutosave();setTimeout(()=>run(ensureDailyFocus),260);});
   document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => navigateTo(button.dataset.view)));
