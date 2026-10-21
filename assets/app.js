@@ -161,7 +161,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-q1";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-ro-groups";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -1106,7 +1106,89 @@
   function reconcileOpenRoSourceIdentities() { let changed=false; for(const record of model.state.records||[])if(reconcileRecordSourceIdentity(record))changed=true; return changed; }
   function findTable(book) { for (const sheetName of book.SheetNames) { const grid = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { header: 1, defval: null, raw: true }); for (let index = 0; index < Math.min(30, grid.length); index += 1) { const headers = (grid[index] || []).map(text); const map = headerMap(headers); if (map.ro != null) return { sheetName, headers, map, rows: grid.slice(index + 1).filter((row) => row.some((value) => value !== null && value !== "")) }; } } throw new Error("No RO column was found in the first 30 rows of any worksheet."); }
   function rawRecord(row, table) { const get = (key) => table.map[key] == null ? "" : text(row[table.map[key]]); const sourceFields = {}; table.headers.forEach((header, index) => { if (header) sourceFields[header] = text(row[index]); }); const raw = { ro: get("ro"), advisor: get("advisor"), advisorCode:get("advisorCode"), technician:get("technician"), technicianCode:get("technicianCode"), customer: get("customer"), vehicle: get("vehicle"), vin: get("vin"), sourceStatus: get("status"), opened: get("opened"), total: get("total"), sourceFields }; reconcileRecordSourceIdentity(raw); raw.id = stableId(raw); return raw; }
-  function legacyReport(book) { for (const sheetName of book.SheetNames) { const grid = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { header: 1, defval: null, raw: true }); if (!grid.some((row) => /^SVCADV\s*:/i.test(text(row[0]).trim())) || !grid.some((row) => norm(row[1]) === "ro" && norm(row[2]) === "tag-no")) continue; const records = [], workloadRecords = []; let advisorCode = ""; let headers = null; for (const row of grid) { const group = text(row[0]).trim().match(/^SVCADV\s*:\s*([^\s(]+)/i); if (group) { advisorCode = group[1]; headers = null; continue; } if (norm(row[1]) === "ro" && norm(row[2]) === "tag-no") { headers = row.map(text); continue; } const ro = text(row[1]).trim(); if (headers && /^\d+$/.test(ro) && /^\d+$/.test(advisorCode)) workloadRecords.push({ ro, advisorCode, opened: workloadDate(row[3]), isOpen: true }); if (!headers || !ADVISOR_NAMES[advisorCode] || !ro || /^WEB\*/i.test(ro) || /^REPORT OF OPEN ROS/i.test(ro) || norm(ro) === "ro") continue; const sourceFields = {}; headers.forEach((header, index) => { if (header) sourceFields[header] = text(row[index]); }); const raw = { ro, advisor: advisorDisplayName(advisorCode), advisorCode, technician:sourceFieldValue(sourceFields,ALIASES.technician), technicianCode:sourceFieldValue(sourceFields,ALIASES.technicianCode), customer: text(row[6]), vehicle: "", tagNumber: text(row[2]), vin: "", sourceStatus: text(row[7]), opened: text(row[3]), daysOpen: text(row[5]), types: text(row[8]), partsSale: text(row[9]), customerPayLabor: text(row[10]), internalLabor: text(row[11]), warrantyLabor: text(row[12]), total: "", sourceFields }; reconcileRecordSourceIdentity(raw); raw.id = stableId(raw); records.push(raw); } return { sheetName, records, workloadRecords, format: "Open ROs by advisor", advisorSections: new Set(records.map((record) => record.advisorCode)).size }; } return null; }
+  function strictOpenRoDate(value) {
+    if (value instanceof Date && Number.isFinite(value.valueOf())) return value.toISOString().slice(0,10);
+    const raw=text(value).trim();
+    if (!raw) return "";
+    const fromWorkbook=workbookDate(value);
+    if (fromWorkbook && validCoverageDate(fromWorkbook)) return fromWorkbook;
+    if (!/^\d+(?:\.\d+)?$/.test(raw)) return "";
+    const serial=Number(raw);
+    if (!Number.isFinite(serial)||serial<36526||serial>=80000)return "";
+    return validCoverageDate(new Date(Date.UTC(1899,11,30)+Math.floor(serial)*86400000).toISOString().slice(0,10));
+  }
+  function legacyReport(book) {
+    // A complete grouped report can replace active ROs by omission. Require
+    // matching source totals before handing anything to the state writer.
+    for (const sheetName of book.SheetNames) {
+      const grid=XLSX.utils.sheet_to_json(book.Sheets[sheetName],{header:1,defval:null,raw:true});
+      const isGroup=row=>/^SVCADV\s*:/i.test(text(row[0]).trim());
+      const isHeader=row=>norm(row[1])==="ro"&&norm(row[2])==="tag-no";
+      if (!grid.some(isGroup)||!grid.some(isHeader))continue;
+      const totals=[...new Set(grid.map(row=>text(row[1]).match(/REPORT OF OPEN ROS BY ADVISOR\s*-\s*(\d+)\s+Rows Returned/i)?.[1]).filter(Boolean).map(Number))];
+      if (totals.length!==1||!Number.isSafeInteger(totals[0]))throw new Error("Needs Review: Open RO source population total is missing or inconsistent.");
+      const records=[],workloadRecords=[],sections=[],seen=new Set();
+      let section=null,headers=null,pseudoRows=0,excludedAdvisorRows=0,reported=0;
+      const closeSection=()=>{if (section&&section.observed!==section.declared)throw new Error("Needs Review: Open RO advisor section "+section.code+" declared "+section.declared+" rows but contained "+section.observed+".");};
+      for (const row of grid) {
+        const label=text(row[0]).trim();
+        if (isGroup(row)) {
+          closeSection();
+          const match=label.match(/^SVCADV\s*:\s*(\d+)\s*\(\s*(\d+)\s+items?\s*\)/i);
+          if(!match)throw new Error("Needs Review: Open RO advisor section count is missing.");
+          if(sections.some(item=>item.code===match[1]))throw new Error("Needs Review: duplicate Open RO advisor section.");
+          const declared=Number(match[2]);
+          if(!Number.isSafeInteger(declared))throw new Error("Needs Review: invalid Open RO section count.");
+          section={code:match[1],declared,observed:0};sections.push(section);headers=null;continue;
+        }
+        if (isHeader(row)) {
+          const columns=row.map(norm);
+          if(!section||!["open-date","days","customername","status","types"].every(name=>columns.includes(name)))
+            throw new Error("Needs Review: Open RO advisor detail headers changed.");
+          headers=row.map(text);continue;
+        }
+        const ro=text(row[1]).trim();
+        if(!ro||!section)continue;
+        if(!headers) {
+          if(/^\d+$/.test(ro)||/^WEB\*/i.test(ro))
+            throw new Error("Needs Review: Open RO details appeared before verified advisor headers.");
+          continue;
+        }
+        if(/^WEB\*/i.test(ro)){section.observed++;pseudoRows++;reported++;continue;}
+        if(!/^\d+$/.test(ro))continue;
+        if(seen.has(ro))throw new Error("Needs Review: duplicate RO in grouped source.");
+        seen.add(ro);section.observed++;reported++;
+        const opened=strictOpenRoDate(row[3]),sourceStatus=text(row[7]).trim();
+        if(!opened||!sourceStatus)throw new Error("Needs Review: Open RO date or source status is unreadable.");
+        const advisorCode=section.code;
+        if(/^\d+$/.test(advisorCode))workloadRecords.push({ro,advisorCode,opened,isOpen:true});
+        // Preserve current configured-advisor scope; warranty/other excluded
+        // groups count toward source reconciliation but never join active ROs.
+        if(!ADVISOR_NAMES[advisorCode]){excludedAdvisorRows++;continue;}
+        const sourceFields={};
+        headers.forEach((header,index)=>{if(header)sourceFields[header]=text(row[index]);});
+        const raw={ro,advisor:advisorDisplayName(advisorCode),advisorCode,
+          technician:sourceFieldValue(sourceFields,ALIASES.technician),
+          technicianCode:sourceFieldValue(sourceFields,ALIASES.technicianCode),
+          customer:text(row[6]),vehicle:"",tagNumber:text(row[2]),vin:"",
+          sourceStatus,opened,daysOpen:text(row[5]),types:text(row[8]),
+          partsSale:text(row[9]),customerPayLabor:text(row[10]),
+          internalLabor:text(row[11]),warrantyLabor:text(row[12]),total:"",sourceFields};
+        reconcileRecordSourceIdentity(raw);raw.id=stableId(raw);records.push(raw);
+      }
+      closeSection();
+      if(!sections.length)throw new Error("Needs Review: Open RO advisor sections are missing.");
+      const declared=sections.reduce((sum,item)=>sum+item.declared,0);
+      if(declared!==totals[0]||reported!==declared||records.length+excludedAdvisorRows+pseudoRows!==reported)
+        throw new Error("Needs Review: Open RO global and advisor counts do not reconcile.");
+      if(!records.length)throw new Error("Needs Review: no active configured-advisor repair orders were verified.");
+      return{sheetName,records,workloadRecords,format:"Open ROs by advisor - reconciled",
+        advisorSections:sections.length,sourceRows:reported,nonRoRowsExcluded:pseudoRows,
+        untrackedAdvisorRowsExcluded:excludedAdvisorRows,
+        verification:"group totals and global rows returned reconciled"};
+    }
+    return null;
+  }
   async function scanFiles() { const files = []; for await (const [name, handle] of (await reportInbox(false)).entries()) if (handle.kind === "file" && /\.xlsx$/i.test(name) && !/^~\$/.test(name)) files.push(name); for await (const [name, handle] of model.root.entries()) if (handle.kind === "file" && returnedWorkbookCandidate(name) && !files.includes(name)) files.push(name); files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); ui.sourceSelect.replaceChildren(new Option(files.length ? "Select Report Inbox XLSX" : "No XLSX files in Report Inbox", "")); files.forEach((name) => ui.sourceSelect.add(new Option(name, name))); ui.sourceSelect.disabled = !files.length; ui.importButton.disabled = true; }
   async function scanPerformanceFiles() { const files = []; for await (const [name, handle] of (await reportInbox(false)).entries()) if (handle.kind === "file" && /\.xlsx$/i.test(name) && !/^~\$/.test(name) && !/^(?:MoonDog|Service Operations) Open RO/i.test(name)) files.push(name); files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); ui.performanceSourceSelect.replaceChildren(new Option(files.length ? "Select performance XLSX from Report Inbox" : "No performance XLSX in Report Inbox", "")); files.forEach((name) => ui.performanceSourceSelect.add(new Option(name, name))); ui.performanceSourceSelect.disabled = !files.length; ui.importPerformance.disabled = true; }
 
