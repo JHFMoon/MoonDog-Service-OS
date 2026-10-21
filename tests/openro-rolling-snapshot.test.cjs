@@ -103,6 +103,11 @@ test("other report families still collect dated trend points",async()=>{
   await f.save("sapr",{coverageDate:"2026-10-20",roCount:21});
   assert.deepEqual(Object.keys(f.model.operationalMetrics.sapr.dailySnapshots),["2026-10-19","2026-10-20"]);
 });
+test("Open RO coverage panel does not ask for a date range or historical trend",()=>{
+  const ui=fs.readFileSync(path.join(__dirname,"..","assets","daily-ops.js"),"utf8");
+  assert.match(ui,/row\.key==='openRo'[\s\S]*?current verified snapshot only; no historical date range or trend is required/);
+  new vm.Script(ui);
+});
 test("production source and safety checks remain intact",()=>{
   new vm.Script(app);
   assert.match(app,/function sourceFreshness\(key, options = \{\}\)/);
