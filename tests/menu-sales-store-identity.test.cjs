@@ -31,7 +31,7 @@ function prepare({name="AutoNation Chrysler Dodge Jeep Ram Exampletown",
   const validAdvisorIdentity=(code,label="")=>/^\d+$/.test(text(code))&&!/^0+$/.test(text(code))&&!/^(unknown|not found|total)/i.test(label);
   const ctx={model,sourceAdapter,XLSX,norm,text,csvNumber,configuredAdvisors,validAdvisorIdentity,
     advisorDisplayName:code=>"Synthetic advisor "+code,
-    usDateToIso:value=>value.split("/").reverse().join("-").replace(/^(\d{4})-(\d{1,2})-(\d{1,2})$/,(_,y,m,d)=>y+"-"+m.padStart(2,"0")+"-"+d.padStart(2,"0")),
+    usDateToIso:value=>value.replace(/^(\d{1,2})\/(\d{1,2})\/(20\d{2})$/,(_,m,d,y)=>y+"-"+m.padStart(2,"0")+"-"+d.padStart(2,"0")),
     mondayFor:date=>"2026-10-19",
     now:()=>"2026-10-20T12:00:00Z"
   };
