@@ -81,7 +81,7 @@ test("missing group item counts cannot silently produce incomplete source",()=>{
   assert.throws(()=>parser(rows).read(),/section count is missing/);
 });
 test("duplicate RO appearing under two advisors fails closed",()=>{
-  const rows=example();rows[10]=item(10001,46301);
+  const rows=example();rows[12]=item(10001,46301);
   assert.throws(()=>parser(rows).read(),/duplicate RO/);
 });
 test("report with missing opening date or source status is rejected",()=>{
