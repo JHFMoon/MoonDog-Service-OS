@@ -44,7 +44,7 @@ function harness(book) {
   };
   const text=v=>String(v??"");
   const ctx={
-    XLSX,text,
+    XLSX,text,now:()=>"2026-10-21T12:00:00Z",
     norm:v=>text(v).trim().toLowerCase().replace(/\s+/g," "),
     validCoverageDate:v=>/^20\d{2}-\d{2}-\d{2}$/.test(String(v))?String(v):"",
     workbookDate:v=>typeof v==="string"?v:"",
