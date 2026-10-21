@@ -1015,7 +1015,7 @@
     await postConnectReconciliation(permissionWasPending);
     // Show usable Home immediately. Report scans and archive maintenance do not
     // need to block the first frame; keep them ordered to avoid concurrent writes.
-    renderAll(); renderSetup(); renderRecovery(); openSetupIfRequired(); startFolderWatch();
+    renderAll(); renderRecovery(); openSetupIfRequired(); startFolderWatch();
     // Apply a device-local starting view only after connected Home is ready.
     // Do not override required Setup, write authority, or read-only recovery.
     if(ui["view-home"]?.classList.contains("active")){
