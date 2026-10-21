@@ -109,6 +109,19 @@ test("import persists individually scoped daily observations and one overall agg
   assert.equal(family.dailySnapshots[serialDate(46311)],undefined,"Do not manufacture zero activity");
   assert.equal(family.snapshots[two].rowCount,2);
 });
+test("future-dated rows do not suppress earlier verified daily snapshots",async()=>{
+  const f=fixture([
+    row("9001","2026-10-19","2026-10-19"),
+    row("1002","2026-10-20","2026-10-20"),
+    row("9001","2026-10-21","2026-10-21")
+  ]);
+  await f.import();
+  const saved=f.durable().appointmentActivity;
+  assert.equal(saved.snapshots["2026-10-21"].rowCount,2,"Report aggregate retains all verified configured-store days");
+  assert.deepEqual(Object.keys(saved.dailySnapshots),["2026-10-19"]);
+  assert.equal(saved.dailySnapshots["2026-10-19"].rowCount,1);
+  assert.equal(saved.dailySnapshots["2026-10-21"],undefined,"Future daily observations must not be promoted early");
+});
 test("invalid selected-store dates are rejected rather than yielding partial totals",()=>{
   const f=fixture([row("9001",46310,46310),row("9001","bad date",46312),row("1002",46311,46311)]);
   assert.throws(()=>f.parse(),/unreadable appointment creation date/);
