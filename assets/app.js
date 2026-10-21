@@ -127,10 +127,6 @@
   "use strict";
   const writeAuthority = globalThis.MoonDogWriteAuthority;
   if (!writeAuthority) throw new Error("Workspace write guard is unavailable.");
-  const authorityDot = document.getElementById("writeAuthorityDot");
-  function renderWriteAuthority() { if (!authorityDot) return; authorityDot.dataset.editable = String(writeAuthority.canWrite); authorityDot.title = authorityDot.ariaLabel = writeAuthority.canWrite ? "Workspace writable" : "Folder permission required"; }
-  globalThis.addEventListener("moondog-write-authority", renderWriteAuthority);
-  renderWriteAuthority();
   const responsiveRefinements = document.createElement("style"); responsiveRefinements.textContent = `.performance-svg{display:block;width:100%;height:auto;aspect-ratio:760/260}.meeting-cycle-label{display:block;margin-top:1px;font-size:11px;line-height:1.1;letter-spacing:.12em;color:#76d7b2}.meeting-cycle-delta{display:block;font-style:normal;font-size:10px;line-height:1.1;letter-spacing:.04em;color:#b9ced6}.meeting-v3-nps .meeting-cycle-delta{font-size:11px;margin-top:3px}.trend-coverage-summary{margin-top:14px;padding-top:12px;border-top:1px solid #d6e2e7}.trend-coverage-summary>strong{display:block;margin-bottom:7px}.trend-coverage-grid{display:flex;flex-wrap:wrap;gap:7px}.trend-coverage-grid span{padding:6px 9px;border-radius:8px;background:#eef5f7;font-size:12px}.previous-month-totals{margin-top:18px}.previous-month-totals .month-total-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:8px;margin:12px 0}.previous-month-totals .month-total-grid div,.previous-month-totals .month-advisor-row{padding:10px;border-radius:9px;background:#f3f7f8}.previous-month-totals .month-total-grid span,.previous-month-totals .month-advisor-row span{display:block;font-size:11px;color:#59717a}.previous-month-totals .month-total-grid strong{font-size:18px}.month-advisor-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.month-advisor-row strong{display:block;margin-bottom:5px}.month-advisor-metrics{font-size:12px;line-height:1.5}`; document.head.append(responsiveRefinements);
   const correctionStyles=document.createElement("style");correctionStyles.textContent=".month-correction-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;padding:10px 12px;border:1px solid #dfbd69;border-radius:9px;background:#fff8e5;color:#6b5316}.month-correction-notice button{white-space:nowrap}.voice-mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.customer-voice-manager [hidden]{display:none!important}.voice-use-full{align-self:flex-start}@media(max-width:760px){.voice-mode-grid{grid-template-columns:1fr}}";document.head.append(correctionStyles);
   const VERSION = "0.10.17";
@@ -570,11 +566,28 @@
     if (state === "PERMISSION REQUIRED") { ui.permissionBadge.textContent = "Folder access required"; ui.connectButton.textContent = "RESTORE FOLDER ACCESS"; ui.connectButton.disabled = false; }
     if (state === "SAVED HANDLE UNAVAILABLE") { ui.permissionBadge.textContent = "Folder not connected"; ui.connectButton.textContent = "Choose working folder"; ui.connectButton.disabled = false; }
     if (state === "CONNECTION ERROR") { ui.permissionBadge.textContent = "Connection error"; ui.connectButton.textContent = model.pendingRoot ? "RESTORE FOLDER ACCESS" : "Choose working folder"; ui.connectButton.disabled = false; }
-    if (state === "CONNECTED") { ui.permissionBadge.textContent = `Connected: ${model.root?.name || "working folder"}`; ui.permissionBadge.className = "badge"; ui.connectButton.textContent = "Change folder"; ui.connectButton.disabled = false; }
+    if (state === "CONNECTED") {
+      // A readable folder is not automatically writable. No extra MoonDog
+      // owner confirmation: rely on Edge's actual folder permission and the
+      // existing durable write protection.
+      const writable = writeAuthority.canWrite;
+      ui.permissionBadge.textContent = `${writable ? "Connected" : "Read-only"}: ${model.root?.name || "working folder"}`;
+      ui.permissionBadge.className = writable ? "badge" : "badge muted";
+      ui.connectButton.textContent = writable ? "Change folder" : "Restore editing";
+      ui.connectButton.disabled = false;
+    }
     else ui.permissionBadge.className = "badge muted";
     if (message) status(message, state === "CONNECTION ERROR" ? "error" : "info");
     else if (state === "CONNECTED" && /RECONNECTING|RESTORING|FOLDER ACCESS REQUIRED/i.test(ui.status.textContent || "")) status("SERVICE OPERATIONS DASHBOARD CONNECTED", "success");
   }
+  // Only update the connection cue when write capability actually changes.
+  // Once Edge has granted access, normal operations require no second approval.
+  globalThis.addEventListener("moondog-write-authority", () => {
+    if (model.connectionState !== "CONNECTED" || !model.root) return;
+    if (!writeAuthority.canWrite && connectedNativeRoot) model.pendingRoot = connectedNativeRoot;
+    if (writeAuthority.canWrite && model.pendingRoot === connectedNativeRoot) model.pendingRoot = null;
+    setConnectionState("CONNECTED");
+  });
   const norm = (v) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   function semanticFieldIssue(record) { const management = record?.management || {}; if (management.updatedAt&&!canonicalReviewStatus(statusById(management.statusId)?.name||management.status)) return `Previous review status “${management.status}” is retired. Choose the current CDK workflow status at this review.`; if (!management.updatedAt&&!currentCdkReviewStatus(record)&&!canonicalReviewStatus(statusById(management.statusId)?.name||management.status)) return "Choose a current CDK workflow status at this review."; if (management.communication && !COMMUNICATION_STATUSES.includes(normalizeCommunication(management.communication))) return `Customer communication “${management.communication}” is not a communication state. Choose a listed communication state.`; return ""; }
   function clarificationFor(record) { return record?.management?.clarification?.reason || semanticFieldIssue(record); }
@@ -946,7 +959,9 @@
       const interruptedRestoreReview=await inspectInterruptedRestore();
       model.recovery.interruptedRestoreReview=interruptedRestoreReview;
       if(interruptedRestoreReview)model.recovery.status="Interrupted restore: controlled recovery review required";
-      model.pendingRoot = null;
+      // Keep the saved folder handle for one-click Restore editing. Never
+      // require selecting a different Workspace just to request Edge access.
+      model.pendingRoot = handle;
       stopFolderWatch("Folder write permission unavailable");
       ui.homeConnect.hidden = true;
       renderSettings(); renderAll(); renderRecovery();
@@ -1079,7 +1094,7 @@
     if(!dailyUi.confirmWorkspaceChange())return;
     if (!window.showDirectoryPicker) throw new Error("This Edge version does not support local folder access from this page.");
     if (model.pendingRoot) { setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(model.pendingRoot, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){writeAuthority.disable();setConnectionState("PERMISSION REQUIRED", "FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder.");} throw error; } }
-    const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "read" });
+    const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "readwrite" });
     try { return await finishConnection(handle, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY")writeAuthority.disable(); throw error; }
   }
   async function restoreConnection() {
@@ -4538,7 +4553,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
 
   ensurePhase2SettingsUi();ensurePhase3Ui();ensureRecoveryUi();ensureFolderWatchUi();ensureManagerEntryCues();ensureFailedLearnedReportUi();ensureNewStoreUi();ui.setupSettingsSummary=document.getElementById("setupSettingsSummary");
   let authorityRevalidationTimer=null;
-  function scheduleAuthorityRevalidation(root){if(authorityRevalidationTimer||!root)return;authorityRevalidationTimer=setTimeout(async()=>{authorityRevalidationTimer=null;if(root!==connectedNativeRoot||writeAuthority.canWrite)return;const ok=await writeAuthority.validate(root,false).catch(()=>false);if(root!==connectedNativeRoot)return;renderWriteAuthority();renderSetup();if(ok)status("Workspace files finished updating. Editing restored.","success");},1200);}
+  function scheduleAuthorityRevalidation(root){if(authorityRevalidationTimer||!root)return;authorityRevalidationTimer=setTimeout(async()=>{authorityRevalidationTimer=null;if(root!==connectedNativeRoot||writeAuthority.canWrite)return;const ok=await writeAuthority.validate(root,false).catch(()=>false);if(root!==connectedNativeRoot)return;renderSetup();if(ok)status("Workspace files finished updating. Editing restored.","success");},1200);}
   ui.worksheetOrderSettings.addEventListener("click",(event)=>{const button=event.target.closest("button[data-worksheet-move]");if(!button)return;const codes=supervisorAdvisorCodes(),index=codes.indexOf(button.dataset.worksheetMove),moved=moveArrayItem(codes,index,Number(button.dataset.direction));model.settings.supervisorWorkbook.worksheetOrder=moved;queueSettingsAutosave();renderPhase2Settings();});
   ui.dailyWalkCount.addEventListener("change",()=>{const value=Number(ui.dailyWalkCount.value);if(Number.isInteger(value)&&value>=1&&value<=10)model.settings.dailyWalk.rosPerAdvisor=value;queueSettingsAutosave();setTimeout(()=>run(ensureDailyFocus),260);});
   document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => navigateTo(button.dataset.view)));

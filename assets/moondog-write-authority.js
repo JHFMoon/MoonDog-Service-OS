@@ -21,7 +21,7 @@
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   function transientInterfaceState(error) { return ["AbortError","InvalidStateError","NotReadableError","UnknownError","TimeoutError"].includes(error?.name) || /state cached in an interface object|state had changed since it was read from disk|changed since it was read from disk/i.test(String(error?.message || "")); }
   const notify = () => global.dispatchEvent?.(new Event("moondog-write-authority"));
-  function setEditable(value) { editable = value; notify(); }
+  function setEditable(value) { value = Boolean(value); if (editable === value) return; editable = value; notify(); }
   function setTransientValidation(value) { value = Boolean(value); if (transientValidation === value) return; transientValidation = value; notify(); }
   async function localIdentity(markerDigest) {
     if (sessionIdentities.has(markerDigest)) return sessionIdentities.get(markerDigest);
