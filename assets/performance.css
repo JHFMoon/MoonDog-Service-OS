@@ -66,3 +66,13 @@
 @media screen and (max-width:560px){
   #view-performance .performance-table tbody tr{grid-template-columns:minmax(0,1fr)}
 }
+
+/* Task Performance is supplemental ATO context within Advisor Performance. */
+#view-performance .ato-task-performance{display:grid;gap:12px}
+#view-performance .ato-task-performance .section-head{margin-bottom:0}
+#view-performance .ato-task-scope{margin:0;color:var(--muted,#586774);font-weight:600;line-height:1.5}
+#view-performance .ato-task-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}
+#view-performance .ato-task-kpis:empty{display:none}
+#view-performance .ato-task-kpis article{min-width:0}
+#view-performance .ato-task-kpis strong{font-variant-numeric:tabular-nums}
+#view-performance .ato-task-footnote{margin:0;color:var(--muted,#586774);font-size:.88rem;line-height:1.45}
