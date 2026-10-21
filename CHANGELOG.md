@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.134 — current Beta
+
+- Fix Menu Sales ingestion blocked by false Q1 return-workbook identity (#310). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.133 — current Beta
 
 - Fix Menu Sales store identity matching (#307). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
