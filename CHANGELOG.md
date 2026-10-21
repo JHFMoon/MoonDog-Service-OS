@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.132 — current Beta
+
+- Show ATO Task Performance in Advisor Performance (#305). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.131 — current Beta
 
 - Safe intake for additional report families (#303). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
