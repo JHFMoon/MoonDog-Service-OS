@@ -88,7 +88,7 @@ function fixture({corruptCurrent=false,contended=false}={}){
   };
   const engine=maintenance.create(io,api);
   return{files,removed,finished,events,readCounts,engine,invalid,
-    resolvedA,resolvedB,pending,damaged};
+    resolvedA,resolvedB,pending,damaged,api};
 }
 function percentile(sorted,q){return sorted[Math.min(sorted.length-1,Math.max(0,Math.ceil(q*sorted.length)-1))];}
 test("76+ validated full backups remain bounded, and incomplete update journals are protected",async()=>{
@@ -143,4 +143,30 @@ test("repeated large inventory runs report measured synthetic p50/p95, without r
   assert.ok(Number.isFinite(p50)&&Number.isFinite(p95)&&p50<=p95);
   assert.ok(p95<30000,"bounded synthetic-only measurement, not a Windows performance guarantee");
   console.log("SYNTHETIC 80+ backup deep scan p50="+p50.toFixed(1)+"ms p95="+p95.toFixed(1)+"ms; no Windows field evidence");
+});
+
+test("overlapping maintenance runs coalesce and release the single-flight guard",async()=>{
+  const f=fixture();
+  let signalEntered,releaseRun;
+  const entered=new Promise(resolve=>{signalEntered=resolve;});
+  const gate=new Promise(resolve=>{releaseRun=resolve;});
+  let ensureCalls=0;
+  f.api.ensureFolders=async()=>{
+    ensureCalls++;
+    signalEntered();
+    await gate;
+  };
+  const first=f.engine.run({force:true,reason:"synthetic concurrent maintenance"});
+  const second=f.engine.run({force:true,reason:"synthetic overlapping maintenance"});
+  await entered.promise;
+  assert.equal(f.engine.running,true,"the first maintenance pass owns the single-flight guard");
+  assert.equal(ensureCalls,1,"the overlapping pass must reuse the existing run");
+  releaseRun();
+  const [a,b]=await Promise.all([first,second]);
+  assert.strictEqual(a,b,"overlapping callers must receive the same active result");
+  assert.equal(a.failed,undefined);
+  assert.equal(b.failed,undefined);
+  assert.equal(ensureCalls,1,"coalesced callers must not start a second inventory");
+  assert.equal(f.finished.length,1,"one shared run persists housekeeping state once");
+  assert.equal(f.engine.running,false,"the single-flight guard releases after completion");
 });
