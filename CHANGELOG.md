@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.145 — current Beta
+
+- Reuse bounded full-history snapshots on warm searches (#164) (#345). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.144 — current Beta
 
 - Protect month correction and delayed workspace recovery (#346). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
