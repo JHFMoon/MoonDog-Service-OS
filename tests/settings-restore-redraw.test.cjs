@@ -231,7 +231,7 @@ test("meeting content writes serialize with setup review and retain the reviewed
   const snapshots=[];
   let writeCount=0;
   const advisor={number:"101",name:"Synthetic Advisor",active:true,removed:false,setupRequired:true,participation:{openRo:true}};
-  const model={settings:{advisors:{"101":advisor},meetingVoiceMode:"automatic",updatedAt:"before"}};
+  const model={root:{},settings:{advisors:{"101":advisor},meetingVoiceMode:"automatic",updatedAt:"before"}};
   const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},meetingVoiceSurvey:{value:""},meetingVoiceExcerpt:{value:""},meetingVoiceWarning:{hidden:true}};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
     ensurePhase2SettingsUi:()=>{},ensureCustomerVoiceSourceUi:()=>{},supervisorAdvisorCodes:()=>["101"],advisorShownInSection:()=>true,
@@ -241,6 +241,7 @@ test("meeting content writes serialize with setup review and retain the reviewed
   const productionFunctions=await production(context);
   const review=productionFunctions.markAdvisorSetupReviewed("101");
   const meeting=productionFunctions.saveMeetingVoice(true);
+  await new Promise(resolve=>setImmediate(resolve));
   assert.equal(snapshots.length,1,"meeting write waits behind the in-flight setup review");
   first.resolve();
   await Promise.all([review,meeting]);
