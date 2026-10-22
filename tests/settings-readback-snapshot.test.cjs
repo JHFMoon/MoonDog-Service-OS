@@ -60,6 +60,7 @@ test("rapid advisor toggles during an in-flight save cannot show false Saved or 
   const model={root:{name:"Synthetic"},settings};
   const ctx=vm.createContext({
     model,ui:{settingsSaveStatus:status},
+    SETTINGS_PATH:["data","settings.json"],
     writeAuthority:{canWrite:true},
     readSettingsInputs:()=>{},
     now:()=>`2026-10-22T09:03:${String(stamp++).padStart(2,"0")}Z`,
@@ -99,7 +100,7 @@ test("older failing save does not overwrite newer Saving indicator",async()=>{
   const model={root:{name:"Synthetic"},settings:{schemaVersion:1,advisors:{"101":{participation:{advisorMeeting:false}}}}};
   let count=0;
   const ctx=vm.createContext({
-    model,ui:{settingsSaveStatus:status},writeAuthority:{canWrite:true},
+    model,ui:{settingsSaveStatus:status},SETTINGS_PATH:["data","settings.json"],writeAuthority:{canWrite:true},
     readSettingsInputs:()=>{},now:()=>`2026-10-22T09:03:${String(count++).padStart(2,"0")}Z`,
     writeJson:async()=>{if(++count===2){entered.resolve();await gate.promise;throw Error("Synthetic OneDrive readback failure");}},
     addHistory:async()=>{},renderAll:()=>{},Date,
