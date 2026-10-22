@@ -232,7 +232,7 @@ test("meeting content writes serialize with setup review and retain the reviewed
   let writeCount=0;
   const advisor={number:"101",name:"Synthetic Advisor",active:true,removed:false,setupRequired:true,participation:{openRo:true}};
   const model={root:{},settings:{advisors:{"101":advisor},meetingVoiceMode:"automatic",updatedAt:"before"}};
-  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},meetingVoiceSurvey:{value:""},meetingVoiceExcerpt:{value:""},meetingVoiceWarning:{hidden:true}};
+  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""},meetingVoiceSurvey:{value:""},meetingVoiceExcerpt:{value:""},meetingVoiceWarning:{hidden:true}};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
     ensurePhase2SettingsUi:()=>{},ensureCustomerVoiceSourceUi:()=>{},supervisorAdvisorCodes:()=>["101"],advisorShownInSection:()=>true,
     now:()=>"synthetic-now",writeJson:(_path,snapshot)=>{snapshots.push(structuredClone(snapshot));writeCount++;return writeCount===1?first.promise:Promise.resolve();},
