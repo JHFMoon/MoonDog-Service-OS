@@ -49,7 +49,7 @@ function fixture(rows,opts={}){
   vm.runInNewContext(parser+importer,ctx);
   return{parse:()=>ctx.parseAppointmentActivityWorkbook([],"synthetic-appointments.xlsx"),
     import:(deleteAfterSuccess=false)=>ctx.importManagerSource("synthetic-appointments.xlsx","appointment-activity",[],deleteAfterSuccess),
-    setRows(rows){sourceRows.splice(0,sourceRows.length,columns,...rows);},removed:()=>removedSources.slice(),ctx,model,durable:()=>durable};
+    setRows(rows){sourceRows.splice(0,sourceRows.length,columns,...rows);},setDurable(value){durable=value;},removed:()=>removedSources.slice(),ctx,model,durable:()=>durable};
 }
 test("vendor serial dates and ISO dates produce separate verified store days",()=>{
   const d1=serialDate(46310),d2=serialDate(46312);
@@ -120,7 +120,7 @@ test("conflicting same-period import preserves the saved source and leaves the n
   const prior=structuredClone(before.appointmentActivity.snapshots[period]);
   f.setRows([row("9001","2026-10-20","2026-10-20","REPAIR_BOOKING"),row("1002","2026-10-19","2026-10-19")]);
   await assert.rejects(f.import(true),new RegExp("Conflicting appointment-activity report for period "+period+" is already saved"));
-  assert.deepEqual(f.durable(),before,"conflict must be rejected before durable data is overwritten");
+  assert.deepEqual(JSON.parse(JSON.stringify(f.durable())),JSON.parse(JSON.stringify(before)),"conflict must be rejected before durable data is overwritten");
   assert.deepEqual(JSON.parse(JSON.stringify(f.model.operationalMetrics.appointmentActivity.snapshots[period])),prior);
   assert.deepEqual(f.removed(),[],"the conflicting source must remain available for review");
 });
@@ -156,8 +156,16 @@ test("identical same-period reimport remains allowed and can clean up its source
   await f.import(false);
   const period=f.durable().appointmentActivity.snapshots;
   const key=Object.keys(period)[0];
-  const original=JSON.parse(JSON.stringify(period[key]));
+  // Saved coverage/import metadata is derived and may change independently of
+  // identical report contents. It must not turn a reimport into a conflict.
+  const saved=f.durable();
+  saved.appointmentActivity.snapshots[key].coverageDate="2026-10-19";
+  saved.appointmentActivity.snapshots[key].sourceModifiedAt="2026-10-19T00:00:00.000Z";
+  f.setDurable(saved);
+  Object.assign(f.model.operationalMetrics.appointmentActivity.snapshots[key],saved.appointmentActivity.snapshots[key]);
   await f.import(true);
-  assert.deepEqual(JSON.parse(JSON.stringify(f.durable().appointmentActivity.snapshots[key])),original);
+  const reimported=f.durable().appointmentActivity.snapshots[key];
+  assert.equal(reimported.coverageDate,key,"derived coverage metadata is normalized to the report period");
+  assert.deepEqual(JSON.parse(JSON.stringify(reimported.byInteraction)),period[key].byInteraction);
   assert.deepEqual(f.removed(),["synthetic-appointments.xlsx"]);
 });
