@@ -184,7 +184,7 @@ test("overlapping Workspace connection attempts are rejected and retry is allowe
       return calls === 1 ? pending.promise : Promise.resolve("retry completed");
     }
   });
-  vm.runInContext(connectionLock + "\\nthis.finishConnection=finishConnection;", context);
+  vm.runInContext(connectionLock + "\nthis.finishConnection=finishConnection;", context);
 
   const first = context.finishConnection({ name: "Synthetic Workspace A" }, false);
   await Promise.resolve();
