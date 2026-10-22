@@ -30,7 +30,7 @@ function harness({ scopeEnd = '2026-10-06', includeScope = true, initialSurveys 
   const model = { operationalMetrics: { csi } };
   let durable = null;
   const context = {
-    model, OPERATIONAL_METRICS_PATH: ['data', 'operational-metrics.json'],
+    model, structuredClone, OPERATIONAL_METRICS_PATH: ['data', 'operational-metrics.json'],
     now: () => '2026-10-07T15:00:00Z',
     localDateKey: () => '2026-10-07',
     text: (value) => value == null ? '' : String(value),
