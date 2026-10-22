@@ -14,6 +14,7 @@ const helper = app.slice(start, end);
 function harness({ failWorker = false } = {}) {
   const workerCalls = [];
   const nativeCalls = [];
+  const revokedUrls = [];
   class FakeBlob { constructor(parts) { this.parts = parts; } }
   class FakeWorker {
     postMessage(message, transfer) {
@@ -35,13 +36,13 @@ function harness({ failWorker = false } = {}) {
   };
   const context = vm.createContext({
     XLSX, Worker: FakeWorker, Blob: FakeBlob, TextDecoder, TextEncoder,
-    URL: { createObjectURL() { return "blob:synthetic"; }, revokeObjectURL() {} },
+    URL: { createObjectURL() { return "blob:synthetic"; }, revokeObjectURL(url) { revokedUrls.push(url); } },
     runtimeFileBytes: async () => { const source = new Uint8Array(300000); source.set(new TextEncoder().encode("XLSX.version")); return source; },
     clearTimeout, setTimeout, ArrayBuffer, Uint8Array, WeakMap, Map, TypeError, Error, console
   });
   // Expose the production wrapper so extracted importer harnesses keep the existing XLSX.read interface.
-  vm.runInContext(helper + "\nthis.prepareXlsxWorkbook=prepareXlsxWorkbook; this.xlsxRead=XLSX.read;", context);
-  return { context, workerCalls, nativeCalls };
+  vm.runInContext(helper + "\nthis.prepareXlsxWorkbook=prepareXlsxWorkbook; this.xlsxRead=XLSX.read; this.xlsxWorkerState=xlsxWorkerState; this.stopXlsxWorker=stopXlsxWorker;", context);
+  return { context, workerCalls, nativeCalls, revokedUrls };
 }
 
 test("production worker preserves parser option profiles and reuses only equivalent profiles", async () => {
@@ -83,6 +84,16 @@ test("production worker failure falls back synchronously and caches only the fal
   assert.equal(h.context.xlsxRead(bytes, options), book);
   assert.equal(h.nativeCalls.length, 1);
   assert.equal(bytes[1], 4, "Worker failure must not detach or mutate the original input.");
+});
+
+test("production worker revokes its Blob URL when stopped", async () => {
+  const h = harness();
+  const bytes = new Uint8Array(512 * 1024);
+  await h.context.prepareXlsxWorkbook(bytes, { type: "array", raw: true });
+  assert.equal(h.context.xlsxWorkerState.workerUrl, "blob:synthetic");
+  h.context.stopXlsxWorker(new Error("synthetic worker stop"));
+  assert.deepEqual(h.revokedUrls, ["blob:synthetic"]);
+  assert.equal(h.context.xlsxWorkerState.workerUrl, null);
 });
 
 test("classification prepares each parser profile before invoking its synchronous parser", () => {

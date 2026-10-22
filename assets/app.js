@@ -203,6 +203,7 @@
       try { worker = new Worker(url); }
       catch (error) { URL.revokeObjectURL(url); throw error; }
       xlsxWorkerState.worker = worker;
+      xlsxWorkerState.workerUrl = url;
       worker.onmessage = event => {
         const pending = xlsxWorkerState.pending.get(event.data?.id);
         if (!pending) return;
