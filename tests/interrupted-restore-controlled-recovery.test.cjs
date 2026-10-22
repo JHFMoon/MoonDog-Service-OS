@@ -145,3 +145,27 @@ test("restore history verification ignores journal sidecars but still verifies o
     {path:"data/history/saved.json",size:history.byteLength,sha256:digest(history)}
   ]);}),/history inventory|history verification/);
 });
+
+test("interrupted recovery recognizes only progress tied to the held restore and selected state",()=>{
+  const app=fs.readFileSync(path.join(__dirname,"..","assets/app.js"),"utf8");
+  const start=app.indexOf("  function interruptedRecoveryProgressDirection(");
+  const end=app.indexOf("  function refreshInterruptedRecoveryControls(",start);
+  assert.ok(start>=0&&end>start,"production retry progress validators must exist");
+  const helpers=app.slice(start,end);
+  const marker={restoreId:owner,safetyBackup:"MoonDog Restore Safety test.zip",sourceFile:"restore-source.zip"};
+  const recovery={status:"Interrupted restore recovered and verified",lastRestore:{
+    sourceFile:marker.sourceFile,safetyBackup:marker.safetyBackup,validationStatus:"Verified controlled recovery"
+  }};
+  const id="full-restore-recovered-"+owner;
+  const event={schemaVersion:1,id,type:"full-restore-recovered",
+    summary:"Completed a manager-confirmed recovery from an interrupted whole-state restore",
+    details:{selectedState:"source",sourceFile:marker.sourceFile,safetyBackup:marker.safetyBackup,restoreId:owner}};
+  const context=vm.createContext({TextDecoder});
+  vm.runInContext(helpers+";globalThis.recoveryDirection=interruptedRecoveryProgressDirection;globalThis.auditDirection=interruptedRecoveryAuditDirection;",context);
+  const recoveryBytes=new TextEncoder().encode(JSON.stringify(recovery));
+  const eventBytes=new TextEncoder().encode(JSON.stringify(event));
+  assert.equal(context.recoveryDirection(recoveryBytes,marker),"source");
+  assert.equal(context.auditDirection("data/history/"+id+".json",eventBytes,marker),"source");
+  assert.equal(context.auditDirection("data/history/"+id+".json",eventBytes,{...marker,restoreId:"123e4567-e89b-42d3-a456-426614174001"}),null);
+  assert.equal(context.recoveryDirection(new TextEncoder().encode(JSON.stringify({...recovery,status:"Ready"})),marker),null);
+});
