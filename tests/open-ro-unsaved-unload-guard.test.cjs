@@ -14,13 +14,15 @@ assert.match(app,/window\.addEventListener\("beforeunload",guardUnsavedEditUnloa
 
 function harness({dirty=false,confirm=true}={}){
   let closed=0;
-  const context={editDraftDirty:dirty,window:{confirm:()=>confirm},
+  const context={window:{confirm:()=>confirm},
     ui:{editDialog:{close:()=>{closed++;}}}};
   vm.runInNewContext(production+[
     "this.guard=guardUnsavedEditUnload;",
+    "this.setDirty=(value)=>{editDraftDirty=value;}",
     "this.close=closeEditDialog;",
     "this.isDirty=()=>editDraftDirty;"
-  ].join("\n"),context);
+   ].join("\n"),context);
+  context.setDirty(dirty);
   return{context,closed:()=>closed};
 }
 
