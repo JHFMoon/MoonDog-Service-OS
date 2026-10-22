@@ -299,6 +299,7 @@ try {
     const sourceBytes = encoded instanceof ArrayBuffer
       ? new Uint8Array(encoded)
       : new Uint8Array(encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength));
+    if (sourceBytes.byteLength < 512 * 1024) throw new Error("Synthetic production XLSX fixture did not cross the worker threshold: " + sourceBytes.byteLength);
     const options = { type: "array", raw: true };
     async function measure(parse) {
       let ticks = 0;
@@ -322,7 +323,8 @@ try {
         materializationMs = performance.now() - materializationStarted;
         if (parsedRows.length !== rowCount + 1 ||
             parsedRows[1]?.[0] !== "synthetic-0" ||
-            parsedRows[parsedRows.length - 1]?.[0] !== "synthetic-" + (rowCount - 1)) {
+            parsedRows[parsedRows.length - 1]?.[0] !== "synthetic-" + (rowCount - 1) ||
+            JSON.stringify(parsedRows) !== JSON.stringify(rows)) {
           throw new Error("Production XLSX parser did not preserve all synthetic rows.");
         }
         await new Promise(resolve => setTimeout(resolve, 25));
@@ -341,7 +343,9 @@ try {
       const bytes = sourceBytes.slice();
       syncRuns.push(await measure(() => XLSX.read(bytes, options)));
     }
-    return { rowCount, workbookBytes: sourceBytes.byteLength, workerRuns, syncRuns };
+    const workerStatus = globalThis.__moondogXlsxSmoke.workerStatus();
+    if (!workerStatus.active || workerStatus.disabled) throw new Error("Production intake worker did not stay active for the packaged XLSX probe: " + JSON.stringify(workerStatus));
+    return { rowCount, workbookBytes: sourceBytes.byteLength, workerStatus, workerRuns, syncRuns };
   });
   const percentile = (values, fraction) => {
     const sorted = [...values].sort((a, b) => a - b);
