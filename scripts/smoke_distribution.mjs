@@ -347,15 +347,15 @@ try {
     if (!workerStatus.active || workerStatus.disabled) throw new Error("Production intake worker did not stay active for the packaged XLSX probe: " + JSON.stringify(workerStatus));
     return { rowCount, workbookBytes: sourceBytes.byteLength, workerStatus, workerRuns, syncRuns };
   });
-  const percentile = (values, fraction) => {
+  const productionPercentile = (values, fraction) => {
     const sorted = [...values].sort((a, b) => a - b);
     return sorted[Math.max(0, Math.ceil(fraction * sorted.length) - 1)];
   };
   const summarizeProductionRuns = runs => ({
-    parserP50Ms: percentile(runs.map(run => run.parseMs), 0.5),
-    parserP95Ms: percentile(runs.map(run => run.parseMs), 0.95),
-    materializationP50Ms: percentile(runs.map(run => run.materializationMs), 0.5),
-    materializationP95Ms: percentile(runs.map(run => run.materializationMs), 0.95),
+    parserP50Ms: productionPercentile(runs.map(run => run.parseMs), 0.5),
+    parserP95Ms: productionPercentile(runs.map(run => run.parseMs), 0.95),
+    materializationP50Ms: productionPercentile(runs.map(run => run.materializationMs), 0.5),
+    materializationP95Ms: productionPercentile(runs.map(run => run.materializationMs), 0.95),
     maxHeartbeatGapMs: Math.max(...runs.map(run => run.maxHeartbeatGapMs)),
     heartbeatTicks: runs.map(run => run.ticks),
     parsedRows: runs.map(run => run.parsedRows)
