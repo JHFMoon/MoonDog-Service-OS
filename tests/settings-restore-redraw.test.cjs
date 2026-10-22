@@ -124,7 +124,10 @@ test("local settings updates serialize after an in-flight advisor review",async(
   const model={settings:{advisors:{"101":advisor},future:{sourceLocation:"old synthetic path"},updatedAt:"before"},root:{}};
   const writes=[];
   let persisted=null;
-  const context={SETTINGS_PATH:["settings.json"],model,writeAuthority:{canWrite:true,requireWrite(){}},now:()=> "synthetic-now",
+  const ui={settingsSaveStatus:{dataset:{},textContent:""},advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}}};
+  const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
+  const context={SETTINGS_PATH:["settings.json"],model,ui,document,advisorShownInSection:()=>true,validAdvisorIdentity:()=>true,
+    advisorDisplayName:(code,source)=>source.displayName||source.name,writeAuthority:{canWrite:true,requireWrite(){}},now:()=> "synthetic-now",
     writeJson:async(_path,value)=>{const snapshot=JSON.parse(JSON.stringify(value));writes.push(snapshot);if(writes.length===1)await pending.promise;persisted=snapshot;},
     addHistory:async()=>{},renderAdvisorSettings:()=>{},renderSetup:()=>{},renderAll:()=>{}};
   const {markAdvisorSetupReviewed,updateLocalFuture}=await production(context);
