@@ -22,7 +22,7 @@ const instrumented=setup.replace(
 assert.notEqual(instrumented,setup,"count real production snapshot validations");
 
 const DAY="2026-10-21";
-const ADVISORS={A:"Advisor A",B:"Advisor B",C:"Advisor C",D:"Advisor D",E:"Advisor E",F:"Advisor F"};
+const ADVISORS={"1001":"Advisor A","1002":"Advisor B","1003":"Advisor C","1004":"Advisor D","1005":"Advisor E","1006":"Advisor F"};
 function fixture(count){
   const records=Array.from({length:count},(_,i)=>({
     ro:String(100000+i),advisorCode:Object.keys(ADVISORS)[i%6],isOpen:true,openedDate:DAY
@@ -63,6 +63,14 @@ test("Assign Next reuses the validated workload snapshot without changing recomm
     const baseline=fixture(count),optimized=fixture(count);
     baseline.__validationCalls=0;optimized.__validationCalls=0;
     const before=baseline.runOld(),after=optimized.runOptimized();
+    if(count){
+      assert.ok(before.snapshot&&after.snapshot,"numeric advisor codes must keep the large workload valid");
+      assert.equal(before.snapshot.records.length,count);
+      assert.equal(after.snapshot.records.length,count);
+      assert.deepEqual(before.rows.map(row=>row.open).sort((a,b)=>a-b),[833,833,833,833,834,834]);
+    }else{
+      assert.equal(before.snapshot,null);assert.equal(after.snapshot,null);
+    }
     assert.equal(baseline.__validationCalls,2,"existing render path validates once for the summary and again in assignNextRows");
     assert.equal(optimized.__validationCalls,1,"optimized render path validates once and passes the same snapshot to row selection");
     assert.equal(signature(after),signature(before),"advisor counts, availability and ranking must remain identical");
