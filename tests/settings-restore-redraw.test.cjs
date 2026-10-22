@@ -192,7 +192,7 @@ test("SAPR roster reconciliation queues after advisor setup review",async()=>{
   const writes=[];let persisted;
   const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
-    writeAuthority:{canWrite:true},validAdvisorIdentity:()=>true,LEGACY_ADVISORS:{},now:()=>"synthetic-now",renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{},
+    writeAuthority:{canWrite:true},validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,LEGACY_ADVISORS:{},now:()=>"synthetic-now",renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{},
     writeJson:async(_path,value)=>{const snap=JSON.parse(JSON.stringify(value));writes.push(snap);if(writes.length===1)await pending.promise;persisted=snap;}};
   const {markAdvisorSetupReviewed,reconcileSaprAdvisors}=await production(context);
   const review=markAdvisorSetupReviewed("101");
