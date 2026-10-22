@@ -18,6 +18,7 @@ const row=(store,created,appt,interaction="SERVICE_REMINDER")=>{
 };
 function fixture(rows,opts={}){
   const sourceRows=[columns,...rows];
+  const removedSources=[];
   let durable={};
   const model={operationalMetrics:{},settings:{}};
   const ctx={
@@ -43,11 +44,12 @@ function fixture(rows,opts={}){
     writeJson:async(_path,value)=>{durable=structuredClone(value);},
     readJson:async()=>structuredClone(durable),
     addHistory:async()=>{},
-    removeSourceEntry:async()=>{}
+    removeSourceEntry:async name=>removedSources.push(name)
   };
   vm.runInNewContext(parser+importer,ctx);
   return{parse:()=>ctx.parseAppointmentActivityWorkbook([],"synthetic-appointments.xlsx"),
-    import:()=>ctx.importManagerSource("synthetic-appointments.xlsx","appointment-activity",[],false),ctx,model,durable:()=>durable};
+    import:(deleteAfterSuccess=false)=>ctx.importManagerSource("synthetic-appointments.xlsx","appointment-activity",[],deleteAfterSuccess),
+    setRows(rows){sourceRows.splice(0,sourceRows.length,columns,...rows);},removed:()=>removedSources.slice(),ctx,model,durable:()=>durable};
 }
 test("vendor serial dates and ISO dates produce separate verified store days",()=>{
   const d1=serialDate(46310),d2=serialDate(46312);
@@ -109,6 +111,19 @@ test("import persists individually scoped daily observations and one overall agg
   assert.equal(family.dailySnapshots[serialDate(46311)],undefined,"Do not manufacture zero activity");
   assert.equal(family.snapshots[two].rowCount,2);
 });
+
+test("conflicting same-period import preserves the saved source and leaves the new file for review",async()=>{
+  const f=fixture([row("9001",46310,46310),row("9001",46312,46312)]);
+  await f.import(false);
+  const before=f.durable();
+  const prior=structuredClone(before.appointmentActivity.snapshots["2026-10-20"]);
+  f.setRows([row("9001",46312,46312,"REPAIR_BOOKING")]);
+  await assert.rejects(f.import(true),/Conflicting appointment-activity report for period 2026-10-20 is already saved/);
+  assert.deepEqual(f.durable(),before,"conflict must be rejected before durable data is overwritten");
+  assert.deepEqual(f.model.operationalMetrics.appointmentActivity.snapshots["2026-10-20"],prior);
+  assert.deepEqual(f.removed(),[],"the conflicting source must remain available for review");
+});
+
 test("future-dated rows do not suppress earlier verified daily snapshots",async()=>{
   const f=fixture([
     row("9001","2026-10-19","2026-10-19"),
