@@ -145,7 +145,6 @@ test("repeated large inventory runs report measured synthetic p50/p95, without r
   console.log("SYNTHETIC 80+ backup deep scan p50="+p50.toFixed(1)+"ms p95="+p95.toFixed(1)+"ms; no Windows field evidence");
 });
 
-
 test("overlapping maintenance runs coalesce and release the single-flight guard",async()=>{
   const f=fixture();
   let signalEntered,releaseRun;
