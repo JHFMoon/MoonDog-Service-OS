@@ -343,21 +343,42 @@ test("guided setup completion preserves source expectations changed during its d
 });
 
 test("settings save completion does not overwrite a newer revision after delayed history",async()=>{
-  const history=deferred();
+  const historyStarted=deferred(),history=deferred(),timers=[];
   const model={settings:{schemaVersion:1,updatedAt:"before"},root:{}};
   const ui={settingsSaveStatus:{dataset:{},textContent:""}};
   let writes=0,renders=0;
   const context={SETTINGS_PATH:["settings.json"],model,ui,writeAuthority:{canWrite:true},readSettingsInputs:()=>{},now:()=>"synthetic-save-time",
-    writeJson:async()=>{writes++;},addHistory:()=>history.promise,renderAll:()=>{renders++;},setTimeout:()=>1,clearTimeout:()=>{}};
-  const {saveSettingsAutosave,queueSettingsAutosave}=await production(context);
-  const firstSave=saveSettingsAutosave(0);
-  await Promise.resolve();
-  await Promise.resolve();
+    writeJson:async()=>{writes++;},addHistory:()=>{historyStarted.resolve();return history.promise;},renderAll:()=>{renders++;},
+    setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout:()=>{},run:fn=>fn()};
+  const {queueSettingsAutosave}=await production(context);
+  queueSettingsAutosave();
+  const originalCompletion=timers[0]();
+  await historyStarted.promise;
   assert.equal(writes,1,"the original snapshot reaches durable storage before history");
   queueSettingsAutosave();
-  assert.equal(ui.settingsSaveStatus.dataset.saveState,"saving","newer edit is awaiting its own durable write");
+  assert.equal(ui.settingsSaveStatus.dataset.saveState,"saving","the newer edit is awaiting its own durable write");
   history.resolve();
-  await firstSave;
+  await originalCompletion;
   assert.equal(renders,0,"stale save completion must not redraw over the newer edit");
   assert.equal(ui.settingsSaveStatus.dataset.saveState,"saving","stale history completion must not report the newer revision as saved");
+});
+
+test("stale settings autosave failure cannot replace a newer saved status",async()=>{
+  const historyStarted=deferred(),staleHistory=deferred(),timers=[];
+  const model={settings:{schemaVersion:1,updatedAt:"before"},root:{}};
+  const ui={settingsSaveStatus:{dataset:{},textContent:""}};
+  let historyCalls=0;
+  const context={SETTINGS_PATH:["settings.json"],model,ui,writeAuthority:{canWrite:true},readSettingsInputs:()=>{},now:()=>"synthetic-save-time",
+    writeJson:async()=>{},addHistory:()=>{historyCalls++;if(historyCalls===1){historyStarted.resolve();return staleHistory.promise;}return Promise.resolve();},
+    renderAll:()=>{},setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout:()=>{},run:fn=>fn()};
+  const {queueSettingsAutosave}=await production(context);
+  queueSettingsAutosave();
+  const staleCompletion=timers[0]();
+  await historyStarted.promise;
+  queueSettingsAutosave();
+  await timers[1]();
+  assert.equal(ui.settingsSaveStatus.dataset.saveState,"saved","the newer autosave completed successfully");
+  staleHistory.reject(new Error("synthetic stale history failure"));
+  await assert.rejects(staleCompletion,/synthetic stale history failure/);
+  assert.equal(ui.settingsSaveStatus.dataset.saveState,"saved","older failure cannot overwrite newer saved state");
 });
