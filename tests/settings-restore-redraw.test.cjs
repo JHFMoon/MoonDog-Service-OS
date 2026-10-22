@@ -10,20 +10,21 @@ const advisorRender=slice("  function renderAdvisorSettings(","  function render
 const settingsRender=slice("  function renderSettings(","  function readSettingsInputs(");
 const lifecycle=slice("  async function updateAdvisorLifecycle(","  async function reconcileSaprAdvisors(");
 const settingsPersistence=slice("let settingsAutosaveTimer=null; let settingsWriteChain=Promise.resolve();","  async function saveSettingsAutosave()");
-function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${lifecycle} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings}; })(); }`);return factory(context);}
+const worksheetOrderRender=slice("  function renderSupervisorWorksheetOrder()","  function renderPhase2Settings()");
+function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder}; })(); }`);return factory(context);}
 
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve};}
 function element(){const classes=[];return{dataset:{},children:[],classes,textContent:"",classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
 
 test("advisor restore redraw preserves an unrelated settings edit during autosave debounce",async()=>{
   const write=deferred();
-  const advisor={number:"101",name:"Synthetic Advisor",active:false,removed:true,setupRequired:true,participation:{openRo:true}};
+  const advisor={number:"101",name:"Synthetic Advisor",active:false,removed:true,setupRequired:true,participation:{openRo:true,supervisorWorkbook:true}};
   const model={settings:{advisors:{"101":advisor},updatedAt:"before"}};
   const pendingInput={value:"persisted store name"};
   let wholeSettingsRenders=0;
-  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}}};
+  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},worksheetOrderSettings:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}}};
   const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
-  const context={SETTINGS_PATH:["settings.json"],model,ui,document,advisorShownInSection:()=>true,now:()=>"synthetic-now",
+  const context={SETTINGS_PATH:["settings.json"],model,ui,document,ensurePhase2SettingsUi:()=>{},supervisorAdvisorCodes:()=>["101"],advisorShownInSection:()=>true,now:()=>"synthetic-now",
     writeJson:()=>write.promise,writeAuthority:{canWrite:true},renderAll:()=>{},renderSetup:()=>{},validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,addHistory:async()=>{},
     renderSettings:()=>{wholeSettingsRenders++;pendingInput.value=model.settings.store?.name||"";}};
   const {updateAdvisorLifecycle:update}=await production(context);
@@ -38,6 +39,9 @@ test("advisor restore redraw preserves an unrelated settings edit during autosav
   const row=ui.advisorSettingsList.children[0];
   assert.ok(row.classes.includes("setup-attention"));
   assert.ok(row.children.some(child=>child.dataset?.advisorSetupReviewed==="101"&&child.textContent==="Mark setup reviewed"));
+  assert.equal(ui.worksheetOrderSettings.children.length,1,"restoring a workbook participant refreshes worksheet ordering");
+  assert.equal(ui.worksheetOrderSettings.children[0].children[0].textContent,"Synthetic Advisor · 101");
+  assert.equal(ui.worksheetOrderSettings.children[0].children[1].children.length,2,"restored worksheet has current ordering controls");
 });
 
 test("full settings render delegates advisor controls to the scoped redraw helper",()=>{
@@ -131,12 +135,12 @@ test("scoped advisor redraw keeps configured display names and excludes invalid 
 
 test("advisor restore serializes after an in-flight setup review",async()=>{
   const pending=deferred();
-  const advisor={number:"101",name:"Synthetic Advisor",displayName:"Synthetic Advisor",active:false,removed:true,setupRequired:true,participation:{openRo:true}};
+  const advisor={number:"101",name:"Synthetic Advisor",displayName:"Synthetic Advisor",active:false,removed:true,setupRequired:true,participation:{openRo:true,supervisorWorkbook:true}};
   const model={settings:{advisors:{"101":advisor},store:{name:"Synthetic"},updatedAt:"before"},root:{}};
   const writes=[];
-  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
+  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},worksheetOrderSettings:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
-    writeAuthority:{canWrite:true},advisorShownInSection:()=>true,validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,
+    writeAuthority:{canWrite:true},ensurePhase2SettingsUi:()=>{},supervisorAdvisorCodes:()=>["101"],advisorShownInSection:()=>true,validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,
     now:()=>"synthetic-now",renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{},
     writeJson:async(_path,value)=>{writes.push(JSON.parse(JSON.stringify(value)));if(writes.length===1)await pending.promise;}};
   const {markAdvisorSetupReviewed,updateAdvisorLifecycle}=await production(context);
