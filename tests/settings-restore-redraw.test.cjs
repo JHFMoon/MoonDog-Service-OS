@@ -8,11 +8,11 @@ const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
 function slice(start,end){const a=app.indexOf(start),b=app.indexOf(end,a+start.length);assert.ok(a>=0&&b>a,start);return app.slice(a,b);}
 const advisorRender=slice("  function renderAdvisorSettings(","  function renderSettings(");
 const settingsRender=slice("  function renderSettings(","  function readSettingsInputs(");
-const lifecycle=slice("  async function updateAdvisorLifecycle(","  async function reconcileSaprAdvisors(");
+const lifecycle=slice("  async function updateAdvisorLifecycle(","  function ensurePhase2SettingsUi(");
 const settingsPersistence=slice("let settingsAutosaveTimer=null; let settingsWriteChain=Promise.resolve();","  async function saveSettingsAutosave()");
 const worksheetOrderRender=slice("  function renderSupervisorWorksheetOrder()","  function renderPhase2Settings()");
 const localFuture=slice("  async function updateLocalFuture(","  async function recordRefreshLearning(");
-function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} ${localFuture} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder,updateLocalFuture}; })(); }`);return factory(context);}
+function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} ${localFuture} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder,updateLocalFuture,reconcileSaprAdvisors,saveSettingsAutosave,queueSettingsAutosave}; })(); }`);return factory(context);}
 
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve};}
 function element(){const classes=[];return{dataset:{},children:[],classes,textContent:"",classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
@@ -183,4 +183,44 @@ test("advisor restore serializes after an in-flight setup review",async()=>{
   assert.equal(writes[1].advisors["101"].removed,false);
   assert.equal(advisor.setupRequired,false);
   assert.equal(advisor.removed,false);
+});
+
+test("SAPR roster reconciliation queues after advisor setup review",async()=>{
+  const pending=deferred();
+  const advisor={number:"101",name:"Synthetic Advisor",sourceName:"Synthetic Advisor",displayName:"Synthetic Advisor",active:false,removed:true,setupRequired:true,participation:{openRo:true}};
+  const model={settings:{advisors:{"101":advisor},store:{name:"Synthetic"},updatedAt:"before"},root:{}};
+  const writes=[];let persisted;
+  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
+  const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
+    writeAuthority:{canWrite:true},validAdvisorIdentity:()=>true,LEGACY_ADVISORS:{},now:()=>"synthetic-now",renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{},
+    writeJson:async(_path,value)=>{const snap=JSON.parse(JSON.stringify(value));writes.push(snap);if(writes.length===1)await pending.promise;persisted=snap;}};
+  const {markAdvisorSetupReviewed,reconcileSaprAdvisors}=await production(context);
+  const review=markAdvisorSetupReviewed("101");
+  await Promise.resolve();
+  const reconcile=reconcileSaprAdvisors({periodEnd:"2026-10-20",advisors:{"101":{name:"Synthetic Advisor"}}});
+  pending.resolve();
+  await Promise.all([review,reconcile]);
+  assert.equal(writes.length,2);
+  assert.equal(writes[0].advisors["101"].setupRequired,false);
+  assert.equal(writes[1].advisors["101"].setupRequired,false,"queued SAPR write preserves the confirmed review");
+  assert.equal(writes[1].advisors["101"].active,true);
+  assert.equal(persisted.advisors["101"].setupRequired,false);
+  assert.equal(persisted.advisors["101"].active,true);
+});
+
+test("older autosave completion cannot mark a newer pending edit Saved",async()=>{
+  const pending=deferred();let timerId=0;
+  const model={settings:{store:{name:"Initial"},updatedAt:"before"},root:{}};
+  const ui={settingsSaveStatus:{dataset:{},textContent:""}};
+  const context={SETTINGS_PATH:["settings.json"],model,ui,writeAuthority:{canWrite:true},now:()=>"synthetic-now",
+    readSettingsInputs:()=>{},writeJson:()=>pending.promise,addHistory:async()=>{},renderAll:()=>{},
+    clearTimeout:()=>{},setTimeout:()=>++timerId,run:fn=>fn()};
+  const {saveSettingsAutosave,queueSettingsAutosave}=await production(context);
+  const first=saveSettingsAutosave(0);
+  await Promise.resolve();
+  queueSettingsAutosave();
+  pending.resolve();
+  await first;
+  assert.equal(ui.settingsSaveStatus.dataset.saveState,"saving");
+  assert.equal(ui.settingsSaveStatus.textContent,"Saving…");
 });
