@@ -4219,6 +4219,15 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     renderAdvisorSettings();renderAll();
     await addHistory("advisor-configuration",`${advisor.removed ? "Removed" : "Restored"} advisor ${code} in Service Operations Dashboard configuration`,{advisorCode:code,action});
   }
+  async function markAdvisorSetupReviewed(code) {
+    const advisor=model.settings.advisors[code];if(!advisor||!advisor.setupRequired)return;
+    if(!model.root||!writeAuthority.canWrite)throw new Error("Editing unavailable — reconnect folder");
+    const previousUpdatedAt=model.settings.updatedAt;advisor.setupRequired=false;model.settings.updatedAt=now();
+    try{await writeJson(SETTINGS_PATH,model.settings);}
+    catch(error){advisor.setupRequired=true;model.settings.updatedAt=previousUpdatedAt;renderAdvisorSettings();renderSetup();ui.settingsSaveStatus.dataset.saveState="error";ui.settingsSaveStatus.textContent="Save needs attention — see error";throw error;}
+    renderAdvisorSettings();renderSetup();ui.settingsSaveStatus.dataset.saveState="saved";ui.settingsSaveStatus.textContent="Advisor setup review saved";
+    await addHistory("advisor-setup-reviewed",`Marked advisor ${code} setup reviewed`,{advisorCode:code});
+  }
   async function reconcileSaprAdvisors(snapshot){const entries=Object.entries(snapshot.advisors||{}).filter(([code,source])=>validAdvisorIdentity(code,source?.name)),seen=new Set(entries.map(([code])=>code));let changed=false;for(const advisor of Object.values(model.settings.advisors||{})){const active=validAdvisorIdentity(advisor.number,advisor.name)&&seen.has(advisor.number);if(advisor.active!==active){advisor.active=active;changed=true;}if(active&&advisor.lastSeenSapr!==snapshot.periodEnd){advisor.lastSeenSapr=snapshot.periodEnd;changed=true;}}for(const [code,source]of entries){if(!model.settings.advisors[code]){model.settings.advisors[code]={number:code,name:source.name,sourceName:source.name,displayName:LEGACY_ADVISORS[code]||source.name,active:true,removed:false,setupRequired:Boolean(model.settings.setup?.completedAt),firstSeenSapr:snapshot.periodEnd,lastSeenSapr:snapshot.periodEnd,participation:{openRo:true,assignNext:false,dailyWalk:false,advisorPerformance:true,advisorMeeting:false,supervisorWorkbook:false}};changed=true;}else{const advisor=model.settings.advisors[code];if(advisor.sourceName!==source.name){advisor.sourceName=source.name;changed=true;}if(!advisor.displayName){advisor.displayName=LEGACY_ADVISORS[code]||advisor.name||source.name;changed=true;}if(!advisor.removed&&advisor.name!==advisor.displayName){advisor.name=advisor.displayName;changed=true;}}}if(changed){model.settings.updatedAt=now();await writeJson(SETTINGS_PATH,model.settings);await addHistory("sapr-advisor-sync","Updated SAPR-owned advisor lifecycle",{periodEnd:snapshot.periodEnd,active:seen.size,newAdvisorSetupRequired:Object.values(model.settings.advisors).filter((advisor)=>advisor.setupRequired&&validAdvisorIdentity(advisor.number,advisor.name)).map((advisor)=>advisor.number)});}}
   function ensurePhase2SettingsUi(){if(ui.managementStatusSettings)return;ui.exportName.disabled=false;ui.exportName.nextElementSibling.textContent="Use an .xlsx filename. The protected workbook schema remains fixed.";const advisorCard=ui.advisorSettingsList.closest("section"),statusCard=document.createElement("section");statusCard.className="card settings-card";statusCard.innerHTML='<div class="section-head"><div><h2>Open RO Workflow Statuses</h2><p>These seven statuses are fixed to the authoritative CDK workflow. Review details add management context without changing the parent status.</p></div></div><div id="managementStatusSettings" class="configuration-list"></div><p class="settings-note">Historical reviews keep their original status. At the next review, any retired status must be reconciled to one of these seven.</p>';advisorCard.after(statusCard);const dailyCard=document.createElement("section");dailyCard.className="card settings-card";dailyCard.innerHTML='<h2>Manager’s Daily Walk</h2><label>ROs per advisor<input id="dailyWalkCount" type="number" min="1" max="10" step="1"></label><p class="settings-note">Participation remains controlled independently in Advisors &amp; Participation.</p>';statusCard.after(dailyCard);const workbookCard=document.createElement("section");workbookCard.className="card settings-card";workbookCard.innerHTML='<h2>Supervisor Workbook</h2><p>Use the arrows to set worksheet order.</p><div id="worksheetOrderSettings" class="configuration-list"></div><p class="settings-note">Worksheet inclusion remains controlled independently in Advisors &amp; Participation.</p>';dailyCard.after(workbookCard);["managementStatusSettings","dailyWalkCount","worksheetOrderSettings"].forEach((id)=>ui[id]=document.getElementById(id));}
   function moveArrayItem(items,index,direction){const target=index+direction;if(target<0||target>=items.length)return items;const copy=[...items];[copy[index],copy[target]]=[copy[target],copy[index]];return copy;}
@@ -5292,12 +5301,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     });ui.advisorSettingsList.addEventListener("click",(event)=>{
       const reviewed=event.target.closest("button[data-advisor-setup-reviewed]");
       if(reviewed){
-        const advisor=model.settings.advisors[reviewed.dataset.advisorSetupReviewed];
-        if(!advisor||!model.root||!writeAuthority.canWrite)return;
-        advisor.setupRequired=false;
-        reviewed.closest(".advisor-setting")?.classList.remove("setup-attention");
-        reviewed.remove();
-        renderSetup();queueSettingsAutosave();
+        run(()=>markAdvisorSetupReviewed(reviewed.dataset.advisorSetupReviewed));
         return;
       }
       const button=event.target.closest("button[data-advisor-lifecycle]");
