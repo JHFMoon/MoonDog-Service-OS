@@ -1,3 +1,25 @@
+**LIVE CLOUD CHECKPOINT — 2026-10-22 17:48 UTC.** Main is `d421c74b8195ad012c921d493198fa12c49ed345`, the protected squash merge of #374. Live manifest: trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 has no Workspace migration. No field test, installation, or continuous execution is claimed.
+
+Active Protect Main ruleset #24665513: PR required; strict `Publication Check` from GitHub Actions app 15368; zero ordinary approvals; extra approval for unattributed changes; no bypass actors; current-user bypass `never`; deletion/non-fast-forward blocked. #164 stays closed; #58–#61 open; #212 deferred.
+
+### Single priority list
+1. **P0 #59/#164 integrity, scheduling, recovery:** #386 report idempotency/conflict repair then fresh exact-head review and additive current-main refresh; #373 interrupted recovery remains separately authorization-gated.
+2. **P0 #60 save/draft:** complete #388 persistence review/checks then additive current-main refresh; #389 remains a separate draft.
+3. **P0 #61 regression, lineage, releases:** #374 live matrix refresh merged; continue remaining criterion-level source/provenance and fault regressions. No Stable promotion.
+4. **P1 #58 startup/connect/navigation:** synthetic connected-use measurements through verified usable Home, with an explicit boundary; no Windows/OneDrive field inference.
+5. **P2 #164 residual readiness:** keep closed and track criterion-level remaining work only.
+
+### Verified changes and current blockers
+- #374 docs/matrix refresh merged through protected squash as `d421c74b8195ad012c921d493198fa12c49ed345`. Main publication/package workflow remains in progress; unadvertised runtime package step succeeded. No new Beta release claimed.
+- #368, #370, #376, #377 remain merged; #370 worker is included in trusted Beta 152.
+- #373 head `9775a2385d7cb81ba91e6f9662b156e8002f3de3`: Publication Check and Clean Install Proof pass at exact head; current review evidence is stale (recorded review cites `eb2a802...`). Base `99d5644...` stale. Separate merge authorization absent; never merge without it.
+- #386 head `b706632ed53ef6e38382062d5457fc72acb72dae`: both checks pass at exact head. Review receipts cite earlier heads (latest visible `e6cb4349d4`); metadata normalization and VM-realm findings are outdated but require fresh exact-head review before refresh. Base `99d5644...` stale.
+- #388 head `136e2712ac6f7742814f43eb02ec829bea969b5d`: Clean Install Proof passed; Publication Check was in progress. Exact-head Codex review pending; previous head had scoped redraw finding; subsequent serialized-write fixes await fresh review. Base `99d5644...` stale.
+- #389 head `2d5748e6b0e044afbeb924594abbb23851786ce9`: both checks pass, remains draft, exact-head review absent. #378 remains draft with findings and stale base.
+- #189/#183 require approval before merge/publish. Continue preserving Stable 0.10.17, trusted Beta only, Workspace/customer-data safety, synthetic-only tests, file:// and OneDrive compatibility.
+
+Next: recheck #386/#388 review and checks, fix any genuine findings before refresh; proceed in priority order while gates run.
+
 **LIVE CLOUD CHECKPOINT — 2026-10-22 17:39 UTC.** Main is `d5af312d512af32e21d469925cd39fc25f245a70`, the protected merge of PR #379. Its required Publication Check is running; do not claim it has passed. Live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 includes #383's unsaved Open RO draft warning; no Workspace migration. No installation or field evidence is claimed.
 
 Active Protect Main ruleset #24665513 requires a PR and strict `Publication Check` from GitHub Actions app 15368; ordinary approval count is zero, extra approval applies to unattributed changes, bypass actors are empty, current-user bypass is never, and deletion/non-fast-forward are blocked.
