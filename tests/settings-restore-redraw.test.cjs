@@ -12,8 +12,9 @@ const lifecycle=slice("  async function updateAdvisorLifecycle(","  function ens
 const settingsPersistence=slice("let settingsAutosaveTimer=null; let settingsAutosaveRevision=0; let settingsWriteChain=Promise.resolve();","  async function updateAdvisorLifecycle(");
 const worksheetOrderRender=slice("  function renderSupervisorWorksheetOrder()","  function renderPhase2Settings()");
 const localFuture=slice("  async function updateLocalFuture(","  async function recordRefreshLearning(");
+const guidedSetup=slice("  async function completeGuidedSetup()","  function openSetupIfRequired(");
 const meetingSave=slice("  async function saveMeetingVoice(pin) {","  function renderAdvisorSettings(");
-function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} ${localFuture} ${meetingSave} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder,updateLocalFuture,reconcileSaprAdvisors,saveSettingsAutosave,queueSettingsAutosave,saveMeetingVoice}; })(); }`);return factory(context);}
+function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} ${localFuture} ${meetingSave} ${guidedSetup} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder,updateLocalFuture,reconcileSaprAdvisors,saveSettingsAutosave,queueSettingsAutosave,saveMeetingVoice,completeGuidedSetup,reopenGuidedSetup}; })(); }`);return factory(context);}
 
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve};}
 function element(){const classes=[];return{dataset:{},children:[],classes,textContent:"",classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
@@ -250,4 +251,37 @@ test("meeting content writes serialize with setup review and retain the reviewed
   assert.equal(snapshots[1].advisors["101"].setupRequired,false,"meeting save must preserve the completed review on disk");
   assert.equal(snapshots[1].meetingTeamMessage,"Synthetic team note");
   assert.equal(model.settings.advisors["101"].setupRequired,false);
+});
+
+test("guided setup writes serialize with advisor setup review commits",async()=>{
+  for(const actionName of ["completeGuidedSetup","reopenGuidedSetup"]){
+    const first=deferred();
+    const snapshots=[];
+    let writeCount=0;
+    const advisor={number:"101",name:"Synthetic Advisor",active:true,removed:false,setupRequired:true,participation:{openRo:true}};
+    const model={root:{},settings:{advisors:{"101":advisor},setup:{completedAt:"synthetic-old",reopened:false},updatedAt:"before"}};
+    const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
+    const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
+      ensurePhase2SettingsUi:()=>{},supervisorAdvisorCodes:()=>["101"],advisorShownInSection:()=>true,now:()=>"synthetic-now",
+      writeJson:(_path,snapshot)=>{snapshots.push(structuredClone(snapshot));writeCount++;return writeCount===1?first.promise:Promise.resolve();},
+      writeAuthority:{canWrite:true},renderAll:()=>{},renderSetup:()=>{},navigateTo:()=>{},setupRequiredReady:()=>true,
+      validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,addHistory:async()=>{}};
+    const productionFunctions=await production(context);
+    const review=productionFunctions.markAdvisorSetupReviewed("101");
+    await new Promise(resolve=>setImmediate(resolve));
+    const setupAction=productionFunctions[actionName]();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(snapshots.length,1,"guided setup save waits behind the in-flight review");
+    first.resolve();
+    await Promise.all([review,setupAction]);
+    assert.equal(snapshots.length,2);
+    assert.equal(snapshots[1].advisors["101"].setupRequired,false,"guided setup save must retain the durable review");
+    assert.equal(model.settings.advisors["101"].setupRequired,false);
+    if(actionName==="completeGuidedSetup"){
+      assert.equal(snapshots[1].setup.completedAt,"synthetic-old");
+      assert.equal(snapshots[1].setup.reopened,false);
+    }else{
+      assert.equal(snapshots[1].setup.reopened,true);
+    }
+  }
 });
