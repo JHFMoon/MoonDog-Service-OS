@@ -1066,8 +1066,23 @@
     return diagnosticsQueue;
   }
   document.addEventListener('visibilitychange',()=>{if(document.hidden)void flushDiagnostics();});
-  async function writeJson(path, value,restoreId) { writeAuthority.requireWrite(restoreId); const bytes = new TextEncoder().encode(JSON.stringify(value, null, 2) + "\n");
-    try { await writeBytes(path, bytes,restoreId); const check = await readJson(path, null); if (JSON.stringify(check)!==JSON.stringify(value)) throw new Error(`Read-back verification failed for ${path.join("/")}.`); recordDiagnostic("DURABLE WRITE", `${path.join("/")} saved and verified`); } catch (error) { recordDiagnostic("DURABLE WRITE FAILED", `${path.join("/")} could not be saved (${error.name || "Error"})`); throw error; } }
+  async function writeJson(path, value,restoreId) {
+    writeAuthority.requireWrite(restoreId);
+    // Verify the immutable payload that was actually written. Live settings/RO
+    // models may change while the filesystem write is awaiting OneDrive.
+    const serialized=JSON.stringify(value,null,2)+"\n";
+    const expected=JSON.stringify(JSON.parse(serialized));
+    const bytes=new TextEncoder().encode(serialized);
+    try {
+      await writeBytes(path,bytes,restoreId);
+      const check=await readJson(path,null);
+      if(JSON.stringify(check)!==expected)throw new Error(`Read-back verification failed for ${path.join("/")}.`);
+      recordDiagnostic("DURABLE WRITE",`${path.join("/")} saved and verified`);
+    }catch(error){
+      recordDiagnostic("DURABLE WRITE FAILED",`${path.join("/")} could not be saved (${error.name || "Error"})`);
+      throw error;
+    }
+  }
   async function backupState(reason, state = model.state) { if (state.updatedAt) await writeJson(["backups", `${stamp()}-${slug(reason)}.json`], state); }
   async function addHistory(type, summary, details = {},restoreId) { const event = { schemaVersion: 1, id: `${stamp()}-${slug(type)}`, at: now(), type, summary, details }; await writeJson(["data", "history", `${event.id}.json`], event,restoreId); if (/import|source|migration|settings|workbook|export|fallback|coverage/i.test(type)) recordDiagnostic("OPERATION", `${type} completed`); }
   function migrateOpenRoFieldIdentity(){let changed=false;for(const record of model.state.records||[]){record.management||={};const id=resolveStatusId(record.management.status,record.management.statusId,true);if(id&&record.management.statusId!==id){record.management.statusId=id;changed=true;}const communication=normalizeCommunication(record.management.communication);if(record.management.communication!==communication){record.management.communication=communication;changed=true;}}return changed;}
@@ -4182,14 +4197,25 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     model.settings.meeting={...model.settings.meeting,dayOfWeek:Number(ui.meetingDay.value),startTime:ui.meetingStart.value||"06:30",resetTime:ui.meetingReset.value||"07:00",grossMinimum:minimum,grossStretch:stretch};
     model.settings.performanceStandards={...model.settings.performanceStandards,...localTargets};
   }
-  let settingsAutosaveTimer=null; async function saveSettingsAutosave() {
-    readSettingsInputs();
-    model.settings.updatedAt=now();
-    await writeJson(SETTINGS_PATH,model.settings);
-    await addHistory("settings-update","Updated product settings",{schemaVersion:model.settings.schemaVersion});
-    renderAll();
-    ui.settingsSaveStatus.dataset.saveState="saved";
-    ui.settingsSaveStatus.textContent=`Saved ${new Date(model.settings.updatedAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`;
+  let settingsAutosaveTimer=null, settingsAutosaveRevision=0, settingsAutosaveQueue=Promise.resolve();
+  async function saveSettingsAutosave() {
+    // Serialize durable snapshots. A newer edit owns its own debounced save;
+    // an older completion must neither enqueue itself nor report that edit saved.
+    const pending=settingsAutosaveQueue.catch(()=>{}).then(async()=>{
+      const startingRevision=settingsAutosaveRevision;
+      readSettingsInputs();
+      model.settings.updatedAt=now();
+      const submitted=JSON.stringify(model.settings);
+      const snapshot=JSON.parse(submitted);
+      await writeJson(SETTINGS_PATH,snapshot);
+      await addHistory("settings-update","Updated product settings",{schemaVersion:snapshot.schemaVersion});
+      if(settingsAutosaveRevision!==startingRevision)return;
+      renderAll();
+      ui.settingsSaveStatus.dataset.saveState="saved";
+      ui.settingsSaveStatus.textContent=`Saved ${new Date(snapshot.updatedAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`;
+    });
+    settingsAutosaveQueue=pending.catch(()=>{});
+    return pending;
   }
   function queueSettingsAutosave(){
     if(!model.root||!writeAuthority.canWrite){
@@ -4199,12 +4225,15 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     ui.settingsSaveStatus.dataset.saveState="saving";
     ui.settingsSaveStatus.textContent="Saving…";
+    const revision=++settingsAutosaveRevision;
     clearTimeout(settingsAutosaveTimer);
     settingsAutosaveTimer=setTimeout(()=>run(async()=>{
       try{await saveSettingsAutosave();}
       catch(error){
-        ui.settingsSaveStatus.dataset.saveState="error";
-        ui.settingsSaveStatus.textContent="Save needs attention — see error";
+        if(revision===settingsAutosaveRevision){
+          ui.settingsSaveStatus.dataset.saveState="error";
+          ui.settingsSaveStatus.textContent="Save needs attention — see error";
+        }
         throw error;
       }
     }),220);
