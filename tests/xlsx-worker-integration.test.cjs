@@ -86,18 +86,18 @@ test("production worker failure falls back synchronously and caches only the fal
 
 test("classification prepares each parser profile before invoking its synchronous parser", () => {
   const expected = [
-    /await prepareXlsxWorkbook\(bytes, \{ type: "array", cellDates: true \}\); parseCsiWorkbook/,
-    /await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true, cellDates: true \}\); parseMenuSalesWorkbook/,
-    /await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true \}\); parsePerformanceWorkbook/,
-    /await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true, cellDates: true, cellNF: true \}\); parseEfficiencyWorkbook/,
-    /await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true, cellDates: true, cellNF: true \}\); return parseMediaAsrWorkbook/
+    /if \(typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes, \{ type: "array", cellDates: true \}\); parseCsiWorkbook/,
+    /if \(typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true, cellDates: true \}\); parseMenuSalesWorkbook/,
+    /if \(typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true \}\); parsePerformanceWorkbook/,
+    /if \(typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true, cellDates: true, cellNF: true \}\); parseEfficiencyWorkbook/,
+    /if \(typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true, cellDates: true, cellNF: true \}\); return parseMediaAsrWorkbook/
   ];
   for (const pattern of expected) assert.match(app, pattern);
-  assert.match(app, /if \(!isPdf\) await prepareXlsxWorkbook\(bytes,\{type:"array",raw:true,cellDates:true\}\); const date=.*workbookGrid\(bytes\)\.rows/);
+  assert.match(app, /if \(!isPdf && typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes,\{type:"array",raw:true,cellDates:true\}\); const date=.*workbookGrid\(bytes\)\.rows/);
 });
 
 test("classification and import retain one byte snapshot through workbook parsing", () => {
-  assert.match(app, /book = await prepareXlsxWorkbook\(bytes, \{ type: "array", cellDates: true, cellFormula: true \}\)/);
+  assert.match(app, /book = typeof prepareXlsxWorkbook === "function" ? await prepareXlsxWorkbook\(bytes, \{ type: "array", cellDates: true, cellFormula: true \}\) : XLSX.read\(bytes, \{ type: "array", cellDates: true, cellFormula: true \}\)/);
   assert.match(app, /importPerformanceFile\(candidate\.name, deleteAfterSuccess, bytes\)/);
   assert.match(app, /importMenuSalesFile\(candidate\.name, deleteAfterSuccess, bytes\)/);
   assert.match(app, /importCsiFile\(candidate\.name, deleteAfterSuccess, bytes\)/);
