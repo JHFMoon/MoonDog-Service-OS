@@ -55,7 +55,7 @@ try {
   if (versions.pdfjs !== "5.6.205") throw new Error("PDF.js version mismatch: " + JSON.stringify(versions));
   if (!/^\d+\.\d+\.\d+/.test(String(versions.app || ""))) throw new Error("Application version was not exposed: " + JSON.stringify(versions));
 
-  const workerProbe = await page.evaluate((probePath) => {
+  const workerProbe = await page.evaluate(async (probePath) => {
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["probe"], ["synthetic"]]), "Probe");
     const encoded = XLSX.write(book, { bookType: "xlsx", type: "array" });
@@ -74,6 +74,34 @@ try {
     } catch (error) {
       workerError = String(error?.message || error);
     }
+    let transferProbe = { ok: false, detached: false, error: "" };
+    let transferWorker;
+    let transferUrl;
+    try {
+      const echoSource = "self.onmessage = event => self.postMessage({ byteLength: event.data.byteLength });";
+      transferUrl = URL.createObjectURL(new Blob([echoSource], { type: "text/javascript" }));
+      transferWorker = new Worker(transferUrl);
+      const transferBuffer = new Uint8Array([1, 2, 3, 4]).buffer;
+      transferProbe.detached = false;
+      transferProbe.ok = await new Promise(resolve => {
+        const timer = setTimeout(() => resolve(false), 5000);
+        transferWorker.onmessage = event => {
+          clearTimeout(timer);
+          resolve(event.data?.byteLength === 4);
+        };
+        transferWorker.onerror = () => {
+          clearTimeout(timer);
+          resolve(false);
+        };
+        transferWorker.postMessage(transferBuffer, [transferBuffer]);
+        transferProbe.detached = transferBuffer.byteLength === 0;
+      });
+    } catch (error) {
+      transferProbe.error = String(error?.message || error);
+    } finally {
+      transferWorker?.terminate();
+      if (transferUrl) URL.revokeObjectURL(transferUrl);
+    }
     const rows = XLSX.utils.sheet_to_json(
       XLSX.read(buffer, { type: "array", raw: true }).Sheets.Probe,
       { header: 1, raw: true }
@@ -84,6 +112,7 @@ try {
       cspMeta,
       workerConstructed,
       workerError,
+      transferProbe,
       fallbackParsed: JSON.stringify(rows) === JSON.stringify([["probe"], ["synthetic"]]),
       rows
     };
@@ -97,13 +126,17 @@ try {
   if (!/cannot be accessed from origin ['"]null['"]/i.test(workerProbe.workerError)) {
     throw new Error("Static file worker failed for an unexpected reason: " + JSON.stringify(workerProbe));
   }
+  if (!workerProbe.transferProbe.ok || !workerProbe.transferProbe.detached) {
+    throw new Error("Synthetic transferable ArrayBuffer probe failed in a disposable Blob worker: " + JSON.stringify(workerProbe.transferProbe));
+  }
   if (!workerProbe.fallbackParsed) throw new Error("Synchronous SheetJS fallback failed after file worker denial: " + JSON.stringify(workerProbe));
   console.log("Packaged file:// worker feasibility:", JSON.stringify({
     protocol: workerProbe.protocol,
     origin: workerProbe.origin,
     cspMeta: workerProbe.cspMeta.length,
-    workerConstructed: workerProbe.workerConstructed,
-    workerError: workerProbe.workerError,
+    staticWorkerConstructed: workerProbe.workerConstructed,
+    staticWorkerError: workerProbe.workerError,
+    blobTransferProbe: workerProbe.transferProbe,
     synchronousFallbackParsed: workerProbe.fallbackParsed
   }));
 
