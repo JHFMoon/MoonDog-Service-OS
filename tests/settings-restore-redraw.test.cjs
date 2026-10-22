@@ -13,8 +13,9 @@ const settingsPersistence=slice("let settingsAutosaveTimer=null; let settingsAut
 const worksheetOrderRender=slice("  function renderSupervisorWorksheetOrder()","  function renderPhase2Settings()");
 const localFuture=slice("  async function updateLocalFuture(","  async function recordRefreshLearning(");
 const guidedSetup=slice("  async function completeGuidedSetup()","  function openSetupIfRequired(");
-const meetingSave=slice("  function meetingVoiceDraft(){","  function renderAdvisorSettings(");
-function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} ${localFuture} ${meetingSave} ${guidedSetup} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder,updateLocalFuture,reconcileSaprAdvisors,saveSettingsAutosave,queueSettingsAutosave,saveMeetingVoice,syncMeetingVoiceDraftSettings,completeGuidedSetup,reopenGuidedSetup}; })(); }`);return factory(context);}
+const meetingDraftSync=slice("  function syncMeetingVoiceDraftSettings(){","  function meetingVoiceDraftValidation()");
+const meetingSave=slice("  async function saveMeetingVoice(pin) {","  function renderAdvisorSettings(");
+function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} ${localFuture} ${meetingDraftSync} ${meetingSave} ${guidedSetup} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder,updateLocalFuture,reconcileSaprAdvisors,saveSettingsAutosave,queueSettingsAutosave,saveMeetingVoice,syncMeetingVoiceDraftSettings,completeGuidedSetup,reopenGuidedSetup}; })(); }`);return factory(context);}
 
 function deferred(){let resolve,reject;const promise=new Promise((r,j)=>{resolve=r;reject=j;});return{promise,resolve,reject};}
 function element(){const classes=[];return{dataset:{},children:[],classes,textContent:"",classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
@@ -292,9 +293,10 @@ test("queued meeting applies preserve the most recent user selection",async()=>{
   const first=deferred(),writes=[];
   const model={root:{},meetingVoiceDraftRevision:0,settings:{meetingVoiceMode:"automatic",meetingCustomerVoiceSourceMethod:"saved",meetingCustomerVoiceSurveyId:"",meetingCustomerVoicePastedSource:"",meetingCustomerVoiceExcerpt:"",meetingTeamMessage:"",updatedAt:"before"}};
   const ui={meetingVoiceMode:{value:"team-message"},meetingVoiceSourceMethod:{value:"saved"},meetingVoiceSurvey:{value:""},meetingVoicePastedSource:{value:""},meetingVoiceExcerpt:{value:""},meetingTeamMessage:{value:"First synthetic message"},meetingVoiceWarning:{hidden:true},meetingVoiceSurveyValue:""};
+  const contextDraft=()=>({mode:ui.meetingVoiceMode.value,method:ui.meetingVoiceSourceMethod.value,source:"",excerpt:ui.meetingVoiceExcerpt.value,teamMessage:ui.meetingTeamMessage.value});
   let count=0;
   const context={SETTINGS_PATH:["settings.json"],model,ui,writeAuthority:{canWrite:true},now:()=>"synthetic-time",text:value=>String(value||""),currentCsiSurveys:()=>({}),
-    ensureCustomerVoiceSourceUi:()=>{},writeJson:async(_path,snapshot)=>{writes.push(structuredClone(snapshot));count++;if(count===1)await first.promise;},
+    ensureCustomerVoiceSourceUi:()=>{},meetingVoiceDraft:contextDraft,writeJson:async(_path,snapshot)=>{writes.push(structuredClone(snapshot));count++;if(count===1)await first.promise;},
     addHistory:async()=>{},renderAll:()=>{},status:()=>{}};
   const {saveMeetingVoice,syncMeetingVoiceDraftSettings}=await production(context);
   syncMeetingVoiceDraftSettings();
