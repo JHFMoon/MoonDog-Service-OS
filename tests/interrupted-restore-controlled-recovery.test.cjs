@@ -170,3 +170,18 @@ test("interrupted recovery recognizes only progress tied to the held restore and
   assert.equal(context.auditDirection("data/history/"+id+".json",eventBytes,{...marker,restoreId:"123e4567-e89b-42d3-a456-426614174001"}),null);
   assert.equal(context.recoveryDirection(new TextEncoder().encode(JSON.stringify({...recovery,status:"Ready"})),marker),null);
 });
+
+test("recovery reloads settings before release and invalidates the Daily history cache",()=>{
+  const app=fs.readFileSync(path.join(__dirname,"..","assets/app.js"),"utf8");
+  const start=app.indexOf("  async function recoverInterruptedRestore(){");
+  const end=app.indexOf("  async function readExistingBytes(",start);
+  assert.ok(start>=0&&end>start,"production controlled recovery flow must exist");
+  const recovery=app.slice(start,end);
+  const adapter=recovery.indexOf("loadSourceAdapter(recoveredAdapter,rawSettings)");
+  const finish=recovery.indexOf("await writeAuthority.finishInterruptedRecovery(restoreId)");
+  const invalidate=recovery.indexOf('dailyNotify("moondog-recovered")');
+  assert.ok(adapter>=0&&adapter<finish,"restored source adapter must load before write access resumes");
+  assert.ok(finish>=0&&invalidate>finish,"Daily history cache must invalidate after hold release");
+  assert.ok(recovery.includes("model.recovery.interruptedRestoreReview=null;"),
+    "transient interrupted assessment must not be persisted after recovery");
+});
