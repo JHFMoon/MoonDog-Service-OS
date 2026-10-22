@@ -4303,8 +4303,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       settingsAutosaveTimer=null;
       try{await saveSettingsAutosave(revision);}
       catch(error){
-        ui.settingsSaveStatus.dataset.saveState="error";
-        ui.settingsSaveStatus.textContent="Save needs attention — see error";
+        if(revision===settingsAutosaveRevision){
+          ui.settingsSaveStatus.dataset.saveState="error";
+          ui.settingsSaveStatus.textContent="Save needs attention — see error";
+        }
         throw error;
       }
     }),220);
