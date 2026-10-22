@@ -3822,9 +3822,24 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const byRo=(a,b)=>String(a.ro||"").localeCompare(String(b.ro||""),undefined,{numeric:true});
     const byAdvisor=(a,b)=>String(a.advisor||"").localeCompare(String(b.advisor||""))||byRo(a,b);
     const byLongest=(a,b)=>(Number(b.daysOpen)||0)-(Number(a.daysOpen)||0)||byRo(a,b);
-    const priority=(record)=>clarificationFor(record)?0:isClosedManagement(record.management)?8:adminCloseoutState(record,today).overdue?1:adminCloseoutState(record,today).needsCommitment?2:adminCloseoutState(record,today).dueToday?3:record.management.reviewDate&&record.management.reviewDate<today?4:record.management.reviewDate===today?5:!record.management.nextAction?6:7;
-    const byPriority=(a,b)=>priority(a)-priority(b)||String(a.management.reviewDate||"9999-12-31").localeCompare(String(b.management.reviewDate||"9999-12-31"))||byAdvisor(a,b);
-    return [...rows].sort(mode==="longest"?byLongest:mode==="advisor"?byAdvisor:mode==="ro"?byRo:byPriority);
+    const result=[...rows];
+    // Non-priority sorts need no manager-state evaluation.
+    if(mode==="longest")return result.sort(byLongest);
+    if(mode==="advisor")return result.sort(byAdvisor);
+    if(mode==="ro")return result.sort(byRo);
+    if(result.length<2)return result;
+    // Admin closeout analysis can walk dated commitment history. Evaluate it
+    // once per RO for this render, not on every O(n log n) sort comparison.
+    // This cache never survives the call: edits/reimports use fresh rankings.
+    const priority=(record)=>{
+      if(clarificationFor(record))return 0;
+      if(isClosedManagement(record.management))return 8;
+      const closeout=adminCloseoutState(record,today);
+      return closeout.overdue?1:closeout.needsCommitment?2:closeout.dueToday?3:record.management.reviewDate&&record.management.reviewDate<today?4:record.management.reviewDate===today?5:!record.management.nextAction?6:7;
+    };
+    const ranks=new Map();
+    for(const record of result)if(!ranks.has(record))ranks.set(record,priority(record));
+    return result.sort((a,b)=>ranks.get(a)-ranks.get(b)||String(a.management.reviewDate||"9999-12-31").localeCompare(String(b.management.reviewDate||"9999-12-31"))||byAdvisor(a,b));
   }
   function renderTable() {
     ensureOpenRoRetrievalUi();const rawQuery=ui.searchInput.value.trim(),query=norm(rawQuery),advisor = ui.advisorFilter.value, sourceStatus = ui.sourceStatusFilter.value, managementStatus = ui.managementStatusFilter.value, attention = ui.attentionFilter.value, today = localDateKey(), all = openRoVisibleRecords(), exactRos=rawQuery?all.filter((record)=>norm(record.ro)===query):[];
