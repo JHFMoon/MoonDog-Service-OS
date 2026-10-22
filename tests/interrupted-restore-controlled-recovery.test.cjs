@@ -253,9 +253,11 @@ function controlledRecoveryExecutionFixture(options={}){
       .map(([p,bytes])=>({name:p.slice(parts.join("/").length+1),bytes:new Uint8Array(bytes)})),
     sha256:async bytes=>digest(bytes),
     collectControlledRecoveryJournals:async()=>[],
-    verifyRestoredBackupState:async entries=>{
+    verifyRestoredBackupState:async(entries,controlledProgress=null)=>{
       for(const entry of entries){
         const bytes=live.get(entry.path);
+        if(entry.path==="data/recovery.json"&&controlledProgress?.marker&&
+           context.interruptedRecoveryProgressDirection(bytes,controlledProgress.marker)===controlledProgress.direction)continue;
         if(!bytes||bytes.byteLength!==entry.size||digest(bytes)!==entry.sha256)
           throw Error("Synthetic restored state did not match the selected archive.");
       }
