@@ -49,20 +49,29 @@ function fixture(count){
 function signature(result){
   return JSON.stringify({snapshot:result.snapshot?{count:result.snapshot.records.length}:null,rows:result.rows});
 }
-function measure(run,iterations=16){
-  const values=[];
+function measurePair(oldRun,newRun,iterations=24){
+  const before=[],after=[];
+  const record=(samples,run)=>{const start=performance.now();run();samples.push(performance.now()-start);};
   for(let i=0;i<iterations;i++){
-    const start=performance.now();run();values.push(performance.now()-start);
+    if(i%2===0){record(before,oldRun);record(after,newRun);}
+    else{record(after,newRun);record(before,oldRun);}
   }
-  values.sort((a,b)=>a-b);
-  return {p50:+values[Math.ceil(values.length*.5)-1].toFixed(3),p95:+values[Math.ceil(values.length*.95)-1].toFixed(3)};
+  const summarize=values=>{
+    values.sort((a,b)=>a-b);
+    return {p50:+values[Math.ceil(values.length*.5)-1].toFixed(3),p95:+values[Math.ceil(values.length*.95)-1].toFixed(3)};
+  };
+  return {before:summarize(before),after:summarize(after)};
 }
 
 test("Assign Next reuses the validated workload snapshot without changing recommendations",()=>{
   for(const count of [0,5000]){
-    const baseline=fixture(count),optimized=fixture(count);
-    baseline.__validationCalls=0;optimized.__validationCalls=0;
-    const before=baseline.runOld(),after=optimized.runOptimized();
+    const harness=fixture(count);
+    harness.__validationCalls=0;
+    const before=harness.runOld();
+    assert.equal(harness.__validationCalls,2,"existing render path validates once for the summary and again in assignNextRows");
+    harness.__validationCalls=0;
+    const after=harness.runOptimized();
+    assert.equal(harness.__validationCalls,1,"optimized render path validates once and passes the same snapshot to row selection");
     if(count){
       assert.ok(before.snapshot&&after.snapshot,"numeric advisor codes must keep the large workload valid");
       assert.equal(before.snapshot.records.length,count);
@@ -71,16 +80,14 @@ test("Assign Next reuses the validated workload snapshot without changing recomm
     }else{
       assert.equal(before.snapshot,null);assert.equal(after.snapshot,null);
     }
-    assert.equal(baseline.__validationCalls,2,"existing render path validates once for the summary and again in assignNextRows");
-    assert.equal(optimized.__validationCalls,1,"optimized render path validates once and passes the same snapshot to row selection");
     assert.equal(signature(after),signature(before),"advisor counts, availability and ranking must remain identical");
-    const oldRun=()=>baseline.runOld(),newRun=()=>optimized.runOptimized();
-    oldRun();newRun();
-    const oldTiming=measure(oldRun),newTiming=measure(newRun);
+    const oldRun=()=>harness.runOld(),newRun=()=>harness.runOptimized();
+    oldRun();newRun(); // warm both exact paths in the same VM context
+    const timing=measurePair(oldRun,newRun);
     console.log("#58 Assign Next snapshot reuse (synthetic calculation path only):",JSON.stringify({
       dataset:count?"synthetic-5000-open-ros":"synthetic-empty-workload",
-      iterations:16,beforeP50Ms:oldTiming.p50,afterP50Ms:newTiming.p50,
-      beforeP95Ms:oldTiming.p95,afterP95Ms:newTiming.p95,
+      pairedIterationsPerPath:24,beforeP50Ms:timing.before.p50,afterP50Ms:timing.after.p50,
+      beforeP95Ms:timing.before.p95,afterP95Ms:timing.after.p95,
       validationsPerRenderBefore:2,validationsPerRenderAfter:1
     }));
   }
