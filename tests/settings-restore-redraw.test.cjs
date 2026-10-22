@@ -9,6 +9,8 @@ function slice(start,end){const a=app.indexOf(start),b=app.indexOf(end,a+start.l
 const advisorRender=slice("  function renderAdvisorSettings(","  function renderSettings(");
 const settingsRender=slice("  function renderSettings(","  function readSettingsInputs(");
 const lifecycle=slice("  async function updateAdvisorLifecycle(","  async function reconcileSaprAdvisors(");
+const settingsPersistence=slice("let settingsAutosaveTimer=null; let settingsWriteChain=Promise.resolve();","  async function saveSettingsAutosave()");
+function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${lifecycle} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot}; })(); }`);return factory(context);}
 
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve};}
 function element(){const classes=[];return{dataset:{},children:[],classes,classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
@@ -24,7 +26,6 @@ test("advisor restore redraw preserves an unrelated settings edit during autosav
   const context={SETTINGS_PATH:["settings.json"],model,ui,document,advisorShownInSection:()=>true,now:()=>"synthetic-now",
     writeJson:()=>write.promise,renderAll:()=>{},addHistory:async()=>{},
     renderSettings:()=>{wholeSettingsRenders++;pendingInput.value=model.settings.store?.name||"";}};
-  const production=Function("context",`with(context){ return (async()=>{ ${advisorRender} ${lifecycle} return {updateAdvisorLifecycle,markAdvisorSetupReviewed}; })(); }`);
   const {updateAdvisorLifecycle:update}=await production(context);
   const restoring=update("101","restore");
   pendingInput.value="synthetic edit made while restore write is pending";
@@ -51,7 +52,6 @@ test("failed setup review save restores the pending action and permits retry",as
   const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document,writeAuthority:{canWrite:true},advisorShownInSection:()=>true,now:()=>"synthetic-now",
     writeJson:async()=>{throw new Error("synthetic write denied");},renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{}};
-  const production=Function("context",`with(context){ return (async()=>{ ${advisorRender} ${lifecycle} return {updateAdvisorLifecycle,markAdvisorSetupReviewed}; })(); }`);
   const {markAdvisorSetupReviewed}=await production(context);
   await assert.rejects(markAdvisorSetupReviewed("101"),/synthetic write denied/);
   assert.equal(advisor.setupRequired,true,"failed durable writes must retain the review requirement");
@@ -59,4 +59,30 @@ test("failed setup review save restores the pending action and permits retry",as
   assert.equal(ui.settingsSaveStatus.dataset.saveState,"error");
   const row=ui.advisorSettingsList.children[0];
   assert.ok(row.children.some(child=>child.dataset?.advisorSetupReviewed==="101"),"the action must remain available for retry");
+});
+
+test("setup review and settings autosave serialize immutable snapshots",async()=>{
+  const pending=deferred();
+  const advisor={number:"101",name:"Synthetic Advisor",active:true,removed:false,setupRequired:true,participation:{openRo:true}};
+  const model={settings:{advisors:{"101":advisor},store:{name:"Initial synthetic"},updatedAt:"before"},root:{}};
+  const writes=[];
+  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
+  const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
+  const context={SETTINGS_PATH:["settings.json"],model,ui,document,writeAuthority:{canWrite:true},advisorShownInSection:()=>true,now:()=>"synthetic-now",
+    writeJson:async(_path,value)=>{writes.push(value);if(writes.length===1)await pending.promise;},renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{}};
+  const {markAdvisorSetupReviewed,persistSettingsSnapshot}=await production(context);
+  const reviewing=markAdvisorSetupReviewed("101");
+  await Promise.resolve();
+  model.settings.store.name="synthetic edit during first write";
+  const nextSave=persistSettingsSnapshot();
+  model.settings.store.name="later synthetic edit before second write";
+  pending.resolve();
+  await reviewing;
+  await nextSave;
+  assert.equal(advisor.setupRequired,false,"a successful durable review remains committed");
+  assert.equal(writes.length,2);
+  assert.equal(writes[0].advisors["101"].setupRequired,false);
+  assert.equal(writes[0].store.name,"synthetic edit during first write");
+  assert.equal(writes[1].advisors["101"].setupRequired,false);
+  assert.equal(writes[1].store.name,"later synthetic edit before second write");
 });
