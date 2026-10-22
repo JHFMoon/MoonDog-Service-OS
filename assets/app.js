@@ -4367,7 +4367,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       }
     }
     try{
-      for(const file of await directoryFiles(["data","history"]))actual.set("data/history/"+file.name,file.bytes);
+      for(const file of await directoryFiles(["data","history"]))if(!file.name.startsWith(".moondog-txn-"))actual.set("data/history/"+file.name,file.bytes);
     }catch(error){
       if(error.name!=="NotFoundError"){result.unreadable++;result.state="unreadable-files";}
     }
@@ -4404,7 +4404,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         }
       }
       try{
-        for(const file of await directoryFiles(["data","history"]))
+        for(const file of await directoryFiles(["data","history"]))if(!file.name.startsWith(".moondog-txn-"))
           rechecked.set("data/history/"+file.name,file.bytes);
       }catch(error){
         if(error.name!=="NotFoundError"){result.unreadable++;result.state="unreadable-files";}
@@ -4475,6 +4475,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       for(const path of canonical)files.set(path,new Uint8Array(await readFileBytes(path.split("/"))));
       const history=await directoryFiles(["data","history"]);
       for(const file of history){
+        if(file.name.startsWith(".moondog-txn-"))continue;
         if(!/^[^/\\.][^/\\]*\.json$/.test(file.name)||files.has("data/history/"+file.name))
           throw new Error("The live history inventory contains an unsupported or duplicate path.");
         files.set("data/history/"+file.name,new Uint8Array(file.bytes));
@@ -4499,6 +4500,18 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const stable=await capture();
     if(!sameFiles(initial,stable))
       throw new Error("Operational files changed during recovery assessment. Recovery stopped and the hold remains.");
+    const journalAllowed=path=>paths.has(path)||path==="data/restore-in-progress.json"||historyPath(path);
+    const pendingJournals=await collectControlledRecoveryJournals();
+    for(const item of pendingJournals){
+      if(!journalAllowed(item.targetPath))
+        throw new Error("A pending transaction journal targets data outside the verified backups.");
+      const journal=item.journal,currentBytes=await readExistingBytes(item.targetPath);
+      const validRecorded=value=>value===null||Array.isArray(value)&&value.every(byte=>Number.isInteger(byte)&&byte>=0&&byte<=255);
+      const recorded=journal.format==="moondog-write-v1"?[journal.before,journal.after]:
+        journal.format==="moondog-delete-v1"?[journal.before,null]:[null];
+      if(!recorded.every(validRecorded)||!recorded.some(value=>equalBytes(currentBytes,value===null?null:new Uint8Array(value))))
+        throw new Error("A transaction journal conflicts with current bytes. The recovery hold remains.");
+    }
     const destination=direction==="safety"?"protected safety backup":"interrupted restore source";
     if(!window.confirm("Controlled recovery will make the complete operational Workspace match the "+destination+". Every live file must still match one of the two verified backups. Independent, missing, unreadable, or changing files stop recovery. The safety backup and recovery hold are retained until final verification succeeds. Continue?"))
       return false;
@@ -4547,23 +4560,6 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         }
       }
       await verifyRestoredBackupState(target.manifest.entries);
-      const recoveryJournals=await collectControlledRecoveryJournals();
-      for(const item of recoveryJournals){
-        if(!paths.has(item.targetPath)&&item.targetPath!=="data/restore-in-progress.json")
-          throw new Error("A pending transaction journal targets data outside the selected verified backup. Recovery remains held.");
-        const currentBytes=await readExistingBytes(item.targetPath);
-        const journal=item.journal;
-        const known=[journal.before,journal.after].filter(value=>value===null||Array.isArray(value)).map(value=>value===null?null:new Uint8Array(value));
-        if(!known.some(value=>equalBytes(currentBytes,value)))
-          throw new Error("A pending transaction journal no longer matches its recorded bytes. Recovery remains held.");
-      }
-      for(const item of recoveryJournals){
-        await maintenanceIO.cleanupJournal(item.path,restoreId);
-        if(await maintenanceIO.exists(item.path))
-          throw new Error("A verified transaction journal could not be removed.");
-      }
-      if((await collectControlledRecoveryJournals()).length)
-        throw new Error("Unresolved transaction journals remain. The recovery hold stays in place.");
       model.recovery.lastRestore={
         sourceFile:direction==="source"?marker.sourceFile:marker.safetyBackup,
         restoredAt:now(),sourceCreatedAt:target.manifest.createdAt,
@@ -4575,7 +4571,42 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         at:now(),type:"full-restore-recovered",
         summary:"Completed a manager-confirmed recovery from an interrupted whole-state restore",
         details:{selectedState:direction,sourceFile:marker.sourceFile,safetyBackup:marker.safetyBackup}};
-      await writeJson(["data","history",event.id+".json"],event,restoreId);
+      const eventPath="data/history/"+event.id+".json";
+      const eventBytes=new TextEncoder().encode(JSON.stringify(event,null,2)+"\\n");
+      await writeJson(eventPath.split("/"),event,restoreId);
+      const recoveryPath=RECOVERY_PATH.join("/");
+      const verifyFinalState=async()=>{
+        const live=await capture();
+        for(const path of canonical){
+          const bytes=present(live)(path);
+          if(path===recoveryPath){
+            if(!equalBytes(bytes,new TextEncoder().encode(JSON.stringify(model.recovery,null,2)+"\\n")))
+              throw new Error("Recovered status did not pass exact durable verification.");
+          }else if(!await matches(bytes,chosen.get(path)))
+            throw new Error("A canonical file changed after recovery verification.");
+        }
+        const expectedHistory=new Map([...chosen.entries()].filter(([path])=>path.startsWith("data/history/")));
+        expectedHistory.set(eventPath,{size:eventBytes.byteLength,sha256:await sha256(eventBytes)});
+        for(const path of [...live.keys()].filter(path=>path.startsWith("data/history/")))
+          if(!await matches(live.get(path),expectedHistory.get(path)))
+            throw new Error("History changed after recovery verification.");
+        for(const path of expectedHistory.keys())if(!live.has(path))
+          throw new Error("A verified history file is missing after recovery.");
+        return live;
+      };
+      const finalSnapshot=await verifyFinalState();
+      const recoveryJournals=await collectControlledRecoveryJournals();
+      for(const item of recoveryJournals){
+        if(!journalAllowed(item.targetPath))
+          throw new Error("A transaction journal targets data outside the selected verified backup.");
+        await maintenanceIO.cleanupJournal(item.path,restoreId);
+        if(await maintenanceIO.exists(item.path))
+          throw new Error("A verified transaction journal could not be removed.");
+      }
+      if((await collectControlledRecoveryJournals()).length)
+        throw new Error("Unresolved transaction journals remain. The recovery hold stays in place.");
+      if(!sameFiles(finalSnapshot,await capture()))
+        throw new Error("Operational bytes changed before the recovery hold could be released.");
       await writeAuthority.finishInterruptedRecovery(restoreId);
       recoveryStarted=false;
       model.recovery.interruptedRestoreReview=null;
