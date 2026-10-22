@@ -32,6 +32,7 @@ try {
     ""
   ].join("\n"), "utf8");
 
+  await page.addInitScript(() => { globalThis.__MOONDOG_ENABLE_XLSX_SMOKE = true; });
   await page.goto(pathToFileURL(path.resolve(index)).href, { waitUntil: "load", timeout: 30000 });
   await page.waitForURL(url => url.protocol === "file:" && url.pathname.endsWith("/index.html"), { timeout: 10000 });
   await page.waitForFunction(() =>
@@ -291,6 +292,90 @@ try {
       maxHeartbeatGapMs: Math.max(...largeWorkbookProbe.syncRuns.map(run => run.maxHeartbeatGapMs)),
       heartbeats: largeWorkbookProbe.syncRuns.map(run => run.ticks)
     }
+  }));
+
+  const productionXlsxProbe = await page.evaluate(async ({ xlsxSource }) => {
+    if (typeof globalThis.__moondogXlsxSmoke?.prepare !== "function") {
+      throw new Error("Packaged production XLSX parser hook was not initialized.");
+    }
+    globalThis.__moondogXlsxSmoke.setVendorSource(xlsxSource);
+    const rowCount = 25000;
+    const rows = [["id", "ordinal", "category", "amount", "active", "description"]];
+    for (let index = 0; index < rowCount; index += 1) {
+      rows.push(["synthetic-" + index, index, "repair-order", index * 1.25, index % 2 === 0, "synthetic workbook row " + index]);
+    }
+    const sourceBook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(sourceBook, XLSX.utils.aoa_to_sheet(rows), "Production Probe");
+    const encoded = XLSX.write(sourceBook, { bookType: "xlsx", type: "array" });
+    const sourceBytes = encoded instanceof ArrayBuffer
+      ? new Uint8Array(encoded)
+      : new Uint8Array(encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength));
+    if (sourceBytes.byteLength < 512 * 1024) throw new Error("Synthetic production XLSX fixture did not cross the worker threshold: " + sourceBytes.byteLength);
+    const options = { type: "array", raw: true };
+    async function measure(parse) {
+      let ticks = 0;
+      let maxHeartbeatGapMs = 0;
+      let lastTick = performance.now();
+      const heartbeat = setInterval(() => {
+        const now = performance.now();
+        maxHeartbeatGapMs = Math.max(maxHeartbeatGapMs, now - lastTick);
+        lastTick = now;
+        ticks += 1;
+      }, 20);
+      let book;
+      let parseMs = 0;
+      let materializationMs = 0;
+      try {
+        const parseStarted = performance.now();
+        book = await parse();
+        parseMs = performance.now() - parseStarted;
+        const materializationStarted = performance.now();
+        const parsedRows = XLSX.utils.sheet_to_json(book.Sheets["Production Probe"], { header: 1, raw: true });
+        materializationMs = performance.now() - materializationStarted;
+        if (parsedRows.length !== rowCount + 1 ||
+            parsedRows[1]?.[0] !== "synthetic-0" ||
+            parsedRows[parsedRows.length - 1]?.[0] !== "synthetic-" + (rowCount - 1) ||
+            JSON.stringify(parsedRows) !== JSON.stringify(rows)) {
+          throw new Error("Production XLSX parser did not preserve all synthetic rows.");
+        }
+        await new Promise(resolve => setTimeout(resolve, 25));
+        return { parseMs, materializationMs, ticks, maxHeartbeatGapMs, parsedRows: parsedRows.length };
+      } finally {
+        clearInterval(heartbeat);
+      }
+    }
+    const workerRuns = [];
+    const syncRuns = [];
+    for (let sample = 0; sample < 3; sample += 1) {
+      const bytes = sourceBytes.slice();
+      workerRuns.push(await measure(() => globalThis.__moondogXlsxSmoke.prepare(bytes, options)));
+    }
+    for (let sample = 0; sample < 3; sample += 1) {
+      const bytes = sourceBytes.slice();
+      syncRuns.push(await measure(() => XLSX.read(bytes, options)));
+    }
+    const workerStatus = globalThis.__moondogXlsxSmoke.workerStatus();
+    if (!workerStatus.active || workerStatus.disabled) throw new Error("Production intake worker did not stay active for the packaged XLSX probe: " + JSON.stringify(workerStatus));
+    return { rowCount, workbookBytes: sourceBytes.byteLength, workerStatus, workerRuns, syncRuns };
+  }, { xlsxSource });
+  const productionPercentile = (values, fraction) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.max(0, Math.ceil(fraction * sorted.length) - 1)];
+  };
+  const summarizeProductionRuns = runs => ({
+    parserP50Ms: productionPercentile(runs.map(run => run.parseMs), 0.5),
+    parserP95Ms: productionPercentile(runs.map(run => run.parseMs), 0.95),
+    materializationP50Ms: productionPercentile(runs.map(run => run.materializationMs), 0.5),
+    materializationP95Ms: productionPercentile(runs.map(run => run.materializationMs), 0.95),
+    maxHeartbeatGapMs: Math.max(...runs.map(run => run.maxHeartbeatGapMs)),
+    heartbeatTicks: runs.map(run => run.ticks),
+    parsedRows: runs.map(run => run.parsedRows)
+  });
+  console.log("Packaged production XLSX parser responsiveness:", JSON.stringify({
+    rows: productionXlsxProbe.rowCount,
+    workbookBytes: productionXlsxProbe.workbookBytes,
+    worker: summarizeProductionRuns(productionXlsxProbe.workerRuns),
+    synchronous: summarizeProductionRuns(productionXlsxProbe.syncRuns)
   }));
 
   const pdfResult = await page.evaluate(async () => {
