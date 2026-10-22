@@ -39,7 +39,7 @@ function harness({ failWorker = false } = {}) {
     runtimeFileBytes: async () => { const source = new Uint8Array(300000); source.set(new TextEncoder().encode("XLSX.version")); return source; },
     clearTimeout, setTimeout, ArrayBuffer, Uint8Array, WeakMap, Map, TypeError, Error, console
   });
-  vm.runInContext(helper + "\nthis.prepareXlsxWorkbook=prepareXlsxWorkbook; this.xlsxRead=XLSX.read;", context);
+  // Expose the production wrapper so extracted importer harnesses keep the existing XLSX.read interface.\n  vm.runInContext(helper + "\nthis.prepareXlsxWorkbook=prepareXlsxWorkbook; this.xlsxRead=XLSX.read;", context);
   return { context, workerCalls, nativeCalls };
 }
 
