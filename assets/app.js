@@ -4168,7 +4168,52 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function renderCustomerVoiceManager(choice = meetingVoiceChoice(currentCsiSurveys())) { if (!ui.meetingVoiceSurvey) return; ensureCustomerVoiceSourceUi(); const surveys = currentCsiSurveys(), entries = Object.entries(surveys).filter(([, survey]) => text(survey.positiveComment).trim()).sort((a, b) => b[1].surveyDate.localeCompare(a[1].surveyDate)), desired = model.settings.meetingCustomerVoiceSurveyId || choice.pendingId || ""; ui.meetingVoiceSurvey.replaceChildren(new Option("Choose saved response", "")); entries.forEach(([id, survey]) => { const preview = text(survey.positiveComment).replace(/\s+/g, " ").trim().slice(0, 90), option = new Option(`${survey.surveyDate} · ${preview}${text(survey.positiveComment).length > 90 ? "…" : ""}`, id); ui.meetingVoiceSurvey.add(option); }); ui.meetingVoiceSurvey.value = entries.some(([id]) => id === desired) ? desired : ""; ui.meetingVoiceMode.value=model.settings.meetingVoiceMode||(model.settings.meetingCustomerVoiceSurveyId?"customer-quote":"automatic");ui.meetingVoiceSourceMethod.value=model.settings.meetingCustomerVoiceSourceMethod||"saved";ui.meetingVoicePastedSource.value=text(model.settings.meetingCustomerVoicePastedSource);ui.meetingTeamMessage.value=text(model.settings.meetingTeamMessage);const selected=surveys[ui.meetingVoiceSurvey.value],original=ui.meetingVoiceSourceMethod.value==="pasted"?ui.meetingVoicePastedSource.value:text(selected?.positiveComment);ui.meetingVoiceExcerpt.value=text(model.settings.meetingCustomerVoiceExcerpt)||(ui.meetingVoiceMode.value==="customer-quote"?original:"");const warning = choice.warning; ui.meetingVoiceWarning.hidden = !warning; ui.meetingVoiceWarning.textContent = warning;renderVoiceControlVisibility();const footer=document.querySelector("#view-meeting .meeting-v3-voice"),quote=document.querySelector("#meetingV3Quote");if(footer&&quote){footer.querySelector("span").textContent=choice.label||"CUSTOMER VOICE";quote.textContent=choice.quote?(choice.label==="TEAM MESSAGE"?choice.quote:`“${choice.quote}”`):`“${choice.label==="TEAM MESSAGE"?"A TEAM MESSAGE WILL APPEAR AFTER IT IS APPLIED.":"A CUSTOMER VOICE MOMENT WILL APPEAR WHEN A QUALIFYING RESPONSE IS AVAILABLE."}”`;}}
   function previewMeetingVoiceSelection() { const survey = currentCsiSurveys()[ui.meetingVoiceSurvey.value], original = text(survey?.positiveComment); ui.meetingVoiceExcerpt.value = original; ui.meetingVoiceWarning.hidden = true; }
   function useFullMeetingVoice(){const draft=meetingVoiceDraft();ui.meetingVoiceExcerpt.value=draft.source;ui.meetingVoiceWarning.hidden=true;}
-  async function saveMeetingVoice(pin) { ensureCustomerVoiceSourceUi();const before = { mode:model.settings.meetingVoiceMode||"automatic",sourceMethod:model.settings.meetingCustomerVoiceSourceMethod||"saved",surveyId: model.settings.meetingCustomerVoiceSurveyId || "", hasPastedSource:Boolean(model.settings.meetingCustomerVoicePastedSource),hasExcerpt: Boolean(model.settings.meetingCustomerVoiceExcerpt),hasTeamMessage:Boolean(model.settings.meetingTeamMessage) }; if (!pin) { model.settings.meetingVoiceMode="automatic";model.settings.meetingCustomerVoiceSourceMethod="saved";model.settings.meetingCustomerVoiceSurveyId="";model.settings.meetingCustomerVoicePastedSource="";model.settings.meetingCustomerVoiceExcerpt="";model.settings.meetingTeamMessage=""; } else { const draft=meetingVoiceDraft();if(draft.mode==="customer-quote"){if(!draft.source.trim())throw new Error(draft.method==="pasted"?"Paste the actual customer response before applying it.":"Choose a saved customer response before applying it.");const display=draft.excerpt||draft.source;if(!draft.source.includes(display))throw new Error("The TV excerpt must be copied exactly from the selected customer response.");}if(draft.mode==="team-message"&&!draft.teamMessage.trim())throw new Error("Enter a Team Message before applying it.");model.settings.meetingVoiceMode=draft.mode;model.settings.meetingCustomerVoiceSourceMethod=draft.method;model.settings.meetingCustomerVoiceSurveyId=draft.mode==="customer-quote"&&draft.method==="saved"?ui.meetingVoiceSurvey.value:"";model.settings.meetingCustomerVoicePastedSource=draft.mode==="customer-quote"&&draft.method==="pasted"?draft.source:"";model.settings.meetingCustomerVoiceExcerpt=draft.mode==="customer-quote"?draft.excerpt:"";model.settings.meetingTeamMessage=draft.mode==="team-message"?draft.teamMessage:"";} await writeJson(SETTINGS_PATH, model.settings); await addHistory("meeting-customer-voice", pin ? "Updated Advisor Meeting TV content" : "Returned Advisor Meeting Customer Voice to automatic selection", { before, after: { mode:model.settings.meetingVoiceMode,sourceMethod:model.settings.meetingCustomerVoiceSourceMethod,surveyId:model.settings.meetingCustomerVoiceSurveyId||"",hasPastedSource:Boolean(model.settings.meetingCustomerVoicePastedSource),hasExcerpt:Boolean(model.settings.meetingCustomerVoiceExcerpt),hasTeamMessage:Boolean(model.settings.meetingTeamMessage) } }); renderAll(); status(pin ? "Advisor Meeting content was updated." : "Customer Voice returned to automatic selection.", "success"); }
+  async function saveMeetingVoice(pin) {
+    ensureCustomerVoiceSourceUi();
+    const before = {
+      mode:model.settings.meetingVoiceMode||"automatic",
+      sourceMethod:model.settings.meetingCustomerVoiceSourceMethod||"saved",
+      surveyId:model.settings.meetingCustomerVoiceSurveyId||"",
+      hasPastedSource:Boolean(model.settings.meetingCustomerVoicePastedSource),
+      hasExcerpt:Boolean(model.settings.meetingCustomerVoiceExcerpt),
+      hasTeamMessage:Boolean(model.settings.meetingTeamMessage)
+    };
+    let next;
+    if (!pin) {
+      next={meetingVoiceMode:"automatic",meetingCustomerVoiceSourceMethod:"saved",meetingCustomerVoiceSurveyId:"",meetingCustomerVoicePastedSource:"",meetingCustomerVoiceExcerpt:"",meetingTeamMessage:""};
+    } else {
+      const draft=meetingVoiceDraft();
+      if(draft.mode==="customer-quote"){
+        if(!draft.source.trim())throw new Error(draft.method==="pasted"?"Paste the actual customer response before applying it.":"Choose a saved customer response before applying it.");
+        const display=draft.excerpt||draft.source;
+        if(!draft.source.includes(display))throw new Error("The TV excerpt must be copied exactly from the selected customer response.");
+      }
+      if(draft.mode==="team-message"&&!draft.teamMessage.trim())throw new Error("Enter a Team Message before applying it.");
+      next={
+        meetingVoiceMode:draft.mode,
+        meetingCustomerVoiceSourceMethod:draft.method,
+        meetingCustomerVoiceSurveyId:draft.mode==="customer-quote"&&draft.method==="saved"?ui.meetingVoiceSurvey.value:"",
+        meetingCustomerVoicePastedSource:draft.mode==="customer-quote"&&draft.method==="pasted"?draft.source:"",
+        meetingCustomerVoiceExcerpt:draft.mode==="customer-quote"?draft.excerpt:"",
+        meetingTeamMessage:draft.mode==="team-message"?draft.teamMessage:""
+      };
+    }
+    await persistSettingsSnapshot(snapshot=>{
+      const updatedAt=now();
+      Object.assign(snapshot,next,{updatedAt});
+      return ()=>{Object.assign(model.settings,next);model.settings.updatedAt=updatedAt;};
+    });
+    await addHistory("meeting-customer-voice",pin?"Updated Advisor Meeting TV content":"Returned Advisor Meeting Customer Voice to automatic selection",{before,after:{
+      mode:model.settings.meetingVoiceMode,
+      sourceMethod:model.settings.meetingCustomerVoiceSourceMethod,
+      surveyId:model.settings.meetingCustomerVoiceSurveyId||"",
+      hasPastedSource:Boolean(model.settings.meetingCustomerVoicePastedSource),
+      hasExcerpt:Boolean(model.settings.meetingCustomerVoiceExcerpt),
+      hasTeamMessage:Boolean(model.settings.meetingTeamMessage)
+    }});
+    renderAll();
+    status(pin?"Advisor Meeting content was updated.":"Customer Voice returned to automatic selection.","success");
+  }
   function renderAdvisorSettings() {
     ui.advisorSettingsList.replaceChildren();
     Object.values(model.settings.advisors||{}).filter(advisor=>validAdvisorIdentity(advisor.number,advisor.name))
