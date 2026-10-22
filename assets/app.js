@@ -4284,6 +4284,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     await persistSettingsSnapshot();
     if(revision!==settingsAutosaveRevision)return;
     await addHistory("settings-update","Updated product settings",{schemaVersion:model.settings.schemaVersion});
+    if(revision!==settingsAutosaveRevision)return;
     renderAll();
     ui.settingsSaveStatus.dataset.saveState="saved";
     ui.settingsSaveStatus.textContent=`Saved ${new Date(model.settings.updatedAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`;
