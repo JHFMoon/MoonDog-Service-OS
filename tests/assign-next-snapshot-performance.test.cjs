@@ -67,7 +67,7 @@ test("Assign Next reuses the validated workload snapshot without changing recomm
       assert.ok(before.snapshot&&after.snapshot,"numeric advisor codes must keep the large workload valid");
       assert.equal(before.snapshot.records.length,count);
       assert.equal(after.snapshot.records.length,count);
-      assert.deepEqual(before.rows.map(row=>row.open).sort((a,b)=>a-b),[833,833,833,833,834,834]);
+      assert.deepEqual(Array.from(before.rows,row=>row.open).sort((a,b)=>a-b),[833,833,833,833,834,834]);
     }else{
       assert.equal(before.snapshot,null);assert.equal(after.snapshot,null);
     }
