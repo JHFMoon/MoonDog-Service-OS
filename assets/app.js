@@ -1961,7 +1961,7 @@
       for(const technician of copy.technicians||[])delete technician.number;
       delete copy.unresolved;
     }
-    if(["efficiency","mediaAsr","mediaAsrTech"].includes(family)){
+    if(["efficiency","mediaAsr","mediaAsrTech","media-asr","media-asr-tech"].includes(family)){
       for(const advisor of Object.values(copy.advisors||{}))delete advisor.name;
     }
     const canonicalize=item=>item instanceof Date?item.toISOString():Array.isArray(item)?item.map(canonicalize):item&&typeof item==="object"?Object.fromEntries(Object.keys(item).sort().map(key=>[key,canonicalize(item[key])])):item;
