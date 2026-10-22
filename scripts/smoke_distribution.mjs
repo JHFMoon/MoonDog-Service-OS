@@ -57,6 +57,14 @@ try {
 
   const xlsxSource = await readFile(path.join(applicationRoot, "vendor", "xlsx.full.min.js"), "utf8");
   const workerProbe = await page.evaluate(async ({ probePath, xlsxSource }) => {
+    let vendorRead = { method: "", length: 0, error: "" };
+    try {
+      const response = await fetch(new URL("vendor/xlsx.full.min.js", location.href));
+      const source = await response.text();
+      vendorRead = { method: "fetch", length: source.length, error: "" };
+    } catch (error) {
+      vendorRead.error = String(error?.message || error);
+    }
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["probe"], ["synthetic"]]), "Probe");
     const encoded = XLSX.write(book, { bookType: "xlsx", type: "array" });
@@ -123,6 +131,7 @@ try {
       protocol: location.protocol,
       origin: location.origin,
       cspMeta,
+      vendorRead,
       workerConstructed,
       workerError,
       transferProbe,
@@ -147,6 +156,7 @@ try {
     protocol: workerProbe.protocol,
     origin: workerProbe.origin,
     cspMeta: workerProbe.cspMeta.length,
+    vendorSourceRead: workerProbe.vendorRead,
     staticWorkerConstructed: workerProbe.workerConstructed,
     staticWorkerError: workerProbe.workerError,
     blobWorkerSheetJsParseAndTransfer: workerProbe.transferProbe,
