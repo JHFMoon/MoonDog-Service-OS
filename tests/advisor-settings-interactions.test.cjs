@@ -87,6 +87,7 @@ test("autosave shows an error instead of leaving a green Saving badge after disk
   const chip={dataset:{},textContent:""};
   const ctx=vm.createContext({
     model:{root:{name:"Synthetic workspace"},settings:{schemaVersion:1}},
+    SETTINGS_PATH:["data","settings.json"],
     ui:{settingsSaveStatus:chip},
     writeAuthority:{canWrite:true},
     now:()=>"2026-10-22T14:00:00.000Z",
