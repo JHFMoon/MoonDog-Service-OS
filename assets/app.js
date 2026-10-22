@@ -4199,10 +4199,17 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         meetingTeamMessage:draft.mode==="team-message"?draft.teamMessage:""
       };
     }
+    const submittedValues=Object.fromEntries(Object.keys(next).map(key=>[key,model.settings[key]]));
+    const submittedUpdatedAt=model.settings.updatedAt;
     await persistSettingsSnapshot(snapshot=>{
       const updatedAt=now();
       Object.assign(snapshot,next,{updatedAt});
-      return ()=>{Object.assign(model.settings,next);model.settings.updatedAt=updatedAt;};
+      return ()=>{
+        Object.keys(next).forEach(key=>{
+          if(Object.is(model.settings[key],submittedValues[key]))model.settings[key]=next[key];
+        });
+        if(Object.is(model.settings.updatedAt,submittedUpdatedAt))model.settings.updatedAt=updatedAt;
+      };
     });
     await addHistory("meeting-customer-voice",pin?"Updated Advisor Meeting TV content":"Returned Advisor Meeting Customer Voice to automatic selection",{before,after:{
       mode:model.settings.meetingVoiceMode,
