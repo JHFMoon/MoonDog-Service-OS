@@ -26,19 +26,19 @@ function fixture(rows,opts={}){
     text:v=>String(v??""),
     norm:v=>String(v??"").trim().toLowerCase(),
     now:()=>"2026-10-20T12:00:00.000Z",
-    localDateKey:()=>"2026-10-20",
+    localDateKey:()=>opts.localDate||"2026-10-20",
     isoCell:v=>typeof v==="string"&&/^20\d{2}-\d{2}-\d{2}$/.test(v)?v:"",
     reportStoreCode:()=>"9001",
-    workbookGrid:()=>({rows:sourceRows}),
+    workbookGrid:()=>({rows:opts.workbookRows||sourceRows}),
     model,
     structuredClone,
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
-    sourceFileHandle:async()=>({getFile:async()=>({lastModified:Date.UTC(2026,9,20)})}),
-    parseSorWorkbook:()=>null,parseEfficiencyWorkbook:()=>null,
+    sourceFileHandle:async()=>({getFile:async()=>({lastModified:opts.lastModified??Date.UTC(2026,9,20)})}),
+    parseSorWorkbook:()=>opts.sorSnapshot?structuredClone(opts.sorSnapshot):null,parseEfficiencyWorkbook:()=>null,
     parseMediaAsrAdvisorWorkbook:()=>null,parseMediaAsrTechWorkbook:()=>null,
     parseOpenRoSummaryWorkbook:()=>null,
     dailyEvidenceDate:(_family,snapshot)=>snapshot?.sourceModifiedAt?.slice(0,10)||"2026-10-20",
-    internalObservationDate:()=> "",
+    internalObservationDate:()=>opts.observationDate||"",
     pruneDatedSnapshots:s=>s,
     learnTechnicians:()=>{},
     advisorDisplayName:x=>String(x),
@@ -50,6 +50,8 @@ function fixture(rows,opts={}){
   vm.runInNewContext(parser+comparator+importer,ctx);
   return{parse:()=>ctx.parseAppointmentActivityWorkbook([],"synthetic-appointments.xlsx"),
     import:(deleteAfterSuccess=false,name="synthetic-appointments.xlsx")=>ctx.importManagerSource(name,"appointment-activity",[],deleteAfterSuccess),
+    importSor:(deleteAfterSuccess=false,name="synthetic-sor.xlsx")=>ctx.importManagerSource(name,"sor",[],deleteAfterSuccess),
+    setSorSnapshot(value){opts.sorSnapshot=value;},
     setRows(rows){sourceRows.splice(0,sourceRows.length,columns,...rows);},setDurable(value){durable=value;},removed:()=>removedSources.slice(),ctx,model,durable:()=>durable};
 }
 test("vendor serial dates and ISO dates produce separate verified store days",()=>{
@@ -126,6 +128,7 @@ test("shared report comparison ignores derived metadata and canonicalizes maps f
   const advisorBefore={periodEnd:"2026-10-20",advisors:{"101":{code:"101",name:"Display One",sourceName:"Source Name",gross:2500}}};
   const advisorAfter={...advisorBefore,advisors:{"101":{code:"101",name:"Display Two",sourceName:"Source Name",gross:2500}}};
   assert.equal(f.ctx.comparableManagerSnapshot(advisorBefore,"efficiency"),f.ctx.comparableManagerSnapshot(advisorAfter,"efficiency"),"configured display labels are not report content");
+  assert.equal(f.ctx.comparableManagerSnapshot(advisorBefore,"openRoSummary"),f.ctx.comparableManagerSnapshot(advisorAfter,"openRoSummary"),"Open RO summary labels follow current settings and are not report content");
   assert.notEqual(f.ctx.comparableManagerSnapshot(advisorBefore,"efficiency"),f.ctx.comparableManagerSnapshot({...advisorAfter,advisors:{"101":{...advisorAfter.advisors["101"],gross:2600}}},"efficiency"),"advisor report measurements remain conflict-sensitive");
   assert.equal(f.ctx.managerConflictObservationDate("sor",{period:"2026-10",sourceModifiedAt:"2026-10-19T12:00:00Z"},[]),"2026-10-19","SOR conflict date follows the source modification date when there is no observation cell");
   assert.equal(f.ctx.managerConflictObservationDate("sor",{period:"2026-10",coverageDate:"2026-10-19"},[]),"2026-10-19","daily SOR conflicts are keyed by observation day");
@@ -202,4 +205,18 @@ test("identical report reimport ignores derived metadata, filename, and map inse
   assert.deepEqual(JSON.parse(JSON.stringify(reimported.byInteraction)),original.byInteraction);
   assert.deepEqual(JSON.parse(JSON.stringify(reimported.byCreationDate)),original.byCreationDate);
   assert.deepEqual(f.removed(),["synthetic-appointments (1).xlsx"]);
+});
+
+
+test("future SOR conflicts fall back to the matching monthly snapshot before any mutation",async()=>{
+  const original={period:"2026-10",date:"2026-10-23",store:{gross:100},advisors:{}};
+  const f=fixture([],{localDate:"2026-10-22",lastModified:Date.UTC(2026,9,23),sorSnapshot:original});
+  await f.importSor(false,"synthetic-sor.xlsx");
+  const before=f.durable();
+  assert.equal(before.sor.dailySnapshots?.["2026-10-23"],undefined,"future source coverage intentionally has no daily projection yet");
+  assert.ok(before.sor.snapshots["2026-10"],"future SOR report is retained under its monthly key");
+  f.setSorSnapshot({...original,store:{gross:200}});
+  await assert.rejects(f.importSor(true,"synthetic-conflicting-sor.xlsx"),/Conflicting sor report for period 2026-10-23 is already saved/);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.durable())),JSON.parse(JSON.stringify(before)),"monthly prior and operational data remain unchanged");
+  assert.deepEqual(f.removed(),[],"conflicting future SOR source remains available for review");
 });
