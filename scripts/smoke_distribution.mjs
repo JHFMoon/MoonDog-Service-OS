@@ -56,7 +56,7 @@ try {
   if (!/^\d+\.\d+\.\d+/.test(String(versions.app || ""))) throw new Error("Application version was not exposed: " + JSON.stringify(versions));
 
   const xlsxSource = await readFile(path.join(applicationRoot, "vendor", "xlsx.full.min.js"), "utf8");
-  const workerProbe = await page.evaluate(async (probePath, xlsxSource) => {
+  const workerProbe = await page.evaluate(async ({ probePath, xlsxSource }) => {
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["probe"], ["synthetic"]]), "Probe");
     const encoded = XLSX.write(book, { bookType: "xlsx", type: "array" });
@@ -129,7 +129,7 @@ try {
       fallbackParsed: JSON.stringify(rows) === JSON.stringify([["probe"], ["synthetic"]]),
       rows
     };
-  }, `__xlsx-worker-probe-${process.pid}/probe.js`, xlsxSource);
+  }, { probePath: `__xlsx-worker-probe-${process.pid}/probe.js`, xlsxSource });
 
   if (workerProbe.protocol !== "file:") {
     throw new Error("Worker feasibility probe did not run under the packaged opaque file origin: " + JSON.stringify(workerProbe));
