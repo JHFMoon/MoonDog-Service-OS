@@ -24,8 +24,8 @@ test("advisor restore redraw preserves an unrelated settings edit during autosav
   const context={SETTINGS_PATH:["settings.json"],model,ui,document,advisorShownInSection:()=>true,now:()=>"synthetic-now",
     writeJson:()=>write.promise,renderAll:()=>{},addHistory:async()=>{},
     renderSettings:()=>{wholeSettingsRenders++;pendingInput.value=model.settings.store?.name||"";}};
-  const production=Function("context",`with(context){ return (async()=>{ ${advisorRender} ${lifecycle} return updateAdvisorLifecycle; })(); }`);
-  const update=await production(context);
+  const production=Function("context",`with(context){ return (async()=>{ ${advisorRender} ${lifecycle} return {updateAdvisorLifecycle,markAdvisorSetupReviewed}; })(); }`);
+  const {updateAdvisorLifecycle:update}=await production(context);
   const restoring=update("101","restore");
   pendingInput.value="synthetic edit made while restore write is pending";
   write.resolve();
@@ -42,4 +42,20 @@ test("advisor restore redraw preserves an unrelated settings edit during autosav
 test("full settings render delegates advisor controls to the scoped redraw helper",()=>{
   assert.match(settingsRender,/renderAdvisorSettings\(\);/);
   assert.doesNotMatch(settingsRender,/advisorSettingsList\.replaceChildren\(\)/);
+});
+
+test("failed setup review save restores the pending action and permits retry",async()=>{
+  const advisor={number:"101",name:"Synthetic Advisor",active:true,removed:false,setupRequired:true,participation:{openRo:true}};
+  const model={settings:{advisors:{"101":advisor},updatedAt:"before"},root:{}};
+  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
+  const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
+  const context={SETTINGS_PATH:["settings.json"],model,ui,document,writeAuthority:{canWrite:true},advisorShownInSection:()=>true,now:()=>"synthetic-now",
+    writeJson:async()=>{throw new Error("synthetic write denied");},renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{}};
+  const {markAdvisorSetupReviewed}=await production(context);
+  await assert.rejects(markAdvisorSetupReviewed("101"),/synthetic write denied/);
+  assert.equal(advisor.setupRequired,true,"failed durable writes must retain the review requirement");
+  assert.equal(model.settings.updatedAt,"before","failed writes must roll back the in-memory revision");
+  assert.equal(ui.settingsSaveStatus.dataset.saveState,"error");
+  const row=ui.advisorSettingsList.children[0];
+  assert.ok(row.children.some(child=>child.dataset?.advisorSetupReviewed==="101"),"the action must remain available for retry");
 });
