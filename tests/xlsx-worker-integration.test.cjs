@@ -39,7 +39,7 @@ function harness({ failWorker = false } = {}) {
     runtimeFileBytes: async () => { const source = new Uint8Array(300000); source.set(new TextEncoder().encode("XLSX.version")); return source; },
     clearTimeout, setTimeout, ArrayBuffer, Uint8Array, WeakMap, Map, TypeError, Error, console
   });
-  vm.runInContext(helper + "\nthis.prepareXlsxWorkbook=prepareXlsxWorkbook; this.readWorkbook=readWorkbook;", context);
+  vm.runInContext(helper + "\nthis.prepareXlsxWorkbook=prepareXlsxWorkbook; this.xlsxRead=XLSX.read;", context);
   return { context, workerCalls, nativeCalls };
 }
 
@@ -59,9 +59,9 @@ test("production worker preserves parser option profiles and reuses only equival
   assert.equal(h.workerCalls[0].message.bytes.byteLength, bytes.byteLength);
   assert.notEqual(h.workerCalls[0].message.bytes, bytes.buffer, "The source ArrayBuffer is copied before transfer.");
   assert.deepEqual(bytes, original, "The source workbook bytes remain unchanged.");
-  assert.equal(h.context.readWorkbook(bytes, menuOptions), menuBook, "The exact parser profile reuses its worker result.");
+  assert.equal(h.context.xlsxRead(bytes, menuOptions), menuBook, "The exact parser profile reuses its worker result.");
   const reordered = { cellDates: true, raw: true, type: "array" };
-  assert.equal(h.context.readWorkbook(bytes, reordered), menuBook, "Equivalent options are keyed independent of property order.");
+  assert.equal(h.context.xlsxRead(bytes, reordered), menuBook, "Equivalent options are keyed independent of property order.");
 
   const csiBook = await h.context.prepareXlsxWorkbook(bytes, csiOptions);
   assert.deepEqual(csiBook.profile, csiOptions);
@@ -79,7 +79,7 @@ test("production worker failure falls back synchronously and caches only the fal
   assert.equal(book.marker, "native");
   assert.deepEqual(h.nativeCalls[0].options, options);
   assert.equal(h.nativeCalls.length, 1);
-  assert.equal(h.context.readWorkbook(bytes, options), book);
+  assert.equal(h.context.xlsxRead(bytes, options), book);
   assert.equal(h.nativeCalls.length, 1);
   assert.equal(bytes[1], 4, "Worker failure must not detach or mutate the original input.");
 });
