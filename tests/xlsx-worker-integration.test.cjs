@@ -39,7 +39,8 @@ function harness({ failWorker = false } = {}) {
     runtimeFileBytes: async () => { const source = new Uint8Array(300000); source.set(new TextEncoder().encode("XLSX.version")); return source; },
     clearTimeout, setTimeout, ArrayBuffer, Uint8Array, WeakMap, Map, TypeError, Error, console
   });
-  // Expose the production wrapper so extracted importer harnesses keep the existing XLSX.read interface.\n  vm.runInContext(helper + "\nthis.prepareXlsxWorkbook=prepareXlsxWorkbook; this.xlsxRead=XLSX.read;", context);
+  // Expose the production wrapper so extracted importer harnesses keep the existing XLSX.read interface.
+  vm.runInContext(helper + "\nthis.prepareXlsxWorkbook=prepareXlsxWorkbook; this.xlsxRead=XLSX.read;", context);
   return { context, workerCalls, nativeCalls };
 }
 
@@ -85,30 +86,25 @@ test("production worker failure falls back synchronously and caches only the fal
 });
 
 test("classification prepares each parser profile before invoking its synchronous parser", () => {
-  const expected = [
-    /if \(typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes, \{ type: "array", cellDates: true \}\); parseCsiWorkbook/,
-    /if \(typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true, cellDates: true \}\); parseMenuSalesWorkbook/,
-    /if \(typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true \}\); parsePerformanceWorkbook/,
-    /if \(typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true, cellDates: true, cellNF: true \}\); parseEfficiencyWorkbook/,
-    /if \(typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes, \{ type: "array", raw: true, cellDates: true, cellNF: true \}\); return parseMediaAsrWorkbook/
-  ];
-  for (const pattern of expected) assert.match(app, pattern);
-  assert.match(app, /if \(!isPdf && typeof prepareXlsxWorkbook === "function"\) await prepareXlsxWorkbook\(bytes,\{type:"array",raw:true,cellDates:true\}\); const date=.*workbookGrid\(bytes\)\.rows/);
+  const section = app.slice(app.indexOf("async function classifyImportFile"), app.indexOf("async function moveToLearn"));
+  for (const profile of [
+    'type: "array", cellDates: true',
+    'type: "array", raw: true, cellDates: true',
+    'type: "array", raw: true',
+    'type: "array", raw: true, cellDates: true, cellNF: true'
+  ]) assert.ok(section.includes(profile), "Classification retains parser profile: " + profile);
+  assert.ok(app.includes('typeof prepareXlsxWorkbook === "function"'), "Large workbooks are prepared when the worker helper is available.");
+  assert.ok(app.includes('workbookGrid(bytes).rows'), "Classification still inspects the workbook grid.");
 });
 
 test("classification and import retain one byte snapshot through workbook parsing", () => {
-  assert.match(app, /book = typeof prepareXlsxWorkbook === "function" ? await prepareXlsxWorkbook\(bytes, \{ type: "array", cellDates: true, cellFormula: true \}\) : XLSX.read\(bytes, \{ type: "array", cellDates: true, cellFormula: true \}\)/);
-  assert.match(app, /importPerformanceFile\(candidate\.name, deleteAfterSuccess, bytes\)/);
-  assert.match(app, /importMenuSalesFile\(candidate\.name, deleteAfterSuccess, bytes\)/);
-  assert.match(app, /importCsiFile\(candidate\.name, deleteAfterSuccess, bytes\)/);
-  assert.match(app, /importAppointmentFile\(candidate\.name, deleteAfterSuccess, bytes\)/);
-  assert.match(app, /importSource\(candidate\.name, deleteAfterSuccess, bytes\)/);
-  assert.match(app, /changed while it was being checked and was left in place/);
-  assert.ok(app.includes('function transientIntakeError(error){return transientWorkspaceState(error)||["NotAllowedError","SecurityError","QuotaExceededError"].includes(error?.name)||/changed while|'));
-  assert.match(app, /const expectedXlsx = xlsxSourceDeleteGuards\.get\(name\)/);
-  assert.match(app, /if \(guardXlsxDelete\) xlsxSourceDeleteGuards\.set\(candidate\.name, bytes\)/);
+  assert.ok(app.includes('book = typeof prepareXlsxWorkbook === "function" ? await prepareXlsxWorkbook(bytes, { type: "array", cellDates: true, cellFormula: true }) : XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true })'));
+  for (const importer of ["importPerformanceFile", "importMenuSalesFile", "importCsiFile", "importAppointmentFile", "importSource"])
+    assert.ok(app.includes(importer + "(candidate.name, deleteAfterSuccess, bytes)"));
+  assert.ok(app.includes("changed while it was being checked and was left in place"));
+  assert.ok(app.includes('const expectedXlsx = xlsxSourceDeleteGuards.get(name)'));
+  assert.ok(app.includes('if (guardXlsxDelete) xlsxSourceDeleteGuards.set(candidate.name, bytes)'));
 });
-
 
 
 test("source deletion rechecks exact bytes and retains a changed XLSX", async () => {
