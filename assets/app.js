@@ -2911,7 +2911,47 @@
   function additionalVinsNeeded(sold, eligible, target) { if (![sold, eligible, target].every(Number.isFinite) || target <= 0 || target >= 100) return null; const rate = target / 100; if (eligible > 0 && sold / eligible * 100 >= target) return 0; if (eligible === 0 && sold === 0) return 1; return Math.max(0, Math.ceil((rate * eligible - sold) / (1 - rate) - 1e-9)); }
   function parsePerformanceWorkbook(bytes, fileName) { const book = XLSX.read(bytes, { type: "array", raw: true }), storeSheet = book.Sheets[book.SheetNames[0]]; if (!storeSheet) throw new Error("The workbook has no readable worksheets."); const storeRows = performanceRows(storeSheet), heading = storeRows.slice(0, 4).flat().map(text).find((value) => /Service Advisor Performance/i.test(value)); if (!heading) throw new Error("This is not a Service Advisor Performance report."); const dates = heading.match(/From\s+(\d{1,2}\/\d{1,2}\/20\d{2})\s+to\s+(\d{1,2}\/\d{1,2}\/20\d{2})/i); if (!dates) throw new Error("The performance reporting period could not be read."); const sourceDays = performanceDays(storeRows); if (!sourceDays) throw new Error("SAPR Days Completed and total days could not be verified."); const advisors = {}; for (const sheetName of book.SheetNames.slice(1)) { const rows = performanceRows(book.Sheets[sheetName]), code = performanceDetailCode(rows); if (!ADVISOR_NAMES[code]) continue; if (advisors[code]) throw new Error(`Advisor ${code} appears on more than one SAPR detail worksheet. The report was not saved.`); const sheetDays = performanceDays(rows); if (!sheetDays || sheetDays.completed !== sourceDays.completed || sheetDays.total !== sourceDays.total) throw new Error(`SAPR Days Completed does not reconcile for advisor ${code}.`); const metrics = performanceMetrics(rows); validateAdvisorPerformance(metrics, code, sheetName); advisors[code] = { code, name: ADVISOR_NAMES[code], sourceSheet: sheetName, ...metrics }; } if (!Object.keys(advisors).length) throw new Error("No configured advisor detail worksheets were found in this performance report."); const periodStart = usDateToIso(dates[1]), periodEnd = usDateToIso(dates[2]), store = { code: "store", name: "Store total", sourceSheet: book.SheetNames[0], ...performanceMetrics(storeRows) }, controllables = parseControllableBenchmarks(book, store, advisors); return { date: periodEnd, periodStart, periodEnd, saprDaysCompleted: sourceDays.completed, saprTotalDays: sourceDays.total, sourceFile: fileName, importedAt: now(), validation: { advisorDetailSheets: Object.keys(advisors).length, parser: "strict-detail-v8-cp-ro-vin-denominator", finalTotalsVerified: true, saprDaysVerified: true, controllables: CONTROLLABLES.length,controllableVinDenominator:"cp-ro" }, store, advisors, controllables }; }
   function prunePerformanceSnapshots(snapshots) { const dates = Object.keys(snapshots).sort(); if (!dates.length) return snapshots; const cutoff=freshness.addDays(dates.at(-1),-PERFORMANCE_RETENTION_DAYS),kept={};dates.forEach((date)=>{if(date>=cutoff)kept[date]=snapshots[date];});return kept; }
-  async function importPerformanceFile(selectedName = null, deleteAfterSuccess = false) { const name = selectedName || ui.performanceSourceSelect.value; if (!name) throw new Error("Choose a Service Advisor Performance XLSX."); status(`Reading advisor performance from ${name}…`, "working"); const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer(), snapshot = parsePerformanceWorkbook(bytes, name), replacing = Boolean(model.performance.snapshots[snapshot.date]); model.performance.snapshots[snapshot.date] = snapshot; model.performance.snapshots = prunePerformanceSnapshots(model.performance.snapshots); model.performance.updatedAt = now(); await writeJson(PERFORMANCE_PATH, model.performance); await addHistory("performance-import", `${replacing ? "Replaced" : "Added"} performance snapshot for ${snapshot.date}`, { date: snapshot.date, fileName: name, advisors: Object.keys(snapshot.advisors).length, rawCopyRetained: false }); renderPerformance(); let deleted = false; if (deleteAfterSuccess || (!dailyPickedSources.has(name) && window.confirm(`Performance import complete and verified.\n\nDelete the original source file "${name}" from the Report Inbox?\n\nThe compact daily metrics are saved; no extra workbook copy was created.`))) { try { await removeSourceEntry(name); deleted = true; await addHistory("source-deleted", `Deleted imported performance source file ${name}`, { fileName: name, compactSnapshotRetained: true }); await scanFiles(); await scanAppointmentFiles(); await scanPerformanceFiles(); } catch (error) { throw new Error(`Performance was saved, but ${name} could not be deleted: ${error.message || error}`); } } status(`Performance through ${snapshot.periodEnd} was saved.${replacing ? " The same-day snapshot was replaced." : " A new daily trend point was added."}${deleted ? " The original workbook was deleted." : " The original workbook was retained."}`, "success"); }
+  async function importPerformanceFile(selectedName = null, deleteAfterSuccess = false) {
+    const name = selectedName || ui.performanceSourceSelect.value;
+    if (!name) throw new Error("Choose a Service Advisor Performance XLSX.");
+    status(`Reading advisor performance from ${name}…`, "working");
+    const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer();
+    const snapshot = parsePerformanceWorkbook(bytes, name);
+    const priorPerformance = structuredClone(model.performance);
+    const replacing = Boolean(model.performance.snapshots[snapshot.date]);
+    model.performance.snapshots[snapshot.date] = snapshot;
+    model.performance.snapshots = prunePerformanceSnapshots(model.performance.snapshots);
+    model.performance.updatedAt = now();
+    try {
+      await writeJson(PERFORMANCE_PATH, model.performance);
+      const saved = await readJson(PERFORMANCE_PATH, null);
+      // Verify the whole persisted performance object, not just the new day:
+      // a stale or truncated file cannot become the authority for KPIs.
+      if (JSON.stringify(saved) !== JSON.stringify(model.performance))
+        throw new Error("The advisor performance snapshots could not be verified after saving.");
+    } catch (error) {
+      // Leave the original source intact and restore the last trusted runtime
+      // values. Uncertain disk bytes are reserved for controlled recovery.
+      model.performance = priorPerformance;
+      throw error;
+    }
+    await addHistory("performance-import", `${replacing ? "Replaced" : "Added"} performance snapshot for ${snapshot.date}`, { date: snapshot.date, fileName: name, advisors: Object.keys(snapshot.advisors).length, rawCopyRetained: false });
+    renderPerformance();
+    let deleted = false;
+    if (deleteAfterSuccess || (!dailyPickedSources.has(name) && window.confirm(`Performance import complete and verified.\n\nDelete the original source file "${name}" from the Report Inbox?\n\nThe compact daily metrics are saved; no extra workbook copy was created.`))) {
+      try {
+        await removeSourceEntry(name);
+        deleted = true;
+        await addHistory("source-deleted", `Deleted imported performance source file ${name}`, { fileName: name, compactSnapshotRetained: true });
+        await scanFiles();
+        await scanAppointmentFiles();
+        await scanPerformanceFiles();
+      } catch (error) {
+        throw new Error(`Performance was saved, but ${name} could not be deleted: ${error.message || error}`);
+      }
+    }
+    status(`Performance through ${snapshot.periodEnd} was saved.${replacing ? " The same-day snapshot was replaced." : " A new daily trend point was added."}${deleted ? " The original workbook was deleted." : " The original workbook was retained."}`, "success");
+  }
   function performanceFormat(value, type, signed = false) { if (value === null || value === undefined || !Number.isFinite(value)) return "—"; const sign = signed && value > 0 ? "+" : ""; if (type === "money") return `${sign}${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`; if (type === "percent") return `${sign}${value.toFixed(1)}%`; if (type === "number") return `${sign}${value.toFixed(2)}`; return `${sign}${Math.round(value).toLocaleString()}`; }
   function performanceEntity(snapshot, key) { return key === "store" ? snapshot.store : snapshot.advisors[key]; }
   function performanceDelta(latest, prior, key) { const current = latest?.[key], before = prior?.[key]; return Number.isFinite(current) && Number.isFinite(before) ? current - before : null; }
