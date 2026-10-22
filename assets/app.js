@@ -4015,7 +4015,19 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     return date+"|"+(hour>=18?"closed":"open");
   }
   let openRoRenderedRevision=-1, openRoRenderedDate="";
+  let arrivalsRenderedRevision=-1, arrivalsRenderedDate="", arrivalsRenderedSearch="";
   function invalidateNavigationRenders(){navigationDataRevision++;}
+  // The Arrivals list can have hundreds of row controls. Reuse its existing
+  // DOM on ordinary tab returns, just as Open RO and Meeting already do.
+  // Explicit import, status, date, search and print redraws still run normally.
+  const renderArrivalsBeforeNavigationReuse=renderArrivals;
+  renderArrivals=function(...args){
+    const output=renderArrivalsBeforeNavigationReuse(...args);
+    arrivalsRenderedRevision=navigationDataRevision;
+    arrivalsRenderedDate=ui.appointmentDate.value;
+    arrivalsRenderedSearch=ui.arrivalSearch.value;
+    return output;
+  };
   const renderOpenRoBeforeNavigationReuse=renderTable;
   renderTable=function(...args){
     const output=renderOpenRoBeforeNavigationReuse(...args);
@@ -4105,7 +4117,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         if(elapsed>500)console.warn("Open RO table build took",Math.round(elapsed),"ms");
       },0));
     }
-    if(view==="arrivals")renderArrivals();
+    if(view==="arrivals"&&(arrivalsRenderedRevision!==navigationDataRevision||
+       arrivalsRenderedDate!==ui.appointmentDate.value||
+       arrivalsRenderedSearch!==ui.arrivalSearch.value))renderArrivals();
     if(view==="performance"&&(performanceRenderedRevision!==navigationDataRevision||performanceRenderedClock!==reportClockToken())){
       // Let the navigation paint before expensive report work, and abandon
       // stale callbacks when a different tab is selected in the meantime.
