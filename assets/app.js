@@ -137,6 +137,7 @@
   // vendor file; neither workbook bytes nor results leave this page.
   const XLSX_WORKER_THRESHOLD_BYTES = 512 * 1024;
   const preparedXlsxWorkbooks = new WeakMap();
+  const xlsxSourceDeleteGuards = new Map();
   const nativeXlsxRead = XLSX.read.bind(XLSX);
   const xlsxWorkerState = { worker: null, workerUrl: null, initializing: null, disabled: false, nextId: 1, pending: new Map() };
   function workbookOptionsKey(options) {
@@ -1070,7 +1071,20 @@
   async function withSupervisorWorkbookLock(operation) { const locks = globalThis.navigator?.locks; if (!locks?.request) throw new Error("This browser cannot safely serialize Supervisor Workbook operations. Use an up-to-date browser and retry."); const run = async () => { const previous = supervisorWorkbookOperationTail; let release; supervisorWorkbookOperationTail = new Promise((resolve) => { release = resolve; }); await previous; try { if (model.root) { const durable = await readJson(STATE_PATH, null); if (!durable || durable.updatedAt !== model.state.updatedAt || JSON.stringify(durable.records) !== JSON.stringify(model.state.records)) throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing."); const recovery = await readJson(RECOVERY_PATH, null); if (recovery) model.recovery = recovery; } return await operation(); } finally { release(); } }; return locks.request("moondog-supervisor-workbook", { mode: "exclusive" }, run); }
   const dailyPickedSources = new Map(); let dailyImportBusy = false, appointmentImportBusy = false;
   async function sourceFileHandle(name) { if(dailyPickedSources.has(name))return dailyPickedSources.get(name); const location = sourceLocations.get(name); if (location === "root") return model.root.getFileHandle(name); if (location === "learn") return (await directory(["Files To Learn"], false)).getFileHandle(name); try { return await (await reportInbox(false)).getFileHandle(name); } catch (error) { if (error.name !== "NotFoundError") throw error; return model.root.getFileHandle(name); } }
-  async function removeSourceEntry(name) { if(dailyPickedSources.has(name))return; const location = sourceLocations.get(name); if (location === "root") return model.root.removeEntry(name); if (location === "learn") return (await directory(["Files To Learn"], false)).removeEntry(name); try { return await (await reportInbox(false)).removeEntry(name); } catch (error) { if (error.name !== "NotFoundError") throw error; return model.root.removeEntry(name); } }
+  async function removeSourceEntry(name) {
+    if(dailyPickedSources.has(name))return;
+    const expectedXlsx = xlsxSourceDeleteGuards.get(name);
+    if (expectedXlsx) {
+      const current = await (await sourceFileHandle(name)).getFile();
+      if (!sameByteContent(await current.arrayBuffer(), expectedXlsx))
+        throw new Error(`${name} changed while it was being checked and was left in place.`);
+    }
+    const location = sourceLocations.get(name);
+    if (location === "root") return model.root.removeEntry(name);
+    if (location === "learn") return (await directory(["Files To Learn"], false)).removeEntry(name);
+    try { return await (await reportInbox(false)).removeEntry(name); }
+    catch (error) { if (error.name !== "NotFoundError") throw error; return model.root.removeEntry(name); }
+  }
 
   async function finishReadOnlyConnection(handle) {
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot;
@@ -2387,20 +2401,27 @@
       if (!sameByteContent(await currentFile.arrayBuffer(), bytes))
         throw new Error(`${candidate.name} changed while it was being checked and was left in place.`);
     }
-    if (kind === "performance") await importPerformanceFile(candidate.name, deleteAfterSuccess, bytes);
-    else if (kind === "next-appointments") await importNextAppointmentsFile(candidate.name, deleteAfterSuccess);
-    else if (kind === "vir") await importVirFile(candidate.name, deleteAfterSuccess);
-    else if (kind === "menu-sales") await importMenuSalesFile(candidate.name, deleteAfterSuccess, bytes);
-    else if (kind === "csi") await importCsiFile(candidate.name, deleteAfterSuccess, bytes);
-    else if (["sor", "appointment-activity", "efficiency", "media-asr", "media-asr-tech", "open-ro-summary"].includes(kind)) await importManagerSource(candidate.name, kind, bytes, deleteAfterSuccess);
-    else if (kind === "open-ro-docx") return await importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess);
-    else if (kind === "known-non-service") return await retireKnownNonServiceSource(candidate,bytes,deleteAfterSuccess);
-    else if (["supplemental-pdf","supplemental-csv","supplemental-workbook","supplemental-docx"].includes(kind)) await importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess);
-    else if (kind === "appointments") appointmentOutcome=await importAppointmentFile(candidate.name, deleteAfterSuccess, bytes);
-    else if (kind === "disposable-greeter") { if (deleteAfterSuccess) await removeSourceEntry(candidate.name); await addHistory("disposable-output-removed", "Removed generated Greeter appointment output", { outputType: "Greeter Appointment List" }); recordDiagnostic("REPORT INBOX", "MoonDog Greeter output deleted as disposable output"); }
-    else if (kind === "ro-update") await importReturnedWorkbook(candidate.name, deleteAfterSuccess, bytes);
-    else await importSource(candidate.name, deleteAfterSuccess, bytes);
-    await ensurePreviousMonthSummary(); renderAll();return appointmentOutcome;
+    const guardXlsxDelete = /\.xlsx$/i.test(candidate.name) && candidate.location !== "picked" && Boolean(bytes);
+    if (guardXlsxDelete) xlsxSourceDeleteGuards.set(candidate.name, bytes);
+    try {
+      if (kind === "performance") await importPerformanceFile(candidate.name, deleteAfterSuccess, bytes);
+      else if (kind === "next-appointments") await importNextAppointmentsFile(candidate.name, deleteAfterSuccess);
+      else if (kind === "vir") await importVirFile(candidate.name, deleteAfterSuccess);
+      else if (kind === "menu-sales") await importMenuSalesFile(candidate.name, deleteAfterSuccess, bytes);
+      else if (kind === "csi") await importCsiFile(candidate.name, deleteAfterSuccess, bytes);
+      else if (["sor", "appointment-activity", "efficiency", "media-asr", "media-asr-tech", "open-ro-summary"].includes(kind)) await importManagerSource(candidate.name, kind, bytes, deleteAfterSuccess);
+      else if (kind === "open-ro-docx") return await importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess);
+      else if (kind === "known-non-service") return await retireKnownNonServiceSource(candidate,bytes,deleteAfterSuccess);
+      else if (["supplemental-pdf","supplemental-csv","supplemental-workbook","supplemental-docx"].includes(kind)) await importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess);
+      else if (kind === "appointments") appointmentOutcome=await importAppointmentFile(candidate.name, deleteAfterSuccess, bytes);
+      else if (kind === "disposable-greeter") { if (deleteAfterSuccess) await removeSourceEntry(candidate.name); await addHistory("disposable-output-removed", "Removed generated Greeter appointment output", { outputType: "Greeter Appointment List" }); recordDiagnostic("REPORT INBOX", "MoonDog Greeter output deleted as disposable output"); }
+      else if (kind === "ro-update") await importReturnedWorkbook(candidate.name, deleteAfterSuccess, bytes);
+      else await importSource(candidate.name, deleteAfterSuccess, bytes);
+  
+      await ensurePreviousMonthSummary(); renderAll();return appointmentOutcome;
+    } finally {
+      if (guardXlsxDelete) xlsxSourceDeleteGuards.delete(candidate.name);
+    }
   }
   async function reconcileLearnedFiles(parserRevision=LEARNED_PARSER_REVISION) {
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)return {deferred:true};

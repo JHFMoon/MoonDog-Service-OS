@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const app = fs.readFileSync(path.join(__dirname, "assets", "app.js"), "utf8");
+const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
 const start = app.indexOf("  // Large XLSX sources are parsed in a self-contained worker");
 const end = app.indexOf("  // Privacy-safe performance evidence:", start);
 assert.ok(start >= 0 && end > start, "Production XLSX worker helper block must exist");
@@ -105,6 +105,41 @@ test("classification and import retain one byte snapshot through workbook parsin
   assert.match(app, /importSource\(candidate\.name, deleteAfterSuccess, bytes\)/);
   assert.match(app, /changed while it was being checked and was left in place/);
   assert.ok(app.includes('function transientIntakeError(error){return transientWorkspaceState(error)||["NotAllowedError","SecurityError","QuotaExceededError"].includes(error?.name)||/changed while|'));
+  assert.match(app, /const expectedXlsx = xlsxSourceDeleteGuards\.get\(name\)/);
+  assert.match(app, /if \(guardXlsxDelete\) xlsxSourceDeleteGuards\.set\(candidate\.name, bytes\)/);
 });
 
 
+
+test("source deletion rechecks exact bytes and retains a changed XLSX", async () => {
+  const sameStart = app.indexOf("  function sameByteContent(left, right)");
+  const sameEnd = app.indexOf("  function stopXlsxWorker", sameStart);
+  const removeStart = app.indexOf("  async function removeSourceEntry(name) {");
+  const removeEnd = app.indexOf("  async function finishReadOnlyConnection", removeStart);
+  assert.ok(sameStart >= 0 && sameEnd > sameStart && removeStart >= 0 && removeEnd > removeStart);
+  const sameBytes = app.slice(sameStart, sameEnd);
+  const removeSource = app.slice(removeStart, removeEnd);
+
+  async function run(current) {
+    const removed = [];
+    const expected = new Uint8Array([11, 22, 33]);
+    const context = vm.createContext({
+      dailyPickedSources: new Set(),
+      xlsxSourceDeleteGuards: new Map([["synthetic.xlsx", expected]]),
+      sourceLocations: new Map([["synthetic.xlsx", "root"]]),
+      sourceFileHandle: async () => ({ getFile: async () => ({ arrayBuffer: async () => current.buffer.slice(0) }) }),
+      model: { root: { removeEntry: async name => { removed.push(name); } } },
+      sameByteContent: null, ArrayBuffer, Uint8Array, Error
+    });
+    vm.runInContext(sameBytes + "\n" + removeSource + "\nthis.removeSourceEntry=removeSourceEntry;", context);
+    return { context, removed };
+  }
+
+  const changed = await run(new Uint8Array([11, 22, 34]));
+  await assert.rejects(changed.context.removeSourceEntry("synthetic.xlsx"), /changed while it was being checked/);
+  assert.deepEqual(changed.removed, [], "Changed source bytes must never be deleted.");
+
+  const unchanged = await run(new Uint8Array([11, 22, 33]));
+  await unchanged.context.removeSourceEntry("synthetic.xlsx");
+  assert.deepEqual(unchanged.removed, ["synthetic.xlsx"], "An unchanged source still follows the existing delete-after-success path.");
+});
