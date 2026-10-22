@@ -29,7 +29,7 @@ test("dirty Open RO draft asks the browser before a page unload and remains inta
   let prevented=false;
   const event={returnValue:null,preventDefault(){prevented=true;}};
   h.context.guard(event);
-  assert.equal(prevented,true,"unload must be cancelled unless the user confirms leaving");
+  assert.equal(prevented,true,"request a prompt while preserving the draft until the user chooses");
   assert.equal(event.returnValue,"","request the browser's native unsaved-change prompt");
   assert.equal(h.context.isDirty(),true,"the draft remains dirty if the user cancels leaving");
 });
