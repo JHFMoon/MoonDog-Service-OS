@@ -4197,20 +4197,25 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     model.settings.meeting={...model.settings.meeting,dayOfWeek:Number(ui.meetingDay.value),startTime:ui.meetingStart.value||"06:30",resetTime:ui.meetingReset.value||"07:00",grossMinimum:minimum,grossStretch:stretch};
     model.settings.performanceStandards={...model.settings.performanceStandards,...localTargets};
   }
-  let settingsAutosaveTimer=null, settingsAutosaveRevision=0; async function saveSettingsAutosave() {
-    const startingRevision=settingsAutosaveRevision;
-    readSettingsInputs();
-    model.settings.updatedAt=now();
-    const submitted=JSON.stringify(model.settings);
-    await writeJson(SETTINGS_PATH,model.settings);
-    await addHistory("settings-update","Updated product settings",{schemaVersion:model.settings.schemaVersion});
-    renderAll();
-    // A later checkbox edit can occur before the first file write finishes.
-    // Do not show "Saved" for an older snapshot; schedule the latest model.
-    if(JSON.stringify(model.settings)!==submitted){queueSettingsAutosave();return;}
-    if(settingsAutosaveRevision!==startingRevision)return;
-    ui.settingsSaveStatus.dataset.saveState="saved";
-    ui.settingsSaveStatus.textContent=`Saved ${new Date(model.settings.updatedAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`;
+  let settingsAutosaveTimer=null, settingsAutosaveRevision=0, settingsAutosaveQueue=Promise.resolve();
+  async function saveSettingsAutosave() {
+    // Serialize durable snapshots. A newer edit owns its own debounced save;
+    // an older completion must neither enqueue itself nor report that edit saved.
+    const pending=settingsAutosaveQueue.catch(()=>{}).then(async()=>{
+      const startingRevision=settingsAutosaveRevision;
+      readSettingsInputs();
+      model.settings.updatedAt=now();
+      const submitted=JSON.stringify(model.settings);
+      const snapshot=JSON.parse(submitted);
+      await writeJson(SETTINGS_PATH,snapshot);
+      await addHistory("settings-update","Updated product settings",{schemaVersion:snapshot.schemaVersion});
+      if(settingsAutosaveRevision!==startingRevision)return;
+      renderAll();
+      ui.settingsSaveStatus.dataset.saveState="saved";
+      ui.settingsSaveStatus.textContent=`Saved ${new Date(snapshot.updatedAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`;
+    });
+    settingsAutosaveQueue=pending.catch(()=>{});
+    return pending;
   }
   function queueSettingsAutosave(){
     if(!model.root||!writeAuthority.canWrite){
