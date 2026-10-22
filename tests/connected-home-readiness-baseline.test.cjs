@@ -23,7 +23,7 @@ const renderEnd=app.indexOf("  const renderAllWithCanonicalSourceLabels=renderAl
 assert.ok(renderBegin>=0&&renderEnd>renderBegin,"Full Home render boundary must be reviewed if changed");
 const renderHome=app.slice(renderBegin,renderEnd);
 const connection=extract(app,"  async function completeWorkspaceConnection(","  async function postConnectReconciliation(");
-const firstRender=connection.split("\n").find(line=>/^\\s*renderAll\\(\\); renderRecovery\\(\\); openSetupIfRequired\\(\\); startFolderWatch\\(\\);\\s*$/.test(line));
+const firstRender=connection.split("\n").find(line=>/^\s*renderAll\(\); renderRecovery\(\); openSetupIfRequired\(\); startFolderWatch\(\);\s*$/.test(line));
 assert.ok(firstRender,"Verified connection must render Home before starting background work");
 
 function percentile(samples,q){
@@ -48,7 +48,7 @@ function harness(root){
     renderTable:()=>{},renderArrivals:()=>{},renderPerformance:()=>{},renderMeeting:()=>{},renderAssignNext:()=>{},
     renderSetup:()=>{},renderRecovery:()=>{},openSetupIfRequired:()=>{},startFolderWatch:()=>{}
   });
-  vm.runInContext(renderHome+"\\n"+reconcile+"\\nthis.paintHome=renderAll;this.publishConnected=postConnectReconciliation;",context);
+  vm.runInContext(renderHome+"\n"+reconcile+"\nthis.paintHome=renderAll;this.publishConnected=postConnectReconciliation;",context);
   return {context,model,signals,ui,get durableRecovery(){return durableRecovery;},markRendered(){renderedHomeAt=performance.now();},get renderedHomeAt(){return renderedHomeAt;}};
 }
 
