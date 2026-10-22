@@ -98,7 +98,7 @@ test("New presentation and refresh logic is included in runtime",()=>{
   assert.match(app,/recordRefreshLearning/);
   const localFuture=app.slice(app.indexOf("async function updateLocalFuture"),app.indexOf("async function recordRefreshLearning",app.indexOf("async function updateLocalFuture")));
   assert.match(localFuture,/await persistSettingsSnapshot/);
-  assert.doesNotMatch(localFuture,/writeJson\\(SETTINGS_PATH/,"private settings writes must not bypass the serialized snapshot queue");
+  assert.equal(localFuture.includes("writeJson(SETTINGS_PATH"),false,"private settings writes must not bypass the serialized snapshot queue");
   assert.match(daily,/renderOtherPriorities/);
   assert.match(daily,/renderRefreshStrip/);
   assert.match(presenter,/setInterval/);
