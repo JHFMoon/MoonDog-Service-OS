@@ -131,6 +131,127 @@
   const correctionStyles=document.createElement("style");correctionStyles.textContent=".month-correction-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;padding:10px 12px;border:1px solid #dfbd69;border-radius:9px;background:#fff8e5;color:#6b5316}.month-correction-notice button{white-space:nowrap}.voice-mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.customer-voice-manager [hidden]{display:none!important}.voice-use-full{align-self:flex-start}@media(max-width:760px){.voice-mode-grid{grid-template-columns:1fr}}";document.head.append(correctionStyles);
   const VERSION = "0.10.17";
   globalThis.MoonDogInstalledVersion = VERSION;
+
+  // Large XLSX sources are parsed in a self-contained worker on this
+  // file://-compatible product. The source text comes from the pinned local
+  // vendor file; neither workbook bytes nor results leave this page.
+  const XLSX_WORKER_THRESHOLD_BYTES = 512 * 1024;
+  const preparedXlsxWorkbooks = new WeakMap();
+  const nativeXlsxRead = XLSX.read.bind(XLSX);
+  const xlsxWorkerState = { worker: null, workerUrl: null, initializing: null, disabled: false, nextId: 1, pending: new Map() };
+  function workbookOptionsKey(options) {
+    return JSON.stringify(Object.keys(options || {}).sort().map(key => [key, options[key]]));
+  }
+  function readWorkbook(bytes, options) {
+    const prepared = bytes && typeof bytes === "object" ? preparedXlsxWorkbooks.get(bytes)?.get(workbookOptionsKey(options)) : null;
+    if (prepared && !options?.cellStyles) return prepared;
+    return nativeXlsxRead(bytes, options);
+  }
+  function copiedArrayBuffer(bytes) {
+    if (bytes instanceof ArrayBuffer) return bytes.slice(0);
+    if (ArrayBuffer.isView(bytes)) return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    throw new TypeError("XLSX worker requires an ArrayBuffer or typed array.");
+  }
+  function sameByteContent(left, right) {
+    const a = left instanceof ArrayBuffer ? new Uint8Array(left) : ArrayBuffer.isView(left) ? new Uint8Array(left.buffer, left.byteOffset, left.byteLength) : null;
+    const b = right instanceof ArrayBuffer ? new Uint8Array(right) : ArrayBuffer.isView(right) ? new Uint8Array(right.buffer, right.byteOffset, right.byteLength) : null;
+    if (!a || !b || a.byteLength !== b.byteLength) return false;
+    for (let i = 0; i < a.byteLength; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+  function stopXlsxWorker(error) {
+    const worker = xlsxWorkerState.worker, workerUrl = xlsxWorkerState.workerUrl;
+    xlsxWorkerState.worker = null;
+    xlsxWorkerState.workerUrl = null;
+    if (workerUrl) URL.revokeObjectURL(workerUrl);
+    xlsxWorkerState.disabled = true;
+    worker?.terminate();
+    for (const pending of xlsxWorkerState.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error instanceof Error ? error : new Error(String(error || "XLSX worker stopped.")));
+    }
+    xlsxWorkerState.pending.clear();
+  }
+  async function ensureXlsxWorker() {
+    if (xlsxWorkerState.worker) return xlsxWorkerState.worker;
+    if (xlsxWorkerState.disabled) throw new Error("XLSX worker is unavailable.");
+    if (xlsxWorkerState.initializing) return xlsxWorkerState.initializing;
+    xlsxWorkerState.initializing = (async () => {
+      if (typeof Worker !== "function" || typeof Blob !== "function" || typeof URL?.createObjectURL !== "function")
+        throw new Error("Blob workers are unavailable.");
+      const vendorBytes = await runtimeFileBytes("vendor/xlsx.full.min.js");
+      const vendorSource = new TextDecoder().decode(vendorBytes);
+      if (vendorBytes.byteLength < 250000 || !/XLSX/.test(vendorSource))
+        throw new Error("The pinned local SheetJS runtime is unavailable.");
+      const workerParser = [
+        "self.onmessage = function(event) {",
+        "  const started = performance.now();",
+        "  try {",
+        "    if (XLSX.version !== event.data.xlsxVersion) throw new Error('Pinned SheetJS version mismatch.');",
+        "    const book = XLSX.read(event.data.bytes, event.data.options);",
+        "    self.postMessage({ id: event.data.id, ok: true, book: book, parseMs: performance.now() - started });",
+        "  } catch (error) {",
+        "    self.postMessage({ id: event.data.id, ok: false, error: String(error && (error.message || error)) });",
+        "  }",
+        "};"
+      ].join("\n");
+      const url = URL.createObjectURL(new Blob([vendorSource, "\n", workerParser], { type: "text/javascript" }));
+      let worker;
+      try { worker = new Worker(url); }
+      catch (error) { URL.revokeObjectURL(url); throw error; }
+      xlsxWorkerState.worker = worker;
+      worker.onmessage = event => {
+        const pending = xlsxWorkerState.pending.get(event.data?.id);
+        if (!pending) return;
+        xlsxWorkerState.pending.delete(event.data.id);
+        clearTimeout(pending.timer);
+        if (event.data?.ok && event.data.book) pending.resolve(event.data.book);
+        else pending.reject(new Error(event.data?.error || "SheetJS worker parse failed."));
+      };
+      worker.onerror = event => stopXlsxWorker(new Error(event.message || "SheetJS worker failed."));
+      worker.onmessageerror = () => stopXlsxWorker(new Error("SheetJS worker result could not be cloned."));
+      return worker;
+    })();
+    try { return await xlsxWorkerState.initializing; }
+    catch (error) {
+      xlsxWorkerState.disabled = true;
+      throw error;
+    } finally { xlsxWorkerState.initializing = null; }
+  }
+  async function workerParseXlsx(bytes, options) {
+    const worker = await ensureXlsxWorker(), id = xlsxWorkerState.nextId++, copy = copiedArrayBuffer(bytes);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        xlsxWorkerState.pending.delete(id);
+        stopXlsxWorker(new Error("SheetJS worker timed out."));
+        reject(new Error("SheetJS worker timed out."));
+      }, 60000);
+      xlsxWorkerState.pending.set(id, { resolve, reject, timer });
+      try { worker.postMessage({ id, bytes: copy, options, xlsxVersion: XLSX.version }, [copy]); }
+      catch (error) {
+        clearTimeout(timer);
+        xlsxWorkerState.pending.delete(id);
+        reject(error);
+      }
+    });
+  }
+  async function prepareXlsxWorkbook(bytes, options) {
+    if (!bytes || typeof bytes !== "object") throw new TypeError("XLSX source bytes are unavailable.");
+    const optionsKey = workbookOptionsKey(options);
+    let parsedByOptions = preparedXlsxWorkbooks.get(bytes);
+    if (!parsedByOptions) { parsedByOptions = new Map(); preparedXlsxWorkbooks.set(bytes, parsedByOptions); }
+    const cached = parsedByOptions.get(optionsKey);
+    if (cached) return cached;
+    let book = null;
+    const size = bytes.byteLength ?? bytes.length ?? 0;
+    if (size >= XLSX_WORKER_THRESHOLD_BYTES) {
+      try { book = await workerParseXlsx(bytes, options); }
+      catch (_) { /* The established synchronous parser remains the fail-safe path. */ }
+    }
+    if (!book) book = nativeXlsxRead(bytes, options);
+    parsedByOptions.set(optionsKey, book);
+    return book;
+  }
   // Privacy-safe performance evidence: no source files or business identifiers.
   const responsiveness={longTasks:0,maxLongTaskMs:0,lastLongTaskAt:""};
   globalThis.__moondogResponsiveness=Object.freeze({snapshot:()=>({...responsiveness})});
@@ -1432,7 +1553,7 @@
       .replace(/\b&\b/g," and ").replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim();
   }
   function parseMenuSalesWorkbook(bytes, fileName) {
-    const book=XLSX.read(bytes,{type:"array",raw:true,cellDates:true}),
+    const book=readWorkbook(bytes,{type:"array",raw:true,cellDates:true}),
       reportSheet=book.Sheets["HyperBi Report"],parameterSheet=book.Sheets.Parameters;
     if(!reportSheet||!parameterSheet)throw new Error("This is not a recognized Menu Sales workbook.");
     const rows=XLSX.utils.sheet_to_json(reportSheet,{header:1,defval:null,raw:true}),
@@ -1523,8 +1644,9 @@
         unmatchedSourceAdvisorRows:group.length-Object.keys(advisors).length,
         storeSummaryVerified:true,presentationAndPenetrationSeparate:true}};
   }
-  async function importMenuSalesFile(name, deleteAfterSuccess = false) {
-    const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer();
+  async function importMenuSalesFile(name, deleteAfterSuccess = false, providedBytes = null) {
+    const bytes = providedBytes || await (await (await sourceFileHandle(name)).getFile()).arrayBuffer();
+    await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true });
     const snapshot = parseMenuSalesWorkbook(bytes, name);
     const priorMetrics = structuredClone(model.operationalMetrics);
     model.operationalMetrics.menu.snapshots[snapshot.releaseWeek] = snapshot;
@@ -1589,7 +1711,7 @@
   }
   function parseCsiCsv(source, fileName) { return parseCsiRows(parseCsv(source), fileName, "csv"); }
   function parseCsiWorkbook(bytes, fileName) {
-    const book = XLSX.read(bytes, { type: "array", cellDates: true }),
+    const book = readWorkbook(bytes, { type: "array", cellDates: true }),
       sheet = book.Sheets[book.SheetNames[0]];
     if (!sheet) throw new Error("The Dealer Dashboard workbook has no readable worksheet.");
     // Some Dealer Dashboard XLSX exports incorrectly declare only A1 as the
@@ -1608,8 +1730,8 @@
     return parseCsiRows(XLSX.utils.sheet_to_json(sheet, {header:1,defval:"",raw:false}), fileName, "xlsx");
   }
   function npsSummary(surveys) { const rows = Object.values(surveys), promoters = rows.filter((row) => row.classification === "Promoter").length, passives = rows.filter((row) => row.classification === "Passive").length, detractors = rows.filter((row) => row.classification === "Detractor").length; return { responses: rows.length, promoters, passives, detractors, nps: rows.length ? (promoters - detractors) / rows.length * 100 : null }; }
-  async function importCsiFile(name, deleteAfterSuccess = false) {
-    const file = await (await sourceFileHandle(name)).getFile(), parsed = /\.xlsx$/i.test(name) ? parseCsiWorkbook(await file.arrayBuffer(), name) : parseCsiCsv(await file.text(), name), priorMetrics = structuredClone(model.operationalMetrics), existing = model.operationalMetrics.csi.surveys || {}, refreshAt = now(), refreshDate = localDateKey();
+  async function importCsiFile(name, deleteAfterSuccess = false, providedBytes = null) {
+    const file = await (await sourceFileHandle(name)).getFile(), sourceBytes = providedBytes || (/\.xlsx$/i.test(name) ? await file.arrayBuffer() : null); if (/\.xlsx$/i.test(name)) await prepareXlsxWorkbook(sourceBytes, { type: "array", cellDates: true }); const parsed = /\.xlsx$/i.test(name) ? parseCsiWorkbook(sourceBytes, name) : parseCsiCsv(await file.text(), name), priorMetrics = structuredClone(model.operationalMetrics), existing = model.operationalMetrics.csi.surveys || {}, refreshAt = now(), refreshDate = localDateKey();
     Object.values(parsed.surveys).forEach((survey) => { const prior = existing[survey.id]; existing[survey.id] = prior && prior.surveyDate > survey.surveyDate ? prior : { ...prior, ...survey, extensionRecordIds: [...new Set([...(prior?.extensionRecordIds || []), ...survey.extensionRecordIds])], lastSeenAt: now() }; });
     const newest = Object.values(existing).map((survey) => survey.surveyDate).sort().at(-1); if (newest) { const cutoff = freshness.addDays(newest,-730); Object.keys(existing).forEach((id) => { if (existing[id].surveyDate < cutoff) delete existing[id]; }); }
     model.operationalMetrics.csi.surveys = existing; model.operationalMetrics.csi.imports ||= []; model.operationalMetrics.csi.imports.push({ sourceFile: name, importedAt: refreshAt, refreshDate, coverageStart: parsed.coverageStart, coverageEnd: parsed.coverageEnd, scopeStart:parsed.scopeStart,scopeEnd:parsed.scopeEnd,scopeVerified:parsed.scopeVerified, dailySummary:npsSummary(parsed.surveys), rows: Object.keys(parsed.surveys).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount, format: /\.xlsx$/i.test(name) ? "xlsx" : "csv" }); model.operationalMetrics.csi.imports = model.operationalMetrics.csi.imports.slice(-250); model.operationalMetrics.csi.lastSuccessfulRefreshAt = refreshAt; model.operationalMetrics.csi.lastSuccessfulRefreshDate = refreshDate; model.operationalMetrics.updatedAt = refreshAt; try {
@@ -1633,7 +1755,7 @@
   }
 
   const isoCell = (value) => value instanceof Date ? localDateKey(value) : workbookDate(value);
-  function workbookGrid(bytes, preferred) { const book = XLSX.read(bytes, { type: "array", raw: true, cellDates: true }), sheet = book.Sheets[preferred] || book.Sheets[book.SheetNames[0]]; if (!sheet) throw new Error("The workbook has no readable worksheet."); return { book, rows: XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true }) }; }
+  function workbookGrid(bytes, preferred) { const book = readWorkbook(bytes, { type: "array", raw: true, cellDates: true }), sheet = book.Sheets[preferred] || book.Sheets[book.SheetNames[0]]; if (!sheet) throw new Error("The workbook has no readable worksheet."); return { book, rows: XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true }) }; }
   function parseSorWorkbook(bytes, fileName) { const { rows } = workbookGrid(bytes), title = text(rows[0]?.[1] || rows[0]?.[0]).trim(), match = title.match(/After-Sales SOR\s*-\s*([A-Za-z]+)\s+(20\d{2})\s*\/\s*(\d+)\s*-/i); if (!match || match[3] !== reportStoreCode("sor")) throw new Error("This is not the configured store After-Sales SOR."); const headers = rows[2] || [], actualColumns = headers.map((value, index) => norm(value) === "actual" ? index : -1).filter((index) => index >= 0); if (actualColumns.length < 2 || norm(headers[3]) !== "prior year") throw new Error("The SOR comparison columns changed."); const metrics = {}; rows.slice(3).forEach((row) => { const label = text(row[0]).trim(); if (!label) return; metrics[label] = { ytdActual: performanceNumber(row[2]), ytdPriorYear: performanceNumber(row[3]), currentActual: performanceNumber(row[5]), currentPriorYear: performanceNumber(row[6]), priorMonthActual: performanceNumber(row[9]) }; }); for (const key of ["CP Labor Rev", "CP Labor Gross", "CP GM %", "CP RO Count", "CP ELR", "CP Hours p/RO"]) if (!metrics[key]) throw new Error(`SOR is missing ${key}.`); const month = `${match[2]}-${String(new Date(`${match[1]} 1, ${match[2]}`).getMonth() + 1).padStart(2, "0")}`; return { period: month, sourceFile: fileName, importedAt: now(), storeCode: reportStoreCode("sor"), scope: "store", metrics, validation: { parser: "sor-v1", currentActualColumn: 5, priorMonthColumn: 9 } }; }
   function parseAppointmentActivityWorkbook(bytes, fileName) {
     // Multi-store exports may cover multiple creation days. Only verified rows
@@ -1755,7 +1877,7 @@
   }
   const MEDIA_FIELDS=[['roCount',1,'RO Count','count'],['mediaCreated',2,'Media Created Count','count'],['mediaCreatedRate',3,'Media Created %','percent'],['mediaSent',4,'Media Sent Count','count'],['mediaSentRate',5,'Media Sent %','percent'],['videoCreated',6,'Video Created Count','count'],['videoCreatedRate',7,'Video Created %','percent'],['videoSent',8,'Video Sent Count','count'],['videoSentRate',9,'Video Sent %','percent'],['imageCreated',10,'Image Created Count','count'],['imageCreatedRate',11,'Image Created %','percent'],['imageSent',12,'Image Sent Count','count'],['imageSentRate',13,'Image Sent %','percent'],['mediaViewed',14,'Media Viewed Count','count'],['mediaViewedRate',15,'Media Viewed %','percent'],['viewedCpGrossPerRo',16,'Viewed CP Gross / RO','money'],['notViewedCpGrossPerRo',17,'Not Viewed CP Gross / RO','money'],['cpGrossPerRo',18,'CP Gross / RO','money'],['viewedCpHoursPerRo',19,'Viewed CP Hours / RO','number'],['notViewedCpHoursPerRo',20,'Not Viewed CP Hours / RO','number'],['viewedAddonCpGrossPerRo',21,'Viewed Addon CP Gross / RO','money'],['notViewedAddonCpGrossPerRo',22,'Not Viewed Addon CP Gross / RO','money'],['viewedAddonCpHoursPerRo',23,'Viewed Addon CP Hours / RO','number'],['notViewedAddonCpHoursPerRo',24,'Not Viewed Addon CP Hours / RO','number'],['viewedHoursDifference',25,'Viewed / Not Viewed CP Hours Difference','number'],['viewedGrossDifference',26,'Viewed / Not Viewed CP Gross Difference','money']];
   function parseMediaAsrWorkbook(bytes,fileName,requiredScope=null) {
-    const book=XLSX.read(bytes,{type:'array',raw:true,cellDates:true,cellNF:true}),sheetName=book.SheetNames.find(name=>/Media ASR Usage Report/i.test(text(book.Sheets[name]?.A1?.v))),sheet=book.Sheets[sheetName];if(!sheet)throw new Error('Media ASR internal title is missing.');
+    const book=readWorkbook(bytes,{type:'array',raw:true,cellDates:true,cellNF:true}),sheetName=book.SheetNames.find(name=>/Media ASR Usage Report/i.test(text(book.Sheets[name]?.A1?.v))),sheet=book.Sheets[sheetName];if(!sheet)throw new Error('Media ASR internal title is missing.');
     const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true}),heading=text(rows[1]?.[0]),match=heading.match(new RegExp("for\\s+" + escapeSourceCode(reportStoreCode("mediaAsr")) + "\\s*-[\\s\\S]*?From\\s+(\\d{1,2}/\\d{1,2}/20\\d{2})\\s+to\\s+(\\d{1,2}/\\d{1,2}/20\\d{2})", "i")),header=(rows[3]||[]).map(norm);
     if(!match||header[1]!=='cp and wp ro count'||!header.includes('video created')||!header.includes('media viewed by customer %'))throw new Error('Media ASR structure or store could not be verified.');
     const periodStart=strictReportDate(match[1]),periodEnd=strictReportDate(match[2]);if(!periodStart||!periodEnd||periodStart>periodEnd)throw new Error('Media ASR dates are invalid.');
@@ -1773,7 +1895,7 @@
   function parseMediaAsrTechWorkbook(bytes,name) { return parseMediaAsrWorkbook(bytes,name,'technician'); }
   function parseMediaAsrAdvisorWorkbook(bytes,name) { return parseMediaAsrWorkbook(bytes,name,'advisor'); }
   function parseEfficiencyWorkbook(bytes,fileName) {
-    const book=XLSX.read(bytes,{type:'array',raw:true,cellDates:true,cellNF:true}),sheetName=book.SheetNames.find(name=>/Efficiency Tracking Report/i.test(text(book.Sheets[name]?.A1?.v))),sheet=book.Sheets[sheetName];if(!sheet)throw new Error('Efficiency internal title is missing.');
+    const book=readWorkbook(bytes,{type:'array',raw:true,cellDates:true,cellNF:true}),sheetName=book.SheetNames.find(name=>/Efficiency Tracking Report/i.test(text(book.Sheets[name]?.A1?.v))),sheet=book.Sheets[sheetName];if(!sheet)throw new Error('Efficiency internal title is missing.');
     const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true}),period=text(rows[1]?.[0]).match(/Date Range:\s*(20\d{2}-\d{2}-\d{2})\s*-\s*(20\d{2}-\d{2}-\d{2})/i),start=rows.findIndex(row=>norm(row[0])==='productive'),boundary=rows.findIndex(row=>norm(row[0])==='non productive'),storeIndex=rows.findIndex((row,i)=>i<boundary&&storeRowPattern('efficiency').test(text(row[0])));
     const productiveHeaders=['productive','bay/tech ratio','bay utilization %','bic%','clock hours','flag hours','efficiency%','bic%'],nonHeaders=['non productive','tech count','asm count','asm/tech ratio %','asm hours','avg. tech count saturday','avg. asm count saturday','asm/tech ratio % saturday'];if(productiveHeaders.some((value,index)=>norm(rows[start]?.[index])!==value)||nonHeaders.some((value,index)=>norm(rows[boundary]?.[index])!==value))throw new Error('Efficiency metric header order changed.');
     if(!period||!validCoverageDate(period[1])||!validCoverageDate(period[2])||period[1]>period[2]||storeIndex<0||boundary<0)throw new Error('Efficiency dates or productive/non-productive hierarchy missing.');
@@ -1788,29 +1910,29 @@
   }
 
   function parseOpenRoSummaryWorkbook(bytes, fileName) { const { rows } = workbookGrid(bytes, "Open RO"), heading = text(rows[0]?.[0]), title = text(rows[11]?.[0]), date = usDateToIso(title.match(/OPEN RO'?S\s+(\d{1,2}\/\d{1,2}\/20\d{2})/i)?.[1]); if (!new RegExp("^Open RO for " + escapeSourceCode(reportStoreCode("openRoSummary")) + "\\s+-", "i").test(heading) || !date || !norm(rows[10]?.[2]).includes("customer pay")) throw new Error("This is not the configured store aggregate Open RO report."); const map = (row) => ({ customerPay: { open: performanceNumber(row[2]), over5: performanceNumber(row[3]), over5Rate: performancePercent(row[4]), oldest: workbookDate(row[5]), daysOpen: performanceNumber(row[6]), revenue: performanceNumber(row[7]) }, warranty: { open: performanceNumber(row[9]), over5: performanceNumber(row[10]), over5Rate: performancePercent(row[11]), oldest: workbookDate(row[12]), daysOpen: performanceNumber(row[13]), revenue: performanceNumber(row[14]) }, internal: { open: performanceNumber(row[16]), over5: performanceNumber(row[17]), over5Rate: performancePercent(row[18]), oldest: workbookDate(row[19]), daysOpen: performanceNumber(row[20]), revenue: performanceNumber(row[21]) }, other: { open: performanceNumber(row[23]), revenue: performanceNumber(row[24]) }, total: { open: performanceNumber(row[27]), revenue: performanceNumber(row[28]) } }); const store = map(rows[13]), advisors = {}; rows.slice(14).forEach((row) => { const code = text(row[0]).trim(); if (ADVISOR_NAMES[code]) advisors[code] = { code, name: ADVISOR_NAMES[code], ...map(row) }; }); if (!Number.isFinite(store.total.open) || !Object.keys(advisors).length) throw new Error("Aggregate Open RO totals or advisor rows are missing."); return { date, periodStart: date, periodEnd: date, sourceFile: fileName, importedAt: now(), storeCode: reportStoreCode("openRoSummary"), store, advisors, validation: { parser: "open-ro-summary-v1", configuredAdvisors: Object.keys(advisors).length, separateFromDetailedTracker: true } }; }
-  async function importManagerSource(name, kind, bytes, deleteAfterSuccess = false) { const parsers = { sor: parseSorWorkbook, "appointment-activity": parseAppointmentActivityWorkbook, efficiency: parseEfficiencyWorkbook, "media-asr": parseMediaAsrAdvisorWorkbook, "media-asr-tech":parseMediaAsrTechWorkbook, "open-ro-summary": parseOpenRoSummaryWorkbook }, families = { sor: "sor", "appointment-activity": "appointmentActivity", efficiency: "efficiency", "media-asr": "mediaAsr", "media-asr-tech":"mediaAsrTech", "open-ro-summary": "openRoSummary" }, snapshot = parsers[kind](bytes, name), family = families[kind], key = snapshot.period || snapshot.periodEnd || snapshot.date; const sourceFile=await (await sourceFileHandle(name)).getFile(); snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString(); snapshot.coverageDate=family==="appointmentActivity"?snapshot.periodEnd:["sor"].includes(family)?internalObservationDate(workbookGrid(bytes).rows)||dailyEvidenceDate(family,snapshot):dailyEvidenceDate(family,snapshot); const priorMetrics=structuredClone(model.operationalMetrics); if(family==="mediaAsrTech")learnTechnicians(snapshot); if(family==="efficiency"){const directory=model.operationalMetrics.mediaAsrTech?.directory;for(const row of snapshot.technicians||[]){if(row.number&&directory?.[row.number])directory[row.number].sourceAliases=[...new Set([...(directory[row.number].sourceAliases||[]),row.name])].slice(-30);}} model.operationalMetrics[family] ||= { snapshots: {} }; model.operationalMetrics[family].snapshots[key] = snapshot; if(family==="appointmentActivity"||(snapshot.coverageDate&&snapshot.coverageDate<=localDateKey())){model.operationalMetrics[family].dailySnapshots||={};if(family==="appointmentActivity"){const {dailyCounts,...overall}=snapshot;for(const [day,metrics] of Object.entries(dailyCounts||{})){if(day>localDateKey()||!Number.isInteger(metrics.rowCount)||metrics.rowCount<1)continue;model.operationalMetrics[family].dailySnapshots[day]={...structuredClone(overall),periodStart:day,periodEnd:day,coverageDate:day,rowCount:metrics.rowCount,byInteraction:structuredClone(metrics.byInteraction),byCreationDate:{[day]:metrics.rowCount},leadTimeBuckets:structuredClone(metrics.leadTimeBuckets),validLeadTimes:metrics.validLeadTimes,validation:{...snapshot.validation,dailyScope:true}};}}else model.operationalMetrics[family].dailySnapshots[snapshot.coverageDate]=structuredClone(snapshot);model.operationalMetrics[family].dailySnapshots=pruneDatedSnapshots(model.operationalMetrics[family].dailySnapshots);} model.operationalMetrics[family].snapshots = pruneDatedSnapshots(model.operationalMetrics[family].snapshots); model.operationalMetrics.updatedAt = now(); try{await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics); const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (JSON.stringify(check?.[family])!==JSON.stringify(model.operationalMetrics[family])) throw new Error(`${kind} snapshot could not be verified after saving.`);}catch(error){model.operationalMetrics=priorMetrics;throw error;} await addHistory(`${kind}-import`, `Saved verified ${kind} snapshot`, { fileName: name, periodStart: snapshot.periodStart || snapshot.period, periodEnd: snapshot.periodEnd || snapshot.period, compact: true }); if (deleteAfterSuccess) await removeSourceEntry(name); }
+  async function importManagerSource(name, kind, bytes, deleteAfterSuccess = false) { const parseOptions = ["efficiency", "media-asr", "media-asr-tech"].includes(kind) ? { type: "array", raw: true, cellDates: true, cellNF: true } : { type: "array", raw: true, cellDates: true }; await prepareXlsxWorkbook(bytes, parseOptions); const parsers = { sor: parseSorWorkbook, "appointment-activity": parseAppointmentActivityWorkbook, efficiency: parseEfficiencyWorkbook, "media-asr": parseMediaAsrAdvisorWorkbook, "media-asr-tech":parseMediaAsrTechWorkbook, "open-ro-summary": parseOpenRoSummaryWorkbook }, families = { sor: "sor", "appointment-activity": "appointmentActivity", efficiency: "efficiency", "media-asr": "mediaAsr", "media-asr-tech":"mediaAsrTech", "open-ro-summary": "openRoSummary" }, snapshot = parsers[kind](bytes, name), family = families[kind], key = snapshot.period || snapshot.periodEnd || snapshot.date; const sourceFile=await (await sourceFileHandle(name)).getFile(); snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString(); snapshot.coverageDate=family==="appointmentActivity"?snapshot.periodEnd:["sor"].includes(family)?internalObservationDate(workbookGrid(bytes).rows)||dailyEvidenceDate(family,snapshot):dailyEvidenceDate(family,snapshot); const priorMetrics=structuredClone(model.operationalMetrics); if(family==="mediaAsrTech")learnTechnicians(snapshot); if(family==="efficiency"){const directory=model.operationalMetrics.mediaAsrTech?.directory;for(const row of snapshot.technicians||[]){if(row.number&&directory?.[row.number])directory[row.number].sourceAliases=[...new Set([...(directory[row.number].sourceAliases||[]),row.name])].slice(-30);}} model.operationalMetrics[family] ||= { snapshots: {} }; model.operationalMetrics[family].snapshots[key] = snapshot; if(family==="appointmentActivity"||(snapshot.coverageDate&&snapshot.coverageDate<=localDateKey())){model.operationalMetrics[family].dailySnapshots||={};if(family==="appointmentActivity"){const {dailyCounts,...overall}=snapshot;for(const [day,metrics] of Object.entries(dailyCounts||{})){if(day>localDateKey()||!Number.isInteger(metrics.rowCount)||metrics.rowCount<1)continue;model.operationalMetrics[family].dailySnapshots[day]={...structuredClone(overall),periodStart:day,periodEnd:day,coverageDate:day,rowCount:metrics.rowCount,byInteraction:structuredClone(metrics.byInteraction),byCreationDate:{[day]:metrics.rowCount},leadTimeBuckets:structuredClone(metrics.leadTimeBuckets),validLeadTimes:metrics.validLeadTimes,validation:{...snapshot.validation,dailyScope:true}};}}else model.operationalMetrics[family].dailySnapshots[snapshot.coverageDate]=structuredClone(snapshot);model.operationalMetrics[family].dailySnapshots=pruneDatedSnapshots(model.operationalMetrics[family].dailySnapshots);} model.operationalMetrics[family].snapshots = pruneDatedSnapshots(model.operationalMetrics[family].snapshots); model.operationalMetrics.updatedAt = now(); try{await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics); const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (JSON.stringify(check?.[family])!==JSON.stringify(model.operationalMetrics[family])) throw new Error(`${kind} snapshot could not be verified after saving.`);}catch(error){model.operationalMetrics=priorMetrics;throw error;} await addHistory(`${kind}-import`, `Saved verified ${kind} snapshot`, { fileName: name, periodStart: snapshot.periodStart || snapshot.period, periodEnd: snapshot.periodEnd || snapshot.period, compact: true }); if (deleteAfterSuccess) await removeSourceEntry(name); }
   async function classifyImportFile(name, file, bytes) {
     if (/\.csv$/i.test(name)) { const source = await file.text(); try { parseNextAppointmentsCsv(source, name); return "next-appointments"; } catch (_) {} try { parseAppointmentsCreatedSummaryCsv(source,name); return "supplemental-csv"; } catch (_) {} try { parseVirCsv(source, name); return "vir"; } catch (_) {} try { parseCsiCsv(source, name); return "csi"; } catch (_) { return null; } }
     if (/\.pdf$/i.test(name)) {const signature=await pdfSignatureText(bytes);if(await isMoonDogGreeterOutput(bytes,signature))return "disposable-greeter";if(isAppointmentPdf(signature))return"appointments";if(supplementalPdfFamily(signature,name))return"supplemental-pdf";return referenceOnlyDocumentType(name,signature)?"known-non-service":null;}
     if (/\.docx$/i.test(name)) {try {const source=await docxText(bytes);try{parseCdkRepairOrdersDocx(source,name);return"open-ro-docx";}catch(_){}return parseSupplementalDocxReport(source,name)?"supplemental-docx":null;} catch (_) {return null;}}
     if (!/\.xlsx$/i.test(name) || /^~\$/.test(name)) return null;
     let book;
-    try { book = XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true }); } catch (_) { return null; }
+    try { book = await prepareXlsxWorkbook(bytes, { type: "array", cellDates: true, cellFormula: true }); } catch (_) { return null; }
     if (workbookIsHandoff(book, name)) throw new Error("Needs Review: advisor handoff snapshots are outbound only."); if (workbookHasReturnSchema(book)) return "ro-update"; if (workbookHasReturnIdentity(book)) throw new Error("Needs Review: damaged Supervisor Workbook cannot be imported as a generic Open RO report.");
-    try { parseCsiWorkbook(bytes, name); return "csi"; } catch (_) {}
-    try { parseMenuSalesWorkbook(bytes, name); return "menu-sales"; } catch (_) {}
-    try { parsePerformanceWorkbook(bytes, name); return "performance"; } catch (_) {}
-    try { parseSorWorkbook(bytes, name); return "sor"; } catch (_) {}
-    try { parseAppointmentActivityWorkbook(bytes, name); return "appointment-activity"; } catch (_) {}
-    try { parseEfficiencyWorkbook(bytes, name); return "efficiency"; } catch (_) {}
-    try { return parseMediaAsrWorkbook(bytes,name).sourceScope==="technician"?"media-asr-tech":"media-asr"; } catch (_) {}
-    try { parseOpenRoSummaryWorkbook(bytes, name); return "open-ro-summary"; } catch (_) {}
+    try { await prepareXlsxWorkbook(bytes, { type: "array", cellDates: true }); parseCsiWorkbook(bytes, name); return "csi"; } catch (_) {}
+    try { await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true }); parseMenuSalesWorkbook(bytes, name); return "menu-sales"; } catch (_) {}
+    try { await prepareXlsxWorkbook(bytes, { type: "array", raw: true }); parsePerformanceWorkbook(bytes, name); return "performance"; } catch (_) {}
+    try { await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true }); parseSorWorkbook(bytes, name); return "sor"; } catch (_) {}
+    try { await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true }); parseAppointmentActivityWorkbook(bytes, name); return "appointment-activity"; } catch (_) {}
+    try { await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true, cellNF: true }); parseEfficiencyWorkbook(bytes, name); return "efficiency"; } catch (_) {}
+    try { await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true, cellNF: true }); return parseMediaAsrWorkbook(bytes,name).sourceScope==="technician"?"media-asr-tech":"media-asr"; } catch (_) {}
+    try { await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true }); parseOpenRoSummaryWorkbook(bytes, name); return "open-ro-summary"; } catch (_) {}
     // A strictly reconciled advisor-grouped Open RO source is an eligible primary
     // roster only after the global total, every section and each identity validate.
     // The supplemental aging detector recognizes the same signature but cannot
     // establish active RO authority or clear the current-source warning.
     try { if (legacyReport(book)) return "open-ro"; } catch (_) {}
-    try { if (parseSupplementalWorkbook(bytes,name)) return "supplemental-workbook"; } catch (_) {}
+    try { await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true }); if (parseSupplementalWorkbook(bytes,name)) return "supplemental-workbook"; } catch (_) {}
     const appointmentSheet = book.Sheets["Service Daily Log"] || book.Sheets[book.SheetNames[0]], appointmentRows = appointmentSheet ? XLSX.utils.sheet_to_json(appointmentSheet, { header: 1, defval: "", raw: false }) : [], isAppointment = appointmentRows.some((row) => row.some((value) => text(value).trim() === "Time") && row.some((value) => text(value).trim() === "Customer") && row.some((value) => text(value).trim() === "SA"));
     if (isAppointment) return "appointments";
     try { if (findTable(book)) return "open-ro"; } catch (_) {}
@@ -2025,11 +2147,11 @@
     return{family:"cash-clearing",sourceFile:fileName,sourceFormat:"xlsx",importedAt:now(),periodStart:"",periodEnd:"",variant:"service-parts",metrics:{sections,actionCounts},validation:{parser:"cash-clearing-v1",supplementalOnly:true,kpiPromotion:false,detailRowsNotRetained:true}};
   }
   function parseCreditHoldsWorkbook(bytes,fileName) {
-    const book=XLSX.read(bytes,{type:"array",raw:true,cellDates:true}),eligible=book.SheetNames.filter((name)=>/^(COD ONLY|HARD HOLD - NO SALES|COD ONLY - REVIEW PEND)/i.test(name));if(!eligible.length)return null;const sheets={};for(const name of eligible){const rows=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:null,raw:true}),header=(rows[0]||[]).map(norm);if(header[0]!=="b/u"||header[1]!=="customer #"||header[4]!=="total due")throw new Error("Credit Hold column structure changed.");const values=rows.slice(1).map((row)=>performanceNumber(row[4])).filter(Number.isFinite);sheets[name]={count:values.length,totalDue:values.reduce((sum,value)=>sum+value,0),positive:values.filter((value)=>value>0).length,negative:values.filter((value)=>value<0).length,zero:values.filter((value)=>value===0).length};}
+    const book=readWorkbook(bytes,{type:"array",raw:true,cellDates:true}),eligible=book.SheetNames.filter((name)=>/^(COD ONLY|HARD HOLD - NO SALES|COD ONLY - REVIEW PEND)/i.test(name));if(!eligible.length)return null;const sheets={};for(const name of eligible){const rows=XLSX.utils.sheet_to_json(book.Sheets[name],{header:1,defval:null,raw:true}),header=(rows[0]||[]).map(norm);if(header[0]!=="b/u"||header[1]!=="customer #"||header[4]!=="total due")throw new Error("Credit Hold column structure changed.");const values=rows.slice(1).map((row)=>performanceNumber(row[4])).filter(Number.isFinite);sheets[name]={count:values.length,totalDue:values.reduce((sum,value)=>sum+value,0),positive:values.filter((value)=>value>0).length,negative:values.filter((value)=>value<0).length,zero:values.filter((value)=>value===0).length};}
     const dateMatch=String(fileName||"").match(/Week of\s+(\d{1,2})-(\d{1,2})-(20\d{2})/i),periodStart=dateMatch?validCoverageDate(dateMatch[3]+"-"+dateMatch[1].padStart(2,"0")+"-"+dateMatch[2].padStart(2,"0")):"";return{family:"credit-holds",sourceFile:fileName,sourceFormat:"xlsx",importedAt:now(),periodStart,periodEnd:periodStart,variant:"weekly",metrics:{sheets},validation:{parser:"credit-holds-v1",supplementalOnly:true,kpiPromotion:false,customerRowsNotRetained:true}};
   }
   function parseEmptyKnownWorkbook(bytes,fileName) {
-    const book=XLSX.read(bytes,{type:"array",raw:true,cellDates:true}),mediaName=book.SheetNames.find((name)=>/Media ASR/i.test(name));if(mediaName){const rows=XLSX.utils.sheet_to_json(book.Sheets[mediaName],{header:1,defval:null,raw:true}),title=text(rows[0]?.[0]),heading=text(rows[1]?.[0]);if(/Media ASR Usage Report/i.test(title)&&rows.length<=5){const match=heading.match(/for\s+(\d+)\s*-[\s\S]*?From\s+(\d{1,2}\/\d{1,2}\/20\d{2})\s+to\s+(\d{1,2}\/\d{1,2}\/20\d{2})/i);return{family:"media-asr-empty",sourceFile:fileName,sourceFormat:"xlsx",importedAt:now(),periodStart:strictReportDate(match?.[2]),periodEnd:strictReportDate(match?.[3]),variant:/MULTI-A|MULTI-I/i.test(heading)?"multi-only":"all",metrics:{sourceStoreCode:match?.[1]||"",population:text(heading.split("\n").slice(2).join(" ")),dataRows:0},validation:{parser:"recognized-empty-workbook-v1",supplementalOnly:true,kpiPromotion:false,reason:"Recognized Media ASR export contains no summary rows"}};}}
+    const book=readWorkbook(bytes,{type:"array",raw:true,cellDates:true}),mediaName=book.SheetNames.find((name)=>/Media ASR/i.test(name));if(mediaName){const rows=XLSX.utils.sheet_to_json(book.Sheets[mediaName],{header:1,defval:null,raw:true}),title=text(rows[0]?.[0]),heading=text(rows[1]?.[0]);if(/Media ASR Usage Report/i.test(title)&&rows.length<=5){const match=heading.match(/for\s+(\d+)\s*-[\s\S]*?From\s+(\d{1,2}\/\d{1,2}\/20\d{2})\s+to\s+(\d{1,2}\/\d{1,2}\/20\d{2})/i);return{family:"media-asr-empty",sourceFile:fileName,sourceFormat:"xlsx",importedAt:now(),periodStart:strictReportDate(match?.[2]),periodEnd:strictReportDate(match?.[3]),variant:/MULTI-A|MULTI-I/i.test(heading)?"multi-only":"all",metrics:{sourceStoreCode:match?.[1]||"",population:text(heading.split("\n").slice(2).join(" ")),dataRows:0},validation:{parser:"recognized-empty-workbook-v1",supplementalOnly:true,kpiPromotion:false,reason:"Recognized Media ASR export contains no summary rows"}};}}
     const efficiencyName=book.SheetNames.find((name)=>/Efficiency Tracking/i.test(name));if(efficiencyName){const rows=XLSX.utils.sheet_to_json(book.Sheets[efficiencyName],{header:1,defval:null,raw:true}),title=text(rows[0]?.[0]),meta=text(rows[1]?.[0]);if(/Efficiency Tracking Report/i.test(title)){const period=meta.match(/Date Range:\s*(20\d{2}-\d{2}-\d{2})\s*-\s*(20\d{2}-\d{2}-\d{2})/i),store=meta.match(/Store:\s*(\d+)\s*-/i),hasDetail=rows.some((row,index)=>index>5&&index!==8&&text(row[0]).trim()&&!/^Grand Total$/i.test(text(row[0]).trim()));if(!hasDetail)return{family:"efficiency-empty",sourceFile:fileName,sourceFormat:"xlsx",importedAt:now(),periodStart:validCoverageDate(period?.[1]),periodEnd:validCoverageDate(period?.[2]),variant:"no-detail",metrics:{sourceStoreCode:store?.[1]||"",dataRows:0},validation:{parser:"recognized-empty-workbook-v1",supplementalOnly:true,kpiPromotion:false,reason:"Recognized Efficiency export contains no store or technician detail"}};}}
     const sdl=book.Sheets["Service Daily Log"];if(sdl){const rows=XLSX.utils.sheet_to_json(sdl,{header:1,defval:null,raw:true}),nonblank=rows.flat().filter((value)=>text(value).trim());if(!nonblank.length)return{family:"service-daily-log-empty",sourceFile:fileName,sourceFormat:"xlsx",importedAt:now(),periodStart:"",periodEnd:"",variant:"blank-export",metrics:{dataRows:0},validation:{parser:"recognized-empty-workbook-v1",supplementalOnly:true,kpiPromotion:false,reason:"Recognized Service Daily Log workbook is blank"}};}
     return null;
@@ -2246,6 +2368,7 @@
   }
 
   async function importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess=false) {
+    if(kind==="supplemental-workbook")await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true });
     let snapshot;if(kind==="supplemental-pdf"){const signature=await pdfSignatureText(bytes),family=supplementalPdfFamily(signature,candidate.name),pages=family==="controllable-ranking"?80:family==="service-consulting-audit"?20:4;snapshot=parseSupplementalPdfReport(await pdfReportText(bytes,pages),candidate.name,{storeCode:model.settings.store?.code||""});}
     else if(kind==="supplemental-csv")snapshot=parseAppointmentsCreatedSummaryCsv(new TextDecoder().decode(new Uint8Array(bytes)),candidate.name);
     else if(kind==="supplemental-workbook")snapshot=parseSupplementalWorkbook(bytes,candidate.name);
@@ -2259,19 +2382,24 @@
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true) {
     if (["open-ro", "open-ro-docx"].includes(kind) && candidate.location !== "picked") throw new Error("Needs Review: an unsigned complete RO report requires explicit source, date and completeness review. Use Import Report to select the original file; the automatic scan cannot replace Open ROs.");
     sourceLocations.set(candidate.name, candidate.location);let appointmentOutcome;
-    if (kind === "performance") await importPerformanceFile(candidate.name, deleteAfterSuccess);
+    if (/\.xlsx$/i.test(candidate.name) && candidate.location !== "picked" && bytes) {
+      const currentFile = await (await sourceFileHandle(candidate.name)).getFile();
+      if (!sameByteContent(await currentFile.arrayBuffer(), bytes))
+        throw new Error(`${candidate.name} changed after classification and was left in place.`);
+    }
+    if (kind === "performance") await importPerformanceFile(candidate.name, deleteAfterSuccess, bytes);
     else if (kind === "next-appointments") await importNextAppointmentsFile(candidate.name, deleteAfterSuccess);
     else if (kind === "vir") await importVirFile(candidate.name, deleteAfterSuccess);
-    else if (kind === "menu-sales") await importMenuSalesFile(candidate.name, deleteAfterSuccess);
-    else if (kind === "csi") await importCsiFile(candidate.name, deleteAfterSuccess);
+    else if (kind === "menu-sales") await importMenuSalesFile(candidate.name, deleteAfterSuccess, bytes);
+    else if (kind === "csi") await importCsiFile(candidate.name, deleteAfterSuccess, bytes);
     else if (["sor", "appointment-activity", "efficiency", "media-asr", "media-asr-tech", "open-ro-summary"].includes(kind)) await importManagerSource(candidate.name, kind, bytes, deleteAfterSuccess);
     else if (kind === "open-ro-docx") return await importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess);
     else if (kind === "known-non-service") return await retireKnownNonServiceSource(candidate,bytes,deleteAfterSuccess);
     else if (["supplemental-pdf","supplemental-csv","supplemental-workbook","supplemental-docx"].includes(kind)) await importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess);
-    else if (kind === "appointments") appointmentOutcome=await importAppointmentFile(candidate.name, deleteAfterSuccess);
+    else if (kind === "appointments") appointmentOutcome=await importAppointmentFile(candidate.name, deleteAfterSuccess, bytes);
     else if (kind === "disposable-greeter") { if (deleteAfterSuccess) await removeSourceEntry(candidate.name); await addHistory("disposable-output-removed", "Removed generated Greeter appointment output", { outputType: "Greeter Appointment List" }); recordDiagnostic("REPORT INBOX", "MoonDog Greeter output deleted as disposable output"); }
-    else if (kind === "ro-update") await importReturnedWorkbook(candidate.name, deleteAfterSuccess);
-    else await importSource(candidate.name, deleteAfterSuccess);
+    else if (kind === "ro-update") await importReturnedWorkbook(candidate.name, deleteAfterSuccess, bytes);
+    else await importSource(candidate.name, deleteAfterSuccess, bytes);
     await ensurePreviousMonthSummary(); renderAll();return appointmentOutcome;
   }
   async function reconcileLearnedFiles(parserRevision=LEARNED_PARSER_REVISION) {
@@ -2535,12 +2663,12 @@
     return { imported, retired, learned, retained, initialized: false };
   }
 
-  async function importReturnedWorkbook(selectedName, deleteAfterSuccess = false) {
-    return withSupervisorWorkbookLock(() => importReturnedWorkbookUnlocked(selectedName,deleteAfterSuccess));
+  async function importReturnedWorkbook(selectedName, deleteAfterSuccess = false, providedBytes = null) {
+    return withSupervisorWorkbookLock(() => importReturnedWorkbookUnlocked(selectedName,deleteAfterSuccess,providedBytes));
   }
-  async function importReturnedWorkbookUnlocked(selectedName, deleteAfterSuccess = false) {
+  async function importReturnedWorkbookUnlocked(selectedName, deleteAfterSuccess = false, providedBytes = null) {
     const name = selectedName || ui.sourceSelect.value; if (!name) throw new Error("Choose a returned supervisor workbook."); status(`Reviewing advisor updates in ${name}…`, "working");
-    const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer(), book = XLSX.read(bytes, { type: "array", cellDates: true, raw: false }); if (workbookIsHandoff(book, name)) throw new Error("Advisor handoff snapshots are outbound only."); if (!workbookHasReturnSchema(book)) throw new Error("This workbook does not contain the required supervisor update fields."); await validateReturnedWorkbookIssuance(book); validateReturnedWorkbookFreshness(book); await markSupervisorWorkbookStale("A returned Supervisor Workbook is being processed");
+    const bytes = providedBytes || await (await (await sourceFileHandle(name)).getFile()).arrayBuffer(), book = await prepareXlsxWorkbook(bytes, { type: "array", cellDates: true, raw: false }); if (workbookIsHandoff(book, name)) throw new Error("Advisor handoff snapshots are outbound only."); if (!workbookHasReturnSchema(book)) throw new Error("This workbook does not contain the required supervisor update fields."); await validateReturnedWorkbookIssuance(book); validateReturnedWorkbookFreshness(book); await markSupervisorWorkbookStale("A returned Supervisor Workbook is being processed");
     const byId = new Map(model.state.records.map((record) => [record.id, record])), clearUpdates = [], questions = [], entries = [], idCounts = new Map(), duplicateQuestions = new Set();
     for (const sheetName of book.SheetNames) {
       const rows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { defval: "", raw: false });
@@ -2572,12 +2700,12 @@
     status(`${clearUpdates.length} clear advisor update${clearUpdates.length === 1 ? " was" : "s were"} applied.${questions.length ? ` ${questions.length} item${questions.length === 1 ? " was" : "s were"} flagged to ask in person.` : " No clarification was needed."}`, questions.length ? "info" : "success");
   }
 
-  async function importSource(selectedName = null, deleteAfterSuccess = false) {
-    return withSupervisorWorkbookLock(() => importSourceUnlocked(selectedName,deleteAfterSuccess));
+  async function importSource(selectedName = null, deleteAfterSuccess = false, providedBytes = null) {
+    return withSupervisorWorkbookLock(() => importSourceUnlocked(selectedName,deleteAfterSuccess,providedBytes));
   }
-  async function importSourceUnlocked(selectedName = null, deleteAfterSuccess = false) {
+  async function importSourceUnlocked(selectedName = null, deleteAfterSuccess = false, providedBytes = null) {
     const name = selectedName || ui.sourceSelect.value; if (!name) return; status("Reading "+name+"…", "working");
-    const file = await (await sourceFileHandle(name)).getFile(); const bytes = await file.arrayBuffer(); const book = XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true }); if (workbookIsHandoff(book, name)) throw new Error("Advisor handoff snapshots are outbound only."); if (workbookHasReturnSchema(book)) return importReturnedWorkbookUnlocked(name, deleteAfterSuccess); if (workbookHasReturnIdentity(book)) throw new Error("Needs Review: damaged Supervisor Workbook cannot be imported as a generic Open RO report."); const legacy = legacyReport(book); const table = legacy ? null : findTable(book);
+    const file = await (await sourceFileHandle(name)).getFile(); const bytes = providedBytes || await file.arrayBuffer(); const book = await prepareXlsxWorkbook(bytes, { type: "array", cellDates: true, cellFormula: true }); if (workbookIsHandoff(book, name)) throw new Error("Advisor handoff snapshots are outbound only."); if (workbookHasReturnSchema(book)) return importReturnedWorkbookUnlocked(name, deleteAfterSuccess, bytes); if (workbookHasReturnIdentity(book)) throw new Error("Needs Review: damaged Supervisor Workbook cannot be imported as a generic Open RO report."); const legacy = legacyReport(book); const table = legacy ? null : findTable(book);
     const incoming = legacy ? legacy.records : table.rows.map((row) => rawRecord(row, table)).filter((record) => record.ro); if (!incoming.length) throw new Error("The detected table contained no RO records.");
     const verifiedSource = await verifyCompleteRoImport(name, file, bytes, incoming);
     incoming.forEach((raw)=>reconcileRecordSourceIdentity(raw));const importedAt=now(),merged=mergeCompleteOpenRoRecords(incoming,importedAt,"open-ro-xlsx"),records=merged.records;records.forEach(reconcileRecordSourceIdentity);
@@ -2607,16 +2735,16 @@
   async function parseAppointmentSource(bytes, date) { return String.fromCharCode(...new Uint8Array(bytes).slice(0, 4)) === "%PDF" ? parsePreRos(bytes, date) : parseAppointments(bytes, date); }
   async function scanAppointmentFiles() { const files = []; for await (const [name, handle] of (await reportInbox(false)).entries()) if (handle.kind === "file" && /\.(xlsx|pdf)$/i.test(name) && !/^~\$/.test(name)) files.push(name); files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); ui.appointmentSource.replaceChildren(new Option(files.length ? "Select Service Daily Log XLSX or PreROs PDF" : "No appointment file in Report Inbox", "")); files.forEach((name) => ui.appointmentSource.add(new Option(name, name))); ui.appointmentSource.disabled = !files.length; ui.importAppointments.disabled = true; }
 
-  function parseAppointments(bytes, date) { const book = XLSX.read(bytes, { type: "array", cellDates: true }); const sheet = book.Sheets["Service Daily Log"] || book.Sheets[book.SheetNames[0]]; if (!sheet) throw new Error("No Service Daily Log worksheet was found."); const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false }); const headerIndex = rows.findIndex((row) => row.some((value) => text(value).trim() === "Time") && row.some((value) => text(value).trim() === "Customer") && row.some((value) => text(value).trim() === "SA")); if (headerIndex < 0) throw new Error("Could not find Time, Customer, and SA columns in this workbook."); const headers = rows[headerIndex].map((value) => text(value).trim()); const column = (name) => headers.indexOf(name); const prior = new Map((model.appointments.days[date]?.appointments || []).map((item) => [item.id, item])); const appointments = rows.slice(headerIndex + 1).map((row) => { const time = text(row[column("Time")]).trim(), advisorCode = text(row[column("SA")]).trim(), guest = text(row[column("Customer")]).trim(), customerNumber = text(row[column("Customer #")]).trim(), vehicle = `${text(row[column("Year")]).trim()} ${text(row[column("Model")]).trim()}`.trim(), request = text(row[column("Service Request")]).trim(); const id = `appt-${slug(date)}-${slug(time)}-${slug(customerNumber || guest)}-${slug(advisorCode || "unassigned")}`; return { id, time, customerNumber, guest, advisorCode, advisor: ARRIVAL_ADVISOR_NAMES[advisorCode] || "", vehicle, created: text(row[column("Create Date/Time")]).trim(), request, summary: visitSummary(request), arrivalStatus: prior.get(id)?.arrivalStatus || "Scheduled", statusUpdatedAt: prior.get(id)?.statusUpdatedAt || null }; }).filter((item) => /^\d{1,2}:\d{2}/.test(item.time) && item.guest && item.advisor).sort((a, b) => timeMinutes(a.time) - timeMinutes(b.time)); if (!appointments.length) throw new Error("No appointments for the configured advisors were found in this Service Daily Log."); return appointments; }
+  function parseAppointments(bytes, date) { const book = readWorkbook(bytes, { type: "array", cellDates: true }); const sheet = book.Sheets["Service Daily Log"] || book.Sheets[book.SheetNames[0]]; if (!sheet) throw new Error("No Service Daily Log worksheet was found."); const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false }); const headerIndex = rows.findIndex((row) => row.some((value) => text(value).trim() === "Time") && row.some((value) => text(value).trim() === "Customer") && row.some((value) => text(value).trim() === "SA")); if (headerIndex < 0) throw new Error("Could not find Time, Customer, and SA columns in this workbook."); const headers = rows[headerIndex].map((value) => text(value).trim()); const column = (name) => headers.indexOf(name); const prior = new Map((model.appointments.days[date]?.appointments || []).map((item) => [item.id, item])); const appointments = rows.slice(headerIndex + 1).map((row) => { const time = text(row[column("Time")]).trim(), advisorCode = text(row[column("SA")]).trim(), guest = text(row[column("Customer")]).trim(), customerNumber = text(row[column("Customer #")]).trim(), vehicle = `${text(row[column("Year")]).trim()} ${text(row[column("Model")]).trim()}`.trim(), request = text(row[column("Service Request")]).trim(); const id = `appt-${slug(date)}-${slug(time)}-${slug(customerNumber || guest)}-${slug(advisorCode || "unassigned")}`; return { id, time, customerNumber, guest, advisorCode, advisor: ARRIVAL_ADVISOR_NAMES[advisorCode] || "", vehicle, created: text(row[column("Create Date/Time")]).trim(), request, summary: visitSummary(request), arrivalStatus: prior.get(id)?.arrivalStatus || "Scheduled", statusUpdatedAt: prior.get(id)?.statusUpdatedAt || null }; }).filter((item) => /^\d{1,2}:\d{2}/.test(item.time) && item.guest && item.advisor).sort((a, b) => timeMinutes(a.time) - timeMinutes(b.time)); if (!appointments.length) throw new Error("No appointments for the configured advisors were found in this Service Daily Log."); return appointments; }
 
-  async function importAppointmentFile(selectedName=null,deleteAfterSuccess=false){
+  async function importAppointmentFile(selectedName=null,deleteAfterSuccess=false,providedBytes=null){
     const name=selectedName||ui.appointmentSource.value;syncArrivalDate();if(!name)throw new Error("Choose an appointment source file.");
     if(appointmentImportBusy||(!deleteAfterSuccess&&!dailyPickedSources.has(name)&&(folderWatch.busy||dailyImportBusy)))throw new DOMException("Service Operations Dashboard is finishing another import. Try again in a moment.","InvalidStateError");
     appointmentImportBusy=true;const reading=`Reading today’s appointments from ${name}…`,prior=model.appointments;let saved=false;status(reading,"working");
     try{
-      const file=await boundedPdfRead(async()=> (await sourceFileHandle(name)).getFile(),"Appointment source read"),bytes=await boundedPdfRead(()=>file.arrayBuffer(),"Appointment source bytes"),isPdf=String.fromCharCode(...new Uint8Array(bytes).slice(0,4))==="%PDF",signature=isPdf?await pdfSignatureText(bytes):"";
+      const file=await boundedPdfRead(async()=> (await sourceFileHandle(name)).getFile(),"Appointment source read"),bytes=providedBytes||await boundedPdfRead(()=>file.arrayBuffer(),"Appointment source bytes"),isPdf=String.fromCharCode(...new Uint8Array(bytes).slice(0,4))==="%PDF",signature=isPdf?await pdfSignatureText(bytes):""; if(/\.xlsx$/i.test(name))await prepareXlsxWorkbook(bytes,{type:"array",cellDates:true});
       if(isPdf&&!isAppointmentPdf(signature))throw new Error("This PDF is not a verified PreRO appointment report. Keep it in Files To Learn for review.");
-      const date=isPdf?strictReportDate(signature.match(/(\d{1,2}\/\d{1,2}\/20\d{2})\s+\d{1,2}:\d{2}\s*(?:AM|PM)/i)?.[1]):internalObservationDate(workbookGrid(bytes).rows)||coverageTimestamp(new Date(file.lastModified).toISOString());
+      if (!isPdf) await prepareXlsxWorkbook(bytes,{type:"array",raw:true,cellDates:true}); const date=isPdf?strictReportDate(signature.match(/(\d{1,2}\/\d{1,2}\/20\d{2})\s+\d{1,2}:\d{2}\s*(?:AM|PM)/i)?.[1]):internalObservationDate(workbookGrid(bytes).rows)||coverageTimestamp(new Date(file.lastModified).toISOString());
       if(!date||date>localDateKey())throw new Error("The appointment report needs a verified non-future report/observation date.");
       const appointments=await parseAppointmentSource(bytes,date),candidate=structuredClone(prior);await writeJson(["backups",`${stamp()}-appointments-before-import.json`],prior);
       const sourceExtension=name.toLowerCase().endsWith(".pdf")?".pdf":".xlsx",auditName=`${stamp()}-appointments-${slug(name.replace(/\.(xlsx|pdf)$/i,""))}${sourceExtension}`;
@@ -2670,7 +2798,7 @@
       if (!doc.getElementsByTagNameNS(mainNs, "sheetProtection").length) throw new Error(`Worksheet protection is missing in ${partName}.`);
       for (const cell of doc.getElementsByTagNameNS(mainNs, "c")) { const style = Number(cell.getAttribute("s") || 0); if (!Number.isInteger(style) || style < 0 || style >= styleCount) throw new Error(`Worksheet ${partName} references missing style ${style}.`); }
     }
-    let book; try { book = XLSX.read(bytes, { type: "array", cellStyles: true }); } catch (_) { throw new Error("Generated workbook could not be parsed back after protection."); }
+    let book; try { book = readWorkbook(bytes, { type: "array", cellStyles: true }); } catch (_) { throw new Error("Generated workbook could not be parsed back after protection."); }
     const expectedSheets = codes.map((code) => workbookSheetName(code, codes)); if (book.SheetNames.join("|") !== expectedSheets.join("|")) throw new Error("Generated workbook advisor worksheets are incomplete or out of order.");
     let count = 0; for (const sheetName of expectedSheets) { const sheet = book.Sheets[sheetName], rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }); count += rows.length; const headers = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" })[0] || [], issuanceId = text(sheet[RETURN_ISSUANCE_CELL]?.v).trim(); if (!headers.includes(RETURN_ID_HEADER) || !headers.includes(RETURN_BASELINE_HEADER) || !headers.includes(RETURN_STATUS_ID_HEADER) || !sheet["!cols"]?.[0]?.hidden || !sheet["!cols"]?.[14]?.hidden || !sheet["!cols"]?.[15]?.hidden || !sheet["!cols"]?.[16]?.hidden || !issuanceId || (handoff ? issuanceId !== "MoonDog outbound handoff" : expectedIssuanceId && issuanceId !== expectedIssuanceId)) throw new Error(`Hidden round-trip identity fields are missing or invalid in ${sheetName}.`); }
     if (count !== (handoff ? handoffRecords(codes).length : supervisorWorkbookRecords(codes).length)) throw new Error("Generated workbook record count does not match the eligible Supervisor Workbook Open RO state.");
@@ -2921,13 +3049,14 @@
     if (Object.keys(output.store).length !== CONTROLLABLES.length || Object.keys(output.advisors).length !== Object.keys(advisors).length) throw new Error("The SAPR controllables table does not contain the expected store and advisor rows."); return output;
   }
   function additionalVinsNeeded(sold, eligible, target) { if (![sold, eligible, target].every(Number.isFinite) || target <= 0 || target >= 100) return null; const rate = target / 100; if (eligible > 0 && sold / eligible * 100 >= target) return 0; if (eligible === 0 && sold === 0) return 1; return Math.max(0, Math.ceil((rate * eligible - sold) / (1 - rate) - 1e-9)); }
-  function parsePerformanceWorkbook(bytes, fileName) { const book = XLSX.read(bytes, { type: "array", raw: true }), storeSheet = book.Sheets[book.SheetNames[0]]; if (!storeSheet) throw new Error("The workbook has no readable worksheets."); const storeRows = performanceRows(storeSheet), heading = storeRows.slice(0, 4).flat().map(text).find((value) => /Service Advisor Performance/i.test(value)); if (!heading) throw new Error("This is not a Service Advisor Performance report."); const dates = heading.match(/From\s+(\d{1,2}\/\d{1,2}\/20\d{2})\s+to\s+(\d{1,2}\/\d{1,2}\/20\d{2})/i); if (!dates) throw new Error("The performance reporting period could not be read."); const sourceDays = performanceDays(storeRows); if (!sourceDays) throw new Error("SAPR Days Completed and total days could not be verified."); const advisors = {}; for (const sheetName of book.SheetNames.slice(1)) { const rows = performanceRows(book.Sheets[sheetName]), code = performanceDetailCode(rows); if (!ADVISOR_NAMES[code]) continue; if (advisors[code]) throw new Error(`Advisor ${code} appears on more than one SAPR detail worksheet. The report was not saved.`); const sheetDays = performanceDays(rows); if (!sheetDays || sheetDays.completed !== sourceDays.completed || sheetDays.total !== sourceDays.total) throw new Error(`SAPR Days Completed does not reconcile for advisor ${code}.`); const metrics = performanceMetrics(rows); validateAdvisorPerformance(metrics, code, sheetName); advisors[code] = { code, name: ADVISOR_NAMES[code], sourceSheet: sheetName, ...metrics }; } if (!Object.keys(advisors).length) throw new Error("No configured advisor detail worksheets were found in this performance report."); const periodStart = usDateToIso(dates[1]), periodEnd = usDateToIso(dates[2]), store = { code: "store", name: "Store total", sourceSheet: book.SheetNames[0], ...performanceMetrics(storeRows) }, controllables = parseControllableBenchmarks(book, store, advisors); return { date: periodEnd, periodStart, periodEnd, saprDaysCompleted: sourceDays.completed, saprTotalDays: sourceDays.total, sourceFile: fileName, importedAt: now(), validation: { advisorDetailSheets: Object.keys(advisors).length, parser: "strict-detail-v8-cp-ro-vin-denominator", finalTotalsVerified: true, saprDaysVerified: true, controllables: CONTROLLABLES.length,controllableVinDenominator:"cp-ro" }, store, advisors, controllables }; }
+  function parsePerformanceWorkbook(bytes, fileName) { const book = readWorkbook(bytes, { type: "array", raw: true }), storeSheet = book.Sheets[book.SheetNames[0]]; if (!storeSheet) throw new Error("The workbook has no readable worksheets."); const storeRows = performanceRows(storeSheet), heading = storeRows.slice(0, 4).flat().map(text).find((value) => /Service Advisor Performance/i.test(value)); if (!heading) throw new Error("This is not a Service Advisor Performance report."); const dates = heading.match(/From\s+(\d{1,2}\/\d{1,2}\/20\d{2})\s+to\s+(\d{1,2}\/\d{1,2}\/20\d{2})/i); if (!dates) throw new Error("The performance reporting period could not be read."); const sourceDays = performanceDays(storeRows); if (!sourceDays) throw new Error("SAPR Days Completed and total days could not be verified."); const advisors = {}; for (const sheetName of book.SheetNames.slice(1)) { const rows = performanceRows(book.Sheets[sheetName]), code = performanceDetailCode(rows); if (!ADVISOR_NAMES[code]) continue; if (advisors[code]) throw new Error(`Advisor ${code} appears on more than one SAPR detail worksheet. The report was not saved.`); const sheetDays = performanceDays(rows); if (!sheetDays || sheetDays.completed !== sourceDays.completed || sheetDays.total !== sourceDays.total) throw new Error(`SAPR Days Completed does not reconcile for advisor ${code}.`); const metrics = performanceMetrics(rows); validateAdvisorPerformance(metrics, code, sheetName); advisors[code] = { code, name: ADVISOR_NAMES[code], sourceSheet: sheetName, ...metrics }; } if (!Object.keys(advisors).length) throw new Error("No configured advisor detail worksheets were found in this performance report."); const periodStart = usDateToIso(dates[1]), periodEnd = usDateToIso(dates[2]), store = { code: "store", name: "Store total", sourceSheet: book.SheetNames[0], ...performanceMetrics(storeRows) }, controllables = parseControllableBenchmarks(book, store, advisors); return { date: periodEnd, periodStart, periodEnd, saprDaysCompleted: sourceDays.completed, saprTotalDays: sourceDays.total, sourceFile: fileName, importedAt: now(), validation: { advisorDetailSheets: Object.keys(advisors).length, parser: "strict-detail-v8-cp-ro-vin-denominator", finalTotalsVerified: true, saprDaysVerified: true, controllables: CONTROLLABLES.length,controllableVinDenominator:"cp-ro" }, store, advisors, controllables }; }
   function prunePerformanceSnapshots(snapshots) { const dates = Object.keys(snapshots).sort(); if (!dates.length) return snapshots; const cutoff=freshness.addDays(dates.at(-1),-PERFORMANCE_RETENTION_DAYS),kept={};dates.forEach((date)=>{if(date>=cutoff)kept[date]=snapshots[date];});return kept; }
-  async function importPerformanceFile(selectedName = null, deleteAfterSuccess = false) {
+  async function importPerformanceFile(selectedName = null, deleteAfterSuccess = false, providedBytes = null) {
     const name = selectedName || ui.performanceSourceSelect.value;
     if (!name) throw new Error("Choose a Service Advisor Performance XLSX.");
     status(`Reading advisor performance from ${name}…`, "working");
-    const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer();
+    const bytes = providedBytes || await (await (await sourceFileHandle(name)).getFile()).arrayBuffer();
+    await prepareXlsxWorkbook(bytes, { type: "array", raw: true });
     const snapshot = parsePerformanceWorkbook(bytes, name);
     const priorPerformance = structuredClone(model.performance);
     const replacing = Boolean(model.performance.snapshots[snapshot.date]);
@@ -5071,7 +5200,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   document.addEventListener("keydown", (event) => { if (event.key === "/" && !ui.editDialog.open && ui["view-open-ro"].classList.contains("active") && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) { event.preventDefault(); ui.searchInput.focus(); ui.searchInput.select(); } });
   window.addEventListener("focus",()=>folderWatchScan("focus"));document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")folderWatchScan("visible");});
   syncArrivalDate(); setInterval(() => { if (ui.appointmentDate.value !== localDateKey()) { syncArrivalDate(); renderArrivals(); } }, 60000); setInterval(() => { if (model.root && model.meetingCycle?.cycleStart !== meetingCycleInfo().cycleStart) run(async () => { await ensureMeetingCycleBaseline(); renderMeeting(); }); }, 60000); renderAll(); run(restoreConnection);
-  function installProductizedParser(){const legacy=parsePerformanceWorkbook;parsePerformanceWorkbook=function(bytes,fileName){const book=XLSX.read(bytes,{type:"array",raw:true}),storeSheet=book.Sheets[book.SheetNames[0]];if(!storeSheet)throw new Error("The workbook has no readable worksheets.");const storeRows=performanceRows(storeSheet),heading=storeRows.slice(0,4).flat().map(text).find((value)=>/Service Advisor Performance/i.test(value)),dates=heading?.match(/From\s+(\d{1,2}\/\d{1,2}\/20\d{2})\s+to\s+(\d{1,2}\/\d{1,2}\/20\d{2})/i),sourceDays=performanceDays(storeRows);if(!heading||!dates||!sourceDays)return legacy(bytes,fileName);const advisors={};for(const sheetName of book.SheetNames.slice(1)){const rows=performanceRows(book.Sheets[sheetName]),code=performanceDetailCode(rows);if(!code)continue;const name=performanceDetailName(rows,code);if(!name)throw new Error(`Advisor ${code} has no readable SAPR identity.`);if(advisors[code])throw new Error(`Advisor ${code} appears on more than one SAPR detail worksheet.`);const sheetDays=performanceDays(rows);if(!sheetDays||sheetDays.completed!==sourceDays.completed||sheetDays.total!==sourceDays.total)throw new Error(`SAPR Days Completed does not reconcile for advisor ${code}.`);const metrics=performanceMetrics(rows);validateAdvisorPerformance(metrics,code,sheetName);advisors[code]={code,name,sourceSheet:sheetName,...metrics};}if(!Object.keys(advisors).length)return legacy(bytes,fileName);const periodStart=usDateToIso(dates[1]),periodEnd=usDateToIso(dates[2]),store={code:"store",name:"Store total",sourceSheet:book.SheetNames[0],...performanceMetrics(storeRows)},known=Object.fromEntries(Object.entries(advisors).filter(([code])=>ADVISOR_NAMES[code])),controllables=parseControllableBenchmarks(book,store,known);return{date:periodEnd,periodStart,periodEnd,saprDaysCompleted:sourceDays.completed,saprTotalDays:sourceDays.total,sourceFile:fileName,importedAt:now(),validation:{advisorDetailSheets:Object.keys(advisors).length,parser:"strict-detail-v8-cp-ro-vin-denominator",finalTotalsVerified:true,saprDaysVerified:true,controllables:CONTROLLABLES.length,controllableVinDenominator:"cp-ro"},store,advisors,controllables};};}
+  function installProductizedParser(){const legacy=parsePerformanceWorkbook;parsePerformanceWorkbook=function(bytes,fileName){const book=readWorkbook(bytes,{type:"array",raw:true}),storeSheet=book.Sheets[book.SheetNames[0]];if(!storeSheet)throw new Error("The workbook has no readable worksheets.");const storeRows=performanceRows(storeSheet),heading=storeRows.slice(0,4).flat().map(text).find((value)=>/Service Advisor Performance/i.test(value)),dates=heading?.match(/From\s+(\d{1,2}\/\d{1,2}\/20\d{2})\s+to\s+(\d{1,2}\/\d{1,2}\/20\d{2})/i),sourceDays=performanceDays(storeRows);if(!heading||!dates||!sourceDays)return legacy(bytes,fileName);const advisors={};for(const sheetName of book.SheetNames.slice(1)){const rows=performanceRows(book.Sheets[sheetName]),code=performanceDetailCode(rows);if(!code)continue;const name=performanceDetailName(rows,code);if(!name)throw new Error(`Advisor ${code} has no readable SAPR identity.`);if(advisors[code])throw new Error(`Advisor ${code} appears on more than one SAPR detail worksheet.`);const sheetDays=performanceDays(rows);if(!sheetDays||sheetDays.completed!==sourceDays.completed||sheetDays.total!==sourceDays.total)throw new Error(`SAPR Days Completed does not reconcile for advisor ${code}.`);const metrics=performanceMetrics(rows);validateAdvisorPerformance(metrics,code,sheetName);advisors[code]={code,name,sourceSheet:sheetName,...metrics};}if(!Object.keys(advisors).length)return legacy(bytes,fileName);const periodStart=usDateToIso(dates[1]),periodEnd=usDateToIso(dates[2]),store={code:"store",name:"Store total",sourceSheet:book.SheetNames[0],...performanceMetrics(storeRows)},known=Object.fromEntries(Object.entries(advisors).filter(([code])=>ADVISOR_NAMES[code])),controllables=parseControllableBenchmarks(book,store,known);return{date:periodEnd,periodStart,periodEnd,saprDaysCompleted:sourceDays.completed,saprTotalDays:sourceDays.total,sourceFile:fileName,importedAt:now(),validation:{advisorDetailSheets:Object.keys(advisors).length,parser:"strict-detail-v8-cp-ro-vin-denominator",finalTotalsVerified:true,saprDaysVerified:true,controllables:CONTROLLABLES.length,controllableVinDenominator:"cp-ro"},store,advisors,controllables};};}
   function installProductizedImport(){const base=importPerformanceFile;importPerformanceFile=async function(...args){await base(...args);const dates=Object.keys(model.performance.snapshots||{}).sort(),snapshot=model.performance.snapshots[dates.at(-1)];if(snapshot)await reconcileSaprAdvisors(snapshot);await ensurePreviousMonthSummary();renderAll();};}
   async function saveSettings(){return saveSettingsAutosave();}
   function configuredMeetingCycleInfo(at=new Date()){const meetingDay=Number(meetingSetting("dayOfWeek")),resetTime=String(meetingSetting("resetTime")||"07:00"),[hour,minute]=resetTime.split(":").map(Number),parts=freshness.timeParts(at,businessTimeZone()),todayKey=parts?.date||localDateKey(at),todayDay=freshness.dayOfWeek(todayKey),daysSince=(todayDay-meetingDay+7)%7,beforeReset=daysSince===0&&(parts.hour<hour||(parts.hour===hour&&parts.minute<minute)),cycleStart=freshness.addDays(todayKey,-daysSince-(beforeReset?7:0)),elapsed=Math.round((Date.parse(`${todayKey}T12:00:00Z`)-Date.parse(`${cycleStart}T12:00:00Z`))/86400000);return{cycleStart,resetAt:`${cycleStart}T${resetTime}:00[${businessTimeZone()}]`,day:Math.max(0,Math.min(7,elapsed))};}
@@ -5498,7 +5627,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       validateSupport:async b=>{try{const z=await JSZip.loadAsync(b);return !!z.file('support-summary.json')&&!!z.file('MOONDOG_DIAGNOSTICS.md');}catch(_){return false;}},
       validateWorkbook:async b=>{try{await validateWorkbookBytes(b);return true}catch(_){return false;}},
       // Raw historical sources may still be needed for reconstruction; absent explicit proof keep them.
-      importEvidence:async(p,bytes)=>{try{const name=p.split('/').at(-1),source=model.state.source;if(!source?.fileName||!name.endsWith('-'+slug(source.fileName.replace(/\.xlsx$/i,''))+'.xlsx'))return false;const book=XLSX.read(bytes,{type:'array',cellDates:true}),legacy=legacyReport(book);if(!legacy||legacy.records.length!==model.state.records.length)return false;const byId=new Map(model.state.records.map(r=>[r.id,r]));if(!legacy.records.every(r=>{const current=byId.get(r.id);return current&&Object.keys(r).every(k=>JSON.stringify(r[k])===JSON.stringify(current[k]));}))return false;for(const f of await directoryFiles(['data','history'])){try{const e=JSON.parse(decodeUtf8(f.bytes));if(e.type==='source-import'&&e.details?.fileName===source.fileName&&Math.abs(Date.parse(e.at)-Date.parse(source.importedAt))<60000)return true;}catch(_){}}return false;}catch(_){return false;}},
+      importEvidence:async(p,bytes)=>{try{const name=p.split('/').at(-1),source=model.state.source;if(!source?.fileName||!name.endsWith('-'+slug(source.fileName.replace(/\.xlsx$/i,''))+'.xlsx'))return false;const book=readWorkbook(bytes,{type:'array',cellDates:true}),legacy=legacyReport(book);if(!legacy||legacy.records.length!==model.state.records.length)return false;const byId=new Map(model.state.records.map(r=>[r.id,r]));if(!legacy.records.every(r=>{const current=byId.get(r.id);return current&&Object.keys(r).every(k=>JSON.stringify(r[k])===JSON.stringify(current[k]));}))return false;for(const f of await directoryFiles(['data','history'])){try{const e=JSON.parse(decodeUtf8(f.bytes));if(e.type==='source-import'&&e.details?.fileName===source.fileName&&Math.abs(Date.parse(e.at)-Date.parse(source.importedAt))<60000)return true;}catch(_){}}return false;}catch(_){return false;}},
       migrationResolved:async(family,backup)=>{try{const current={};for(const p of Object.keys(BACKUP_FILES)){current[p]=await readJson(p.split('/'),null);validateDurableObject(p,current[p]);}return MoonDogMaintenance.migrationResolved(family,backup,current);}catch(_){return false;}},
       classifyLearn:async f=>{if(MoonDogMaintenance.knownNonReportHash(f.hash))return 'disposable';const n=f.path.split('/').at(-1);if(/\.ica$/i.test(n)&&/^\s*\[WFClient\]/m.test(decodeUtf8(f.bytes))&&/\[ApplicationServers\]/.test(decodeUtf8(f.bytes)))return 'disposable';const k=await classifyImportFile(n,new File([f.bytes],n,{lastModified:f.modified}),f.bytes);if(k==='disposable-greeter')return 'disposable';if(k)return 'supported';return 'unknown';},
       importLearn:async f=>{const n=f.path.split('/').at(-1),file=new File([f.bytes],n,{lastModified:f.modified}),kind=await classifyImportFile(n,file,f.bytes);if(!kind)throw Error('No parser');const prior=model.autoImport.seen?.[n];if(prior?.status==='imported'&&prior?.size===f.size&&prior?.modified===f.modified)return;await processClassifiedCandidate({name:n,location:'learn',file},kind,f.bytes,false);await Promise.all(Object.keys(BACKUP_FILES).map(async p=>validateDurableObject(p,await readJson(p.split('/'),null))));},
