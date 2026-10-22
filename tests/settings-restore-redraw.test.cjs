@@ -82,7 +82,7 @@ test("setup review and settings autosave serialize immutable snapshots",async()=
   assert.equal(advisor.setupRequired,false,"a successful durable review remains committed");
   assert.equal(writes.length,2);
   assert.equal(writes[0].advisors["101"].setupRequired,false);
-  assert.equal(writes[0].store.name,"synthetic edit during first write");
+  assert.equal(writes[0].store.name,"Initial synthetic","the in-flight write must retain its immutable snapshot");
   assert.equal(writes[1].advisors["101"].setupRequired,false);
   assert.equal(writes[1].store.name,"later synthetic edit before second write");
 });
