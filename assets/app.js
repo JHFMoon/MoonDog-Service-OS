@@ -1066,8 +1066,23 @@
     return diagnosticsQueue;
   }
   document.addEventListener('visibilitychange',()=>{if(document.hidden)void flushDiagnostics();});
-  async function writeJson(path, value,restoreId) { writeAuthority.requireWrite(restoreId); const bytes = new TextEncoder().encode(JSON.stringify(value, null, 2) + "\n");
-    try { await writeBytes(path, bytes,restoreId); const check = await readJson(path, null); if (JSON.stringify(check)!==JSON.stringify(value)) throw new Error(`Read-back verification failed for ${path.join("/")}.`); recordDiagnostic("DURABLE WRITE", `${path.join("/")} saved and verified`); } catch (error) { recordDiagnostic("DURABLE WRITE FAILED", `${path.join("/")} could not be saved (${error.name || "Error"})`); throw error; } }
+  async function writeJson(path, value,restoreId) {
+    writeAuthority.requireWrite(restoreId);
+    // Verify the immutable payload that was actually written. Live settings/RO
+    // models may change while the filesystem write is awaiting OneDrive.
+    const serialized=JSON.stringify(value,null,2)+"\n";
+    const expected=JSON.stringify(JSON.parse(serialized));
+    const bytes=new TextEncoder().encode(serialized);
+    try {
+      await writeBytes(path,bytes,restoreId);
+      const check=await readJson(path,null);
+      if(JSON.stringify(check)!==expected)throw new Error(`Read-back verification failed for ${path.join("/")}.`);
+      recordDiagnostic("DURABLE WRITE",`${path.join("/")} saved and verified`);
+    }catch(error){
+      recordDiagnostic("DURABLE WRITE FAILED",`${path.join("/")} could not be saved (${error.name || "Error"})`);
+      throw error;
+    }
+  }
   async function backupState(reason, state = model.state) { if (state.updatedAt) await writeJson(["backups", `${stamp()}-${slug(reason)}.json`], state); }
   async function addHistory(type, summary, details = {},restoreId) { const event = { schemaVersion: 1, id: `${stamp()}-${slug(type)}`, at: now(), type, summary, details }; await writeJson(["data", "history", `${event.id}.json`], event,restoreId); if (/import|source|migration|settings|workbook|export|fallback|coverage/i.test(type)) recordDiagnostic("OPERATION", `${type} completed`); }
   function migrateOpenRoFieldIdentity(){let changed=false;for(const record of model.state.records||[]){record.management||={};const id=resolveStatusId(record.management.status,record.management.statusId,true);if(id&&record.management.statusId!==id){record.management.statusId=id;changed=true;}const communication=normalizeCommunication(record.management.communication);if(record.management.communication!==communication){record.management.communication=communication;changed=true;}}return changed;}
@@ -4183,9 +4198,56 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     model.settings.meeting={...model.settings.meeting,dayOfWeek:Number(ui.meetingDay.value),startTime:ui.meetingStart.value||"06:30",resetTime:ui.meetingReset.value||"07:00",grossMinimum:minimum,grossStretch:stretch};
     model.settings.performanceStandards={...model.settings.performanceStandards,...localTargets};
   }
-  let settingsAutosaveTimer=null; async function saveSettingsAutosave() { readSettingsInputs(); model.settings.updatedAt=now(); await writeJson(SETTINGS_PATH,model.settings); await addHistory("settings-update","Updated product settings",{schemaVersion:model.settings.schemaVersion}); renderAll(); ui.settingsSaveStatus.textContent=`Saved ${new Date(model.settings.updatedAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`; }
-  function queueSettingsAutosave(){ if(!model.root)return; ui.settingsSaveStatus.textContent="Saving…"; clearTimeout(settingsAutosaveTimer); settingsAutosaveTimer=setTimeout(()=>run(saveSettingsAutosave),220); }
-  async function updateAdvisorLifecycle(code, action) { const advisor=model.settings.advisors[code]; if(!advisor)return; advisor.removed=action==="remove"; model.settings.updatedAt=now(); await writeJson(SETTINGS_PATH,model.settings); await addHistory("advisor-configuration",`${advisor.removed ? "Removed" : "Restored"} advisor ${code} in Service Operations Dashboard configuration`,{advisorCode:code,action}); renderAll(); }
+  let settingsAutosaveTimer=null, settingsAutosaveRevision=0, settingsAutosaveQueue=Promise.resolve();
+  async function saveSettingsAutosave() {
+    // Serialize durable snapshots. A newer edit owns its own debounced save;
+    // an older completion must neither enqueue itself nor report that edit saved.
+    const pending=settingsAutosaveQueue.catch(()=>{}).then(async()=>{
+      const startingRevision=settingsAutosaveRevision;
+      readSettingsInputs();
+      model.settings.updatedAt=now();
+      const submitted=JSON.stringify(model.settings);
+      const snapshot=JSON.parse(submitted);
+      await writeJson(SETTINGS_PATH,snapshot);
+      await addHistory("settings-update","Updated product settings",{schemaVersion:snapshot.schemaVersion});
+      if(settingsAutosaveRevision!==startingRevision)return;
+      renderAll();
+      ui.settingsSaveStatus.dataset.saveState="saved";
+      ui.settingsSaveStatus.textContent=`Saved ${new Date(snapshot.updatedAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`;
+    });
+    settingsAutosaveQueue=pending.catch(()=>{});
+    return pending;
+  }
+  function queueSettingsAutosave(){
+    if(!model.root||!writeAuthority.canWrite){
+      ui.settingsSaveStatus.dataset.saveState="error";
+      ui.settingsSaveStatus.textContent="Editing unavailable — reconnect folder";
+      return;
+    }
+    ui.settingsSaveStatus.dataset.saveState="saving";
+    ui.settingsSaveStatus.textContent="Saving…";
+    const revision=++settingsAutosaveRevision;
+    clearTimeout(settingsAutosaveTimer);
+    settingsAutosaveTimer=setTimeout(()=>run(async()=>{
+      try{await saveSettingsAutosave();}
+      catch(error){
+        if(revision===settingsAutosaveRevision){
+          ui.settingsSaveStatus.dataset.saveState="error";
+          ui.settingsSaveStatus.textContent="Save needs attention — see error";
+        }
+        throw error;
+      }
+    }),220);
+  }
+  async function updateAdvisorLifecycle(code, action) {
+    const advisor=model.settings.advisors[code];if(!advisor)return;
+    const previousRemoved=advisor.removed, previousUpdatedAt=model.settings.updatedAt;
+    advisor.removed=action==="remove";model.settings.updatedAt=now();
+    try{await writeJson(SETTINGS_PATH,model.settings);}
+    catch(error){advisor.removed=previousRemoved;model.settings.updatedAt=previousUpdatedAt;throw error;}
+    renderSettings();renderAll();
+    await addHistory("advisor-configuration",`${advisor.removed ? "Removed" : "Restored"} advisor ${code} in Service Operations Dashboard configuration`,{advisorCode:code,action});
+  }
   async function reconcileSaprAdvisors(snapshot){const entries=Object.entries(snapshot.advisors||{}).filter(([code,source])=>validAdvisorIdentity(code,source?.name)),seen=new Set(entries.map(([code])=>code));let changed=false;for(const advisor of Object.values(model.settings.advisors||{})){const active=validAdvisorIdentity(advisor.number,advisor.name)&&seen.has(advisor.number);if(advisor.active!==active){advisor.active=active;changed=true;}if(active&&advisor.lastSeenSapr!==snapshot.periodEnd){advisor.lastSeenSapr=snapshot.periodEnd;changed=true;}}for(const [code,source]of entries){if(!model.settings.advisors[code]){model.settings.advisors[code]={number:code,name:source.name,sourceName:source.name,displayName:LEGACY_ADVISORS[code]||source.name,active:true,removed:false,setupRequired:Boolean(model.settings.setup?.completedAt),firstSeenSapr:snapshot.periodEnd,lastSeenSapr:snapshot.periodEnd,participation:{openRo:true,assignNext:false,dailyWalk:false,advisorPerformance:true,advisorMeeting:false,supervisorWorkbook:false}};changed=true;}else{const advisor=model.settings.advisors[code];if(advisor.sourceName!==source.name){advisor.sourceName=source.name;changed=true;}if(!advisor.displayName){advisor.displayName=LEGACY_ADVISORS[code]||advisor.name||source.name;changed=true;}if(!advisor.removed&&advisor.name!==advisor.displayName){advisor.name=advisor.displayName;changed=true;}}}if(changed){model.settings.updatedAt=now();await writeJson(SETTINGS_PATH,model.settings);await addHistory("sapr-advisor-sync","Updated SAPR-owned advisor lifecycle",{periodEnd:snapshot.periodEnd,active:seen.size,newAdvisorSetupRequired:Object.values(model.settings.advisors).filter((advisor)=>advisor.setupRequired&&validAdvisorIdentity(advisor.number,advisor.name)).map((advisor)=>advisor.number)});}}
   function ensurePhase2SettingsUi(){if(ui.managementStatusSettings)return;ui.exportName.disabled=false;ui.exportName.nextElementSibling.textContent="Use an .xlsx filename. The protected workbook schema remains fixed.";const advisorCard=ui.advisorSettingsList.closest("section"),statusCard=document.createElement("section");statusCard.className="card settings-card";statusCard.innerHTML='<div class="section-head"><div><h2>Open RO Workflow Statuses</h2><p>These seven statuses are fixed to the authoritative CDK workflow. Review details add management context without changing the parent status.</p></div></div><div id="managementStatusSettings" class="configuration-list"></div><p class="settings-note">Historical reviews keep their original status. At the next review, any retired status must be reconciled to one of these seven.</p>';advisorCard.after(statusCard);const dailyCard=document.createElement("section");dailyCard.className="card settings-card";dailyCard.innerHTML='<h2>Manager’s Daily Walk</h2><label>ROs per advisor<input id="dailyWalkCount" type="number" min="1" max="10" step="1"></label><p class="settings-note">Participation remains controlled independently in Advisors &amp; Participation.</p>';statusCard.after(dailyCard);const workbookCard=document.createElement("section");workbookCard.className="card settings-card";workbookCard.innerHTML='<h2>Supervisor Workbook</h2><p>Use the arrows to set worksheet order.</p><div id="worksheetOrderSettings" class="configuration-list"></div><p class="settings-note">Worksheet inclusion remains controlled independently in Advisors &amp; Participation.</p>';dailyCard.after(workbookCard);["managementStatusSettings","dailyWalkCount","worksheetOrderSettings"].forEach((id)=>ui[id]=document.getElementById(id));}
   function moveArrayItem(items,index,direction){const target=index+direction;if(target<0||target>=items.length)return items;const copy=[...items];[copy[index],copy[target]]=[copy[target],copy[index]];return copy;}
@@ -5240,7 +5302,36 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function saveSettings(){return saveSettingsAutosave();}
   function configuredMeetingCycleInfo(at=new Date()){const meetingDay=Number(meetingSetting("dayOfWeek")),resetTime=String(meetingSetting("resetTime")||"07:00"),[hour,minute]=resetTime.split(":").map(Number),parts=freshness.timeParts(at,businessTimeZone()),todayKey=parts?.date||localDateKey(at),todayDay=freshness.dayOfWeek(todayKey),daysSince=(todayDay-meetingDay+7)%7,beforeReset=daysSince===0&&(parts.hour<hour||(parts.hour===hour&&parts.minute<minute)),cycleStart=freshness.addDays(todayKey,-daysSince-(beforeReset?7:0)),elapsed=Math.round((Date.parse(`${todayKey}T12:00:00Z`)-Date.parse(`${cycleStart}T12:00:00Z`))/86400000);return{cycleStart,resetAt:`${cycleStart}T${resetTime}:00[${businessTimeZone()}]`,day:Math.max(0,Math.min(7,elapsed))};}
   function configuredMeetingGrossGoal(snapshot,entity){const minimum=configuredNumber(meetingSetting("grossMinimum")),stretch=configuredNumber(meetingSetting("grossStretch")),gross=entity?.totalGross,configured=Number.isFinite(minimum)&&Number.isFinite(stretch)&&stretch>minimum;if(!configured){const days=performancePlan(snapshot,entity,null);return{gross,target:null,floor:0,achieved:false,configured:false,remainingDays:days.remainingDays,roundedDaily:null,progress:0};}const achieved=Number.isFinite(gross)&&gross>=stretch,target=Number.isFinite(gross)&&gross>=minimum?stretch:minimum,floor=target===stretch?minimum:0,days=performancePlan(snapshot,entity,target),daily=!achieved&&days.remainingDays>0?(target-gross)/days.remainingDays:null,roundedDaily=Number.isFinite(daily)?Math.max(0,Math.round(daily/100)*100):null,progress=Number.isFinite(gross)&&target>floor?Math.max(0,Math.min(100,(gross-floor)/(target-floor)*100)):0;return{gross,target,floor,achieved,configured:true,remainingDays:days.remainingDays,roundedDaily,progress};}
-  function installProductizedRuntime(){meetingCycleInfo=configuredMeetingCycleInfo;meetingGrossGoal=configuredMeetingGrossGoal;const fields=ui["view-settings"].querySelectorAll("input:not([disabled]),select");fields.forEach((field)=>{if(!field.closest(".customer-voice-manager"))field.addEventListener("change",queueSettingsAutosave);});ui.advisorSettingsList.addEventListener("change",(event)=>{const input=event.target.closest("input[data-advisor-participation]");if(!input||!model.root)return;const advisor=model.settings.advisors[input.dataset.advisorCode];advisor.participation||={};advisor.participation[input.dataset.advisorParticipation]=input.checked;advisor.setupRequired=false;renderAll();queueSettingsAutosave();});ui.advisorSettingsList.addEventListener("click",(event)=>{const reviewed=event.target.closest("button[data-advisor-setup-reviewed]");if(reviewed&&model.root){model.settings.advisors[reviewed.dataset.advisorSetupReviewed].setupRequired=false;queueSettingsAutosave();return;}const button=event.target.closest("button[data-advisor-lifecycle]");if(button)run(()=>updateAdvisorLifecycle(button.dataset.advisorCode,button.dataset.advisorLifecycle));});}
+  function installProductizedRuntime(){meetingCycleInfo=configuredMeetingCycleInfo;meetingGrossGoal=configuredMeetingGrossGoal;const fields=ui["view-settings"].querySelectorAll("input:not([disabled]),select");fields.forEach((field)=>{if(!field.closest(".customer-voice-manager"))field.addEventListener("change",queueSettingsAutosave);});ui.advisorSettingsList.addEventListener("change",(event)=>{
+      const input=event.target.closest("input[data-advisor-participation]");
+      if(!input)return;
+      const code=input.dataset.advisorCode, key=input.dataset.advisorParticipation;
+      const advisor=model.settings.advisors[code];
+      if(!advisor||advisor.removed||!["openRo","assignNext","dailyWalk","advisorPerformance","advisorMeeting","supervisorWorkbook"].includes(key))return;
+      if(!model.root||!writeAuthority.canWrite){
+        input.checked=advisorShownInSection(code,key);
+        ui.settingsSaveStatus.dataset.saveState="error";
+        ui.settingsSaveStatus.textContent="Editing unavailable — reconnect folder";
+        return;
+      }
+      advisor.participation||={};
+      advisor.participation[key]=input.checked;
+      // Changing one view is not the same as reviewing a newly discovered advisor.
+      renderAll();queueSettingsAutosave();
+    });ui.advisorSettingsList.addEventListener("click",(event)=>{
+      const reviewed=event.target.closest("button[data-advisor-setup-reviewed]");
+      if(reviewed){
+        const advisor=model.settings.advisors[reviewed.dataset.advisorSetupReviewed];
+        if(!advisor||!model.root||!writeAuthority.canWrite)return;
+        advisor.setupRequired=false;
+        reviewed.closest(".advisor-setting")?.classList.remove("setup-attention");
+        reviewed.remove();
+        renderSetup();queueSettingsAutosave();
+        return;
+      }
+      const button=event.target.closest("button[data-advisor-lifecycle]");
+      if(button)run(()=>updateAdvisorLifecycle(button.dataset.advisorCode,button.dataset.advisorLifecycle));
+    });}
   function configuredMeetingNextWin(code,latest){const controls=latest.controllables?.advisors?.[code]||{},entity=latest.advisors?.[code],vir=latestOperationalSnapshot("vir")?.advisors?.[code],menu=latestOperationalSnapshot("menu")?.advisors?.[code],saleNames={tires:"TIRE",alignments:"ALIGNMENT",batteries:"BATTERY",chemicals:"CHEMICAL",wipers:"WIPER",filters:"FILTER",brakes:"BRAKE"},controllable=CONTROLLABLES.map(({key})=>{const metric=controls[key];if(!metric)return null;const target=metric.actual<metric.brandAverage?metric.brandAverage:Number.isFinite(metric.bic)&&metric.actual<metric.bic?metric.bic:null,needed=target===null?0:additionalVinsNeeded(metric.soldVins,metric.eligibleVins,target);return Number.isFinite(needed)&&needed>0?{key,needed}:null;}).filter(Boolean).sort((a,b)=>a.needed-b.needed||a.key.localeCompare(b.key))[0];if(controllable)return{text:`${controllable.needed} ${saleNames[controllable.key]} SALE${controllable.needed===1?"":"S"} NEEDED`,achieved:false};const candidates=[{label:"VIR",value:vir?.utilization,target:standard("vir"),type:"percent"},{label:"MENU PRESENTATION",value:menu?.presentation,target:standard("menuPresentation"),type:"percent"},{label:"MENU PENETRATION",value:menu?.penetration,target:standard("menuPenetration"),type:"percent"},{label:"MEDIA VIEWED",value:entity?.mediaViewed,target:standard("mediaViewed"),type:"percent"},{label:"TEXTING",value:entity?.texting,target:standard("texting"),type:"percent"},{label:"CP ELR",value:entity?.cpElr,target:standard("cpElr"),type:"money"},{label:"CP HOURS / RO",value:entity?.cpHours,target:standard("cpHoursPerRo"),type:"number"}].filter(item=>Number.isFinite(item.value)&&Number.isFinite(item.target)&&item.value<item.target).map(item=>({...item,gap:item.target-item.value,normalized:item.target?Math.abs(item.target-item.value)/Math.abs(item.target):Infinity})).sort((a,b)=>a.normalized-b.normalized||a.label.localeCompare(b.label));if(!candidates.length){const configured=["vir","menuPresentation","menuPenetration","mediaViewed","texting","cpElr","cpHoursPerRo"].some(key=>Number.isFinite(standard(key)));return configured?{text:"ALL CONFIGURED GOALS MET",achieved:true}:{text:"CONFIGURE LOCAL TARGETS IN SETTINGS",achieved:false};}const next=candidates[0];return{text:next.type==="percent"?`${next.label} NEEDS ${Math.ceil(next.gap)} PERCENTAGE POINT${Math.ceil(next.gap)===1?"":"S"}`:next.type==="money"?`${next.label} NEEDS ${performanceFormat(next.gap,"money")}`:`${next.label} NEEDS ${next.gap.toFixed(2)}`,achieved:false};}
   function installConfiguredMeetingRender(){/* Meeting Next Win already reads durable configured standards directly. */}
   function installScheduleSafeAutosave(){const base=saveSettingsAutosave;saveSettingsAutosave=async function(){const priorSchedule=JSON.stringify(model.settings.meeting);await base();if(JSON.stringify(model.settings.meeting)!==priorSchedule)await ensureMeetingCycleBaseline();};}
