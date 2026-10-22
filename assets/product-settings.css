@@ -50,3 +50,33 @@ html[data-theme="dark"] .update-progress.error{background:#392326;border-color:#
 
 @media(max-width:1200px){.advisor-setting{grid-template-columns:1fr}.advisor-participation{grid-template-columns:repeat(2,minmax(0,1fr))}.advisor-visibility-note{max-width:none}}
 @media(max-width:540px){.advisor-participation{grid-template-columns:1fr}}
+
+/* Advisor visibility is a six-scope configuration, not a half-width form.
+   Keep every checkbox and action inside its card at all supported widths. */
+#view-settings #settings-advisors{grid-column:1/-1;min-width:0}
+#view-settings #settings-advisors .advisor-setting{
+  grid-template-columns:minmax(155px,.85fr) minmax(0,2.7fr) minmax(135px,.85fr);
+  min-width:0
+}
+#view-settings #settings-advisors .advisor-participation{grid-template-columns:repeat(3,minmax(0,1fr));min-width:0}
+#view-settings #settings-advisors .advisor-participation label{
+  display:flex;align-items:center;gap:8px;min-width:0;
+  font-size:13px;line-height:1.35;cursor:pointer
+}
+#view-settings #settings-advisors .advisor-participation input{flex:0 0 18px}
+#view-settings #settingsSaveStatus[data-save-state="saving"]{background:#fff7e8;border-color:#ead39b;color:#745015}
+#view-settings #settingsSaveStatus[data-save-state="saving"]::before{background:#d69c30}
+#view-settings #settingsSaveStatus[data-save-state="error"]{background:#fff1f1;border-color:#e6b2b2;color:#942d32}
+#view-settings #settingsSaveStatus[data-save-state="error"]::before{background:#c5484e}
+@media(max-width:1100px){
+  #view-settings #settings-advisors .advisor-setting{grid-template-columns:minmax(140px,.75fr) minmax(0,2fr)}
+  #view-settings #settings-advisors .advisor-setting>.advisor-visibility-note,
+  #view-settings #settings-advisors .advisor-setting>button{grid-column:1/-1}
+}
+@media(max-width:740px){
+  #view-settings #settings-advisors .advisor-setting{grid-template-columns:minmax(0,1fr)}
+  #view-settings #settings-advisors .advisor-participation{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:440px){
+  #view-settings #settings-advisors .advisor-participation{grid-template-columns:minmax(0,1fr)}
+}
