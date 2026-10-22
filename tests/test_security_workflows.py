@@ -24,6 +24,15 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("name: Publication Check", text)
 
 
+    def test_clean_install_fetches_immutable_pr_base_before_safety_checks(self):
+        workflow = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
+        fetch_step = "Fetch immutable PR base for parser epoch checks"
+        safety_step = "Run repository safety checks"
+        self.assertLess(workflow.index(fetch_step), workflow.index(safety_step))
+        self.assertIn('git fetch --no-tags --depth=1 origin "$BASE_SHA"', workflow)
+        self.assertIn('git cat-file -e "$BASE_SHA^{commit}"', workflow)
+
+
     def test_ci_attribution_guard_blocks_misleading_trailer_only_in_new_commits(self):
         text = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
         name = "Reject falsely attributed CI co-authors in new commits"
