@@ -13,7 +13,7 @@ const settingsPersistence=slice("let settingsAutosaveTimer=null; let settingsWri
 function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${lifecycle} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot}; })(); }`);return factory(context);}
 
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve};}
-function element(){const classes=[];return{dataset:{},children:[],classes,classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
+function element(){const classes=[];return{dataset:{},children:[],classes,textContent:"",classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
 
 test("advisor restore redraw preserves an unrelated settings edit during autosave debounce",async()=>{
   const write=deferred();
@@ -24,7 +24,7 @@ test("advisor restore redraw preserves an unrelated settings edit during autosav
   const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}}};
   const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document,advisorShownInSection:()=>true,now:()=>"synthetic-now",
-    writeJson:()=>write.promise,renderAll:()=>{},addHistory:async()=>{},
+    writeJson:()=>write.promise,renderAll:()=>{},renderSetup:()=>{},validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,addHistory:async()=>{},
     renderSettings:()=>{wholeSettingsRenders++;pendingInput.value=model.settings.store?.name||"";}};
   const {updateAdvisorLifecycle:update}=await production(context);
   const restoring=update("101","restore");
@@ -51,7 +51,7 @@ test("failed setup review save restores the pending action and permits retry",as
   const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
   const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document,writeAuthority:{canWrite:true},advisorShownInSection:()=>true,now:()=>"synthetic-now",
-    writeJson:async()=>{throw new Error("synthetic write denied");},renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{}};
+    writeJson:async()=>{throw new Error("synthetic write denied");},renderAll:()=>{},renderSetup:()=>{},validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,addHistory:async()=>{}};
   const {markAdvisorSetupReviewed}=await production(context);
   await assert.rejects(markAdvisorSetupReviewed("101"),/synthetic write denied/);
   assert.equal(advisor.setupRequired,true,"failed durable writes must retain the review requirement");
@@ -69,7 +69,7 @@ test("setup review and settings autosave serialize immutable snapshots",async()=
   const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
   const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document,writeAuthority:{canWrite:true},advisorShownInSection:()=>true,now:()=>"synthetic-now",
-    writeJson:async(_path,value)=>{writes.push(value);if(writes.length===1)await pending.promise;},renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{}};
+    writeJson:async(_path,value)=>{writes.push(value);if(writes.length===1)await pending.promise;},renderAll:()=>{},renderSetup:()=>{},validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,addHistory:async()=>{}};
   const {markAdvisorSetupReviewed,persistSettingsSnapshot}=await production(context);
   const reviewing=markAdvisorSetupReviewed("101");
   await Promise.resolve();
@@ -85,4 +85,46 @@ test("setup review and settings autosave serialize immutable snapshots",async()=
   assert.equal(writes[0].store.name,"Initial synthetic","the in-flight write must retain its immutable snapshot");
   assert.equal(writes[1].advisors["101"].setupRequired,false);
   assert.equal(writes[1].store.name,"later synthetic edit before second write");
+});
+
+test("failed review write cannot be committed by an autosave queued before the review",async()=>{
+  const first=deferred();
+  const advisor={number:"101",name:"Synthetic Advisor",active:true,removed:false,setupRequired:true,participation:{openRo:true}};
+  const model={settings:{advisors:{"101":advisor},store:{name:"Synthetic"},updatedAt:"before"},root:{}};
+  const writes=[];
+  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
+  const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
+  const context={SETTINGS_PATH:["settings.json"],model,ui,document,writeAuthority:{canWrite:true},advisorShownInSection:()=>true,validAdvisorIdentity:()=>true,
+    advisorDisplayName:(code,source)=>source.displayName||source.name,now:()=>"synthetic-now",renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{},
+    writeJson:async(_path,value)=>{writes.push(JSON.parse(JSON.stringify(value)));if(writes.length===1)await first.promise;if(writes.length===3)throw new Error("synthetic review write denied");}};
+  const {markAdvisorSetupReviewed,persistSettingsSnapshot}=await production(context);
+  const inFlight=persistSettingsSnapshot();
+  await Promise.resolve();
+  const queuedAutosave=persistSettingsSnapshot();
+  const review=markAdvisorSetupReviewed("101");
+  first.resolve();
+  await inFlight;
+  await queuedAutosave;
+  await assert.rejects(review,/synthetic review write denied/);
+  assert.equal(writes.length,3);
+  assert.equal(writes[1].advisors["101"].setupRequired,true,"autosave requested before review must not capture optimistic review state");
+  assert.equal(writes[2].advisors["101"].setupRequired,false,"the failed review attempt itself is isolated");
+  assert.equal(advisor.setupRequired,true,"failed write must keep the review action available");
+  assert.ok(ui.advisorSettingsList.children[0].children.some(child=>child.dataset?.advisorSetupReviewed==="101"));
+});
+
+test("scoped advisor redraw keeps configured display names and excludes invalid identities",async()=>{
+  const valid={number:"101",name:"Raw Source Name",displayName:"Configured Display",active:true,removed:false,setupRequired:false,participation:{openRo:true}};
+  const invalid={number:"summary",name:"Summary Total",displayName:"Should stay hidden",active:true,removed:false,setupRequired:true,participation:{openRo:true}};
+  const model={settings:{advisors:{"101":valid,"summary":invalid}}};
+  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}}};
+  const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
+    advisorShownInSection:()=>true,validAdvisorIdentity:(code,name)=>/^\\d+$/.test(code)&&!/^(?:0+|summary|total)/i.test(name||""),
+    advisorDisplayName:(code,source)=>source.displayName||source.name,now:()=>"synthetic-now",writeJson:async()=>{},renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{}};
+  const {updateAdvisorLifecycle}=await production(context);
+  await production(context);
+  const row=ui.advisorSettingsList.children[0];
+  assert.equal(ui.advisorSettingsList.children.length,1);
+  assert.equal(row.children[0].children[0].textContent,"Configured Display");
+  assert.equal(row.dataset.advisorSetting,"101");
 });
