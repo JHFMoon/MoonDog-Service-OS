@@ -116,11 +116,12 @@ test("conflicting same-period import preserves the saved source and leaves the n
   const f=fixture([row("9001","2026-10-20","2026-10-20"),row("1002","2026-10-19","2026-10-19")]);
   await f.import(false);
   const before=f.durable();
-  const prior=structuredClone(before.appointmentActivity.snapshots["2026-10-20"]);
+  const period=f.parse().periodEnd;
+  const prior=structuredClone(before.appointmentActivity.snapshots[period]);
   f.setRows([row("9001","2026-10-20","2026-10-20","REPAIR_BOOKING"),row("1002","2026-10-19","2026-10-19")]);
-  await assert.rejects(f.import(true),/Conflicting appointment-activity report for period 2026-10-20 is already saved/);
+  await assert.rejects(f.import(true),new RegExp("Conflicting appointment-activity report for period "+period+" is already saved"));
   assert.deepEqual(f.durable(),before,"conflict must be rejected before durable data is overwritten");
-  assert.deepEqual(f.model.operationalMetrics.appointmentActivity.snapshots["2026-10-20"],prior);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.model.operationalMetrics.appointmentActivity.snapshots[period])),prior);
   assert.deepEqual(f.removed(),[],"the conflicting source must remain available for review");
 });
 
@@ -148,4 +149,15 @@ test("ambiguous source population without verified configured store fails closed
 test("source parser epoch is advanced only in verified app code",()=>{
   new vm.Script(app);
   assert.match(app,/const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-22-xlsx-worker-compat"/);
+});
+
+test("identical same-period reimport remains allowed and can clean up its source",async()=>{
+  const f=fixture([row("9001","2026-10-20","2026-10-20"),row("1002","2026-10-19","2026-10-19")]);
+  await f.import(false);
+  const period=f.durable().appointmentActivity.snapshots;
+  const key=Object.keys(period)[0];
+  const original=JSON.parse(JSON.stringify(period[key]));
+  await f.import(true);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.durable().appointmentActivity.snapshots[key])),original);
+  assert.deepEqual(f.removed(),["synthetic-appointments.xlsx"]);
 });
