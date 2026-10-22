@@ -279,7 +279,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-21-ro-groups-activity-primary";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-22-xlsx-worker-compat";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
