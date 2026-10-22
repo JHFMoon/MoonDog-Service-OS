@@ -254,7 +254,7 @@
     return book;
   }
   if (globalThis.__MOONDOG_ENABLE_XLSX_SMOKE === true) {
-    globalThis.__moondogXlsxSmoke = Object.freeze({ prepare: prepareXlsxWorkbook });
+    globalThis.__moondogXlsxSmoke = Object.freeze({ prepare: prepareXlsxWorkbook, workerStatus: () => ({ active: Boolean(xlsxWorkerState.worker), disabled: xlsxWorkerState.disabled }) });
   }
   // Privacy-safe performance evidence: no source files or business identifiers.
   const responsiveness={longTasks:0,maxLongTaskMs:0,lastLongTaskAt:""};
