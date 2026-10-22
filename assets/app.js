@@ -4572,7 +4572,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         summary:"Completed a manager-confirmed recovery from an interrupted whole-state restore",
         details:{selectedState:direction,sourceFile:marker.sourceFile,safetyBackup:marker.safetyBackup}};
       const eventPath="data/history/"+event.id+".json";
-      const eventBytes=new TextEncoder().encode(JSON.stringify(event,null,2)+"\\n");
+      const eventBytes=new TextEncoder().encode(JSON.stringify(event,null,2)+"\n");
       await writeJson(eventPath.split("/"),event,restoreId);
       const recoveryPath=RECOVERY_PATH.join("/");
       const verifyFinalState=async()=>{
@@ -4580,7 +4580,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         for(const path of canonical){
           const bytes=present(live)(path);
           if(path===recoveryPath){
-            if(!equalBytes(bytes,new TextEncoder().encode(JSON.stringify(model.recovery,null,2)+"\\n")))
+            if(!equalBytes(bytes,new TextEncoder().encode(JSON.stringify(model.recovery,null,2)+"\n")))
               throw new Error("Recovered status did not pass exact durable verification.");
           }else if(!await matches(bytes,chosen.get(path)))
             throw new Error("A canonical file changed after recovery verification.");
@@ -4651,8 +4651,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         const targetParts=targetPath.split("/");
         if(!targetPath||targetParts.some(part=>!part||part==="."||part==="..")||
            targetParts.some(part=>part.includes("\\\\"))||
-           path.split("/").slice(0,-1).join("/")!==
-             [...WORKSPACE_PREFIX,...targetParts.slice(0,-1)].join("/"))
+           path.split("/").slice(0,-1).join("/")!==targetParts.slice(0,-1).join("/"))
           throw new Error("A transaction journal path is unsafe or detached from its target.");
         const entry=await readExistingBytes(targetPath);
         const bytesValid=value=>value===null||Array.isArray(value)&&value.every(byte=>Number.isInteger(byte)&&byte>=0&&byte<=255);
