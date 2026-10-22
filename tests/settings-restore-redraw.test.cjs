@@ -128,3 +128,28 @@ test("scoped advisor redraw keeps configured display names and excludes invalid 
   assert.equal(row.children[0].children[0].textContent,"Configured Display");
   assert.equal(row.dataset.advisorSetting,"101");
 });
+
+test("advisor restore serializes after an in-flight setup review",async()=>{
+  const pending=deferred();
+  const advisor={number:"101",name:"Synthetic Advisor",displayName:"Synthetic Advisor",active:false,removed:true,setupRequired:true,participation:{openRo:true}};
+  const model={settings:{advisors:{"101":advisor},store:{name:"Synthetic"},updatedAt:"before"},root:{}};
+  const writes=[];
+  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
+  const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
+    writeAuthority:{canWrite:true},advisorShownInSection:()=>true,validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,
+    now:()=>"synthetic-now",renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{},
+    writeJson:async(_path,value)=>{writes.push(JSON.parse(JSON.stringify(value)));if(writes.length===1)await pending.promise;}};
+  const {markAdvisorSetupReviewed,updateAdvisorLifecycle}=await production(context);
+  const review=markAdvisorSetupReviewed("101");
+  await Promise.resolve();
+  const restore=updateAdvisorLifecycle("101","restore");
+  pending.resolve();
+  await Promise.all([review,restore]);
+  assert.equal(writes.length,2);
+  assert.equal(writes[0].advisors["101"].setupRequired,false);
+  assert.equal(writes[0].advisors["101"].removed,true);
+  assert.equal(writes[1].advisors["101"].setupRequired,false,"restore snapshot must preserve the committed setup review");
+  assert.equal(writes[1].advisors["101"].removed,false);
+  assert.equal(advisor.setupRequired,false);
+  assert.equal(advisor.removed,false);
+});
