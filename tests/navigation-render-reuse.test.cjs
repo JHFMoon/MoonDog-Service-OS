@@ -12,7 +12,7 @@ const navigation=src.slice(begin,end);
 
 function harness(){
   let businessDate="2026-10-12",businessHour=10;
-  const pendingFrames=[],pendingTimers=[],draw={meeting:0,performance:0},calls={paint:0,activate:0,shell:0,openRo:0};
+  const pendingFrames=[],pendingTimers=[],draw={meeting:0,performance:0},calls={paint:0,activate:0,shell:0,openRo:0,arrivals:0};
   const makeClassList=()=>{const values=new Set();return{
     add:name=>values.add(name),remove:name=>values.delete(name),
     contains:name=>values.has(name),toggle:(name,on)=>on?values.add(name):values.delete(name)
@@ -22,7 +22,8 @@ function harness(){
     classList:makeClassList(),setAttribute(){},removeAttribute(){}}]));
   const views=Object.fromEntries(names.map(name=>[name,{classList:makeClassList()}]));
   const context={
-    ui:{pageTitle:{textContent:""},...Object.fromEntries(Object.entries(views).map(([n,v])=>["view-"+n,v]))},
+    ui:{pageTitle:{textContent:""},appointmentDate:{value:"2026-10-12"},arrivalSearch:{value:""},
+      ...Object.fromEntries(Object.entries(views).map(([n,v])=>["view-"+n,v]))},
     document:{
       querySelector:selector=>buttons[selector.match(/data-view="([^"]+)"/)?.[1]]||null,
       querySelectorAll:selector=>selector===".nav-item"?Object.values(buttons):selector===".view"?Object.values(views):[],
@@ -30,7 +31,7 @@ function harness(){
     },
     renderMeeting:()=>{draw.meeting++;},
     renderPerformance:()=>{draw.performance++;},
-    renderTable:()=>{calls.openRo++;},renderArrivals:()=>{},renderAssignNext:()=>{},
+    renderTable:()=>{calls.openRo++;},renderArrivals:()=>{calls.arrivals++;},renderAssignNext:()=>{},
     localDateKey:()=>businessDate,
     freshness:{timeParts:()=>({hour:businessHour})},businessTimeZone:()=>"America/Los_Angeles",
     ensureMeetingV3Shell:()=>{calls.shell++;},
@@ -254,4 +255,36 @@ test("240 synthetic navigation cycles preserve current views without repeated he
   assert.equal(draw.meeting,3,"new operating date refreshes Meeting once");
   assert.equal(draw.performance,3,"new operating date refreshes Performance once");
   assert.equal(calls.openRo,3,"new operating date refreshes Open RO due dates once");
+});
+
+test("Arrivals reuses the mounted list on unchanged tab returns, but refreshes on actual changes",()=>{
+  const {context,calls,flush}=harness();
+  context.navigateTo("arrivals");flush();
+  assert.equal(calls.arrivals,1,"first visit must build the current arrival list");
+  for(let i=0;i<40;i++){
+    context.navigateTo("home");flush();
+    context.navigateTo("arrivals");flush();
+  }
+  assert.equal(calls.arrivals,1,"41 visits should build Arrivals once, not 41 times");
+  console.log("Synthetic Arrivals DOM builds over 41 visits: before=41 after="+calls.arrivals+" (97.6% fewer)");
+
+  context.ui.arrivalSearch.value="synthetic guest";
+  context.navigateTo("arrivals");flush();
+  assert.equal(calls.arrivals,2,"changed search redraws even without a source revision");
+  context.ui.appointmentDate.value="2026-10-13";
+  context.navigateTo("arrivals");flush();
+  assert.equal(calls.arrivals,3,"date change redraws the requested day's list");
+
+  context.invalidateNavigationRenders();
+  context.navigateTo("arrivals");flush();
+  assert.equal(calls.arrivals,4,"source import or state change invalidates Arrivals");
+
+  context.renderArrivals();
+  context.navigateTo("home");flush();
+  context.navigateTo("arrivals");flush();
+  assert.equal(calls.arrivals,5,"direct status/print redraw stamps the current cache");
+
+  context.ui.arrivalSearch.value="";
+  context.navigateTo("arrivals");flush();
+  assert.equal(calls.arrivals,6,"clearing search restores the unfiltered list");
 });
