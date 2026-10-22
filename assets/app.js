@@ -4516,7 +4516,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       const nextSetup={...(snapshot.setup||{}),completedAt:snapshot.setup?.completedAt||now(),reopened:false};
       const updatedAt=now();
       snapshot.setup=nextSetup;snapshot.updatedAt=updatedAt;
-      return()=>{model.settings.setup||={};Object.assign(model.settings.setup,nextSetup);model.settings.updatedAt=updatedAt;};
+      return()=>{model.settings.setup||={};model.settings.setup.completedAt=nextSetup.completedAt;model.settings.setup.reopened=false;model.settings.updatedAt=updatedAt;};
     });
     await addHistory("setup-complete","Completed guided Service Operations Dashboard setup",{schemaVersion:5,required:["store-identity","sapr"]});
     renderAll();renderSetup();navigateTo("home");
@@ -4526,7 +4526,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       const nextSetup={...(snapshot.setup||{}),reopened:true};
       const updatedAt=now();
       snapshot.setup=nextSetup;snapshot.updatedAt=updatedAt;
-      return()=>{model.settings.setup||={};Object.assign(model.settings.setup,nextSetup);model.settings.updatedAt=updatedAt;};
+      return()=>{model.settings.setup||={};model.settings.setup.reopened=true;model.settings.updatedAt=updatedAt;};
     });
     renderSetup();navigateTo("setup");
     await addHistory("setup-reopened","Reopened guided Service Operations Dashboard setup",{schemaVersion:5});
