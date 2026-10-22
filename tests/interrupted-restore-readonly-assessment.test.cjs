@@ -52,6 +52,7 @@ function fixture(options={}){
   const m=options.marker===undefined?marker:options.marker;
   const context=vm.createContext({
     BACKUP_FILES:{"data/current-state.json":()=>{},"data/settings.json":()=>{}},
+    RECOVERY_PATH:["data","recovery.json"],
     readJson:async parts=>{operations.push(["readMarker",parts.join("/")]);if(options.invalidJson)throw Error("corrupt");return m;},
     readFileBytes:async parts=>{
       const p=parts.join("/");
