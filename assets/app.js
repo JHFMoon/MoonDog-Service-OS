@@ -139,7 +139,8 @@
   const preparedXlsxWorkbooks = new WeakMap();
   const xlsxSourceDeleteGuards = new Map();
   const nativeXlsxRead = XLSX.read.bind(XLSX);
-  const xlsxWorkerState = { worker: null, workerUrl: null, initializing: null, disabled: false, nextId: 1, pending: new Map() };
+  const xlsxWorkerState = { worker: null, workerUrl: null, initializing: null, disabled: false, lastError: "", nextId: 1, pending: new Map() };
+  let xlsxWorkerSmokeVendorBytes = null;
   function workbookOptionsKey(options) {
     return JSON.stringify(Object.keys(options || {}).sort().map(key => [key, options[key]]));
   }
@@ -180,7 +181,7 @@
     xlsxWorkerState.initializing = (async () => {
       if (typeof Worker !== "function" || typeof Blob !== "function" || typeof URL?.createObjectURL !== "function")
         throw new Error("Blob workers are unavailable.");
-      const vendorBytes = await runtimeFileBytes("vendor/xlsx.full.min.js");
+      const vendorBytes = xlsxWorkerSmokeVendorBytes ? xlsxWorkerSmokeVendorBytes.slice() : await runtimeFileBytes("vendor/xlsx.full.min.js");
       const vendorSource = new TextDecoder().decode(vendorBytes);
       if (vendorBytes.byteLength < 250000 || !/XLSX/.test(vendorSource))
         throw new Error("The pinned local SheetJS runtime is unavailable.");
@@ -216,6 +217,7 @@
     try { return await xlsxWorkerState.initializing; }
     catch (error) {
       xlsxWorkerState.disabled = true;
+      xlsxWorkerState.lastError = String(error?.message || error);
       throw error;
     } finally { xlsxWorkerState.initializing = null; }
   }
@@ -254,7 +256,7 @@
     return book;
   }
   if (globalThis.__MOONDOG_ENABLE_XLSX_SMOKE === true) {
-    globalThis.__moondogXlsxSmoke = Object.freeze({ prepare: prepareXlsxWorkbook, workerStatus: () => ({ active: Boolean(xlsxWorkerState.worker), disabled: xlsxWorkerState.disabled }) });
+    globalThis.__moondogXlsxSmoke = Object.freeze({ prepare: prepareXlsxWorkbook, setVendorSource: source => { xlsxWorkerSmokeVendorBytes = new TextEncoder().encode(source); }, workerStatus: () => ({ active: Boolean(xlsxWorkerState.worker), disabled: xlsxWorkerState.disabled, error: xlsxWorkerState.lastError }) });
   }
   // Privacy-safe performance evidence: no source files or business identifiers.
   const responsiveness={longTasks:0,maxLongTaskMs:0,lastLongTaskAt:""};
