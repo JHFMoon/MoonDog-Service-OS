@@ -4183,10 +4183,12 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     model.settings.meeting={...model.settings.meeting,dayOfWeek:Number(ui.meetingDay.value),startTime:ui.meetingStart.value||"06:30",resetTime:ui.meetingReset.value||"07:00",grossMinimum:minimum,grossStretch:stretch};
     model.settings.performanceStandards={...model.settings.performanceStandards,...localTargets};
   }
-  let settingsAutosaveTimer=null; async function saveSettingsAutosave() {
+  let settingsAutosaveTimer=null; let settingsWriteChain=Promise.resolve();
+  function persistSettingsSnapshot(){const task=settingsWriteChain.then(()=>writeJson(SETTINGS_PATH,structuredClone(model.settings)));settingsWriteChain=task.catch(()=>{});return task;}
+  async function saveSettingsAutosave() {
     readSettingsInputs();
     model.settings.updatedAt=now();
-    await writeJson(SETTINGS_PATH,model.settings);
+    await persistSettingsSnapshot();
     await addHistory("settings-update","Updated product settings",{schemaVersion:model.settings.schemaVersion});
     renderAll();
     ui.settingsSaveStatus.dataset.saveState="saved";
@@ -4223,7 +4225,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const advisor=model.settings.advisors[code];if(!advisor||!advisor.setupRequired)return;
     if(!model.root||!writeAuthority.canWrite)throw new Error("Editing unavailable — reconnect folder");
     const previousUpdatedAt=model.settings.updatedAt;advisor.setupRequired=false;model.settings.updatedAt=now();
-    try{await writeJson(SETTINGS_PATH,model.settings);}
+    try{await persistSettingsSnapshot();}
     catch(error){advisor.setupRequired=true;model.settings.updatedAt=previousUpdatedAt;renderAdvisorSettings();renderSetup();ui.settingsSaveStatus.dataset.saveState="error";ui.settingsSaveStatus.textContent="Save needs attention — see error";throw error;}
     renderAdvisorSettings();renderSetup();ui.settingsSaveStatus.dataset.saveState="saved";ui.settingsSaveStatus.textContent="Advisor setup review saved";
     await addHistory("advisor-setup-reviewed",`Marked advisor ${code} setup reviewed`,{advisorCode:code});
