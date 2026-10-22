@@ -1071,6 +1071,12 @@
   async function withSupervisorWorkbookLock(operation) { const locks = globalThis.navigator?.locks; if (!locks?.request) throw new Error("This browser cannot safely serialize Supervisor Workbook operations. Use an up-to-date browser and retry."); const run = async () => { const previous = supervisorWorkbookOperationTail; let release; supervisorWorkbookOperationTail = new Promise((resolve) => { release = resolve; }); await previous; try { if (model.root) { const durable = await readJson(STATE_PATH, null); if (!durable || durable.updatedAt !== model.state.updatedAt || JSON.stringify(durable.records) !== JSON.stringify(model.state.records)) throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing."); const recovery = await readJson(RECOVERY_PATH, null); if (recovery) model.recovery = recovery; } return await operation(); } finally { release(); } }; return locks.request("moondog-supervisor-workbook", { mode: "exclusive" }, run); }
   const dailyPickedSources = new Map(); let dailyImportBusy = false, appointmentImportBusy = false;
   async function sourceFileHandle(name) { if(dailyPickedSources.has(name))return dailyPickedSources.get(name); const location = sourceLocations.get(name); if (location === "root") return model.root.getFileHandle(name); if (location === "learn") return (await directory(["Files To Learn"], false)).getFileHandle(name); try { return await (await reportInbox(false)).getFileHandle(name); } catch (error) { if (error.name !== "NotFoundError") throw error; return model.root.getFileHandle(name); } }
+  async function removeSourceEntryWithByteGuard(name, bytes) {
+    if (!bytes) return removeSourceEntry(name);
+    xlsxSourceDeleteGuards.set(name, bytes);
+    try { return await removeSourceEntry(name); }
+    finally { xlsxSourceDeleteGuards.delete(name); }
+  }
   async function removeSourceEntry(name) {
     if(dailyPickedSources.has(name))return;
     const expectedXlsx = xlsxSourceDeleteGuards.get(name);
@@ -2738,7 +2744,7 @@
     renderAll();
     let deleted = false;
     if (deleteAfterSuccess || (!dailyPickedSources.has(name) && window.confirm("Import complete and verified.\n\nDelete the original source file \""+name+"\" from the working folder?\n\nA timestamped audit copy remains in the imports folder."))) {
-      try { await removeSourceEntry(name); await addHistory("source-deleted", "Deleted processed source file "+name, { fileName: name, retainedAuditCopy: !deleteAfterSuccess }); deleted = true; await scanFiles(); }
+      try { await removeSourceEntryWithByteGuard(name, bytes); await addHistory("source-deleted", "Deleted processed source file "+name, { fileName: name, retainedAuditCopy: !deleteAfterSuccess }); deleted = true; await scanFiles(); }
       catch (error) { throw new Error("Imported "+records.length+" records, but "+name+" could not be deleted: "+(error.message || error)); }
     }
     status("Imported "+records.length+" records. Existing reviews and commitments were retained for matching ROs."+(deleted ? " The original "+name+" was deleted"+(deleteAfterSuccess ? " after durable verification." : "; its audit copy remains in imports.") : " The original source file was retained."), "success");
@@ -2772,7 +2778,7 @@
       if(!deleteAfterSuccess)await writeBytes(["imports",auditName],new Uint8Array(bytes));candidate.days[date]={date,sourceFile:name,importedAt:now(),appointments};candidate.updatedAt=now();await writeJson(APPOINTMENTS_PATH,candidate);
       const verified=await readJson(APPOINTMENTS_PATH,null);if(JSON.stringify(verified)!==JSON.stringify(candidate))throw new Error("Appointment read-back verification failed; keep the source and retry.");model.appointments=verified;saved=true;
       await addHistory("appointments-import",`Imported ${appointments.length} appointments for ${date}`,{date,fileName:name,auditName:deleteAfterSuccess?null:auditName,rawCopyRetained:!deleteAfterSuccess});renderArrivals();let deleted=false,retainedReason="";
-      if(deleteAfterSuccess||(!dailyPickedSources.has(name)&&window.confirm(`Appointment import complete and verified.\n\nDelete the original source file "${name}" from the Report Inbox?\n\nA timestamped audit copy remains in imports.`))){try{const current=await(await sourceFileHandle(name)).getFile();if(current.size!==file.size||current.lastModified!==file.lastModified)throw new Error("The source changed during intake and was retained for the next scan.");await removeSourceEntry(name);deleted=true;await addHistory("source-deleted",`Deleted imported appointment source file ${name}`,{fileName:name,retainedAuditCopy:!deleteAfterSuccess});await scanFiles();await scanAppointmentFiles();}catch(error){retainedReason=error.message||String(error);await recordDiagnostic("APPOINTMENT INTAKE",`Verified save; source retained: ${error.name}: ${retainedReason}`);}}
+      if(deleteAfterSuccess||(!dailyPickedSources.has(name)&&window.confirm(`Appointment import complete and verified.\n\nDelete the original source file "${name}" from the Report Inbox?\n\nA timestamped audit copy remains in imports.`))){try{const current=await(await sourceFileHandle(name)).getFile();if(current.size!==file.size||current.lastModified!==file.lastModified)throw new Error("The source changed during intake and was retained for the next scan.");await removeSourceEntryWithByteGuard(name, bytes);deleted=true;await addHistory("source-deleted",`Deleted imported appointment source file ${name}`,{fileName:name,retainedAuditCopy:!deleteAfterSuccess});await scanFiles();await scanAppointmentFiles();}catch(error){if(/changed while/i.test(error.message||""))throw error;retainedReason=error.message||String(error);await recordDiagnostic("APPOINTMENT INTAKE",`Verified save; source retained: ${error.name}: ${retainedReason}`);}}
       status(`${appointments.length} appointments are ready for ${date}. ${deleted?"Source removed after verification.":"Source retained."}${retainedReason?" Removal failed: "+retainedReason:""}`,retainedReason?"info":"success");return {saved:true,deleted,retainedReason,date};
     }catch(error){if(!saved)model.appointments=prior;status(`Appointments were ${saved?"saved; follow-up failed":"not imported"}: ${error.message||error}. Source kept for retry/review.`,"error");recordDiagnostic("APPOINTMENT INTAKE",error.name+": "+(error.message||error));try{await addHistory("appointments-import-failed","Appointment intake failed; source preserved",{fileName:name,saved,errorName:error.name,reason:error.message||String(error)});}catch(historyError){console.error("Appointment failure history could not be saved:",historyError);}throw error;}
     finally{appointmentImportBusy=false;if(ui.status.textContent===reading)status("Appointment intake stopped. Source kept; check diagnostics and retry.","error");}
@@ -3102,7 +3108,7 @@
     let deleted = false;
     if (deleteAfterSuccess || (!dailyPickedSources.has(name) && window.confirm(`Performance import complete and verified.\n\nDelete the original source file "${name}" from the Report Inbox?\n\nThe compact daily metrics are saved; no extra workbook copy was created.`))) {
       try {
-        await removeSourceEntry(name);
+        await removeSourceEntryWithByteGuard(name, bytes);
         deleted = true;
         await addHistory("source-deleted", `Deleted imported performance source file ${name}`, { fileName: name, compactSnapshotRetained: true });
         await scanFiles();
