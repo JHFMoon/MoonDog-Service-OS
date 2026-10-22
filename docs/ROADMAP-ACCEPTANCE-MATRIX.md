@@ -1,16 +1,21 @@
-**LIVE CLOUD RESUMPTION CHECKPOINT — 2026-10-22 16:06 UTC.** Main is `48d3285f05defe7846cfe43b77361ec72ca43338`, the protected merge of docs-only PR #376. Main Publication Check is running. The live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.150`, SHA-256 `95387e11c433ec61e29573eb88a93e14847c188ad74643a55f719abaff9ed13c`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`.
+**LIVE CLOUD RESUMPTION CHECKPOINT — 2026-10-22 16:18 UTC.** Main is `649a452aa2780a1bf595f2b9a6ac60af23179651`, the protected merge of synthetic Workspace connection-exclusivity PR #377. The post-merge main Publication Check is running. The live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.150`, SHA-256 `95387e11c433ec61e29573eb88a93e14847c188ad74643a55f719abaff9ed13c`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`.
 
-Active `Protect Main` ruleset `24665513` requires a pull request and strict `Publication Check` from GitHub Actions app 15368; zero approving reviews are configured, no bypass actors are present, and current-user bypass is `never`.
+Active `Protect Main` ruleset `24665513` requires a PR and strict `Publication Check` from GitHub Actions app 15368; zero approvals are configured, no bypass actors are present, and current-user bypass is `never`.
 
-- PR #368 and #370 are merged. Their exact heads `9b22bc4650745378553facbdc1d192b51afce942` and `db4c5365c8db66f7326ec50dc613829c20ff9f52` passed Publication Check and Clean Install Proof with exact-head Codex reviews showing no findings. Production XLSX worker is in trusted Beta 150.
-- PR #376 merged via the protected route as `48d3285f05defe7846cfe43b77361ec72ca43338`; exact head `80e9357b53932ca3e36c6130c962663327f419ee` had both checks pass and exact-head Codex review with no findings.
-- PR #373 now targets current main after non-rewriting branch refresh; exact head `9a2a375643e88e01c06f27c48ccfbd3d0cac8f55`. Fresh checks and review are pending. Separate merge authorization remains mandatory.
-- PR #374 (this docs update) and #377 were brought forward by fast-forward merge commits that preserve their prior histories. Their fresh exact-head checks/reviews are pending.
-- PR #386 current code-fix head `48d8172ee2d69d8a95d57fbd777ac841fead9d91` passed Publication Check and Clean Install Proof; exact-head Codex review is running. It still has a stale base from `a857f360...`; no history rewrite was attempted.
-- PR #388 now includes the #385 pending-edit fix and the #378 save-failure rollback fix. After its fast-forward refresh, new head `a2687e6735a9b13a5c4b78b882be5cac8f7a2dab` needs fresh checks and exact-head review.
-- PR #378's older exact review found that a failed settings write can remove the setup-review action; #388 contains a rollback and synthetic test for this case. PR #378 has an old base and is not merge-ready.
+- PR #368 and #370 remain merged. Their exact heads `9b22bc4650745378553facbdc1d192b51afce942` and `db4c5365c8db66f7326ec50dc613829c20ff9f52` passed both Publication Check and Clean Install Proof with exact-head no-findings reviews. The production worker is in Beta 150.
+- PR #376 merged as `48d3285f05defe7846cfe43b77361ec72ca43338`; exact head `80e9357b53932ca3e36c6130c962663327f419ee` had both checks pass and a no-findings review.
+- PR #377 merged as main `649a452aa2780a1bf595f2b9a6ac60af23179651`; exact head `3d618ef7c639a82639c42c67364676057f2cf6d5` had both checks pass and a no-findings review.
+- PR #373 refreshed to `c664e29e52571179090b23c10a5b18c5406542d2` after #377 merged. Fresh checks/review pending. Separate merge authorization remains required.
+- PR #374 is being updated to reflect the #377 merge and current main; prior evidence is superseded.
+- PR #379 corrected the review gap by asserting overlapping callers receive the same result. After current-main refresh its head is `3198313788bfa8248ef03b3f63b4dd1be071fc98`; fresh checks/review pending.
+- PR #380 current-main refreshed head `8b2c373a328f0273913f1b0efd8a72fe018439bd`; fresh checks/review pending. Duplicate/conflicting-month coverage remains incomplete.
+- PR #384 current-main refreshed head `67589b5b522ba5f5f4aeca50bcbcc313be46b616`; fresh checks/review pending.
+- PR #388 contains scoped redraw, failed-write rollback/retry, serialized immutable settings writes, rollback ordering and valid-identity/display-name preservation. After refresh, head `5440465d6dfddb51e57166191fde46e110d6ad65` needs fresh checks/review. Earlier check failures and findings are superseded.
+- PR #386 head `48d8172ee2d69d8a95d57fbd777ac841fead9d91` has green checks but stale base `a857f360...`; exact review was still running last seen. Its app.js overlaps current main. The former destructive force-refresh was rejected; no rewrite retry. Resolve without discarding either side.
+- PR #378's earlier settings findings are being addressed in #388; #379/#380/#384/#388 and #373 were refreshed without history rewriting.
+- Do not merge #373 without separate authorization. Do not merge/publish #189 or #183 without approval.
 
-Issue #164 remains closed by JHFMoon. Issues #58, #59, #60, and #61 remain open; #212 remains deferred. No field testing or installation is claimed. Public tests use synthetic data only; Stable and Workspace data remain protected.
+Issue #164 remains closed by JHFMoon; #58/#59/#60/#61 remain open; #212 remains deferred. No field testing or installation is claimed. Public tests are synthetic only. Stable and Workspace data are protected.
 
 # Roadmap acceptance matrix — MoonDog Service OS
 
