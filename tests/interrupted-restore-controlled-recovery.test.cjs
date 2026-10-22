@@ -191,7 +191,11 @@ function controlledRecoveryExecutionFixture(options={}){
   const start=app.indexOf("  async function recoverInterruptedRestore(){");
   const end=app.indexOf("  async function readExistingBytes(",start);
   assert.ok(start>=0&&end>start,"production controlled recovery function must exist");
-  const production=app.slice(start,end);
+  const helperStart=app.indexOf("  function interruptedRecoveryProgressDirection(");
+  const helperEnd=app.indexOf("  function refreshInterruptedRecoveryControls(",helperStart);
+  assert.ok(helperStart>=0&&helperEnd>helperStart,"production recovery helpers must exist");
+  const helpers=app.slice(helperStart,helperEnd);
+  const production=helpers+app.slice(start,end);
   const enc=value=>new TextEncoder().encode(typeof value==="string"?value:JSON.stringify(value));
   const digest=bytes=>crypto.createHash("sha256").update(bytes).digest("hex");
   const marker={schemaVersion:1,restoreId:owner,safetyBackup:"MoonDog Restore Safety synthetic.zip",sourceFile:"MoonDog Full Backup synthetic.zip"};
