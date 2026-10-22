@@ -113,11 +113,11 @@ test("import persists individually scoped daily observations and one overall agg
 });
 
 test("conflicting same-period import preserves the saved source and leaves the new file for review",async()=>{
-  const f=fixture([row("9001",46310,46310),row("1002",46311,46311),row("9001",46312,46312)]);
+  const f=fixture([row("9001","2026-10-20","2026-10-20"),row("1002","2026-10-19","2026-10-19")]);
   await f.import(false);
   const before=f.durable();
   const prior=structuredClone(before.appointmentActivity.snapshots["2026-10-20"]);
-  f.setRows([row("9001",46312,46312,"REPAIR_BOOKING"),row("1002",46311,46311)]);
+  f.setRows([row("9001","2026-10-20","2026-10-20","REPAIR_BOOKING"),row("1002","2026-10-19","2026-10-19")]);
   await assert.rejects(f.import(true),/Conflicting appointment-activity report for period 2026-10-20 is already saved/);
   assert.deepEqual(f.durable(),before,"conflict must be rejected before durable data is overwritten");
   assert.deepEqual(f.model.operationalMetrics.appointmentActivity.snapshots["2026-10-20"],prior);
