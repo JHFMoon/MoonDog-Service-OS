@@ -284,10 +284,11 @@ try {
     }
   }));
 
-  const productionXlsxProbe = await page.evaluate(async () => {
+  const productionXlsxProbe = await page.evaluate(async ({ xlsxSource }) => {
     if (typeof globalThis.__moondogXlsxSmoke?.prepare !== "function") {
       throw new Error("Packaged production XLSX parser hook was not initialized.");
     }
+    globalThis.__moondogXlsxSmoke.setVendorSource(xlsxSource);
     const rowCount = 25000;
     const rows = [["id", "ordinal", "category", "amount", "active", "description"]];
     for (let index = 0; index < rowCount; index += 1) {
@@ -346,7 +347,7 @@ try {
     const workerStatus = globalThis.__moondogXlsxSmoke.workerStatus();
     if (!workerStatus.active || workerStatus.disabled) throw new Error("Production intake worker did not stay active for the packaged XLSX probe: " + JSON.stringify(workerStatus));
     return { rowCount, workbookBytes: sourceBytes.byteLength, workerStatus, workerRuns, syncRuns };
-  });
+  }, { xlsxSource });
   const productionPercentile = (values, fraction) => {
     const sorted = [...values].sort((a, b) => a - b);
     return sorted[Math.max(0, Math.ceil(fraction * sorted.length) - 1)];
