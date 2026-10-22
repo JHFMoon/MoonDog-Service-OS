@@ -4239,10 +4239,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   }
   async function updateAdvisorLifecycle(code, action) {
     const advisor=model.settings.advisors[code];if(!advisor)return;
-    const previousRemoved=advisor.removed, previousUpdatedAt=model.settings.updatedAt;
-    advisor.removed=action==="remove";model.settings.updatedAt=now();
-    try{await writeJson(SETTINGS_PATH,model.settings);}
-    catch(error){advisor.removed=previousRemoved;model.settings.updatedAt=previousUpdatedAt;throw error;}
+    const removed=action==="remove";
+    await persistSettingsSnapshot(snapshot=>{const target=snapshot.advisors?.[code];if(!target)return null;const previousUpdatedAt=model.settings.updatedAt,lifecycleAt=now();target.removed=removed;snapshot.updatedAt=lifecycleAt;return()=>{const current=model.settings.advisors?.[code];if(current)current.removed=removed;if(model.settings.updatedAt===previousUpdatedAt)model.settings.updatedAt=lifecycleAt;};});
     renderAdvisorSettings();renderAll();
     await addHistory("advisor-configuration",`${advisor.removed ? "Removed" : "Restored"} advisor ${code} in Service Operations Dashboard configuration`,{advisorCode:code,action});
   }
