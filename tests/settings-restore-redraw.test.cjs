@@ -11,7 +11,8 @@ const settingsRender=slice("  function renderSettings(","  function readSettings
 const lifecycle=slice("  async function updateAdvisorLifecycle(","  async function reconcileSaprAdvisors(");
 const settingsPersistence=slice("let settingsAutosaveTimer=null; let settingsWriteChain=Promise.resolve();","  async function saveSettingsAutosave()");
 const worksheetOrderRender=slice("  function renderSupervisorWorksheetOrder()","  function renderPhase2Settings()");
-function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder}; })(); }`);return factory(context);}
+const localFuture=slice("  async function updateLocalFuture(","  async function recordRefreshLearning(");
+function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} ${localFuture} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder,updateLocalFuture}; })(); }`);return factory(context);}
 
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve};}
 function element(){const classes=[];return{dataset:{},children:[],classes,textContent:"",classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
@@ -117,6 +118,29 @@ test("failed review write cannot be committed by an autosave queued before the r
   assert.ok(ui.advisorSettingsList.children[0].children.some(child=>child.dataset?.advisorSetupReviewed==="101"));
 });
 
+test("local settings updates serialize after an in-flight advisor review",async()=>{
+  const pending=deferred();
+  const advisor={number:"101",name:"Synthetic Advisor",active:true,removed:false,setupRequired:true,participation:{openRo:true}};
+  const model={settings:{advisors:{"101":advisor},future:{sourceLocation:"old synthetic path"},updatedAt:"before"},root:{}};
+  const writes=[];
+  let persisted=null;
+  const context={SETTINGS_PATH:["settings.json"],model,writeAuthority:{canWrite:true,requireWrite(){}},now:()=> "synthetic-now",
+    writeJson:async(_path,value)=>{const snapshot=JSON.parse(JSON.stringify(value));writes.push(snapshot);if(writes.length===1)await pending.promise;persisted=snapshot;},
+    addHistory:async()=>{},renderAdvisorSettings:()=>{},renderSetup:()=>{},renderAll:()=>{}};
+  const {markAdvisorSetupReviewed,updateLocalFuture}=await production(context);
+  const review=markAdvisorSetupReviewed("101");
+  await Promise.resolve();
+  const futureSave=updateLocalFuture(future=>{future.sourceLocation="new synthetic path";});
+  pending.resolve();
+  await Promise.all([review,futureSave]);
+  assert.equal(writes.length,2,"private settings writes must share one serialized queue");
+  assert.equal(writes[0].advisors["101"].setupRequired,false);
+  assert.equal(writes[1].advisors["101"].setupRequired,false,"later settings save must preserve the committed advisor review");
+  assert.equal(writes[1].future.sourceLocation,"new synthetic path");
+  assert.equal(persisted.future.sourceLocation,"new synthetic path","the later queued snapshot must be the durable final write");
+  assert.equal(model.settings.future.sourceLocation,"new synthetic path");
+  assert.equal(model.settings.advisors["101"].setupRequired,false);
+});
 test("scoped advisor redraw keeps configured display names and excludes invalid identities",async()=>{
   const valid={number:"101",name:"Raw Source Name",displayName:"Configured Display",active:true,removed:false,setupRequired:false,participation:{openRo:true}};
   const invalid={number:"summary",name:"Summary Total",displayName:"Should stay hidden",active:true,removed:false,setupRequired:true,participation:{openRo:true}};

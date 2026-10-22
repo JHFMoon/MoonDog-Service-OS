@@ -5345,13 +5345,20 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   // them without adding a new untracked state file.
   async function updateLocalFuture(mutator) {
     writeAuthority.requireWrite();
-    const future = { ...(model.settings.future || {}) };
-    mutator(future);
-    const nextSettings = { ...model.settings, future, updatedAt:now() };
-    await writeJson(SETTINGS_PATH, nextSettings);
-    model.settings.future = future;
-    model.settings.updatedAt = nextSettings.updatedAt;
-    return future;
+    let savedFuture;
+    await persistSettingsSnapshot(snapshot=>{
+      const future={...(snapshot.future||{})};
+      mutator(future);
+      snapshot.future=future;
+      snapshot.updatedAt=now();
+      const updatedAt=snapshot.updatedAt;
+      savedFuture=future;
+      return()=>{
+        model.settings.future={...future};
+        model.settings.updatedAt=updatedAt;
+      };
+    });
+    return savedFuture;
   }
   async function recordRefreshLearning(source,kind,details={}) {
     const planner=globalThis.ServiceRefreshIntelligence;
