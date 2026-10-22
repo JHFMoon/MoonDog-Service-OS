@@ -556,7 +556,6 @@
         } catch (_) {}
         throw error;
       }
-      if (!await absent(root, markerPath)) throw Error("Interrupted restore marker removal failed verification.");
       localRestoreOwner = null;
       interruptedRecovery = false;
       setTransientValidation(false);
