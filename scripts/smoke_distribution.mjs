@@ -319,7 +319,7 @@ try {
     if (sourceBytes.byteLength < 512 * 1024) throw new Error("Synthetic production XLSX fixture did not cross the worker threshold: " + sourceBytes.byteLength);
     const originalSourceBytes = sourceBytes.slice();
     const options = { type: "array", raw: true };
-    async function measure(parse) {
+    async function measure(parse, inputSnapshot = null) {
       let ticks = 0;
       let maxHeartbeatGapMs = 0;
       let lastTick = performance.now();
@@ -335,6 +335,12 @@ try {
       try {
         const parseStarted = performance.now();
         book = await parse();
+        let inputBytesPreserved = true;
+        if (inputSnapshot) {
+          const { bytes, original } = inputSnapshot;
+          inputBytesPreserved = bytes.byteLength === original.byteLength && bytes.every((value,index) => value === original[index]);
+          if (!inputBytesPreserved) throw new Error("Production parser changed or detached the actual worker input bytes.");
+        }
         parseMs = performance.now() - parseStarted;
         const materializationStarted = performance.now();
         const parsedRows = XLSX.utils.sheet_to_json(book.Sheets["Production Probe"], { header: 1, raw: true });
@@ -346,7 +352,7 @@ try {
           throw new Error("Production XLSX parser did not preserve all synthetic rows.");
         }
         await new Promise(resolve => setTimeout(resolve, 25));
-        return { parseMs, materializationMs, ticks, maxHeartbeatGapMs, parsedRows: parsedRows.length };
+        return { parseMs, materializationMs, ticks, maxHeartbeatGapMs, parsedRows: parsedRows.length, inputBytesPreserved };
       } finally {
         clearInterval(heartbeat);
       }
@@ -355,7 +361,8 @@ try {
     const syncRuns = [];
     for (let sample = 0; sample < 3; sample += 1) {
       const bytes = sourceBytes.slice();
-      workerRuns.push(await measure(() => globalThis.__moondogXlsxSmoke.prepare(bytes, options)));
+      const original = bytes.slice();
+      workerRuns.push(await measure(() => globalThis.__moondogXlsxSmoke.prepare(bytes, options), { bytes, original }));
     }
     for (let sample = 0; sample < 3; sample += 1) {
       const bytes = sourceBytes.slice();
@@ -364,10 +371,11 @@ try {
     const workerStatus = globalThis.__moondogXlsxSmoke.workerStatus();
     if (!workerStatus.active || workerStatus.disabled || workerStatus.vendorSource !== "connected-working-folder" || workerStatus.successfulParses < workerRuns.length) throw new Error("Production intake worker was not successfully exercised through the connected packaged runtime: " + JSON.stringify(workerStatus));
     const sourceBytesPreserved = sourceBytes.byteLength === originalSourceBytes.byteLength && sourceBytes.every((value,index) => value === originalSourceBytes[index]);
-    if (!sourceBytesPreserved) throw new Error("Production worker changed the caller-owned source workbook bytes.");
+    const workerInputBytesPreserved = workerRuns.every(run => run.inputBytesPreserved) && sourceBytesPreserved;
+    if (!workerInputBytesPreserved) throw new Error("Production worker changed the caller-owned source workbook bytes.");
     const cleanup = globalThis.__moondogXlsxSmoke.dispose();
     if (cleanup.active || cleanup.pendingCount !== 0 || cleanup.objectUrlActive) throw new Error("Production intake worker resources were not released: " + JSON.stringify(cleanup));
-    return { rowCount, workbookBytes: sourceBytes.byteLength, sourceBytesPreserved, workerStatus, cleanup, workerRuns, syncRuns };
+    return { rowCount, workbookBytes: sourceBytes.byteLength, sourceBytesPreserved, workerInputBytesPreserved, workerStatus, cleanup, workerRuns, syncRuns };
   }, { xlsxSource });
   const productionPercentile = (values, fraction) => {
     const sorted = [...values].sort((a, b) => a - b);
