@@ -51,6 +51,13 @@
     },
     "164": {
       "criteria": {
+        "164-04": {
+          "kind": "test",
+          "pr": 355,
+          "tests": [
+            "tests/history-cache-retained-heap.test.cjs"
+          ]
+        },
         "164-06": {
           "kind": "test",
           "pr": 265,
