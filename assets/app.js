@@ -4662,19 +4662,36 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         throw new Error("Unresolved transaction journals remain. The recovery hold stays in place.");
       if(!sameFiles(finalSnapshot,await capture()))
         throw new Error("Operational bytes changed before the recovery hold could be released.");
-      await writeAuthority.finishInterruptedRecovery(restoreId);
-      recoveryStarted=false;
       model.recovery.interruptedRestoreReview=null;
       model.state=await readJson(STATE_PATH,model.state);
-      model.settings=await readJson(SETTINGS_PATH,model.settings);
+      const rawSettings=await readJson(SETTINGS_PATH,{});
+      const recoveredAdapter=rawSettings.sourceAdapters||await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH,null);
+      if(!recoveredAdapter&&Object.keys(rawSettings.advisors||{}).length&&!rawSettings.setup?.newStorePrepared)
+        throw new Error("The recovered source adapter is missing; the restore hold remains in place.");
+      if(recoveredAdapter)loadSourceAdapter(recoveredAdapter,rawSettings);else clearSourceAdapter();
+      model.settings=migratedSettings(rawSettings,Boolean(model.state.records?.length||model.state.source));
       model.appointments=await readJson(APPOINTMENTS_PATH,model.appointments);
       model.performance=await readJson(PERFORMANCE_PATH,model.performance);
       model.assignNext=await readJson(ASSIGN_NEXT_PATH,model.assignNext);
       model.autoImport=await readJson(AUTO_IMPORT_PATH,model.autoImport);
       model.operationalMetrics=await readJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);
       model.meetingCycle=await readJson(MEETING_CYCLE_PATH,model.meetingCycle);
+      model.state.closedRecords=pruneClosedRecords(model.state.closedRecords||[]);
+      model.operationalMetrics.nextAppointments||={snapshots:{}};
+      model.operationalMetrics.vir||={snapshots:{}};
+      model.operationalMetrics.menu||={snapshots:{}};
+      model.operationalMetrics.csi||={surveys:{},imports:[]};
+      model.operationalMetrics.monthlySummaries||={};
+      model.operationalMetrics.supplementalReports||={snapshots:{}};
+      for(const family of ["sor","appointmentActivity","efficiency","mediaAsr","openRoSummary"])
+        model.operationalMetrics[family]||={snapshots:{}};
+      model.assignNext.days||={};
+      await scanRecoveryBackups();
+      await writeAuthority.finishInterruptedRecovery(restoreId);
+      recoveryStarted=false;
       model.pendingRoot=null;
-      renderAll();renderSettings();await scanRecoveryBackups();renderRecovery();
+      renderAll();renderSettings();renderRecovery();
+      dailyNotify("moondog-recovered");
       status("Interrupted restore recovered from the selected verified backup. The safety backup remains available.","success");
       return true;
     }catch(error){
