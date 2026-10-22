@@ -48,7 +48,7 @@ function fixture(rows,opts={}){
   };
   vm.runInNewContext(parser+importer,ctx);
   return{parse:()=>ctx.parseAppointmentActivityWorkbook([],"synthetic-appointments.xlsx"),
-    import:(deleteAfterSuccess=false)=>ctx.importManagerSource("synthetic-appointments.xlsx","appointment-activity",[],deleteAfterSuccess),
+    import:(deleteAfterSuccess=false,name="synthetic-appointments.xlsx")=>ctx.importManagerSource(name,"appointment-activity",[],deleteAfterSuccess),
     setRows(rows){sourceRows.splice(0,sourceRows.length,columns,...rows);},setDurable(value){durable=value;},removed:()=>removedSources.slice(),ctx,model,durable:()=>durable};
 }
 test("vendor serial dates and ISO dates produce separate verified store days",()=>{
@@ -151,21 +151,37 @@ test("source parser epoch is advanced only in verified app code",()=>{
   assert.match(app,/const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-22-xlsx-worker-compat"/);
 });
 
-test("identical same-period reimport remains allowed and can clean up its source",async()=>{
-  const f=fixture([row("9001","2026-10-20","2026-10-20"),row("1002","2026-10-19","2026-10-19")]);
+test("identical report reimport ignores derived metadata, filename, and map insertion order",async()=>{
+  const f=fixture([
+    row("9001","2026-10-20","2026-10-20","SERVICE_REMINDER"),
+    row("9001","2026-10-19","2026-10-19","REPAIR_BOOKING"),
+    row("1002","2026-10-19","2026-10-19")
+  ]);
   await f.import(false);
-  const period=f.durable().appointmentActivity.snapshots;
-  const key=Object.keys(period)[0];
-  // Saved coverage/import metadata is derived and may change independently of
-  // identical report contents. It must not turn a reimport into a conflict.
+  const snapshots=f.durable().appointmentActivity.snapshots;
+  const key=Object.keys(snapshots)[0],original=JSON.parse(JSON.stringify(snapshots[key]));
+  // Derived coverage/provenance may drift; a browser may also rename a
+  // duplicate download, and equivalent object maps may arrive in another order.
   const saved=f.durable();
-  saved.appointmentActivity.snapshots[key].coverageDate="2026-10-19";
-  saved.appointmentActivity.snapshots[key].sourceModifiedAt="2026-10-19T00:00:00.000Z";
+  saved.appointmentActivity.snapshots[key].coverageDate="2026-10-18";
+  saved.appointmentActivity.snapshots[key].sourceModifiedAt="2026-10-18T00:00:00.000Z";
+  saved.appointmentActivity.snapshots[key].sourceFile="older-download.xlsx";
+  saved.appointmentActivity.snapshots[key].importedAt="2026-10-18T00:00:00.000Z";
   f.setDurable(saved);
   Object.assign(f.model.operationalMetrics.appointmentActivity.snapshots[key],saved.appointmentActivity.snapshots[key]);
-  await f.import(true);
+  f.setRows([
+    row("9001","2026-10-19","2026-10-19","REPAIR_BOOKING"),
+    row("1002","2026-10-19","2026-10-19"),
+    row("9001","2026-10-20","2026-10-20","SERVICE_REMINDER")
+  ]);
+  await f.import(true,"synthetic-appointments (1).xlsx");
   const reimported=f.durable().appointmentActivity.snapshots[key];
-  assert.equal(reimported.coverageDate,key,"derived coverage metadata is normalized to the report period");
-  assert.deepEqual(JSON.parse(JSON.stringify(reimported.byInteraction)),period[key].byInteraction);
-  assert.deepEqual(f.removed(),["synthetic-appointments.xlsx"]);
+  assert.equal(reimported.coverageDate,key,"coverage metadata is normalized to the canonical report period");
+  assert.equal(reimported.sourceFile,"synthetic-appointments (1).xlsx");
+  assert.equal(reimported.rowCount,original.rowCount);
+  assert.equal(reimported.periodStart,original.periodStart);
+  assert.equal(reimported.periodEnd,original.periodEnd);
+  assert.deepEqual(JSON.parse(JSON.stringify(reimported.byInteraction)),original.byInteraction);
+  assert.deepEqual(JSON.parse(JSON.stringify(reimported.byCreationDate)),original.byCreationDate);
+  assert.deepEqual(f.removed(),["synthetic-appointments (1).xlsx"]);
 });
