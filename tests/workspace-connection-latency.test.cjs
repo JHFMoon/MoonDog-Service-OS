@@ -35,6 +35,7 @@ test("delayed essential hydration keeps startup uncommitted, responsive, and ret
   const hydration = deferred();
   const states = [];
   const events = [];
+  const restoreErrors = [];
   const model = {
     root: null, pendingRoot: null, applicationRoot: null, workspaceConnectionCommittedRoot: null,
     state: { records: [{ customer: "Synthetic stale value" }], closedRecords: [] },
@@ -74,12 +75,16 @@ test("delayed essential hydration keeps startup uncommitted, responsive, and ret
     },
     writeJson: async () => {},
     setConnectionState: (state, message) => states.push({ state, message }),
-    console: { error() {} }
+    console: { error(error) { restoreErrors.push(String(error?.stack || error)); } }
   });
 
   vm.runInContext(connectionCore + "\n" + restoreConnection + "\nthis.restoreConnection = restoreConnection;", context);
   const reconnect = context.restoreConnection();
-  await started.promise;
+  const startOutcome = await Promise.race([
+    started.promise.then(() => "hydrating"),
+    reconnect.then(() => "settled")
+  ]);
+  assert.equal(startOutcome, "hydrating", "Connection failed before essential-state hydration: " + restoreErrors.join("\n"));
 
   let eventLoopServiced = false;
   await new Promise(resolve => setImmediate(() => { eventLoopServiced = true; resolve(); }));
