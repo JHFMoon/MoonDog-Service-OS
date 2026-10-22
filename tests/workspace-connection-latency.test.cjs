@@ -47,7 +47,7 @@ test("delayed essential hydration keeps startup uncommitted, responsive, and ret
     disable() { this.disableCount += 1; this.canWrite = false; }
   };
   const context = vm.createContext({
-    model, writeAuthority: authority,
+    model, writeAuthority: authority, VERSION: "0.10.17",
     folderWatch: { busy: false }, dailyImportBusy: false, appointmentImportBusy: false,
     window: { showDirectoryPicker() {}, indexedDB: {} },
     recallRoot: async () => handle,
