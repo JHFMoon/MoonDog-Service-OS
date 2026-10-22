@@ -5,6 +5,7 @@ const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
 function source(start,end){const a=app.indexOf(start),b=app.indexOf(end,a+start.length);assert.ok(a>=0&&b>a,start);return app.slice(a,b);}
 const parser=source("  function parseAppointmentActivityWorkbook(","  function normalizedPerson(");
 const importer=source("  async function importManagerSource(","  async function classifyImportFile(");
+const comparator=source("  function comparableManagerSnapshot(","  async function importManagerSource(");
 const columns=["S. No.","Store Code","Store Name","ASD Market","ASD","Interaction","Customer No.",
   "First Name","Last Name","VIN","Make","Model","Year","Contacted Date",
   "Appt Creation Date","Appt Set Date","Appt Time","Appt Notes"];
@@ -18,36 +19,40 @@ const row=(store,created,appt,interaction="SERVICE_REMINDER")=>{
 };
 function fixture(rows,opts={}){
   const sourceRows=[columns,...rows];
+  const removedSources=[];
   let durable={};
   const model={operationalMetrics:{},settings:{}};
   const ctx={
     text:v=>String(v??""),
     norm:v=>String(v??"").trim().toLowerCase(),
     now:()=>"2026-10-20T12:00:00.000Z",
-    localDateKey:()=>"2026-10-20",
+    localDateKey:()=>opts.localDate||"2026-10-20",
     isoCell:v=>typeof v==="string"&&/^20\d{2}-\d{2}-\d{2}$/.test(v)?v:"",
     reportStoreCode:()=>"9001",
-    workbookGrid:()=>({rows:sourceRows}),
+    workbookGrid:()=>({rows:opts.workbookRows||sourceRows}),
     model,
     structuredClone,
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
-    sourceFileHandle:async()=>({getFile:async()=>({lastModified:Date.UTC(2026,9,20)})}),
-    parseSorWorkbook:()=>null,parseEfficiencyWorkbook:()=>null,
+    sourceFileHandle:async()=>({getFile:async()=>({lastModified:opts.lastModified??Date.UTC(2026,9,20)})}),
+    parseSorWorkbook:()=>opts.sorSnapshot?structuredClone(opts.sorSnapshot):null,parseEfficiencyWorkbook:()=>null,
     parseMediaAsrAdvisorWorkbook:()=>null,parseMediaAsrTechWorkbook:()=>null,
     parseOpenRoSummaryWorkbook:()=>null,
-    dailyEvidenceDate:()=> "2026-10-20",
-    internalObservationDate:()=> "",
+    dailyEvidenceDate:(_family,snapshot)=>snapshot?.sourceModifiedAt?.slice(0,10)||"2026-10-20",
+    internalObservationDate:()=>opts.observationDate||"",
     pruneDatedSnapshots:s=>s,
     learnTechnicians:()=>{},
     advisorDisplayName:x=>String(x),
     writeJson:async(_path,value)=>{durable=structuredClone(value);},
     readJson:async()=>structuredClone(durable),
     addHistory:async()=>{},
-    removeSourceEntry:async()=>{}
+    removeSourceEntry:async name=>removedSources.push(name)
   };
-  vm.runInNewContext(parser+importer,ctx);
+  vm.runInNewContext(parser+comparator+importer,ctx);
   return{parse:()=>ctx.parseAppointmentActivityWorkbook([],"synthetic-appointments.xlsx"),
-    import:()=>ctx.importManagerSource("synthetic-appointments.xlsx","appointment-activity",[],false),ctx,model,durable:()=>durable};
+    import:(deleteAfterSuccess=false,name="synthetic-appointments.xlsx")=>ctx.importManagerSource(name,"appointment-activity",[],deleteAfterSuccess),
+    importSor:(deleteAfterSuccess=false,name="synthetic-sor.xlsx")=>ctx.importManagerSource(name,"sor",[],deleteAfterSuccess),
+    setSorSnapshot(value){opts.sorSnapshot=value;},
+    setRows(rows){sourceRows.splice(0,sourceRows.length,columns,...rows);},setDurable(value){durable=value;},removed:()=>removedSources.slice(),ctx,model,durable:()=>durable};
 }
 test("vendor serial dates and ISO dates produce separate verified store days",()=>{
   const d1=serialDate(46310),d2=serialDate(46312);
@@ -109,6 +114,38 @@ test("import persists individually scoped daily observations and one overall agg
   assert.equal(family.dailySnapshots[serialDate(46311)],undefined,"Do not manufacture zero activity");
   assert.equal(family.snapshots[two].rowCount,2);
 });
+
+test("shared report comparison ignores derived metadata and canonicalizes maps for every guarded family",()=>{
+  const f=fixture([]);
+  const saved={period:"2026-10",coverageDate:"2026-10-20",sourceFile:"old.xlsx",importedAt:"2026-10-20T10:00:00Z",sourceModifiedAt:"2026-10-20T09:00:00Z",updatedAt:"first",rowCount:2,byInteraction:{SERVICE_REMINDER:1,REPAIR_BOOKING:1},byCreationDate:{"2026-10-19":1,"2026-10-20":1}};
+  const reimported={period:"2026-10",coverageDate:"2026-10-21",sourceFile:"new (1).xlsx",importedAt:"2026-10-21T10:00:00Z",sourceModifiedAt:"2026-10-21T09:00:00Z",updatedAt:"second",rowCount:2,byInteraction:{REPAIR_BOOKING:1,SERVICE_REMINDER:1},byCreationDate:{"2026-10-20":1,"2026-10-19":1}};
+  assert.equal(f.ctx.comparableManagerSnapshot(saved),f.ctx.comparableManagerSnapshot(reimported));
+  assert.notEqual(f.ctx.comparableManagerSnapshot(saved),f.ctx.comparableManagerSnapshot({...reimported,rowCount:3}),"genuinely different report contents remain conflicting");
+  const beforeLearning={periodStart:"2026-10-01",periodEnd:"2026-10-20",store:{clockHours:120,efficiency:0.9},technicians:[{name:"Synthetic Tech",number:null,clockHours:40}],unresolved:[{sourceName:"Synthetic Tech",reason:"No unique learned technician number"}]};
+  const afterLearning={periodStart:"2026-10-01",periodEnd:"2026-10-20",store:{clockHours:120,efficiency:0.9},technicians:[{name:"Synthetic Tech",number:"9001",clockHours:40}],unresolved:[]};
+  assert.equal(f.ctx.comparableManagerSnapshot(beforeLearning,"efficiency"),f.ctx.comparableManagerSnapshot(afterLearning,"efficiency"),"directory learning must not make unchanged Efficiency content conflict");
+  assert.notEqual(f.ctx.comparableManagerSnapshot(beforeLearning,"efficiency"),f.ctx.comparableManagerSnapshot({...afterLearning,store:{clockHours:121,efficiency:0.9}},"efficiency"),"changed Efficiency measurements remain a conflict");
+  const advisorBefore={periodEnd:"2026-10-20",advisors:{"101":{code:"101",name:"Display One",sourceName:"Source Name",gross:2500}}};
+  const advisorAfter={...advisorBefore,advisors:{"101":{code:"101",name:"Display Two",sourceName:"Source Name",gross:2500}}};
+  assert.equal(f.ctx.comparableManagerSnapshot(advisorBefore,"efficiency"),f.ctx.comparableManagerSnapshot(advisorAfter,"efficiency"),"configured display labels are not report content");
+  assert.equal(f.ctx.comparableManagerSnapshot(advisorBefore,"openRoSummary"),f.ctx.comparableManagerSnapshot(advisorAfter,"openRoSummary"),"Open RO summary labels follow current settings and are not report content");
+  assert.notEqual(f.ctx.comparableManagerSnapshot(advisorBefore,"efficiency"),f.ctx.comparableManagerSnapshot({...advisorAfter,advisors:{"101":{...advisorAfter.advisors["101"],gross:2600}}},"efficiency"),"advisor report measurements remain conflict-sensitive");
+  assert.equal(f.ctx.managerConflictObservationDate("sor",{period:"2026-10",sourceModifiedAt:"2026-10-19T12:00:00Z"},[]),"2026-10-19","SOR conflict date follows the source modification date when there is no observation cell");
+  assert.equal(f.ctx.managerConflictObservationDate("sor",{period:"2026-10",coverageDate:"2026-10-19"},[]),"2026-10-19","daily SOR conflicts are keyed by observation day");
+});
+test("conflicting same-period import preserves the saved source and leaves the new file for review",async()=>{
+  const f=fixture([row("9001","2026-10-20","2026-10-20"),row("1002","2026-10-19","2026-10-19")]);
+  await f.import(false);
+  const before=f.durable();
+  const period=f.parse().periodEnd;
+  const prior=JSON.parse(JSON.stringify(before.appointmentActivity.snapshots[period]));
+  f.setRows([row("9001","2026-10-20","2026-10-20","REPAIR_BOOKING"),row("1002","2026-10-19","2026-10-19")]);
+  await assert.rejects(f.import(true),new RegExp("Conflicting appointment-activity report for period "+period+" is already saved"));
+  assert.deepEqual(JSON.parse(JSON.stringify(f.durable())),JSON.parse(JSON.stringify(before)),"conflict must be rejected before durable data is overwritten");
+  assert.deepEqual(JSON.parse(JSON.stringify(f.model.operationalMetrics.appointmentActivity.snapshots[period])),prior);
+  assert.deepEqual(f.removed(),[],"the conflicting source must remain available for review");
+});
+
 test("future-dated rows do not suppress earlier verified daily snapshots",async()=>{
   const f=fixture([
     row("9001","2026-10-19","2026-10-19"),
@@ -133,4 +170,53 @@ test("ambiguous source population without verified configured store fails closed
 test("source parser epoch is advanced only in verified app code",()=>{
   new vm.Script(app);
   assert.match(app,/const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-22-xlsx-worker-compat"/);
+});
+
+test("identical report reimport ignores derived metadata, filename, and map insertion order",async()=>{
+  const f=fixture([
+    row("9001","2026-10-20","2026-10-20","SERVICE_REMINDER"),
+    row("9001","2026-10-19","2026-10-19","REPAIR_BOOKING"),
+    row("1002","2026-10-19","2026-10-19")
+  ]);
+  await f.import(false);
+  const snapshots=f.durable().appointmentActivity.snapshots;
+  const key=Object.keys(snapshots)[0],original=JSON.parse(JSON.stringify(snapshots[key]));
+  // Derived coverage/provenance may drift; a browser may also rename a
+  // duplicate download, and equivalent object maps may arrive in another order.
+  const saved=f.durable();
+  saved.appointmentActivity.snapshots[key].coverageDate="2026-10-18";
+  saved.appointmentActivity.snapshots[key].sourceModifiedAt="2026-10-18T00:00:00.000Z";
+  saved.appointmentActivity.snapshots[key].sourceFile="older-download.xlsx";
+  saved.appointmentActivity.snapshots[key].importedAt="2026-10-18T00:00:00.000Z";
+  f.setDurable(saved);
+  Object.assign(f.model.operationalMetrics.appointmentActivity.snapshots[key],saved.appointmentActivity.snapshots[key]);
+  f.setRows([
+    row("9001","2026-10-19","2026-10-19","REPAIR_BOOKING"),
+    row("1002","2026-10-19","2026-10-19"),
+    row("9001","2026-10-20","2026-10-20","SERVICE_REMINDER")
+  ]);
+  await f.import(true,"synthetic-appointments (1).xlsx");
+  const reimported=f.durable().appointmentActivity.snapshots[key];
+  assert.equal(reimported.coverageDate,key,"coverage metadata is normalized to the canonical report period");
+  assert.equal(reimported.sourceFile,"synthetic-appointments (1).xlsx");
+  assert.equal(reimported.rowCount,original.rowCount);
+  assert.equal(reimported.periodStart,original.periodStart);
+  assert.equal(reimported.periodEnd,original.periodEnd);
+  assert.deepEqual(JSON.parse(JSON.stringify(reimported.byInteraction)),original.byInteraction);
+  assert.deepEqual(JSON.parse(JSON.stringify(reimported.byCreationDate)),original.byCreationDate);
+  assert.deepEqual(f.removed(),["synthetic-appointments (1).xlsx"]);
+});
+
+
+test("future SOR conflicts fall back to the matching monthly snapshot before any mutation",async()=>{
+  const original={period:"2026-10",date:"2026-10-23",store:{gross:100},advisors:{}};
+  const f=fixture([],{localDate:"2026-10-22",lastModified:Date.UTC(2026,9,23),sorSnapshot:original});
+  await f.importSor(false,"synthetic-sor.xlsx");
+  const before=f.durable();
+  assert.equal(before.sor.dailySnapshots?.["2026-10-23"],undefined,"future source coverage intentionally has no daily projection yet");
+  assert.ok(before.sor.snapshots["2026-10"],"future SOR report is retained under its monthly key");
+  f.setSorSnapshot({...original,store:{gross:200}});
+  await assert.rejects(f.importSor(true,"synthetic-conflicting-sor.xlsx"),/Conflicting sor report for period 2026-10-23 is already saved/);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.durable())),JSON.parse(JSON.stringify(before)),"monthly prior and operational data remain unchanged");
+  assert.deepEqual(f.removed(),[],"conflicting future SOR source remains available for review");
 });
