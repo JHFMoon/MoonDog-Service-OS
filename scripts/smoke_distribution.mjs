@@ -204,6 +204,7 @@ try {
         const started = performance.now();
         const transfer = workbookBuffer.slice(0);
         let reply;
+        let elapsedMs = 0;
         try {
           reply = await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => reject(new Error("Large workbook Blob Worker timed out.")), 30000);
@@ -217,11 +218,11 @@ try {
             };
             worker.postMessage(transfer, [transfer]);
           });
+          elapsedMs = performance.now() - started;
         } finally {
           await new Promise(resolve => setTimeout(resolve, 25));
           clearInterval(heartbeat);
         }
-        const elapsedMs = performance.now() - started;
         if (!reply?.ok || reply.rowCount !== rowCount + 1 ||
             reply.first !== "synthetic-0" || reply.last !== "synthetic-" + (rowCount - 1) || ticks < 1) {
           throw new Error("Large workbook worker result or main-thread heartbeat was incomplete: " + JSON.stringify({ reply, ticks }));
@@ -264,11 +265,15 @@ try {
   console.log("Packaged large XLSX responsiveness:", JSON.stringify({
     rows: largeWorkbookProbe.rowCount,
     workbookBytes: largeWorkbookProbe.workbookBytes,
-    worker: {
+    workerRoundTrip: {
       p50Ms: percentile(largeWorkbookProbe.workerRuns.map(run => run.elapsedMs), 0.5),
       p95Ms: percentile(largeWorkbookProbe.workerRuns.map(run => run.elapsedMs), 0.95),
       maxHeartbeatGapMs: Math.max(...largeWorkbookProbe.workerRuns.map(run => run.maxHeartbeatGapMs)),
       heartbeats: largeWorkbookProbe.workerRuns.map(run => run.ticks)
+    },
+    workerParseOnly: {
+      p50Ms: percentile(largeWorkbookProbe.workerRuns.map(run => run.workerParseMs), 0.5),
+      p95Ms: percentile(largeWorkbookProbe.workerRuns.map(run => run.workerParseMs), 0.95)
     },
     synchronous: {
       p50Ms: percentile(largeWorkbookProbe.syncRuns.map(run => run.elapsedMs), 0.5),
