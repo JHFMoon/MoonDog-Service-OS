@@ -63,7 +63,7 @@ test("cache reuse respects business-day and close-hour boundaries",()=>{
 test("watcher and mobile maintenance avoid redundant idle writes",()=>{
  assert.match(app,/if\(!document\.hidden\)void folderWatchScan\("poll"\)/);
  assert.doesNotMatch(daily,/setInterval\(\(\)=>queueMobilePublish\(1000\),300000\)/);
- assert.match(daily,/queueMobilePublish\(1000\);\n    if\(state\.editing\)/);
+ assert.match(daily,/queueMobilePublish\(1000\);\s*if\(state\.editing\)/);
 });
 test("diagnostics batch events and never move queued entries to another workspace",async()=>{
  const code=extract(app,"  let diagnosticsQueue = Promise.resolve(),diagnosticTimer=null;","  async function writeJson(");
