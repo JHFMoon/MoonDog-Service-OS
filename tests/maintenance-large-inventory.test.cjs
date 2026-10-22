@@ -164,6 +164,7 @@ test("overlapping maintenance runs coalesce and release the single-flight guard"
   assert.equal(ensureCalls,1,"the overlapping pass must reuse the existing run");
   releaseRun();
   const [a,b]=await Promise.all([first,second]);
+  assert.strictEqual(a,b,"overlapping callers must receive the same active result");
   assert.equal(a.failed,undefined);
   assert.equal(b.failed,undefined);
   assert.equal(ensureCalls,1,"coalesced callers must not start a second inventory");
