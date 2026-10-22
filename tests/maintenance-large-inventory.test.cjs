@@ -147,19 +147,22 @@ test("repeated large inventory runs report measured synthetic p50/p95, without r
 
 
 test("overlapping maintenance runs coalesce and release the single-flight guard",async()=>{
-  const f=fixture(),entered=deferred(),release=deferred();
+  const f=fixture();
+  let signalEntered,releaseRun;
+  const entered=new Promise(resolve=>{signalEntered=resolve;});
+  const gate=new Promise(resolve=>{releaseRun=resolve;});
   let ensureCalls=0;
   f.api.ensureFolders=async()=>{
     ensureCalls++;
-    entered.resolve();
-    await release.promise;
+    signalEntered();
+    await gate;
   };
   const first=f.engine.run({force:true,reason:"synthetic concurrent maintenance"});
   const second=f.engine.run({force:true,reason:"synthetic overlapping maintenance"});
   await entered.promise;
   assert.equal(f.engine.running,true,"the first maintenance pass owns the single-flight guard");
   assert.equal(ensureCalls,1,"the overlapping pass must reuse the existing run");
-  release.resolve();
+  releaseRun();
   const [a,b]=await Promise.all([first,second]);
   assert.equal(a.failed,undefined);
   assert.equal(b.failed,undefined);
