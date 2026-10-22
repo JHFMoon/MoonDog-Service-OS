@@ -13,8 +13,8 @@ const settingsPersistence=slice("let settingsAutosaveTimer=null; let settingsAut
 const worksheetOrderRender=slice("  function renderSupervisorWorksheetOrder()","  function renderPhase2Settings()");
 const localFuture=slice("  async function updateLocalFuture(","  async function recordRefreshLearning(");
 const guidedSetup=slice("  async function completeGuidedSetup()","  function openSetupIfRequired(");
-const meetingSave=slice("  async function saveMeetingVoice(pin) {","  function renderAdvisorSettings(");
-function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} ${localFuture} ${meetingSave} ${guidedSetup} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder,updateLocalFuture,reconcileSaprAdvisors,saveSettingsAutosave,queueSettingsAutosave,saveMeetingVoice,completeGuidedSetup,reopenGuidedSetup}; })(); }`);return factory(context);}
+const meetingSave=slice("  function meetingVoiceDraft(){","  function renderAdvisorSettings(");
+function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} ${localFuture} ${meetingSave} ${guidedSetup} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder,updateLocalFuture,reconcileSaprAdvisors,saveSettingsAutosave,queueSettingsAutosave,saveMeetingVoice,syncMeetingVoiceDraftSettings,completeGuidedSetup,reopenGuidedSetup}; })(); }`);return factory(context);}
 
 function deferred(){let resolve,reject;const promise=new Promise((r,j)=>{resolve=r;reject=j;});return{promise,resolve,reject};}
 function element(){const classes=[];return{dataset:{},children:[],classes,textContent:"",classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
@@ -288,6 +288,51 @@ test("meeting apply preserves newer draft edits typed during the durable write",
   assert.equal(writes[1].meetingCustomerVoiceExcerpt,"Newer synthetic excerpt draft");
 });
 
+test("queued meeting applies preserve the most recent user selection",async()=>{
+  const first=deferred(),writes=[];
+  const model={root:{},meetingVoiceDraftRevision:0,settings:{meetingVoiceMode:"automatic",meetingCustomerVoiceSourceMethod:"saved",meetingCustomerVoiceSurveyId:"",meetingCustomerVoicePastedSource:"",meetingCustomerVoiceExcerpt:"",meetingTeamMessage:"",updatedAt:"before"}};
+  const ui={meetingVoiceMode:{value:"team-message"},meetingVoiceSourceMethod:{value:"saved"},meetingVoiceSurvey:{value:""},meetingVoicePastedSource:{value:""},meetingVoiceExcerpt:{value:""},meetingTeamMessage:{value:"First synthetic message"},meetingVoiceWarning:{hidden:true},meetingVoiceSurveyValue:""};
+  let count=0;
+  const context={SETTINGS_PATH:["settings.json"],model,ui,writeAuthority:{canWrite:true},now:()=>"synthetic-time",text:value=>String(value||""),currentCsiSurveys:()=>({}),
+    ensureCustomerVoiceSourceUi:()=>{},writeJson:async(_path,snapshot)=>{writes.push(structuredClone(snapshot));count++;if(count===1)await first.promise;},
+    addHistory:async()=>{},renderAll:()=>{},status:()=>{}};
+  const {saveMeetingVoice,syncMeetingVoiceDraftSettings}=await production(context);
+  syncMeetingVoiceDraftSettings();
+  const firstApply=saveMeetingVoice(true);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(writes.length,1,"the first meeting selection begins its durable write");
+  ui.meetingVoiceMode.value="automatic";
+  ui.meetingTeamMessage.value="";
+  syncMeetingVoiceDraftSettings();
+  const laterApply=saveMeetingVoice(false);
+  first.resolve();
+  await Promise.all([firstApply,laterApply]);
+  assert.equal(writes.length,2);
+  assert.equal(writes[0].meetingVoiceMode,"team-message");
+  assert.equal(writes[1].meetingVoiceMode,"automatic","the later selection is committed after the queued write");
+  assert.equal(model.settings.meetingVoiceMode,"automatic","earlier completion must not overwrite the later selection");
+});
+
+test("advisor review completion preserves newer pending settings status",async()=>{
+  const first=deferred(),timers=[];
+  const advisor={number:"101",name:"Synthetic Advisor",active:true,removed:false,setupRequired:true,participation:{openRo:true}};
+  const model={root:{},settings:{advisors:{"101":advisor},updatedAt:"before"}};
+  const ui={settingsSaveStatus:{dataset:{},textContent:""},advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}}};
+  let writes=0;
+  const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
+    writeAuthority:{canWrite:true},validAdvisorIdentity:()=>true,advisorShownInSection:()=>true,advisorDisplayName:(code,source)=>source.name,
+    now:()=>"synthetic-time",writeJson:async()=>{writes++;if(writes===1)await first.promise;},addHistory:async()=>{},
+    renderAdvisorSettings:()=>{},renderSetup:()=>{},renderAll:()=>{},readSettingsInputs:()=>{},clearTimeout:()=>{},
+    setTimeout:fn=>{timers.push(fn);return timers.length;},run:fn=>fn()};
+  const {markAdvisorSetupReviewed,queueSettingsAutosave}=await production(context);
+  const review=markAdvisorSetupReviewed("101");
+  await new Promise(resolve=>setImmediate(resolve));
+  queueSettingsAutosave();
+  assert.equal(ui.settingsSaveStatus.dataset.saveState,"saving");
+  first.resolve();
+  await review;
+  assert.equal(ui.settingsSaveStatus.dataset.saveState,"saving","older advisor review cannot claim a newer settings revision is Saved");
+});
 test("guided setup writes serialize with advisor setup review commits",async()=>{
   for(const actionName of ["completeGuidedSetup","reopenGuidedSetup"]){
     const first=deferred();
