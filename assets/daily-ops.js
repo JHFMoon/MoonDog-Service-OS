@@ -524,6 +524,7 @@
     // demand for search, not during every workspace connection.
     const relevant=entries.filter(({name})=>name.endsWith('.json')&&(includeAll||name.startsWith('daily-')));
     if(includeAll&&fullHistoryCache&&fullHistoryCacheNames?.length===relevant.length&&
+        relevant.every(({name})=>cache.has(name))&&
         relevant.every(({name},index)=>name===fullHistoryCacheNames[index])){
       if(!current())return false;
       state.history=fullHistoryCache;state.events=fullHistoryCache.filter(e=>e.type==='daily-task');
@@ -550,7 +551,7 @@
     if(!current())return false;
     events.sort((a,b)=>String(a.at).localeCompare(String(b.at))||String(a.id).localeCompare(String(b.id)));
     state.history=events;state.events=events.filter(e=>e.type==='daily-task');
-    if(includeAll&&relevant.length<=4000){fullHistoryCache=events;fullHistoryCacheNames=relevant.map(({name})=>name);}
+    if(includeAll&&relevant.length<=4000&&relevant.every(({name})=>cache.has(name))){fullHistoryCache=events;fullHistoryCacheNames=relevant.map(({name})=>name);}
     else{fullHistoryCache=null;fullHistoryCacheNames=null;}
     return true;
   }

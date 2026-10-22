@@ -58,6 +58,20 @@ test("full-history snapshot stays inside the existing 4,000-file cache bound",as
  assert.equal(context.historyCacheSize(),4000);
  assert.equal(context.hasFullHistorySnapshot(),false,"oversized history must not be pinned by the materialized cache");
 });
+test("incomplete history files are retried before snapshot reuse",async()=>{
+ let reads=0;
+ const name="event-syncing.json",files=[{name,handle:{getFile:async()=>({text:async()=>++reads===1?"{":JSON.stringify({id:name,at:"2026-10-12",type:"history"})})}}];
+ const state={history:[],events:[],searchToken:1},context=vm.createContext({api:{readEntries:async()=>files},state,model:{root:{}},Promise,setTimeout,JSON});
+ vm.runInContext(history+"\nthis.loadHistory=loadHistory;this.historyCacheSize=()=>historyFileCache.size;this.hasFullHistorySnapshot=()=>fullHistoryCache!==null",context);
+ assert.equal(await context.loadHistory(true,1),true);
+ assert.equal(reads,1);assert.equal(state.history.length,0);assert.equal(context.historyCacheSize(),0);
+ assert.equal(context.hasFullHistorySnapshot(),false,"malformed file names cannot be frozen into a complete snapshot");
+ assert.equal(await context.loadHistory(true,1),true);
+ assert.equal(reads,2);assert.equal(state.history.length,1);assert.equal(state.history[0].id,name);
+ assert.equal(context.hasFullHistorySnapshot(),true);
+ assert.equal(await context.loadHistory(true,1),true);
+ assert.equal(reads,2,"repaired file becomes cacheable only after successful parsing");
+});
 test("stale historical search cannot overwrite newer history",async()=>{
  let release;const waiting=new Promise(resolve=>release=resolve),state={history:[{id:"newer"}],events:[],searchToken:4};
  const context=vm.createContext({api:{readEntries:async()=>[{name:"daily-1.json",handle:{getFile:async()=>({text:async()=>waiting})}}]},state,model:{root:{}},Promise,setTimeout});
