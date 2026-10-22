@@ -139,7 +139,7 @@
   const preparedXlsxWorkbooks = new WeakMap();
   const xlsxSourceDeleteGuards = new Map();
   const nativeXlsxRead = XLSX.read.bind(XLSX);
-  const xlsxWorkerState = { worker: null, workerUrl: null, initializing: null, disabled: false, lastError: "", nextId: 1, pending: new Map() };
+  const xlsxWorkerState = { worker: null, workerUrl: null, initializing: null, disabled: false, lastError: "", nextId: 1, pending: new Map(), successfulParses: 0, vendorSource: "" };
   let xlsxWorkerSmokeVendorBytes = null;
   function workbookOptionsKey(options) {
     return JSON.stringify(Object.keys(options || {}).sort().map(key => [key, options[key]]));
@@ -183,6 +183,7 @@
       if (typeof Worker !== "function" || typeof Blob !== "function" || typeof URL?.createObjectURL !== "function")
         throw new Error("Blob workers are unavailable.");
       const vendorBytes = xlsxWorkerSmokeVendorBytes ? xlsxWorkerSmokeVendorBytes.slice() : await runtimeFileBytes("vendor/xlsx.full.min.js");
+      xlsxWorkerState.vendorSource = xlsxWorkerSmokeVendorBytes ? "smoke-override" : "connected-working-folder";
       const vendorSource = new TextDecoder().decode(vendorBytes);
       if (vendorBytes.byteLength < 250000 || !/XLSX/.test(vendorSource))
         throw new Error("The pinned local SheetJS runtime is unavailable.");
@@ -209,7 +210,7 @@
         if (!pending) return;
         xlsxWorkerState.pending.delete(event.data.id);
         clearTimeout(pending.timer);
-        if (event.data?.ok && event.data.book) pending.resolve(event.data.book);
+        if (event.data?.ok && event.data.book) { xlsxWorkerState.successfulParses++; pending.resolve(event.data.book); }
         else pending.reject(new Error(event.data?.error || "SheetJS worker parse failed."));
       };
       worker.onerror = event => stopXlsxWorker(new Error(event.message || "SheetJS worker failed."));
@@ -258,7 +259,7 @@
     return book;
   }
   if (globalThis.__MOONDOG_ENABLE_XLSX_SMOKE === true) {
-    globalThis.__moondogXlsxSmoke = Object.freeze({ prepare: prepareXlsxWorkbook, setVendorSource: source => { xlsxWorkerSmokeVendorBytes = new TextEncoder().encode(source); }, workerStatus: () => ({ active: Boolean(xlsxWorkerState.worker), disabled: xlsxWorkerState.disabled, error: xlsxWorkerState.lastError }) });
+    globalThis.__moondogXlsxSmoke = Object.freeze({ prepare: prepareXlsxWorkbook, setVendorSource: source => { xlsxWorkerSmokeVendorBytes = new TextEncoder().encode(source); }, connectSyntheticWorkingFolder: async root => { if (!root || root.kind !== "directory" || typeof root.getDirectoryHandle !== "function") throw new Error("A synthetic directory handle is required."); connectedNativeRoot = root; const bytes = await runtimeFileBytes("vendor/xlsx.full.min.js"); if (bytes.byteLength < 250000) { connectedNativeRoot = null; throw new Error("The connected synthetic folder does not contain the packaged SheetJS runtime."); } return { name: String(root.name || "synthetic-working-folder"), vendorBytes: bytes.byteLength }; }, workerStatus: () => ({ active: Boolean(xlsxWorkerState.worker), disabled: xlsxWorkerState.disabled, error: xlsxWorkerState.lastError, successfulParses: xlsxWorkerState.successfulParses, vendorSource: xlsxWorkerState.vendorSource, pendingCount: xlsxWorkerState.pending.size, objectUrlActive: Boolean(xlsxWorkerState.workerUrl) }), dispose: () => { stopXlsxWorker(new Error("Synthetic production-worker smoke cleanup.")); connectedNativeRoot = null; return { active: Boolean(xlsxWorkerState.worker), pendingCount: xlsxWorkerState.pending.size, objectUrlActive: Boolean(xlsxWorkerState.workerUrl) }; } });
   }
   // Privacy-safe performance evidence: no source files or business identifiers.
   const responsiveness={longTasks:0,maxLongTaskMs:0,lastLongTaskAt:""};
