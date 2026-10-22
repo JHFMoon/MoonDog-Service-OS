@@ -253,6 +253,41 @@ test("meeting content writes serialize with setup review and retain the reviewed
   assert.equal(model.settings.advisors["101"].setupRequired,false);
 });
 
+test("meeting apply preserves newer draft edits typed during the durable write",async()=>{
+  const pending=deferred();
+  const writes=[];
+  const model={root:{},settings:{
+    meetingVoiceMode:"customer-quote",
+    meetingCustomerVoiceSourceMethod:"pasted",
+    meetingCustomerVoicePastedSource:"Synthetic source response",
+    meetingCustomerVoiceExcerpt:"Submitted excerpt",
+    meetingTeamMessage:"Earlier synthetic team message",
+    updatedAt:"before"
+  }};
+  const ui={meetingVoiceSurvey:{value:""},meetingVoicePastedSource:{value:"Synthetic source response"},
+    meetingVoiceExcerpt:{value:"Submitted excerpt"},meetingVoiceWarning:{hidden:true},settingsSaveStatus:{dataset:{},textContent:""}};
+  const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
+    ensureCustomerVoiceSourceUi:()=>{},writeAuthority:{canWrite:true},now:()=> "synthetic-after-write",
+    meetingVoiceDraft:()=>({mode:"customer-quote",method:"pasted",source:"Synthetic source response",excerpt:"Submitted excerpt",teamMessage:""}),
+    writeJson:async(_path,snapshot)=>{writes.push(structuredClone(snapshot));if(writes.length===1)await pending.promise;},
+    addHistory:async()=>{},renderAll:()=>{},status:()=>{}};
+  const {saveMeetingVoice,persistSettingsSnapshot}=await production(context);
+  const applying=saveMeetingVoice(true);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(writes.length,1,"the submitted meeting content begins one durable write");
+  model.settings.meetingTeamMessage="Newer synthetic team draft";
+  model.settings.meetingCustomerVoiceExcerpt="Newer synthetic excerpt draft";
+  pending.resolve();
+  await applying;
+  assert.equal(model.settings.meetingTeamMessage,"Newer synthetic team draft","completion must not overwrite a newer Team Message draft");
+  assert.equal(model.settings.meetingCustomerVoiceExcerpt,"Newer synthetic excerpt draft","completion must not overwrite a newer excerpt draft");
+  assert.equal(writes[0].meetingCustomerVoiceExcerpt,"Submitted excerpt","the original click remains the durable submitted snapshot");
+  await persistSettingsSnapshot();
+  assert.equal(writes.length,2);
+  assert.equal(writes[1].meetingTeamMessage,"Newer synthetic team draft","the later save must capture current draft text");
+  assert.equal(writes[1].meetingCustomerVoiceExcerpt,"Newer synthetic excerpt draft");
+});
+
 test("guided setup writes serialize with advisor setup review commits",async()=>{
   for(const actionName of ["completeGuidedSetup","reopenGuidedSetup"]){
     const first=deferred();
