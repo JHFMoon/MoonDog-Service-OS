@@ -55,39 +55,57 @@ try {
   if (versions.pdfjs !== "5.6.205") throw new Error("PDF.js version mismatch: " + JSON.stringify(versions));
   if (!/^\d+\.\d+\.\d+/.test(String(versions.app || ""))) throw new Error("Application version was not exposed: " + JSON.stringify(versions));
 
-  const workerProbe = await page.evaluate(async (probePath) => {
+  const workerProbe = await page.evaluate((probePath) => {
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["probe"], ["synthetic"]]), "Probe");
     const encoded = XLSX.write(book, { bookType: "xlsx", type: "array" });
     const buffer = encoded instanceof ArrayBuffer
-      ? encoded.slice(0)
+      ? encoded
       : encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
-    return await new Promise(resolve => {
-      let worker;
-      let transferDetached = false;
-      const finish = result => {
-        clearTimeout(timer);
-        worker?.terminate();
-        resolve({ ...result, transferDetached });
-      };
-      const timer = setTimeout(() => finish({ ok: false, error: "worker probe timed out" }), 10000);
-      try {
-        worker = new Worker(new URL(probePath, location.href));
-        worker.onmessage = event => finish(event.data);
-        worker.onerror = event => finish({ ok: false, error: String(event.message || "worker load failed") });
-        worker.postMessage(buffer, [buffer]);
-        transferDetached = buffer.byteLength === 0;
-      } catch (error) {
-        finish({ ok: false, error: String(error?.message || error) });
-      }
-    });
+    const cspMeta = Array.from(document.querySelectorAll("meta[http-equiv]"))
+      .filter(meta => meta.httpEquiv.toLowerCase() === "content-security-policy")
+      .map(meta => meta.content);
+    let workerConstructed = false;
+    let workerError = "";
+    try {
+      const worker = new Worker(new URL(probePath, location.href));
+      workerConstructed = true;
+      worker.terminate();
+    } catch (error) {
+      workerError = String(error?.message || error);
+    }
+    const rows = XLSX.utils.sheet_to_json(
+      XLSX.read(buffer, { type: "array", raw: true }).Sheets.Probe,
+      { header: 1, raw: true }
+    );
+    return {
+      protocol: location.protocol,
+      origin: location.origin,
+      cspMeta,
+      workerConstructed,
+      workerError,
+      fallbackParsed: JSON.stringify(rows) === JSON.stringify([["probe"], ["synthetic"]]),
+      rows
+    };
   }, `__xlsx-worker-probe-${process.pid}/probe.js`);
 
-  if (!workerProbe.ok) throw new Error("Packaged file:// SheetJS worker probe failed: " + JSON.stringify(workerProbe));
-  if (!workerProbe.transferDetached) throw new Error("Workbook ArrayBuffer was not transferred to the local worker.");
-  if (workerProbe.sheetNames?.[0] !== "Probe" || JSON.stringify(workerProbe.rows) !== JSON.stringify([["probe"], ["synthetic"]])) {
-    throw new Error("The local worker did not parse the synthetic workbook correctly: " + JSON.stringify(workerProbe));
+  if (workerProbe.protocol !== "file:" || workerProbe.origin !== "null") {
+    throw new Error("Worker feasibility probe did not run under the packaged opaque file origin: " + JSON.stringify(workerProbe));
   }
+  if (workerProbe.cspMeta.length) throw new Error("Unexpected CSP meta policy affected the packaged worker probe: " + JSON.stringify(workerProbe.cspMeta));
+  if (workerProbe.workerConstructed) throw new Error("Static file worker construction unexpectedly succeeded; extend this probe to verify transfer and worker parsing before drawing a conclusion.");
+  if (!/cannot be accessed from origin ['"]null['"]/i.test(workerProbe.workerError)) {
+    throw new Error("Static file worker failed for an unexpected reason: " + JSON.stringify(workerProbe));
+  }
+  if (!workerProbe.fallbackParsed) throw new Error("Synchronous SheetJS fallback failed after file worker denial: " + JSON.stringify(workerProbe));
+  console.log("Packaged file:// worker feasibility:", JSON.stringify({
+    protocol: workerProbe.protocol,
+    origin: workerProbe.origin,
+    cspMeta: workerProbe.cspMeta.length,
+    workerConstructed: workerProbe.workerConstructed,
+    workerError: workerProbe.workerError,
+    synchronousFallbackParsed: workerProbe.fallbackParsed
+  }));
 
   const pdfResult = await page.evaluate(async () => {
     try {
