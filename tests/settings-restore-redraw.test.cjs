@@ -285,3 +285,24 @@ test("guided setup writes serialize with advisor setup review commits",async()=>
     }
   }
 });
+
+test("guided setup completion preserves source expectations changed during its durable write",async()=>{
+  const pending=deferred();
+  const model={settings:{setup:{completedAt:"synthetic-old",reopened:true,sourceExpectations:{sor:"recommended"}},updatedAt:"before"},root:{}};
+  const writes=[];
+  const context={SETTINGS_PATH:["settings.json"],model,ui:{settingsSaveStatus:{dataset:{},textContent:""}},writeAuthority:{canWrite:true},
+    setupRequiredReady:()=>true,now:()=>"synthetic-now",renderAll:()=>{},renderSetup:()=>{},navigateTo:()=>{},
+    addHistory:async()=>{},writeJson:async(_path,snapshot)=>{writes.push(structuredClone(snapshot));if(writes.length===1)await pending.promise;}};
+  const productionFunctions=await production(context);
+  const completing=productionFunctions.completeGuidedSetup();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(writes.length,1,"completion begins one durable snapshot write");
+  model.settings.setup.sourceExpectations.sor="not-used";
+  const laterSave=productionFunctions.persistSettingsSnapshot();
+  pending.resolve();
+  await Promise.all([completing,laterSave]);
+  assert.equal(model.settings.setup.sourceExpectations.sor,"not-used","completion must update only the fields it owns");
+  assert.equal(writes[1].setup.sourceExpectations.sor,"not-used","the queued snapshot persists the concurrent source expectation");
+  assert.equal(model.settings.setup.completedAt,"synthetic-now");
+  assert.equal(model.settings.setup.reopened,false);
+});
