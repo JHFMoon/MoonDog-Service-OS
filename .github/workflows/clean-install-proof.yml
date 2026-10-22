@@ -16,6 +16,17 @@ jobs:
           persist-credentials: false
           fetch-depth: 2  # Keep PR merge parent for package-only source-parity proof
 
+      - name: Fetch immutable PR base for parser epoch checks
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+
       - name: Run repository safety checks
         env:
           LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}
