@@ -163,6 +163,121 @@ try {
     synchronousFallbackParsed: workerProbe.fallbackParsed
   }));
 
+
+  const largeWorkbookProbe = await page.evaluate(async ({ xlsxSource }) => {
+    const rowCount = 25000;
+    const rows = [["id", "ordinal", "category", "amount", "active", "description"]];
+    for (let index = 0; index < rowCount; index += 1) {
+      rows.push(["synthetic-" + index, index, "repair-order", index * 1.25, index % 2 === 0, "synthetic workbook row " + index]);
+    }
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), "Large Probe");
+    const encoded = XLSX.write(book, { bookType: "xlsx", type: "array" });
+    const workbookBuffer = encoded instanceof ArrayBuffer
+      ? encoded
+      : encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
+    const parserSource = [
+      "self.onmessage = event => {",
+      "  const started = performance.now();",
+      "  try {",
+      "    const parsed = XLSX.read(event.data, { type: 'array', raw: true });",
+      "    const values = XLSX.utils.sheet_to_json(parsed.Sheets[parsed.SheetNames[0]], { header: 1, raw: true });",
+      "    self.postMessage({ ok: true, rowCount: values.length, first: values[1]?.[0], last: values[values.length - 1]?.[0], workerParseMs: performance.now() - started });",
+      "  } catch (error) { self.postMessage({ ok: false, error: String(error?.message || error) }); }",
+      "};"
+    ].join("\n");
+    const workerUrl = URL.createObjectURL(new Blob([xlsxSource, "\n", parserSource], { type: "text/javascript" }));
+    const worker = new Worker(workerUrl);
+    const workerRuns = [];
+    const syncRuns = [];
+    try {
+      for (let sample = 0; sample < 3; sample += 1) {
+        let ticks = 0;
+        let maxHeartbeatGapMs = 0;
+        let lastTick = performance.now();
+        const heartbeat = setInterval(() => {
+          const now = performance.now();
+          maxHeartbeatGapMs = Math.max(maxHeartbeatGapMs, now - lastTick);
+          lastTick = now;
+          ticks += 1;
+        }, 20);
+        const started = performance.now();
+        const transfer = workbookBuffer.slice(0);
+        let reply;
+        try {
+          reply = await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error("Large workbook Blob Worker timed out.")), 30000);
+            worker.onmessage = event => {
+              clearTimeout(timeout);
+              resolve(event.data);
+            };
+            worker.onerror = event => {
+              clearTimeout(timeout);
+              reject(new Error(String(event.message || "Large workbook Blob Worker failed.")));
+            };
+            worker.postMessage(transfer, [transfer]);
+          });
+        } finally {
+          await new Promise(resolve => setTimeout(resolve, 25));
+          clearInterval(heartbeat);
+        }
+        const elapsedMs = performance.now() - started;
+        if (!reply?.ok || reply.rowCount !== rowCount + 1 ||
+            reply.first !== "synthetic-0" || reply.last !== "synthetic-" + (rowCount - 1) || ticks < 1) {
+          throw new Error("Large workbook worker result or main-thread heartbeat was incomplete: " + JSON.stringify({ reply, ticks }));
+        }
+        workerRuns.push({ elapsedMs, workerParseMs: reply.workerParseMs, ticks, maxHeartbeatGapMs });
+      }
+      for (let sample = 0; sample < 3; sample += 1) {
+        let ticks = 0;
+        let maxHeartbeatGapMs = 0;
+        let lastTick = performance.now();
+        const heartbeat = setInterval(() => {
+          const now = performance.now();
+          maxHeartbeatGapMs = Math.max(maxHeartbeatGapMs, now - lastTick);
+          lastTick = now;
+          ticks += 1;
+        }, 20);
+        const started = performance.now();
+        const parsed = XLSX.read(workbookBuffer.slice(0), { type: "array", raw: true });
+        const parsedRows = XLSX.utils.sheet_to_json(parsed.Sheets[parsed.SheetNames[0]], { header: 1, raw: true });
+        const elapsedMs = performance.now() - started;
+        await new Promise(resolve => setTimeout(resolve, 25));
+        clearInterval(heartbeat);
+        if (parsedRows.length !== rowCount + 1 || parsedRows[1]?.[0] !== "synthetic-0" ||
+            parsedRows[parsedRows.length - 1]?.[0] !== "synthetic-" + (rowCount - 1)) {
+          throw new Error("Synchronous fallback did not preserve the complete large workbook.");
+        }
+        syncRuns.push({ elapsedMs, ticks, maxHeartbeatGapMs });
+      }
+    } finally {
+      worker.terminate();
+      URL.revokeObjectURL(workerUrl);
+    }
+    return { rowCount, workbookBytes: workbookBuffer.byteLength, workerRuns, syncRuns };
+  }, { xlsxSource });
+
+  const percentile = (values, fraction) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.max(0, Math.ceil(fraction * sorted.length) - 1)];
+  };
+  console.log("Packaged large XLSX responsiveness:", JSON.stringify({
+    rows: largeWorkbookProbe.rowCount,
+    workbookBytes: largeWorkbookProbe.workbookBytes,
+    worker: {
+      p50Ms: percentile(largeWorkbookProbe.workerRuns.map(run => run.elapsedMs), 0.5),
+      p95Ms: percentile(largeWorkbookProbe.workerRuns.map(run => run.elapsedMs), 0.95),
+      maxHeartbeatGapMs: Math.max(...largeWorkbookProbe.workerRuns.map(run => run.maxHeartbeatGapMs)),
+      heartbeats: largeWorkbookProbe.workerRuns.map(run => run.ticks)
+    },
+    synchronous: {
+      p50Ms: percentile(largeWorkbookProbe.syncRuns.map(run => run.elapsedMs), 0.5),
+      p95Ms: percentile(largeWorkbookProbe.syncRuns.map(run => run.elapsedMs), 0.95),
+      maxHeartbeatGapMs: Math.max(...largeWorkbookProbe.syncRuns.map(run => run.maxHeartbeatGapMs)),
+      heartbeats: largeWorkbookProbe.syncRuns.map(run => run.ticks)
+    }
+  }));
+
   const pdfResult = await page.evaluate(async () => {
     try {
       const stream = "BT /F1 18 Tf 72 720 Td (MOONDOG) Tj ET\n";
