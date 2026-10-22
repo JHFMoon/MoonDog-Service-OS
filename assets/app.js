@@ -253,6 +253,9 @@
     parsedByOptions.set(optionsKey, book);
     return book;
   }
+  if (globalThis.__MOONDOG_ENABLE_XLSX_SMOKE === true) {
+    globalThis.__moondogXlsxSmoke = Object.freeze({ prepare: prepareXlsxWorkbook });
+  }
   // Privacy-safe performance evidence: no source files or business identifiers.
   const responsiveness={longTasks:0,maxLongTaskMs:0,lastLongTaskAt:""};
   globalThis.__moondogResponsiveness=Object.freeze({snapshot:()=>({...responsiveness})});
