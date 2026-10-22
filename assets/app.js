@@ -4317,10 +4317,12 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   // A different computer may change an earlier file even after our per-file
   // write verifies. Reconcile the complete restored inventory before declaring
   // success or releasing the persistent recovery hold.
-  async function verifyRestoredBackupState(entries){
+  async function verifyRestoredBackupState(entries,controlledProgress=null){
     const index=new Map(entries.map(entry=>[entry.path,entry]));
     for(const path of Object.keys(BACKUP_FILES)){
       const entry=index.get(path);
+      if(path===RECOVERY_PATH.join("/")&&controlledProgress?.marker&&
+         interruptedRecoveryProgressDirection(await readFileBytes(path.split("/")),controlledProgress.marker)===controlledProgress.direction)continue;
       if(!entry||await sha256(await readFileBytes(path.split("/")))!==entry.sha256)
         throw new Error("Restore post-write verification failed for a durable file.");
     }
@@ -4557,6 +4559,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if(!window.confirm("Controlled recovery will make the complete operational Workspace match the "+destination+". Every live file must still match one of the two verified backups. Independent, missing, unreadable, or changing files stop recovery. The safety backup and recovery hold are retained until final verification succeeds. Continue?"))
       return false;
     const restoreId=marker.restoreId;
+    const priorInterruptedReview=model.recovery.interruptedRestoreReview;
     let recoveryStarted=false;
     try{
       await writeAuthority.beginInterruptedRecovery(model.applicationRoot,restoreId);
@@ -4573,6 +4576,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           throw new Error("An operational file changed during recovery. Remaining writes are stopped.");
       };
       for(const path of canonical){
+        if(path===RECOVERY_PATH.join("/")&&recoveryProgressDirection)continue;
         const entry=chosen.get(path);
         const bytes=new Uint8Array(await target.zip.file("payload/"+path).async("uint8array"));
         if(bytes.byteLength!==entry.size||await sha256(bytes)!==entry.sha256)
@@ -4606,8 +4610,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         if(await maintenanceIO.exists(auditPath))
           throw new Error("A prior controlled recovery audit event could not be safely refreshed.");
       }
-      await verifyRestoredBackupState(target.manifest.entries);
-      const priorInterruptedReview=model.recovery.interruptedRestoreReview;
+      await verifyRestoredBackupState(target.manifest.entries,recoveryProgressDirection?{direction,marker}:null);
       model.recovery.lastRestore={
         sourceFile:direction==="source"?marker.sourceFile:marker.safetyBackup,
         restoredAt:now(),sourceCreatedAt:target.manifest.createdAt,
