@@ -127,7 +127,7 @@ test("shared report comparison ignores derived metadata and canonicalizes maps f
   const advisorAfter={...advisorBefore,advisors:{"101":{code:"101",name:"Display Two",sourceName:"Source Name",gross:2500}}};
   assert.equal(f.ctx.comparableManagerSnapshot(advisorBefore,"efficiency"),f.ctx.comparableManagerSnapshot(advisorAfter,"efficiency"),"configured display labels are not report content");
   assert.notEqual(f.ctx.comparableManagerSnapshot(advisorBefore,"efficiency"),f.ctx.comparableManagerSnapshot({...advisorAfter,advisors:{"101":{...advisorAfter.advisors["101"],gross:2600}}},"efficiency"),"advisor report measurements remain conflict-sensitive");
-  assert.equal(f.ctx.managerConflictObservationDate("sor",{period:"2026-10",sourceModifiedAt:"2026-10-19T12:00:00Z"},[]),"2026-10-20","SOR conflict date follows persistence fallback when there is no observation cell");
+  assert.equal(f.ctx.managerConflictObservationDate("sor",{period:"2026-10",sourceModifiedAt:"2026-10-19T12:00:00Z"},[]),"2026-10-19","SOR conflict date follows the source modification date when there is no observation cell");
   assert.equal(f.ctx.managerConflictObservationDate("sor",{period:"2026-10",coverageDate:"2026-10-19"},[]),"2026-10-19","daily SOR conflicts are keyed by observation day");
 });
 test("conflicting same-period import preserves the saved source and leaves the new file for review",async()=>{
