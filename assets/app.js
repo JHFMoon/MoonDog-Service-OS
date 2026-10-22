@@ -2385,7 +2385,7 @@
     if (/\.xlsx$/i.test(candidate.name) && candidate.location !== "picked" && bytes) {
       const currentFile = await (await sourceFileHandle(candidate.name)).getFile();
       if (!sameByteContent(await currentFile.arrayBuffer(), bytes))
-        throw new Error(`${candidate.name} changed after classification and was left in place.`);
+        throw new Error(`${candidate.name} changed while it was being checked and was left in place.`);
     }
     if (kind === "performance") await importPerformanceFile(candidate.name, deleteAfterSuccess, bytes);
     else if (kind === "next-appointments") await importNextAppointmentsFile(candidate.name, deleteAfterSuccess);

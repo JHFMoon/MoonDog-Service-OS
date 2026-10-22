@@ -103,7 +103,8 @@ test("classification and import retain one byte snapshot through workbook parsin
   assert.match(app, /importCsiFile\(candidate\.name, deleteAfterSuccess, bytes\)/);
   assert.match(app, /importAppointmentFile\(candidate\.name, deleteAfterSuccess, bytes\)/);
   assert.match(app, /importSource\(candidate\.name, deleteAfterSuccess, bytes\)/);
-  assert.match(app, /changed after classification and was left in place/);
+  assert.match(app, /changed while it was being checked and was left in place/);
+  assert.ok(app.includes('function transientIntakeError(error){return transientWorkspaceState(error)||["NotAllowedError","SecurityError","QuotaExceededError"].includes(error?.name)||/changed while|'));
 });
 
 
