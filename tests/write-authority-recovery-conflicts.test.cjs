@@ -105,13 +105,13 @@ function fixture(current=after,options={}){
   const context=vm.createContext({TextEncoder,TextDecoder,Uint8Array,Promise,crypto:globalThis.crypto,
     console:{warn(){}},setTimeout});
   const setup="const encoder=new TextEncoder();const REVISION="+JSON.stringify(revisionPath.split("/"))+";"+
-    "const originals=new WeakMap();let localRestoreOwner=null,nativeRoot=null,loadedRevision=null;"+
+    "const originals=new WeakMap();let localRestoreOwner=null,nativeRoot=null,loadedRevision=null,interruptedRecovery=false;"+
     "const WORKSPACE=['System Files','Workspace'];const testEnabled=false;"+
     "let editable=true;const transientValidationDelays=[0];"+
     "const sleep=async()=>{};const denied=()=>new Error('read only');"+
     "const transientInterfaceState=()=>false;"+
     "function setEditable(value){editable=value;}function setTransientValidation(_){};"+
-    "function protectedPath(_){return false;}function requireWrite(){if(!editable)throw denied();}";
+    "function protectedPath(_){return false;}function requireWrite(restoreId){if(interruptedRecovery){if(!localRestoreOwner||restoreId!==localRestoreOwner)throw denied();return;}if(!editable||localRestoreOwner&&restoreId!==localRestoreOwner)throw denied();}";
   vm.runInContext(setup+"\n"+production+"\n"+validation+"\n"+mutation+
     "\nglobalThis.recoverPending=recoverPending;globalThis.validate=validate;"+
     "globalThis.isEditable=()=>editable;globalThis.deleteTarget=journaledDelete;"+
