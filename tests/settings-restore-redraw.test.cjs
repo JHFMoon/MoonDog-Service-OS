@@ -259,16 +259,16 @@ test("meeting apply preserves newer draft edits typed during the durable write",
   const model={root:{},settings:{
     meetingVoiceMode:"customer-quote",
     meetingCustomerVoiceSourceMethod:"pasted",
-    meetingCustomerVoicePastedSource:"Synthetic source includes submitted excerpt",
+    meetingCustomerVoicePastedSource:"Synthetic source includes Submitted excerpt",
     meetingCustomerVoiceExcerpt:"Submitted excerpt",
     meetingTeamMessage:"Earlier synthetic team message",
     updatedAt:"before"
   }};
-  const ui={meetingVoiceSurvey:{value:""},meetingVoicePastedSource:{value:"Synthetic source includes submitted excerpt"},
+  const ui={meetingVoiceSurvey:{value:""},meetingVoicePastedSource:{value:"Synthetic source includes Submitted excerpt"},
     meetingVoiceExcerpt:{value:"Submitted excerpt"},meetingVoiceWarning:{hidden:true},settingsSaveStatus:{dataset:{},textContent:""}};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
     ensureCustomerVoiceSourceUi:()=>{},writeAuthority:{canWrite:true},now:()=> "synthetic-after-write",
-    meetingVoiceDraft:()=>({mode:"customer-quote",method:"pasted",source:"Synthetic source includes submitted excerpt",excerpt:"Submitted excerpt",teamMessage:""}),
+    meetingVoiceDraft:()=>({mode:"customer-quote",method:"pasted",source:"Synthetic source includes Submitted excerpt",excerpt:"Submitted excerpt",teamMessage:""}),
     writeJson:async(_path,snapshot)=>{writes.push(structuredClone(snapshot));if(writes.length===1)await pending.promise;},
     addHistory:async()=>{},renderAll:()=>{},status:()=>{}};
   const {saveMeetingVoice,persistSettingsSnapshot}=await production(context);
