@@ -16,6 +16,7 @@ const owner="123e4567-e89b-42d3-a456-426614174000";
 function fixture(){
   const context=vm.createContext({});
   const setup=`
+    let interruptedRecovery=false;
     const denied=()=>new Error("read only");
     const REVISION=["System Files","Workspace","data","store-revision.json"];
     const root={};let editable=true,localRestoreOwner=null,loadedRevision=4,nativeRoot=root;
