@@ -12,6 +12,7 @@ assert.ok(first >= 0 && last > first, "Production CSI importer must exist");
 const importer = app.slice(first, last);
 
 function fixture(mode = "verified") {
+  let currentMode = mode;
   const previous = {
     csi: {
       surveys: {"prior-01": {id: "prior-01", surveyDate: "2026-10-19", score: 10, lastSeenAt: "earlier", extensionRecordIds: ["ex-1"]}},
@@ -44,19 +45,19 @@ function fixture(mode = "verified") {
     freshness: {addDays: (_date, days) => days === -730 ? "2024-10-21" : "unexpected"},
     writeJson: async (_path, data) => {
       events.push("write");
-      if (mode === "write-denied") throw Error("synthetic write denied");
+      if (currentMode === "write-denied") throw Error("synthetic write denied");
       persisted = structuredClone(data);
     },
     readJson: async () => {
       events.push("read");
-      if (mode === "read-denied") throw Error("synthetic read denied");
-      if (mode === "stale") return structuredClone(previous);
+      if (currentMode === "read-denied") throw Error("synthetic read denied");
+      if (currentMode === "stale") return structuredClone(previous);
       const data = structuredClone(persisted);
-      if (mode === "survey-mismatch") data.csi.surveys["new-02"].score = 4;
-      if (mode === "prior-survey-lost") delete data.csi.surveys["prior-01"];
-      if (mode === "refresh-mismatch") data.csi.lastSuccessfulRefreshDate = "2026-10-20";
-      if (mode === "lineage-mismatch") data.csi.imports = [];
-      if (mode === "other-family-lost") delete data.anotherFamily;
+      if (currentMode === "survey-mismatch") data.csi.surveys["new-02"].score = 4;
+      if (currentMode === "prior-survey-lost") delete data.csi.surveys["prior-01"];
+      if (currentMode === "refresh-mismatch") data.csi.lastSuccessfulRefreshDate = "2026-10-20";
+      if (currentMode === "lineage-mismatch") data.csi.imports = [];
+      if (currentMode === "other-family-lost") delete data.anotherFamily;
       return data;
     },
     addHistory: async kind => events.push("history:" + kind),
@@ -67,7 +68,7 @@ function fixture(mode = "verified") {
   };
   vm.runInNewContext(importer + "\nthis.importCsiForTest = importCsiFile;", ctx);
   return {run: deleteSource => ctx.importCsiForTest("synthetic-csi.csv", deleteSource),
-    events, model, previous, parsed, persisted: () => persisted};
+    events, model, previous, parsed, persisted: () => persisted, setMode: next => { currentMode = next; }};
 }
 
 test("CSI importer verifies the entire saved payload before success and source deletion", async () => {
@@ -99,6 +100,34 @@ for (const [mode, pattern] of [
     assert.ok(!f.events.includes("render-all"), "No unverified metric refresh");
   });
 }
+
+test("reimporting the same CSI source keeps survey state idempotent", async () => {
+  const f = fixture();
+  await f.run(false);
+  await f.run(false);
+  const saved = f.persisted();
+  assert.deepEqual(Object.keys(saved.csi.surveys).sort(), ["new-02", "prior-01"]);
+  assert.deepEqual(saved.csi.surveys["prior-01"].extensionRecordIds, ["ex-1", "ex-3"]);
+  assert.deepEqual(saved.csi.surveys["new-02"].extensionRecordIds, ["ex-2"]);
+  assert.equal(saved.csi.imports.length, 3, "each verified import keeps its audit event");
+  assert.equal(f.events.filter(event => event === "history:csi-import").length, 2);
+});
+
+test("a failed CSI reimport preserves the prior verified state and leaves its source undeleted", async () => {
+  const f = fixture();
+  await f.run(false);
+  const firstVerified = structuredClone(f.model.operationalMetrics);
+  const firstDurable = structuredClone(f.persisted());
+  f.setMode("write-denied");
+  await assert.rejects(f.run(true), /synthetic write denied/);
+  assert.deepEqual(f.model.operationalMetrics, firstVerified);
+  assert.deepEqual(f.persisted(), firstDurable);
+  assert.equal(f.events.filter(event => event === "history:csi-import").length, 1,
+    "failed reimport must not create a success history event");
+  assert.ok(!f.events.includes("source-deleted"), "failed reimport retains the source report");
+  assert.equal(f.events.filter(event => event === "status:success").length, 1,
+    "failed reimport adds no second success status");
+});
 
 test("actual CSI importer is syntax-valid and uses full readback comparison", () => {
   new vm.Script(app);
