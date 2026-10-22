@@ -215,7 +215,7 @@ function controlledRecoveryExecutionFixture(options={}){
     entries:Object.entries(files).map(([path,bytes])=>({path,size:bytes.byteLength,sha256:digest(bytes)}))},
     zip:{file(name){const bytes=files[name.slice("payload/".length)];return bytes&&{async:async()=>new Uint8Array(bytes)};}}});
   const backups={
-    [marker.safetyBackup]:archive(safety),
+    [marker.safetyBackup]:options.invalidSafety?null:archive(safety),
     [marker.sourceFile]:archive(source)
   };
   const live=new Map(Object.entries(safety).map(([p,b])=>[p,new Uint8Array(b)]));
@@ -243,7 +243,12 @@ function controlledRecoveryExecutionFixture(options={}){
     },
     readFileBytes:async parts=>{
       const p=parts.join("/");
-      if(p.startsWith("backups/"))return enc(p.slice("backups/".length));
+      if(p.startsWith("backups/")){
+        const name=p.slice("backups/".length);
+        if(options.missingSafety&&name===marker.safetyBackup)
+          throw Object.assign(Error("Synthetic safety backup missing"),{name:"NotFoundError"});
+        return enc(name);
+      }
       const bytes=live.get(p);
       if(!bytes)throw Object.assign(Error("Synthetic missing"),{name:"NotFoundError"});
       return new Uint8Array(bytes);
@@ -350,4 +355,17 @@ test("actual recovery refuses foreign operational bytes before the first write",
   assert.equal(f.marker.restoreId,owner);
   assert.equal(f.writeLog.length,0);
   assert.equal(f.active,false);
+});
+
+test("actual recovery refuses missing or invalid safety backups before replacing operational state",async()=>{
+  for(const options of [{missingSafety:true},{invalidSafety:true}]){
+    const f=controlledRecoveryExecutionFixture(options);
+    const before=new Map([...f.live].map(([path,bytes])=>[path,new Uint8Array(bytes)]));
+    await assert.rejects(f.recover());
+    assert.equal(f.marker.restoreId,owner,"the interrupted restore hold must remain");
+    assert.equal(f.writeLog.length,0,"no operational bytes may be written");
+    assert.equal(f.active,false,"failed validation must release only the temporary recovery capability");
+    assert.equal(f.live.size,before.size);
+    for(const [path,bytes]of before)assert.deepEqual(f.live.get(path),bytes,path+" must remain byte-identical");
+  }
 });
