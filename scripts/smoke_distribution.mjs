@@ -92,8 +92,7 @@ try {
         "self.onmessage = event => {",
         "  try {",
         "    const book = XLSX.read(event.data, { type: 'array', raw: true });",
-        "    const rows = XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]], { header: 1, raw: true });",
-        "    self.postMessage({ ok: true, sheetNames: book.SheetNames, rows });",
+        "    self.postMessage({ ok: true, book });",
         "  } catch (error) { self.postMessage({ ok: false, error: String(error?.message || error) }); }",
         "};"
       ].join("\n");
@@ -103,11 +102,19 @@ try {
         const timer = setTimeout(() => resolve(false), 10000);
         transferWorker.onmessage = event => {
           clearTimeout(timer);
-          transferProbe.rows = event.data?.rows || null;
           transferProbe.error = event.data?.error || "";
-          resolve(event.data?.ok === true &&
-            event.data?.sheetNames?.[0] === "Probe" &&
-            JSON.stringify(event.data?.rows) === JSON.stringify([["probe"], ["synthetic"]]));
+          transferProbe.sheetNames = event.data?.book?.SheetNames || null;
+          try {
+            const returnedBook = event.data?.book;
+            const returnedRows = XLSX.utils.sheet_to_json(returnedBook?.Sheets?.Probe, { header: 1, raw: true });
+            transferProbe.rows = returnedRows;
+            resolve(event.data?.ok === true &&
+              returnedBook?.SheetNames?.[0] === "Probe" &&
+              JSON.stringify(returnedRows) === JSON.stringify([["probe"], ["synthetic"]]));
+          } catch (error) {
+            transferProbe.error = String(error?.message || error);
+            resolve(false);
+          }
         };
         transferWorker.onerror = event => {
           clearTimeout(timer);
@@ -181,8 +188,7 @@ try {
       "  const started = performance.now();",
       "  try {",
       "    const parsed = XLSX.read(event.data, { type: 'array', raw: true });",
-      "    const values = XLSX.utils.sheet_to_json(parsed.Sheets[parsed.SheetNames[0]], { header: 1, raw: true });",
-      "    self.postMessage({ ok: true, rowCount: values.length, first: values[1]?.[0], last: values[values.length - 1]?.[0], workerParseMs: performance.now() - started });",
+      "    self.postMessage({ ok: true, book: parsed, workerParseMs: performance.now() - started });",
       "  } catch (error) { self.postMessage({ ok: false, error: String(error?.message || error) }); }",
       "};"
     ].join("\n");
@@ -223,11 +229,15 @@ try {
           await new Promise(resolve => setTimeout(resolve, 25));
           clearInterval(heartbeat);
         }
-        if (!reply?.ok || reply.rowCount !== rowCount + 1 ||
-            reply.first !== "synthetic-0" || reply.last !== "synthetic-" + (rowCount - 1) || ticks < 1) {
-          throw new Error("Large workbook worker result or main-thread heartbeat was incomplete: " + JSON.stringify({ reply, ticks }));
+        const returnedSheet = reply?.book?.Sheets?.["Large Probe"];
+        const returnedRows = returnedSheet ? XLSX.utils.sheet_to_json(returnedSheet, { header: 1, raw: true }) : [];
+        if (!reply?.ok || reply.book?.SheetNames?.[0] !== "Large Probe" ||
+            returnedRows.length !== rowCount + 1 ||
+            returnedRows[1]?.[0] !== "synthetic-0" ||
+            returnedRows[returnedRows.length - 1]?.[0] !== "synthetic-" + (rowCount - 1) || ticks < 1) {
+          throw new Error("Large workbook worker clone or main-thread heartbeat was incomplete: " + JSON.stringify({ ok: reply?.ok, rowCount: returnedRows.length, ticks, error: reply?.error }));
         }
-        workerRuns.push({ elapsedMs, workerParseMs: reply.workerParseMs, ticks, maxHeartbeatGapMs });
+        workerRuns.push({ elapsedMs, workerParseMs: reply.workerParseMs, clonedRows: returnedRows.length, ticks, maxHeartbeatGapMs });
       }
       for (let sample = 0; sample < 3; sample += 1) {
         let ticks = 0;
