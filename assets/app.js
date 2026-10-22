@@ -1523,8 +1523,23 @@
         storeSummaryVerified:true,presentationAndPenetrationSeparate:true}};
   }
   async function importMenuSalesFile(name, deleteAfterSuccess = false) {
-    const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer(), snapshot = parseMenuSalesWorkbook(bytes, name); model.operationalMetrics.menu.snapshots[snapshot.releaseWeek] = snapshot; model.operationalMetrics.menu.snapshots = pruneDatedSnapshots(model.operationalMetrics.menu.snapshots, 156); model.operationalMetrics.updatedAt = now(); await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics);
-    const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (!check?.menu?.snapshots?.[snapshot.releaseWeek]) throw new Error("The Menu Sales snapshot could not be verified after saving.");
+    const bytes = await (await (await sourceFileHandle(name)).getFile()).arrayBuffer();
+    const snapshot = parseMenuSalesWorkbook(bytes, name);
+    const priorMetrics = structuredClone(model.operationalMetrics);
+    model.operationalMetrics.menu.snapshots[snapshot.releaseWeek] = snapshot;
+    model.operationalMetrics.menu.snapshots = pruneDatedSnapshots(model.operationalMetrics.menu.snapshots, 156);
+    model.operationalMetrics.updatedAt = now();
+    try {
+      await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics);
+      const check = await readJson(OPERATIONAL_METRICS_PATH, null);
+      if (JSON.stringify(check?.menu?.snapshots?.[snapshot.releaseWeek]) !== JSON.stringify(snapshot))
+        throw new Error("The Menu Sales snapshot could not be verified after saving.");
+    } catch (error) {
+      // A failed or mismatched read-back is never evidence of a durable save.
+      // Restore in-memory state; leave any uncertain on-disk bytes for review.
+      model.operationalMetrics = priorMetrics;
+      throw error;
+    }
     await addHistory("menu-sales-import", `Saved Menu Sales report for release week ${snapshot.releaseWeek}`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, advisors: Object.keys(snapshot.advisors).length });
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported Menu Sales source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
     renderOverviewIntelligence();
