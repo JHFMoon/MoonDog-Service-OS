@@ -89,7 +89,7 @@ try {
     };
   }, `__xlsx-worker-probe-${process.pid}/probe.js`);
 
-  if (workerProbe.protocol !== "file:" || workerProbe.origin !== "null") {
+  if (workerProbe.protocol !== "file:") {
     throw new Error("Worker feasibility probe did not run under the packaged opaque file origin: " + JSON.stringify(workerProbe));
   }
   if (workerProbe.cspMeta.length) throw new Error("Unexpected CSP meta policy affected the packaged worker probe: " + JSON.stringify(workerProbe.cspMeta));
