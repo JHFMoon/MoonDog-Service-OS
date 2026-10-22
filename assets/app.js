@@ -4341,7 +4341,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     try{marker=await readJson(["data","restore-in-progress.json"],null);}
     catch(_){return{state:"unreadable",safety:"unknown",source:"unknown"};}
     if(marker===null)return null;
-    const result={state:"held",safety:"unverified",source:"unverified",old:0,restored:0,both:0,conflict:0,missing:0,unreadable:0};
+    const result={state:"held",safety:"unverified",source:"unverified",old:0,restored:0,both:0,conflict:0,missing:0,unreadable:0,safetyBackup:marker?.safetyBackup||"",sourceFile:marker?.sourceFile||""};
     const safeName=(name,prefix="")=>typeof name==="string"&&name.length<=220&&name.endsWith(".zip")&&name.startsWith(prefix)&&!/[\\/]/.test(name)&&!name.includes("..");
     if(marker?.schemaVersion!==1||typeof marker.restoreId!=="string"||
        !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(marker.restoreId)||
@@ -4420,6 +4420,220 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       else if(result.missing)result.state="missing-files";
     }
     return result;
+  }
+  function refreshInterruptedRecoveryControls(){
+    const review=model.recovery.interruptedRestoreReview;
+    const eligible=Boolean(review&&review.state==="held"&&review.safety==="verified"&&review.source==="verified"&&
+      !(review.conflict||0)&&!(review.missing||0)&&!(review.unreadable||0)&&!(review.unstable||0)&&
+      review.safetyBackup&&review.sourceFile);
+    ui.interruptedRecoveryControls.hidden=!eligible;
+    if(!eligible){ui.interruptedRecoveryButton.disabled=true;return;}
+    const prior=ui.interruptedRecoveryTarget.value;
+    ui.interruptedRecoveryTarget.replaceChildren(new Option("Choose a verified state",""),
+      new Option("Return to protected safety backup — "+review.safetyBackup,"safety"),
+      new Option("Complete the interrupted restore — "+review.sourceFile,"source"));
+    ui.interruptedRecoveryTarget.value=prior;
+    ui.interruptedRecoveryDetails.textContent="Both complete backups are verified and every current operational file matches one of those two states. The selected complete state will be written only after a manager confirmation and a fresh byte-for-byte recheck. Any new or conflicting change stops recovery and keeps the hold.";
+    ui.interruptedRecoveryButton.disabled=!ui.interruptedRecoveryTarget.value;
+  }
+  async function recoverInterruptedRestore(){
+    const review=model.recovery.interruptedRestoreReview;
+    const direction=ui.interruptedRecoveryTarget.value;
+    if(!review||review.state!=="held"||!["safety","source"].includes(direction))
+      throw new Error("Choose a verified recovery state after reconnecting to the held Workspace.");
+    const marker=await readJson(["data","restore-in-progress.json"],null);
+    if(!marker||marker.restoreId===undefined||marker.safetyBackup!==review.safetyBackup||marker.sourceFile!==review.sourceFile)
+      throw new Error("The interrupted restore marker changed. The recovery hold remains in place.");
+    const [safety,source]=await Promise.all([
+      validateBackupBytes(await readFileBytes(["backups",marker.safetyBackup])),
+      validateBackupBytes(await readFileBytes(["backups",marker.sourceFile]))
+    ]);
+    const target=direction==="safety"?safety:source;
+    if(!safety||!source||!target?.manifest?.entries||!target.zip)
+      throw new Error("Both the safety and source backups must validate before recovery.");
+    const canonical=new Set(Object.keys(BACKUP_FILES));
+    const historyPath=path=>typeof path==="string"&&path.startsWith("data/history/")&&
+      /^[^/\\.][^/\\]*\.json$/.test(path.slice("data/history/".length))&&
+      !path.includes("..")&&!path.includes("\\");
+    const entries=backup=>{
+      const index=new Map();
+      for(const entry of backup.manifest.entries){
+        if(!canonical.has(entry.path)&&!historyPath(entry.path))
+          throw new Error("A verified backup contains an unsupported recovery path.");
+        if(index.has(entry.path)||!Number.isSafeInteger(entry.size)||entry.size<0||!/^[a-f0-9]{64}$/i.test(entry.sha256))
+          throw new Error("A verified backup contains invalid or duplicate recovery metadata.");
+        index.set(entry.path,entry);
+      }
+      for(const path of canonical)if(!index.has(path))
+        throw new Error("A verified backup is missing required operational state.");
+      return index;
+    };
+    const before=entries(safety),after=entries(source),chosen=direction==="safety"?before:after;
+    const paths=new Set([...canonical,...before.keys(),...after.keys()]);
+    const capture=async()=>{
+      const files=new Map();
+      for(const path of canonical)files.set(path,new Uint8Array(await readFileBytes(path.split("/"))));
+      const history=await directoryFiles(["data","history"]);
+      for(const file of history){
+        if(!/^[^/\\.][^/\\]*\.json$/.test(file.name)||files.has("data/history/"+file.name))
+          throw new Error("The live history inventory contains an unsupported or duplicate path.");
+        files.set("data/history/"+file.name,new Uint8Array(file.bytes));
+      }
+      return files;
+    };
+    const present=files=>path=>files.has(path)?files.get(path):null;
+    const equalBytes=(a,b)=>a===null&&b===null||a!==null&&b!==null&&a.byteLength===b.byteLength&&a.every((value,index)=>value===b[index]);
+    const sameFiles=(a,b)=>{
+      if(a.size!==b.size)return false;
+      for(const path of new Set([...a.keys(),...b.keys()]))if(!equalBytes(present(a)(path),present(b)(path)))return false;
+      return true;
+    };
+    const matches=async(bytes,entry)=>entry?bytes!==null&&bytes.byteLength===entry.size&&await sha256(bytes)===entry.sha256:bytes===null;
+    const initial=await capture();
+    for(const path of initial.keys())paths.add(path);
+    for(const path of paths){
+      const bytes=present(initial)(path);
+      if(!await matches(bytes,before.get(path))&&!await matches(bytes,after.get(path)))
+        throw new Error("A live operational file differs from both verified backups. Recovery stopped and the hold remains.");
+    }
+    const stable=await capture();
+    if(!sameFiles(initial,stable))
+      throw new Error("Operational files changed during recovery assessment. Recovery stopped and the hold remains.");
+    const destination=direction==="safety"?"protected safety backup":"interrupted restore source";
+    if(!window.confirm("Controlled recovery will make the complete operational Workspace match the "+destination+". Every live file must still match one of the two verified backups. Independent, missing, unreadable, or changing files stop recovery. The safety backup and recovery hold are retained until final verification succeeds. Continue?"))
+      return false;
+    const restoreId=marker.restoreId;
+    let recoveryStarted=false;
+    try{
+      await writeAuthority.beginInterruptedRecovery(model.applicationRoot,restoreId);
+      recoveryStarted=true;
+      const confirmedMarker=await readJson(["data","restore-in-progress.json"],null);
+      if(JSON.stringify(confirmedMarker)!==JSON.stringify(marker))
+        throw new Error("The durable restore marker changed after confirmation.");
+      const current=await capture();
+      if(!sameFiles(initial,current))
+        throw new Error("Operational bytes changed after confirmation. Recovery stopped without overwriting them.");
+      const assertUnchanged=async path=>{
+        const now=await readExistingBytes(path);
+        if(!equalBytes(now,present(initial)(path)))
+          throw new Error("An operational file changed during recovery. Remaining writes are stopped.");
+      };
+      for(const path of canonical){
+        const entry=chosen.get(path);
+        const bytes=new Uint8Array(await target.zip.file("payload/"+path).async("uint8array"));
+        if(bytes.byteLength!==entry.size||await sha256(bytes)!==entry.sha256)
+          throw new Error("The selected backup payload failed hash verification.");
+        if(!equalBytes(present(initial)(path),bytes)){
+          await assertUnchanged(path);
+          await writeBytes(path.split("/"),bytes,restoreId);
+        }
+      }
+      const historyPaths=[...paths].filter(path=>path.startsWith("data/history/")).sort();
+      for(const path of historyPaths){
+        const entry=chosen.get(path),live=present(initial)(path);
+        if(entry){
+          const bytes=new Uint8Array(await target.zip.file("payload/"+path).async("uint8array"));
+          if(bytes.byteLength!==entry.size||await sha256(bytes)!==entry.sha256)
+            throw new Error("The selected history payload failed hash verification.");
+          if(!equalBytes(live,bytes)){
+            await assertUnchanged(path);
+            await writeBytes(path.split("/"),bytes,restoreId);
+          }
+        }else if(live!==null){
+          await assertUnchanged(path);
+          await maintenanceIO.remove(path,null,false,restoreId);
+          if(await maintenanceIO.exists(path))
+            throw new Error("A superseded history file remained after verified deletion.");
+        }
+      }
+      await verifyRestoredBackupState(target.manifest.entries);
+      const recoveryJournals=await collectControlledRecoveryJournals();
+      for(const item of recoveryJournals){
+        if(!paths.has(item.targetPath)&&item.targetPath!=="data/restore-in-progress.json")
+          throw new Error("A pending transaction journal targets data outside the selected verified backup. Recovery remains held.");
+        const currentBytes=await readExistingBytes(item.targetPath);
+        const journal=item.journal;
+        const known=[journal.before,journal.after].filter(value=>value===null||Array.isArray(value)).map(value=>value===null?null:new Uint8Array(value));
+        if(!known.some(value=>equalBytes(currentBytes,value)))
+          throw new Error("A pending transaction journal no longer matches its recorded bytes. Recovery remains held.");
+      }
+      for(const item of recoveryJournals){
+        await maintenanceIO.cleanupJournal(item.path,restoreId);
+        if(await maintenanceIO.exists(item.path))
+          throw new Error("A verified transaction journal could not be removed.");
+      }
+      if((await collectControlledRecoveryJournals()).length)
+        throw new Error("Unresolved transaction journals remain. The recovery hold stays in place.");
+      model.recovery.lastRestore={
+        sourceFile:direction==="source"?marker.sourceFile:marker.safetyBackup,
+        restoredAt:now(),sourceCreatedAt:target.manifest.createdAt,
+        safetyBackup:marker.safetyBackup,validationStatus:"Verified controlled recovery"
+      };
+      model.recovery.status="Interrupted restore recovered and verified";
+      await writeJson(RECOVERY_PATH,model.recovery,restoreId);
+      const event={schemaVersion:1,id:stamp()+"-"+slug("full-restore-recovered")+"-"+crypto.randomUUID(),
+        at:now(),type:"full-restore-recovered",
+        summary:"Completed a manager-confirmed recovery from an interrupted whole-state restore",
+        details:{selectedState:direction,sourceFile:marker.sourceFile,safetyBackup:marker.safetyBackup}};
+      await writeJson(["data","history",event.id+".json"],event,restoreId);
+      await writeAuthority.finishInterruptedRecovery(restoreId);
+      recoveryStarted=false;
+      model.recovery.interruptedRestoreReview=null;
+      model.state=await readJson(STATE_PATH,model.state);
+      model.settings=await readJson(SETTINGS_PATH,model.settings);
+      model.appointments=await readJson(APPOINTMENTS_PATH,model.appointments);
+      model.performance=await readJson(PERFORMANCE_PATH,model.performance);
+      model.assignNext=await readJson(ASSIGN_NEXT_PATH,model.assignNext);
+      model.autoImport=await readJson(AUTO_IMPORT_PATH,model.autoImport);
+      model.operationalMetrics=await readJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);
+      model.meetingCycle=await readJson(MEETING_CYCLE_PATH,model.meetingCycle);
+      model.pendingRoot=null;
+      renderAll();renderSettings();await scanRecoveryBackups();renderRecovery();
+      status("Interrupted restore recovered from the selected verified backup. The safety backup remains available.","success");
+      return true;
+    }catch(error){
+      if(recoveryStarted)writeAuthority.abortInterruptedRecovery(restoreId);
+      model.recovery.status="Controlled recovery stopped; restore hold and safety backup retained";
+      renderRecovery();
+      throw error;
+    }
+  }
+  async function readExistingBytes(path){
+    try{return new Uint8Array(await readFileBytes(path.split("/")));}
+    catch(error){if(error.name==="NotFoundError")return null;throw error;}
+  }
+  async function collectControlledRecoveryJournals(){
+    const found=[];
+    async function visit(dir,prefix=""){
+      for await(const[name,handle]of dir.entries()){
+        const path=prefix?prefix+"/"+name:name;
+        if(handle.kind==="directory"){await visit(handle,path);continue;}
+        if(!name.startsWith(".moondog-txn-"))continue;
+        let journal;
+        try{journal=JSON.parse(await handle.getFile().then(file=>file.text()));}
+        catch(_){throw new Error("An unreadable transaction journal prevents controlled recovery.");}
+        const physical=String(journal.target||"");
+        const workspacePrefix=WORKSPACE_PREFIX.join("/")+"/";
+        if(!physical.startsWith(workspacePrefix))
+          throw new Error("A transaction journal targets a different Workspace.");
+        const targetPath=physical.slice(workspacePrefix.length);
+        const entry=await readExistingBytes(targetPath);
+        const bytesValid=value=>value===null||Array.isArray(value)&&value.every(byte=>Number.isInteger(byte)&&byte>=0&&byte<=255);
+        if(journal.format==="moondog-write-v1"){
+          if(!bytesValid(journal.before)||!bytesValid(journal.after))
+            throw new Error("A malformed write journal prevents controlled recovery.");
+        }else if(journal.format==="moondog-delete-v1"){
+          if(journal.kind!=="file"||!bytesValid(journal.before))
+            throw new Error("A malformed delete journal prevents controlled recovery.");
+        }else if(journal.format==="moondog-create-v1"){
+          if(journal.kind!=="file")
+            throw new Error("A non-file create journal prevents controlled recovery.");
+        }else throw new Error("An unsupported transaction journal prevents controlled recovery.");
+        found.push({path,targetPath,journal,current:entry});
+      }
+    }
+    await visit(model.root);
+    return found;
   }
   async function replaceHistoryFromBackup(zip,entries,restoreId){
     const dir=await directory(["data","history"],false);
@@ -4632,12 +4846,12 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     });
     ui.saveFailedLearnedPackage.addEventListener("click", () => run(createFailedLearnedSupportPackage));
   }
-  function ensureRecoveryUi(){if(ui.backupRecoverySection)return;const voice=ui["view-settings"].querySelector(".customer-voice-manager"),backup=document.createElement("section"),advanced=document.createElement("section");backup.id="backupRecoverySection";backup.className="card recovery-card";backup.innerHTML='<div class="section-head"><div><p class="eyebrow">Whole-state protection</p><h2>Backup &amp; Recovery</h2><p>Full backups recover the store. Restores always replace the complete durable state.</p></div><span id="recoveryStatus" class="badge muted">READY</span></div><div class="recovery-summary"><div><span>LAST SUCCESSFUL BACKUP</span><strong id="lastBackupDisplay">None yet</strong></div><div><span>RECOVERY STATUS</span><strong id="currentRecoveryDisplay">Ready</strong></div></div><div class="recovery-actions"><button id="createBackupNow" type="button" class="primary">Create Backup Now</button><button id="createRecoveryCopy" type="button">Create Support / Recovery Copy</button></div><label>Restore From Backup<select id="restoreBackupSelect"><option value="">Connect folder to scan backups</option></select></label><div id="restoreBackupDetails" class="recovery-detail">Choose a validated full backup to view its timestamp and version.</div><button id="restoreBackup" type="button" class="danger" disabled>Restore Complete State</button>';advanced.id="advancedDiagnosticsSection";advanced.className="card recovery-card";advanced.innerHTML='<div class="section-head"><div><p class="eyebrow">Management only</p><h2>Advanced / Diagnostics</h2><p>Readable support status without customer-level operational data.</p></div></div><div id="diagnosticsOverview" class="diagnostics-overview"></div><div class="recovery-actions"><button id="showDiagnosticsLocation" type="button">Show Diagnostics Location</button><button id="copyDiagnosticsPath" type="button">Copy Diagnostics Path</button><button id="createSupportPackage" type="button" class="primary">Create Support Package</button></div><code id="diagnosticsLocation" hidden></code><p class="settings-note">If support is needed, send the generated support package to James.</p>';voice.before(backup,advanced);for(const id of ["backupRecoverySection","recoveryStatus","lastBackupDisplay","currentRecoveryDisplay","createBackupNow","createRecoveryCopy","restoreBackupSelect","restoreBackupDetails","restoreBackup","advancedDiagnosticsSection","diagnosticsOverview","showDiagnosticsLocation","copyDiagnosticsPath","createSupportPackage","diagnosticsLocation"])ui[id]=document.getElementById(id);ui.createBackupNow.addEventListener("click",()=>run(createBackupNow));ui.createRecoveryCopy.addEventListener("click",()=>run(()=>createSupportPackage(true)));ui.createSupportPackage.addEventListener("click",()=>run(()=>createSupportPackage(false)));ui.restoreBackupSelect.addEventListener("change",async()=>{ui.restoreBackup.disabled=!ui.restoreBackupSelect.value;if(!ui.restoreBackupSelect.value){ui.restoreBackupDetails.textContent="Choose a validated full backup to view its timestamp and version.";return;}try{const validated=await validateBackupBytes(await readFileBytes(["backups",ui.restoreBackupSelect.value]));ui.restoreBackupDetails.textContent=`${new Date(validated.manifest.createdAt).toLocaleString()} · ${validated.manifest.appVersion} · ${validated.manifest.recordCounts.openRos} Open ROs · VALIDATED`;}catch(error){ui.restoreBackup.disabled=true;ui.restoreBackupDetails.textContent=error.message;}});ui.restoreBackup.addEventListener("click",()=>run(restoreSelectedBackup));ui.showDiagnosticsLocation.addEventListener("click",()=>{ui.diagnosticsLocation.hidden=false;ui.diagnosticsLocation.textContent=`${model.root?.name||"working folder"}\\MOONDOG_DIAGNOSTICS.md`;});ui.copyDiagnosticsPath.addEventListener("click",()=>run(copyDiagnosticsPath));}
+  function ensureRecoveryUi(){if(ui.backupRecoverySection)return;const voice=ui["view-settings"].querySelector(".customer-voice-manager"),backup=document.createElement("section"),advanced=document.createElement("section");backup.id="backupRecoverySection";backup.className="card recovery-card";backup.innerHTML='<div class="section-head"><div><p class="eyebrow">Whole-state protection</p><h2>Backup &amp; Recovery</h2><p>Full backups recover the store. Restores always replace the complete durable state.</p></div><span id="recoveryStatus" class="badge muted">READY</span></div><div class="recovery-summary"><div><span>LAST SUCCESSFUL BACKUP</span><strong id="lastBackupDisplay">None yet</strong></div><div><span>RECOVERY STATUS</span><strong id="currentRecoveryDisplay">Ready</strong></div></div><div class="recovery-actions"><button id="createBackupNow" type="button" class="primary">Create Backup Now</button><button id="createRecoveryCopy" type="button">Create Support / Recovery Copy</button></div><label>Restore From Backup<select id="restoreBackupSelect"><option value="">Connect folder to scan backups</option></select></label><div id="restoreBackupDetails" class="recovery-detail">Choose a validated full backup to view its timestamp and version.</div><button id="restoreBackup" type="button" class="danger" disabled>Restore Complete State</button><section id="interruptedRecoveryControls" class="recovery-detail" hidden><h3>Interrupted restore recovery</h3><p id="interruptedRecoveryDetails">Review verified files before continuing.</p><label>Choose the complete state to keep<select id="interruptedRecoveryTarget"><option value="">Choose a verified state</option></select></label><button id="interruptedRecoveryButton" type="button" class="danger" disabled>Recover and verify complete state</button></section>';advanced.id="advancedDiagnosticsSection";advanced.className="card recovery-card";advanced.innerHTML='<div class="section-head"><div><p class="eyebrow">Management only</p><h2>Advanced / Diagnostics</h2><p>Readable support status without customer-level operational data.</p></div></div><div id="diagnosticsOverview" class="diagnostics-overview"></div><div class="recovery-actions"><button id="showDiagnosticsLocation" type="button">Show Diagnostics Location</button><button id="copyDiagnosticsPath" type="button">Copy Diagnostics Path</button><button id="createSupportPackage" type="button" class="primary">Create Support Package</button></div><code id="diagnosticsLocation" hidden></code><p class="settings-note">If support is needed, send the generated support package to James.</p>';voice.before(backup,advanced);for(const id of ["backupRecoverySection","recoveryStatus","lastBackupDisplay","currentRecoveryDisplay","createBackupNow","createRecoveryCopy","restoreBackupSelect","restoreBackupDetails","restoreBackup","interruptedRecoveryControls","interruptedRecoveryDetails","interruptedRecoveryTarget","interruptedRecoveryButton","advancedDiagnosticsSection","diagnosticsOverview","showDiagnosticsLocation","copyDiagnosticsPath","createSupportPackage","diagnosticsLocation"])ui[id]=document.getElementById(id);ui.createBackupNow.addEventListener("click",()=>run(createBackupNow));ui.createRecoveryCopy.addEventListener("click",()=>run(()=>createSupportPackage(true)));ui.createSupportPackage.addEventListener("click",()=>run(()=>createSupportPackage(false)));ui.restoreBackupSelect.addEventListener("change",async()=>{ui.restoreBackup.disabled=!ui.restoreBackupSelect.value;if(!ui.restoreBackupSelect.value){ui.restoreBackupDetails.textContent="Choose a validated full backup to view its timestamp and version.";return;}try{const validated=await validateBackupBytes(await readFileBytes(["backups",ui.restoreBackupSelect.value]));ui.restoreBackupDetails.textContent=`${new Date(validated.manifest.createdAt).toLocaleString()} · ${validated.manifest.appVersion} · ${validated.manifest.recordCounts.openRos} Open ROs · VALIDATED`;}catch(error){ui.restoreBackup.disabled=true;ui.restoreBackupDetails.textContent=error.message;}});ui.interruptedRecoveryTarget.addEventListener("change",refreshInterruptedRecoveryControls);ui.interruptedRecoveryButton.addEventListener("click",()=>run(recoverInterruptedRestore));ui.restoreBackup.addEventListener("click",()=>run(restoreSelectedBackup));ui.showDiagnosticsLocation.addEventListener("click",()=>{ui.diagnosticsLocation.hidden=false;ui.diagnosticsLocation.textContent=`${model.root?.name||"working folder"}\\MOONDOG_DIAGNOSTICS.md`;});ui.copyDiagnosticsPath.addEventListener("click",()=>run(copyDiagnosticsPath));}
   function ensureFolderWatchUi(){if(ui.folderWatchStatus)return;const badge=document.createElement("span");badge.id="folderWatchStatus";badge.className="badge muted";badge.textContent="WATCH OFF";ui.permissionBadge.before(badge);const panel=document.createElement("div");panel.className="folder-watch-setting";panel.innerHTML=`<div><strong>Report Inbox</strong><small id="folderWatchDetail">Watches ${REPORT_INBOX} every 15 seconds while Service Operations Dashboard is open.</small></div><label class="switch-label"><input id="folderWatchEnabled" type="checkbox"> ON</label><span>Polling interval: 15 seconds</span><div class="button-row"><button id="showReportInboxLocation" type="button">Show Report Inbox Location</button><button id="copyReportInboxPath" type="button">Copy Report Inbox Path</button></div><code id="reportInboxLocation" hidden></code>`;ui.advancedDiagnosticsSection.querySelector(".section-head").after(panel);for(const id of ["folderWatchStatus","folderWatchDetail","folderWatchEnabled","showReportInboxLocation","copyReportInboxPath","reportInboxLocation"])ui[id]=document.getElementById(id);ui.folderWatchEnabled.addEventListener("change",()=>{model.settings.future||={};model.settings.future.folderWatch={enabled:ui.folderWatchEnabled.checked,intervalSeconds:15};queueSettingsAutosave();if(ui.folderWatchEnabled.checked){startFolderWatch();folderWatchScan("setting");}else{stopFolderWatch("WATCH OFF");recordDiagnostic("REPORT INBOX WATCH","Report Inbox watch stopped in Settings");}});ui.showReportInboxLocation.addEventListener("click",()=>{ui.reportInboxLocation.hidden=false;ui.reportInboxLocation.textContent=`${model.root?.name||"working folder"}\\${REPORT_INBOX}`;});ui.copyReportInboxPath.addEventListener("click",()=>run(copyReportInboxPath));}
   async function copyReportInboxPath(){const value=`${model.root?.name||"working folder"}\\${REPORT_INBOX}`;try{await navigator.clipboard.writeText(value);}catch(_){const area=document.createElement("textarea");area.value=value;document.body.append(area);area.select();document.execCommand("copy");area.remove();}ui.reportInboxLocation.hidden=false;ui.reportInboxLocation.textContent=`Copied: ${value}`;}
   function ensureManagerEntryCues(){if(!ui["view-imports"].querySelector(".report-inbox-cue")){const cue=document.createElement("p");cue.className="report-inbox-cue settings-note";cue.innerHTML=`For automatic imports, place supported reports in <strong>${REPORT_INBOX}</strong>.`;ui["view-imports"].prepend(cue);}if(!ui["view-setup"].querySelector(".manager-entry-cue")){const cue=document.createElement("p");cue.className="manager-entry-cue settings-note";cue.innerHTML=`Open Service Operations Dashboard: <strong>00 - OPEN DASHBOARD.html</strong> · Add reports: <strong>${REPORT_INBOX}</strong>`;ui["view-setup"].querySelector(".setup-heading").after(cue);}}
   async function copyDiagnosticsPath(){const value=`${model.root?.name||"working folder"}\\MOONDOG_DIAGNOSTICS.md`;try{await navigator.clipboard.writeText(value);}catch(_){const area=document.createElement("textarea");area.value=value;document.body.append(area);area.select();document.execCommand("copy");area.remove();}ui.diagnosticsLocation.hidden=false;ui.diagnosticsLocation.textContent=`Copied: ${value}`;}
-  function renderRecovery(){ensureRecoveryUi();const recoveryStatus=model.recovery.status||"Ready";ui.recoveryStatus.textContent=String(recoveryStatus).toUpperCase();ui.lastBackupDisplay.textContent=model.recovery.lastBackup?.createdAt?`${new Date(model.recovery.lastBackup.createdAt).toLocaleString()} · ${model.recovery.lastBackup.validationStatus}`:"None yet";ui.currentRecoveryDisplay.textContent=model.recovery.interruptedRestoreReview?(()=>{const r=model.recovery.interruptedRestoreReview;return r.state==="held"||r.state==="missing-files"||r.state==="unreadable-files"||r.state==="unstable-files"?`Read-only recovery assessment (${r.state}): safety ${r.safety}; source ${r.source}; ${r.old} original, ${r.restored} restored, ${r.both} unchanged, ${r.conflict} conflicting, ${r.missing||0} missing, ${r.unreadable} unreadable, ${r.unstable||0} changed during inspection. Recovery marker retained; no automatic repair.`:`Recovery hold: ${r.state}. Safety ${r.safety}; source ${r.source}. No automatic repair or marker removal.`;})():/failed|creating/i.test(recoveryStatus)?recoveryStatus:model.recovery.lastRestore?.restoredAt?`Last restore verified ${new Date(model.recovery.lastRestore.restoredAt).toLocaleString()}`:recoveryStatus;const summary=sanitizedSupportSummary(),sourceRows=summary.sources.map((row)=>`<li><strong>${row.source}</strong><span>${row.status}</span><small>${row.lastSuccessfulImport}</small></li>`).join("");ui.diagnosticsOverview.innerHTML=`<div class="diagnostic-build"><div><span>SERVICE OPERATIONS DASHBOARD VERSION / BUILD</span><strong>${VERSION}</strong><small>Build date ${BUILD_DATE} · updates are manual</small></div><div><span>LAST FOLDER CONNECTION</span><strong>${summary.recovery.lastSuccessfulConnectionAt?new Date(summary.recovery.lastSuccessfulConnectionAt).toLocaleString():"Not connected"}</strong><small>${summary.recovery.status}</small></div></div><h3>Sources and freshness</h3><ul>${sourceRows}</ul><p><strong>Diagnostics:</strong> ${summary.diagnosticsPath}</p>`;}
+  function renderRecovery(){ensureRecoveryUi();refreshInterruptedRecoveryControls();const recoveryStatus=model.recovery.status||"Ready";ui.recoveryStatus.textContent=String(recoveryStatus).toUpperCase();ui.lastBackupDisplay.textContent=model.recovery.lastBackup?.createdAt?`${new Date(model.recovery.lastBackup.createdAt).toLocaleString()} · ${model.recovery.lastBackup.validationStatus}`:"None yet";ui.currentRecoveryDisplay.textContent=model.recovery.interruptedRestoreReview?(()=>{const r=model.recovery.interruptedRestoreReview;return r.state==="held"||r.state==="missing-files"||r.state==="unreadable-files"||r.state==="unstable-files"?`Read-only recovery assessment (${r.state}): safety ${r.safety}; source ${r.source}; ${r.old} original, ${r.restored} restored, ${r.both} unchanged, ${r.conflict} conflicting, ${r.missing||0} missing, ${r.unreadable} unreadable, ${r.unstable||0} changed during inspection. Recovery marker retained; no automatic repair.`:`Recovery hold: ${r.state}. Safety ${r.safety}; source ${r.source}. No automatic repair or marker removal.`;})():/failed|creating/i.test(recoveryStatus)?recoveryStatus:model.recovery.lastRestore?.restoredAt?`Last restore verified ${new Date(model.recovery.lastRestore.restoredAt).toLocaleString()}`:recoveryStatus;const summary=sanitizedSupportSummary(),sourceRows=summary.sources.map((row)=>`<li><strong>${row.source}</strong><span>${row.status}</span><small>${row.lastSuccessfulImport}</small></li>`).join("");ui.diagnosticsOverview.innerHTML=`<div class="diagnostic-build"><div><span>SERVICE OPERATIONS DASHBOARD VERSION / BUILD</span><strong>${VERSION}</strong><small>Build date ${BUILD_DATE} · updates are manual</small></div><div><span>LAST FOLDER CONNECTION</span><strong>${summary.recovery.lastSuccessfulConnectionAt?new Date(summary.recovery.lastSuccessfulConnectionAt).toLocaleString():"Not connected"}</strong><small>${summary.recovery.status}</small></div></div><h3>Sources and freshness</h3><ul>${sourceRows}</ul><p><strong>Diagnostics:</strong> ${summary.diagnosticsPath}</p>`;}
   const HANDOFF_CLEAR_DIRS=["backups","imports","exports","support",REPORT_INBOX],HANDOFF_ROOT_SOURCE_PATTERN=/\.(?:xlsx?|csv|pdf)$/i,HANDOFF_LEARN_PATTERN=/\.(?:xlsx?|csv|pdf|zip|json)$/i;
   function freshProductSettings(){return{schemaVersion:5,storeName:"",exportName:"Service Operations Supervisor Workbook.xlsx",csiPeriodStart:"",meetingVoiceMode:"automatic",meetingCustomerVoiceSourceMethod:"saved",meetingCustomerVoiceSurveyId:"",meetingCustomerVoicePastedSource:"",meetingCustomerVoiceExcerpt:"",meetingTeamMessage:"",store:{name:"",code:"",brand:"",timeZone:"",confirmed:{}},advisors:{},meeting:{dayOfWeek:2,startTime:"06:30",resetTime:"07:00",grossMinimum:null,grossStretch:null},performanceStandards:{vir:null,menuPresentation:null,menuPenetration:null,mediaViewed:null,texting:null,cpElr:null,cpHoursPerRo:null,storeGrossTarget:null,dealerNps:null},openRo:{managementStatuses:FRESH_MANAGEMENT_STATUSES.map(statusRecord)},dailyWalk:{rosPerAdvisor:3},supervisorWorkbook:{filename:"Service Operations Supervisor Workbook.xlsx",worksheetOrder:[]},setup:{completedAt:"",reopened:false,newStorePrepared:true,sourceExpectations:{...SETUP_SOURCE_DEFAULTS}},future:{folderWatch:{enabled:true,intervalSeconds:15},managerSchedule:{days:[2,3,4,5,6],startTime:"07:30",endTime:"16:00"}}};}
   function freshProductState(){return{"data/current-state.json":{schemaVersion:1,appVersion:VERSION,updatedAt:null,source:null,records:[],closedRecords:[]},"data/settings.json":freshProductSettings(),"data/appointments.json":{schemaVersion:1,updatedAt:null,days:{}},"data/advisor-performance.json":{schemaVersion:1,updatedAt:null,snapshots:{}},"data/assign-next.json":{schemaVersion:3,updatedAt:null,days:{},currentOpenRo:null},"data/auto-import.json":{schemaVersion:1,initializedAt:null,updatedAt:null,seen:{}},"data/operational-metrics.json":{schemaVersion:1,updatedAt:null,nextAppointments:{snapshots:{}},vir:{snapshots:{}},menu:{snapshots:{}},csi:{surveys:{},imports:[]},monthlySummaries:{},sor:{snapshots:{}},appointmentActivity:{snapshots:{}},efficiency:{snapshots:{}},mediaAsr:{snapshots:{}},openRoSummary:{snapshots:{}}},"data/meeting-cycle.json":{schemaVersion:1,cycleStart:"",resetAt:"",capturedAt:"",metrics:{}}};}
