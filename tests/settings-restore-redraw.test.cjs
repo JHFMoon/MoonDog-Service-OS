@@ -341,3 +341,23 @@ test("guided setup completion preserves source expectations changed during its d
   assert.equal(model.settings.setup.completedAt,"synthetic-old","re-completing setup preserves the original completion timestamp");
   assert.equal(model.settings.setup.reopened,false);
 });
+
+test("settings save completion does not overwrite a newer revision after delayed history",async()=>{
+  const history=deferred();
+  const model={settings:{schemaVersion:1,updatedAt:"before"},root:{}};
+  const ui={settingsSaveStatus:{dataset:{},textContent:""}};
+  let writes=0,renders=0;
+  const context={SETTINGS_PATH:["settings.json"],model,ui,writeAuthority:{canWrite:true},readSettingsInputs:()=>{},now:()=>"synthetic-save-time",
+    writeJson:async()=>{writes++;},addHistory:()=>history.promise,renderAll:()=>{renders++;},setTimeout:()=>1,clearTimeout:()=>{}};
+  const {saveSettingsAutosave,queueSettingsAutosave}=await production(context);
+  const firstSave=saveSettingsAutosave(1);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(writes,1,"the original snapshot reaches durable storage before history");
+  queueSettingsAutosave();
+  assert.equal(ui.settingsSaveStatus.dataset.saveState,"saving","newer edit is awaiting its own durable write");
+  history.resolve();
+  await firstSave;
+  assert.equal(renders,0,"stale save completion must not redraw over the newer edit");
+  assert.equal(ui.settingsSaveStatus.dataset.saveState,"saving","stale history completion must not report the newer revision as saved");
+});
