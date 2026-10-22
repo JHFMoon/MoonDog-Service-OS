@@ -4373,6 +4373,12 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     const paths=new Set([...Object.keys(BACKUP_FILES),
       ...[...before.keys(),...after.keys(),...actual.keys()].filter(p=>p.startsWith("data/history/"))]);
+    const recoveryPath=RECOVERY_PATH.join("/");
+    const auditPath="data/history/full-restore-recovered-"+marker.restoreId+".json";
+    const recoveryProgressDirection=interruptedRecoveryProgressDirection(actual.get(recoveryPath),marker);
+    const auditBytes=actual.get(auditPath)||null;
+    const auditDirection=interruptedRecoveryAuditDirection(auditPath,auditBytes,marker);
+    result.recoveryProgressDirection=recoveryProgressDirection||"";
     const observed=new Map();
     for(const path of paths){
       if(!path.startsWith("data/history/")&&!actual.has(path)){
@@ -4382,6 +4388,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       const bytes=actual.get(path)||null;
       const hash=bytes?await sha256(bytes):null;
       if(bytes)observed.set(path,`${bytes.byteLength}:${hash}`);
+      if(path===recoveryPath&&recoveryProgressDirection)continue;
+      if(path===auditPath&&recoveryProgressDirection&&(!auditDirection||auditDirection===recoveryProgressDirection))continue;
       const matches=entry=>!entry?bytes===null:bytes!==null&&bytes.byteLength===entry.size&&hash===entry.sha256;
       const old=matches(before.get(path)),newer=matches(after.get(path));
       if(old&&newer)result.both++;
@@ -4420,6 +4428,28 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       else if(result.missing)result.state="missing-files";
     }
     return result;
+  }
+  function interruptedRecoveryProgressDirection(bytes,marker){
+    if(!bytes)return null;
+    let recovery;
+    try{recovery=JSON.parse(new TextDecoder().decode(bytes));}catch(_){return null;}
+    if(recovery?.status!=="Interrupted restore recovered and verified"||
+       recovery?.lastRestore?.validationStatus!=="Verified controlled recovery"||
+       recovery.lastRestore.safetyBackup!==marker?.safetyBackup)return null;
+    if(recovery.lastRestore.sourceFile===marker?.sourceFile)return "source";
+    if(recovery.lastRestore.sourceFile===marker?.safetyBackup)return "safety";
+    return null;
+  }
+  function interruptedRecoveryAuditDirection(path,bytes,marker){
+    const id="full-restore-recovered-"+String(marker?.restoreId||"");
+    if(path!=="data/history/"+id+".json"||!bytes)return null;
+    let event;
+    try{event=JSON.parse(new TextDecoder().decode(bytes));}catch(_){return null;}
+    if(event?.schemaVersion!==1||event.id!==id||event.type!=="full-restore-recovered"||
+       event.summary!=="Completed a manager-confirmed recovery from an interrupted whole-state restore"||
+       event.details?.restoreId!==marker.restoreId||event.details?.safetyBackup!==marker.safetyBackup||
+       event.details?.sourceFile!==marker.sourceFile)return null;
+    return ["safety","source"].includes(event.details?.selectedState)?event.details.selectedState:null;
   }
   function refreshInterruptedRecoveryControls(){
     const review=model.recovery.interruptedRestoreReview;
@@ -4469,6 +4499,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       return index;
     };
     const before=entries(safety),after=entries(source),chosen=direction==="safety"?before:after;
+    const auditPath="data/history/full-restore-recovered-"+marker.restoreId+".json";
+    if(before.has(auditPath)||after.has(auditPath))
+      throw new Error("The restore attempt audit path conflicts with a verified backup.");
     const paths=new Set([...canonical,...before.keys(),...after.keys()]);
     const capture=async()=>{
       const files=new Map();
@@ -4492,7 +4525,15 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const matches=async(bytes,entry)=>entry?bytes!==null&&bytes.byteLength===entry.size&&await sha256(bytes)===entry.sha256:bytes===null;
     const initial=await capture();
     for(const path of initial.keys())paths.add(path);
+    const recoveryProgressDirection=interruptedRecoveryProgressDirection(present(initial)(RECOVERY_PATH.join("/")),marker);
+    const auditBytes=present(initial)(auditPath);
+    const auditDirection=interruptedRecoveryAuditDirection(auditPath,auditBytes,marker);
+    if(recoveryProgressDirection&&direction!==recoveryProgressDirection)
+      throw new Error("A prior controlled recovery attempt must be resumed to the same verified state.");
+    if(auditBytes!==null&&(!recoveryProgressDirection||auditDirection&&auditDirection!==recoveryProgressDirection))
+      throw new Error("An unverified recovery audit file conflicts with the held restore.");
     for(const path of paths){
+      if(path===RECOVERY_PATH.join("/")&&recoveryProgressDirection||path===auditPath&&auditBytes!==null)continue;
       const bytes=present(initial)(path);
       if(!await matches(bytes,before.get(path))&&!await matches(bytes,after.get(path)))
         throw new Error("A live operational file differs from both verified backups. Recovery stopped and the hold remains.");
@@ -4541,7 +4582,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           await writeBytes(path.split("/"),bytes,restoreId);
         }
       }
-      const historyPaths=[...paths].filter(path=>path.startsWith("data/history/")).sort();
+      const historyPaths=[...paths].filter(path=>path.startsWith("data/history/")&&path!==auditPath).sort();
       for(const path of historyPaths){
         const entry=chosen.get(path),live=present(initial)(path);
         if(entry){
@@ -4559,18 +4600,26 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
             throw new Error("A superseded history file remained after verified deletion.");
         }
       }
+      if(auditBytes!==null){
+        await assertUnchanged(auditPath);
+        await maintenanceIO.remove(auditPath,null,false,restoreId);
+        if(await maintenanceIO.exists(auditPath))
+          throw new Error("A prior controlled recovery audit event could not be safely refreshed.");
+      }
       await verifyRestoredBackupState(target.manifest.entries);
+      const priorInterruptedReview=model.recovery.interruptedRestoreReview;
       model.recovery.lastRestore={
         sourceFile:direction==="source"?marker.sourceFile:marker.safetyBackup,
         restoredAt:now(),sourceCreatedAt:target.manifest.createdAt,
         safetyBackup:marker.safetyBackup,validationStatus:"Verified controlled recovery"
       };
       model.recovery.status="Interrupted restore recovered and verified";
+      model.recovery.interruptedRestoreReview=null;
       await writeJson(RECOVERY_PATH,model.recovery,restoreId);
-      const event={schemaVersion:1,id:stamp()+"-"+slug("full-restore-recovered")+"-"+crypto.randomUUID(),
+      const event={schemaVersion:1,id:"full-restore-recovered-"+restoreId,
         at:now(),type:"full-restore-recovered",
         summary:"Completed a manager-confirmed recovery from an interrupted whole-state restore",
-        details:{selectedState:direction,sourceFile:marker.sourceFile,safetyBackup:marker.safetyBackup}};
+        details:{selectedState:direction,sourceFile:marker.sourceFile,safetyBackup:marker.safetyBackup,restoreId}};
       const eventPath="data/history/"+event.id+".json";
       const eventBytes=new TextEncoder().encode(JSON.stringify(event,null,2)+"\n");
       await writeJson(eventPath.split("/"),event,restoreId);
@@ -4624,6 +4673,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       return true;
     }catch(error){
       if(recoveryStarted)writeAuthority.abortInterruptedRecovery(restoreId);
+      if(typeof priorInterruptedReview!=="undefined")model.recovery.interruptedRestoreReview=priorInterruptedReview;
       model.recovery.status="Controlled recovery stopped; restore hold and safety backup retained";
       renderRecovery();
       throw error;
