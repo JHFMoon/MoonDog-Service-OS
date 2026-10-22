@@ -3822,8 +3822,21 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const byRo=(a,b)=>String(a.ro||"").localeCompare(String(b.ro||""),undefined,{numeric:true});
     const byAdvisor=(a,b)=>String(a.advisor||"").localeCompare(String(b.advisor||""))||byRo(a,b);
     const byLongest=(a,b)=>(Number(b.daysOpen)||0)-(Number(a.daysOpen)||0)||byRo(a,b);
-    const priority=(record)=>clarificationFor(record)?0:isClosedManagement(record.management)?8:adminCloseoutState(record,today).overdue?1:adminCloseoutState(record,today).needsCommitment?2:adminCloseoutState(record,today).dueToday?3:record.management.reviewDate&&record.management.reviewDate<today?4:record.management.reviewDate===today?5:!record.management.nextAction?6:7;
-    const byPriority=(a,b)=>priority(a)-priority(b)||String(a.management.reviewDate||"9999-12-31").localeCompare(String(b.management.reviewDate||"9999-12-31"))||byAdvisor(a,b);
+    // During a priority sort, expensive closeout and clarification checks are
+    // derived once per RO. The cache is deliberately per-call: edits, a new
+    // business date, and new imports must never inherit stale priorities.
+    const priority=(record)=>{
+      if(clarificationFor(record))return 0;
+      if(isClosedManagement(record.management))return 8;
+      const closeout=adminCloseoutState(record,today);
+      if(closeout.overdue)return 1;
+      if(closeout.needsCommitment)return 2;
+      if(closeout.dueToday)return 3;
+      return record.management.reviewDate&&record.management.reviewDate<today?4:record.management.reviewDate===today?5:!record.management.nextAction?6:7;
+    };
+    const prioritySort=!["longest","advisor","ro"].includes(mode);
+    const priorities=prioritySort?new Map(rows.map(record=>[record,priority(record)])):null;
+    const byPriority=(a,b)=>priorities.get(a)-priorities.get(b)||String(a.management.reviewDate||"9999-12-31").localeCompare(String(b.management.reviewDate||"9999-12-31"))||byAdvisor(a,b);
     return [...rows].sort(mode==="longest"?byLongest:mode==="advisor"?byAdvisor:mode==="ro"?byRo:byPriority);
   }
   function renderTable() {
