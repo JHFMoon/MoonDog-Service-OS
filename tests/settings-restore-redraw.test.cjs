@@ -51,6 +51,7 @@ test("failed setup review save restores the pending action and permits retry",as
   const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document,writeAuthority:{canWrite:true},advisorShownInSection:()=>true,now:()=>"synthetic-now",
     writeJson:async()=>{throw new Error("synthetic write denied");},renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{}};
+  const production=Function("context",`with(context){ return (async()=>{ ${advisorRender} ${lifecycle} return {updateAdvisorLifecycle,markAdvisorSetupReviewed}; })(); }`);
   const {markAdvisorSetupReviewed}=await production(context);
   await assert.rejects(markAdvisorSetupReviewed("101"),/synthetic write denied/);
   assert.equal(advisor.setupRequired,true,"failed durable writes must retain the review requirement");
