@@ -33,9 +33,16 @@
           "tests": [
             "tests/advisor-meeting-30-second.test.cjs"
           ]
+        },
+        "60-08": {
+          "kind": "runtime",
+          "pr": 297,
+          "tests": [
+            "tests/admin-closeout-invalid-commitments.test.cjs"
+          ]
         }
       },
-      "package_pr": 270
+      "package_pr": 298
     },
     "61": {
       "criteria": {
