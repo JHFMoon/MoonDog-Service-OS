@@ -303,6 +303,6 @@ test("guided setup completion preserves source expectations changed during its d
   await Promise.all([completing,laterSave]);
   assert.equal(model.settings.setup.sourceExpectations.sor,"not-used","completion must update only the fields it owns");
   assert.equal(writes[1].setup.sourceExpectations.sor,"not-used","the queued snapshot persists the concurrent source expectation");
-  assert.equal(model.settings.setup.completedAt,"synthetic-now");
+  assert.equal(model.settings.setup.completedAt,"synthetic-old","re-completing setup preserves the original completion timestamp");
   assert.equal(model.settings.setup.reopened,false);
 });
