@@ -21,6 +21,7 @@ const readiness = extract(daily, "  async function ready(){", "  async function 
 const searching = extract(daily, "  const matches=", "  document.addEventListener('moondog-recovered'");
 const draftGuard = extract(daily, "  function discardDraftOk(){", "  function go(");
 const connection = extract(app, "  async function connect() {", "  async function restoreConnection() {");
+const restoreConnection = extract(app, "  async function restoreConnection() {", "  function headerMap(");
 const deferred = () => {
   let resolve, reject;
   const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
@@ -401,6 +402,46 @@ test("busy saved-folder restore does not show a false permission-required error"
   assert.equal(writeAuthority.canWrite,true);
   assert.equal(states.includes("PERMISSION REQUIRED"),false);
   assert.equal(context.model.root,A);
+});
+
+test("saved-folder read failure retains the handle and reports connection failure, not permission failure", async () => {
+  const pending={name:"Fake-B"},states=[],messages=[];
+  const writeAuthority={canWrite:true,disableCalls:0,disable(){this.disableCalls++;this.canWrite=false;}};
+  const context=vm.createContext({
+    model:{root:null,pendingRoot:pending},
+    __moondogDailyUI:{confirmWorkspaceChange:()=>true},
+    window:{showDirectoryPicker:async()=>pending},
+    finishConnection:async()=>{throw Object.assign(new Error("Synthetic delayed read failure"),{name:"NotReadableError"});},
+    writeAuthority,setConnectionState:(state,message)=>{states.push(state);messages.push(message);}
+  });
+  vm.runInContext(connection+"\nthis.connect=connect;",context);
+  await assert.rejects(()=>context.connect(),/Synthetic delayed read failure/);
+  assert.equal(writeAuthority.disableCalls,1);
+  assert.equal(context.model.pendingRoot,pending,"Saved handle remains available for explicit retry");
+  assert.equal(states.at(-1),"CONNECTION ERROR");
+  assert.match(messages.at(-1),/could not be fully read/);
+  assert.equal(states.includes("PERMISSION REQUIRED"),false);
+});
+
+test("delayed essential hydration fails closed and keeps its saved folder retryable",async()=>{
+  const pending={name:"Synthetic Workspace",kind:"directory",queryPermission:async()=>"granted"},states=[];
+  const model={root:null,pendingRoot:null};
+  const authority={canWrite:true,disableCalls:0,disable(){this.disableCalls++;this.canWrite=false;}};
+  const context=vm.createContext({
+    model,window:{showDirectoryPicker:()=>{},indexedDB:{}},
+    recallRoot:async()=>pending,permission:async()=>"granted",
+    finishConnection:async()=>{await Promise.resolve();throw Object.assign(new Error("Synthetic delayed durable read"),{name:"NotReadableError"});},
+    recordDiagnostic:async()=>{},writeAuthority:authority,
+    setConnectionState:(state,message)=>states.push({state,message}),
+    console:{error(){}},
+  });
+  vm.runInContext(restoreConnection+"\nthis.restoreConnection=restoreConnection;",context);
+  await context.restoreConnection();
+  assert.equal(model.root,null,"Unhydrated workspace never becomes current");
+  assert.equal(model.pendingRoot,pending,"Saved handle remains available to retry after recovery; states="+JSON.stringify(states));
+  assert.equal(authority.disableCalls,1,"A failed hydration cannot retain write authority");
+  assert.equal(states.at(-1).state,"CONNECTION ERROR");
+  assert.match(states.at(-1).message,/could not restore/);
 });
 
 test("declined Home draft confirmation stops Workspace picker without changing root or draft", async () => {
