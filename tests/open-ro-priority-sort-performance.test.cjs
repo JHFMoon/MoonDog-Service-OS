@@ -12,19 +12,39 @@ assert.ok(start >= 0 && end > start, "Use the shipped Open RO priority sorter");
 const source = app.slice(start,end);
 // Execute the shipped administrative-closeout logic in both comparator variants,
 // including validated task/close dates, historical revisions and closed-RO gating.
-const productionCloseout = "  function adminCloseoutDaysLate(date, today) {\n    if (!adminCloseoutValidDate(date) || !adminCloseoutValidDate(today)) return 0;\n    const due = Date.parse(date + \"T12:00:00Z\"), current = Date.parse(today + \"T12:00:00Z\");\n    return Math.max(0, Math.round((current - due) / 86400000));\n  }\n  function adminCloseoutValidDate(value) {\n    if (typeof value !== \"string\" || !/^\\d{4}-\\d{2}-\\d{2}$/.test(value) || value.startsWith(\"0000-\")) return false;\n    const time = Date.parse(value + \"T12:00:00Z\");\n    return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value;\n  }\n  // Historic imported revisions do not prove a missed promise unless the\n  // previous deadline and the revision timestamp are both valid evidence.\n  function adminCloseoutRevisionDay(at) {\n    const match = typeof at === \"string\" && at.match(/^(\\d{4}-\\d{2}-\\d{2})T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|[+-](?:(?:0\\d|1[0-3]):[0-5]\\d|14:00))$/);\n    return match && adminCloseoutValidDate(match[1]) && Number.isFinite(Date.parse(at)) ? match[1] : \"\";\n  }\n  function adminCloseoutState(record, today = localDateKey()) {\n    const closeout = record?.management?.adminCloseout;\n    // Never resurface administrative follow-ups once the RO is verified closed.\n    if (!closeout?.blocker || isClosedManagement(record?.management)) {\n      return { active: false, overdue: false, dueToday: false, needsCommitment: false };\n    }\n    if (closeout.physicalWorkStatus !== \"verified\") {\n      return { active: false, verified: false, overdue: false, dueToday: false, needsCommitment: false };\n    }\n    // A manager review/reminder date is not proof of an advisor task commitment.\n    // Legacy or imported malformed dates are not verified missed promises.\n    // Leave the item actionable as an absent commitment for manager review.\n    const taskDate = adminCloseoutValidDate(closeout.taskDate) ? closeout.taskDate : \"\";\n    const closeDate = adminCloseoutValidDate(closeout.expectedCloseDate) ? closeout.expectedCloseDate : \"\";\n    const taskOverdue = Boolean(taskDate && taskDate < today);\n    const closeOverdue = Boolean(closeDate && closeDate < today);\n    const taskDueToday = taskDate === today;\n    const closeDueToday = closeDate === today;\n    return {\n      active: true, verified: true, blocker: closeout.blocker, taskDate, closeDate,\n      physicalWorkStatus: closeout.physicalWorkStatus || \"verified\",\n      pickupStatus: closeout.pickupStatus || \"\",\n      pickupContactDate: closeout.pickupContactDate || \"\",\n      expectedPickupDate: closeout.expectedPickupDate || \"\",\n      warrantyStatus: closeout.warrantyStatus || \"\",\n      evidence: closeout.evidence || \"\",\n      coachingStatus: closeout.coachingStatus || \"\",\n      coachingAction: closeout.coachingAction || \"\",\n      evidenceHistoryCount: Array.isArray(closeout.evidenceHistory) ? closeout.evidenceHistory.length : 0,\n      needsCommitment: !taskDate || !closeDate,\n      taskOverdue, closeOverdue, overdue: taskOverdue || closeOverdue,\n      taskDueToday, closeDueToday, dueToday: taskDueToday || closeDueToday,\n      taskDaysLate: adminCloseoutDaysLate(taskDate, today),\n      closeDaysLate: adminCloseoutDaysLate(closeDate, today),\n      missedRevisions: (Array.isArray(closeout.revisions) ? closeout.revisions : []).filter((revision) => {\n        const changedOn = adminCloseoutRevisionDay(revision?.at);\n        if (!changedOn) return false;\n        const previous = revision?.previous;\n        return Boolean(previous && (\n          (adminCloseoutValidDate(previous.taskDate) && changedOn > previous.taskDate) ||\n          (adminCloseoutValidDate(previous.expectedCloseDate) && changedOn > previous.expectedCloseDate)\n        ));\n      }).length,\n      revisionCount: Array.isArray(closeout.revisions) ? closeout.revisions.length : 0\n    };\n  }";
+const exactFunction=(name)=>{
+  const start=app.indexOf("  function "+name+"("),end=app.indexOf("\n  function ",start+11);
+  assert.ok(start>=0&&end>start,"Shipped helper must exist: "+name);
+  const block=app.slice(start,end);
+  return name==="adminCloseoutRevisionDay"?block.split("\n  const ")[0]:block;
+};
+const exactLine=(prefix)=>{
+  const start=app.indexOf(prefix);
+  assert.ok(start>=0,"Shipped constant must exist: "+prefix);
+  return app.slice(start,app.indexOf("\n",start));
+};
+const productionCloseout=[
+  exactLine("const FRESH_MANAGEMENT_STATUSES ="),
+  exactLine("const COMMUNICATION_STATUSES ="),
+  exactLine("const statusRecord ="),
+  exactLine("const norm ="),
+  ...["managementStatusDefinitions","statusById","canonicalReviewStatus",
+    "currentCdkReviewStatus","normalizeCommunication","semanticFieldIssue",
+    "clarificationFor","isClosedManagement","adminCloseoutDaysLate",
+    "adminCloseoutValidDate","adminCloseoutRevisionDay","adminCloseoutState"]
+    .map(exactFunction)
+].join("\n");
+// The frozen pre-change sorter is the only non-production implementation.
 // Pre-change comparator is the behavior oracle, not the performance target.
 const original = "  function sortOpenRoRows(rows,today,mode=\"priority\"){\n    const byRo=(a,b)=>String(a.ro||\"\").localeCompare(String(b.ro||\"\"),undefined,{numeric:true});\n    const byAdvisor=(a,b)=>String(a.advisor||\"\").localeCompare(String(b.advisor||\"\"))||byRo(a,b);\n    const byLongest=(a,b)=>(Number(b.daysOpen)||0)-(Number(a.daysOpen)||0)||byRo(a,b);\n    const priority=(record)=>clarificationFor(record)?0:isClosedManagement(record.management)?8:adminCloseoutState(record,today).overdue?1:adminCloseoutState(record,today).needsCommitment?2:adminCloseoutState(record,today).dueToday?3:record.management.reviewDate&&record.management.reviewDate<today?4:record.management.reviewDate===today?5:!record.management.nextAction?6:7;\n    const byPriority=(a,b)=>priority(a)-priority(b)||String(a.management.reviewDate||\"9999-12-31\").localeCompare(String(b.management.reviewDate||\"9999-12-31\"))||byAdvisor(a,b);\n    return [...rows].sort(mode===\"longest\"?byLongest:mode===\"advisor\"?byAdvisor:mode===\"ro\"?byRo:byPriority);\n  }\n";
 function harness(code) {
-  const calls = {clarification:0,closeout:0,closed:0};
-  const context = {
-    clarificationFor(record){calls.clarification++;return record.management.clarification || false;},
-    isClosedManagement(m){calls.closed++;return m.status === "Closed";},
-
-  };
-  vm.runInNewContext(productionCloseout+"\nthis.shippedCloseout=adminCloseoutState",context);
-  const shippedCloseout=context.shippedCloseout;
-  context.adminCloseoutState=(record,today)=>{calls.closeout++;return shippedCloseout(record,today);};
+  const calls={clarification:0,closeout:0,closed:0},context={};
+  vm.runInNewContext(productionCloseout+
+    "\nthis.shippedCloseout=adminCloseoutState;this.shippedClarification=clarificationFor;this.shippedClosed=isClosedManagement;",context);
+  const closeout=context.shippedCloseout,clarification=context.shippedClarification,closed=context.shippedClosed;
+  context.adminCloseoutState=(record,today)=>{calls.closeout++;return closeout(record,today);};
+  context.clarificationFor=(record)=>{calls.clarification++;return clarification(record);};
+  context.isClosedManagement=(management)=>{calls.closed++;return closed(management);};
   vm.runInNewContext(code+"\nthis.sortRows=sortOpenRoRows",context);
   return {sort:context.sortRows,calls,reset(){calls.clarification=0;calls.closeout=0;calls.closed=0;}};
 }
@@ -33,8 +53,10 @@ function records(count=800){
   return Array.from({length:count},(_,i)=>{
     const due=["2026-10-17","2026-10-21","2026-10-24",""][i%4];
     return {id:"synthetic-"+i,ro:String(10000+(count-i)),advisor:"Synthetic "+(i%7),
-      daysOpen:i%29,management:{
-        status:i%13===0?"Closed":"Open",clarification:i%17===0?"Review reason":"",
+      daysOpen:i%29,cdkOperational:{status:"Being Repaired",stale:false},
+      management:{
+        status:i%13===0?"Closed":"Being Repaired",
+        clarification:i%17===0?{reason:"Review reason"}:null,
         reviewDate:due,nextAction:i%5===0?"":"Review",
         adminCloseout:i%3===0?{blocker:"Billing / paperwork",physicalWorkStatus:"verified",
           taskDate:i%9===0?"":i%6===0?"2026-10-19":i%4===0?"2026-10-21":"2026-10-24",
@@ -58,7 +80,7 @@ test("priority, RO, advisor and longest sorts preserve exact pre-change ordering
 test("priority is recalculated after edits and business date changes",()=>{
   const old=harness(original),current=harness(source),rows=records(90);
   current.sort(rows,"2026-10-21");
-  rows[10].management.clarification="Needs manager attention";
+  rows[10].management.clarification={reason:"Needs manager attention"};
   rows[9].management.reviewDate="2026-10-20";
   for(const date of ["2026-10-21","2026-10-24"]){
     assert.deepEqual(ids(current.sort(rows,date)),ids(old.sort(rows,date)),
