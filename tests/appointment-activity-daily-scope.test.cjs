@@ -5,6 +5,7 @@ const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
 function source(start,end){const a=app.indexOf(start),b=app.indexOf(end,a+start.length);assert.ok(a>=0&&b>a,start);return app.slice(a,b);}
 const parser=source("  function parseAppointmentActivityWorkbook(","  function normalizedPerson(");
 const importer=source("  async function importManagerSource(","  async function classifyImportFile(");
+const comparator=source("  function comparableManagerSnapshot(","  async function importManagerSource(");
 const columns=["S. No.","Store Code","Store Name","ASD Market","ASD","Interaction","Customer No.",
   "First Name","Last Name","VIN","Make","Model","Year","Contacted Date",
   "Appt Creation Date","Appt Set Date","Appt Time","Appt Notes"];
@@ -46,7 +47,7 @@ function fixture(rows,opts={}){
     addHistory:async()=>{},
     removeSourceEntry:async name=>removedSources.push(name)
   };
-  vm.runInNewContext(parser+importer,ctx);
+  vm.runInNewContext(parser+comparator+importer,ctx);
   return{parse:()=>ctx.parseAppointmentActivityWorkbook([],"synthetic-appointments.xlsx"),
     import:(deleteAfterSuccess=false,name="synthetic-appointments.xlsx")=>ctx.importManagerSource(name,"appointment-activity",[],deleteAfterSuccess),
     setRows(rows){sourceRows.splice(0,sourceRows.length,columns,...rows);},setDurable(value){durable=value;},removed:()=>removedSources.slice(),ctx,model,durable:()=>durable};
@@ -112,12 +113,19 @@ test("import persists individually scoped daily observations and one overall agg
   assert.equal(family.snapshots[two].rowCount,2);
 });
 
+test("shared report comparison ignores derived metadata and canonicalizes maps for every guarded family",()=>{
+  const f=fixture([]);
+  const saved={period:"2026-10",coverageDate:"2026-10-20",sourceFile:"old.xlsx",importedAt:"2026-10-20T10:00:00Z",sourceModifiedAt:"2026-10-20T09:00:00Z",updatedAt:"first",rowCount:2,byInteraction:{SERVICE_REMINDER:1,REPAIR_BOOKING:1},byCreationDate:{"2026-10-19":1,"2026-10-20":1}};
+  const reimported={period:"2026-10",coverageDate:"2026-10-21",sourceFile:"new (1).xlsx",importedAt:"2026-10-21T10:00:00Z",sourceModifiedAt:"2026-10-21T09:00:00Z",updatedAt:"second",rowCount:2,byInteraction:{REPAIR_BOOKING:1,SERVICE_REMINDER:1},byCreationDate:{"2026-10-20":1,"2026-10-19":1}};
+  assert.equal(f.ctx.comparableManagerSnapshot(saved),f.ctx.comparableManagerSnapshot(reimported));
+  assert.notEqual(f.ctx.comparableManagerSnapshot(saved),f.ctx.comparableManagerSnapshot({...reimported,rowCount:3}),"genuinely different report contents remain conflicting");
+});
 test("conflicting same-period import preserves the saved source and leaves the new file for review",async()=>{
   const f=fixture([row("9001","2026-10-20","2026-10-20"),row("1002","2026-10-19","2026-10-19")]);
   await f.import(false);
   const before=f.durable();
   const period=f.parse().periodEnd;
-  const prior=structuredClone(before.appointmentActivity.snapshots[period]);
+  const prior=JSON.parse(JSON.stringify(before.appointmentActivity.snapshots[period]));
   f.setRows([row("9001","2026-10-20","2026-10-20","REPAIR_BOOKING"),row("1002","2026-10-19","2026-10-19")]);
   await assert.rejects(f.import(true),new RegExp("Conflicting appointment-activity report for period "+period+" is already saved"));
   assert.deepEqual(JSON.parse(JSON.stringify(f.durable())),JSON.parse(JSON.stringify(before)),"conflict must be rejected before durable data is overwritten");
