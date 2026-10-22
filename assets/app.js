@@ -4650,7 +4650,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         const targetPath=physical.slice(workspacePrefix.length);
         const targetParts=targetPath.split("/");
         if(!targetPath||targetParts.some(part=>!part||part==="."||part==="..")||
-           targetParts.some(part=>part.includes("\\\\"))||
+           targetParts.some(part=>part.includes("\\"))||
            path.split("/").slice(0,-1).join("/")!==targetParts.slice(0,-1).join("/"))
           throw new Error("A transaction journal path is unsafe or detached from its target.");
         const entry=await readExistingBytes(targetPath);
