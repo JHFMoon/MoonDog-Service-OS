@@ -350,7 +350,7 @@ test("settings save completion does not overwrite a newer revision after delayed
   const context={SETTINGS_PATH:["settings.json"],model,ui,writeAuthority:{canWrite:true},readSettingsInputs:()=>{},now:()=>"synthetic-save-time",
     writeJson:async()=>{writes++;},addHistory:()=>history.promise,renderAll:()=>{renders++;},setTimeout:()=>1,clearTimeout:()=>{}};
   const {saveSettingsAutosave,queueSettingsAutosave}=await production(context);
-  const firstSave=saveSettingsAutosave(1);
+  const firstSave=saveSettingsAutosave(0);
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(writes,1,"the original snapshot reaches durable storage before history");
