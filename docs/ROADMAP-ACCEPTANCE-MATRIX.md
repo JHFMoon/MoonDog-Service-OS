@@ -1,4 +1,4 @@
-**LIVE CLOUD RESUMPTION CHECKPOINT — 2026-10-22 16:18 UTC.** Main is `649a452aa2780a1bf595f2b9a6ac60af23179651`, the protected merge of synthetic Workspace connection-exclusivity PR #377. The post-merge main Publication Check is running. The live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.150`, SHA-256 `95387e11c433ec61e29573eb88a93e14847c188ad74643a55f719abaff9ed13c`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`.
+**HISTORICAL CHECKPOINT — 2026-10-22 16:18 UTC. Superseded by the current checkpoint below.** Main is `649a452aa2780a1bf595f2b9a6ac60af23179651`, the protected merge of synthetic Workspace connection-exclusivity PR #377. The post-merge main Publication Check is running. The live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.150`, SHA-256 `95387e11c433ec61e29573eb88a93e14847c188ad74643a55f719abaff9ed13c`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`.
 
 Active `Protect Main` ruleset `24665513` requires a PR and strict `Publication Check` from GitHub Actions app 15368; zero approvals are configured, no bypass actors are present, and current-user bypass is `never`.
 
@@ -16,6 +16,20 @@ Active `Protect Main` ruleset `24665513` requires a PR and strict `Publication C
 - Do not merge #373 without separate authorization. Do not merge/publish #189 or #183 without approval.
 
 Issue #164 remains closed by JHFMoon; #58/#59/#60/#61 remain open; #212 remains deferred. No field testing or installation is claimed. Public tests are synthetic only. Stable and Workspace data are protected.
+
+**LIVE CLOUD CHECKPOINT — 2026-10-22 17:04 UTC.** Main is `99d5644b8eae0540678f27feafae9bdf4b770d60`; its required Publication Check passed. The live manifest advertises trusted Beta `0.10.18-beta.151` (SHA-256 `226c7e3b3545e642f32e874e78f78dc8ce4bfdbc389cf84f46e0d62d0b7fd54f`) and Stable `0.10.17` (SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`). PR #390's settings read-back repair was merged and packaged by #391; no Stable promotion occurred.
+
+Active Protect Main ruleset #24665513 requires a PR and strict Publication Check from GitHub Actions app 15368. It requires no ordinary approvals, has no bypass actors, and current-user bypass is `never`; extra approval is required for unattributed changes.
+
+- #368, #370, #376 and #377 are merged with successful exact-head required checks and no-findings Codex reviews.
+- #373 exact head `e73998ae5c6045e0bb781e27fd2a1141b340db38` has passing checks and a no-findings review; separate merge authorization is still required.
+- #374 is refreshed to main at `a01c5cb4f70728f919215415ae182e331dd1204f`. Clean Install Proof passed; Publication Check is running. Its exact-head review requested that this status block be refreshed; this checkpoint supersedes the stale Beta 150 text above.
+- #379 is refreshed to main at `07edce8ef90d5412d6230b0c795758142ae399d5`; checks and exact-head review are pending.
+- #386 derived-metadata and identical-reimport fixes are being validated on current refreshed head `93dabf32f314ff0131fb2f608b8028974b5f78a8`; fresh checks/review are pending.
+- #388's settings-write queue fix is in progress. Its latest broader run exposed an outdated source-contract assertion that still expects the old direct `writeJson(SETTINGS_PATH, nextSettings)` path; update that synthetic contract for the serialized queue before considering its checks fresh.
+- #380 still covers source-confidence dependencies only; duplicate/conflicting-period resolution remains tracked separately.
+
+Issue #164 remains closed. All public regression fixtures are synthetic; no field test or installation is claimed. Stable 0.10.17, Workspace/data protections, and file:///OneDrive compatibility remain required.
 
 # Roadmap acceptance matrix — MoonDog Service OS
 
