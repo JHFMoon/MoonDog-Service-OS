@@ -101,6 +101,7 @@ test("the next render immediately reflects edits, closures and new source rows",
   const h=harness(),rows=fixtures(180);
   const before=ids(h.context.sortNew(rows,TODAY));
   const target=rows.at(-1);
+  target.management.reviewDate="2026-10-01";
   target.management.clarification={reason:"Needs review"};
   const after=ids(h.context.sortNew(rows,TODAY));
   assert.notDeepEqual(after,before,"current RO edits invalidate the call-local ranking");
