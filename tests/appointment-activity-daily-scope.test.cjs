@@ -37,7 +37,7 @@ function fixture(rows,opts={}){
     parseSorWorkbook:()=>null,parseEfficiencyWorkbook:()=>null,
     parseMediaAsrAdvisorWorkbook:()=>null,parseMediaAsrTechWorkbook:()=>null,
     parseOpenRoSummaryWorkbook:()=>null,
-    dailyEvidenceDate:()=> "2026-10-20",
+    dailyEvidenceDate:(_family,snapshot)=>snapshot?.sourceModifiedAt?.slice(0,10)||"2026-10-20",
     internalObservationDate:()=> "",
     pruneDatedSnapshots:s=>s,
     learnTechnicians:()=>{},
