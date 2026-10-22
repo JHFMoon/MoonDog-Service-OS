@@ -123,7 +123,7 @@ test("shared report comparison ignores derived metadata and canonicalizes maps f
   const afterLearning={periodStart:"2026-10-01",periodEnd:"2026-10-20",store:{clockHours:120,efficiency:0.9},technicians:[{name:"Synthetic Tech",number:"9001",clockHours:40}],unresolved:[]};
   assert.equal(f.ctx.comparableManagerSnapshot(beforeLearning,"efficiency"),f.ctx.comparableManagerSnapshot(afterLearning,"efficiency"),"directory learning must not make unchanged Efficiency content conflict");
   assert.notEqual(f.ctx.comparableManagerSnapshot(beforeLearning,"efficiency"),f.ctx.comparableManagerSnapshot({...afterLearning,store:{clockHours:121,efficiency:0.9}},"efficiency"),"changed Efficiency measurements remain a conflict");
-  assert.equal(f.ctx.managerConflictObservationDate("sor",{period:"2026-10"},[["Report Date","10/19/2026"]]),"2026-10-19","daily SOR conflicts are keyed by observation day");
+  assert.equal(f.ctx.managerConflictObservationDate("sor",{period:"2026-10",coverageDate:"2026-10-19"},[]),"2026-10-19","daily SOR conflicts are keyed by observation day");
 });
 test("conflicting same-period import preserves the saved source and leaves the new file for review",async()=>{
   const f=fixture([row("9001","2026-10-20","2026-10-20"),row("1002","2026-10-19","2026-10-19")]);
