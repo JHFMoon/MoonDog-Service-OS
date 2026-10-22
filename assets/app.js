@@ -4325,7 +4325,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         throw new Error("Restore post-write verification failed for a durable file.");
     }
     const expected=entries.filter(entry=>entry.path.startsWith("data/history/"));
-    const actual=await directoryFiles(["data","history"]);
+    const actual=(await directoryFiles(["data","history"])).filter(file=>!file.name.startsWith(".moondog-txn-"));
     if(expected.length!==actual.length)
       throw new Error("Restore post-write history inventory failed verification.");
     for(const file of actual){
