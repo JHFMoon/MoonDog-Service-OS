@@ -7,6 +7,7 @@
   // Local permission to finish an explicitly in-progress whole-state restore.
   // On another tab or after reload, a durable restore marker blocks editing.
   let localRestoreOwner = null;
+  let interruptedRecovery = false;
   let nativeRoot = null;
   let loadedRevision = null;
   const ID_KEY = "authoritative-computer-v1";
@@ -241,6 +242,17 @@
   async function provision(root) { return validate(root, true); }
   async function canProvision() { return false; }
   async function recoverOwner(root) { return validate(root, true); }
+  async function assertInterruptedRecovery(root, restoreId, expectedRevision) {
+    const permission = await root.queryPermission({ mode: "readwrite" });
+    if (permission !== "granted") throw denied();
+    const bytes = await readBytes(root, [...WORKSPACE, "data", "restore-in-progress.json"]);
+    let marker;
+    try { marker = bytes && JSON.parse(new TextDecoder().decode(bytes)); } catch (_) {}
+    if (!marker || marker.restoreId !== restoreId) throw denied();
+    const revision = await read(root, REVISION);
+    if (!validRevision(revision) || revision.revision !== expectedRevision) throw denied();
+    return revision;
+  }
   let tail = Promise.resolve(), activeToken = null;
   async function beginMutation(restoreId) {
     requireWrite(restoreId);
@@ -250,7 +262,10 @@
     await previous.catch(() => {});
     try{requireWrite(restoreId);}catch(error){release();throw error;}
     const root = nativeRoot, expected = loadedRevision;
-    if (!(testEnabled && !root) && (!await validate(root) || loadedRevision !== expected)) {
+    if (interruptedRecovery && restoreId === localRestoreOwner) {
+      try { await assertInterruptedRecovery(root, restoreId, expected); }
+      catch (error) { release(); throw error; }
+    } else if (!(testEnabled && !root) && (!await validate(root) || loadedRevision !== expected)) {
       setEditable(false); release(); throw denied();
     }
     const token = { root, expected, release, restoreId };
@@ -265,7 +280,9 @@
     try {
       if (testEnabled && !token.root) { activeToken = null; token.release(); return; }
       const root = token.root, expected = token.expected;
-      if (!await validate(root) || loadedRevision !== expected) throw denied();
+      if (interruptedRecovery && token.restoreId === localRestoreOwner) {
+        await assertInterruptedRecovery(root, token.restoreId, expected);
+      } else if (!await validate(root) || loadedRevision !== expected) throw denied();
       const current = await read(root, REVISION);
       if (!validRevision(current) || current.revision !== expected) throw denied();
       revisionWriteStarted = true;
@@ -360,6 +377,12 @@
   const originals = new WeakMap();
   const denied = () => new DOMException("This Dashboard is read-only. Your draft has not been saved.", "NoModificationAllowedError");
   function requireWrite(restoreId) {
+    // During controlled restart recovery only the exact marker owner may write;
+    // the ordinary UI remains read-only until the hold has been verified away.
+    if (interruptedRecovery) {
+      if (!localRestoreOwner || restoreId !== localRestoreOwner) throw denied();
+      return;
+    }
     // Ordinary same-page mutations must not interleave between restore files.
     // Only operations explicitly carrying this restore's session ID may write.
     if(!editable || localRestoreOwner && restoreId!==localRestoreOwner)throw denied();
@@ -488,8 +511,56 @@
         throw denied();
       localRestoreOwner=restoreId;
     },
+    async beginInterruptedRecovery(root, restoreId) {
+      if (typeof restoreId!=="string" || !/^[a-f0-9-]{36}$/i.test(restoreId) || localRestoreOwner || activeToken)
+        throw denied();
+      await tail.catch(()=>{});
+      root = originals.get(root) || root;
+      if (!root || await root.queryPermission({mode:"readwrite"}) !== "granted") throw denied();
+      const pending = await readBytes(root, [...WORKSPACE, "data", "restore-in-progress.json"]);
+      let marker;
+      try { marker = pending && JSON.parse(new TextDecoder().decode(pending)); } catch (_) {}
+      if (!marker || marker.restoreId !== restoreId) throw denied();
+      const revision = await read(root, REVISION);
+      if (!validRevision(revision)) throw denied();
+      // Defer normal journal auto-recovery until the app has classified all
+      // live files and explicitly resolved only backup-covered transactions.
+      nativeRoot = root;
+      loadedRevision = revision.revision;
+      localRestoreOwner = restoreId;
+      interruptedRecovery = true;
+      setTransientValidation(false);
+      setEditable(false);
+      return true;
+    },
+    async finishInterruptedRecovery(restoreId) {
+      if (!interruptedRecovery || !localRestoreOwner || restoreId !== localRestoreOwner || activeToken)
+        throw denied();
+      const root = nativeRoot;
+      await assertInterruptedRecovery(root, restoreId, loadedRevision);
+      const next = {schemaVersion:1, revision:loadedRevision + 1};
+      await write(root, REVISION, next);
+      loadedRevision = next.revision;
+      await assertInterruptedRecovery(root, restoreId, loadedRevision);
+      const markerPath = [...WORKSPACE, "data", "restore-in-progress.json"];
+      await removeRaw(root, markerPath);
+      if (!await absent(root, markerPath)) throw Error("Interrupted restore marker removal failed verification.");
+      localRestoreOwner = null;
+      interruptedRecovery = false;
+      if (!await validate(root)) throw denied();
+      return true;
+    },
+    abortInterruptedRecovery(restoreId) {
+      if (interruptedRecovery && localRestoreOwner === restoreId) {
+        localRestoreOwner = null;
+        interruptedRecovery = false;
+        setEditable(false);
+        loadedRevision = null;
+        nativeRoot = null;
+      }
+    },
     endRestore() { localRestoreOwner = null; },
-    disable() { localRestoreOwner = null; setTransientValidation(false); setEditable(false); loadedRevision = null; nativeRoot = null; }
+    disable() { localRestoreOwner = null; interruptedRecovery = false; setTransientValidation(false); setEditable(false); loadedRevision = null; nativeRoot = null; }
   };
   global.MoonDogWriteAuthority = Object.freeze(authority);
 })(globalThis);
