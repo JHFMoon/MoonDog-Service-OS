@@ -204,9 +204,11 @@ test("production filter-render function restores device choices only against mat
     {advisor:"Alex",sourceStatus:"Verified",management:{status:"Open"}},
     {advisor:"Zoe",sourceStatus:"Missing",management:{status:"Reviewed"}}
   ];
+  const visibilityCode=production("  // Presentation-only advisor scopes.","  function configuredAdvisors(");
   const renderCode=production("  function renderFilters() {","  function renderTrendCoverageSummary(");
   const context=vm.createContext({
-    ui,model:{root:{name:"fake"},state:{records}},
+    ui,model:{root:{name:"fake"},settings:{advisors:{}},state:{records}},
+    norm(value){return String(value||"").trim().toLowerCase();},
     renderAdvisorHandoff(){},
     statusForRecord(record){return record.management.status;},
     syncFilter(select,placeholder,values){
@@ -219,7 +221,7 @@ test("production filter-render function restores device choices only against mat
     },
     MoonDogDevicePreferences:prefs
   });
-  vm.runInContext(renderCode+"\nthis.renderFilters=renderFilters;",context);
+  vm.runInContext(visibilityCode+renderCode+"\nthis.renderFilters=renderFilters;",context);
   context.renderFilters();
   assert.equal(ui.advisorFilter.value,"Zoe");
   assert.equal(ui.sourceStatusFilter.value,"Missing");
