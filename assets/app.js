@@ -167,6 +167,7 @@
     xlsxWorkerState.workerUrl = null;
     if (workerUrl) URL.revokeObjectURL(workerUrl);
     xlsxWorkerState.disabled = true;
+    xlsxWorkerState.lastError = String(error?.message || error || "XLSX worker stopped.");
     worker?.terminate();
     for (const pending of xlsxWorkerState.pending.values()) {
       clearTimeout(pending.timer);
