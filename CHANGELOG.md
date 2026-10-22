@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.153 — current Beta
+
+- Merge pull request #396 from JHFMoon/fix/settings-restore-current-main-20261022. Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.152 — current Beta
 
 - fix: warn before leaving an unsaved Open RO draft (#383). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
