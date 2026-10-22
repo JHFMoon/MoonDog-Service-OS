@@ -16,7 +16,7 @@ const guidedSetup=slice("  async function completeGuidedSetup()","  function ope
 const meetingSave=slice("  async function saveMeetingVoice(pin) {","  function renderAdvisorSettings(");
 function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} ${localFuture} ${meetingSave} ${guidedSetup} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder,updateLocalFuture,reconcileSaprAdvisors,saveSettingsAutosave,queueSettingsAutosave,saveMeetingVoice,completeGuidedSetup,reopenGuidedSetup}; })(); }`);return factory(context);}
 
-function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve};}
+function deferred(){let resolve,reject;const promise=new Promise((r,j)=>{resolve=r;reject=j;});return{promise,resolve,reject};}
 function element(){const classes=[];return{dataset:{},children:[],classes,textContent:"",classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
 
 test("advisor restore redraw preserves an unrelated settings edit during autosave debounce",async()=>{
