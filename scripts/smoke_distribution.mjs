@@ -88,8 +88,8 @@ try {
         "    self.postMessage({ ok: true, sheetNames: book.SheetNames, rows });",
         "  } catch (error) { self.postMessage({ ok: false, error: String(error?.message || error) }); }",
         "};"
-      ].join("\\n");
-      transferUrl = URL.createObjectURL(new Blob([xlsxSource, "\\n", parserSource], { type: "text/javascript" }));
+      ].join("\n");
+      transferUrl = URL.createObjectURL(new Blob([xlsxSource, "\n", parserSource], { type: "text/javascript" }));
       transferWorker = new Worker(transferUrl);
       transferProbe.ok = await new Promise(resolve => {
         const timer = setTimeout(() => resolve(false), 10000);
