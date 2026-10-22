@@ -9,7 +9,7 @@ function slice(start,end){const a=app.indexOf(start),b=app.indexOf(end,a+start.l
 const advisorRender=slice("  function renderAdvisorSettings(","  function renderSettings(");
 const settingsRender=slice("  function renderSettings(","  function readSettingsInputs(");
 const lifecycle=slice("  async function updateAdvisorLifecycle(","  function ensurePhase2SettingsUi(");
-const settingsPersistence=slice("let settingsAutosaveTimer=null; let settingsWriteChain=Promise.resolve();","  async function saveSettingsAutosave()");
+const settingsPersistence=slice("let settingsAutosaveTimer=null; let settingsAutosaveRevision=0; let settingsWriteChain=Promise.resolve();","  async function saveSettingsAutosave(");
 const worksheetOrderRender=slice("  function renderSupervisorWorksheetOrder()","  function renderPhase2Settings()");
 const localFuture=slice("  async function updateLocalFuture(","  async function recordRefreshLearning(");
 function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${worksheetOrderRender} ${lifecycle} ${localFuture} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings,renderSupervisorWorksheetOrder,updateLocalFuture,reconcileSaprAdvisors,saveSettingsAutosave,queueSettingsAutosave}; })(); }`);return factory(context);}
