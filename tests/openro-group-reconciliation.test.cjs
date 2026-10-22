@@ -105,5 +105,5 @@ test("source must not promote a WEB pseudo-RO to an active RO record",()=>{
 });
 test("source remains syntactically valid and parser epoch reflects recognition revision",()=>{
   new vm.Script(app);
-  assert.match(app,/strict-report-recognition-2026-10-21-ro-groups/);
+  assert.match(app,/strict-report-recognition-2026-10-22-xlsx-worker/);
 });
