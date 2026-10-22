@@ -131,37 +131,6 @@ try {
       transferWorker?.terminate();
       if (transferUrl) URL.revokeObjectURL(transferUrl);
     }
-    const rows = XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]], { header: 1, raw: true });",
-        "    self.postMessage({ ok: true, sheetNames: book.SheetNames, rows });",
-        "  } catch (error) { self.postMessage({ ok: false, error: String(error?.message || error) }); }",
-        "};"
-      ].join("\n");
-      transferUrl = URL.createObjectURL(new Blob([xlsxSource, "\n", parserSource], { type: "text/javascript" }));
-      transferWorker = new Worker(transferUrl);
-      transferProbe.ok = await new Promise(resolve => {
-        const timer = setTimeout(() => resolve(false), 10000);
-        transferWorker.onmessage = event => {
-          clearTimeout(timer);
-          transferProbe.rows = event.data?.rows || null;
-          transferProbe.error = event.data?.error || "";
-          resolve(event.data?.ok === true &&
-            event.data?.sheetNames?.[0] === "Probe" &&
-            JSON.stringify(event.data?.rows) === JSON.stringify([["probe"], ["synthetic"]]));
-        };
-        transferWorker.onerror = event => {
-          clearTimeout(timer);
-          transferProbe.error = String(event.message || "Blob worker failed");
-          resolve(false);
-        };
-        transferWorker.postMessage(buffer, [buffer]);
-        transferProbe.detached = buffer.byteLength === 0;
-      });
-    } catch (error) {
-      transferProbe.error = String(error?.message || error);
-    } finally {
-      transferWorker?.terminate();
-      if (transferUrl) URL.revokeObjectURL(transferUrl);
-    }
     const rows = XLSX.utils.sheet_to_json(
       XLSX.read(fallbackBuffer, { type: "array", raw: true }).Sheets.Probe,
       { header: 1, raw: true }
