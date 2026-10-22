@@ -168,3 +168,38 @@ test("post-connection maintenance yields between serialized jobs and continues a
   assert.ok(diagnostics.some(item => item.kind === "POST-CONNECTION SCAN" && /Month-end summary/.test(item.message)));
   assert.ok(diagnostics.some(item => item.kind === "FOLDER CONNECTION"));
 });
+
+test("overlapping Workspace connection attempts are rejected and retry is allowed after settle", async () => {
+  const appText = app;
+  const connectionLock = extract(
+    appText,
+    "  let workspaceConnectionBusy=false;",
+    "  async function completeWorkspaceConnection("
+  );
+  const pending = deferred();
+  let calls = 0;
+  const context = vm.createContext({
+    completeWorkspaceConnection: () => {
+      calls += 1;
+      return calls === 1 ? pending.promise : Promise.resolve("retry completed");
+    }
+  });
+  vm.runInContext(connectionLock + "\\nthis.finishConnection=finishConnection;", context);
+
+  const first = context.finishConnection({ name: "Synthetic Workspace A" }, false);
+  await Promise.resolve();
+  await assert.rejects(
+    context.finishConnection({ name: "Synthetic Workspace B" }, true),
+    error => error && error.code === "WORKSPACE_CONNECTION_BUSY"
+  );
+  assert.equal(calls, 1, "A second picker cannot start a competing connection.");
+
+  pending.resolve("first completed");
+  assert.equal(await first, "first completed");
+  assert.equal(
+    await context.finishConnection({ name: "Synthetic Workspace B" }, true),
+    "retry completed",
+    "The guard releases after the first connection settles."
+  );
+  assert.equal(calls, 2);
+});
