@@ -4461,11 +4461,14 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.interruptedRecoveryControls.hidden=!eligible;
     if(!eligible){ui.interruptedRecoveryButton.disabled=true;return;}
     const prior=ui.interruptedRecoveryTarget.value;
-    ui.interruptedRecoveryTarget.replaceChildren(new Option("Choose a verified state",""),
-      new Option("Return to protected safety backup — "+review.safetyBackup,"safety"),
-      new Option("Complete the interrupted restore — "+review.sourceFile,"source"));
+    const options=[new Option(review.recoveryProgressDirection?"Resume the verified recovery attempt":"Choose a verified state","")];
+    if(!review.recoveryProgressDirection||review.recoveryProgressDirection==="safety")
+      options.push(new Option("Return to protected safety backup — "+review.safetyBackup,"safety"));
+    if(!review.recoveryProgressDirection||review.recoveryProgressDirection==="source")
+      options.push(new Option("Complete the interrupted restore — "+review.sourceFile,"source"));
+    ui.interruptedRecoveryTarget.replaceChildren(...options);
     ui.interruptedRecoveryTarget.value=prior;
-    ui.interruptedRecoveryDetails.textContent="Both complete backups are verified and every current operational file matches one of those two states. The selected complete state will be written only after a manager confirmation and a fresh byte-for-byte recheck. Any new or conflicting change stops recovery and keeps the hold.";
+    ui.interruptedRecoveryDetails.textContent=review.recoveryProgressDirection?"Both complete backups are verified. A prior controlled attempt is resumable only to its recorded state; files are rechecked before writes and the hold stays until final verification.":"Both complete backups are verified and every current operational file matches one of those two states. The selected complete state will be written only after a manager confirmation and a fresh byte-for-byte recheck. Any new or conflicting change stops recovery and keeps the hold.";
     ui.interruptedRecoveryButton.disabled=!ui.interruptedRecoveryTarget.value;
   }
   async function recoverInterruptedRestore(){
