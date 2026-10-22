@@ -10,7 +10,7 @@ const advisorRender=slice("  function renderAdvisorSettings(","  function render
 const settingsRender=slice("  function renderSettings(","  function readSettingsInputs(");
 const lifecycle=slice("  async function updateAdvisorLifecycle(","  async function reconcileSaprAdvisors(");
 const settingsPersistence=slice("let settingsAutosaveTimer=null; let settingsWriteChain=Promise.resolve();","  async function saveSettingsAutosave()");
-function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${lifecycle} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot}; })(); }`);return factory(context);}
+function production(context){const factory=Function("context",`with(context){ return (async()=>{ ${settingsPersistence} ${advisorRender} ${lifecycle} return {updateAdvisorLifecycle,markAdvisorSetupReviewed,persistSettingsSnapshot,renderAdvisorSettings}; })(); }`);return factory(context);}
 
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve};}
 function element(){const classes=[];return{dataset:{},children:[],classes,textContent:"",classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
@@ -24,7 +24,7 @@ test("advisor restore redraw preserves an unrelated settings edit during autosav
   const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}}};
   const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document,advisorShownInSection:()=>true,now:()=>"synthetic-now",
-    writeJson:()=>write.promise,renderAll:()=>{},renderSetup:()=>{},validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,addHistory:async()=>{},
+    writeJson:()=>write.promise,writeAuthority:{canWrite:true},renderAll:()=>{},renderSetup:()=>{},validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,addHistory:async()=>{},
     renderSettings:()=>{wholeSettingsRenders++;pendingInput.value=model.settings.store?.name||"";}};
   const {updateAdvisorLifecycle:update}=await production(context);
   const restoring=update("101","restore");
@@ -69,7 +69,7 @@ test("setup review and settings autosave serialize immutable snapshots",async()=
   const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
   const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document,writeAuthority:{canWrite:true},advisorShownInSection:()=>true,now:()=>"synthetic-now",
-    writeJson:async(_path,value)=>{writes.push(value);if(writes.length===1)await pending.promise;},renderAll:()=>{},renderSetup:()=>{},validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,addHistory:async()=>{}};
+    writeJson:async(_path,value)=>{writes.push(value);if(writes.length===1)await pending.promise;},writeAuthority:{canWrite:true},renderAll:()=>{},renderSetup:()=>{},validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,addHistory:async()=>{}};
   const {markAdvisorSetupReviewed,persistSettingsSnapshot}=await production(context);
   const reviewing=markAdvisorSetupReviewed("101");
   await Promise.resolve();
@@ -119,10 +119,10 @@ test("scoped advisor redraw keeps configured display names and excludes invalid 
   const model={settings:{advisors:{"101":valid,"summary":invalid}}};
   const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}}};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
-    advisorShownInSection:()=>true,validAdvisorIdentity:(code,name)=>/^\\d+$/.test(code)&&!/^(?:0+|summary|total)/i.test(name||""),
+    advisorShownInSection:()=>true,validAdvisorIdentity:(code,name)=>/^[0-9]+$/.test(code)&&!/^(?:0+|summary|total)/i.test(name||""),
     advisorDisplayName:(code,source)=>source.displayName||source.name,now:()=>"synthetic-now",writeJson:async()=>{},renderAll:()=>{},renderSetup:()=>{},addHistory:async()=>{}};
-  const {updateAdvisorLifecycle}=await production(context);
-  await production(context);
+  const {renderAdvisorSettings}=await production(context);
+  renderAdvisorSettings();
   const row=ui.advisorSettingsList.children[0];
   assert.equal(ui.advisorSettingsList.children.length,1);
   assert.equal(row.children[0].children[0].textContent,"Configured Display");
