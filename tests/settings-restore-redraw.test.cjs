@@ -69,7 +69,7 @@ test("setup review and settings autosave serialize immutable snapshots",async()=
   const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}},settingsSaveStatus:{dataset:{},textContent:""}};
   const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
   const context={SETTINGS_PATH:["settings.json"],model,ui,document,writeAuthority:{canWrite:true},advisorShownInSection:()=>true,now:()=>"synthetic-now",
-    writeJson:async(_path,value)=>{writes.push(value);if(writes.length===1)await pending.promise;},writeAuthority:{canWrite:true},renderAll:()=>{},renderSetup:()=>{},validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,addHistory:async()=>{}};
+    writeJson:async(_path,value)=>{writes.push(value);if(writes.length===1)await pending.promise;},renderAll:()=>{},renderSetup:()=>{},validAdvisorIdentity:()=>true,advisorDisplayName:(code,source)=>source.displayName||source.name,addHistory:async()=>{}};
   const {markAdvisorSetupReviewed,persistSettingsSnapshot}=await production(context);
   const reviewing=markAdvisorSetupReviewed("101");
   await Promise.resolve();
