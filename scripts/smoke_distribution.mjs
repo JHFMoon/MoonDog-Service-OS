@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 const { chromium } = createRequire(import.meta.url)("playwright");
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -55,7 +55,8 @@ try {
   if (versions.pdfjs !== "5.6.205") throw new Error("PDF.js version mismatch: " + JSON.stringify(versions));
   if (!/^\d+\.\d+\.\d+/.test(String(versions.app || ""))) throw new Error("Application version was not exposed: " + JSON.stringify(versions));
 
-  const workerProbe = await page.evaluate(async (probePath) => {
+  const xlsxSource = await readFile(path.join(applicationRoot, "vendor", "xlsx.full.min.js"), "utf8");
+  const workerProbe = await page.evaluate(async (probePath, xlsxSource) => {
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["probe"], ["synthetic"]]), "Probe");
     const encoded = XLSX.write(book, { bookType: "xlsx", type: "array" });
@@ -74,27 +75,39 @@ try {
     } catch (error) {
       workerError = String(error?.message || error);
     }
-    let transferProbe = { ok: false, detached: false, error: "" };
+    let transferProbe = { ok: false, detached: false, rows: null, error: "" };
+    const fallbackBuffer = buffer.slice(0);
     let transferWorker;
     let transferUrl;
     try {
-      const echoSource = "self.onmessage = event => self.postMessage({ byteLength: event.data.byteLength });";
-      transferUrl = URL.createObjectURL(new Blob([echoSource], { type: "text/javascript" }));
+      const parserSource = [
+        "self.onmessage = event => {",
+        "  try {",
+        "    const book = XLSX.read(event.data, { type: 'array', raw: true });",
+        "    const rows = XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]], { header: 1, raw: true });",
+        "    self.postMessage({ ok: true, sheetNames: book.SheetNames, rows });",
+        "  } catch (error) { self.postMessage({ ok: false, error: String(error?.message || error) }); }",
+        "};"
+      ].join("\\n");
+      transferUrl = URL.createObjectURL(new Blob([xlsxSource, "\\n", parserSource], { type: "text/javascript" }));
       transferWorker = new Worker(transferUrl);
-      const transferBuffer = new Uint8Array([1, 2, 3, 4]).buffer;
-      transferProbe.detached = false;
       transferProbe.ok = await new Promise(resolve => {
-        const timer = setTimeout(() => resolve(false), 5000);
+        const timer = setTimeout(() => resolve(false), 10000);
         transferWorker.onmessage = event => {
           clearTimeout(timer);
-          resolve(event.data?.byteLength === 4);
+          transferProbe.rows = event.data?.rows || null;
+          transferProbe.error = event.data?.error || "";
+          resolve(event.data?.ok === true &&
+            event.data?.sheetNames?.[0] === "Probe" &&
+            JSON.stringify(event.data?.rows) === JSON.stringify([["probe"], ["synthetic"]]));
         };
-        transferWorker.onerror = () => {
+        transferWorker.onerror = event => {
           clearTimeout(timer);
+          transferProbe.error = String(event.message || "Blob worker failed");
           resolve(false);
         };
-        transferWorker.postMessage(transferBuffer, [transferBuffer]);
-        transferProbe.detached = transferBuffer.byteLength === 0;
+        transferWorker.postMessage(buffer, [buffer]);
+        transferProbe.detached = buffer.byteLength === 0;
       });
     } catch (error) {
       transferProbe.error = String(error?.message || error);
@@ -103,7 +116,7 @@ try {
       if (transferUrl) URL.revokeObjectURL(transferUrl);
     }
     const rows = XLSX.utils.sheet_to_json(
-      XLSX.read(buffer, { type: "array", raw: true }).Sheets.Probe,
+      XLSX.read(fallbackBuffer, { type: "array", raw: true }).Sheets.Probe,
       { header: 1, raw: true }
     );
     return {
@@ -116,7 +129,7 @@ try {
       fallbackParsed: JSON.stringify(rows) === JSON.stringify([["probe"], ["synthetic"]]),
       rows
     };
-  }, `__xlsx-worker-probe-${process.pid}/probe.js`);
+  }, `__xlsx-worker-probe-${process.pid}/probe.js`, xlsxSource);
 
   if (workerProbe.protocol !== "file:") {
     throw new Error("Worker feasibility probe did not run under the packaged opaque file origin: " + JSON.stringify(workerProbe));
@@ -127,7 +140,7 @@ try {
     throw new Error("Static file worker failed for an unexpected reason: " + JSON.stringify(workerProbe));
   }
   if (!workerProbe.transferProbe.ok || !workerProbe.transferProbe.detached) {
-    throw new Error("Synthetic transferable ArrayBuffer probe failed in a disposable Blob worker: " + JSON.stringify(workerProbe.transferProbe));
+    throw new Error("Synthetic SheetJS Blob-worker parse or ArrayBuffer transfer probe failed: " + JSON.stringify(workerProbe.transferProbe));
   }
   if (!workerProbe.fallbackParsed) throw new Error("Synchronous SheetJS fallback failed after file worker denial: " + JSON.stringify(workerProbe));
   console.log("Packaged file:// worker feasibility:", JSON.stringify({
@@ -136,7 +149,7 @@ try {
     cspMeta: workerProbe.cspMeta.length,
     staticWorkerConstructed: workerProbe.workerConstructed,
     staticWorkerError: workerProbe.workerError,
-    blobTransferProbe: workerProbe.transferProbe,
+    blobWorkerSheetJsParseAndTransfer: workerProbe.transferProbe,
     synchronousFallbackParsed: workerProbe.fallbackParsed
   }));
 
