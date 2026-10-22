@@ -112,3 +112,36 @@ test("controlled recovery rejects traversal journal targets before reading their
   await assert.rejects(vm.runInContext("("+collector.replace("async function collectControlledRecoveryJournals","async function")+")()",context),/unsafe or detached/);
   assert.equal(targetReads,0);
 });
+
+test("restore history verification ignores journal sidecars but still verifies operational history",async()=>{
+  const app=fs.readFileSync(path.join(__dirname,"..","assets/app.js"),"utf8");
+  const start=app.indexOf("  async function verifyRestoredBackupState(entries){");
+  const end=app.indexOf("\n  }",app.indexOf("    for(const file of actual)",start));
+  assert.ok(start>=0&&end>start,"production restore verifier must exist");
+  const verifier=app.slice(start,end+4);
+  const state=new TextEncoder().encode("state");
+  const history=new TextEncoder().encode("event");
+  const sidecar=new TextEncoder().encode("{}");
+  const digest=bytes=>crypto.createHash("sha256").update(bytes).digest("hex");
+  const context=vm.createContext({
+    BACKUP_FILES:{"data/state.json":true},
+    readFileBytes:async()=>state,
+    sha256:async bytes=>digest(bytes),
+    directoryFiles:async()=>[
+      {name:"saved.json",bytes:history},
+      {name:".moondog-txn-pending.json",bytes:sidecar}
+    ]
+  });
+  const verify=vm.runInContext("("+verifier+")",context);
+  await verify([
+    {path:"data/state.json",sha256:digest(state)},
+    {path:"data/history/saved.json",size:history.byteLength,sha256:digest(history)}
+  ]);
+  await assert.rejects(verify([
+    {path:"data/state.json",sha256:digest(state)},
+    {path:"data/history/saved.json",size:history.byteLength,sha256:digest(history)}
+  ]).then(()=>{context.directoryFiles=async()=>[{name:"unexpected.json",bytes:history}];return verify([
+    {path:"data/state.json",sha256:digest(state)},
+    {path:"data/history/saved.json",size:history.byteLength,sha256:digest(history)}
+  ]);}),/history inventory|history verification/);
+});
