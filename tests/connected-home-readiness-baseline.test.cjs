@@ -1,7 +1,7 @@
 "use strict";
-// #58-01 component baseline: measure durable verified-root publication through
-// the production first Home render with synthetic in-memory state only. This
-// does not include launcher, browser-cache, or pre-hydration file-read time.
+// #58-01 partial component baseline: measure durable connection reconciliation
+// through the production render dispatch with synthetic in-memory state only.
+// Render helpers are stubs, so this does not measure Home calculations or DOM work.
 const test=require("node:test");
 const assert=require("node:assert/strict");
 const fs=require("node:fs");
@@ -24,7 +24,10 @@ assert.ok(renderBegin>=0&&renderEnd>renderBegin,"Full Home render boundary must 
 const renderHome=app.slice(renderBegin,renderEnd);
 const connection=extract(app,"  async function completeWorkspaceConnection(","  async function postConnectReconciliation(");
 const firstRender=connection.split("\n").find(line=>/^\s*renderAll\(\); renderRecovery\(\); openSetupIfRequired\(\); startFolderWatch\(\);\s*$/.test(line));
-assert.ok(firstRender,"Verified connection must render Home before starting background work");
+assert.ok(firstRender,"Verified connection must dispatch render before background work");
+const reconciliationAwait=connection.indexOf("await postConnectReconciliation(permissionWasPending);");
+assert.ok(reconciliationAwait>=0&&connection.indexOf(firstRender)>reconciliationAwait,
+  "durable post-connect reconciliation must complete before the first render dispatch");
 
 function percentile(samples,q){
   const sorted=[...samples].sort((a,b)=>a-b);
@@ -34,7 +37,7 @@ function harness(root){
   const model={root,recovery:{},state:{records:[],closedRecords:[],updatedAt:null,source:null},workspaceConnectionCommittedRoot:null};
   const signals=[];
   let durableRecovery=null;
-  let renderedHomeAt=null;
+  let renderDispatchAt=null;
   const field=()=>({textContent:""});
   const ui={metricOpen:field(),metricDue:field(),metricMissing:field(),metricUpdated:field(),lastImport:field(),lastExport:field(),exportButton:{disabled:false}};
   const context=vm.createContext({
@@ -49,10 +52,10 @@ function harness(root){
     renderSetup:()=>{},renderRecovery:()=>{},openSetupIfRequired:()=>{},startFolderWatch:()=>{}
   });
   vm.runInContext(renderHome+"\n"+reconcile+"\nthis.paintHome=renderAll;this.publishConnected=postConnectReconciliation;",context);
-  return {context,model,signals,ui,get durableRecovery(){return durableRecovery;},markRendered(){renderedHomeAt=performance.now();},get renderedHomeAt(){return renderedHomeAt;}};
+  return {context,model,signals,ui,get durableRecovery(){return durableRecovery;},markRenderDispatched(){renderDispatchAt=performance.now();},get renderDispatchAt(){return renderDispatchAt;}};
 }
 
-test("synthetic connected Home readiness reports repeated p50/p95 after durable verification",async()=>{
+test("synthetic connection reconciliation precedes stubbed render dispatch",async()=>{
   const samples=[];
   for(let i=0;i<9;i++){
     const root={name:"Synthetic Workspace "+i};
@@ -65,12 +68,12 @@ test("synthetic connected Home readiness reports repeated p50/p95 after durable 
     assert.equal(h.signals.at(-1).state,"CONNECTED");
     assert.equal(h.durableRecovery.status,"Ready");
     vm.runInContext(firstRender,h.context);
-    h.markRendered();
+    h.markRenderDispatched();
     assert.equal(h.ui.metricOpen.textContent,0);
     assert.equal(h.ui.exportButton.disabled,true);
-    samples.push(h.renderedHomeAt-started);
+    samples.push(h.renderDispatchAt-started);
   }
-  const report={scope:"hydrated-to-verified-home-render; synthetic Node harness; excludes launcher and pre-hydration reads",
+  const report={scope:"hydrated-to-verified-connection-render-dispatch; render helpers stubbed; excludes Home calculations/DOM, launcher, and pre-hydration reads",
     count:samples.length,p50Ms:percentile(samples,0.5),p95Ms:percentile(samples,0.95),maxMs:Math.max(...samples)};
   assert.equal(report.count,9);
   assert.ok(Number.isFinite(report.p50Ms)&&Number.isFinite(report.p95Ms)&&report.p50Ms>=0&&report.p95Ms>=report.p50Ms);
