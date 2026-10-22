@@ -543,11 +543,24 @@
       loadedRevision = next.revision;
       await assertInterruptedRecovery(root, restoreId, loadedRevision);
       const markerPath = [...WORKSPACE, "data", "restore-in-progress.json"];
-      await removeRaw(root, markerPath);
+      const markerBytes = await readBytes(root, markerPath);
+      if (markerBytes === null) throw denied();
+      try {
+        await removeRaw(root, markerPath);
+      } catch (error) {
+        // If removal happened but its read-back failed, restore the exact hold
+        // only when the marker is confirmed absent. Never replace a new marker.
+        try {
+          if (await readBytes(root, markerPath) === null)
+            await writeBytesRaw(root, markerPath, markerBytes);
+        } catch (_) {}
+        throw error;
+      }
       if (!await absent(root, markerPath)) throw Error("Interrupted restore marker removal failed verification.");
       localRestoreOwner = null;
       interruptedRecovery = false;
-      if (!await validate(root)) throw denied();
+      setTransientValidation(false);
+      setEditable(true);
       return true;
     },
     abortInterruptedRecovery(restoreId) {
