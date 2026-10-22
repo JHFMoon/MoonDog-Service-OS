@@ -1066,8 +1066,23 @@
     return diagnosticsQueue;
   }
   document.addEventListener('visibilitychange',()=>{if(document.hidden)void flushDiagnostics();});
-  async function writeJson(path, value,restoreId) { writeAuthority.requireWrite(restoreId); const bytes = new TextEncoder().encode(JSON.stringify(value, null, 2) + "\n");
-    try { await writeBytes(path, bytes,restoreId); const check = await readJson(path, null); if (JSON.stringify(check)!==JSON.stringify(value)) throw new Error(`Read-back verification failed for ${path.join("/")}.`); recordDiagnostic("DURABLE WRITE", `${path.join("/")} saved and verified`); } catch (error) { recordDiagnostic("DURABLE WRITE FAILED", `${path.join("/")} could not be saved (${error.name || "Error"})`); throw error; } }
+  async function writeJson(path, value,restoreId) {
+    writeAuthority.requireWrite(restoreId);
+    // Verify the immutable payload that was actually written. Live settings/RO
+    // models may change while the filesystem write is awaiting OneDrive.
+    const serialized=JSON.stringify(value,null,2)+"\n";
+    const expected=JSON.stringify(JSON.parse(serialized));
+    const bytes=new TextEncoder().encode(serialized);
+    try {
+      await writeBytes(path,bytes,restoreId);
+      const check=await readJson(path,null);
+      if(JSON.stringify(check)!==expected)throw new Error(`Read-back verification failed for ${path.join("/")}.`);
+      recordDiagnostic("DURABLE WRITE",`${path.join("/")} saved and verified`);
+    }catch(error){
+      recordDiagnostic("DURABLE WRITE FAILED",`${path.join("/")} could not be saved (${error.name || "Error"})`);
+      throw error;
+    }
+  }
   async function backupState(reason, state = model.state) { if (state.updatedAt) await writeJson(["backups", `${stamp()}-${slug(reason)}.json`], state); }
   async function addHistory(type, summary, details = {},restoreId) { const event = { schemaVersion: 1, id: `${stamp()}-${slug(type)}`, at: now(), type, summary, details }; await writeJson(["data", "history", `${event.id}.json`], event,restoreId); if (/import|source|migration|settings|workbook|export|fallback|coverage/i.test(type)) recordDiagnostic("OPERATION", `${type} completed`); }
   function migrateOpenRoFieldIdentity(){let changed=false;for(const record of model.state.records||[]){record.management||={};const id=resolveStatusId(record.management.status,record.management.statusId,true);if(id&&record.management.statusId!==id){record.management.statusId=id;changed=true;}const communication=normalizeCommunication(record.management.communication);if(record.management.communication!==communication){record.management.communication=communication;changed=true;}}return changed;}
