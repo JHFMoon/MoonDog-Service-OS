@@ -11,7 +11,7 @@ const settingsRender=slice("  function renderSettings(","  function readSettings
 const lifecycle=slice("  async function updateAdvisorLifecycle(","  async function reconcileSaprAdvisors(");
 
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve};}
-function element(){return{dataset:{},children:[],classes:[],classList:{add(name){this.classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
+function element(){const classes=[];return{dataset:{},children:[],classes,classList:{add(name){classes.push(name);}},append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);}};}
 
 test("advisor restore redraw preserves an unrelated settings edit during autosave debounce",async()=>{
   const write=deferred();
