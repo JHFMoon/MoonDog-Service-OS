@@ -71,8 +71,8 @@ test("controlled recovery grants only the marker owner a scoped mutation and rel
   const f=await heldFixture(),a=f.authority;
   await a.beginInterruptedRecovery(f.root,owner);
   assert.equal(a.canWrite,false);
-  await assert.rejects(a.beginMutation(),/read only/);
-  await assert.rejects(a.beginMutation("123e4567-e89b-42d3-a456-426614174001"),/read only/);
+  await assert.rejects(a.beginMutation(),/NoModificationAllowedError/);
+  await assert.rejects(a.beginMutation("123e4567-e89b-42d3-a456-426614174001"),/NoModificationAllowedError/);
   const token=await a.beginMutation(owner);
   await a.completeMutation(token);
   assert.equal((await f.get(["System Files","Workspace","data","store-revision.json"])).revision,5);
@@ -86,9 +86,9 @@ test("a changed durable revision blocks recovery writes and abort retains the re
   const f=await heldFixture(),a=f.authority;
   await a.beginInterruptedRecovery(f.root,owner);
   await f.set(["System Files","Workspace","data","store-revision.json"],{schemaVersion:1,revision:9});
-  await assert.rejects(a.beginMutation(owner),/read only/);
+  await assert.rejects(a.beginMutation(owner),/NoModificationAllowedError/);
   a.abortInterruptedRecovery(owner);
-  await assert.rejects(a.beginMutation(owner),/read only/);
+  await assert.rejects(a.beginMutation(owner),/NoModificationAllowedError/);
   assert.equal((await f.get(["System Files","Workspace","data","restore-in-progress.json"])).restoreId,owner);
 });
 
