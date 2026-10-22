@@ -115,7 +115,7 @@ test("controlled recovery rejects traversal journal targets before reading their
 
 test("restore history verification ignores journal sidecars but still verifies operational history",async()=>{
   const app=fs.readFileSync(path.join(__dirname,"..","assets/app.js"),"utf8");
-  const start=app.indexOf("  async function verifyRestoredBackupState(entries){");
+  const start=app.indexOf("  async function verifyRestoredBackupState(entries,controlledProgress=null){");
   const end=app.indexOf("\n  }",app.indexOf("    for(const file of actual)",start));
   assert.ok(start>=0&&end>start,"production restore verifier must exist");
   const verifier=app.slice(start,end+4);
@@ -125,6 +125,7 @@ test("restore history verification ignores journal sidecars but still verifies o
   const digest=bytes=>crypto.createHash("sha256").update(bytes).digest("hex");
   const context=vm.createContext({
     BACKUP_FILES:{"data/state.json":true},
+    RECOVERY_PATH:["data","recovery.json"],
     readFileBytes:async()=>state,
     sha256:async bytes=>digest(bytes),
     directoryFiles:async()=>[
