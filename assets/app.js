@@ -4341,7 +4341,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     try{marker=await readJson(["data","restore-in-progress.json"],null);}
     catch(_){return{state:"unreadable",safety:"unknown",source:"unknown"};}
     if(marker===null)return null;
-    const result={state:"held",safety:"unverified",source:"unverified",old:0,restored:0,both:0,conflict:0,missing:0,unreadable:0,safetyBackup:marker?.safetyBackup||"",sourceFile:marker?.sourceFile||""};
+    const result={state:"held",safety:"unverified",source:"unverified",old:0,restored:0,both:0,conflict:0,missing:0,unreadable:0,restoreId:marker?.restoreId||"",safetyBackup:marker?.safetyBackup||"",sourceFile:marker?.sourceFile||""};
     const safeName=(name,prefix="")=>typeof name==="string"&&name.length<=220&&name.endsWith(".zip")&&name.startsWith(prefix)&&!/[\\/]/.test(name)&&!name.includes("..");
     if(marker?.schemaVersion!==1||typeof marker.restoreId!=="string"||
        !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(marker.restoreId)||
@@ -4442,7 +4442,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if(!review||review.state!=="held"||!["safety","source"].includes(direction))
       throw new Error("Choose a verified recovery state after reconnecting to the held Workspace.");
     const marker=await readJson(["data","restore-in-progress.json"],null);
-    if(!marker||marker.restoreId===undefined||marker.safetyBackup!==review.safetyBackup||marker.sourceFile!==review.sourceFile)
+    if(!marker||marker.restoreId!==review.restoreId||marker.safetyBackup!==review.safetyBackup||marker.sourceFile!==review.sourceFile)
       throw new Error("The interrupted restore marker changed. The recovery hold remains in place.");
     const [safety,source]=await Promise.all([
       validateBackupBytes(await readFileBytes(["backups",marker.safetyBackup])),
@@ -4648,6 +4648,12 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         if(!physical.startsWith(workspacePrefix))
           throw new Error("A transaction journal targets a different Workspace.");
         const targetPath=physical.slice(workspacePrefix.length);
+        const targetParts=targetPath.split("/");
+        if(!targetPath||targetParts.some(part=>!part||part==="."||part==="..")||
+           targetParts.some(part=>part.includes("\\\\"))||
+           path.split("/").slice(0,-1).join("/")!==
+             [...WORKSPACE_PREFIX,...targetParts.slice(0,-1)].join("/"))
+          throw new Error("A transaction journal path is unsafe or detached from its target.");
         const entry=await readExistingBytes(targetPath);
         const bytesValid=value=>value===null||Array.isArray(value)&&value.every(byte=>Number.isInteger(byte)&&byte>=0&&byte<=255);
         if(journal.format==="moondog-write-v1"){
