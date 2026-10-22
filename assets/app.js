@@ -4563,7 +4563,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       return false;
     const restoreId=marker.restoreId;
     const priorInterruptedReview=model.recovery.interruptedRestoreReview;
-    let recoveryStarted=false;
+    let recoveryStarted=false,recoveryReleased=false;
     try{
       await writeAuthority.beginInterruptedRecovery(model.applicationRoot,restoreId);
       recoveryStarted=true;
@@ -4688,13 +4688,19 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       model.assignNext.days||={};
       await scanRecoveryBackups();
       await writeAuthority.finishInterruptedRecovery(restoreId);
-      recoveryStarted=false;
+      recoveryStarted=false;recoveryReleased=true;
       model.pendingRoot=null;
       renderAll();renderSettings();renderRecovery();
       dailyNotify("moondog-recovered");
       status("Interrupted restore recovered from the selected verified backup. The safety backup remains available.","success");
       return true;
     }catch(error){
+      if(recoveryReleased){
+        model.recovery.interruptedRestoreReview=null;
+        model.recovery.status="Interrupted restore recovered and verified";
+        try{renderRecovery();status("Recovery completed and verified. Reconnect if the dashboard did not refresh.","warning");}catch(_){}
+        return true;
+      }
       if(recoveryStarted)writeAuthority.abortInterruptedRecovery(restoreId);
       if(typeof priorInterruptedReview!=="undefined")model.recovery.interruptedRestoreReview=priorInterruptedReview;
       model.recovery.status="Controlled recovery stopped; restore hold and safety backup retained";
