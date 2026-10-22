@@ -509,12 +509,13 @@
     return items;
   }
   const historyFileCache=new Map();
+  let fullHistoryCache=null,fullHistoryCacheNames=null;
   let historyCacheRoot=null,historyCacheGeneration=0;
   async function loadHistory(includeAll=false,searchToken=null){
     const originRoot=model.root;
     // A shared cache is cleared on root changes. Generation and root guards
     // prevent stale reads from contaminating the connected Workspace.
-    if(historyCacheRoot!==originRoot){historyFileCache.clear();historyCacheRoot=originRoot;historyCacheGeneration++;}
+    if(historyCacheRoot!==originRoot){historyFileCache.clear();fullHistoryCache=null;fullHistoryCacheNames=null;historyCacheRoot=originRoot;historyCacheGeneration++;}
     const generation=historyCacheGeneration,cache=historyFileCache;
     const current=()=>generation===historyCacheGeneration&&originRoot===model.root&&(searchToken===null||searchToken===state.searchToken);
     const entries=await api.readEntries('data/history'),events=[];
@@ -522,9 +523,16 @@
     // Daily priorities need only daily-task events; full history is loaded on
     // demand for search, not during every workspace connection.
     const relevant=entries.filter(({name})=>name.endsWith('.json')&&(includeAll||name.startsWith('daily-')));
+    if(includeAll&&fullHistoryCache&&fullHistoryCacheNames?.length===relevant.length&&
+        relevant.every(({name},index)=>name===fullHistoryCacheNames[index])){
+      if(!current())return false;
+      state.history=fullHistoryCache;state.events=fullHistoryCache.filter(e=>e.type==='daily-task');
+      return true;
+    }
     for(let i=0;i<relevant.length;i+=12){
       if(!current())return false;
-      const batch=await Promise.all(relevant.slice(i,i+12).map(async({name,handle})=>{
+      const batchEntries=relevant.slice(i,i+12),needsRead=batchEntries.some(({name})=>!cache.has(name));
+      const batch=await Promise.all(batchEntries.map(async({name,handle})=>{
         if(cache.has(name))return cache.get(name);
         try{
           const event=JSON.parse(await(await handle.getFile()).text());
@@ -537,11 +545,13 @@
       }));
       if(!current())return false;
       events.push(...batch.filter(Boolean));
-      if(i+12<relevant.length)await new Promise(resolve=>setTimeout(resolve,0));
+      if(needsRead&&i+12<relevant.length)await new Promise(resolve=>setTimeout(resolve,0));
     }
     if(!current())return false;
     events.sort((a,b)=>String(a.at).localeCompare(String(b.at))||String(a.id).localeCompare(String(b.id)));
     state.history=events;state.events=events.filter(e=>e.type==='daily-task');
+    if(includeAll&&relevant.length<=4000){fullHistoryCache=events;fullHistoryCacheNames=relevant.map(({name})=>name);}
+    else{fullHistoryCache=null;fullHistoryCacheNames=null;}
     return true;
   }
   async function log(action,task,extra={}){
@@ -1444,7 +1454,7 @@
       paint();
     }catch(error){if(token!==state.searchToken||model.root!==searchRoot)return;paint();const p=document.createElement('p');p.textContent='Some saved files could not be searched. Check folder access and try again.';host.append(p);}
   }
-  document.addEventListener('moondog-recovered',async()=>{historyFileCache.clear();historyCacheRoot=null;state.current=null;state.editing=false;state.loadedRoot=null;await ready();});
+  document.addEventListener('moondog-recovered',async()=>{historyFileCache.clear();fullHistoryCache=null;fullHistoryCacheNames=null;historyCacheRoot=null;state.current=null;state.editing=false;state.loadedRoot=null;await ready();});
   document.addEventListener('moondog-workspace-changing',suspendForWorkspaceChange);
   document.addEventListener('moondog-data',ready);
   document.addEventListener('moondog-data',()=>queueMobilePublish());
