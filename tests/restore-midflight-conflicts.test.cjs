@@ -72,6 +72,7 @@ function fixture(options={}){
     writeBytes:async(parts,bytes,restoreId)=>{
       assert.equal(restoreId,"123e4567-e89b-42d3-a456-426614174000","restore writes require explicit owner capability");
       const p=parts.join("/");actions.push(["write",p]);
+      await options.beforeWrite?.(p,files);
       files.set(p,new Uint8Array(bytes));
       options.afterWrite?.(p,files);
       if(options.throwAfterWrite===p)throw Error("synthetic interrupted writable");
@@ -215,4 +216,20 @@ test("foreign modification of an already-restored file is caught by final hash v
   assert.equal(f.disabled,1);
   assert.equal(f.model.recovery.lastRestore.sourceFile,"previous.zip");
   assert.equal(f.actions.some(([action])=>action==="restore-marker-removed"),false);
+});
+
+
+test("permission revoked between canonical restore writes keeps later bytes and recovery hold",async()=>{
+  const f=fixture({beforeWrite:async p=>{
+    if(p===keys[1])throw Object.assign(Error("synthetic permission revoked between writes"),{name:"NotAllowedError"});
+  }});
+  await assert.rejects(f.restore(),/synthetic permission revoked between writes/);
+  assert.deepEqual(f.actions.filter(([action])=>action==="write").map(([,p])=>p),[keys[0],keys[1]],"the second write attempt must fail before replacing its target");
+  assert.equal(JSON.parse(decode(f.files.get(keys[0]))).records[0].id,"restored","the first verified write remains recorded for controlled recovery");
+  assert.equal(JSON.parse(decode(f.files.get(keys[1]))).store.name,"old","permission loss must preserve the untouched later file");
+  assert.equal(f.files.has("data/restore-in-progress.json"),true,"the persistent recovery hold stays in place");
+  assert.equal(f.safetyExists,true,"the original-state safety package remains available");
+  assert.equal(f.disabled,1,"the interrupted restore disables further editing");
+  assert.equal(f.historyStarted,0,"history replacement must not begin after access is revoked");
+  assert.deepEqual(f.model.recovery.lastRestore,{sourceFile:"previous.zip"},"failed restore must not record completion");
 });
