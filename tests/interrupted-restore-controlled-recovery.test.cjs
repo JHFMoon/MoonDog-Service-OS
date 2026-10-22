@@ -185,3 +185,163 @@ test("recovery reloads settings before release and invalidates the Daily history
   assert.ok(recovery.includes("model.recovery.interruptedRestoreReview=null;"),
     "transient interrupted assessment must not be persisted after recovery");
 });
+
+function controlledRecoveryExecutionFixture(options={}){
+  const app=fs.readFileSync(path.join(__dirname,"..","assets/app.js"),"utf8");
+  const start=app.indexOf("  async function recoverInterruptedRestore(){");
+  const end=app.indexOf("  async function readExistingBytes(",start);
+  assert.ok(start>=0&&end>start,"production controlled recovery function must exist");
+  const production=app.slice(start,end);
+  const enc=value=>new TextEncoder().encode(typeof value==="string"?value:JSON.stringify(value));
+  const digest=bytes=>crypto.createHash("sha256").update(bytes).digest("hex");
+  const marker={schemaVersion:1,restoreId:owner,safetyBackup:"MoonDog Restore Safety synthetic.zip",sourceFile:"MoonDog Full Backup synthetic.zip"};
+  const safety={
+    "data/state.json":enc({records:[{id:"safety"}]}),
+    "data/settings.json":enc({sourceAdapters:{schemaVersion:1,key:"safety"},setup:{newStorePrepared:false}}),
+    "data/recovery.json":enc({schemaVersion:1,status:"Ready"}),
+    "data/history/safety.json":enc({type:"synthetic-safety"})
+  };
+  const source={
+    "data/state.json":enc({records:[{id:"source"}]}),
+    "data/settings.json":enc({sourceAdapters:{schemaVersion:1,key:"source"},setup:{newStorePrepared:false}}),
+    "data/recovery.json":enc({schemaVersion:1,status:"Ready"}),
+    "data/history/source.json":enc({type:"synthetic-source"})
+  };
+  const archive=files=>({manifest:{schemaVersion:1,createdAt:"2026-10-22T00:00:00.000Z",
+    entries:Object.entries(files).map(([path,bytes])=>({path,size:bytes.byteLength,sha256:digest(bytes)}))},
+    zip:{file(name){const bytes=files[name.slice("payload/".length)];return bytes&&{async:async()=>new Uint8Array(bytes)};}}});
+  const backups={
+    [marker.safetyBackup]:archive(safety),
+    [marker.sourceFile]:archive(source)
+  };
+  const live=new Map(Object.entries(safety).map(([p,b])=>[p,new Uint8Array(b)]));
+  if(options.conflict)live.set("data/state.json",enc({records:[{id:"independent"}]}));
+  const context=vm.createContext({
+    TextEncoder,TextDecoder,Uint8Array,Map,Set,JSON,Date,Promise,crypto:crypto.webcrypto,
+    model:{applicationRoot:{},root:{},pendingRoot:null,state:{},settings:{},appointments:{},performance:{},
+      assignNext:{},autoImport:{},operationalMetrics:{},meetingCycle:{},
+      recovery:{schemaVersion:1,status:"Ready",interruptedRestoreReview:{...marker,state:"held",safety:"verified",source:"verified"}}},
+    ui:{interruptedRecoveryTarget:{value:"source"}},
+    BACKUP_FILES:{"data/state.json":true,"data/settings.json":true,"data/recovery.json":true},
+    RECOVERY_PATH:["data","recovery.json"],STATE_PATH:["data","state.json"],SETTINGS_PATH:["data","settings.json"],
+    APPOINTMENTS_PATH:["data","appointments.json"],PERFORMANCE_PATH:["data","performance.json"],
+    ASSIGN_NEXT_PATH:["data","assign-next.json"],AUTO_IMPORT_PATH:["data","auto-import.json"],
+    OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],MEETING_CYCLE_PATH:["data","meeting-cycle.json"],
+    SOURCE_ADAPTER_BOOTSTRAP_PATH:["data","source-adapter-bootstrap.json"],
+    marker,live,backups,writeLog:[],events:[],active:false,finishFailures:options.finishFailures||0,
+    now:()=>"2026-10-22T12:00:00.000Z",stamp:()=>"20261022T120000Z",slug:value=>String(value).replace(/[^a-z0-9]+/gi,"-"),
+    window:{confirm:()=>options.confirm!==false},
+    readJson:async(parts,fallback)=>{
+      const p=parts.join("/");
+      if(p==="data/restore-in-progress.json")return marker;
+      const bytes=live.get(p);
+      return bytes?JSON.parse(new TextDecoder().decode(bytes)):fallback;
+    },
+    readFileBytes:async parts=>{
+      const p=parts.join("/");
+      if(p.startsWith("backups/"))return enc(p.slice("backups/".length));
+      const bytes=live.get(p);
+      if(!bytes)throw Object.assign(Error("Synthetic missing"),{name:"NotFoundError"});
+      return new Uint8Array(bytes);
+    },
+    validateBackupBytes:async bytes=>backups[new TextDecoder().decode(bytes)]||null,
+    directoryFiles:async parts=>[...live.entries()].filter(([p])=>p.startsWith(parts.join("/")+"/"))
+      .map(([p,bytes])=>({name:p.slice(parts.join("/").length+1),bytes:new Uint8Array(bytes)})),
+    sha256:async bytes=>digest(bytes),
+    collectControlledRecoveryJournals:async()=>[],
+    verifyRestoredBackupState:async entries=>{
+      for(const entry of entries){
+        const bytes=live.get(entry.path);
+        if(!bytes||bytes.byteLength!==entry.size||digest(bytes)!==entry.sha256)
+          throw Error("Synthetic restored state did not match the selected archive.");
+      }
+    },
+    readExistingBytes:async p=>live.has(p)?new Uint8Array(live.get(p)):null,
+    writeBytes:async(parts,bytes,restoreId)=>{
+      if(!context.active||restoreId!==owner)throw Error("Synthetic authority denied the write.");
+      context.writeLog.push(parts.join("/"));
+      if(options.failWriteAt===context.writeLog.length)throw Error("Synthetic interrupted write.");
+      live.set(parts.join("/"),new Uint8Array(bytes));
+    },
+    writeJson:async(parts,value,restoreId)=>{
+      const bytes=enc(JSON.stringify(value,null,2)+"\n");
+      await context.writeBytes(parts,bytes,restoreId);
+      const p=parts.join("/");
+      if(p.startsWith("data/history/"))context.events.push(p);
+    },
+    maintenanceIO:{
+      remove:async(p,_token,_restore,restoreId)=>{
+        if(!context.active||restoreId!==owner)throw Error("Synthetic authority denied deletion.");
+        live.delete(p);
+      },
+      exists:async p=>live.has(p),
+      cleanupJournal:async()=>{}
+    },
+    writeAuthority:{
+      beginInterruptedRecovery:async(_root,id)=>{if(id!==owner)throw Error("wrong owner");context.active=true;},
+      finishInterruptedRecovery:async id=>{
+        if(id!==owner||!context.active)throw Error("wrong owner");
+        if(context.finishFailures>0){context.finishFailures--;throw Error("Synthetic release interruption.");}
+        context.active=false;context.marker=null;
+      },
+      abortInterruptedRecovery:id=>{if(id===owner)context.active=false;}
+    },
+    migratedSettings:raw=>raw,
+    loadSourceAdapter:(config,raw)=>{context.loadedAdapter=config.key;},
+    clearSourceAdapter:()=>{context.loadedAdapter="cleared";},
+    pruneClosedRecords:value=>value,
+    renderRecovery:()=>{},renderAll:()=>{},renderSettings:()=>{},scanRecoveryBackups:async()=>{},
+    status:()=>{},dailyNotify:type=>context.dailyEvents.push(type),dailyEvents:[],
+    console:{warn(){}}
+  });
+  // Keep captured shared state explicit for assertions after vm execution.
+  context.live=live;context.marker=marker;context.backups=backups;
+  context.read=path=>live.get(path);
+  vm.runInContext(production+"\nglobalThis.recover=recoverInterruptedRestore;",context);
+  return context;
+}
+
+test("actual controlled recovery selects one complete backup, reloads its adapter, and refreshes Daily history",async()=>{
+  const f=controlledRecoveryExecutionFixture();
+  assert.equal(await f.recover(),true);
+  assert.equal(f.marker,null);
+  assert.equal(f.active,false);
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/state.json"))).records[0].id,"source");
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/settings.json"))).sourceAdapters.key,"source");
+  assert.equal(f.loadedAdapter,"source");
+  assert.equal(f.live.has("data/history/safety.json"),false);
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/history/source.json"))).type,"synthetic-source");
+  assert.equal(f.events.filter(path=>path.startsWith("data/history/")).length,1);
+  assert.deepEqual(f.dailyEvents,["moondog-recovered"]);
+});
+
+test("canceling actual controlled recovery leaves all bytes and the hold untouched",async()=>{
+  const f=controlledRecoveryExecutionFixture({confirm:false});
+  const before=new Map([...f.live].map(([p,b])=>[p,new Uint8Array(b)]));
+  assert.equal(await f.recover(),false);
+  assert.equal(f.marker.restoreId,owner);
+  assert.equal(f.writeLog.length,0);
+  assert.equal(f.live.size,before.size);
+  for(const [p,b]of before)assert.deepEqual(f.live.get(p),b);
+});
+
+test("actual recovery resumes the same verified target after a release interruption",async()=>{
+  const f=controlledRecoveryExecutionFixture({finishFailures:1});
+  await assert.rejects(f.recover(),/Synthetic release interruption/);
+  assert.equal(f.marker.restoreId,owner);
+  assert.ok(f.live.has("data/history/full-restore-recovered-"+owner+".json"));
+  assert.equal(f.active,false);
+  f.writeLog.length=0;
+  assert.equal(await f.recover(),true);
+  assert.equal(f.marker,null);
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/state.json"))).records[0].id,"source");
+  assert.equal(f.loadedAdapter,"source");
+});
+
+test("actual recovery refuses foreign operational bytes before the first write",async()=>{
+  const f=controlledRecoveryExecutionFixture({conflict:true});
+  await assert.rejects(f.recover(),/differs from both verified backups/);
+  assert.equal(f.marker.restoreId,owner);
+  assert.equal(f.writeLog.length,0);
+  assert.equal(f.active,false);
+});
