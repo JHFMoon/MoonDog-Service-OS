@@ -21,7 +21,7 @@ test("advisor restore redraw preserves an unrelated settings edit during autosav
   let wholeSettingsRenders=0;
   const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}}};
   const document={createElement:()=>element(),createTextNode:value=>({textContent:value})};
-  const context={model,ui,document,advisorShownInSection:()=>true,now:()=>"synthetic-now",
+  const context={SETTINGS_PATH:["settings.json"],model,ui,document,advisorShownInSection:()=>true,now:()=>"synthetic-now",
     writeJson:()=>write.promise,renderAll:()=>{},addHistory:async()=>{},
     renderSettings:()=>{wholeSettingsRenders++;pendingInput.value=model.settings.store?.name||"";}};
   const production=Function("context",`with(context){ return (async()=>{ ${advisorRender} ${lifecycle} return updateAdvisorLifecycle; })(); }`);

@@ -57,7 +57,7 @@ test("records with missing advisor codes are hidden only after unique name resol
 
 test("UI surfaces have independent non-destructive visibility gates", () => {
   const scopes = ["openRo","assignNext","dailyWalk","advisorPerformance","advisorMeeting","supervisorWorkbook"];
-  const settings = app.slice(app.indexOf("  function renderSettings()"),app.indexOf("  function readSettingsInputs("));
+  const settings = app.slice(app.indexOf("  function renderAdvisorSettings()"),app.indexOf("  function renderSettings()"));
   for (const key of scopes) assert.ok(settings.includes('["'+key+'",'), key + " toggle");
   assert.ok(!settings.includes("Remove from Service Operations Dashboard"), "no misleading global remove control");
   assert.match(app, /function renderFilters\(\) \{ renderAdvisorHandoff\(\); const records=openRoVisibleRecords\(\)/);
