@@ -19,7 +19,7 @@ const importer = extract("  async function importPerformanceFile(", "  function 
 const entity = extract("  function performanceEntity(", "  function performanceDelta(", "SAPR entity selector");
 const delta = extract("  function performanceDelta(", "  function trackerOpenCount(", "SAPR delta selector");
 const plan = extract("  function performancePlan(", "  function currentCsiSurveys(", "SAPR working-day projection");
-const performanceView = extract("  function renderPerformance() {", "  const renderPerformanceBase=renderPerformance;", "Performance view renderer");
+const performanceView = extract("  function renderPerformance() {", "  const renderPerformanceBase = renderPerformance;", "Performance view renderer");
 const meeting = extract("  function meetingAdvisorTv(", "  function renderMeetingArenaStore(", "Meeting renderer");
 
 function node() {
@@ -116,7 +116,7 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
   assert.equal(ui.performancePeriod.textContent, "2026-10-01 through 2026-10-21",
     "Performance must show the exact imported reporting period");
   assert.match(ui.performanceSource.textContent, /synthetic-sapr\.xlsx/);
-  assert.deepEqual(chartPoints, [{ date: "2026-10-21", value: 25000 }],
+  assert.equal(JSON.stringify(chartPoints), JSON.stringify([{ date: "2026-10-21", value: 25000 }]),
     "Performance trend must use the same imported snapshot and report-end date");
 
   const persisted = durable.snapshots["2026-10-21"];
