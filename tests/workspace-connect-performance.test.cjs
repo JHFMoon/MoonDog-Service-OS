@@ -73,10 +73,13 @@ async function measureReconnect(readDelayMs) {
     assignNext: {}, autoImport: {}, recovery: {}, settings: {}
   };
   const states = [];
+  const completedReads = new Set();
+  const requiredReadPaths = [paths.settings, paths.state, paths.appointments, paths.performance, paths.metrics, paths.meeting, paths.assignNext, paths.autoImport, paths.recovery];
+  const connectedSnapshots = [];
   const events = [];
   const writes = [];
   const backgroundJobs = [];
-  const firstRender = { at: null, loadedRecordId: null };
+  const firstRender = { at: null, loadedRecordId: null, count: 0 };
   const ui = {
     homeConnect: { textContent: "", hidden: false },
     "view-home": { classList: { contains: value => value === "active" } }
@@ -116,13 +119,17 @@ async function measureReconnect(readDelayMs) {
     recordDiagnostic: () => {},
     readJson: async (key, fallback) => {
       await new Promise(resolve => setTimeout(resolve, readDelayMs));
+      completedReads.add(key);
       return clone(Object.prototype.hasOwnProperty.call(fixture, key) ? fixture[key] : fallback);
     },
     writeJson: async (key, value) => {
       writes.push({ key, value: clone(value) });
       fixture[key] = clone(value);
     },
-    setConnectionState: state => states.push(state),
+    setConnectionState: state => {
+      states.push(state);
+      if (state === "CONNECTED") connectedSnapshots.push([...completedReads]);
+    },
     pruneClosedRecords: rows => rows,
     normalizeControllableVinCounts: () => false,
     loadSourceAdapter: () => {},
@@ -137,8 +144,11 @@ async function measureReconnect(readDelayMs) {
     openSetupIfRequired: () => {},
     postConnectReconciliation: undefined,
     renderAll: () => {
-      firstRender.at = performance.now();
-      firstRender.loadedRecordId = model.state.records[0]?.id || null;
+      firstRender.count += 1;
+      if (firstRender.at === null) {
+        firstRender.at = performance.now();
+        firstRender.loadedRecordId = model.state.records[0]?.id || null;
+      }
     },
     renderRecovery: () => {},
     startFolderWatch: () => {},
@@ -163,12 +173,16 @@ async function measureReconnect(readDelayMs) {
   const finished = performance.now();
 
   assert.ok(states.includes("CONNECTED"), "the production reconnect path must reach CONNECTED");
+  assert.equal(connectedSnapshots.length, 1, "the synthetic reconnect should publish readiness once");
+  assert.deepEqual([...connectedSnapshots[0]].sort(), [...requiredReadPaths].sort(),
+    "CONNECTED must follow every essential settings, state, report, and recovery read");
   assert.equal(model.workspaceConnectionCommittedRoot, model.root,
     "connected state must be committed only after authoritative reads finish");
   assert.equal(firstRender.loadedRecordId, "synthetic-ro-1",
     "first Home render must see the synthetic durable state, not an empty or stale placeholder");
   assert.ok(firstRender.at >= started && firstRender.at <= finished,
     "the first Home render must occur within the measured reconnect interval");
+  assert.ok(firstRender.count >= 1, "the reconnect must render Home");
   assert.deepEqual(events, ["moondog-workspace-changing"]);
   assert.equal(writes.length, 1, "only the synthetic recovery-ready marker may be written");
   assert.equal(writes[0].key, paths.recovery, "reconnect must not rewrite operational source/state files");
