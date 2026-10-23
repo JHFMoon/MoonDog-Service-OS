@@ -331,6 +331,31 @@ try{
           reviewDate:"2026-10-14",communication:"Updated"}
       }));
     });
+    // #58-01 partial baseline: measure warm activation of the production Home tab while
+    // 413 synthetic ROs are loaded in memory. This measures tab switching to a frame;
+    // it does not claim Home repaint, folder-picker, workspace read, OneDrive, or cache timing.
+    const homeActivationMs=[];
+    for(let sample=0;sample<9;sample++){
+      await page.locator('.nav-item[data-view="performance"]').click({timeout:3500});
+      await page.waitForFunction(()=>document.getElementById("view-performance").classList.contains("active"),null,{timeout:3500});
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));
+      const measured=await page.evaluate(async()=>{
+        const started=performance.now();
+        document.querySelector('.nav-item[data-view="home"]').click();
+        await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
+        const home=document.getElementById("view-home");
+        const needs=document.getElementById("moondogNeeds");
+        return {elapsedMs:performance.now()-started,active:home?.classList.contains("active"),
+          managerNeedsAvailable:!!needs};
+      });
+      if(!measured.active||!measured.managerNeedsAvailable)
+        throw Error("Synthetic Home was not usable after navigation: "+JSON.stringify(measured));
+      homeActivationMs.push(measured.elapsedMs);
+    }
+    const homeBaseline=summarizeNavigationMs(homeActivationMs);
+    console.log("Synthetic Home warm-tab activation baseline",
+      JSON.stringify({scope:"warm production Home tab activation to animation frame; 413 synthetic ROs in memory; excludes Home repaint, connection and filesystem latency",
+        viewport:{width,height},...homeBaseline}));
     const visitedTimes=[];
     let initialTableRow=null;
     for(let repeat=0;repeat<8;repeat++){
@@ -362,8 +387,52 @@ try{
         throw Error("Open RO DOM was unnecessarily rebuilt after unchanged tab navigation");
       initialTableRow ||= row;
     }
-    console.log("Five-tab and Tools-back proof PASS",visitedTimes.length+" transitions",
-      "max="+Math.max(...visitedTimes)+"ms","rows=413","DOM reuse=true");
+    const routeBaseline=summarizeNavigationMs(visitedTimes);
+    if(routeBaseline.count!==48)throw Error("Five-tab and Tools-back timing sample count changed: "+routeBaseline.count);
+    console.log("Five-tab and Tools-back proof PASS",
+      JSON.stringify({scope:"synthetic 413-row fixture; 5 tabs plus Tools settings/back; click to animation frame",
+        ...routeBaseline,rows:413,domReuse:true}));
+
+    // #58-01 partial Open RO workload baseline: synthetic search and editor-open only.
+    // No fields are changed or saved; this excludes connection, filesystem, and OneDrive latency.
+    const searchOpenMs=[],editorOpenMs=[];
+    for(let sample=0;sample<9;sample++){
+      const search=await page.evaluate(async()=>{
+        const input=document.getElementById("searchInput");
+        const started=performance.now();
+        input.value="900312";
+        input.dispatchEvent(new Event("input",{bubbles:true}));
+        await new Promise(resolve=>requestAnimationFrame(resolve));
+        return {elapsedMs:performance.now()-started,
+          rows:document.querySelectorAll("#roTable tr[data-id]").length,
+          id:document.querySelector("#roTable tr[data-id]")?.dataset.id};
+      });
+      if(search.rows!==1||search.id!=="synthetic-ro-312")
+        throw Error("Synthetic Open RO search did not isolate the expected row: "+JSON.stringify(search));
+      searchOpenMs.push(search.elapsedMs);
+      const editor=await page.evaluate(async()=>{
+        const row=document.querySelector('#roTable tr[data-id="synthetic-ro-312"]');
+        const button=row?.querySelector("button[data-id]");
+        if(!button)throw Error("Synthetic Open RO edit action is missing");
+        const started=performance.now();button.click();
+        await new Promise(resolve=>requestAnimationFrame(resolve));
+        const dialog=document.getElementById("editDialog");
+        return {elapsedMs:performance.now()-started,open:dialog?.open,
+          title:document.getElementById("dialogTitle")?.textContent};
+      });
+      if(!editor.open||editor.title!=="RO 900312")
+        throw Error("Synthetic Open RO editor did not open the selected row: "+JSON.stringify(editor));
+      editorOpenMs.push(editor.elapsedMs);
+      await page.locator("#editDialog .dialog-close").first().click({timeout:1500});
+      await page.evaluate(()=>{
+        const input=document.getElementById("searchInput");input.value="";
+        input.dispatchEvent(new Event("input",{bubbles:true}));
+      });
+      await page.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===413,null,{timeout:3500});
+    }
+    console.log("Synthetic Open RO search/edit timing baseline",
+      JSON.stringify({scope:"9 synthetic 413-row fixture samples; search to one result and editor open to animation frame; no edits saved",
+        search:summarizeNavigationMs(searchOpenMs),editorOpen:summarizeNavigationMs(editorOpenMs)}));
 
     // Report manager visual regression: actual packaged file:// runtime, same
     // 928px Edge viewport from James's screenshots, plus reflow/zoom checks.
