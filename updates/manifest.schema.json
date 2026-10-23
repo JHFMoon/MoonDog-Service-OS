@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MoonDog public update manifest",
+  "description": "Stable and Beta have independent release metadata. Each package, when present, is UTF-8 JSON at a public GitHub URL and limited to 64 MiB. SHA-256 covers exact downloaded package bytes. Null packageUrl and sha256 mean no package for that channel.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "stable",
+    "beta"
+  ],
+  "properties": {
+    "stable": {
+      "$ref": "#/$defs/stableRelease"
+    },
+    "beta": {
+      "$ref": "#/$defs/betaRelease"
+    }
+  },
+  "$defs": {
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "packageUrl",
+        "sha256",
+        "minimumCompatibleVersion",
+        "migrationRequired",
+        "releaseNotes"
+      ],
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "packageUrl": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^https://(raw\\.githubusercontent\\.com/JHFMoon/MoonDog-Service-OS/|github\\.com/JHFMoon/MoonDog-Service-OS/releases/download/)"
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-fA-F]{64}$"
+        },
+        "minimumCompatibleVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "migrationRequired": {
+          "type": "boolean"
+        },
+        "releaseNotes": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "packageUrl": {
+              "type": "null"
+            },
+            "sha256": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "packageUrl": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "stableRelease": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/release"
+        },
+        {
+          "properties": {
+            "version": {
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+            }
+          }
+        }
+      ]
+    },
+    "betaRelease": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/release"
+        },
+        {
+          "properties": {
+            "version": {
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-beta\\.[0-9]+$"
+            },
+            "migrationRequired": {
+              "const": false
+            }
+          }
+        }
+      ]
+    }
+  }
+}

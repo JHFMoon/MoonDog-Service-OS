@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "description": "Engineering closure requires every authoritative software criterion VERIFIED COMPLETE with independently validated protected PR, synthetic test and trusted Beta evidence. Owner browser/Windows/OneDrive field testing is optional and never a closure prerequisite.",
+  "issues": {
+    "58": {
+      "criteria": {},
+      "package_pr": null
+    },
+    "59": {
+      "criteria": {
+        "59-06": {
+          "kind": "runtime",
+          "pr": 220,
+          "tests": [
+            "tests/workspace-history-isolation.test.cjs"
+          ]
+        }
+      },
+      "package_pr": 276
+    },
+    "60": {
+      "criteria": {
+        "60-04": {
+          "kind": "runtime",
+          "pr": 253,
+          "tests": [
+            "tests/daily-focus-configured-days.test.cjs"
+          ]
+        },
+        "60-07": {
+          "kind": "runtime",
+          "pr": 145,
+          "tests": [
+            "tests/advisor-meeting-30-second.test.cjs"
+          ]
+        },
+        "60-08": {
+          "kind": "runtime",
+          "pr": 297,
+          "tests": [
+            "tests/admin-closeout-invalid-commitments.test.cjs"
+          ]
+        }
+      },
+      "package_pr": 298
+    },
+    "61": {
+      "criteria": {
+        "61-06": {
+          "kind": "runtime",
+          "pr": 275,
+          "tests": [
+            "tests/device-open-ro-preferences.test.cjs"
+          ]
+        }
+      },
+      "package_pr": 276
+    },
+    "164": {
+      "criteria": {
+        "164-04": {
+          "kind": "test",
+          "pr": 355,
+          "tests": [
+            "tests/history-cache-retained-heap.test.cjs"
+          ]
+        },
+        "164-06": {
+          "kind": "test",
+          "pr": 265,
+          "tests": [
+            "tests/maintenance-large-inventory.test.cjs"
+          ]
+        },
+        "164-08": {
+          "kind": "test",
+          "pr": 242,
+          "tests": [
+            "tests/learned-parser-epoch-guard.test.cjs"
+          ]
+        }
+      },
+      "package_pr": 270
+    },
+    "212": {
+      "criteria": {},
+      "package_pr": null
+    }
+  }
+}

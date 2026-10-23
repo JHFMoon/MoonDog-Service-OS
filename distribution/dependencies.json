@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "runtimeLibraries": {
+    "jszip": {
+      "version": "3.10.1",
+      "source": "https://raw.githubusercontent.com/Stuk/jszip/cae55105f5e8bd37c270cdb76eab2cf40388dfd9/dist/jszip.min.js",
+      "destination": "vendor/jszip.min.js",
+      "sourceIdentity": "immutable upstream commit cae55105f5e8bd37c270cdb76eab2cf40388dfd9",
+      "outputSha256": "acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e"
+    },
+    "pdfjs": {
+      "version": "5.6.205",
+      "source": "https://github.com/mozilla/pdf.js/releases/download/v5.6.205/pdfjs-5.6.205-dist.zip",
+      "sourceSha256": "0555ef47464e456125dcd0b9742cfa2aaed6d282e804e4dd1f1b99316b46ac00",
+      "mainDestination": "vendor/pdf.min.js",
+      "workerDestination": "vendor/pdf.worker.min.js",
+      "build": {
+        "bundler": "esbuild",
+        "version": "0.25.10",
+        "format": "iife",
+        "target": "chrome120",
+        "mainGlobalName": "pdfjsLib",
+        "workerGlobalName": "pdfjsWorker"
+      },
+      "mainOutputSha256": "e786c55638a36ca8192fe97a4aeeb5a78ac16de0cf31a2fb491b5cb84e9dcdd9",
+      "workerOutputSha256": "df20aeb7d05ee7246889f25f1e2bc882c6264b042a8b4148cdc563dc3c553691"
+    },
+    "sheetjs": {
+      "version": "0.20.3",
+      "source": "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js",
+      "sourceMd5": "6b3130af1ceadf07caa0ec08af7addff",
+      "destination": "vendor/xlsx.full.min.js",
+      "sourceIdentity": "versioned SheetJS CDN file with upstream-published checksum",
+      "outputSha256": "cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41"
+    }
+  }
+}

@@ -1,0 +1,197 @@
+name: Public Repository History Safety Audit
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '23 9 * * *'
+
+permissions:
+  contents: read
+  statuses: write
+  actions: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    outputs:
+      report: ${{ steps.capture.outputs.report }}
+      outcome: ${{ steps.capture.outputs.outcome }}
+    steps:
+      - name: Checkout full reachable history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch all advertised refs and tags
+        run: |
+          git fetch --force origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+      - name: Audit all reachable blobs without disclosing findings
+        id: audit
+        continue-on-error: true
+        env:
+          PUBLIC_HISTORY_AUDIT_STATUS: /tmp/public-history-audit.json
+        run: python3 scripts/audit_public_git_history.py
+      - name: Publish redacted commit status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$AUDIT_OUTCOME" = "success" ]; then
+            STATE=success
+            DESC="Redacted full-history scan passed"
+          else
+            STATE=failure
+            if [ -f /tmp/public-history-audit.json ]; then
+              DESC="$(python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/public-history-audit.json',encoding='utf-8'))
+          counts=data.get('counts') or {}
+          parts=[f"{k}={counts[k]}" for k in sorted(counts)]
+          text="Review: " + (", ".join(parts) if parts else "audit failed before counts")
+          print(text[:135])
+          PY
+          )"
+            else
+              DESC="Audit failed before redacted counts were produced"
+            fi
+          fi
+          gh api -X POST "repos/$REPO/statuses/$SHA"             -f state="$STATE"             -f context="Public History Audit"             -f description="$DESC"             -f target_url="https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
+      - name: Capture redacted history result
+        id: capture
+        if: always()
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          set -euo pipefail
+          if [ -f /tmp/public-history-audit.json ]; then
+            REPORT="$(base64 -w0 /tmp/public-history-audit.json)"
+          else
+            REPORT="$(printf '%s' '{"counts":{"audit_execution_failure":1}}' | base64 -w0)"
+          fi
+          echo "report=$REPORT" >> "$GITHUB_OUTPUT"
+          echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+      - name: Enforce audit result
+        if: steps.audit.outcome != 'success'
+        run: exit 1
+
+  public-surfaces:
+    runs-on: ubuntu-latest
+    outputs:
+      report: ${{ steps.capture.outputs.report }}
+      outcome: ${{ steps.capture.outputs.outcome }}
+    steps:
+      - name: Checkout audit logic only
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Audit releases, Actions artifacts, and public discussions
+        id: surface
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLIC_SURFACE_AUDIT_STATUS: /tmp/public-surface-audit.json
+        run: python3 scripts/audit_public_surfaces.py
+      - name: Publish redacted public-surface status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          AUDIT_OUTCOME: ${{ steps.surface.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$AUDIT_OUTCOME" = "success" ]; then
+            STATE=success
+            DESC="Releases, artifacts and public discussions passed"
+          else
+            STATE=failure
+            if [ -f /tmp/public-surface-audit.json ]; then
+              DESC="$(python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/public-surface-audit.json',encoding='utf-8'))
+          counts=data.get('counts') or {}
+          parts=[f"{k}={counts[k]}" for k in sorted(counts)]
+          print(("Review: "+(", ".join(parts) if parts else "surface audit failed before counts"))[:135])
+          PY
+          )"
+            else
+              DESC="Public-surface audit failed before redacted counts"
+            fi
+          fi
+          gh api -X POST "repos/$REPO/statuses/$SHA"             -f state="$STATE"             -f context="Public Surface Audit"             -f description="$DESC"             -f target_url="https://github.com/$REPO/actions/runs/$GITHUB_RUN_ID"
+      - name: Capture redacted public-surface result
+        id: capture
+        if: always()
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.surface.outcome }}
+        run: |
+          set -euo pipefail
+          if [ -f /tmp/public-surface-audit.json ]; then
+            REPORT="$(base64 -w0 /tmp/public-surface-audit.json)"
+          else
+            REPORT="$(printf '%s' '{"counts":{"audit_execution_failure":1}}' | base64 -w0)"
+          fi
+          echo "report=$REPORT" >> "$GITHUB_OUTPUT"
+          echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+      - name: Enforce public-surface audit result
+        if: steps.surface.outcome != 'success'
+        run: exit 1
+
+  publish-redacted-result:
+    needs: [audit, public-surfaces]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Update closed redacted audit status issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          HISTORY_REPORT: ${{ needs.audit.outputs.report }}
+          HISTORY_OUTCOME: ${{ needs.audit.outputs.outcome }}
+          SURFACE_REPORT: ${{ needs.public-surfaces.outputs.report }}
+          SURFACE_OUTCOME: ${{ needs.public-surfaces.outputs.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/audit-status.md
+          import base64, json, os
+          def decode(value):
+              if not value:
+                  return {"counts":{"missing_job_output":1}}
+              try:
+                  return json.loads(base64.b64decode(value).decode("utf-8"))
+              except Exception:
+                  return {"counts":{"invalid_job_output":1}}
+          payload={
+              "sourceCommit": os.environ["SOURCE_SHA"],
+              "historyOutcome": os.environ.get("HISTORY_OUTCOME") or "unknown",
+              "history": decode(os.environ.get("HISTORY_REPORT","")),
+              "publicSurfaceOutcome": os.environ.get("SURFACE_OUTCOME") or "unknown",
+              "publicSurfaces": decode(os.environ.get("SURFACE_REPORT","")),
+              "redacted": True,
+          }
+          print("<!-- automation-managed-redacted-audit -->")
+          print("# Public repository safety audit status")
+          print()
+          print("This issue is automation-managed. It contains category counts only; matched values are never written here.")
+          print()
+          for line in json.dumps(payload,indent=2,sort_keys=True).splitlines():
+              print("    "+line)
+          PY
+          gh issue edit 100 --repo "$REPO" --body-file /tmp/audit-status.md

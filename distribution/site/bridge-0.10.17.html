@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Service Operations Dashboard 0.10.17 Bridge Installer</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#13252d;background:#eef3f5}
+*{box-sizing:border-box}body{margin:0}.wrap{max-width:820px;margin:auto;padding:48px 22px}.card{background:#fff;border:1px solid #d8e2e6;border-radius:20px;padding:34px;box-shadow:0 18px 50px rgba(26,52,64,.08)}
+h1{margin:0 0 16px;font-size:38px;line-height:1.05}.lead{font-size:18px;line-height:1.55;color:#47616b}
+button{border:0;border-radius:12px;padding:14px 18px;font-weight:800;font-size:16px;background:#123d4b;color:#fff;cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}.status{margin-top:18px;padding:16px;border-radius:12px;background:#eef5f7;white-space:pre-wrap;line-height:1.5}
+.warn{background:#fff9e9;border:1px solid #ead28c;color:#654f17}.ok{background:#eaf8ef;border:1px solid #a8d6b7;color:#215c34}.err{background:#fff0f0;border:1px solid #e3a5a5;color:#742d2d}
+code{word-break:break-all}
+</style>
+</head>
+<body><main class="wrap"><section class="card">
+<h1>0.10.17 Bridge Installer</h1>
+<p class="lead">Use this only if Service Operations Dashboard 0.10.16 reports <strong>Editing authority is required before installing an update.</strong> This bridge updates only the two application files needed to remove that obsolete editing gate. Workspace data is not modified.</p>
+<p class="status warn">Close other Service Operations Dashboard tabs first. Then select your <strong>Dashboard Interface</strong> folder when prompted.</p>
+<button id="install">Repair &amp; install 0.10.17 bridge</button>
+<div id="status" class="status">Ready.</div>
+</section></main>
+<script>
+(() => {
+"use strict";
+const button=document.getElementById("install"), status=document.getElementById("status");
+const PACKAGE_URL="https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/v0.10.17/updates/packages/moondog-0.10.17.json";
+const PACKAGE_SHA="10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141";
+const TARGETS=["assets/app.js","assets/moondog-write-authority.js"];
+const enc=new TextEncoder();
+const hex=bytes=>Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,"0")).join("");
+async function sha(bytes){return hex(await crypto.subtle.digest("SHA-256",bytes));}
+async function read(root,path){
+ let dir=root; const parts=path.split("/");
+ for(const p of parts.slice(0,-1)) dir=await dir.getDirectoryHandle(p);
+ const file=await (await dir.getFileHandle(parts.at(-1))).getFile();
+ return new Uint8Array(await file.arrayBuffer());
+}
+async function write(root,path,bytes){
+ let dir=root; const parts=path.split("/");
+ for(const p of parts.slice(0,-1)) dir=await dir.getDirectoryHandle(p,{create:true});
+ const fh=await dir.getFileHandle(parts.at(-1),{create:true}), w=await fh.createWritable();
+ try{await w.write(bytes);await w.close();}catch(e){try{await w.abort();}catch(_){}throw e;}
+ const actual=await read(root,path);
+ if(await sha(actual)!==await sha(bytes)) throw new Error("Read-back verification failed: "+path);
+}
+async function backup(workspace, originals){
+ let b=await workspace.getDirectoryHandle("backups",{create:true});
+ b=await b.getDirectoryHandle("system-updates",{create:true});
+ const name="Bridge-0-10-17-"+new Date().toISOString().replace(/[:.]/g,"-")+"-"+crypto.randomUUID();
+ b=await b.getDirectoryHandle(name,{create:true});
+ for(const [path,bytes] of Object.entries(originals)) await write(b,path,bytes);
+ const manifest=enc.encode(JSON.stringify({format:"moondog-bridge-backup-v1",version:"0.10.16",target:"0.10.17",files:Object.keys(originals)},null,2)+"\n");
+ await write(b,"manifest.json",manifest);
+ return name;
+}
+button.addEventListener("click",async()=>{
+ button.disabled=true; status.className="status"; status.textContent="Select your Dashboard Interface folder…";
+ try{
+   if(!window.showDirectoryPicker) throw new Error("This browser does not support folder installation. Use Microsoft Edge on Windows.");
+   const root=await window.showDirectoryPicker({mode:"readwrite"});
+   if(await root.queryPermission({mode:"readwrite"})!=="granted" && await root.requestPermission({mode:"readwrite"})!=="granted") throw new Error("Folder write permission was not granted.");
+   const system=await root.getDirectoryHandle("System Files");
+   const workspace=await system.getDirectoryHandle("Workspace");
+   await workspace.getDirectoryHandle("data");
+   const installed=await read(system,"assets/app.js");
+   const installedText=new TextDecoder().decode(installed);
+   if(!installedText.includes('const VERSION = "0.10.16";')&&!installedText.includes('const VERSION = "0.10.17";')) throw new Error("This is not the expected 0.10.16/0.10.17 Dashboard Interface folder.");
+   status.textContent="Downloading and verifying the signed 0.10.17 package…";
+   const response=await fetch(PACKAGE_URL,{cache:"no-store",credentials:"omit",referrerPolicy:"no-referrer"});
+   if(!response.ok) throw new Error("Could not download the 0.10.17 package.");
+   const packageBytes=new Uint8Array(await response.arrayBuffer());
+   if(await sha(packageBytes)!==PACKAGE_SHA) throw new Error("0.10.17 package SHA-256 verification failed.");
+   const pkg=JSON.parse(new TextDecoder().decode(packageBytes));
+   if(pkg.version!=="0.10.17") throw new Error("Unexpected package version.");
+   const entries=new Map(pkg.files.map(x=>[x.path,x]));
+   const originals={};
+   const replacements={};
+   for(const path of TARGETS){
+     const entry=entries.get(path);
+     if(!entry||entry.action!=="put") throw new Error("Required bridge file missing: "+path);
+     const bytes=Uint8Array.from(atob(entry.contentBase64),c=>c.charCodeAt(0));
+     if(await sha(bytes)!==entry.sha256.toLowerCase()) throw new Error("Package file verification failed: "+path);
+     originals[path]=await read(system,path);
+     replacements[path]=bytes;
+   }
+   if(installedText.includes('const VERSION = "0.10.17";')){
+     status.className="status ok"; status.textContent="This installation is already on 0.10.17. Restart the dashboard if the old screen is still open."; return;
+   }
+   status.textContent="Creating a verified local rollback backup…";
+   const backupName=await backup(workspace,originals);
+   try{
+     for(const path of TARGETS) await write(system,path,replacements[path]);
+     const finalText=new TextDecoder().decode(await read(system,"assets/app.js"));
+     if(!finalText.includes('const VERSION = "0.10.17";')) throw new Error("Version verification failed after write.");
+   }catch(error){
+     for(const path of TARGETS) try{await write(system,path,originals[path]);}catch(_){}
+     throw new Error("Bridge install failed; original files were restored when possible. "+error.message);
+   }
+   status.className="status ok";
+   status.textContent="0.10.17 bridge installed and verified.\nRollback backup: System Files/Workspace/backups/system-updates/"+backupName+"\n\nClose this page, close the old Dashboard tab, then reopen 00 - OPEN DASHBOARD.html.";
+ }catch(error){
+   status.className="status err"; status.textContent="Stopped: "+(error.message||String(error));
+ }finally{button.disabled=false;}
+});
+})();
+</script>
+</body></html>

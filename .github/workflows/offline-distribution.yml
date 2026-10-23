@@ -1,0 +1,176 @@
+name: Publish Offline Distribution
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: offline-distribution
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ github.sha }}
+
+    steps:
+      - name: Check out validated source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || env.HEAD_SHA }}
+          fetch-depth: 0
+
+      - name: Fetch all public refs for history audit
+        run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Re-run public safety checks
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          node --test tests/*.test.cjs
+          python3 scripts/build_operating_modules.py --check
+          python3 scripts/check_publication.py
+          python3 scripts/audit_git_history.py
+          python3 scripts/build_distribution.py --check-source
+
+      - name: Resolve Stable release
+        id: stable
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          manifest = json.loads(Path("updates/manifest.json").read_text(encoding="utf-8"))
+          version = manifest["stable"]["version"]
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+              raise SystemExit("Invalid Stable version")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+              output.write(f"tag=v{version}\n")
+          PY
+
+      - name: Wait for matching Stable GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.stable.outputs.tag }}"
+          for attempt in {1..24}; do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Matching Stable GitHub Release was not available." >&2
+          exit 1
+
+      - name: Check out immutable Stable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.stable.outputs.tag }}"
+          FOUND=false
+          for attempt in {1..24}; do
+            if git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"; then
+              FOUND=true
+              break
+            fi
+            sleep 5
+          done
+          [ "$FOUND" = "true" ] || {
+            echo "Stable tag $TAG was not fetchable after retry window." >&2
+            exit 1
+          }
+          git checkout --detach "$TAG"
+          test "$(git tag --points-at HEAD | grep -Fx "$TAG")" = "$TAG"
+          python3 scripts/check_publication.py
+          python3 scripts/build_distribution.py --check-source
+
+      - name: Recreate and verify pinned browser dependencies
+        run: bash scripts/prepare_distribution_vendor.sh .vendor-build
+
+      - name: Build deterministic clean-install ZIP
+        run: |
+          rm -rf dist .clean-install-smoke
+          mkdir -p .clean-install-smoke
+          python3 scripts/build_distribution.py \
+            --vendor-dir .vendor-build \
+            --output dist/Service-Operations-Dashboard.zip
+          python3 scripts/build_distribution.py \
+            --vendor-dir .vendor-build \
+            --output dist/reproducibility-check.zip
+          cmp dist/Service-Operations-Dashboard.zip dist/reproducibility-check.zip
+          rm dist/reproducibility-check.zip dist/reproducibility-check.manifest.json dist/reproducibility-check.zip.sha256
+          (cd dist && sha256sum --check Service-Operations-Dashboard.zip.sha256)
+          unzip -q dist/Service-Operations-Dashboard.zip -d .clean-install-smoke
+
+      - name: Install browser smoke-test dependency
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Smoke-test extracted local application
+        run: |
+          node scripts/smoke_distribution.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
+
+      - name: Publish or verify clean-install assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.stable.outputs.tag }}"
+          rm -rf .release-check
+          mkdir .release-check
+          for asset in             Service-Operations-Dashboard.zip             Service-Operations-Dashboard.zip.sha256             Service-Operations-Dashboard.manifest.json
+          do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$asset"; then
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir .release-check
+              cmp "dist/$asset" ".release-check/$asset"
+            else
+              gh release upload "$TAG" "dist/$asset" --repo "$GITHUB_REPOSITORY"
+            fi
+          done
+
+      - name: Prepare GitHub Pages storefront
+        shell: bash
+        run: |
+          rm -rf .pages
+          cp -R distribution/site .pages
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          release = json.loads(Path("dist/Service-Operations-Dashboard.manifest.json").read_text(encoding="utf-8"))
+          latest = {
+              "version": release["version"],
+              "sha256": release["sha256"],
+              "asset": "https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip",
+              "release": f"https://github.com/JHFMoon/MoonDog-Service-OS/releases/tag/v{release['version']}",
+          }
+          Path(".pages/latest.json").write_text(json.dumps(latest, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: .pages
+
+  deploy-pages:
+    name: Deploy GitHub Pages
+    needs: publish
+    if: needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

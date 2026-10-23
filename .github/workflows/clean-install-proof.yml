@@ -1,0 +1,104 @@
+name: Clean Install Proof
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove-clean-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 2  # Keep PR merge parent for package-only source-parity proof
+
+      - name: Fetch immutable PR base for parser epoch checks
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+
+      - name: Run repository safety checks
+        env:
+          LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          node --test tests/*.test.cjs
+          python3 scripts/build_operating_modules.py --check
+          python3 scripts/check_publication.py
+          python3 scripts/build_distribution.py --check-source
+
+      - name: Recreate and verify pinned browser dependencies
+        run: bash scripts/prepare_distribution_vendor.sh .distribution-vendor
+
+      - name: Build twice and prove deterministic output
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist .clean-install-smoke
+          mkdir -p dist .clean-install-smoke
+          python3 scripts/build_distribution.py --vendor-dir .distribution-vendor --output dist/Service-Operations-Dashboard.zip
+          python3 scripts/build_distribution.py --vendor-dir .distribution-vendor --output dist/reproducibility-check.zip
+          cmp dist/Service-Operations-Dashboard.zip dist/reproducibility-check.zip
+          (cd dist && sha256sum --check Service-Operations-Dashboard.zip.sha256)
+          unzip -q dist/Service-Operations-Dashboard.zip -d .clean-install-smoke
+
+      - name: Install browser smoke-test dependency
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Smoke-test extracted file application
+        run: |
+          node scripts/smoke_distribution.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
+      - name: Prove 16:9 TV layouts and seven-slide rotation with synthetic data
+        run: |
+          node scripts/smoke_overdrive.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html" ".clean-install-smoke/overdrive-proof"
+
+      - name: Install the verified Beta package and launch its runtime
+        run: |
+          node scripts/smoke_beta_package.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
+
+      - name: Verify synthetic navigation benchmark structure
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path(".clean-install-smoke/overdrive-proof/navigation-baseline.json")
+          report=json.loads(p.read_text(encoding="utf-8"))
+          assert set(report)=={"schemaVersion","dataset","viewport","startupMs","navigationMs","responsiveness"}
+          assert report["schemaVersion"]==1 and report["dataset"]=="synthetic-clean-install"
+          assert report["viewport"]=={"width":1600,"height":900}
+          startup=report["startupMs"]
+          assert set(startup)=={"launcherToShellAttached"}
+          assert isinstance(startup["launcherToShellAttached"],(int,float)) and 0<=startup["launcherToShellAttached"]<120000
+          nav=report["navigationMs"]
+          assert set(nav)=={"count","p50","p95","max"}
+          assert nav["count"]==36 and 0<=nav["p50"]<=nav["p95"]<=nav["max"]
+          if report["responsiveness"] is not None:
+              assert set(report["responsiveness"])=={"longTasks","maxLongTaskMs"}
+              assert all(isinstance(v,(int,float)) and v>=0 for v in report["responsiveness"].values())
+          assert p.stat().st_size<4096
+          print("PASS: synthetic-only navigation timing artifact validated")
+          PY
+
+      - name: Upload proof artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: clean-install-proof
+          path: |
+            dist/Service-Operations-Dashboard.zip
+            dist/Service-Operations-Dashboard.zip.sha256
+            dist/Service-Operations-Dashboard.manifest.json
+            .clean-install-smoke/overdrive-proof/navigation-baseline.json
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,71 @@
+name: Publication check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publication-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-boundary:
+    name: Publication Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch all public refs for history audit
+        run: |
+          git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
+      - name: Reject falsely attributed CI co-authors in new commits
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+
+          base = os.environ.get("PR_BASE_SHA")
+          head = os.environ.get("PR_HEAD_SHA")
+          revision = f"{base}..{head}" if base and head else os.environ["GITHUB_SHA"]
+          messages = subprocess.check_output(
+              ["git", "log", "--format=%B%x00", revision], text=True
+          )
+          bad_ci_trailer = re.compile(
+              r"(?im)^Co-authored-by:\s*[^\r\n]*<ci@users\.noreply\.github\.com>\s*$"
+          )
+          if bad_ci_trailer.search(messages):
+              raise SystemExit(
+                  "Incorrect CI co-author attribution. Remove the trailer; "
+                  "MoonDog automation already uses github-actions[bot]."
+              )
+          PY
+      - name: Run focused tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Verify updater-compatible generated runtime
+        run: python3 scripts/build_operating_modules.py --check
+      - name: Verify clean-install source contract
+        run: python3 scripts/build_distribution.py --check-source
+      - name: Test browser update check
+        env:
+          LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node --test tests/*.test.cjs
+      - name: Check tracked publication contents
+        run: python3 scripts/check_publication.py
+      - name: Audit reachable Git history for sensitive material
+        run: python3 scripts/audit_git_history.py
+      - name: Enforce strict redacted full-history VIN and credential scan
+        run: python3 scripts/audit_public_git_history.py

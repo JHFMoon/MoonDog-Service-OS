@@ -1,0 +1,246 @@
+name: Guarded PR Merge
+
+on:
+  workflow_run:
+    workflows: ["Publication check"]
+    types: [completed]
+
+permissions:
+  # Required only to dispatch the trusted post-merge Beta packager.
+  # The existing head/proof/main/Stable gates remain mandatory before dispatch.
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: guarded-pr-merge-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.event == 'pull_request' ||
+       github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+    steps:
+      - name: Check out trusted merge guard from main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Verify automation authorization and PR safety
+        id: guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$PR_NUMBER" ]; then
+            OWNER="${REPO%%/*}"
+            PR_NUMBER="$(gh api "repos/$REPO/pulls?state=open&head=$OWNER:$HEAD_BRANCH" --jq '.[0].number // empty')"
+            if [ -z "$PR_NUMBER" ]; then
+              echo "No open automation PR matches $HEAD_BRANCH; skipping safely."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
+          fi
+          gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.json
+          # A workflow_run may refer to an older PR head after packaging or a
+          # branch update. Skip that obsolete event; never use its checks to merge.
+          CURRENT_PR_HEAD="$(jq -r '.head.sha // empty' /tmp/pr.json)"
+          if [ -z "$HEAD_SHA" ] || [ -z "$CURRENT_PR_HEAD" ]; then
+            echo "Missing verified event/PR head; refusing to proceed." >&2
+            exit 1
+          fi
+          if [ "$CURRENT_PR_HEAD" != "$HEAD_SHA" ]; then
+            echo "PR head moved since this verification event; skipping obsolete run."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          if [ "$(jq -r '.state' /tmp/pr.json)" != "open" ]; then
+            echo "PR is closed or not authorized for automatic merge; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          python3 scripts/guarded_merge_authorization.py /tmp/pr.json
+          AUTHORIZATION_STATUS=$?
+          set -e
+          if [ "$AUTHORIZATION_STATUS" -eq 1 ]; then
+            echo "PR has no explicit automatic-merge authorization; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$AUTHORIZATION_STATUS" -ne 0 ]; then
+            echo "Could not verify structured PR authorization; refusing to merge." >&2
+            exit "$AUTHORIZATION_STATUS"
+          fi
+          python3 - <<'PY'
+          import json, os, sys
+          from scripts.guarded_merge_authorization import has_explicit_approval
+          pr=json.load(open('/tmp/pr.json',encoding='utf-8'))
+          expected=os.environ['HEAD_SHA']
+          if pr.get('state')!='open':
+              print('PR is no longer open; nothing to merge.')
+              sys.exit(0)
+          checks={
+              'draft': pr.get('draft') is False,
+              'base': pr.get('base',{}).get('ref')=='main',
+              'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
+              'head': pr.get('head',{}).get('sha')==expected,
+              'authorization': has_explicit_approval(pr.get('body')),
+              'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('Guarded merge refused: '+', '.join(failed))
+          PY
+
+      - name: Keep Stable promotion explicit
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          MERGE_BASE_SHA="$(gh api "repos/$REPO/compare/main...$HEAD_SHA" --jq .merge_base_commit.sha)"
+          test -n "$MERGE_BASE_SHA"
+          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$MERGE_BASE_SHA" > /tmp/base-manifest.json
+          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$HEAD_SHA" > /tmp/head-manifest.json
+          python3 - <<'PY'
+          import json
+          base=json.load(open('/tmp/base-manifest.json',encoding='utf-8'))
+          head=json.load(open('/tmp/head-manifest.json',encoding='utf-8'))
+          if base.get('stable') != head.get('stable'):
+              raise SystemExit('Automatic merge refused: this PR changes Stable and requires James explicit approval.')
+          PY
+
+      - name: Wait for all required proof on this exact head
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/pr-paths.txt
+          python3 scripts/pipeline_guard.py check-paths /tmp/pr-paths.txt
+          for attempt in {1..42}; do
+            RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=50")"
+            RUNS="$(jq --arg head "$HEAD_SHA" --arg repo "$REPO" '{workflow_runs: [.workflow_runs[] | select(.head_sha==$head and .head_repository.full_name==$repo and (.event=="pull_request" or .event=="workflow_dispatch")) | select((.name=="Publication check" and .path==".github/workflows/publication-check.yml") or (.name=="Clean Install Proof" and .path==".github/workflows/clean-install-proof.yml"))]}' <<<"$RUNS")"
+            PUB_OK="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")] | length' <<<"$RUNS")"
+            CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")] | length' <<<"$RUNS")"
+            PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .status!="completed")] | length' <<<"$RUNS")"
+            HARD_FAIL="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out"))] | length' <<<"$RUNS")"
+            if [ "$HARD_FAIL" != "0" ]; then
+              echo "Required verification failed on the exact PR head." >&2
+              exit 1
+            fi
+            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for all exact-head Publication and Clean Install runs to settle." >&2
+          exit 1
+
+      - name: Bring branch current with main if needed
+        if: steps.guard.outputs.skip != 'true'
+        id: current
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="$(gh api "repos/$REPO/compare/main...$HEAD_SHA" --jq .status)"
+          if [ "$STATUS" = "diverged" ] || [ "$STATUS" = "behind" ]; then
+            gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/update-branch"               -f expected_head_sha="$HEAD_SHA"
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            echo "Branch was updated from main. New checks will gate the new head."
+          else
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Squash merge verified current PR
+        if: steps.guard.outputs.skip != 'true' && steps.current.outputs.updated != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/final-pr.json
+            gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/final-pr-paths.txt
+            python3 scripts/pipeline_guard.py check-paths /tmp/final-pr-paths.txt
+            MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+            CURRENT_HEAD="$(jq -r '.head.sha' /tmp/final-pr.json)"
+            test "$CURRENT_HEAD" = "$HEAD_SHA" || {
+              echo "PR head changed after verification; refusing stale merge." >&2
+              exit 1
+            }
+
+            python3 - <<'PY'
+          import json, os
+          from scripts.guarded_merge_authorization import has_explicit_approval
+          pr=json.load(open('/tmp/final-pr.json',encoding='utf-8'))
+          checks={
+              'open': pr.get('state')=='open',
+              'draft': pr.get('draft') is False,
+              'base': pr.get('base',{}).get('ref')=='main',
+              'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
+              'head': pr.get('head',{}).get('sha')==os.environ['HEAD_SHA'],
+              'authorization': has_explicit_approval(pr.get('body')),
+              'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('Final guarded merge refused: '+', '.join(failed))
+          PY
+
+            COMPARE="$(gh api "repos/$REPO/compare/$MAIN_SHA...$HEAD_SHA")"
+            STATUS="$(jq -r .status <<<"$COMPARE")"
+            MERGE_BASE="$(jq -r .merge_base_commit.sha <<<"$COMPARE")"
+            test "$STATUS" = "ahead" && test "$MERGE_BASE" = "$MAIN_SHA" || {
+              echo "PR is no longer based on current main; refusing merge until it updates and rechecks." >&2
+              exit 1
+            }
+
+            gh api -H "Accept: application/vnd.github.raw+json"               "repos/$REPO/contents/updates/manifest.json?ref=$MAIN_SHA" > /tmp/current-main-manifest.json
+            gh api -H "Accept: application/vnd.github.raw+json"               "repos/$REPO/contents/updates/manifest.json?ref=$HEAD_SHA" > /tmp/current-head-manifest.json
+            python3 - <<'PY'
+          import json
+          main=json.load(open('/tmp/current-main-manifest.json',encoding='utf-8'))
+          head=json.load(open('/tmp/current-head-manifest.json',encoding='utf-8'))
+          if main.get('stable') != head.get('stable'):
+              raise SystemExit('Final guarded merge refused: Stable invariant changed.')
+          PY
+
+            if RESULT="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$HEAD_SHA" 2>&1)"; then
+              jq '{merged:.merged,message:.message,sha:.sha}' <<<"$RESULT"
+              test "$(jq -r '.merged' <<<"$RESULT")" = "true"
+              MERGED_SHA="$(jq -r '.sha' <<<"$RESULT")"
+              for settle in {1..12}; do
+                MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+                [ "$MAIN_SHA" = "$MERGED_SHA" ] && break
+                sleep 2
+              done
+              test "$MAIN_SHA" = "$MERGED_SHA" || {
+                echo "Merged commit did not become current main." >&2
+                exit 1
+              }
+              gh workflow run publication-check.yml --repo "$REPO" --ref main
+              # GITHUB_TOKEN merges do not create push-triggered package runs.
+              # Dispatch packaging from verified main, using the exact merged SHA.
+              # The packager checks the Beta manifest, Stable invariant and
+              # opens a separately validated package PR only if runtime changed.
+              gh workflow run prepare-beta-package.yml --repo "$REPO" --ref main -f reviewed_commit="$MERGED_SHA"
+              exit 0
+            fi
+            if grep -Eq 'Required status check.*(in progress|expected)' <<<"$RESULT"; then
+              sleep 5
+              continue
+            fi
+            echo "$RESULT" >&2
+            exit 1
+          done
+          echo "GitHub did not settle the required status context in time." >&2
+          exit 1

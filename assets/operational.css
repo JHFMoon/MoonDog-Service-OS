@@ -1,0 +1,29 @@
+.needs-card { border-left: 6px solid #0f766e; background: linear-gradient(115deg, #f0fdfa, #fff 58%); }
+.needs-content { margin-top: 12px; color: #134e4a; }
+.needs-content > strong { font-size: 1.05rem; letter-spacing: .04em; }
+.needs-content ul { margin: 10px 0 0; padding-left: 22px; color: #334155; }
+.source-pulse { margin-top: 18px; }
+.source-pulse-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.source-pulse-grid > div { padding: 16px; border: 1px solid #dbe5ec; border-radius: 14px; background: #f8fafc; }
+.source-pulse-grid span { display: block; color: #64748b; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; }
+.source-pulse-grid strong { display: block; margin-top: 5px; color: #0f172a; font-size: 1.55rem; }
+@media (max-width: 900px) { .source-pulse-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.controllables-section { margin-top: 18px; }
+.controllables-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.controllable-card { border: 1px solid #dce5ea; border-radius: 16px; padding: 16px; background: linear-gradient(145deg, #fff, #f7fafb); box-shadow: 0 7px 20px rgba(18, 50, 66, .06); }
+.controllable-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.controllable-card header span { font-weight: 750; color: #24414e; }
+.controllable-card header strong { font-size: 1.65rem; color: #123242; }
+.controllable-benchmarks { display: flex; justify-content: space-between; gap: 8px; margin: 12px 0 8px; padding-top: 10px; border-top: 1px solid #e3ebef; font-size: .8rem; color: #60747e; }
+.controllable-card small { display: block; min-height: 2.5em; color: #687b84; }
+.controllable-level { display: inline-block; margin-top: 10px; border-radius: 999px; padding: 5px 9px; font-size: .72rem; letter-spacing: .035em; background: #eef3f5; color: #405964; }
+.controllable-card p { margin: 10px 0 0; font-weight: 750; color: #1e5366; }
+.controllable-card.below { border-left: 5px solid #d69b34; }
+.controllable-card.minimum { border-left: 5px solid #3c9a72; }
+.controllable-card.bic { border-left: 5px solid #347aa0; }
+.controllable-card.bic .controllable-level { background: #e3f2fa; color: #155777; }
+.controllable-card.minimum .controllable-level { background: #e7f5ee; color: #176143; }
+.controllable-card.below .controllable-level { background: #fff3dc; color: #78500c; }
+@media (max-width: 760px) { .controllables-grid { grid-template-columns: 1fr; } .controllable-card { padding: 14px; } }
+.manager-hero{display:flex;justify-content:space-between;align-items:end;gap:24px;padding:28px;border-radius:18px;color:#fff;background:linear-gradient(125deg,#113149,#176f83)}.manager-hero h2{font-size:clamp(1.8rem,3vw,2.7rem);margin:.3rem 0}.manager-hero p{margin:0;max-width:760px;color:#d8edf2}.manager-source-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;margin-top:16px}.manager-source-card{grid-column:span 2;display:grid;gap:7px;border-top:4px solid #1c8294}.manager-source-card:nth-child(4),.manager-source-card:nth-child(5){grid-column:span 3}.manager-source-card>span{font-size:.7rem;font-weight:800;letter-spacing:.1em;color:#287a8b}.manager-source-card h3{margin:0;font-size:1.15rem}.manager-source-card strong{font-size:1.7rem;color:#173e52}.manager-source-card small{color:#657b87;line-height:1.4}@media(max-width:1000px){.manager-source-card{grid-column:span 3}.manager-source-card:nth-child(5){grid-column:1/-1}}@media(max-width:700px){.manager-hero{align-items:flex-start;flex-direction:column}.manager-source-card,.manager-source-card:nth-child(4),.manager-source-card:nth-child(5){grid-column:1/-1}}
+.customer-voice-manager{margin-top:18px}.customer-voice-manager label{display:grid;gap:7px;margin-top:14px}.customer-voice-manager textarea{min-height:110px}.voice-actions{display:flex;gap:10px;margin-top:14px}.voice-warning{margin-top:12px;padding:11px 13px;border-left:4px solid #d69b34;background:#fff6dd;color:#6b4b00;font-weight:750;border-radius:6px}
