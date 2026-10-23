@@ -1966,6 +1966,10 @@
       for(const advisor of Object.values(copy.advisors||{}))delete advisor.name;
     }
     const canonicalize=item=>item instanceof Date?item.toISOString():Array.isArray(item)?item.map(canonicalize):item&&typeof item==="object"?Object.fromEntries(Object.keys(item).sort().map(key=>[key,canonicalize(item[key])])):item;
+    if(["mediaAsrTech","media-asr-tech"].includes(family)&&Array.isArray(copy.technicians)){
+      // Technician summaries are keyed by the source report identity; their row order has no meaning.
+      copy.technicians.sort((a,b)=>String(a.id||"").localeCompare(String(b.id||"")));
+    }
     return JSON.stringify(canonicalize(copy));
   }
   function managerConflictObservationDate(family,snapshot,rows) {
