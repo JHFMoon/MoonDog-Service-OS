@@ -131,6 +131,7 @@ test("synthetic CSI import keeps period and lineage aligned through durable stor
 });
 
 
+
 test("repeated synthetic CSI refreshes retain one survey identity and bound the import ledger",async()=>{
   const csv=[
     "From,2026-10-01","To,2026-10-06",
@@ -139,14 +140,32 @@ test("repeated synthetic CSI refreshes retain one survey identity and bound the 
     ["synthetic-survey-01","synthetic-pulse-01","Pulse Completed","Yes","2026-10-06",
       "Demo Advisor","10","Promoter","10","Promoter"].join(",")
   ].join("\\n")+"\\n";
-  const f=fixture([], {sourceCsv:csv});
+  const model={settings:{csiPeriodStart:"2026-10-01"},operationalMetrics:{csi:{surveys:{},imports:[]}}};
+  let durable=null;
+  const history=[];
+  const context=vm.createContext({
+    model,structuredClone,
+    OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
+    now:()=>"2026-10-07T15:00:00Z",localDateKey:()=>"2026-10-07",
+    text:value=>value==null?"":String(value),norm:value=>String(value??"").trim().toLowerCase(),
+    validCoverageDate:value=>/^20\\d{2}-\\d{2}-\\d{2}$/.test(String(value||""))?value:"",
+    strictReportDate:()=>"",csvNumber:value=>value===""?null:Number(value),
+    parseCsv:value=>value.trimEnd().split(/\\r?\\n/).map(line=>line.split(",")),
+    sourceFileHandle:async()=>({getFile:async()=>({text:async()=>csv})}),freshness,
+    writeJson:async(_,value)=>{durable=structuredClone(value);},
+    readJson:async()=>durable==null?null:structuredClone(durable),
+    addHistory:async(type,message,details)=>{history.push({type,message,details});},
+    removeSourceEntry:async()=>{},renderAll:()=>{},renderMeeting:()=>{},console
+  });
+  vm.runInContext(ingestion+"\\n"+evidence+"\\nthis.importCsiFile=importCsiFile;",context);
   for(let index=0;index<260;index++)
-    await f.import(false,"synthetic-refresh-"+index+".csv");
-  const csi=f.model.operationalMetrics.csi;
+    await context.importCsiFile("synthetic-refresh-"+index+".csv");
+  const csi=model.operationalMetrics.csi;
   assert.equal(Object.keys(csi.surveys).length,1,"reimporting one synthetic survey must not duplicate its durable identity");
   assert.deepEqual(csi.surveys["synthetic-survey-01"].extensionRecordIds,[]);
   assert.equal(csi.imports.length,250,"the in-memory import ledger remains capped at its production limit");
   assert.equal(csi.imports[0].sourceFile,"synthetic-refresh-10.csv");
   assert.equal(csi.imports.at(-1).sourceFile,"synthetic-refresh-259.csv");
-  assert.equal(f.durable().csi.imports.length,250,"the capped ledger is what read-back verifies");
+  assert.equal(durable.csi.imports.length,250,"the capped ledger is what read-back verifies");
+  assert.equal(history.length,260,"each successful source read keeps its audit event");
 });
