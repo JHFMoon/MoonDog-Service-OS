@@ -49,8 +49,9 @@ function settingsContext(settings,overrides={}){
     renderSettings:()=>calls.push(["renderSettings"]),
     ...overrides
   });
-  vm.runInContext(snapshotWrite+"\n"+lifecycle+"\n"+setupReview+
-    "\nthis.updateAdvisorLifecycle=updateAdvisorLifecycle;this.markAdvisorSetupReviewed=markAdvisorSetupReviewed;",context);
+  vm.runInContext(snapshotWrite+"\\n"+advisorRenderer+"\\n"+lifecycle+"\\n"+setupReview+
+    "\\nconst originalRenderAdvisorSettings=renderAdvisorSettings;renderAdvisorSettings=function(){calls.push([\\"renderAdvisorSettings\\"]);return originalRenderAdvisorSettings();};"+
+    "\\nthis.updateAdvisorLifecycle=updateAdvisorLifecycle;this.markAdvisorSetupReviewed=markAdvisorSetupReviewed;",context);
   return {context,model,ui,calls};
 }
 
