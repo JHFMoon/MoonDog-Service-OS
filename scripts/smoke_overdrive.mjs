@@ -27,6 +27,56 @@ try{
   console.log("Synthetic file:// launcher-to-shell startup",
     JSON.stringify({scope:"5 app/tab launches; browser process already running; shell attachment only; no connected folder/filesystem latency",
       samples:launcherToShellSamples,...launcherStartup}));
+  // Measure browser navigation shell activation under packaged file://.
+  // This stops at the active-view DOM state and excludes connected Workspace reads,
+  // deferred report rendering, and installed-device or OneDrive latency.
+  const navigationViews = ["overview", "tools", "arrivals", "assign-next", "performance", "meeting", "open-ro", "imports", "settings", "home"];
+  await page.evaluate(() => {
+    globalThis.__moondogNavigationSamples = [];
+    document.addEventListener("click", event => {
+      const button = event.target?.closest?.(".nav-item[data-view]");
+      if (!button) return;
+      const view = button.dataset.view;
+      const started = performance.now();
+      const target = document.getElementById("view-" + view);
+      let finished = false;
+      const observer = new MutationObserver(() => {
+        if (!finished && target?.classList.contains("active")) {
+          finished = true;
+          globalThis.__moondogNavigationSamples.push({ view, ms: performance.now() - started });
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ["class"] });
+      setTimeout(() => observer.disconnect(), 5000);
+    }, true);
+  });
+  for (let cycle = 0; cycle < 5; cycle += 1) {
+    for (const view of navigationViews) {
+      const expected = await page.evaluate(() => globalThis.__moondogNavigationSamples.length + 1);
+      await page.locator('.nav-item[data-view="' + view + '"]').evaluate(button => {
+        if (!button.isConnected) throw new Error("Navigation button is detached: " + button.dataset.view);
+        // Secondary destinations are intentionally hidden in this UI. Invoke
+        // the real control's click handler without changing shipped visibility.
+        button.click();
+      });
+      await page.waitForFunction(({ view, expected }) => {
+        return document.getElementById("view-" + view)?.classList.contains("active") &&
+          globalThis.__moondogNavigationSamples?.length >= expected;
+      }, { view, expected }, { timeout: 5000 });
+    }
+  }
+  const rawNavigation = await page.evaluate(() => globalThis.__moondogNavigationSamples);
+  const navigationMetrics = Object.fromEntries(navigationViews.map(view => {
+    const samples = rawNavigation.filter(sample => sample.view === view).map(sample => Math.round(sample.ms));
+    if (samples.length !== 5) throw new Error("Expected five navigation samples for " + view + ", got " + samples.length);
+    return [view, { samples, ...summarizeNavigationMs(samples) }];
+  }));
+  console.log("Synthetic file:// navigation shell activation", JSON.stringify({
+    scope: "5 activations per main tab; no connected Workspace; ends at active-view DOM state; excludes deferred rendering and data reads",
+    views: navigationMetrics
+  }));
+
   await page.evaluate(()=>{
    const v=document.querySelector("#view-meeting");
    v.className="view active meeting-view meeting-v3 meeting-scoreboard arena-ready";v.hidden=false;
@@ -385,6 +435,12 @@ try{
       visitedTimes.push(backMs);
       if(backMs>1250)throw Error("Tools back button stalled after full tab circuit: "+backMs+"ms");
       await page.locator('.nav-item[data-view="open-ro"]').click({timeout:3500});
+      // The fixture updates model memory directly, so issue the normal search
+      // input event to rebuild the cached table from those synthetic records.
+      await page.locator("#searchInput").evaluate(input=>{
+        input.value="";
+        input.dispatchEvent(new Event("input",{bubbles:true}));
+      });
       await page.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===413,null,{timeout:5000});
       const row=await page.locator("#roTable tr[data-id]").first().evaluate(el=>{
         el.dataset.syntheticNavigationProof ||= "preserve";
