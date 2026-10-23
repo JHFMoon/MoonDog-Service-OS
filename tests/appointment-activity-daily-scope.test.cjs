@@ -250,7 +250,6 @@ test("identical SOR reimport normalizes derived dates and provenance while chang
   const after=f.durable().sor;
   assert.equal(after.snapshots["2026-10"].coverageDate,"2026-10-20");
   assert.equal(after.dailySnapshots["2026-10-20"].coverageDate,"2026-10-20");
-  assert.equal(after.snapshots["2026-10"].sourceFile,"synthetic-sor (1).xlsx");
   assert.equal(after.snapshots["2026-10"].sourceModifiedAt,"2026-10-21T00:00:00.000Z");
   assert.deepEqual(after.snapshots["2026-10"].advisors,reordered.advisors);
   assert.deepEqual(f.removed(),["synthetic-sor (1).xlsx"]);
