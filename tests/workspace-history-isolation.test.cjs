@@ -447,40 +447,36 @@ test("delayed essential hydration fails closed and keeps its saved folder retrya
 test("a later saved-folder retry can recover after delayed essential-file hydration fails",async()=>{
   const saved={name:"Synthetic retry Workspace",kind:"directory",queryPermission:async()=>"granted"};
   const states=[],calls=[];
-  const makeContext=(attempt)=>{
-    const model={root:null,pendingRoot:null};
-    const authority={canWrite:true,disableCalls:0,disable(){this.disableCalls++;this.canWrite=false;}};
-    const context=vm.createContext({
-      model,window:{showDirectoryPicker:()=>{},indexedDB:{}},
-      recallRoot:async()=>saved,permission:async handle=>handle===saved?"granted":"denied",
-      finishConnection:async handle=>{
-        calls.push(handle);
-        if(attempt===1)throw Object.assign(new Error("Synthetic delayed settings read"),{name:"NotReadableError"});
-        model.root=handle;model.pendingRoot=null;
-        setConnectionState("CONNECTED","Synthetic saved Workspace restored");
-      },
-      recordDiagnostic:async()=>{},writeAuthority:authority,
-      setConnectionState:(state,message)=>states.push({state,message}),
-      console:{error(){}},
-    });
-    vm.runInContext(restoreConnection+"\nthis.restoreConnection=restoreConnection;",context);
-    return {context,model,authority};
-  };
-  const first=makeContext(1);
-  await first.context.restoreConnection();
-  assert.equal(first.model.root,null,"Failed hydration cannot make the Workspace current");
-  assert.equal(first.model.pendingRoot,saved,"The saved handle remains available for a later retry");
-  assert.equal(first.authority.canWrite,false,"A failed hydration revokes write authority");
-  assert.equal(first.authority.disableCalls,1);
+  const model={root:null,pendingRoot:null};
+  const authority={canWrite:true,disableCalls:0,disable(){this.disableCalls++;this.canWrite=false;}};
+  const context=vm.createContext({
+    model,window:{showDirectoryPicker:()=>{},indexedDB:{}},
+    recallRoot:async()=>saved,permission:async handle=>handle===saved?"granted":"denied",
+    finishConnection:async handle=>{
+      calls.push(handle);
+      if(calls.length===1)throw Object.assign(new Error("Synthetic delayed settings read"),{name:"NotReadableError"});
+      model.root=handle;model.pendingRoot=null;
+      setConnectionState("CONNECTED","Synthetic saved Workspace restored");
+    },
+    recordDiagnostic:async()=>{},writeAuthority:authority,
+    setConnectionState:(state,message)=>states.push({state,message}),
+    console:{error(){}},
+  });
+  vm.runInContext(restoreConnection+"\nthis.restoreConnection=restoreConnection;",context);
+
+  await context.restoreConnection();
+  assert.equal(model.root,null,"Failed hydration cannot make the Workspace current");
+  assert.equal(model.pendingRoot,saved,"The saved handle remains available for a later retry");
+  assert.equal(authority.canWrite,false,"A failed hydration revokes write authority");
+  assert.equal(authority.disableCalls,1);
   assert.equal(states.at(-1).state,"CONNECTION ERROR");
 
-  // Simulate a later page startup. The saved handle is still in synthetic browser storage.
-  const second=makeContext(2);
-  await second.context.restoreConnection();
+  // Retry from the same saved browser handle after the transient read error.
+  await context.restoreConnection();
   assert.equal(calls.length,2);
   assert.ok(calls.every(handle=>handle===saved),"Retry must use the same saved handle");
-  assert.equal(second.model.root,saved,"Only successful essential hydration commits the root");
-  assert.equal(second.model.pendingRoot,null);
+  assert.equal(model.root,saved,"Only successful essential hydration commits the root");
+  assert.equal(model.pendingRoot,null);
   assert.equal(states.at(-1).state,"CONNECTED");
 });
 
