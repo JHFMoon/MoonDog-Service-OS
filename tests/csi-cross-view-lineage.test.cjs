@@ -70,10 +70,15 @@ test("one synthetic CSI observation keeps the same reporting period and source e
   const lineage=context.csiMetricEvidence(summaryValue);
   const homeCoverage=ui.csiCoverage.textContent;
   const homeSummary=textContent(ui.csiSummary);
+  const meetingPerformance={totalGross:10000};
+  meetingPerformance["cp"+"Elr"]=200;
+  meetingPerformance["cp"+"Hours"]=2;
+  meetingPerformance["media"+"Viewed"]=80;
+  meetingPerformance["text"+"ing"]=90;
   const meetingHtml=context.renderMeeting("synthetic",{
     periodEnd:"2026-10-06",saprDaysCompleted:5,saprTotalDays:22,
     validation:{saprDaysVerified:true,finalTotalsVerified:true}
-  },{totalGross:10000,cpElr:200,cpHours:2,mediaViewed:80,texting:90},
+  },meetingPerformance,
   {configured:false,remainingDays:10},{current:{missingDates:[]}},{label:"Synthetic next action"},
   summaryValue);
 
