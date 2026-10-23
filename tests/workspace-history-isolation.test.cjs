@@ -463,7 +463,7 @@ test("a later saved-folder retry can recover after delayed essential-file hydrat
       setConnectionState:(state,message)=>states.push({state,message}),
       console:{error(){}},
     });
-    vm.runInContext(restoreConnection+"\\nthis.restoreConnection=restoreConnection;",context);
+    vm.runInContext(restoreConnection+"\nthis.restoreConnection=restoreConnection;",context);
     return {context,model,authority};
   };
   const first=makeContext(1);
