@@ -26,7 +26,9 @@ function percentile(samples, p) {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)];
 }
 
-async function measureReconnect(readDelayMs) {
+async function measureReconnect(readDelayMs, permissionResults = ["granted"]) {
+  const permissionSequence = [...permissionResults];
+  let permissionIndex = 0;
   const handle = {
     name: "Synthetic Workspace",
     kind: "directory",
@@ -97,7 +99,7 @@ async function measureReconnect(readDelayMs) {
     appointmentImportBusy: false,
     window: { showDirectoryPicker() {}, indexedDB: {} },
     recallRoot: async () => handle,
-    permission: async () => "granted",
+    permission: async () => permissionSequence[permissionIndex++] || "granted",
     operationalRoot: async root => root,
     wrapOperationalRoot: root => root,
     connectedNativeRoot: null,
@@ -170,6 +172,14 @@ async function measureReconnect(readDelayMs) {
   );
   const started = performance.now();
   await context.restore();
+  if (states.includes("PERMISSION REQUIRED")) {
+    assert.equal(connectedSnapshots.length, 0, "denied saved-folder access must not publish CONNECTED");
+    assert.equal(completedReads.size, 0, "denied saved-folder access must not read operational snapshots");
+    assert.equal(writes.length, 0, "denied saved-folder access must not write operational state");
+    assert.equal(model.root, null, "denied access must not commit a Workspace root");
+    assert.equal(model.pendingRoot, handle, "the saved folder remains available for explicit retry");
+    await context.restore();
+  }
   const finished = performance.now();
 
   assert.ok(states.includes("CONNECTED"), "the production reconnect path must reach CONNECTED");
@@ -189,6 +199,12 @@ async function measureReconnect(readDelayMs) {
   assert.equal(backgroundJobs.length, 1, "post-connection scans must be deferred after the first render");
   return { firstHomeMs: firstRender.at - started, totalReconnectMs: finished - started };
 }
+
+test("saved-folder reconnect retries safely after synthetic permission denial", async () => {
+  const measured = await measureReconnect(2, ["denied", "granted"]);
+  assert.ok(Number.isFinite(measured.firstHomeMs) && measured.firstHomeMs > 0);
+  assert.ok(Number.isFinite(measured.totalReconnectMs) && measured.totalReconnectMs >= measured.firstHomeMs);
+});
 
 test("synthetic reconnect latency baseline reaches usable Home after delayed authoritative reads", async () => {
   const samples = [];
