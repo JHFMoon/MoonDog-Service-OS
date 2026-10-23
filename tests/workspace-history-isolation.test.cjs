@@ -444,6 +444,43 @@ test("delayed essential hydration fails closed and keeps its saved folder retrya
   assert.match(states.at(-1).message,/could not restore/);
 });
 
+test("a later saved-folder retry can recover after delayed essential-file hydration fails",async()=>{
+  const saved={name:"Synthetic retry Workspace",kind:"directory",queryPermission:async()=>"granted"};
+  const states=[],calls=[];
+  const model={root:null,pendingRoot:null};
+  const authority={canWrite:true,disableCalls:0,disable(){this.disableCalls++;this.canWrite=false;}};
+  const context=vm.createContext({
+    model,window:{showDirectoryPicker:()=>{},indexedDB:{}},
+    recallRoot:async()=>saved,permission:async handle=>handle===saved?"granted":"denied",
+    recordDiagnostic:async()=>{},writeAuthority:authority,
+    setConnectionState:(state,message)=>states.push({state,message}),
+    console:{error(){}},
+  });
+  // This host callback must resolve VM globals explicitly through context.
+  context.finishConnection=async handle=>{
+    calls.push(handle);
+    if(calls.length===1)throw Object.assign(new Error("Synthetic delayed settings read"),{name:"NotReadableError"});
+    model.root=handle;model.pendingRoot=null;
+    context.setConnectionState("CONNECTED","Synthetic saved Workspace restored");
+  };
+  vm.runInContext(restoreConnection+"\nthis.restoreConnection=restoreConnection;",context);
+
+  await context.restoreConnection();
+  assert.equal(model.root,null,"Failed hydration cannot make the Workspace current");
+  assert.equal(model.pendingRoot,saved,"The saved handle remains available for a later retry");
+  assert.equal(authority.canWrite,false,"A failed hydration revokes write authority");
+  assert.equal(authority.disableCalls,1);
+  assert.equal(states.at(-1).state,"CONNECTION ERROR");
+
+  // Retry from the same saved browser handle after the transient read error.
+  await context.restoreConnection();
+  assert.equal(calls.length,2);
+  assert.ok(calls.every(handle=>handle===saved),"Retry must use the same saved handle");
+  assert.equal(model.root,saved,"Only successful essential hydration commits the root");
+  assert.equal(model.pendingRoot,null);
+  assert.equal(states.at(-1).state,"CONNECTED");
+});
+
 test("declined Home draft confirmation stops Workspace picker without changing root or draft", async () => {
   const A={name:"Fake-A"},B={name:"Fake-B"};
   const state={editing:true},model={root:A,pendingRoot:null};
