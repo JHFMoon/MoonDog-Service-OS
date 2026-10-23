@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.156 — current Beta
+
+- test: prevent overlapping report inbox reconciliation (#424). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.155 — current Beta
 
 - fix: make Media ASR technician reimports order independent. Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
