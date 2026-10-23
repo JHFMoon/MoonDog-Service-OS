@@ -51,7 +51,7 @@ function fixture(rows,opts={}){
   return{parse:()=>ctx.parseAppointmentActivityWorkbook([],"synthetic-appointments.xlsx"),
     import:(deleteAfterSuccess=false,name="synthetic-appointments.xlsx")=>ctx.importManagerSource(name,"appointment-activity",[],deleteAfterSuccess),
     importSor:(deleteAfterSuccess=false,name="synthetic-sor.xlsx")=>ctx.importManagerSource(name,"sor",[],deleteAfterSuccess),
-    setSorSnapshot(value){opts.sorSnapshot=value;},
+    setSorSnapshot(value){opts.sorSnapshot=value;},setLastModified(value){opts.lastModified=value;},
     setRows(rows){sourceRows.splice(0,sourceRows.length,columns,...rows);},setDurable(value){durable=value;},removed:()=>removedSources.slice(),ctx,model,durable:()=>durable};
 }
 test("vendor serial dates and ISO dates produce separate verified store days",()=>{
@@ -219,4 +219,49 @@ test("future SOR conflicts fall back to the matching monthly snapshot before any
   await assert.rejects(f.importSor(true,"synthetic-conflicting-sor.xlsx"),/Conflicting sor report for period 2026-10-23 is already saved/);
   assert.deepEqual(JSON.parse(JSON.stringify(f.durable())),JSON.parse(JSON.stringify(before)),"monthly prior and operational data remain unchanged");
   assert.deepEqual(f.removed(),[],"conflicting future SOR source remains available for review");
+});
+
+
+test("identical SOR reimport normalizes derived dates and provenance while changed same-day content remains protected",async()=>{
+  const original={period:"2026-10",date:"2026-10-20",store:{gross:100,clockHours:10},advisors:{
+    "101":{name:"Synthetic Advisor One",gross:60},
+    "102":{name:"Synthetic Advisor Two",gross:40}
+  }};
+  const reordered={period:"2026-10",date:"2026-10-20",store:{gross:100,clockHours:10},advisors:{
+    "102":{name:"Synthetic Advisor Two",gross:40},
+    "101":{name:"Synthetic Advisor One",gross:60}
+  }};
+  const f=fixture([],{localDate:"2026-10-22",lastModified:Date.UTC(2026,9,20),
+    observationDate:"2026-10-20",sorSnapshot:original});
+  await f.importSor(false,"synthetic-sor.xlsx");
+  const saved=structuredClone(f.durable());
+  for(const snapshot of [saved.sor.snapshots["2026-10"],saved.sor.dailySnapshots["2026-10-20"]]){
+    snapshot.coverageDate="2026-10-19";
+    snapshot.sourceModifiedAt="2026-10-19T08:00:00.000Z";
+    snapshot.importedAt="2026-10-19T08:05:00.000Z";
+    snapshot.sourceFile="older-synthetic-copy.xlsx";
+    snapshot.updatedAt="older-derived-metadata";
+  }
+  f.setDurable(saved);
+  f.model.operationalMetrics=structuredClone(saved);
+  f.setLastModified(Date.UTC(2026,9,21));
+  f.setSorSnapshot(reordered);
+  await f.importSor(true,"synthetic-sor (1).xlsx");
+  const after=f.durable().sor;
+  assert.equal(after.snapshots["2026-10"].coverageDate,"2026-10-20");
+  assert.equal(after.dailySnapshots["2026-10-20"].coverageDate,"2026-10-20");
+  assert.equal(after.snapshots["2026-10"].sourceModifiedAt,"2026-10-21T00:00:00.000Z");
+  assert.deepEqual(after.snapshots["2026-10"].advisors,reordered.advisors);
+  assert.deepEqual(f.removed(),["synthetic-sor (1).xlsx"]);
+
+  const beforeConflict=structuredClone(f.durable());
+  f.setSorSnapshot({...reordered,store:{...reordered.store,gross:101}});
+  await assert.rejects(
+    f.importSor(true,"synthetic-conflicting-sor.xlsx"),
+    /Conflicting sor report for period 2026-10-20 is already saved/
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(f.durable())),JSON.parse(JSON.stringify(beforeConflict)),
+    "changed same-day SOR values must fail before mutating monthly or daily snapshots");
+  assert.deepEqual(f.removed(),["synthetic-sor (1).xlsx"],
+    "the genuine conflict remains available for review");
 });
