@@ -26,7 +26,7 @@ function percentile(samples, p) {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)];
 }
 
-async function measureReconnect(readDelayMs, permissionResults = ["granted"]) {
+async function measureReconnect(readDelayMs, permissionResults = ["granted"], inspectPendingRead = false) {
   const permissionSequence = [...permissionResults];
   let permissionIndex = 0;
   const handle = {
@@ -78,6 +78,11 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"]) {
   const completedReads = new Set();
   const requiredReadPaths = [paths.settings, paths.state, paths.appointments, paths.performance, paths.metrics, paths.meeting, paths.assignNext, paths.autoImport, paths.recovery];
   const connectedSnapshots = [];
+  let signalFirstReadStarted;
+  const firstReadStarted = new Promise(resolve => { signalFirstReadStarted = resolve; });
+  let releaseFirstRead;
+  const firstReadGate = inspectPendingRead ? new Promise(resolve => { releaseFirstRead = resolve; }) : Promise.resolve();
+  let firstReadWasObserved = false;
   const events = [];
   const writes = [];
   const backgroundJobs = [];
@@ -121,6 +126,11 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"]) {
     initializeFolders: async () => {},
     recordDiagnostic: () => {},
     readJson: async (key, fallback) => {
+      if (inspectPendingRead && key === requiredReadPaths[0] && !firstReadWasObserved) {
+        firstReadWasObserved = true;
+        signalFirstReadStarted();
+        await firstReadGate;
+      }
       await new Promise(resolve => setTimeout(resolve, readDelayMs));
       completedReads.add(key);
       return clone(Object.prototype.hasOwnProperty.call(fixture, key) ? fixture[key] : fallback);
@@ -172,7 +182,20 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"]) {
     context
   );
   const started = performance.now();
-  await context.restore();
+  if (inspectPendingRead) {
+    const reconnecting = context.restore();
+    await firstReadStarted;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(model.root, null, "Workspace root must stay uncommitted while an authoritative read is pending");
+    assert.equal(model.workspaceConnectionCommittedRoot, null,
+      "connection readiness must stay uncommitted while an authoritative read is pending");
+    assert.ok(!states.includes("CONNECTED"), "CONNECTED must not be published while an authoritative read is pending");
+    assert.equal(firstRender.count, 0, "Home must not render before authoritative reads finish");
+    releaseFirstRead();
+    await reconnecting;
+  } else {
+    await context.restore();
+  }
   if (permissionResults.includes("denied")) {
     assert.ok(states.includes("PERMISSION REQUIRED"),
       "a denied saved-folder permission attempt must report PERMISSION REQUIRED before retry");
@@ -209,6 +232,11 @@ test("saved-folder reconnect retries safely after synthetic permission denial", 
   const measured = await measureReconnect(2, ["denied", "granted"]);
   assert.ok(Number.isFinite(measured.firstHomeMs) && measured.firstHomeMs > 0);
   assert.ok(Number.isFinite(measured.totalReconnectMs) && measured.totalReconnectMs >= measured.firstHomeMs);
+});
+
+test("production reconnect keeps the Workspace uncommitted until an authoritative read resolves", async () => {
+  const measured = await measureReconnect(2, ["granted"], true);
+  assert.ok(Number.isFinite(measured.firstHomeMs) && measured.firstHomeMs > 0);
 });
 
 test("synthetic reconnect latency baseline reaches usable Home after delayed authoritative reads", async () => {
