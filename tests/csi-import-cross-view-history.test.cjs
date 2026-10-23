@@ -129,3 +129,24 @@ test("synthetic CSI import keeps period and lineage aligned through durable stor
   assert.match(html,/>100<\/strong>/);
   assert.match(html,/OCT 6/);
 });
+
+
+test("repeated synthetic CSI refreshes retain one survey identity and bound the import ledger",async()=>{
+  const csv=[
+    "From,2026-10-01","To,2026-10-06",
+    ["Invite_ID","_recordId","SURVEY_STATUS","INCLUDE_IN_SCORING","Date of Survey (-04:00 GMT)",
+      "Service Advisor","Dealer NPS (Service)","Sales NPS Group (Service)","NPS: ServPulse","NPS Filter Group"].join(","),
+    ["synthetic-survey-01","synthetic-pulse-01","Pulse Completed","Yes","2026-10-06",
+      "Demo Advisor","10","Promoter","10","Promoter"].join(",")
+  ].join("\\n")+"\\n";
+  const f=fixture([], {sourceCsv:csv});
+  for(let index=0;index<260;index++)
+    await f.import(false,"synthetic-refresh-"+index+".csv");
+  const csi=f.model.operationalMetrics.csi;
+  assert.equal(Object.keys(csi.surveys).length,1,"reimporting one synthetic survey must not duplicate its durable identity");
+  assert.deepEqual(csi.surveys["synthetic-survey-01"].extensionRecordIds,[]);
+  assert.equal(csi.imports.length,250,"the in-memory import ledger remains capped at its production limit");
+  assert.equal(csi.imports[0].sourceFile,"synthetic-refresh-10.csv");
+  assert.equal(csi.imports.at(-1).sourceFile,"synthetic-refresh-259.csv");
+  assert.equal(f.durable().csi.imports.length,250,"the capped ledger is what read-back verifies");
+});
