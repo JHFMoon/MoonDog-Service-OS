@@ -415,8 +415,20 @@ try{
     console.log("Synthetic Home warm-tab activation baseline",
       JSON.stringify({scope:"warm production Home tab activation to animation frame; 413 synthetic ROs in memory; excludes Home repaint, connection and filesystem latency",
         viewport:{width,height},...homeBaseline}));
+    // The fixture updates model memory directly; refresh the cached table once
+    // before timing navigation so the first circuit starts with all 413 synthetic rows.
+    await page.locator('.nav-item[data-view="open-ro"]').click({timeout:3500});
+    await page.locator("#searchInput").evaluate(input=>{
+      input.value="";
+      input.dispatchEvent(new Event("input",{bubbles:true}));
+    });
+    await page.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===413,null,{timeout:5000});
+    const initialTableRow=await page.locator("#roTable tr[data-id]").first().evaluate(el=>{
+      el.dataset.syntheticNavigationProof="preserve";
+      return el.dataset.id;
+    });
+    if(!initialTableRow)throw Error("Synthetic Open RO rows were not rendered before navigation");
     const visitedTimes=[];
-    let initialTableRow=null;
     for(let repeat=0;repeat<8;repeat++){
       for(const destination of ["open-ro","assign-next","performance","meeting","tools"]){
         const started=Date.now();
@@ -435,22 +447,13 @@ try{
       visitedTimes.push(backMs);
       if(backMs>1250)throw Error("Tools back button stalled after full tab circuit: "+backMs+"ms");
       await page.locator('.nav-item[data-view="open-ro"]').click({timeout:3500});
-      // The fixture updates model memory directly, so issue the normal search
-      // input event to rebuild the cached table from those synthetic records.
-      await page.locator("#searchInput").evaluate(input=>{
-        input.value="";
-        input.dispatchEvent(new Event("input",{bubbles:true}));
-      });
       await page.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===413,null,{timeout:5000});
-      const row=await page.locator("#roTable tr[data-id]").first().evaluate(el=>{
-        el.dataset.syntheticNavigationProof ||= "preserve";
-        return el.dataset.id;
-      });
-      if(!row)throw Error("Synthetic Open RO rows were not rendered");
-      const preserved=await page.locator("#roTable tr[data-synthetic-navigation-proof='preserve']").count();
-      if(repeat>0&&preserved!==1)
-        throw Error("Open RO DOM was unnecessarily rebuilt after unchanged tab navigation");
-      initialTableRow ||= row;
+      const row=await page.locator("#roTable tr[data-id]").first().evaluate(el=>({
+        id:el.dataset.id,
+        marker:el.dataset.syntheticNavigationProof||""
+      }));
+      if(row.id!==initialTableRow||row.marker!=="preserve")
+        throw Error("Open RO first-row DOM identity changed after unchanged navigation: "+JSON.stringify({initialTableRow,row}));
     }
     const routeBaseline=summarizeNavigationMs(visitedTimes);
     if(routeBaseline.count!==48)throw Error("Five-tab and Tools-back timing sample count changed: "+routeBaseline.count);
