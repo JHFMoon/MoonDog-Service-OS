@@ -99,7 +99,7 @@ test("repeated visible resumes remain bounded while production workbook and PDF 
     document,window,pdfjsLib,XLSX,Worker:FakeWorker,Blob:FakeBlob,URL:TestURL,
     TextDecoder,TextEncoder,ArrayBuffer,Uint8Array,WeakMap,Map,TypeError,Error,DOMException,
     clearTimeout,setTimeout,queueMicrotask,console,
-    runtimeFileBytes:async()=>new TextEncoder().encode("synthetic local XLSX parser"),
+    runtimeFileBytes:async()=>{const bytes=new Uint8Array(300000);bytes.set(new TextEncoder().encode("XLSX.version"));return bytes;},
     boundedPdfRead:async(operation)=>operation(),
     recordDiagnostic:()=>{},
     folderWatchScan:reason=>scans.push(reason)
