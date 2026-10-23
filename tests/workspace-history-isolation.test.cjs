@@ -452,16 +452,17 @@ test("a later saved-folder retry can recover after delayed essential-file hydrat
   const context=vm.createContext({
     model,window:{showDirectoryPicker:()=>{},indexedDB:{}},
     recallRoot:async()=>saved,permission:async handle=>handle===saved?"granted":"denied",
-    finishConnection:async handle=>{
-      calls.push(handle);
-      if(calls.length===1)throw Object.assign(new Error("Synthetic delayed settings read"),{name:"NotReadableError"});
-      model.root=handle;model.pendingRoot=null;
-      setConnectionState("CONNECTED","Synthetic saved Workspace restored");
-    },
     recordDiagnostic:async()=>{},writeAuthority:authority,
     setConnectionState:(state,message)=>states.push({state,message}),
     console:{error(){}},
   });
+  // This host callback must resolve VM globals explicitly through context.
+  context.finishConnection=async handle=>{
+    calls.push(handle);
+    if(calls.length===1)throw Object.assign(new Error("Synthetic delayed settings read"),{name:"NotReadableError"});
+    model.root=handle;model.pendingRoot=null;
+    context.setConnectionState("CONNECTED","Synthetic saved Workspace restored");
+  };
   vm.runInContext(restoreConnection+"\nthis.restoreConnection=restoreConnection;",context);
 
   await context.restoreConnection();
