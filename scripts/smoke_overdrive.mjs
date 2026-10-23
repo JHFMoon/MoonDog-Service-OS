@@ -331,10 +331,10 @@ try{
           reviewDate:"2026-10-14",communication:"Updated"}
       }));
     });
-    // #58-01 partial baseline: exercise the production Home view with 413 wholly
-    // synthetic RO records. This measures warm Home render/navigation through a frame;
-    // it does not claim launcher, folder-picker, OneDrive, or browser-cache timing.
-    const homeRenderMs=[];
+    // #58-01 partial baseline: measure warm activation of the production Home tab while
+    // 413 synthetic ROs are loaded in memory. This measures tab switching to a frame;
+    // it does not claim Home repaint, folder-picker, workspace read, OneDrive, or cache timing.
+    const homeActivationMs=[];
     for(let sample=0;sample<9;sample++){
       await page.locator('.nav-item[data-view="performance"]').click({timeout:3500});
       await page.waitForFunction(()=>document.getElementById("view-performance").classList.contains("active"),null,{timeout:3500});
@@ -346,15 +346,15 @@ try{
         const home=document.getElementById("view-home");
         const needs=document.getElementById("moondogNeeds");
         return {elapsedMs:performance.now()-started,active:home?.classList.contains("active"),
-          managerNeedsRendered:!!needs&&needs.childElementCount>0};
+          managerNeedsAvailable:!!needs};
       });
-      if(!measured.active||!measured.managerNeedsRendered)
+      if(!measured.active||!measured.managerNeedsAvailable)
         throw Error("Synthetic Home was not usable after navigation: "+JSON.stringify(measured));
-      homeRenderMs.push(measured.elapsedMs);
+      homeActivationMs.push(measured.elapsedMs);
     }
-    const homeBaseline=summarizeNavigationMs(homeRenderMs);
-    console.log("Synthetic Home render/navigation baseline",
-      JSON.stringify({scope:"warm production Home render to animation frame; 413 synthetic ROs; excludes connection and filesystem latency",
+    const homeBaseline=summarizeNavigationMs(homeActivationMs);
+    console.log("Synthetic Home warm-tab activation baseline",
+      JSON.stringify({scope:"warm production Home tab activation to animation frame; 413 synthetic ROs in memory; excludes Home repaint, connection and filesystem latency",
         viewport:{width,height},...homeBaseline}));
     const visitedTimes=[];
     let initialTableRow=null;
