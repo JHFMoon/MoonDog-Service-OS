@@ -1287,7 +1287,7 @@
         writeAuthority.disable();
         // A delayed essential read can fail after this candidate root is staged.
         // Never leave that uncommitted root active; retain the handle for retry.
-        if(model.root!==model.workspaceConnectionCommittedRoot){
+        if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){
           model.root=null; model.applicationRoot=null; connectedNativeRoot=null;
           model.workspaceConnectionCommittedRoot=null; model.pendingRoot=handle;
           setConnectionState("CONNECTION ERROR", "The selected working folder could not be fully read. Retry the connection after checking folder availability.");
