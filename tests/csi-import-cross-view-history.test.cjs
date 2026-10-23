@@ -77,7 +77,7 @@ test("synthetic CSI import keeps period and lineage aligned through durable stor
   });
   vm.runInContext(ingestion+"\n"+evidence+"\n"+home+"\n"+meeting+
     "\nthis.importCsiFile=importCsiFile;this.npsSummary=npsSummary;this.csiMetricEvidence=csiMetricEvidence;"+
-    "this.renderHome=renderOverviewIntelligence;this.renderMeeting=meetingAdvisorTv;",context);
+    "this.renderHome=renderOverviewIntelligence;this.renderMeetingView=meetingAdvisorTv;",context);
 
   await context.importCsiFile("synthetic-csi.csv");
   const survey=model.operationalMetrics.csi.surveys["synthetic-survey-01"];
@@ -106,7 +106,7 @@ test("synthetic CSI import keeps period and lineage aligned through durable stor
   performance["cp"+"Hours"]=2;
   performance["media"+"Viewed"]=80;
   performance["text"+"ing"]=90;
-  const html=context.renderMeeting("synthetic",{
+  const html=context.renderMeetingView("synthetic",{
     periodEnd:"2026-10-06",saprDaysCompleted:5,saprTotalDays:22,
     validation:{saprDaysVerified:true,finalTotalsVerified:true}
   },performance,{configured:false,remainingDays:10},{current:{missingDates:[]}},
