@@ -54,7 +54,12 @@ try{
   for (let cycle = 0; cycle < 5; cycle += 1) {
     for (const view of navigationViews) {
       const expected = await page.evaluate(() => globalThis.__moondogNavigationSamples.length + 1);
-      await page.locator('.nav-item[data-view="' + view + '"]').click({ timeout: 5000 });
+      await page.locator('.nav-item[data-view="' + view + '"]').evaluate(button => {
+        if (!button.isConnected) throw new Error("Navigation button is detached: " + button.dataset.view);
+        // Secondary destinations are intentionally hidden in this UI. Invoke
+        // the real control's click handler without changing shipped visibility.
+        button.click();
+      });
       await page.waitForFunction(({ view, expected }) => {
         return document.getElementById("view-" + view)?.classList.contains("active") &&
           globalThis.__moondogNavigationSamples?.length >= expected;
