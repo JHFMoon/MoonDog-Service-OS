@@ -139,7 +139,7 @@ test("repeated synthetic CSI refreshes retain one survey identity and bound the 
       "Service Advisor","Dealer NPS (Service)","Sales NPS Group (Service)","NPS: ServPulse","NPS Filter Group"].join(","),
     ["synthetic-survey-01","synthetic-pulse-01","Pulse Completed","Yes","2026-10-06",
       "Demo Advisor","10","Promoter","10","Promoter"].join(",")
-  ].join("\\n")+"\\n";
+  ].join("\n")+"\n";
   const model={settings:{csiPeriodStart:"2026-10-01"},operationalMetrics:{csi:{surveys:{},imports:[]}}};
   let durable=null;
   const history=[];
@@ -148,16 +148,16 @@ test("repeated synthetic CSI refreshes retain one survey identity and bound the 
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
     now:()=>"2026-10-07T15:00:00Z",localDateKey:()=>"2026-10-07",
     text:value=>value==null?"":String(value),norm:value=>String(value??"").trim().toLowerCase(),
-    validCoverageDate:value=>/^20\\d{2}-\\d{2}-\\d{2}$/.test(String(value||""))?value:"",
+    validCoverageDate:value=>/^20\d{2}-\d{2}-\d{2}$/.test(String(value||""))?value:"",
     strictReportDate:()=>"",csvNumber:value=>value===""?null:Number(value),
-    parseCsv:value=>value.trimEnd().split(/\\r?\\n/).map(line=>line.split(",")),
+    parseCsv:value=>value.trimEnd().split(/\r?\n/).map(line=>line.split(",")),
     sourceFileHandle:async()=>({getFile:async()=>({text:async()=>csv})}),freshness,
     writeJson:async(_,value)=>{durable=structuredClone(value);},
     readJson:async()=>durable==null?null:structuredClone(durable),
     addHistory:async(type,message,details)=>{history.push({type,message,details});},
     removeSourceEntry:async()=>{},renderAll:()=>{},renderMeeting:()=>{},console
   });
-  vm.runInContext(ingestion+"\\n"+evidence+"\\nthis.importCsiFile=importCsiFile;",context);
+  vm.runInContext(ingestion+"\n"+evidence+"\nthis.importCsiFile=importCsiFile;",context);
   for(let index=0;index<260;index++)
     await context.importCsiFile("synthetic-refresh-"+index+".csv");
   const csi=model.operationalMetrics.csi;
