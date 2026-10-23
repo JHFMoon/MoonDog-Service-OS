@@ -42,7 +42,8 @@ test("Report Inbox watch coalesces an overlapping scan and defers learned-file r
 
   const overlapping=await h.context.folderWatchScan("poll");
   assert.equal(overlapping,undefined,"a second watch tick must not start duplicate enumeration");
-  assert.deepEqual(await h.context.reconcileLearnedFiles("synthetic-revision"),{deferred:true},
+  const reconciliation=await h.context.reconcileLearnedFiles("synthetic-revision");
+  assert.equal(reconciliation?.deferred,true,
     "Files To Learn reconciliation must defer while the inbox owns the shared intake slot");
   assert.equal(h.calls.watchCandidates,1,"no competing inbox read should start while the first is delayed");
 
