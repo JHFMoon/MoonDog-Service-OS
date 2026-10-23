@@ -435,18 +435,13 @@ try{
       visitedTimes.push(backMs);
       if(backMs>1250)throw Error("Tools back button stalled after full tab circuit: "+backMs+"ms");
       await page.locator('.nav-item[data-view="open-ro"]').click({timeout:3500});
-      try {
-        await page.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===413,null,{timeout:5000});
-      } catch (error) {
-        const state=await page.evaluate(()=>({
-          activeView:document.querySelector(".view.active")?.id||null,
-          modelRecords:globalThis.__moondogDaily?.model?.state?.records?.length??null,
-          tableRows:document.querySelectorAll("#roTable tr[data-id]").length,
-          tablePresent:!!document.getElementById("roTable"),
-          toolsCategory:document.getElementById("dailyTools")?.dataset.category??null
-        }));
-        throw new Error("Synthetic 413-row Open RO render timed out: "+JSON.stringify(state)+"; "+error.message);
-      }
+      // The fixture updates model memory directly, so issue the normal search
+      // input event to rebuild the cached table from those synthetic records.
+      await page.locator("#searchInput").evaluate(input=>{
+        input.value="";
+        input.dispatchEvent(new Event("input",{bubbles:true}));
+      });
+      await page.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===413,null,{timeout:5000});
       const row=await page.locator("#roTable tr[data-id]").first().evaluate(el=>{
         el.dataset.syntheticNavigationProof ||= "preserve";
         return el.dataset.id;
