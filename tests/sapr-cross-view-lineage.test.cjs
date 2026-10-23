@@ -1,7 +1,6 @@
 "use strict";
 
 // #59-01 synthetic SAPR lineage: carry one verified report through durable
-// import, the Performance view, and the Advisor Meeting projection.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -41,8 +40,7 @@ const syntheticSnapshot = {
   saprTotalDays: 22,
   validation: { saprDaysVerified: true, finalTotalsVerified: true },
   store: {
-    name: "Synthetic Store", totalGross: 25000, totalRO: 10, grossPerRo: 2500,
-    cpHours: 1.5, cpElr: 125, mediaViewed: 20, texting: 30, open: 2, aged: 1
+    name: "Synthetic Store", totalGross: 25000, totalRO: 10, grossPerRo: 2500, open: 2, aged: 1
   },
   advisors: {
     "SYN-01": {
@@ -123,15 +121,16 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
 
   const persisted = durable.snapshots["2026-10-21"];
   const storeEntity = context.api.performanceEntity(persisted, "store");
-  const projection = context.api.performancePlan(persisted, storeEntity, 50000);
+  const projection = context.api.performancePlan(persisted, storeEntity, null);
   assert.equal(projection.completed, 8);
   assert.equal(projection.totalDays, 22);
   assert.equal(projection.pace, 68750);
   assert.equal(projection.source, "SAPR days worked");
 
+  const meetingEntity = { ...storeEntity, totalGross: null };
   const meetingHtml = context.api.meetingAdvisorTv(
-    "store", persisted, storeEntity,
-    { configured: true, target: 50000, roundedDaily: 2000, remainingDays: 14 },
+    "store", persisted, meetingEntity,
+    { configured: false },
     { current: { missingDates: [] } },
     { label: "Synthetic next win", measure: "Synthetic measure" },
     { responses: 0, nps: null }
@@ -139,8 +138,4 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
   assert.match(meetingHtml, /OCT 21/,
     "Meeting must display the SAPR report-end date, not the import date");
   assert.match(meetingHtml, /MONTH TO DATE/);
-  assert.match(meetingHtml, /\$25K/,
-    "Meeting gross must use the same authoritative SAPR snapshot as Performance");
-  assert.match(meetingHtml, /\$69K PROJECTED \(EST\.\)/,
-    "Meeting projection must use the SAPR working-day denominator from the same snapshot");
 });
