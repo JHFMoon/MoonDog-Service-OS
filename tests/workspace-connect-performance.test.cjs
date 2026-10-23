@@ -95,6 +95,7 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"]) {
     writeAuthority: { canWrite: true, async validate() {}, disable() { this.canWrite = false; } },
     VERSION: "0.10.18-beta.synthetic",
     folderWatch: { busy: false },
+    stopFolderWatch: () => {},
     dailyImportBusy: false,
     appointmentImportBusy: false,
     window: { showDirectoryPicker() {}, indexedDB: {} },
