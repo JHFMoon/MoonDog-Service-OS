@@ -331,6 +331,31 @@ try{
           reviewDate:"2026-10-14",communication:"Updated"}
       }));
     });
+    // #58-01 partial baseline: exercise the production Home view with 413 wholly
+    // synthetic RO records. This measures warm Home render/navigation through a frame;
+    // it does not claim launcher, folder-picker, OneDrive, or browser-cache timing.
+    const homeRenderMs=[];
+    for(let sample=0;sample<9;sample++){
+      await page.locator('.nav-item[data-view="performance"]').click({timeout:3500});
+      await page.waitForFunction(()=>document.getElementById("view-performance").classList.contains("active"),null,{timeout:3500});
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));
+      const measured=await page.evaluate(async()=>{
+        const started=performance.now();
+        document.querySelector('.nav-item[data-view="home"]').click();
+        await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
+        const home=document.getElementById("view-home");
+        const needs=document.getElementById("moondogNeeds");
+        return {elapsedMs:performance.now()-started,active:home?.classList.contains("active"),
+          managerNeedsRendered:!!needs&&needs.childElementCount>0};
+      });
+      if(!measured.active||!measured.managerNeedsRendered)
+        throw Error("Synthetic Home was not usable after navigation: "+JSON.stringify(measured));
+      homeRenderMs.push(measured.elapsedMs);
+    }
+    const homeBaseline=summarizeNavigationMs(homeRenderMs);
+    console.log("Synthetic Home render/navigation baseline",
+      JSON.stringify({scope:"warm production Home render to animation frame; 413 synthetic ROs; excludes connection and filesystem latency",
+        viewport:{width,height},...homeBaseline}));
     const visitedTimes=[];
     let initialTableRow=null;
     for(let repeat=0;repeat<8;repeat++){
