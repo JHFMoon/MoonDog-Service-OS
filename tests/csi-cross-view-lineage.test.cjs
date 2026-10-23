@@ -68,6 +68,13 @@ test("one synthetic CSI observation keeps the same reporting period and source e
   context.renderHome();
   const summaryValue=context.npsSummary(model.operationalMetrics.csi.surveys);
   const lineage=context.csiMetricEvidence(summaryValue);
+  const meetingEvidenceCalls=[];
+  const originalMeetingEvidence=context.csiMetricEvidence;
+  context.csiMetricEvidence=input=>{
+    const evidence=originalMeetingEvidence(input);
+    meetingEvidenceCalls.push({input,evidence});
+    return evidence;
+  };
   const homeCoverage=ui.csiCoverage.textContent;
   const homeSummary=textContent(ui.csiSummary);
   const meetingPerformance={totalGross:10000};
@@ -86,6 +93,11 @@ test("one synthetic CSI observation keeps the same reporting period and source e
   assert.equal(summaryValue.nps,100);
   assert.equal(lineage.period,"2026-10-01 through 2026-10-06");
   assert.equal(lineage.source,"Dealer Dashboard CSI");
+  assert.equal(meetingEvidenceCalls.length,1,"Meeting must request CSI lineage evidence during rendering.");
+  assert.equal(meetingEvidenceCalls[0].input,summaryValue,"Meeting must request evidence for the shared CSI summary.");
+  assert.equal(meetingEvidenceCalls[0].evidence.period,lineage.period,"Meeting must consume the same verified period as Home.");
+  assert.equal(meetingEvidenceCalls[0].evidence.source,lineage.source,"Meeting must consume the same source as Home.");
+  assert.equal(meetingEvidenceCalls[0].evidence.verified,true);
   assert.match(homeCoverage,/2026-10-01 through 2026-10-06/);
   assert.match(homeCoverage,/refreshed 2026-10-07/);
   assert.match(homeCoverage,/verified Pulse responses/);
