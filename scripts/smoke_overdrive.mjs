@@ -12,12 +12,21 @@ try{
  for(const [width,height] of [[1920,1080],[1600,900],[1366,768]]){
   const page=await browser.newPage({viewport:{width,height},reducedMotion:width===1600?"no-preference":"reduce"});
   const errors=[];page.on("pageerror",e=>errors.push(e.message));
-  // Wall-clock synthetic file:// launcher through initial DOM shell attachment.
-  const launcherStarted=performance.now();
-  await page.goto(pathToFileURL(path.resolve(launcher)).href,{waitUntil:"load",timeout:30000});
-  await page.waitForURL(u=>u.protocol==="file:"&&u.pathname.endsWith("/index.html"),{timeout:15000});
-  await page.waitForSelector("#view-meeting",{state:"attached",timeout:15000});
-  const launcherToShellAttachedMs=Math.round(performance.now()-launcherStarted);
+  // Repeated synthetic file:// launcher-to-shell timings in an already-running
+  // browser process. These measure app/tab startup, not process-cold device startup.
+  const launcherToShellSamples=[];
+  for(let sample=0;sample<5;sample++){
+    const launcherStarted=performance.now();
+    await page.goto(pathToFileURL(path.resolve(launcher)).href,{waitUntil:"load",timeout:30000});
+    await page.waitForURL(u=>u.protocol==="file:"&&u.pathname.endsWith("/index.html"),{timeout:15000});
+    await page.waitForSelector("#view-meeting",{state:"attached",timeout:15000});
+    launcherToShellSamples.push(Math.round(performance.now()-launcherStarted));
+  }
+  const launcherStartup=summarizeNavigationMs(launcherToShellSamples);
+  const launcherToShellAttachedMs=launcherStartup.p50;
+  console.log("Synthetic file:// launcher-to-shell startup",
+    JSON.stringify({scope:"5 app/tab launches; browser process already running; shell attachment only; no connected folder/filesystem latency",
+      samples:launcherToShellSamples,...launcherStartup}));
   await page.evaluate(()=>{
    const v=document.querySelector("#view-meeting");
    v.className="view active meeting-view meeting-v3 meeting-scoreboard arena-ready";v.hidden=false;
