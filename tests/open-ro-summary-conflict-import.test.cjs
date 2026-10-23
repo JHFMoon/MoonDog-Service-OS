@@ -74,3 +74,23 @@ test("conflicting synthetic Open RO summary fails before mutation, success histo
   assert.deepEqual(f.events, [], "conflict fails before durable write, read-back, or success history");
   assert.deepEqual(f.removed, [], "the conflicting synthetic report remains available for review");
 });
+
+
+test("identical synthetic Open RO summary reimport tolerates refreshed derived metadata", async () => {
+  const reimport = structuredClone(saved);
+  reimport.sourceFile = "synthetic-open-ro-summary-reimport.xlsx";
+  reimport.importedAt = "2026-10-22T18:00:00.000Z";
+  reimport.sourceModifiedAt = "2026-10-22T00:00:00.000Z";
+  reimport.coverageDate = "2026-10-22";
+  const f = fixture(reimport);
+
+  await f.run();
+
+  const persisted = f.durable().openRoSummary.snapshots["2026-10"];
+  assert.equal(persisted.store.verifiedRows, saved.store.verifiedRows, "the identical aggregate is accepted without duplication");
+  assert.equal(persisted.coverageDate, "2026-10-21", "coverage date is normalized from the source evidence");
+  assert.equal(persisted.sourceModifiedAt, "2026-10-22T00:00:00.000Z", "current source metadata is refreshed");
+  assert.deepEqual(f.events, ["write", "readback", "history", "delete"], "source deletion follows verified durable read-back and history");
+  assert.deepEqual(f.removed, ["synthetic-conflicting-open-ro-summary.xlsx"]);
+  assert.deepEqual(f.model.operationalMetrics, f.durable(), "the verified in-memory and durable snapshots agree");
+});
