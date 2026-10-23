@@ -66,6 +66,7 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
   const context = vm.createContext({
     model, ui, structuredClone,
     PERFORMANCE_PATH: ["data", "performance.json"],
+    dailyPickedSources: new Set(["synthetic-sapr.xlsx"]),
     now: () => "2026-10-22T12:00:00Z",
     parsePerformanceWorkbook: () => structuredClone(syntheticSnapshot),
     prunePerformanceSnapshots: snapshots => snapshots,
