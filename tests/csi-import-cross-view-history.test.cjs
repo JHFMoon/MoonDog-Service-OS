@@ -162,7 +162,7 @@ test("repeated synthetic CSI refreshes retain one survey identity and bound the 
     await context.importCsiFile("synthetic-refresh-"+index+".csv");
   const csi=model.operationalMetrics.csi;
   assert.equal(Object.keys(csi.surveys).length,1,"reimporting one synthetic survey must not duplicate its durable identity");
-  assert.deepEqual(csi.surveys["synthetic-survey-01"].extensionRecordIds,[]);
+  assert.equal(csi.surveys["synthetic-survey-01"].extensionRecordIds.length,0);
   assert.equal(csi.imports.length,250,"the in-memory import ledger remains capped at its production limit");
   assert.equal(csi.imports[0].sourceFile,"synthetic-refresh-10.csv");
   assert.equal(csi.imports.at(-1).sourceFile,"synthetic-refresh-259.csv");
