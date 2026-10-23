@@ -387,8 +387,11 @@ try{
         throw Error("Open RO DOM was unnecessarily rebuilt after unchanged tab navigation");
       initialTableRow ||= row;
     }
-    console.log("Five-tab and Tools-back proof PASS",visitedTimes.length+" transitions",
-      "max="+Math.max(...visitedTimes)+"ms","rows=413","DOM reuse=true");
+    const routeBaseline=summarizeNavigationMs(visitedTimes);
+    if(routeBaseline.count!==48)throw Error("Five-tab and Tools-back timing sample count changed: "+routeBaseline.count);
+    console.log("Five-tab and Tools-back proof PASS",
+      JSON.stringify({scope:"synthetic 413-row fixture; 5 tabs plus Tools settings/back; click to animation frame",
+        ...routeBaseline,rows:413,domReuse:true}));
 
     // Report manager visual regression: actual packaged file:// runtime, same
     // 928px Edge viewport from James's screenshots, plus reflow/zoom checks.
