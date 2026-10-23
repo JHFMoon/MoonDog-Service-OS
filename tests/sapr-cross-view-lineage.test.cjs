@@ -40,7 +40,7 @@ const syntheticSnapshot = {
   saprTotalDays: 22,
   validation: { saprDaysVerified: true, finalTotalsVerified: true },
   store: {
-    name: "Synthetic Store", totalGross: 25000, totalRO: 10, grossPerRo: 2500, open: 2, aged: 1
+    name: "Synthetic Store", totalGross: 2437, totalRO: 10, grossPerRo: 243.7, open: 2, aged: 1
   },
   advisors: {
     "SYN-01": {
@@ -95,6 +95,7 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
     shortDate: value => value === "2026-10-21" ? "Oct 21" : String(value || ""),
     compactMoney: value => "$" + Math.round(value / 1000) + "K",
     virMeetingEvidence: () => ({ verified: false, status: "missing-source" }),
+    csiMetricEvidence: () => ({ verified: false, status: "missing-source" }),
     latestOperationalSnapshot: () => null,
     virObservationDate: () => "",
     menuMeetingEvidence: () => ({ verified: false, status: "missing-source" }),
@@ -116,7 +117,7 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
   assert.equal(ui.performancePeriod.textContent, "2026-10-01 through 2026-10-21",
     "Performance must show the exact imported reporting period");
   assert.match(ui.performanceSource.textContent, /synthetic-sapr\.xlsx/);
-  assert.equal(JSON.stringify(chartPoints), JSON.stringify([{ date: "2026-10-21", value: 25000 }]),
+  assert.equal(JSON.stringify(chartPoints), JSON.stringify([{ date: "2026-10-21", value: 2437 }]),
     "Performance trend must use the same imported snapshot and report-end date");
 
   const persisted = durable.snapshots["2026-10-21"];
@@ -124,13 +125,13 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
   const projection = context.api.performancePlan(persisted, storeEntity, null);
   assert.equal(projection.completed, 8);
   assert.equal(projection.totalDays, 22);
-  assert.equal(projection.pace, 68750);
+  assert.equal(projection.pace, 6701.75);
   assert.equal(projection.source, "SAPR days worked");
 
-  const meetingEntity = { ...storeEntity, totalGross: null };
+  const meetingEntity = storeEntity;
   const meetingHtml = context.api.meetingAdvisorTv(
     "store", persisted, meetingEntity,
-    { configured: false },
+    { configured: true, target: 4500, roundedDaily: 100, remainingDays: 5, achieved: false },
     { current: { missingDates: [] } },
     { label: "Synthetic next win", measure: "Synthetic measure" },
     { responses: 0, nps: null }
@@ -138,4 +139,24 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
   assert.match(meetingHtml, /OCT 21/,
     "Meeting must display the SAPR report-end date, not the import date");
   assert.match(meetingHtml, /MONTH TO DATE/);
+  assert.match(meetingHtml, /<div class="aa-money">\$2K<\/div>/,
+    "Meeting must display the same imported synthetic gross used by Performance");
+  assert.match(meetingHtml, /\$7K PROJECTED \(EST\.\)/,
+    "Meeting forecast must use the imported gross and SAPR working-day denominator");
+
+  const nextSynthetic = structuredClone(persisted);
+  nextSynthetic.store.totalGross = 1217;
+  nextSynthetic.saprDaysCompleted = 11;
+  const nextEntity = context.api.performanceEntity(nextSynthetic, "store");
+  const nextMeeting = context.api.meetingAdvisorTv(
+    "store", nextSynthetic, nextEntity,
+    { configured: true, target: 4500, roundedDaily: 100, remainingDays: 5, achieved: false },
+    { current: { missingDates: [] } },
+    { label: "Synthetic next win", measure: "Synthetic measure" },
+    { responses: 0, nps: null }
+  );
+  assert.match(nextMeeting, /<div class="aa-money">\$1K<\/div>/,
+    "Meeting gross must change with a different synthetic imported snapshot");
+  assert.match(nextMeeting, /\$2K PROJECTED \(EST\.\)/,
+    "Meeting forecast must change when gross and SAPR days-worked inputs change");
 });
