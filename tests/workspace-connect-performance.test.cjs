@@ -186,7 +186,9 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
     const reconnecting = context.restore();
     await firstReadStarted;
     await new Promise(resolve => setTimeout(resolve, 0));
-    assert.equal(model.root, null, "Workspace root must stay uncommitted while an authoritative read is pending");
+    assert.equal(model.root, handle, "The candidate root may be staged while its reads are pending");
+    assert.notEqual(model.workspaceConnectionCommittedRoot, model.root,
+      "the staged candidate must not become the committed Workspace root before hydration completes");
     assert.equal(model.workspaceConnectionCommittedRoot, null,
       "connection readiness must stay uncommitted while an authoritative read is pending");
     assert.ok(!states.includes("CONNECTED"), "CONNECTED must not be published while an authoritative read is pending");
