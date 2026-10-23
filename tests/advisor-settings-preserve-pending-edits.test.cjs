@@ -50,7 +50,7 @@ function settingsContext(settings,overrides={}){
     ...overrides
   });
   vm.runInContext(snapshotWrite+"\n"+advisorRenderer+"\n"+lifecycle+"\n"+setupReview+
-    "\nconst originalRenderAdvisorSettings=renderAdvisorSettings;renderAdvisorSettings=function(){calls.push('renderAdvisorSettings');return originalRenderAdvisorSettings();};"+
+    "\nconst originalRenderAdvisorSettings=renderAdvisorSettings;renderAdvisorSettings=function(){calls.push(['renderAdvisorSettings']);return originalRenderAdvisorSettings();};"+
     "\nthis.updateAdvisorLifecycle=updateAdvisorLifecycle;this.markAdvisorSetupReviewed=markAdvisorSetupReviewed;",context);
   return {context,model,ui,calls};
 }
