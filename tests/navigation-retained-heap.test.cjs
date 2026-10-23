@@ -4,7 +4,7 @@ const assert=require("node:assert/strict");
 const {execFileSync}=require("node:child_process");
 const path=require("node:path");
 
-test("navigation remains bounded across 500 synthetic tab cycles and source revisions",()=>{
+if(process.argv[2]!=="--probe")test("navigation remains bounded across 500 synthetic tab cycles and source revisions",()=>{
   const output=execFileSync(process.execPath,["--expose-gc",__filename,"--probe"],{encoding:"utf8",timeout:30000});
   const result=JSON.parse(output.trim());
   assert.equal(result.syntheticCycles,500);
