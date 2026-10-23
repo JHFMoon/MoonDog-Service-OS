@@ -81,3 +81,66 @@ test("Report Inbox retries a temporary file read failure, confirms stability, an
   assert.equal(folderWatch.busy, false, "the shared intake slot must release after import");
   assert.ok(diagnostics.some(item => item.category === "REPORT INBOX PENDING" && /Temporary file read failure/.test(item.message)));
 });
+
+
+test("overlapping Report Inbox scans share the busy guard and still import a stable source once", async () => {
+  const folderWatch = { timer: null, busy: false, pending: new Map(), lastChecked: "", state: "ON", message: "" };
+  const model = {
+    root: { name: "Synthetic Workspace" },
+    autoImport: { inboxVersion: 1, initializedAt: "2026-10-23T11:00:00.000Z" }
+  };
+  const candidate = {
+    name: "synthetic-sapr.xlsx",
+    relativePath: "Report Inbox/synthetic-sapr.xlsx",
+    signature: "synthetic-signature",
+    location: "report-inbox"
+  };
+  let reads = 0;
+  let imports = 0;
+  let releaseFirstRead;
+  let markFirstRead;
+  const firstRead = new Promise(resolve => { markFirstRead = resolve; });
+  const firstGate = new Promise(resolve => { releaseFirstRead = resolve; });
+  const imported = [];
+  const context = vm.createContext({
+    model, folderWatch, window: { scrollX: 0, scrollY: 0, scrollTo() {} },
+    writeAuthority: { canWrite: true }, dailyImportBusy: false, appointmentImportBusy: false,
+    AUTO_IMPORT_PATH: ["data", "auto-import.json"],
+    folderWatchEnabled: () => true,
+    permission: async () => "granted",
+    watchStatus() {},
+    watchCandidates: async () => {
+      reads += 1;
+      if (reads === 1) {
+        markFirstRead();
+        await firstGate;
+      }
+      return [candidate];
+    },
+    candidateNeedsImport: () => true,
+    autoSurveyFolder: async signatures => {
+      imports += 1;
+      imported.push([...signatures]);
+      return { imported: [candidate.name], retained: [], learned: [] };
+    },
+    writeJson: async () => {},
+    recordDiagnostic() {},
+    now: () => "2026-10-23T12:00:00.000Z",
+    renderAll() {}, renderSetup() {}, renderRecovery() {},
+    Promise, Map, Set, Object, Array, String, Boolean, JSON, Error, console
+  });
+  vm.runInContext(folderWatchScan + "\nthis.scan=folderWatchScan;", context);
+
+  const first = context.scan("poll");
+  await firstRead;
+  await context.scan("retry");
+  assert.equal(reads, 1, "an overlapping scan must not start another inventory");
+  releaseFirstRead();
+  await first;
+  assert.equal(imports, 0, "one observation cannot import an unstable report");
+
+  await context.scan("poll");
+  assert.deepEqual(imported, [["synthetic-signature"]], "the next stable observation imports exactly once");
+  assert.equal(imports, 1);
+  assert.equal(folderWatch.busy, false, "the shared scan guard releases after completion");
+});
