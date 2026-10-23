@@ -13,16 +13,30 @@ function section(first,last){
   return app.slice(start,end);
 }
 const snapshotWrite=section("  function persistSettingsSnapshot(","  async function saveSettingsAutosave(");
+const advisorRenderer=section("  function renderAdvisorSettings() {","  function renderSettings() {");
 const lifecycle=section("  async function updateAdvisorLifecycle(","  async function markAdvisorSetupReviewed(");
 const setupReview=section("  async function markAdvisorSetupReviewed(","  async function reconcileSaprAdvisors(");
 const renderAll=section("  function renderAll() {","  const renderAllWithCanonicalSourceLabels=renderAll;");
 
+function fakeNode(tag="div"){
+  return {tagName:tag,dataset:{},children:[],className:"",textContent:"",
+    classList:{add(){},remove(){}},
+    append(...items){this.children.push(...items);},
+    replaceChildren(...items){this.children=[...items];}
+  };
+}
+function containsReviewedAction(node){
+  return Boolean(node?.dataset?.advisorSetupReviewed)||Boolean(node?.children?.some(containsReviewedAction));
+}
 function settingsContext(settings,overrides={}){
   const calls=[];
   const model={root:{name:"Synthetic Workspace"},settings};
-  const ui={settingsSaveStatus:{dataset:{},textContent:""}};
+  const ui={settingsSaveStatus:{dataset:{},textContent:""},advisorSettingsList:fakeNode("div")};
   const context=vm.createContext({
-    model,ui,SETTINGS_PATH:["data","settings.json"],
+    model,ui,document:{createElement:tag=>fakeNode(tag),createTextNode:text=>({textContent:text})},
+    validAdvisorIdentity:()=>true,advisorDisplayName:(_code,advisor)=>advisor.name,
+    advisorShownInSection:(code,key)=>model.settings.advisors[code]?.participation?.[key]!==false,
+    calls,SETTINGS_PATH:["data","settings.json"],
     settingsWriteChain:Promise.resolve(),settingsAutosaveRevision:0,
     structuredClone,now:()=>"2026-10-23T04:00:00.000Z",
     writeAuthority:{canWrite:true},
@@ -75,14 +89,18 @@ test("failed advisor setup review restores the action and allows a successful re
   assert.equal(model.settings.advisors["101"].setupRequired,true,
     "Failed durable write leaves setup review pending");
   assert.ok(calls.some(([name])=>name==="renderAdvisorSettings"),
-    "Failure redraws the advisor row and its review action");
+    "Failure redraws the advisor list");
   assert.ok(calls.some(([name])=>name==="renderSetup"),
     "Failure refreshes setup attention state");
   assert.equal(ui.settingsSaveStatus.dataset.saveState,"error");
+  assert.ok(containsReviewedAction(ui.advisorSettingsList),
+    "Failed write leaves the durable setup-review action available");
 
   deny=false;
   await context.markAdvisorSetupReviewed("101");
   assert.equal(model.settings.advisors["101"].setupRequired,false);
+  assert.equal(containsReviewedAction(ui.advisorSettingsList),false,
+    "Successful retry removes the review action from the rendered advisor row");
   assert.equal(ui.settingsSaveStatus.dataset.saveState,"saved");
   assert.match(ui.settingsSaveStatus.textContent,/review saved/i);
 });
