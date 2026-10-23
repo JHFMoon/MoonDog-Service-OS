@@ -332,9 +332,11 @@ try {
       let book;
       let parseMs = 0;
       let materializationMs = 0;
+      let ticksAtParseResolution = 0;
       try {
         const parseStarted = performance.now();
         book = await parse();
+        ticksAtParseResolution = ticks;
         let inputBytesPreserved = true;
         if (inputSnapshot) {
           const { bytes, original } = inputSnapshot;
@@ -352,7 +354,7 @@ try {
           throw new Error("Production XLSX parser did not preserve all synthetic rows.");
         }
         await new Promise(resolve => setTimeout(resolve, 25));
-        return { parseMs, materializationMs, ticks, maxHeartbeatGapMs, parsedRows: parsedRows.length, inputBytesPreserved };
+        return { parseMs, materializationMs, ticks, ticksAtParseResolution, maxHeartbeatGapMs, parsedRows: parsedRows.length, inputBytesPreserved };
       } finally {
         clearInterval(heartbeat);
       }
@@ -363,6 +365,9 @@ try {
       const bytes = sourceBytes.slice();
       const original = bytes.slice();
       workerRuns.push(await measure(() => globalThis.__moondogXlsxSmoke.prepare(bytes, options), { bytes, original }));
+    }
+    if (workerRuns.some(run => run.ticksAtParseResolution < 1)) {
+      throw new Error("Production worker parse completed without a main-thread heartbeat during the pending parse: " + JSON.stringify(workerRuns.map(run => ({ parseMs: run.parseMs, ticksAtParseResolution: run.ticksAtParseResolution }))));
     }
     for (let sample = 0; sample < 3; sample += 1) {
       const bytes = sourceBytes.slice();
