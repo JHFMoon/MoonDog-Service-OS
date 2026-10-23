@@ -44,8 +44,8 @@ const syntheticSnapshot = {
   },
   advisors: {
     "SYN-01": {
-      code: "SYN-01", name: "Synthetic Advisor", totalGross: 25000,
-      totalRO: 10, grossPerRo: 2500,
+      code: "SYN-01", name: "Synthetic Advisor", totalGross: 2437,
+      totalRO: 10, grossPerRo: 243.7,
       laborMargin: 10, partsMargin: 20, open: 2, aged: 1
     }
   }
