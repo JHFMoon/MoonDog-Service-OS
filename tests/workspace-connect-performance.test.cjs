@@ -173,6 +173,10 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"]) {
   );
   const started = performance.now();
   await context.restore();
+  if (permissionResults.includes("denied")) {
+    assert.ok(states.includes("PERMISSION REQUIRED"),
+      "a denied saved-folder permission attempt must report PERMISSION REQUIRED before retry");
+  }
   if (states.includes("PERMISSION REQUIRED")) {
     assert.equal(connectedSnapshots.length, 0, "denied saved-folder access must not publish CONNECTED");
     assert.equal(completedReads.size, 0, "denied saved-folder access must not read operational snapshots");
