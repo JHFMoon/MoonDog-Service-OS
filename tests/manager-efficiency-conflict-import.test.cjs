@@ -142,7 +142,7 @@ function mediaFixture(candidate) {
     addHistory: async () => { events.push("history"); },
     removeSourceEntry: async name => { events.push("delete"); removed.push(name); }
   });
-  vm.runInContext(managerImport + "\\nthis.importManagerSource = importManagerSource;", context);
+  vm.runInContext(managerImport + "\nthis.importManagerSource = importManagerSource;", context);
   return {
     model, events, removed, durable: () => durable,
     run: (name = "synthetic-media-asr (1).xlsx") => context.importManagerSource(name, "media-asr", [], true)
