@@ -203,3 +203,49 @@ test("overlapping Workspace connection attempts are rejected and retry is allowe
   );
   assert.equal(calls, 2);
 });
+
+
+test("failed delayed manual hydration clears the uncommitted root and keeps the handle retryable", async () => {
+  const handle = { name: "Synthetic selected Workspace", kind: "directory" };
+  const states = [];
+  let failHydration = true;
+  const model = {
+    root: null, pendingRoot: null, applicationRoot: null,
+    workspaceConnectionCommittedRoot: null
+  };
+  const authority = { canWrite: true, disable() { this.canWrite = false; } };
+  const context = vm.createContext({
+    model,
+    writeAuthority: authority,
+    window: { showDirectoryPicker: async () => handle },
+    connectedNativeRoot: null,
+    __moondogDailyUI: { confirmWorkspaceChange: () => true },
+    setConnectionState: (state, message) => states.push({ state, message }),
+    completeWorkspaceConnection: async candidate => {
+      model.root = { candidate };
+      model.applicationRoot = candidate;
+      model.pendingRoot = null;
+      context.connectedNativeRoot = candidate;
+      await new Promise(resolve => setImmediate(resolve));
+      if (failHydration) throw Object.assign(new Error("Synthetic delayed essential-state read failed"), { name: "NotReadableError" });
+      model.workspaceConnectionCommittedRoot = model.root;
+      return "connected";
+    },
+    setImmediate
+  });
+  vm.runInContext(connectionCore + "\n" + connect + "\nthis.connectWorkspace = connect;", context);
+
+  await assert.rejects(context.connectWorkspace(), error => error?.name === "NotReadableError");
+  assert.equal(model.root, null, "A failed candidate must not remain the active Workspace root.");
+  assert.equal(model.applicationRoot, null);
+  assert.equal(context.connectedNativeRoot, null);
+  assert.equal(model.workspaceConnectionCommittedRoot, null);
+  assert.equal(model.pendingRoot, handle, "The selected handle must remain available for an explicit retry.");
+  assert.equal(authority.canWrite, false, "A failed essential read must leave writes disabled.");
+  assert.equal(states.at(-1).state, "CONNECTION ERROR");
+
+  failHydration = false;
+  assert.equal(await context.connectWorkspace(), "connected");
+  assert.equal(model.workspaceConnectionCommittedRoot, model.root);
+  assert.equal(model.pendingRoot, null);
+});
