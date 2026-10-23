@@ -92,5 +92,5 @@ test("identical synthetic Open RO summary reimport tolerates refreshed derived m
   assert.equal(persisted.sourceModifiedAt, "2026-10-22T00:00:00.000Z", "current source metadata is refreshed");
   assert.deepEqual(f.events, ["write", "readback", "history", "delete"], "source deletion follows verified durable read-back and history");
   assert.deepEqual(f.removed, ["synthetic-conflicting-open-ro-summary.xlsx"]);
-  assert.deepEqual(f.model.operationalMetrics, f.durable(), "the verified in-memory and durable snapshots agree");
+  assert.equal(JSON.stringify(f.model.operationalMetrics), JSON.stringify(f.durable()), "the verified in-memory and durable snapshots agree across VM realms");
 });
