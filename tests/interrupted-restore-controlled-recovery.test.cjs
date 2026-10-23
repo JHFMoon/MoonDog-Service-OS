@@ -273,6 +273,9 @@ function controlledRecoveryExecutionFixture(options={}){
       context.writeLog.push(parts.join("/"));
       if(options.failWriteAt===context.writeLog.length)throw Error("Synthetic interrupted write.");
       live.set(parts.join("/"),new Uint8Array(bytes));
+      if(options.competeAfterWriteAt===context.writeLog.length){
+        context.live.set(options.competePath||"data/settings.json",enc(options.competeValue||{sourceAdapters:{schemaVersion:1,key:"external"},externalEdit:true}));
+      }
     },
     writeJson:async(parts,value,restoreId)=>{
       const bytes=enc(JSON.stringify(value,null,2)+"\n");
@@ -368,4 +371,16 @@ test("actual recovery refuses missing or invalid safety backups before replacing
     assert.equal(f.live.size,before.size);
     for(const [path,bytes]of before)assert.deepEqual(f.live.get(path),bytes,path+" must remain byte-identical");
   }
+});
+
+
+test("actual recovery stops before overwriting a same-Workspace edit arriving midflight",async()=>{
+  const external={sourceAdapters:{schemaVersion:1,key:"external"},setup:{newStorePrepared:false},externalEdit:"preserve"};
+  const f=controlledRecoveryExecutionFixture({competeAfterWriteAt:1,competePath:"data/settings.json",competeValue:external});
+  await assert.rejects(f.recover(),/changed during recovery/);
+  assert.equal(f.marker.restoreId,owner,"the interrupted-restore hold must remain");
+  assert.equal(f.active,false,"temporary recovery authority must be released");
+  assert.deepEqual(f.writeLog,["data/state.json"],"recovery must stop before another write");
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(f.read("data/settings.json"))),external,"the competing edit must remain byte-authoritative");
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/state.json"))).records[0].id,"source","the already-completed first file remains under the hold for controlled retry");
 });
