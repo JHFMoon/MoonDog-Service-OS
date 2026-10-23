@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.155 — current Beta
+
+- fix: make Media ASR technician reimports order independent. Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.154 — current Beta
 
 - Merge pull request #398 from JHFMoon/perf/58-connected-home-readiness-baseline-20261022. Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
