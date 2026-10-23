@@ -233,7 +233,8 @@ test("failed delayed manual hydration clears the uncommitted root and keeps the 
     },
     setImmediate
   });
-  vm.runInContext(connectionCore + "\n" + connect + "\nthis.connectWorkspace = connect;", context);
+  const connectFunction = extract(app, "  async function connect() {", "  async function restoreConnection()");
+  vm.runInContext(connectionCore + "\n" + connectFunction + "\nthis.connectWorkspace = connect;", context);
 
   await assert.rejects(context.connectWorkspace(), error => error?.name === "NotReadableError");
   assert.equal(model.root, null, "A failed candidate must not remain the active Workspace root.");
