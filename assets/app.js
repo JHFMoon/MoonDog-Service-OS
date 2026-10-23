@@ -1282,7 +1282,19 @@
     if (!window.showDirectoryPicker) throw new Error("This Edge version does not support local folder access from this page.");
     if (model.pendingRoot) { const pendingRoot=model.pendingRoot; setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(pendingRoot, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){writeAuthority.disable();model.pendingRoot=pendingRoot;setConnectionState(error?.name==="NotAllowedError"||error?.name==="SecurityError"?"PERMISSION REQUIRED":"CONNECTION ERROR", error?.name==="NotAllowedError"||error?.name==="SecurityError"?"FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder.":"The saved folder could not be fully read. Retry the connection after checking folder availability.");} throw error; } }
     const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "readwrite" });
-    try { return await finishConnection(handle, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY")writeAuthority.disable(); throw error; }
+    try { return await finishConnection(handle, true); } catch (error) {
+      if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){
+        writeAuthority.disable();
+        // A delayed essential read can fail after this candidate root is staged.
+        // Never leave that uncommitted root active; retain the handle for retry.
+        if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){
+          model.root=null; model.applicationRoot=null; connectedNativeRoot=null;
+          model.workspaceConnectionCommittedRoot=null; model.pendingRoot=handle;
+          setConnectionState("CONNECTION ERROR", "The selected working folder could not be fully read. Retry the connection after checking folder availability.");
+        }
+      }
+      throw error;
+    }
   }
   async function restoreConnection() {
     setConnectionState("RESTORING SAVED CONNECTION", "RECONNECTING TO SERVICE OPERATIONS DASHBOARD DATA");
