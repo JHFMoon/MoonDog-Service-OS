@@ -53,8 +53,8 @@ function fixture(kind,prior,candidate){
     sor:()=>{throw Error("Unexpected SOR parse");},
     "appointment-activity":()=>{throw Error("Unexpected appointment parse");},
     efficiency:()=>{throw Error("Unexpected Efficiency parse");},
-    "media-asr":()=>structuredClone(candidate),
-    "media-asr-tech":()=>structuredClone(candidate),
+    "media-asr":(_bytes,name)=>({...structuredClone(candidate),sourceFile:name}),
+    "media-asr-tech":(_bytes,name)=>({...structuredClone(candidate),sourceFile:name}),
     "open-ro-summary":()=>{throw Error("Unexpected Open RO parse");}
   };
   const context=vm.createContext({
