@@ -23,6 +23,8 @@ const meetingEvidence = app.slice(meetingStart, meetingEnd);
 
 test("synthetic VIR observation keeps its source date through durable storage and Meeting evidence", async () => {
   let durable = null;
+  const events = [];
+  const history = [];
   const model = { operationalMetrics: { vir: { snapshots: {}, pending: {} } } };
   const context = vm.createContext({
     ADVISOR_NAMES: { A1: "Demo Advisor" },
@@ -40,9 +42,9 @@ test("synthetic VIR observation keeps its source date through durable storage an
     sourceExpectation: () => "required",
     metricEvidence: evidence => ({ ...evidence, verified: ["verified", "known-zero"].includes(evidence.status) }),
     pruneDatedSnapshots: snapshots => snapshots,
-    writeJson: async (_path, value) => { durable = structuredClone(value); },
-    readJson: async () => structuredClone(durable),
-    addHistory: async () => {},
+    writeJson: async (_path, value) => { events.push("write"); durable = structuredClone(value); },
+    readJson: async () => { events.push("readback"); return structuredClone(durable); },
+    addHistory: async (...entry) => { events.push("history"); history.push(entry); },
     recordDiagnostic: () => {},
     renderOverviewIntelligence: () => {}
   });
@@ -66,6 +68,14 @@ test("synthetic VIR observation keeps its source date through durable storage an
   assert.equal(stored.observationTimestamp, "2026-10-22T12:00:00-07:00");
   assert.equal(stored.coverageMethod, "vir-point-in-time");
   assert.equal(stored.validation.coverageBasis, "VIR source observation provenance");
+  assert.deepEqual(events.slice(0, 3), ["write", "readback", "history"],
+    "VIR source history must follow verified durable read-back");
+  assert.deepEqual(history.map(([type, message, metadata]) => [type, message, { ...metadata }]), [[
+    "vir-import",
+    "Added independent VIR point-in-time observation",
+    { fileName: "synthetic-vir.csv", observationDate: "2026-10-22", totalROs: 4 }
+  ]], "VIR history must retain only the synthetic source, observation date, and calculation input");
+
   assert.equal(Object.hasOwn(stored, "effectiveDataThrough"), false);
   assert.equal(context.latestVirObservation().reportDate, "2026-10-22");
 
