@@ -88,7 +88,7 @@ function fixture() {
       activeSnapshot = structuredClone(value);
       modifiedAt = sourceModifiedAt;
     },
-    run: sourceName => context.importForTest(sourceName, "sor", new Uint8Array(), false)
+    run: (sourceName, deleteAfterSuccess = false) => context.importForTest(sourceName, "sor", new Uint8Array(), deleteAfterSuccess)
   };
 }
 
@@ -127,7 +127,7 @@ test("conflicting SAPR measurement for the same observed date fails before mutat
   f.setSnapshot(conflict, "2026-10-24T18:00:00.000Z");
 
   await assert.rejects(
-    f.run("synthetic-sor-conflicting.xlsx"),
+    f.run("synthetic-sor-conflicting.xlsx", true),
     /Conflicting sor report for period 2026-10-20 is already saved/
   );
 
