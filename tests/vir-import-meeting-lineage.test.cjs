@@ -38,7 +38,7 @@ test("synthetic VIR report keeps its observation date and values through durable
     norm: value => String(value ?? "").trim().toLowerCase(),
     csvNumber: value => value === "" || value == null ? null : Number(value),
     parseCsv: value => value.trimEnd().split(/\r?\n/).map(line => line.split(",")),
-    internalObservationDate: () => "",
+    internalObservationDate: () => "2026-10-22",
     validAdvisorIdentity: (code, name) => code === "A1" && name === "Demo Advisor",
     now: () => "2026-10-22T19:00:00.000Z",
     localDateKey: value => value instanceof Date ? value.toISOString().slice(0, 10) : "2026-10-22",
