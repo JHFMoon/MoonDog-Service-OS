@@ -1,14 +1,31 @@
-**LIVE CLOUD CHECKPOINT — 2026-10-22 17:39 UTC.** Main is `d5af312d512af32e21d469925cd39fc25f245a70`, the protected merge of PR #379. Its required Publication Check is running; do not claim it has passed. Live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 includes #383's unsaved Open RO draft warning; no Workspace migration. No installation or field evidence is claimed.
+**LIVE CLOUD CHECKPOINT — 2026-10-24 UTC.** Main is `2d3c089741b6d3aa6bcfdd177e7e0c4414772f29`, protected squash merge of PR #428. This supersedes the historical live labels below; the latest durable execution checkpoint is issue #164 comment #6380160938.
 
-Active Protect Main ruleset #24665513 requires a PR and strict `Publication Check` from GitHub Actions app 15368; ordinary approval count is zero, extra approval applies to unattributed changes, bypass actors are empty, current-user bypass is never, and deletion/non-fast-forward are blocked.
+Manifest: trusted Beta `0.10.18-beta.156`, SHA-256 `1227700c3dcb32cce6f99e059a00cbd50d2b04846ce95a3493e1c76ccb2cd259`; Stable `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Stable is unchanged.
 
-- #379 merged through GitHub's protected squash route as `d5af312d512af32e21d469925cd39fc25f245a70`. Exact head `1877f3f5e41ba6fb8bfd0336e41af1faa6069b51` passed Publication Check and Clean Install Proof; exact-head Codex review had no findings.
-- #380 and #383 are merged; their synthetic source-confidence and unsaved-draft criteria remain partial/criterion-specific. #368, #370, #376, and #377 remain merged.
-- #373 exact head `9775a2385d7cb81ba91e6f9662b156e8002f3de3` passes both checks; exact-head Codex review is running, base is stale. Separate merge authorization remains required.
-- #374 is refreshing this matrix onto main `d5af312`; its new exact-head checks and review will be required. Prior review found stale worker and checkpoint statements; this update corrects them.
-- #386 exact head `b706632ed53ef6e38382062d5457fc72acb72dae` passes both checks but has exact-head findings and stale base `99d5644`. Fix review findings before any additive main refresh. No force-push or history rewrite.
-- #388 exact head `d48efefec4584db77ae8a14b1de46f4d91b44ac9` has fresh checks/review running after serializing Meeting-content writes and correcting the synthetic overlap fixture. The prior head's focused tests passed; broader validation exposed a missing fixture root, which this head corrects.
-- #389 and #378 remain drafts with stale bases; #189/#183 remain approval-gated; #212 is deferred. #164 stays closed; #58–#61 remain open.
+Active Protect Main ruleset #24665513 requires pull requests and strict `Publication Check` from GitHub Actions app 15368. It has zero ordinary approvals, an extra approval requirement for unattributed changes, no bypass actors, current-user bypass `never`, and blocks deletion/non-fast-forward updates. #164 remains closed; #58–#61 remain open; #212 remains deferred.
+
+### Single prioritized acceptance list
+1. **P0 #59-04 conflict/reimport integrity:** #434 and #428 are merged; continue #436 and remaining source-family coverage.
+2. **P1 #59-07 month-end correction:** #435.
+3. **P1 #58-01/#58-02 startup and reconnect:** #431.
+4. **#164-07 lifecycle/resume:** #432 is merged; remaining umbrella criteria stay open.
+5. **#60 workflow/UI and #61 lineage/release/documentation:** continue after the active higher-priority items. Keep #212 deferred.
+
+### Verified merges and active validation
+- #428 merged through the protected squash route as `2d3c089741b6d3aa6bcfdd177e7e0c4414772f29`, from exact head `552e63585e56986069aed4387385e8de42076d90`. Publication Check #40064534306 and Clean Install Proof #40064534308 passed; exact-head Codex review #6380143253 found no major issues; no unresolved review threads.
+- #434 merged as parent main `029d162596e4edc292388d366161cad7b1b8622d`, with exact-head Publication Check #40061398391, Clean Install Proof #40061398356, and no-major-findings review #6379719753.
+- Previously named PRs #368, #370, #374, #376 and #377 remain merged with exact-head checks/reviews. #373 remains closed/unmerged; its checks and review pass on `9775a2385d7cb81ba91e6f9662b156e8002f3de3`, but separate merge authorization is required.
+
+PR #428's protected merge triggered main Publication Check #40066645109 and Public Repository History Safety Audit #40066645144; both are in progress. Prepare Beta Package #40066645135 succeeded, but package build, PR, and dispatch were skipped; no new Beta is published.
+
+The following branches were refreshed additively onto main `2d3c089...`, with prior heads preserved as parents, no force-push, and behind-by zero. Their fresh Publication Check, Clean Install Proof and exact-head review requests are pending:
+- #436 head `a5acbb6f040a28045e3b463f731a0b00e604d615`: Publication Check #40066669406 and Clean Install Proof #40066669403 are running; review request #6380421319 is pending. The previous outdated read-back finding was addressed in the test and its thread resolved; verify again on this head.
+- #435 head `55edb47694fecb66cc70dca193376419ef82753a`: Publication Check #40066667149 and Clean Install Proof #40066667198 are running; review request #6380421167 is pending.
+- #431 head `969c4c9bd6436d7d791d9bd599af005273acb6f1`: Publication Check #40066666370 and Clean Install Proof #40066666324 are running; review request #6380421027 is pending.
+
+#406 stays draft at `ee8076a922f70d32f2df261b76fd38c9e9fa93f5`; do not mark ready or merge it, per its #389 restriction. #397 and #408 remain separately authorization-gated. Do not merge/publish #189 or #183 without approval. Preserve synthetic-only tests, Workspace boundaries, file:// and OneDrive behavior. No field test, installation, or continuous execution is claimed.
+
+Next: finish fresh exact-head evidence on #436, #435 and #431; merge eligible work only after Publication Check, review, ancestry, threads and all active protections pass. Continue the next independent criterion while any validation runs.
 
 **HISTORICAL CHECKPOINT — 2026-10-22 17:29 UTC. Superseded by the live checkpoint above.**
 
