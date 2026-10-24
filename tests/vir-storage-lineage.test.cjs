@@ -23,6 +23,8 @@ const meetingEvidence = app.slice(meetingStart, meetingEnd);
 
 test("synthetic VIR observation keeps its source date through durable storage and Meeting evidence", async () => {
   let durable = null;
+  const events = [];
+  const history = [];
   const model = { operationalMetrics: { vir: { snapshots: {}, pending: {} } } };
   const context = vm.createContext({
     ADVISOR_NAMES: { A1: "Demo Advisor" },
@@ -40,14 +42,14 @@ test("synthetic VIR observation keeps its source date through durable storage an
     sourceExpectation: () => "required",
     metricEvidence: evidence => ({ ...evidence, verified: ["verified", "known-zero"].includes(evidence.status) }),
     pruneDatedSnapshots: snapshots => snapshots,
-    writeJson: async (_path, value) => { durable = structuredClone(value); },
-    readJson: async () => structuredClone(durable),
-    addHistory: async () => {},
+    writeJson: async (_path, value) => { events.push("write"); durable = structuredClone(value); },
+    readJson: async () => { events.push("readback"); return structuredClone(durable); },
+    addHistory: async (...entry) => { events.push("history"); history.push(entry); },
     recordDiagnostic: () => {},
     renderOverviewIntelligence: () => {}
   });
   vm.runInContext(parser + "\n" + lineage + "\n" + evidence + "\n" + meetingEvidence + "\n" +
-    'VIR_NAME_CODES["demo advisor"] = "A1"; this.parseVirCsv = parseVirCsv; this.saveVirSnapshot = saveVirSnapshot; this.latestVirObservation = latestVirObservation; this.virMeetingEvidence = virMeetingEvidence;',
+    'VIR_NAME_CODES["demo advisor"] = "A1"; this.parseVirCsv = parseVirCsv; this.saveVirSnapshot = saveVirSnapshot; this.latestVirObservation = latestVirObservation; this.virMeetingEvidence = virMeetingEvidence; this.virCompletenessEvidence = virCompletenessEvidence;',
     context);
 
   const csv = [
@@ -66,6 +68,14 @@ test("synthetic VIR observation keeps its source date through durable storage an
   assert.equal(stored.observationTimestamp, "2026-10-22T12:00:00-07:00");
   assert.equal(stored.coverageMethod, "vir-point-in-time");
   assert.equal(stored.validation.coverageBasis, "VIR source observation provenance");
+  assert.deepEqual(events.slice(0, 3), ["write", "readback", "history"],
+    "VIR source history must follow verified durable read-back");
+  assert.deepEqual(history.map(([type, message, metadata]) => [type, message, { ...metadata }]), [[
+    "vir-import",
+    "Added independent VIR point-in-time observation",
+    { fileName: "synthetic-vir.csv", observationDate: "2026-10-22", totalROs: 4 }
+  ]], "VIR history must retain only the synthetic source, observation date, and calculation input");
+
   assert.equal(Object.hasOwn(stored, "effectiveDataThrough"), false);
   assert.equal(context.latestVirObservation().reportDate, "2026-10-22");
 
@@ -74,4 +84,13 @@ test("synthetic VIR observation keeps its source date through durable storage an
   assert.equal(meeting.period, "Observed 2026-10-22");
   assert.equal(meeting.value, 75);
   assert.equal(meeting.status, "verified");
+
+  const future = structuredClone(stored);
+  future.reportDate = "2026-10-24";
+  future.observationTimestamp = "2026-10-24T12:00:00-07:00";
+  const futureEvidence = context.virCompletenessEvidence(future, "2026-10-23", { expectedCodes: ["A1"] });
+  assert.equal(futureEvidence.status, "stale", "future-dated VIR evidence must not be promoted as current");
+  assert.equal(futureEvidence.verified, false);
+  assert.equal(futureEvidence.period, "Observed 2026-10-24");
+  assert.match(futureEvidence.reason, /future-dated/);
 });

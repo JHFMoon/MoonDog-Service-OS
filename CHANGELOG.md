@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.10.18-beta.161 — current Beta
+
+- perf: bound Workspace reconnect snapshot reads (#58) (#448). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.160 — current Beta
+
+- fix: keep SOR import time out of source lineage (#59-01). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.159 — current Beta
+
+- fix: require canonical Monday Menu release dates (#441). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.158 — current Beta
+
+- fix: reject future-dated VIR observations. Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.157 — current Beta
+
+- fix: detect late month-end store corrections (#59-07) (#435). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.156 — current Beta
 
 - test: prevent overlapping report inbox reconciliation (#424). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
