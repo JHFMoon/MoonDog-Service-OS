@@ -47,7 +47,7 @@ test("synthetic VIR observation keeps its source date through durable storage an
     renderOverviewIntelligence: () => {}
   });
   vm.runInContext(parser + "\n" + lineage + "\n" + evidence + "\n" + meetingEvidence + "\n" +
-    'VIR_NAME_CODES["demo advisor"] = "A1"; this.parseVirCsv = parseVirCsv; this.saveVirSnapshot = saveVirSnapshot; this.latestVirObservation = latestVirObservation; this.virMeetingEvidence = virMeetingEvidence;',
+    'VIR_NAME_CODES["demo advisor"] = "A1"; this.parseVirCsv = parseVirCsv; this.saveVirSnapshot = saveVirSnapshot; this.latestVirObservation = latestVirObservation; this.virMeetingEvidence = virMeetingEvidence; this.virCompletenessEvidence = virCompletenessEvidence;',
     context);
 
   const csv = [
@@ -74,4 +74,13 @@ test("synthetic VIR observation keeps its source date through durable storage an
   assert.equal(meeting.period, "Observed 2026-10-22");
   assert.equal(meeting.value, 75);
   assert.equal(meeting.status, "verified");
+
+  const future = structuredClone(stored);
+  future.reportDate = "2026-10-24";
+  future.observationTimestamp = "2026-10-24T12:00:00-07:00";
+  const futureEvidence = context.virCompletenessEvidence(future, "2026-10-23", { expectedCodes: ["A1"] });
+  assert.equal(futureEvidence.status, "stale", "future-dated VIR evidence must not be promoted as current");
+  assert.equal(futureEvidence.verified, false);
+  assert.equal(futureEvidence.period, "Observed 2026-10-24");
+  assert.match(futureEvidence.reason, /future-dated/);
 });
