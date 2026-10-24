@@ -31,7 +31,8 @@ const originalState = {
       reviewDate: "2026-10-23",
       communication: "Updated",
       note: "Synthetic existing note",
-      clarification: "Synthetic manual clarification",
+      clarification: { sourceFile: "SYNTHETIC.xlsx", flaggedAt: "2026-10-24T10:00:00.000Z", reason: "Synthetic unresolved source question" },
+      manualAnnotation: "Synthetic manager-entered annotation",
       adminCloseout: { blocker: null, evidence: "Synthetic closeout evidence" }
     }
   }],
@@ -39,7 +40,7 @@ const originalState = {
   source: { kind: "synthetic-fixture" }
 };
 const hostCopy = value => JSON.parse(JSON.stringify(value));
-function harness() {
+function harness(failPath = null) {
   const files = new Map();
   const directories = new Set(["data", "backups"]);
   const model = { state: hostCopy(originalState), selectedId: "synthetic-ro-101", editOrigin: "table", root: null };
@@ -91,7 +92,10 @@ function harness() {
     TextEncoder, TextDecoder, JSON, Error, Object, Array, String, Boolean, Map, Set, Promise,
     writeAuthority: { requireWrite() {} },
     MoonDogMaintenance: {
-      async safeWrite(_io, name, bytes) { files.set(name, Uint8Array.from(bytes)); }
+      async safeWrite(_io, name, bytes) {
+        if (name === failPath) throw Object.assign(new Error("Synthetic durable write failure"), { name: "NotReadableError" });
+        files.set(name, Uint8Array.from(bytes));
+      }
     },
     maintenanceIO: {},
     directory: undefined,
@@ -129,7 +133,7 @@ function harness() {
   return { context, model, ui, files, diagnostics, get finishCount() { return finishCount; } };
 }
 
-test("Open RO production save survives JSON write and read-back while preserving source and unrelated manual fields", async () => {
+test("Open RO production save verifies read-back, preserves source/manual fields, and clears the acknowledged clarification", async () => {
   const h = harness();
   const result = await h.context.saveForTest({ preventDefault() {} });
   assert.equal(result, true);
@@ -149,8 +153,22 @@ test("Open RO production save survives JSON write and read-back while preserving
   assert.equal(record.management.note, "Synthetic follow-up saved");
   assert.deepStrictEqual(record.sourceFields, originalState.records[0].sourceFields,
     "manager edits do not change source-report values");
-  assert.equal(record.management.clarification, "Synthetic manual clarification");
+  assert.equal(record.management.clarification, null, "a successful reviewed save clears the pending synthetic clarification");
+  assert.equal(record.management.manualAnnotation, "Synthetic manager-entered annotation", "unrelated manual metadata remains intact");
   assert.deepStrictEqual(record.management.adminCloseout, originalState.records[0].management.adminCloseout);
   assert.equal(h.finishCount, 1, "post-save UI completion runs only after production read-back succeeds");
   assert.ok(h.diagnostics.some(item => item.kind === "DURABLE WRITE"));
+});
+
+test("failed Open RO durable save retains prior clarification, source, and manual fields", async () => {
+  const h = harness("data/current-state.json");
+  const result = await h.context.saveForTest({ preventDefault() {} });
+  assert.equal(result, undefined, "an unverified write does not complete the save");
+  assert.deepStrictEqual(hostCopy(h.model.state), originalState, "the full original synthetic state is restored");
+  assert.equal(h.model.state.records[0].management.clarification.reason, "Synthetic unresolved source question");
+  assert.equal(h.model.state.records[0].management.manualAnnotation, "Synthetic manager-entered annotation");
+  assert.deepStrictEqual(h.model.state.records[0].sourceFields, originalState.records[0].sourceFields);
+  assert.equal(h.ui.editValidation.hidden, false, "the failed save remains visible and retryable");
+  assert.equal(h.ui.editNextAction.value, "Complete synthetic inspection");
+  assert.equal(h.finishCount, 0, "post-save completion does not run before verified persistence");
 });
