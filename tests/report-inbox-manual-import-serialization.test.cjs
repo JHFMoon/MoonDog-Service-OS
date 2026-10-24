@@ -49,7 +49,7 @@ for (const busyImport of ["dailyImportBusy", "appointmentImportBusy"]) {
       candidateNeedsImport: () => true,
       autoSurveyFolder: async signatures => {
         calls.imports += 1;
-        assert.deepEqual(signatures, ["synthetic-signature"]);
+        assert.deepEqual([...signatures], ["synthetic-signature"]);
         return { imported: [candidate.name], retained: [], learned: [] };
       },
       writeJson: async () => { calls.writes += 1; },
@@ -88,7 +88,7 @@ for (const busyImport of ["dailyImportBusy", "appointmentImportBusy"]) {
     await context.scan("retry");
     assert.equal(calls.reads, 2);
     assert.equal(calls.imports, 1, "the stable report must be imported exactly once after the manual import ends");
-    // The existing report-inbox-read-retry test covers pending-marker cleanup after importer success.
+    assert.equal(folderWatch.pending.has(candidate.relativePath), false, "successful import clears the pending marker");
     assert.equal(folderWatch.busy, false, "the shared intake slot releases after import");
     assert.equal(calls.writes, 0, "initialized synthetic intake metadata remains unchanged");
   });
