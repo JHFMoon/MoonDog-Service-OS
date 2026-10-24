@@ -35,6 +35,11 @@ function fixture(snapshot, { sourceModifiedAt, rows }) {
       getFile: async () => ({ lastModified: Date.parse(sourceModifiedAt) })
     }),
     parseSorWorkbook: () => structuredClone(snapshot),
+    parseAppointmentActivityWorkbook: () => { throw new Error("Unexpected appointment-activity parse."); },
+    parseEfficiencyWorkbook: () => { throw new Error("Unexpected Efficiency parse."); },
+    parseMediaAsrAdvisorWorkbook: () => { throw new Error("Unexpected Media ASR parse."); },
+    parseMediaAsrTechWorkbook: () => { throw new Error("Unexpected Media ASR technician parse."); },
+    parseOpenRoSummaryWorkbook: () => { throw new Error("Unexpected Open RO summary parse."); },
     pruneDatedSnapshots: value => value,
     writeJson: async (_path, value) => { durable = structuredClone(value); },
     readJson: async () => structuredClone(durable),
