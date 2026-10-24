@@ -1292,6 +1292,7 @@
       for(const [label,run] of jobs){
         if(model.root!==connectedRoot||!writeAuthority.canWrite)break;
         await sleepBetweenChecks();
+        if(model.root!==connectedRoot||!writeAuthority.canWrite)break;
         try{await run();}
         catch(error){recordDiagnostic('POST-CONNECTION SCAN',label+': '+String(error?.message||error));}
       }
