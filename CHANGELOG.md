@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.159 — current Beta
+
+- fix: require canonical Monday Menu release dates (#441). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.158 — current Beta
 
 - fix: reject future-dated VIR observations. Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
