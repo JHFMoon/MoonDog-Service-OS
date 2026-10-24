@@ -35,7 +35,7 @@ function mountUpdaterCard(html, settingsSource = read("assets/moondog-update-set
       return card;
     }
   };
-  const mountEnd = settingsSource.indexOf("  const field = id =>", source.indexOf('  const card = document.createElement("section");'));
+  const mountEnd = settingsSource.indexOf("  const field = id =>", settingsSource.indexOf('  const card = document.createElement("section");'));
   assert.ok(mountEnd > 0, "updater module bootstrap and card mount block must remain present");
   vm.runInNewContext(settingsSource.slice(0, mountEnd) + "})(globalThis);", {
     document,
