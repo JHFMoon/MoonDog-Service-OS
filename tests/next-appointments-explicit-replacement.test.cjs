@@ -43,9 +43,9 @@ test("same-day Next Appointments replacement is recorded before source deletion"
   assert.deepEqual(JSON.parse(JSON.stringify(f.model.operationalMetrics.nextAppointments.snapshots[f.key])),{periodStart:"2026-10-20",periodEnd:f.key,appointmentCount:2,appointments:[{id:"synthetic-a"},{id:"synthetic-b"}],identityConflicts:[]});
   assert.deepEqual(JSON.parse(JSON.stringify(f.durable().nextAppointments.snapshots[f.key])),JSON.parse(JSON.stringify(f.model.operationalMetrics.nextAppointments.snapshots[f.key])),"complete replacement must be verified in durable read-back");
   assert.deepEqual(f.events.slice(0,2),["write","read"],"read-back must follow the durable write");
-  assert.equal(f.events[1].type,"next-appointments-import");
-  assert.match(f.events[1].message,/^Replaced Next Appointments snapshot through 2026-10-20$/);
-  assert.equal(f.events[1].details.fileName,"synthetic-next-appointments.csv");
+  assert.equal(f.events[2].type,"next-appointments-import");
+  assert.match(f.events[2].message,/^Replaced Next Appointments snapshot through 2026-10-20$/);
+  assert.equal(f.events[2].details.fileName,"synthetic-next-appointments.csv");
   assert.equal(f.events[3].type,"remove");
   assert.equal(f.events[3].name,"synthetic-next-appointments.csv");
   assert.deepEqual(f.events.slice(-2).map(item=>typeof item==="string"?item:item.type),["source-deleted","render"]);
