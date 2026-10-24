@@ -180,7 +180,7 @@ test("Report Inbox retains its stable marker and retries after a transient impor
     renderAll() {}, renderSetup() {}, renderRecovery() {},
     Promise, Map, Set, Object, Array, String, Boolean, JSON, Error, console
   });
-  vm.runInNewContext(folderWatchScan + "\\nthis.scan=folderWatchScan;", context);
+  vm.runInNewContext(folderWatchScan + "\nthis.scan=folderWatchScan;", context);
 
   await context.scan("poll");
   await context.scan("poll");
