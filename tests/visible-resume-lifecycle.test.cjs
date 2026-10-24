@@ -24,13 +24,13 @@ test("visible resume rechecks the synthetic Report Inbox after hidden idle perio
   const {document,listeners,scans}=harness();
   const onVisibility=listeners.get("document:visibilitychange");
   assert.equal(typeof onVisibility,"function");
-  for(let i=0;i<100;i++){
+  for(let i=0;i<250;i++){
     document.visibilityState="hidden";
     onVisibility();
     document.visibilityState="visible";
     onVisibility();
   }
-  assert.equal(scans.length,100,"hidden periods do no work and each visible resume starts one recheck");
+  assert.equal(scans.length,250,"hidden periods do no work and each visible resume starts one recheck");
   assert.ok(scans.every(reason=>reason==="visible"));
 });
 
@@ -114,7 +114,7 @@ test("repeated visible resumes remain bounded while production workbook and PDF 
 
   const pdfBytes=new TextEncoder().encode("%PDF synthetic report");
   const originalPdf=pdfBytes.slice();
-  for(let cycle=0;cycle<100;cycle++){
+  for(let cycle=0;cycle<250;cycle++){
     document.visibilityState="hidden";
     listeners.get("document:visibilitychange")();
     document.visibilityState="visible";
@@ -132,8 +132,8 @@ test("repeated visible resumes remain bounded while production workbook and PDF 
   }
   assert.equal(scans.length,100,"each visible resume schedules one Report Inbox recheck");
   assert.equal(listeners.size,2,"repeated resume cycles do not register extra lifecycle listeners");
-  assert.equal(workerCalls.length,10,"each synthetic large workbook uses the production worker helper");
-  assert.equal(pdfTasks.filter(entry=>entry.destroyed).length,10,"each PDF task is cleaned up after extraction");
+  assert.equal(workerCalls.length,25,"each synthetic large workbook uses the production worker helper");
+  assert.equal(pdfTasks.filter(entry=>entry.destroyed).length,25,"each PDF task is cleaned up after extraction");
   assert.equal(pdfjsLib.GlobalWorkerOptions.workerSrc,"file:///synthetic/moondog/vendor/pdf.worker.min.js");
   assert.deepEqual(pdfBytes,originalPdf,"PDF extraction leaves the input source bytes intact");
   await context.stopXlsxWorker(new Error("synthetic lifecycle cleanup"));
