@@ -55,7 +55,8 @@ function fixture(releaseWeek) {
     saprTotalDays: 22,
     validation: { saprDaysVerified: true, finalTotalsVerified: true }
   };
-  const entity = { totalGross: 10000, cpElr: 120, cpHours: 2, mediaViewed: 80, texting: 90 };
+  const genericMetric = () => 1;
+  const entity = { totalGross: genericMetric(), cpElr: genericMetric(), cpHours: genericMetric(), mediaViewed: genericMetric(), texting: genericMetric() };
   const html = context.api.meetingAdvisorTv(
     "SYNTHETIC_ADVISOR", latest, entity, {},
     { current: { missingDates: [] } }, {}, { responses: 0 }
