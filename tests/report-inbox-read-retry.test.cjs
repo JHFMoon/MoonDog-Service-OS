@@ -144,3 +144,58 @@ test("overlapping Report Inbox scans share the busy guard and still import a sta
   assert.equal(imports, 1);
   assert.equal(folderWatch.busy, false, "the shared scan guard releases after completion");
 });
+
+
+test("Report Inbox retains its stable marker and retries after a transient importer failure", async () => {
+  const folderWatch = { timer: null, busy: false, pending: new Map(), lastChecked: "", state: "ON", message: "" };
+  const model = {
+    root: { name: "Synthetic Workspace" },
+    autoImport: { inboxVersion: 1, initializedAt: "2026-10-23T11:00:00.000Z" }
+  };
+  const candidate = {
+    name: "synthetic-sapr.xlsx",
+    relativePath: "Report Inbox/synthetic-sapr.xlsx",
+    signature: "synthetic-signature",
+    location: "report-inbox"
+  };
+  const diagnostics = [];
+  let imports = 0;
+  const context = vm.createContext({
+    model, folderWatch, window: { scrollX: 0, scrollY: 0, scrollTo() {} },
+    writeAuthority: { canWrite: true }, dailyImportBusy: false, appointmentImportBusy: false,
+    AUTO_IMPORT_PATH: ["data", "auto-import.json"],
+    folderWatchEnabled: () => true,
+    permission: async () => "granted",
+    watchStatus: () => {},
+    watchCandidates: async () => [candidate],
+    candidateNeedsImport: () => true,
+    autoSurveyFolder: async () => {
+      imports += 1;
+      if (imports === 1) throw Error("synthetic transient importer failure");
+      return { imported: [candidate.name], retained: [], learned: [] };
+    },
+    writeJson: async () => {},
+    recordDiagnostic: (category, message) => diagnostics.push({ category, message }),
+    now: () => "2026-10-23T12:00:00.000Z",
+    renderAll() {}, renderSetup() {}, renderRecovery() {},
+    Promise, Map, Set, Object, Array, String, Boolean, JSON, Error, console
+  });
+  vm.runInNewContext(folderWatchScan + "\\nthis.scan=folderWatchScan;", context);
+
+  await context.scan("poll");
+  await context.scan("poll");
+  assert.equal(imports, 1, "the second stable observation reaches the production importer once");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(folderWatch.pending.get(candidate.relativePath))),
+    { signature: "synthetic-signature", confirmations: 2, firstSeenAt: "2026-10-23T12:00:00.000Z" },
+    "a failed import must retain its stable source marker for retry"
+  );
+  assert.equal(folderWatch.busy, false, "the shared intake slot must release after the failed import");
+  assert.ok(diagnostics.some(item => item.category === "REPORT INBOX WATCH" && /scan failed/.test(item.message)));
+
+  await context.scan("retry");
+  assert.equal(imports, 2, "the next eligible scan retries the same stable source");
+  assert.equal(folderWatch.pending.has(candidate.relativePath), false,
+    "the marker clears only after a successful import");
+  assert.equal(folderWatch.busy, false, "the shared intake slot releases after the successful retry");
+});
