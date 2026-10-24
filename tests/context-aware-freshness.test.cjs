@@ -138,6 +138,22 @@ test('history maintenance uses newest valid report day regardless of import enum
     'an explicitly verified lastPoint retains existing source precedence');
 });
 
+test('Menu weekly freshness requires the canonical Monday release date', () => {
+  const today = '2026-10-20'; // Tuesday; the represented current release is Monday.
+  const current = F.evaluateSource({key:'menu',exists:true,today,releaseWeek:'2026-10-19'});
+  assert.equal(current.status,'current');
+
+  for (const releaseWeek of ['2026-10-20','2026-10-18','2026-10-26','2026-02-30']) {
+    const source = F.evaluateSource({key:'menu',exists:true,today,releaseWeek});
+    assert.equal(source.status,'stale',releaseWeek);
+    assert.equal(source.safeForCurrent,false,releaseWeek);
+    assert.equal(source.expectedPeriod,'2026-10-19',releaseWeek);
+  }
+
+  const unsupportedPeriodEnd = F.evaluateSource({key:'menu',exists:true,today,periodEnd:'2026-10-20'});
+  assert.equal(unsupportedPeriodEnd.status,'stale','a Tuesday period end cannot stand in for a Monday release');
+});
+
 test('Menu weekly report history picks latest release without assuming import sort', () => {
   const releases=['2026-10-19','2026-10-05','2026-10-12','2026-10-26','2026-13-01'];
   const plan=F.trendMaintenance({key:'menu',today:'2026-10-20',coverage:{presentReleases:releases}});
