@@ -1195,7 +1195,46 @@
     } catch (error) { model.root = previousRoot; model.applicationRoot = previousNativeRoot; connectedNativeRoot = previousNativeRoot; throw error; }
     connectedNativeRoot = handle;
     model.pendingRoot = null; try { await rememberRoot(handle); } catch (_) { /* Manual folder reconnection remains available without browser storage. */ } await initializeFolders(); await recordDiagnostic("APPLICATION", `Service Operations Dashboard ${VERSION} connected; recent diagnostics rotated`);
-    model.state = await readJson(STATE_PATH, model.state); model.state.closedRecords=pruneClosedRecords(model.state.closedRecords||[]); model.appointments = await readJson(APPOINTMENTS_PATH, model.appointments); model.performance = await readJson(PERFORMANCE_PATH, model.performance); const priorPerformance=JSON.parse(JSON.stringify(model.performance));if(normalizeControllableVinCounts(model.performance)){await writeJson(["backups",`${stamp()}-before-sapr-cp-ro-vin-denominator-migration.json`],priorPerformance);model.performance.updatedAt=now();await writeJson(PERFORMANCE_PATH,model.performance);await addHistory("sapr-controllable-migration","Applied SAPR CP RO as the controllable VIN denominator",{snapshots:Object.keys(model.performance.snapshots||{}).length});} model.operationalMetrics = await readJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics); model.meetingCycle = await readJson(MEETING_CYCLE_PATH, model.meetingCycle); model.operationalMetrics.nextAppointments ||= { snapshots: {} }; model.operationalMetrics.vir ||= { snapshots: {} }; model.operationalMetrics.menu ||= { snapshots: {} }; model.operationalMetrics.csi ||= { surveys: {}, imports: [] }; model.operationalMetrics.monthlySummaries ||= {}; model.operationalMetrics.supplementalReports ||= { snapshots: {} }; for (const family of ["sor", "appointmentActivity", "efficiency", "mediaAsr", "openRoSummary"]) model.operationalMetrics[family] ||= { snapshots: {} }; model.assignNext = await readJson(ASSIGN_NEXT_PATH, model.assignNext); model.assignNext.days||={};model.autoImport = await readJson(AUTO_IMPORT_PATH, model.autoImport); model.recovery = await readJson(RECOVERY_PATH, model.recovery); const rawSettings = await readJson(SETTINGS_PATH, {});
+    const connectionReadSpecs = [
+      [STATE_PATH, model.state],
+      [APPOINTMENTS_PATH, model.appointments],
+      [PERFORMANCE_PATH, model.performance],
+      [OPERATIONAL_METRICS_PATH, model.operationalMetrics],
+      [MEETING_CYCLE_PATH, model.meetingCycle],
+      [ASSIGN_NEXT_PATH, model.assignNext],
+      [AUTO_IMPORT_PATH, model.autoImport],
+      [RECOVERY_PATH, model.recovery]
+    ];
+    const connectionReadResults = new Array(connectionReadSpecs.length);
+    let nextConnectionRead = 0;
+    const readConnectionSnapshots = async () => {
+      while (nextConnectionRead < connectionReadSpecs.length) {
+        const index = nextConnectionRead++;
+        const [filePath, fallback] = connectionReadSpecs[index];
+        connectionReadResults[index] = await readJson(filePath, fallback);
+      }
+    };
+    // Bound independent reads to protect local folders and OneDrive from a burst.
+    // Do not publish partial model state: commit the snapshots only when all reads succeed.
+    await Promise.all(Array.from({ length: Math.min(3, connectionReadSpecs.length) }, () => readConnectionSnapshots()));
+    [model.state, model.appointments, model.performance, model.operationalMetrics, model.meetingCycle, model.assignNext, model.autoImport, model.recovery] = connectionReadResults;
+    model.state.closedRecords=pruneClosedRecords(model.state.closedRecords||[]);
+    const priorPerformance=JSON.parse(JSON.stringify(model.performance));
+    if(normalizeControllableVinCounts(model.performance)){
+      await writeJson(["backups",`${stamp()}-before-sapr-cp-ro-vin-denominator-migration.json`],priorPerformance);
+      model.performance.updatedAt=now();
+      await writeJson(PERFORMANCE_PATH,model.performance);
+      await addHistory("sapr-controllable-migration","Applied SAPR CP RO as the controllable VIN denominator",{snapshots:Object.keys(model.performance.snapshots||{}).length});
+    }
+    model.operationalMetrics.nextAppointments ||= { snapshots: {} };
+    model.operationalMetrics.vir ||= { snapshots: {} };
+    model.operationalMetrics.menu ||= { snapshots: {} };
+    model.operationalMetrics.csi ||= { surveys: {}, imports: [] };
+    model.operationalMetrics.monthlySummaries ||= {};
+    model.operationalMetrics.supplementalReports ||= { snapshots: {} };
+    for (const family of ["sor", "appointmentActivity", "efficiency", "mediaAsr", "openRoSummary"]) model.operationalMetrics[family] ||= { snapshots: {} };
+    model.assignNext.days||={};
+    const rawSettings = await readJson(SETTINGS_PATH, {});
     const bootstrapAdapter = rawSettings.sourceAdapters ? null : await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
     const configuredAdapter = rawSettings.sourceAdapters || bootstrapAdapter;
     if (!configuredAdapter && Object.keys(rawSettings.advisors || {}).length && !rawSettings.setup?.newStorePrepared) throw new Error("The protected local source adapter is missing. Restore local configuration before reconnecting.");
