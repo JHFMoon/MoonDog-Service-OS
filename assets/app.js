@@ -795,7 +795,8 @@
     if(key==='appointments')return validCoverageDate(item.date);
     if(key==='csi'&&item.scopeVerified)return validCoverageDate(item.scopeEnd);
     // SOR's month and Activity's event-date extent do not prove a report day.
-    const observed=coverageTimestamp(item.sourceModifiedAt||item.generatedAt||item.importedAt);return key==='sor'&&item.period&&observed.slice(0,7)!==item.period?'':observed;
+    // For SOR, a local import timestamp is not source observation evidence.
+    const observed=coverageTimestamp(item.sourceModifiedAt||item.generatedAt||(key==='sor'?'':item.importedAt));return key==='sor'&&item.period&&observed.slice(0,7)!==item.period?'':observed;
   }
   function dailySourceCoverage(key,todayKey=localDateKey()) {
     const window=currentMonthWindow(todayKey),metrics=model.operationalMetrics||{},family=metrics[key]||{};
