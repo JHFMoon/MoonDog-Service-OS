@@ -40,7 +40,7 @@ function fixture(releaseWeek) {
     virMeetingEvidence: () => ({ status: "missing-source", verified: false }),
     virObservationDate: () => "",
     csiMetricEvidence: () => ({ verified: false }),
-    standard: key => ({ menuPresentation: 50, menuPenetration: 30 }[key] || 100),
+    standard: () => 1,
     performanceFormat: (value, kind) => kind === "money" ? "$" + Math.round(value) : String(value),
     shortDate: value => String(value || ""),
     compactMoney: value => "$" + Math.round(value / 1000) + "K",
