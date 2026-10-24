@@ -28,7 +28,7 @@ function fixture(snapshot, { sourceModifiedAt, rows }) {
     model,
     structuredClone,
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
-    localDateKey: value => value instanceof Date ? value.toISOString().slice(0, 10) : "2026-10-24",
+    localDateKey: value => value && typeof value.toISOString === "function" ? value.toISOString().slice(0, 10) : "2026-10-24",
     now: () => "2026-10-24T18:00:00.000Z",
     workbookGrid: () => ({ rows }),
     sourceFileHandle: async () => ({
