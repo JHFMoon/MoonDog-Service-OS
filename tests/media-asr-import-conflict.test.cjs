@@ -13,7 +13,7 @@ const importStart=app.indexOf("  async function importManagerSource(",compareEnd
 const importEnd=app.indexOf("  async function classifyImportFile(",importStart);
 assert.ok(compareStart>=0&&compareEnd>compareStart&&importStart>compareEnd&&importEnd>importStart,
   "production Media ASR comparison and importer boundaries must exist");
-const production=app.slice(compareStart,compareEnd)+app.slice(importStart,importEnd);
+const production=app.slice(compareStart,importEnd);
 
 const period="2026-10-01/2026-10-07";
 function advisorSnapshot(){
