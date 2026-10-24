@@ -1,4 +1,23 @@
-**LIVE CLOUD CHECKPOINT — 2026-10-22 17:39 UTC.** Main is `d5af312d512af32e21d469925cd39fc25f245a70`, the protected merge of PR #379. Its required Publication Check is running; do not claim it has passed. Live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 includes #383's unsaved Open RO draft warning; no Workspace migration. No installation or field evidence is claimed.
+**LIVE CLOUD CHECKPOINT — 2026-10-24 UTC.** Main is `19024afa16ebd799ec3d34f3d938f4b2aabb188c`, verified after the trusted package PR #440 merge. Live `updates/manifest.json` advertises Beta `0.10.18-beta.157`, SHA-256 `3021341223365742adf04824f6880dc870db1f588a5a164111a441ff05523413`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. No installation or field validation is claimed.
+
+Active Protect Main ruleset #24665513 is enforced, requires PRs and strict Publication Check from GitHub Actions app 15368, zero ordinary approvals, extra approval for unattributed commits, no bypass actors, current-user bypass `never`, and blocks branch deletion/non-fast-forward.
+
+- PR #440 was merged by the trusted package workflow as `19024afa16ebd799ec3d34f3d938f4b2aabb188c` from exact head `51c5f2d2e4a7cb7fa82c28de7c471e9dca6d272a`; its Publication Check and Clean Install Proof passed and exact-head Codex review reported no findings. Beta 157 is now in the live manifest. Main Publication Check run `40073890190` passed after the merge.
+- PR #431 current head `d58c26f144bb6eafa929e0489d1ebe4ee76d74af` has main `19024afa16ebd799ec3d34f3d938f4b2aabb188c` as first parent and prior reviewed head `5bbbbe1c88f314fb883304adda614ba852c164bc` as second. Comparison is ahead 17/behind 0 with only `tests/workspace-connect-performance.test.cjs` added. Fresh Publication Check and Clean Install Proof are running; exact-head review requested in comment #6382281449 and pending. No merge until all gates pass.
+- PRs #368, #370, #374, #376, and #377 are merged. PR #373 remains closed/unmerged and requires separate merge authorization. #397/#408 are authorization-gated; #189/#183 need approval; #212 is deferred. #406 stays draft-only under #389's no-merge/no-publish/no-install restriction.
+
+### Single prioritized acceptance list
+1. **P0 #59-04 source integrity:** Continue missing/duplicate/stale/unsupported/conflicting source coverage and cross-view lineage; #428/#434/#436 are merged, broader source-family acceptance remains partial.
+2. **P1 #58-01/#58-02 connection to verified usable Home:** Complete #431's fresh exact-head checks/review, then protected merge only if current and all gates pass.
+3. **P1 #164-02 worker verification:** Runtime is in trusted Beta 157; production parser equivalence, genuine worker-path and failure-path coverage remain partial.
+4. **P2 #61-07 living documentation:** Keep release and acceptance evidence current without treating dated history as live state.
+5. Continue remaining #60 workflow and #61 lineage/release acceptance items; do not close umbrella issues based on partial criteria.
+
+Synthetic fixtures only. Preserve Workspace/data safety, file:// and OneDrive compatibility, and Stable 0.10.17. No field testing, installation, or continuous execution is claimed.
+
+---
+
+**HISTORICAL CLOUD CHECKPOINT — 2026-10-22 17:39 UTC.** Main is `d5af312d512af32e21d469925cd39fc25f245a70`, the protected merge of PR #379. Its required Publication Check is running; do not claim it has passed. Live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 includes #383's unsaved Open RO draft warning; no Workspace migration. No installation or field evidence is claimed.
 
 Active Protect Main ruleset #24665513 requires a PR and strict `Publication Check` from GitHub Actions app 15368; ordinary approval count is zero, extra approval applies to unattributed changes, bypass actors are empty, current-user bypass is never, and deletion/non-fast-forward are blocked.
 
@@ -141,5 +160,5 @@ PR #373 refreshed to current main at exact head `bddc48404d2f6d26b9ef4d6c8e3151f
 
 Before calling any *new* criterion VERIFIED COMPLETE: capture exact PR head/base, required check runs **from the ruleset-authorized source**, substantive review outcomes, synthetic regression result, protected merge commit, then—if runtime changed—trusted package PR, live manifest/version/sha256, and Stable unchanged. Put evidence against each relevant criterion even when one implementation covers several issues. Do not close an umbrella issue unless every criterion meets its issue-specific closure rule. Live Windows/Edge/OneDrive proof remains external; it cannot be invented from GitHub CI.
 
-**Next executable:** Continue the P0 #59 integrity/scheduler sequence from the live checkpoint above. Finish fresh current-head evidence on #379's coalescing regression, then additively refresh #386 onto the then-current main and re-run its focused tests before broader validation. Continue #388 settings persistence independently; retain #373's separate-authorization boundary. Preserve explicit file-API limits, Stable, Workspace data, provenance, and issue closure evidence.
+**Next executable:** Use the latest Cloud Goal Checkpoint in issue #164 and live GitHub state. This document's dated checkpoint history is not current CI or release evidence.
 
