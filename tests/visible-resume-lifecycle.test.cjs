@@ -130,7 +130,7 @@ test("repeated visible resumes remain bounded while production workbook and PDF 
       assert.match(signature,/PRE-WORKORDER SERVICE ADVISOR:/);
     }
   }
-  assert.equal(scans.length,100,"each visible resume schedules one Report Inbox recheck");
+  assert.equal(scans.length,250,"each visible resume schedules one Report Inbox recheck");
   assert.equal(listeners.size,2,"repeated resume cycles do not register extra lifecycle listeners");
   assert.equal(workerCalls.length,25,"each synthetic large workbook uses the production worker helper");
   assert.equal(pdfTasks.filter(entry=>entry.destroyed).length,25,"each PDF task is cleaned up after extraction");
