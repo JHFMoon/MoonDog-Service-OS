@@ -13,7 +13,7 @@ function extract(startText, endText) {
   return app.slice(start, end);
 }
 const storageSource = [
-  extract("  async function directory(", "  async function performWorkspaceRecovery("),
+  extract("  async function directory(", "  let diagnosticsQueue = "),
   extract("  async function writeBytes(", "  let diagnosticsQueue = "),
   extract("  async function writeJson(", "  async function addHistory("),
   extract("  async function saveState(", "\n\n  function syncFilter("),
@@ -43,7 +43,7 @@ const hostCopy = value => JSON.parse(JSON.stringify(value));
 function harness() {
   const files = new Map();
   const directories = new Set(["data", "backups"]);
-  const model = { state: hostCopy(originalState), selectedId: "synthetic-ro-101", editOrigin: "table" };
+  const model = { state: hostCopy(originalState), selectedId: "synthetic-ro-101", editOrigin: "table", root: null };
   const diagnostics = [];
   let finishCount = 0;
   function notFound() { return Object.assign(new Error("Synthetic file is absent"), { name: "NotFoundError" }); }
@@ -69,6 +69,7 @@ function harness() {
       }
     };
   }
+  model.root = directoryHandle("");
   const ui = {
     editNextAction: { value: "Complete synthetic inspection" },
     editReviewDate: { value: "2026-10-26" },
