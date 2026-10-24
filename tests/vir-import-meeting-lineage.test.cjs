@@ -60,7 +60,7 @@ test("synthetic VIR report keeps its observation date and values through durable
   });
 
   vm.runInContext(
-    parser + "\n" + storage + "\n" + metricEvidence + "\n" + completeness + "\n" + meetingEvidence +
+    parser + "\nVIR_NAME_CODES[\"demo advisor\"] = \"A1\";\n" + storage + "\n" + metricEvidence + "\n" + completeness + "\n" + meetingEvidence +
     "\nthis.importVirFile=importVirFile; this.virMeetingEvidence=virMeetingEvidence;",
     context
   );
