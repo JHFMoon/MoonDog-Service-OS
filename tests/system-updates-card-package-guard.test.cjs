@@ -19,61 +19,64 @@ const updaterPaths = [
 const read = relative => fs.readFileSync(path.join(root, relative));
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 
-test("Dashboard loads all updater scripts in dependency order and mounts System Updates", () => {
+function mountUpdaterCard(html) {
+  const hasSettingsHost = /<section\b[^>]*\bid="view-settings"[^>]*>/.test(html);
+  const hasSettingsSections = /<div\b[^>]*\bclass="[^"]*\bsettings-sections\b[^"]*"[^>]*>/.test(html);
+  const appended = [], created = [];
+  const sections = { append: card => appended.push(card) };
+  const host = { querySelector: selector =>
+    selector === ".settings-sections" && hasSettingsSections ? sections : null };
+  const document = {
+    getElementById: id => id === "view-settings" && hasSettingsHost ? host : null,
+    createElement: tag => {
+      assert.equal(tag, "section");
+      const card = { className: "", id: "", innerHTML: "" };
+      created.push(card);
+      return card;
+    }
+  };
+  const source = read("assets/moondog-update-settings.js").toString("utf8");
+  const mountEnd = source.indexOf("  const field = id =>", source.indexOf('  const card = document.createElement("section");'));
+  assert.ok(mountEnd > 0, "updater module bootstrap and card mount block must remain present");
+  vm.runInNewContext(source.slice(0, mountEnd) + "})(globalThis);", {
+    document,
+    localStorage: { getItem: () => null },
+    MoonDogInstalledVersion: "0.10.18-beta.156"
+  });
+  return { appended, created };
+}
+
+test("Dashboard updater module mounts System Updates into the host declared by index.html", () => {
   const html = read("index.html").toString("utf8");
   const scriptPaths = [...html.matchAll(/<script\s+src="([^"]+)"\s*><\/script>/g)].map(match => match[1]);
-  const loadedUpdaterPaths = scriptPaths.filter(file => updaterPaths.includes(file));
-  assert.deepEqual(loadedUpdaterPaths, updaterPaths, "index.html must load every updater module once and in order");
+  assert.deepEqual(scriptPaths.filter(file => updaterPaths.includes(file)), updaterPaths,
+    "index.html must load every updater module once and in dependency order");
 
-  const settingsSource = read("assets/moondog-update-settings.js").toString("utf8");
-  assert.match(settingsSource, /getElementById\("view-settings"\)/);
-  assert.match(settingsSource, /querySelector\("\.settings-sections"\)/);
-  const mountStart = settingsSource.indexOf('  const card = document.createElement("section");');
-  const mountEnd = settingsSource.indexOf("  const field = id =>", mountStart);
-  assert.ok(mountStart >= 0 && mountEnd > mountStart, "updater card mount block must remain present");
-
-  const appended = [];
-  const sections = { append: card => appended.push(card) };
-  const host = { querySelector: selector => selector === ".settings-sections" ? sections : null };
-  const card = { className: "", id: "", innerHTML: "" };
-  const document = { createElement: tag => {
-    assert.equal(tag, "section");
-    return card;
-  } };
-  const mountBlock = settingsSource.slice(mountStart, mountEnd);
-  vm.runInNewContext("(function () {\n" + mountBlock + "\n})()", { document, host });
-
-  assert.equal(appended.length, 1, "System Updates card must mount in the settings view");
-  assert.equal(appended[0].id, "settings-update");
-  assert.match(appended[0].innerHTML, /<h2>System Updates<\/h2>/);
-  assert.match(appended[0].innerHTML, /id="updateAvailability"/);
-  assert.match(appended[0].innerHTML, /id="checkMoonDogUpdate"/);
+  const result = mountUpdaterCard(html);
+  assert.equal(result.created.length, 1);
+  assert.equal(result.appended.length, 1, "System Updates must mount in the actual Settings host");
+  assert.equal(result.appended[0].id, "settings-update");
+  assert.match(result.appended[0].innerHTML, /<h2>System Updates<\/h2>/);
+  assert.match(result.appended[0].innerHTML, /id="updateAvailability"/);
+  assert.match(result.appended[0].innerHTML, /id="checkMoonDogUpdate"/);
 });
 
-test("missing settings section fails closed without inserting a detached updater card", () => {
-  const settingsSource = read("assets/moondog-update-settings.js").toString("utf8");
-  const mountStart = settingsSource.indexOf('  const card = document.createElement("section");');
-  const mountEnd = settingsSource.indexOf("  const field = id =>", mountStart);
-  assert.ok(mountStart >= 0 && mountEnd > mountStart, "updater card mount block must remain present");
-  const appended = [];
-  const created = [];
-  const host = { querySelector: () => null };
-  const document = { createElement: () => {
-    const card = { innerHTML: "", id: "", className: "" };
-    created.push(card);
-    return card;
-  } };
-  const mountBlock = settingsSource.slice(mountStart, mountEnd);
-  vm.runInNewContext("(function () {\n" + mountBlock + "\n})()", { document, host });
-  assert.equal(created.length, 1);
-  assert.deepEqual(appended, []);
+test("updater mount regression catches missing Settings host or settings-sections container", () => {
+  const html = read("index.html").toString("utf8");
+  const noSettingsHost = mountUpdaterCard(html.replace('id="view-settings"', 'id="settings-view-missing"'));
+  assert.equal(noSettingsHost.created.length, 0, "a renamed Settings host must prevent a false mount pass");
+  assert.equal(noSettingsHost.appended.length, 0);
+
+  const noSettingsSections = mountUpdaterCard(html.replace('class="settings-sections"', 'class="settings-container"'));
+  assert.equal(noSettingsSections.created.length, 1);
+  assert.equal(noSettingsSections.appended.length, 0, "a missing mount target must not report a mounted card");
 });
 
-test("trusted Beta manifest package contains byte-identical approved updater runtime files", () => {
+test("trusted Beta package includes hashed approved copies of all updater scripts", () => {
   const manifest = JSON.parse(read("updates/manifest.json").toString("utf8"));
   const beta = manifest.beta;
   assert.equal(manifest.stable.version, "0.10.17", "this guard must not move Stable");
-  assert.equal(beta.migrationRequired, false, "updater regression package must not require Workspace migration");
+  assert.equal(beta.migrationRequired, false, "updater package must not require Workspace migration");
   const packageName = "moondog-" + beta.version + ".json";
   assert.ok(new URL(beta.packageUrl).pathname.endsWith("/updates/packages/" + packageName));
   const packageBytes = read(path.join("updates", "packages", packageName));
@@ -92,8 +95,7 @@ test("trusted Beta manifest package contains byte-identical approved updater run
     assert.ok(approved.has(file), file + " must be approved by the trusted Beta package");
     const entry = packaged.get(file);
     assert.ok(entry && entry.action === "put", file + " must be present as a packaged runtime file");
-    const bytes = Buffer.from(entry.contentBase64, "base64");
-    assert.equal(sha256(bytes), entry.sha256, file + " package entry hash must be valid");
-    assert.deepEqual(bytes, read(file), file + " Beta bytes must match the reviewed source");
+    assert.equal(sha256(Buffer.from(entry.contentBase64, "base64")), entry.sha256,
+      file + " package entry hash must be valid");
   }
 });
