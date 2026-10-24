@@ -83,9 +83,7 @@ function harness() {
     state: { appVersion: "synthetic", updatedAt: "2026-10-24T11:00:00.000Z",
       records: sourceRecords, closedRecords: [], reviewQueue: [] }
   };
-  let businessDate = "2026-10-24";
-  let permissionGranted = false;
-  let savedFollowups = 0;
+  const state = { businessDate: "2026-10-24", permissionGranted: false, savedFollowups: 0 };
   const context = vm.createContext({
     model, ui, VERSION: "synthetic-test", STATE_PATH: ["data", "current-state.json"],
     COMMUNICATION_STATUSES: ["", "Updated", "Attempted / no response", "Needs update", "Not needed"],
@@ -97,7 +95,7 @@ function harness() {
     norm: value => String(value ?? "").normalize("NFKD").toLowerCase().trim(),
     statusForRecord: record => record.management.status,
     openRoVisibleRecords: () => model.state.records,
-    localDateKey: () => businessDate,
+    localDateKey: () => state.businessDate,
     clarificationFor: () => null,
     isClosedManagement: management => management.status === "Closed",
     adminCloseoutState: () => ({ active: false, overdue: false, needsCommitment: false,
@@ -108,7 +106,7 @@ function harness() {
     ensureOpenRoRetrievalUi() {}, renderRecentlyReviewed() {},
     writeAuthority: {
       requireWrite() {
-        if (!permissionGranted) throw Object.assign(new Error("Synthetic permission denied"), { name: "NotAllowedError" });
+        if (!state.permissionGranted) throw Object.assign(new Error("Synthetic permission denied"), { name: "NotAllowedError" });
       }
     },
     async writeBytes(pathParts, bytes) { files.set(pathParts.join("/"), Uint8Array.from(bytes)); },
@@ -133,18 +131,18 @@ function harness() {
     visibleRecordIds: () => resultRows(table).map(row => row.dataset.id),
     visibleFocusIds: () => resultRows(table).map(row => row.dataset.id),
     dailySaveAdditions: null,
-    finishSavedOpenRo: async () => { savedFollowups += 1; return true; }
+    finishSavedOpenRo: async () => { state.savedFollowups += 1; return true; }
   });
   vm.runInContext(production + [
     "this.renderForTest = renderTable;",
     "this.saveForTest = saveRecord;",
-    "this.setBusinessDate = value => { businessDate = value; };",
-    "this.setPermission = value => { permissionGranted = value; };",
-    "this.getFiles = () => files;",
-    "this.getDiagnostics = () => diagnostics;",
-    "this.getSavedFollowups = () => savedFollowups;"
   ].join("\n"), context);
-  return { context, model, ui, table, sourceRecords };
+  return {
+    context, model, ui, table, sourceRecords, files, diagnostics,
+    setBusinessDate(value) { state.businessDate = value; },
+    setPermission(value) { state.permissionGranted = value; },
+    savedFollowups() { return state.savedFollowups; }
+  };
 }
 
 test("full synthetic Open RO table search stays measured, complete, and current after business-date rollover", () => {
@@ -171,12 +169,12 @@ test("full synthetic Open RO table search stays measured, complete, and current 
     };
   }
 
-  h.ui.searchInput.value = "SYN-00123";
+  h.ui.searchInput.value = "SYN-0123";
   h.context.renderForTest();
   assert.equal(resultRows(h.table).length, 1);
   assert.equal(resultRows(h.table)[0].dataset.id, "synthetic-ro-0123");
   assert.match(resultRows(h.table)[0].className, /commitment-due/);
-  h.context.setBusinessDate("2026-10-25");
+  h.setBusinessDate("2026-10-25");
   h.context.renderForTest();
   assert.match(resultRows(h.table)[0].className, /commitment-overdue/,
     "the renderer recalculates business-date state instead of retaining a stale row");
@@ -192,7 +190,7 @@ test("full synthetic Open RO table search stays measured, complete, and current 
 
 test("search-selected Open RO save fails closed on permission loss, then retries without losing source or manual fields", async () => {
   const h = harness();
-  h.ui.searchInput.value = "SYN-00123";
+  h.ui.searchInput.value = "SYN-0123";
   h.context.renderForTest();
   const matched = resultRows(h.table);
   assert.equal(matched.length, 1, "production search selects one synthetic row");
@@ -206,9 +204,9 @@ test("search-selected Open RO save fails closed on permission loss, then retries
     "failed save restores the exact pre-edit source and manager snapshot");
   assert.equal(h.ui.editValidation.hidden, false);
   assert.match(h.ui.editValidation.textContent, /could not save/);
-  assert.equal(h.context.getFiles().size, 0, "no backup or state file is written without permission");
+  assert.equal(h.files.size, 0, "no backup or state file is written without permission");
 
-  h.context.setPermission(true);
+  h.setPermission(true);
   const saved = await h.context.saveForTest(event);
   assert.equal(saved, true, "retry succeeds after synthetic permission is restored");
   const disk = await h.context.readJson(["data", "current-state.json"], null);
@@ -224,8 +222,8 @@ test("search-selected Open RO save fails closed on permission loss, then retries
     "unrelated manual metadata survives the full search/edit/read-back round trip");
   assert.deepEqual(JSON.parse(JSON.stringify(h.model.state)), disk,
     "in-memory state matches the production durable read-back snapshot");
-  assert.equal(h.context.getFiles().size, 2, "the retry writes the protective backup and new state");
-  assert.equal(h.context.getSavedFollowups(), 1, "post-save completion follows verified persistence only");
-  assert.ok(h.context.getDiagnostics().some(item => item.kind === "QUICK UPDATE SAVE FAILED"));
-  assert.ok(h.context.getDiagnostics().some(item => item.kind === "DURABLE WRITE"));
+  assert.equal(h.files.size, 2, "the retry writes the protective backup and new state");
+  assert.equal(h.savedFollowups(), 1, "post-save completion follows verified persistence only");
+  assert.ok(h.diagnostics.some(item => item.kind === "QUICK UPDATE SAVE FAILED"));
+  assert.ok(h.diagnostics.some(item => item.kind === "DURABLE WRITE"));
 });
