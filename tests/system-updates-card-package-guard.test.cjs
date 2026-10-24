@@ -35,9 +35,9 @@ function mountUpdaterCard(html, settingsSource = read("assets/moondog-update-set
       return card;
     }
   };
-  const mountEnd = source.indexOf("  const field = id =>", source.indexOf('  const card = document.createElement("section");'));
+  const mountEnd = settingsSource.indexOf("  const field = id =>", source.indexOf('  const card = document.createElement("section");'));
   assert.ok(mountEnd > 0, "updater module bootstrap and card mount block must remain present");
-  vm.runInNewContext(source.slice(0, mountEnd) + "})(globalThis);", {
+  vm.runInNewContext(settingsSource.slice(0, mountEnd) + "})(globalThis);", {
     document,
     localStorage: { getItem: () => null },
     MoonDogInstalledVersion: "0.10.18-beta.156"
