@@ -61,7 +61,7 @@ for (const busyImport of ["dailyImportBusy", "appointmentImportBusy"]) {
       window: { scrollX: 0, scrollY: 0, scrollTo() {} },
       Promise, Map, Set, Object, Array, String, Boolean, JSON, Error, console
     });
-    vm.runInContext(folderWatchScan + "\\nthis.scan = folderWatchScan;", context);
+    vm.runInContext(folderWatchScan + "; this.scan = folderWatchScan;", context);
 
     await context.scan("poll");
     assert.equal(calls.reads, 0, "the watcher must not enumerate files during a manual import");
