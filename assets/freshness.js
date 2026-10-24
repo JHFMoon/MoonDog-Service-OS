@@ -202,7 +202,7 @@
           ? `Report starts ${String(start)} and does not establish coverage of ${expected}.`
           : `Report ends ${input.periodEnd || "on an unknown date"}; expected coverage through ${expected}.`;
     } else if (cadence === "weekly-monday") {
-      const expected = mondayFor(today), represented = input.releaseWeek || input.periodEnd; expectedPeriod = expected; current = validDateKey(represented) && represented >= expected && represented <= today;
+      const expected = mondayFor(today), represented = input.releaseWeek || input.periodEnd; expectedPeriod = expected; current = validDateKey(represented) && represented === expected;
       reason = current ? `Current Monday release (${expected}) is loaded.` : `Loaded release is ${represented || "unknown"}; expected Monday ${expected}.`;
     } else if (cadence === "state-current") {
       expectedPeriod = today; current = input.stale !== true;
