@@ -19,7 +19,7 @@ const updaterPaths = [
 const read = relative => fs.readFileSync(path.join(root, relative));
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 
-function mountUpdaterCard(html) {
+function mountUpdaterCard(html, settingsSource = read("assets/moondog-update-settings.js").toString("utf8")) {
   const hasSettingsHost = /<section\b[^>]*\bid="view-settings"[^>]*>/.test(html);
   const hasSettingsSections = /<div\b[^>]*\bclass="[^"]*\bsettings-sections\b[^"]*"[^>]*>/.test(html);
   const appended = [], created = [];
@@ -35,7 +35,6 @@ function mountUpdaterCard(html) {
       return card;
     }
   };
-  const source = read("assets/moondog-update-settings.js").toString("utf8");
   const mountEnd = source.indexOf("  const field = id =>", source.indexOf('  const card = document.createElement("section");'));
   assert.ok(mountEnd > 0, "updater module bootstrap and card mount block must remain present");
   vm.runInNewContext(source.slice(0, mountEnd) + "})(globalThis);", {
@@ -98,4 +97,16 @@ test("trusted Beta package includes hashed approved copies of all updater script
     assert.equal(sha256(Buffer.from(entry.contentBase64, "base64")), entry.sha256,
       file + " package entry hash must be valid");
   }
+
+  const packagedIndex = packaged.get("index.html");
+  assert.ok(packagedIndex && packagedIndex.action === "put", "Beta package must include its Dashboard entry point");
+  const packagedIndexBytes = Buffer.from(packagedIndex.contentBase64, "base64");
+  assert.equal(sha256(packagedIndexBytes), packagedIndex.sha256, "packaged Dashboard entry hash must be valid");
+  const packagedSettings = packaged.get("assets/moondog-update-settings.js");
+  assert.ok(packagedSettings && packagedSettings.action === "put", "Beta package must include its updater card module");
+  const packagedMount = mountUpdaterCard(
+    packagedIndexBytes.toString("utf8"),
+    Buffer.from(packagedSettings.contentBase64, "base64").toString("utf8")
+  );
+  assert.equal(packagedMount.appended.length, 1, "the packaged Dashboard must mount its System Updates card");
 });
