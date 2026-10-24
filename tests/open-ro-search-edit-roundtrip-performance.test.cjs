@@ -226,6 +226,6 @@ test("search-selected Open RO save fails closed on permission loss, then retries
     "in-memory state matches the production durable read-back snapshot");
   assert.equal(h.context.getFiles().size, 2, "the retry writes the protective backup and new state");
   assert.equal(h.context.getSavedFollowups(), 1, "post-save completion follows verified persistence only");
-  assert.ok(h.context.getDiagnostics().some(item => item.kind === "DURABLE WRITE FAILED"));
+  assert.ok(h.context.getDiagnostics().some(item => item.kind === "QUICK UPDATE SAVE FAILED"));
   assert.ok(h.context.getDiagnostics().some(item => item.kind === "DURABLE WRITE"));
 });
