@@ -63,7 +63,7 @@ test("late store-only source corrections are detected against the locked month",
   const existing={schemaVersion:2,status:"locked",lockedAt:"prior-lock",basis:{saprPeriodEnd:"2026-09-30",virPeriodEnd:"2026-09-30",menuPeriodEnd:"2026-09-30",mediaPeriodEnd:"2026-09-30",csiResponses:1},store:{totalGross:1000},advisors:{"123":{metrics:{totalGross:700}}}};
   const candidate={...structuredClone(existing),lockedAt:"new-lock",store:{totalGross:1100}};
   const ctx={model:{operationalMetrics:{monthlySummaries:{[month]:existing}}},buildMonthEndSummary:()=>structuredClone(candidate)};
-  vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.findCandidate=monthEndCorrectionCandidate;",ctx);
+  vm.runInNewContext(app.slice(start,end)+"\nglobalThis.findCandidate=monthEndCorrectionCandidate;",ctx);
   const found=ctx.findCandidate(month);
   assert.ok(found,"a changed verified store metric must create a late-correction candidate");
   assert.equal(JSON.parse(JSON.stringify(found.store)).totalGross,1100);
@@ -76,6 +76,6 @@ test("unchanged locked month does not produce a late-correction candidate",()=>{
   const existing={schemaVersion:2,status:"locked",lockedAt:"prior-lock",basis:{saprPeriodEnd:"2026-09-30"},store:{totalGross:1000},advisors:{"123":{metrics:{totalGross:700}}}};
   const candidate={...structuredClone(existing),lockedAt:"new-lock"};
   const ctx={model:{operationalMetrics:{monthlySummaries:{[month]:existing}}},buildMonthEndSummary:()=>structuredClone(candidate)};
-  vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.findCandidate=monthEndCorrectionCandidate;",ctx);
+  vm.runInNewContext(app.slice(start,end)+"\nglobalThis.findCandidate=monthEndCorrectionCandidate;",ctx);
   assert.equal(ctx.findCandidate(month),null);
 });
