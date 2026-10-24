@@ -1,4 +1,50 @@
-**LIVE CLOUD CHECKPOINT — 2026-10-22 17:39 UTC.** Main is `d5af312d512af32e21d469925cd39fc25f245a70`, the protected merge of PR #379. Its required Publication Check is running; do not claim it has passed. Live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 includes #383's unsaved Open RO draft warning; no Workspace migration. No installation or field evidence is claimed.
+**LIVE CLOUD CHECKPOINT — 2026-10-24 11:25 UTC.** Main is `c601d4253ce560fc2974f182552dccc8b15bf322`, the protected merge of trusted Beta packaging PR #443. The post-merge main Publication Check `40087603033` passed. Manifest advertises trusted Beta `0.10.18-beta.158`, SHA-256 `031bc3d6afe791b2c48341cf6be11fe7db2fb8cdb745bafbafa439a2c18609d0`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 158 includes the verified future-dated VIR rejection fix; no Workspace migration. No installation, field test, or continuous execution is claimed.
+
+Active Protect Main ruleset #24665513 is active: PR required; strict `Publication Check` from GitHub Actions app 15368; zero ordinary approvals, extra approval for unattributed changes, no bypass actors, current-user bypass `never`, branch deletion and non-fast-forward blocked. The merge route remains the existing guarded protected route.
+
+- PR #443 merged through the guarded trusted package workflow from exact head `c952c850d1693ed6517c03340a4265bc5345e1b8` as main `c601d4253ce560fc2974f182552dccc8b15bf322`. Exact-head Publication Check and Clean Install Proof passed; exact-head Codex review completed with no findings.
+- PR #441 advances #59-04 Monday Menu freshness. Its refreshed head is `c18d38a9d88a32d10312ed85fdcdfa023a93ae8a`, with current main as first parent and the prior PR head preserved. Diff against current main is only `assets/freshness.js` and `tests/context-aware-freshness.test.cjs`. Fresh Publication Check and Clean Install Proof are in progress; exact-head Codex review is in progress.
+- PR #444 advances #59-01 VIR history lineage. Its refreshed head is `e1ea6511621ab470e1a59406b590e4d67115125c`, with current main as first parent and prior head preserved. Its strict comparison now normalizes VM-created history metadata into a host-realm object, correcting the P1 finding and the failed synthetic assertion. Fresh Clean Install Proof passed; Publication Check and exact-head Codex review are in progress. No merge attempted.
+- PR #442's future-date fix is integrated; #438's updater regression guard is merged, and #433 is closed unmerged with its clean replacement #439 already merged. The retired #427/#429 branches remain deleted.
+- #397 and #408 remain open, stale, and separately merge-authorization-gated. Their proposed 15-line competing-edit test change is identical; old checks/reviews are not current for main `c601d4253ce560fc2974f182552dccc8b15bf322`. No merge or auto-merge attempted. #373 remains closed/unmerged and authorization-gated.
+- #393 is being refreshed to the current release state; new exact-head checks and review are required before any eligible protected merge. #406/#389 remain drafts; #189/#183 remain approval-gated; #212 stays deferred.
+
+### Single prioritized acceptance list
+1. **P0 #59-01/#59-04 source integrity and lineage:** Complete the fresh gates for #444 and #441; retain as partial until current exact-head evidence passes and protected integration is verified.
+2. **P0 #59-05/#164-05 recovery integrity:** continue synthetic competing-writer, interrupted-write, backup, and rollback evidence. #397/#408 cannot be merged without their separate authorization.
+3. **P1 #164-02 worker verification: VERIFIED COMPLETE in trusted Beta 158.** Clean Install Proof run `40087251857` exercised the packaged production worker from a connected synthetic working folder on a 25,000-row workbook; all 25,001 parsed rows matched, source/input bytes were preserved, worker parses overlapped main-thread heartbeats, and cleanup left no worker, pending request, or Blob URL. The smoke reported file:// origin with successful packaged Blob-worker parse/transfer; Publication Check `40087603033` passed parser-option equivalence, synchronous fallback on worker failure, and Blob URL cleanup tests. No physical Edge field test or user installation is claimed.
+4. **P1 #58:** #431's synthetic reconnect-to-usable-Home baseline is merged; remaining launch, responsiveness, and performance criteria remain open.
+5. **P1 #60/#61:** continue workflow, lineage, and living-documentation acceptance work.
+6. **P2 #61-07:** finish this documentation refresh using current release, ruleset, and exact-head evidence.
+
+Synthetic fixtures only. Preserve Workspace/data safety, file:// and OneDrive compatibility, updater integrity and six-module order, and Stable 0.10.17. No field testing or installation is claimed.
+
+---
+
+**HISTORICAL CLOUD CHECKPOINT — 2026-10-24 UTC. Superseded by the current checkpoint above.** Main is `651b21f4310021e88c09f7d0d5a5d7f0b0a38343`, the protected merge of PR #431. The live manifest advertises trusted Beta `0.10.18-beta.157`, SHA-256 `3021341223365742adf04824f6880dc870db1f588a5a164111a441ff05523413`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. No installation or field validation is claimed.
+
+Active Protect Main ruleset #24665513 requires PRs and strict `Publication Check` from GitHub Actions app 15368; ordinary approvals are zero, extra approval applies to unattributed changes, bypass actors are empty, current-user bypass is `never`, and branch deletion/non-fast-forward are blocked.
+
+- PR #440 delivered trusted Beta 157 from exact head `51c5f2d2e4a7cb7fa82c28de7c471e9dca6d272a`; exact Publication Check, Clean Install Proof and Codex review passed. The live manifest confirms the published Beta package; Stable unchanged.
+- PR #431 was protected-squash merged as `651b21f4310021e88c09f7d0d5a5d7f0b0a38343` from exact head `d58c26f144bb6eafa929e0489d1ebe4ee76d74af`. Exact Publication Check `40080200568`, Clean Install Proof `40080200557`, and Codex review `6382294612` passed on that head with no major findings. It added synthetic reconnect-to-usable-Home coverage only; no Beta package was needed.
+- The post-#431 main Publication Check, audit, and public-surfaces jobs are still running; verify their conclusion before relying on main validation.
+- PR #393 is this docs-only refresh. Its earlier exact-head evidence is superseded by this current-main refresh; fresh checks and review are required.
+- PRs #368, #370, #374, #376, and #377 are merged. PR #373 remains closed/unmerged and requires separate merge authorization. #397/#408 are authorization-gated; #189/#183 need approval; #212 is deferred. #406 remains draft-only under #389's no-merge/no-publish/no-install restriction.
+
+### Single prioritized acceptance list
+1. **P0 #59-04 / #59-01 source integrity and lineage:** Complete missing/duplicate/stale/unsupported/conflicting-source and cross-view coverage; #428/#434/#436 are merged, broader source-family acceptance remains partial.
+2. **P1 #164-02 worker verification:** Runtime is in trusted Beta 157; parser-equivalence and worker failure-path proof remain partial.
+3. Continue remaining #60 workflow and #61 lineage/release criteria.
+4. **P2 #61-07 living documentation:** Keep release/acceptance evidence current without treating dated history as live state.
+5. Continue #58 criteria beyond #431, and keep all umbrella issues open until every acceptance row is proven.
+
+Synthetic fixtures only. Preserve Workspace/data safety, file:// and OneDrive compatibility, and Stable 0.10.17. No field testing, installation, or continuous execution is claimed.
+
+---
+
+---
+
+**HISTORICAL CLOUD CHECKPOINT — 2026-10-22 17:39 UTC.** Main is `d5af312d512af32e21d469925cd39fc25f245a70`, the protected merge of PR #379. Its required Publication Check is running; do not claim it has passed. Live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 includes #383's unsaved Open RO draft warning; no Workspace migration. No installation or field evidence is claimed.
 
 Active Protect Main ruleset #24665513 requires a PR and strict `Publication Check` from GitHub Actions app 15368; ordinary approval count is zero, extra approval applies to unattributed changes, bypass actors are empty, current-user bypass is never, and deletion/non-fast-forward are blocked.
 
@@ -141,5 +187,5 @@ PR #373 refreshed to current main at exact head `bddc48404d2f6d26b9ef4d6c8e3151f
 
 Before calling any *new* criterion VERIFIED COMPLETE: capture exact PR head/base, required check runs **from the ruleset-authorized source**, substantive review outcomes, synthetic regression result, protected merge commit, then—if runtime changed—trusted package PR, live manifest/version/sha256, and Stable unchanged. Put evidence against each relevant criterion even when one implementation covers several issues. Do not close an umbrella issue unless every criterion meets its issue-specific closure rule. Live Windows/Edge/OneDrive proof remains external; it cannot be invented from GitHub CI.
 
-**Next executable:** Continue the P0 #59 integrity/scheduler sequence from the live checkpoint above. Finish fresh current-head evidence on #379's coalescing regression, then additively refresh #386 onto the then-current main and re-run its focused tests before broader validation. Continue #388 settings persistence independently; retain #373's separate-authorization boundary. Preserve explicit file-API limits, Stable, Workspace data, provenance, and issue closure evidence.
+**Next executable:** Use the latest Cloud Goal Checkpoint in issue #164 and live GitHub state. This document's dated checkpoint history is not current CI or release evidence.
 
