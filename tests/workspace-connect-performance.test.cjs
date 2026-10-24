@@ -83,6 +83,8 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   let releaseFirstRead;
   const firstReadGate = inspectPendingRead ? new Promise(resolve => { releaseFirstRead = resolve; }) : Promise.resolve();
   let firstReadWasObserved = false;
+  let activeReadCount = 0;
+  let maxConcurrentReadCount = 0;
   const events = [];
   const writes = [];
   const backgroundJobs = [];
@@ -126,14 +128,20 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
     initializeFolders: async () => {},
     recordDiagnostic: () => {},
     readJson: async (key, fallback) => {
-      if (inspectPendingRead && key === requiredReadPaths[0] && !firstReadWasObserved) {
-        firstReadWasObserved = true;
-        signalFirstReadStarted();
-        await firstReadGate;
+      activeReadCount += 1;
+      maxConcurrentReadCount = Math.max(maxConcurrentReadCount, activeReadCount);
+      try {
+        if (inspectPendingRead && key === paths.state && !firstReadWasObserved) {
+          firstReadWasObserved = true;
+          signalFirstReadStarted();
+          await firstReadGate;
+        }
+        await new Promise(resolve => setTimeout(resolve, readDelayMs));
+        completedReads.add(key);
+        return clone(Object.prototype.hasOwnProperty.call(fixture, key) ? fixture[key] : fallback);
+      } finally {
+        activeReadCount -= 1;
       }
-      await new Promise(resolve => setTimeout(resolve, readDelayMs));
-      completedReads.add(key);
-      return clone(Object.prototype.hasOwnProperty.call(fixture, key) ? fixture[key] : fallback);
     },
     writeJson: async (key, value) => {
       writes.push({ key, value: clone(value) });
@@ -185,7 +193,9 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   if (inspectPendingRead) {
     const reconnecting = context.restore();
     await firstReadStarted;
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, readDelayMs * 6 + 2));
+    assert.equal(model.state.records.length, 0,
+      "completed parallel reads must not expose partial snapshots while the state read is pending");
     assert.equal(model.root, handle, "The candidate root may be staged while its reads are pending");
     assert.notEqual(model.workspaceConnectionCommittedRoot, model.root,
       "the staged candidate must not become the committed Workspace root before hydration completes");
@@ -212,6 +222,8 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   }
   const finished = performance.now();
 
+  assert.equal(maxConcurrentReadCount, 3,
+    "the production reconnect path must use its three-read concurrency bound");
   assert.ok(states.includes("CONNECTED"), "the production reconnect path must reach CONNECTED");
   assert.equal(connectedSnapshots.length, 1, "the synthetic reconnect should publish readiness once");
   assert.deepEqual([...connectedSnapshots[0]].sort(), [...requiredReadPaths].sort(),
@@ -227,7 +239,11 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   assert.equal(writes.length, 1, "only the synthetic recovery-ready marker may be written");
   assert.equal(writes[0].key, paths.recovery, "reconnect must not rewrite operational source/state files");
   assert.equal(backgroundJobs.length, 1, "post-connection scans must be deferred after the first render");
-  return { firstHomeMs: firstRender.at - started, totalReconnectMs: finished - started };
+  return {
+    firstHomeMs: firstRender.at - started,
+    totalReconnectMs: finished - started,
+    maxConcurrentReadCount
+  };
 }
 
 test("saved-folder reconnect retries safely after synthetic permission denial", async () => {
@@ -241,18 +257,21 @@ test("production reconnect keeps the Workspace uncommitted until an authoritativ
   assert.ok(Number.isFinite(measured.firstHomeMs) && measured.firstHomeMs > 0);
 });
 
-test("synthetic reconnect latency baseline reaches usable Home after delayed authoritative reads", async () => {
+test("synthetic reconnect uses a bounded snapshot-read batch and reaches usable Home", async () => {
   const samples = [];
   const total = [];
+  const concurrency = [];
   for (let sample = 0; sample < 9; sample += 1) {
     const measured = await measureReconnect(2);
     samples.push(measured.firstHomeMs);
     total.push(measured.totalReconnectMs);
+    concurrency.push(measured.maxConcurrentReadCount);
   }
 
-  const baseline = {
-    scenario: "production saved-folder reconnect core; synthetic in-memory handles; 2 ms per essential JSON read; no OneDrive/device claim",
+  const boundedBatch = {
+    scenario: "production saved-folder reconnect core; synthetic in-memory handles; 2 ms per essential JSON read; bounded parallel reads; no OneDrive/device claim",
     samples: samples.map(value => Number(value.toFixed(2))),
+    maxConcurrentSnapshotReads: Math.max(...concurrency),
     firstUsableHomeMs: {
       p50: Number(percentile(samples, 0.5).toFixed(2)),
       p95: Number(percentile(samples, 0.95).toFixed(2))
@@ -262,7 +281,7 @@ test("synthetic reconnect latency baseline reaches usable Home after delayed aut
       p95: Number(percentile(total, 0.95).toFixed(2))
     }
   };
-  console.log("Synthetic connection-to-Home baseline", JSON.stringify(baseline));
-  assert.ok(Number.isFinite(baseline.firstUsableHomeMs.p50) && baseline.firstUsableHomeMs.p50 > 0);
-  assert.ok(Number.isFinite(baseline.firstUsableHomeMs.p95) && baseline.firstUsableHomeMs.p95 >= baseline.firstUsableHomeMs.p50);
+  console.log("Synthetic connection-to-Home bounded-batch result", JSON.stringify(boundedBatch));
+  assert.ok(Number.isFinite(boundedBatch.firstUsableHomeMs.p50) && boundedBatch.firstUsableHomeMs.p50 > 0);
+  assert.ok(Number.isFinite(boundedBatch.firstUsableHomeMs.p95) && boundedBatch.firstUsableHomeMs.p95 >= boundedBatch.firstUsableHomeMs.p50);
 });
