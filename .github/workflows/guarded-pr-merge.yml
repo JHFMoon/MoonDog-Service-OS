@@ -320,6 +320,11 @@ Review exact head $REFRESHED_HEAD against current main $CURRENT_MAIN after the a
                 case "$OTHER_ASSOC" in OWNER|MEMBER|COLLABORATOR) ;; *) continue ;; esac
                 OTHER_REPO="$(jq -r '.head.repo.full_name // empty' /tmp/other-pr.json)"
                 [ "$OTHER_REPO" = "$REPO" ] || continue
+                gh api --paginate "repos/$REPO/pulls/$OTHER_PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/other-pr-paths.txt
+                if ! python3 scripts/pipeline_guard.py check-paths /tmp/other-pr-paths.txt; then
+                  echo "PR #$OTHER_PR changes protected workflow/security paths; leaving it for the reviewed bootstrap route."
+                  continue
+                fi
                 OTHER_STATUS="$(gh api "repos/$REPO/compare/main...$OTHER_HEAD" --jq .status)"
                 if [ "$OTHER_STATUS" = "behind" ] || [ "$OTHER_STATUS" = "diverged" ]; then
                   if gh api -X PUT "repos/$REPO/pulls/$OTHER_PR/update-branch" -f expected_head_sha="$OTHER_HEAD"; then
