@@ -118,6 +118,13 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$OTHER_BRANCH"', refresh)
         self.assertLess(refresh.index(update), refresh.index('gh workflow run publication-check.yml'))
         self.assertLess(refresh.index('gh workflow run publication-check.yml'), refresh.index('gh workflow run clean-install-proof.yml'))
+        self.assertIn("for settle in {1..42}", refresh)
+        self.assertIn('repos/$REPO/compare/$CURRENT_MAIN...$REFRESHED_HEAD', refresh)
+        self.assertIn('REFRESH_STATUS" = "ahead"', refresh)
+        self.assertIn('REFRESH_BASE" = "$CURRENT_MAIN"', refresh)
+        self.assertLess(refresh.index('if [ "$UPDATED" != "true" ]'), refresh.index('gh workflow run publication-check.yml'))
+        package_job = prepare.split("  package-unadvertised-main-runtime:", 1)[1]
+        self.assertIn('[ "$CODEX_STATE" = "clean" ]; then', package_job)
         self.assertIn('pulls/$PR_NUMBER/merge', merge)
         self.assertIn("-f merge_method=squash", merge)
         self.assertIn("exact-head Publication, Clean Install, and Codex review proof to settle", merge)
