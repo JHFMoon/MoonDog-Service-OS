@@ -61,6 +61,13 @@ test("delayed essential hydration keeps startup uncommitted, responsive, and ret
     SETTINGS_PATH: settingsPath,
     SOURCE_ADAPTER_BOOTSTRAP_PATH: adapterPath,
     STATE_PATH: statePath,
+    APPOINTMENTS_PATH: ["data", "appointments.json"],
+    PERFORMANCE_PATH: ["data", "performance.json"],
+    OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
+    MEETING_CYCLE_PATH: ["data", "meeting-cycle.json"],
+    ASSIGN_NEXT_PATH: ["data", "assign-next.json"],
+    AUTO_IMPORT_PATH: ["data", "auto-import.json"],
+    RECOVERY_PATH: ["data", "recovery.json"],
     rememberRoot: async () => {},
     initializeFolders: async () => {},
     recordDiagnostic: async () => {},
@@ -202,4 +209,64 @@ test("overlapping Workspace connection attempts are rejected and retry is allowe
     "The guard releases after the first connection settles."
   );
   assert.equal(calls, 2);
+});
+
+
+test("failed delayed manual hydration clears the uncommitted root and keeps the handle retryable", async () => {
+  const handle = { name: "Synthetic selected Workspace", kind: "directory" };
+  const states = [];
+  let failHydration = true;
+  const model = {
+    root: null, pendingRoot: null, applicationRoot: null,
+    workspaceConnectionCommittedRoot: null
+  };
+  const authority = { canWrite: true, disable() { this.canWrite = false; } };
+  const context = vm.createContext({
+    model,
+    writeAuthority: authority,
+    folderWatch: { busy: false },
+    dailyImportBusy: false,
+    appointmentImportBusy: false,
+    window: { showDirectoryPicker: async () => handle },
+    permission: async () => "granted",
+    connectedNativeRoot: null,
+    __moondogDailyUI: { confirmWorkspaceChange: () => true },
+    setConnectionState: (state, message) => states.push({ state, message }),
+    completeWorkspaceConnection: async candidate => {
+      model.root = { candidate };
+      model.applicationRoot = candidate;
+      model.pendingRoot = null;
+      context.connectedNativeRoot = candidate;
+      await new Promise(resolve => setImmediate(resolve));
+      if (failHydration) throw Object.assign(new Error("Synthetic delayed essential-state read failed"), { name: "NotReadableError" });
+      model.workspaceConnectionCommittedRoot = model.root;
+      return "connected";
+    },
+    setImmediate
+  });
+  const connectionLock = extract(app, "  let workspaceConnectionBusy=false;", "  async function completeWorkspaceConnection(");
+  const connectFunction = extract(app, "  async function connect() {", "  async function restoreConnection()");
+  vm.runInContext(connectionLock + "\n" + connectFunction + "\nthis.connectWorkspace = connect;", context);
+
+  await assert.rejects(context.connectWorkspace(), error => error?.name === "NotReadableError");
+  assert.equal(model.root, null, "A failed candidate must not remain the active Workspace root.");
+  assert.equal(model.applicationRoot, null);
+  assert.equal(context.connectedNativeRoot, null);
+  assert.equal(model.workspaceConnectionCommittedRoot, null);
+  assert.equal(model.pendingRoot, handle, "The selected handle must remain available for an explicit retry.");
+  assert.equal(authority.canWrite, false, "A failed essential read must leave writes disabled.");
+  assert.equal(states.at(-1).state, "CONNECTION ERROR");
+
+  await assert.rejects(context.connectWorkspace(), error => error?.name === "NotReadableError");
+  assert.equal(model.root, null, "A repeated retry failure must not leave a staged root active.");
+  assert.equal(model.applicationRoot, null);
+  assert.equal(context.connectedNativeRoot, null);
+  assert.equal(model.workspaceConnectionCommittedRoot, null);
+  assert.equal(model.pendingRoot, handle);
+  assert.equal(authority.canWrite, false);
+
+  failHydration = false;
+  assert.equal(await context.connectWorkspace(), "connected");
+  assert.equal(model.workspaceConnectionCommittedRoot, model.root);
+  assert.equal(model.pendingRoot, null);
 });

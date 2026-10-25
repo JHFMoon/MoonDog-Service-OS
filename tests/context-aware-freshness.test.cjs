@@ -138,6 +138,22 @@ test('history maintenance uses newest valid report day regardless of import enum
     'an explicitly verified lastPoint retains existing source precedence');
 });
 
+test('Menu weekly freshness requires the canonical Monday release date', () => {
+  const today = '2026-10-20'; // Tuesday; the represented current release is Monday.
+  const current = F.evaluateSource({key:'menu',exists:true,today,releaseWeek:'2026-10-19'});
+  assert.equal(current.status,'current');
+
+  for (const releaseWeek of ['2026-10-20','2026-10-18','2026-10-26','2026-02-30']) {
+    const source = F.evaluateSource({key:'menu',exists:true,today,releaseWeek});
+    assert.equal(source.status,'stale',releaseWeek);
+    assert.equal(source.safeForCurrent,false,releaseWeek);
+    assert.equal(source.expectedPeriod,'2026-10-19',releaseWeek);
+  }
+
+  const unsupportedPeriodEnd = F.evaluateSource({key:'menu',exists:true,today,periodEnd:'2026-10-20'});
+  assert.equal(unsupportedPeriodEnd.status,'stale','a Tuesday period end cannot stand in for a Monday release');
+});
+
 test('Menu weekly report history picks latest release without assuming import sort', () => {
   const releases=['2026-10-19','2026-10-05','2026-10-12','2026-10-26','2026-13-01'];
   const plan=F.trendMaintenance({key:'menu',today:'2026-10-20',coverage:{presentReleases:releases}});
@@ -158,4 +174,66 @@ test('SOR financial-month confidence never prints Invalid Date from an impossibl
   const valid=F.trendMaintenanceSummary('sor',{...base,financialMonth:'2026-02'});
   assert.doesNotMatch(valid,/not established|Invalid Date/);
   assert.match(valid,/Current observation: 2026-10-18/);
+});
+
+test('SOR financial month and local import time cannot substitute for a source observation date', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'assets', 'app.js'), 'utf8');
+  function extract(start, end, label) {
+    const a = app.indexOf(start), b = app.indexOf(end, a + start.length);
+    assert.ok(a >= 0 && b > a, 'Missing production ' + label);
+    return app.slice(a, b);
+  }
+  const dateAdapter = extract('  function dailyEvidenceDate(', '  function dailySourceCoverage(', 'SOR observation-date adapter');
+  const freshnessAdapter = extract('  function sourceFreshness(', '  function metricDependencyEvidence(', 'source freshness adapter');
+  const today = '2026-10-20';
+  function evaluate(item) {
+    const context = vm.createContext({
+      model: { operationalMetrics: { sor: { snapshots: { [item.period]: item } } } },
+      freshness: F,
+      localDateKey: () => today,
+      sourceExpectation: () => 'recommended',
+      businessTimeZone: () => 'UTC',
+      latestOperationalSnapshot: () => item,
+      lastDayOfMonth: F.lastDayOfMonth,
+      validCoverageDate: value => F.validDateKey(value) ? value : '',
+      coverageTimestamp: value => {
+        const date = new Date(value);
+        return Number.isNaN(date.valueOf()) ? '' : date.toISOString().slice(0, 10);
+      }
+    });
+    vm.runInContext(dateAdapter + '\n' + freshnessAdapter +
+      '\nthis.api = { dailyEvidenceDate, sourceFreshness };', context);
+    const observationDate = context.api.dailyEvidenceDate('sor', item);
+    const evidence = context.api.sourceFreshness('sor', { today });
+    const report = F.evaluateReportNeed({
+      key: 'sor', today, evidence, observationDate,
+      activeFeature: 'Selected Performance trend'
+    });
+    return { observationDate, evidence, report };
+  }
+
+  const importOnly = evaluate({ period: '2026-10', importedAt: '2026-10-20T12:00:00.000Z' });
+  assert.equal(importOnly.observationDate, '', 'local import time is not source date evidence');
+  assert.equal(importOnly.report.state, 'NEED NOW',
+    'a financial-month label and import time cannot mark SOR current for an active trend');
+  assert.equal(importOnly.evidence.status, 'historical-valid');
+
+  const datedFile = evaluate({
+    period: '2026-10', sourceModifiedAt: '2026-10-19T18:00:00.000Z',
+    importedAt: '2026-10-20T12:00:00.000Z'
+  });
+  assert.equal(datedFile.observationDate, '2026-10-19');
+  assert.equal(datedFile.report.state, 'CURRENT',
+    'a valid source-file observation in the represented financial month may establish the current point');
+
+  const futureFile = evaluate({
+    period: '2026-10', sourceModifiedAt: '2026-10-21T18:00:00.000Z',
+    importedAt: '2026-10-20T12:00:00.000Z'
+  });
+  assert.equal(futureFile.observationDate, '2026-10-21');
+  assert.equal(futureFile.report.state, 'NEED NOW',
+    'a future file date cannot establish current source confidence');
 });
