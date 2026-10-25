@@ -94,6 +94,44 @@ test("rapid advisor toggles during an in-flight save cannot show false Saved or 
   assert.equal(status.dataset.saveState,"saved");
 });
 
+test("overlapping autosaves do not requeue for newer save timestamps",async()=>{
+  const first=deferred(),second=deferred(),enteredFirst=deferred(),enteredSecond=deferred();
+  const tasks=[],writes=[];
+  const status={dataset:{},textContent:""};
+  let stamp=0;
+  const settings={schemaVersion:1,advisors:{"101":{participation:{advisorMeeting:false}}}};
+  const model={root:{name:"Synthetic"},settings};
+  const ctx=vm.createContext({
+    model,ui:{settingsSaveStatus:status},SETTINGS_PATH:["data","settings.json"],writeAuthority:{canWrite:true},
+    readSettingsInputs:()=>{},now:()=>`2026-10-22T09:03:${String(stamp++).padStart(2,"0")}Z`,
+    writeJson:async(_,data)=>{
+      const index=writes.length;
+      writes.push(JSON.parse(JSON.stringify(data)));
+      if(index===0){enteredFirst.resolve();await first.promise;}
+      if(index===1){enteredSecond.resolve();await second.promise;}
+    },
+    addHistory:async()=>{},renderAll:()=>{},Date,
+    setTimeout:fn=>{const task={fn,cancelled:false};tasks.push(task);return task;},
+    clearTimeout:task=>{if(task)task.cancelled=true;},run:fn=>fn()
+  });
+  vm.runInContext(saveSource+"\\nthis.queueSettingsAutosave=queueSettingsAutosave;",ctx);
+  ctx.queueSettingsAutosave();
+  const firstSave=tasks[0].fn();
+  await enteredFirst.promise;
+  settings.advisors["101"].participation.advisorMeeting=true;
+  ctx.queueSettingsAutosave();
+  const secondSave=tasks[1].fn();
+  await enteredSecond.promise;
+  first.resolve();await firstSave;
+  assert.equal(tasks.length,2,"The older completion must not queue another save for updatedAt alone");
+  assert.equal(status.dataset.saveState,"saving","The newer overlapping save still owns the indicator");
+  second.resolve();await secondSave;
+  assert.equal(writes.length,2);
+  assert.equal(writes[0].advisors["101"].participation.advisorMeeting,false);
+  assert.equal(writes[1].advisors["101"].participation.advisorMeeting,true);
+  assert.equal(status.dataset.saveState,"saved");
+});
+
 test("older failing save does not overwrite newer Saving indicator",async()=>{
   const gate=deferred(),entered=deferred(),tasks=[],errors=[];
   const status={dataset:{},textContent:""};
