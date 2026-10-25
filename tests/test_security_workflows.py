@@ -114,8 +114,8 @@ class SecurityWorkflowTests(unittest.TestCase):
         refresh = merge.split("Refresh other open same-repository PRs", 1)[1].split("exit 0", 1)[0]
         update = 'gh api -X PUT "repos/$REPO/pulls/$OTHER_PR/update-branch"'
         self.assertIn(update, refresh)
-        self.assertIn('gh workflow run publication-check.yml --repo "$REPO" --ref "$OTHER_BRANCH"', refresh)
-        self.assertIn('gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$OTHER_BRANCH"', refresh)
+        self.assertIn('gh workflow run publication-check.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"', refresh)
+        self.assertIn('gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"', refresh)
         self.assertLess(refresh.index(update), refresh.index('gh workflow run publication-check.yml'))
         self.assertLess(refresh.index('gh workflow run publication-check.yml'), refresh.index('gh workflow run clean-install-proof.yml'))
         self.assertIn("for settle in {1..42}", refresh)
