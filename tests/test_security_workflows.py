@@ -123,14 +123,14 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('REFRESH_STATUS" = "ahead"', refresh)
         self.assertIn('REFRESH_BASE" = "$CURRENT_MAIN"', refresh)
         self.assertLess(refresh.index('if [ "$UPDATED" != "true" ]'), refresh.index('gh workflow run publication-check.yml'))
-        package_job = prepare.split("  package-unadvertised-main-runtime:", 1)[1]
-        self.assertIn('[ "$CODEX_STATE" = "clean" ]; then', package_job)
         self.assertIn('pulls/$PR_NUMBER/merge', merge)
         self.assertIn("-f merge_method=squash", merge)
         self.assertIn("exact-head Publication, Clean Install, and Codex review proof to settle", merge)
         self.assertIn("Required status check.*(in progress|expected)", merge)
 
         prepare = (ROOT / ".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
+        package_job = prepare.split("  package-unadvertised-main-runtime:", 1)[1]
+        self.assertIn('[ "$CODEX_STATE" = "clean" ]; then', package_job)
         self.assertNotIn("\n  pull_request_target:", prepare)
         self.assertIn("  workflow_dispatch:", prepare)
         self.assertIn("  package-unadvertised-main-runtime:", prepare)
