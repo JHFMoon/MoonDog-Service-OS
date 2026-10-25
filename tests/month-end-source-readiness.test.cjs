@@ -80,7 +80,7 @@ test("stale CSI period remains pending even when its refresh timestamp reaches m
   metrics.csi.imports[0].scopeEnd="2026-09-15";
   const result=ctx.buildSummary(month,performance,metrics);
   assert.equal(result.status,"pending-finalization");
-  assert.equal(result.readiness.csi.state,"pending");
+  assert.equal(result.readiness.sources.csi.state,"pending");
   assert.ok(Array.from(result.needed).includes("csi"));
 });
 
@@ -89,8 +89,8 @@ test("partial CSI scope cannot finalize the month even when the scope ends on mo
   metrics.csi.imports[0].scopeStart="2026-09-02";
   const result=ctx.buildSummary(month,performance,metrics);
   assert.equal(result.status,"pending-finalization");
-  assert.equal(result.readiness.csi.state,"pending");
-  assert.equal(result.readiness.csi.status,"unverified-scope");
+  assert.equal(result.readiness.sources.csi.state,"pending");
+  assert.equal(result.readiness.sources.csi.status,"unverified-scope");
   assert.ok(Array.from(result.needed).includes("csi"));
 });
 
@@ -101,8 +101,8 @@ test("CSI with absent or unverified report scope remains pending despite a recen
   metrics.csi.imports[0].scopeVerified=false;
   const result=ctx.buildSummary(month,performance,metrics);
   assert.equal(result.status,"pending-finalization");
-  assert.equal(result.readiness.csi.state,"pending");
-  assert.equal(result.readiness.csi.status,"unverified-scope");
+  assert.equal(result.readiness.sources.csi.state,"pending");
+  assert.equal(result.readiness.sources.csi.status,"unverified-scope");
 });
 
 test("same-period conflicting pending VIR evidence cannot lock the monthly summary",()=>{
