@@ -23,6 +23,7 @@ function makeWorkspace(count) {
     }
   }));
   return {
+    root: { name: "Synthetic Workspace" },
     state: {
       records: rows,
       updatedAt: "2026-10-25T12:00:00.000Z",
