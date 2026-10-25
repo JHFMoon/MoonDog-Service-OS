@@ -94,6 +94,22 @@ test("partial CSI scope cannot finalize the month even when the scope ends on mo
   assert.ok(Array.from(result.needed).includes("csi"));
 });
 
+test("an explicitly unused CSI source does not block finalization without a report",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness({csi:"not-used"});
+  metrics.csi.imports=[];
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"locked");
+  assert.equal(result.readiness.csi.state,"not-used");
+});
+
+test("month-end readiness selects the latest CSI import that covers the target month",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  metrics.csi.imports.push({refreshDate:"2026-10-02",scopeStart:"2026-10-01",scopeEnd:"2026-10-02",scopeVerified:true});
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"locked","a newer import for another month cannot hide retained full-month evidence");
+  assert.equal(result.readiness.csi.state,"ready");
+});
+
 test("CSI with absent or unverified report scope remains pending despite a recent refresh",()=>{
   const {month,metrics,performance}=completeSources(),ctx=harness();
   delete metrics.csi.imports[0].scopeStart;

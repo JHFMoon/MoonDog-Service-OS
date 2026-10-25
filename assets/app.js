@@ -1022,14 +1022,20 @@
     const vir=virConflict?null:latestMonthlySnapshot({...virSnapshots,...virPending},month,(item)=>virObservationDate(item)>=operatingEnd);
     const menu=latestMonthlySnapshot(metrics?.menu?.snapshots,month,(item)=>item.periodEnd>=operatingEnd);
     const media=latestMonthlySnapshot(metrics?.mediaAsr?.snapshots,month,(item)=>item.periodEnd>=operatingEnd);
-    const csiImport=(metrics?.csi?.imports||[]).filter((item)=>String(item.latestCsiRefreshDate||item.refreshDate||"")>=monthEnd).sort((a,b)=>String(a.latestCsiRefreshDate||a.refreshDate).localeCompare(String(b.latestCsiRefreshDate||b.refreshDate))).at(-1);
+    const csiImports=(metrics?.csi?.imports||[]).filter((item)=>{const scopeStart=String(item?.scopeStart||""),scopeEnd=String(item?.scopeEnd||"");return item?.scopeVerified===true&&Boolean(scopeStart)&&Boolean(scopeEnd)&&scopeStart<=`${month}-01`&&scopeEnd>=operatingEnd;}).sort((a,b)=>String(a.latestCsiRefreshDate||a.refreshDate||"").localeCompare(String(b.latestCsiRefreshDate||b.refreshDate||"")));
+    const csiImport=csiImports.at(-1)||null;
+    const csiExpectation=sourceExpectation("csi");
     const sources={
       sapr:state("sapr",sapr,sapr?.periodEnd),
       vir:state("vir",vir,virObservationDate(vir),virConflict),
       menu:state("menu",menu,menu?.periodEnd),
       mediaAsr:state("mediaAsr",media,media?.periodEnd),
       // Freshness timestamps do not prove that the imported CSI report covers the month.
-      csi: csiImport?.scopeVerified&&csiImport.scopeStart<=`${month}-01`&&csiImport.scopeEnd>=operatingEnd
+      csi: csiImport
+        ?state("csi",{...csiImport,periodStart:csiImport.scopeStart},csiImport.scopeEnd)
+        :["not-used","temporarily-unavailable"].includes(csiExpectation)
+          ?state("csi",null,null)
+          :{state:"pending",status:"unverified-scope",detail:"Verified CSI report scope does not cover the complete month-end operating period"}
         ?state("csi",{...csiImport,periodStart:csiImport.scopeStart},csiImport.scopeEnd)
         :{state:"pending",status:"unverified-scope",detail:"Verified CSI report scope does not cover the complete month-end operating period"}
     };
