@@ -79,6 +79,15 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # issue_comment events have no head branch in their payload. Always
+          # recover the dispatch ref from the same verified PR snapshot.
+          CURRENT_PR_BRANCH="$(jq -r '.head.ref // empty' /tmp/pr.json)"
+          if [ -z "$CURRENT_PR_BRANCH" ]; then
+            echo "Missing verified PR branch; refusing workflow dispatch." >&2
+            exit 1
+          fi
+          HEAD_BRANCH="$CURRENT_PR_BRANCH"
+          echo "HEAD_BRANCH=$HEAD_BRANCH" >> "$GITHUB_ENV"
           echo "skip=false" >> "$GITHUB_OUTPUT"
           if [ "$(jq -r '.state' /tmp/pr.json)" != "open" ]; then
             echo "PR is closed or not authorized for automatic merge; skipping."
