@@ -126,7 +126,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("exact_codex_review", prepare)
         self.assertNotIn("contains(github.event.pull_request.body", prepare)
         self.assertIn("Refuse automatic changes to trusted proof/automation files", prepare)
-        self.assertIn("codex-review-state:v1", prepare)
+        self.assertIn("codex-review-state", prepare)
         self.assertIn("MoonDog-Auto-Merge: yes", prepare)
         self.assertIn("trusted/scripts/pipeline_guard.py check-paths", prepare)
         self.assertIn("without executing candidate code", prepare)

@@ -37,7 +37,7 @@ class StandingAuthorizationTests(unittest.TestCase):
         self.assertTrue(has_merge_authorization("MoonDog-Auto-Merge: no", POLICY))
 
     def test_malformed_or_untrusted_policy_fails_closed_to_explicit_marker(self):
-        for policy in [{}, {"schema_version": 2, **POLICY}, {**POLICY, "scope": "one_pr"}]:
+        for policy in [{}, {**POLICY, "schema_version": 2}, {**POLICY, "scope": "one_pr"}]:
             self.assertFalse(has_standing_authorization(policy))
             self.assertFalse(has_merge_authorization("", policy))
         self.assertTrue(has_merge_authorization("MoonDog-Auto-Merge: yes", {}))
