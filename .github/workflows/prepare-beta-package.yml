@@ -16,6 +16,7 @@ permissions:
   actions: write
   contents: write
   pull-requests: write
+  issues: write
   statuses: write
 
 # The trusted packaging import must not create untracked scripts/__pycache__ files.
@@ -65,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/authorized-pr.json
-          python3 trusted/scripts/guarded_merge_authorization.py /tmp/authorized-pr.json
+          python3 trusted/scripts/guarded_merge_policy.py check-authorization /tmp/authorized-pr.json --policy trusted/.github/guarded-merge-policy.json
 
       - name: Refuse automatic changes to trusted proof/automation files
         shell: bash
@@ -144,7 +145,7 @@ jobs:
               done <<<"$FAILED_IDS"
               exit 1
             fi
-            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ]; then
+            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ] && [ "$CODEX_STATE" = "clean" ]; then
               break
             fi
             if [ "$attempt" = "42" ]; then
@@ -355,12 +356,16 @@ jobs:
         shell: bash
         env:
           BRANCH: ${{ steps.build.outputs.branch }}
+          PACKAGE_HEAD: ${{ steps.build.outputs.head_sha }}
         run: |
           set -euo pipefail
           URL="$(gh pr create             --base main             --head "$BRANCH"             --title "Package merged runtime into next Beta"             --body "MoonDog-Automation-Package: yes
+          MoonDog-Auto-Merge: yes
 
-          Generated from already-merged runtime using the trusted Beta builder. Only Beta metadata/package files may change. Stable must remain unchanged. Required exact-head Publication Check and Clean Install Proof must pass before merge.")"
+          Generated from already-merged runtime using the trusted Beta builder. Only Beta metadata/package files may change. Stable must remain unchanged. Required exact-head Publication Check, Clean Install Proof, and Codex review with no findings must pass before merge.")"
           PR_NUMBER="$(gh pr view "$URL" --json number --jq .number)"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "@codex review
+          Review generated Beta package head $PACKAGE_HEAD. Verify only Beta metadata/package files changed, Stable is byte-identical, and the trusted builder output is consistent with the manifest and SHA-256. Report actionable findings and the reviewed SHA."
           echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch exact-head verification
@@ -389,6 +394,12 @@ jobs:
             CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .event=="workflow_dispatch" and .conclusion=="success")] | length' <<<"$RUNS")"
             PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .event=="workflow_dispatch" and .status!="completed")] | length' <<<"$RUNS")"
             HARD_FAIL="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .event=="workflow_dispatch" and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out"))] | length' <<<"$RUNS")"
+            gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/package-pr-comments.json
+            CODEX_STATE="$(python3 trusted/scripts/guarded_merge_policy.py codex-review-state /tmp/package-pr-comments.json "$PACKAGE_HEAD")"
+            if [ "$CODEX_STATE" = "findings" ]; then
+              echo "Generated Beta exact-head Codex review reported findings." >&2
+              exit 1
+            fi
             if [ "$HARD_FAIL" != "0" ]; then
               echo "Generated Beta verification failed. Exact-head workflow IDs and failed jobs follow." >&2
               FAILED_IDS="$(jq -r '.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .event=="workflow_dispatch" and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out")) | .id' <<<"$RUNS")"
@@ -404,7 +415,7 @@ jobs:
               break
             fi
             if [ "$attempt" = "42" ]; then
-              echo "Timed out waiting for generated Beta proof." >&2
+              echo "Timed out waiting for generated Beta Publication, Clean Install, and exact-head Codex proof." >&2
               exit 1
             fi
             sleep 10
@@ -417,9 +428,13 @@ jobs:
           }
 
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/beta-pr.json
+          gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/final-package-pr-comments.json
           python3 - <<'PY'
           import json, os
+          from guarded_merge_policy import codex_review_state, has_merge_authorization, load_policy
           pr=json.load(open('/tmp/beta-pr.json',encoding='utf-8'))
+          comments=json.load(open('/tmp/final-package-pr-comments.json',encoding='utf-8'))
+          policy=load_policy('trusted/.github/guarded-merge-policy.json')
           checks={
               'open': pr.get('state')=='open',
               'draft': pr.get('draft') is False,
@@ -427,6 +442,8 @@ jobs:
               'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
               'head': pr.get('head',{}).get('sha')==os.environ['PACKAGE_HEAD'],
               'machine_marker': 'MoonDog-Automation-Package: yes' in (pr.get('body') or ''),
+              'standing_authorization': has_merge_authorization(pr.get('body'), policy),
+              'exact_codex_review': codex_review_state(comments, os.environ['PACKAGE_HEAD']) == 'clean',
           }
           failed=[name for name,ok in checks.items() if not ok]
           if failed:

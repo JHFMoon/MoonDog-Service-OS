@@ -4,31 +4,42 @@ on:
   workflow_run:
     workflows: ["Publication check"]
     types: [completed]
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  issue_comment:
+    types: [created]
 
 permissions:
   # Required only to dispatch the trusted post-merge Beta packager.
-  # The existing head/proof/main/Stable gates remain mandatory before dispatch.
+  # Exact-head proof and current-main gates remain mandatory before merge.
   actions: write
   contents: write
   pull-requests: write
+  issues: read
 
 concurrency:
-  group: guarded-pr-merge-${{ github.event.workflow_run.head_sha }}
+  group: guarded-pr-merge-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
   merge:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      (github.event.workflow_run.event == 'pull_request' ||
-       github.event.workflow_run.event == 'workflow_dispatch')
+      ((github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        (github.event.workflow_run.event == 'pull_request' ||
+         github.event.workflow_run.event == 'workflow_dispatch')) ||
+       github.event_name == 'pull_request_target' ||
+       (github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        github.event.comment.user.login == 'chatgpt-codex-connector[bot]' &&
+        contains(github.event.comment.body, 'codex-review-state:v1')))
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
-      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+      HEAD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
+      HEAD_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.event.pull_request.head.ref }}
+      PR_NUMBER: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number || github.event.issue.number }}
     steps:
       - name: Check out trusted merge guard from main
         uses: actions/checkout@v7
@@ -52,6 +63,10 @@ jobs:
             echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
           fi
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.json
+          if [ -z "$HEAD_SHA" ]; then
+            HEAD_SHA="$(jq -r '.head.sha // empty' /tmp/pr.json)"
+            echo "HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+          fi
           # A workflow_run may refer to an older PR head after packaging or a
           # branch update. Skip that obsolete event; never use its checks to merge.
           CURRENT_PR_HEAD="$(jq -r '.head.sha // empty' /tmp/pr.json)"
@@ -71,7 +86,7 @@ jobs:
             exit 0
           fi
           set +e
-          python3 scripts/guarded_merge_authorization.py /tmp/pr.json
+          python3 scripts/guarded_merge_policy.py check-authorization /tmp/pr.json --policy .github/guarded-merge-policy.json
           AUTHORIZATION_STATUS=$?
           set -e
           if [ "$AUTHORIZATION_STATUS" -eq 1 ]; then
@@ -85,8 +100,9 @@ jobs:
           fi
           python3 - <<'PY'
           import json, os, sys
-          from scripts.guarded_merge_authorization import has_explicit_approval
+          from scripts.guarded_merge_policy import has_merge_authorization, load_policy
           pr=json.load(open('/tmp/pr.json',encoding='utf-8'))
+          policy=load_policy('.github/guarded-merge-policy.json')
           expected=os.environ['HEAD_SHA']
           if pr.get('state')!='open':
               print('PR is no longer open; nothing to merge.')
@@ -96,32 +112,37 @@ jobs:
               'base': pr.get('base',{}).get('ref')=='main',
               'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
               'head': pr.get('head',{}).get('sha')==expected,
-              'authorization': has_explicit_approval(pr.get('body')),
+              'authorization': has_merge_authorization(pr.get('body'), policy),
               'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
+              'exact_codex_review': codex_review_state(comments, expected)=='clean',
           }
           failed=[name for name,ok in checks.items() if not ok]
           if failed:
               raise SystemExit('Guarded merge refused: '+', '.join(failed))
           PY
 
-      - name: Keep Stable promotion explicit
+      - name: Classify verified release channel
+        id: channel
         if: steps.guard.outputs.skip != 'true'
         shell: bash
         run: |
           set -euo pipefail
           MERGE_BASE_SHA="$(gh api "repos/$REPO/compare/main...$HEAD_SHA" --jq .merge_base_commit.sha)"
           test -n "$MERGE_BASE_SHA"
-          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$MERGE_BASE_SHA" > /tmp/base-manifest.json
-          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$HEAD_SHA" > /tmp/head-manifest.json
-          python3 - <<'PY'
+          gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$REPO/contents/updates/manifest.json?ref=$MERGE_BASE_SHA" > /tmp/base-manifest.json
+          gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$REPO/contents/updates/manifest.json?ref=$HEAD_SHA" > /tmp/head-manifest.json
+          STABLE_CHANGED="$(python3 - <<'PY'
           import json
           base=json.load(open('/tmp/base-manifest.json',encoding='utf-8'))
           head=json.load(open('/tmp/head-manifest.json',encoding='utf-8'))
-          if base.get('stable') != head.get('stable'):
-              raise SystemExit('Automatic merge refused: this PR changes Stable and requires James explicit approval.')
+          print('true' if base.get('stable') != head.get('stable') else 'false')
           PY
+          )"
+          echo "stable_changed=$STABLE_CHANGED" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for all required proof on this exact head
+      - name: Wait for Publication, Clean Install, and exact-head Codex proof
         if: steps.guard.outputs.skip != 'true'
         shell: bash
         run: |
@@ -135,16 +156,22 @@ jobs:
             CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")] | length' <<<"$RUNS")"
             PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .status!="completed")] | length' <<<"$RUNS")"
             HARD_FAIL="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out"))] | length' <<<"$RUNS")"
+            gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/pr-comments.json
+            CODEX_STATE="$(python3 scripts/guarded_merge_policy.py codex-review-state /tmp/pr-comments.json "$HEAD_SHA")"
             if [ "$HARD_FAIL" != "0" ]; then
               echo "Required verification failed on the exact PR head." >&2
               exit 1
             fi
-            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ]; then
+            if [ "$CODEX_STATE" = "findings" ]; then
+              echo "Exact-head Codex review reported findings; refusing merge." >&2
+              exit 1
+            fi
+            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ] && [ "$CODEX_STATE" = "clean" ]; then
               exit 0
             fi
             sleep 10
           done
-          echo "Timed out waiting for all exact-head Publication and Clean Install runs to settle." >&2
+          echo "Timed out waiting for exact-head Publication, Clean Install, and Codex review proof to settle." >&2
           exit 1
 
       - name: Bring branch current with main if needed
@@ -180,15 +207,17 @@ jobs:
 
             python3 - <<'PY'
           import json, os
-          from scripts.guarded_merge_authorization import has_explicit_approval
+          from scripts.guarded_merge_policy import codex_review_state, has_merge_authorization, load_policy
           pr=json.load(open('/tmp/final-pr.json',encoding='utf-8'))
+          policy=load_policy('.github/guarded-merge-policy.json')
+          comments=json.load(open('/tmp/pr-comments.json',encoding='utf-8'))
           checks={
               'open': pr.get('state')=='open',
               'draft': pr.get('draft') is False,
               'base': pr.get('base',{}).get('ref')=='main',
               'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
               'head': pr.get('head',{}).get('sha')==os.environ['HEAD_SHA'],
-              'authorization': has_explicit_approval(pr.get('body')),
+              'authorization': has_merge_authorization(pr.get('body'), policy),
               'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
           }
           failed=[name for name,ok in checks.items() if not ok]
@@ -204,14 +233,13 @@ jobs:
               exit 1
             }
 
-            gh api -H "Accept: application/vnd.github.raw+json"               "repos/$REPO/contents/updates/manifest.json?ref=$MAIN_SHA" > /tmp/current-main-manifest.json
-            gh api -H "Accept: application/vnd.github.raw+json"               "repos/$REPO/contents/updates/manifest.json?ref=$HEAD_SHA" > /tmp/current-head-manifest.json
+            gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/final-pr-comments.json
             python3 - <<'PY'
-          import json
-          main=json.load(open('/tmp/current-main-manifest.json',encoding='utf-8'))
-          head=json.load(open('/tmp/current-head-manifest.json',encoding='utf-8'))
-          if main.get('stable') != head.get('stable'):
-              raise SystemExit('Final guarded merge refused: Stable invariant changed.')
+          import json, os
+          from scripts.guarded_merge_policy import codex_review_state
+          comments=json.load(open('/tmp/final-pr-comments.json',encoding='utf-8'))
+          if codex_review_state(comments, os.environ['HEAD_SHA']) != 'clean':
+              raise SystemExit('Final guarded merge refused: exact-head Codex review is missing, stale, or has findings.')
           PY
 
             if RESULT="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$HEAD_SHA" 2>&1)"; then
@@ -230,9 +258,36 @@ jobs:
               gh workflow run publication-check.yml --repo "$REPO" --ref main
               # GITHUB_TOKEN merges do not create push-triggered package runs.
               # Dispatch packaging from verified main, using the exact merged SHA.
-              # The packager checks the Beta manifest, Stable invariant and
-              # opens a separately validated package PR only if runtime changed.
-              gh workflow run prepare-beta-package.yml --repo "$REPO" --ref main -f reviewed_commit="$MERGED_SHA"
+              # The trusted packager handles Beta-only runtime changes. Stable
+              # promotion is left to the existing Stable Release workflow.
+              if [ "${{ steps.channel.outputs.stable_changed }}" = "true" ]; then
+                echo "Stable changed under standing authorization; the existing Stable Release workflow owns publication."
+              else
+                gh workflow run prepare-beta-package.yml --repo "$REPO" --ref main -f reviewed_commit="$MERGED_SHA"
+              fi
+              # Refresh other open same-repository PRs from current main using
+              # GitHub's additive update-branch operation, never force-pushing.
+              OPEN_PRS="$(gh api "repos/$REPO/pulls?state=open&per_page=100")"
+              PR_IDS="$(jq -r --arg repo "$REPO" '.[] | select(.base.ref=="main" and .head.repo.full_name==$repo) | .number' <<<"$OPEN_PRS")"
+              while IFS= read -r OTHER_PR; do
+                [ -n "$OTHER_PR" ] || continue
+                gh api "repos/$REPO/pulls/$OTHER_PR" > /tmp/other-pr.json
+                OTHER_HEAD="$(jq -r '.head.sha' /tmp/other-pr.json)"
+                OTHER_DRAFT="$(jq -r '.draft' /tmp/other-pr.json)"
+                OTHER_ASSOC="$(jq -r '.author_association' /tmp/other-pr.json)"
+                [ "$OTHER_DRAFT" = "false" ] || continue
+                case "$OTHER_ASSOC" in OWNER|MEMBER|COLLABORATOR) ;; *) continue ;; esac
+                OTHER_REPO="$(jq -r '.head.repo.full_name // empty' /tmp/other-pr.json)"
+                [ "$OTHER_REPO" = "$REPO" ] || continue
+                OTHER_STATUS="$(gh api "repos/$REPO/compare/main...$OTHER_HEAD" --jq .status)"
+                if [ "$OTHER_STATUS" = "behind" ] || [ "$OTHER_STATUS" = "diverged" ]; then
+                  if gh api -X PUT "repos/$REPO/pulls/$OTHER_PR/update-branch" -f expected_head_sha="$OTHER_HEAD"; then
+                    echo "Refreshed PR #$OTHER_PR onto current main; new checks and review must pass."
+                  else
+                    echo "Could not refresh PR #$OTHER_PR without a conflict; leaving it unchanged."
+                  fi
+                fi
+              done <<<"$PR_IDS"
               exit 0
             fi
             if grep -Eq 'Required status check.*(in progress|expected)' <<<"$RESULT"; then

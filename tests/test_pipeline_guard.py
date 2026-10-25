@@ -9,10 +9,11 @@ from scripts.pipeline_guard import (
 
 
 class PipelineGuardTests(unittest.TestCase):
-    def test_runtime_changes_are_eligible_for_automation(self):
+    def test_runtime_and_untrusted_synthetic_tests_are_eligible_for_automation(self):
         self.assertFalse(protected_automation_path("assets/app.js"))
         self.assertFalse(protected_automation_path("assets/freshness.js"))
-        self.assertEqual(blocked_paths(["assets/app.js", "README.md"]), [])
+        self.assertFalse(protected_automation_path("tests/new-synthetic-regression.test.cjs"))
+        self.assertEqual(blocked_paths(["assets/app.js", "README.md", "tests/new-synthetic-regression.test.cjs"]), [])
 
     def test_proof_workflow_and_guard_changes_are_rejected(self):
         candidates = [

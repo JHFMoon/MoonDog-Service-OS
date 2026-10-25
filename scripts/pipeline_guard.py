@@ -8,13 +8,14 @@ from pathlib import Path
 
 if __package__:
     from .guarded_merge_authorization import has_explicit_approval
+    from .guarded_merge_policy import has_merge_authorization
 else:
     from guarded_merge_authorization import has_explicit_approval
+    from guarded_merge_policy import has_merge_authorization
 
 PROTECTED_PREFIXES = (
     ".github/workflows/",
     "scripts/",
-    "tests/",
 )
 PROTECTED_FILES = {
     "scripts/audit_git_history.py",
@@ -25,6 +26,8 @@ PROTECTED_FILES = {
     "scripts/check_publication.py",
     "scripts/guarded_merge_authorization.py",
     "scripts/pipeline_guard.py",
+    ".github/guarded-merge-policy.json",
+    ".github/PULL_REQUEST_TEMPLATE.md",
     "scripts/prepare_distribution_vendor.sh",
     "scripts/smoke_distribution.mjs",
     "tests/install.test.cjs",
@@ -33,6 +36,7 @@ PROTECTED_FILES = {
     "tests/runtime-mirror.test.cjs",
     "tests/test_check_publication.py",
     "tests/test_guarded_merge_authorization.py",
+    "tests/test_guarded_merge_policy.py",
     "tests/test_pipeline_guard.py",
     "tests/test_public_audit_history.py",
     "tests/test_security_workflows.py",
@@ -59,6 +63,7 @@ def validate_pr_snapshot(
     repository: str,
     expected_head: str,
     expected_base_ref: str = "main",
+    policy: dict | None = None,
 ) -> list[str]:
     body = pr.get("body") or ""
     checks = {
@@ -67,7 +72,7 @@ def validate_pr_snapshot(
         "base-main": pr.get("base", {}).get("ref") == expected_base_ref,
         "same-repository": pr.get("head", {}).get("repo", {}).get("full_name") == repository,
         "exact-head": pr.get("head", {}).get("sha") == expected_head,
-        "automation-marker": has_explicit_approval(body),
+        "automation-marker": has_merge_authorization(body, policy or {}),
         "authorized-association": pr.get("author_association")
         in {"OWNER", "MEMBER", "COLLABORATOR"},
     }

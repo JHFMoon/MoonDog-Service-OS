@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "standing_authorization": "authorized",
+  "scope": "all_existing_and_future_pull_requests",
+  "authorized_by": "repository owner",
+  "authorized_date": "2026-10-25",
+  "required_gates": [
+    "same-repository",
+    "trusted-author-association",
+    "not-draft",
+    "base-main",
+    "exact-head-publication-check",
+    "exact-head-clean-install-proof",
+    "exact-head-codex-review-no-findings",
+    "github-branch-protection"
+  ],
+  "stable_publication": "existing-stable-release-workflow-only"
+}
