@@ -1,6 +1,6 @@
 # Roadmap acceptance matrix — MoonDog Service OS
 
-**Live closeout checkpoint — 2026-10-25 12:38 UTC.** Refreshed from live GitHub. Issue #164 remains closed.
+**Live closeout checkpoint — 2026-10-25 12:40 UTC.** Refreshed from live GitHub. Issue #164 remains closed.
 
 - Default branch `main`: `ddcb71546ae771b091004fae377dc7f04569f45f`.
 - Trusted Beta `0.10.18-beta.162`, SHA-256 `bf24db3f81947b7eea41dc2a56462be84f9fe2829e21d33f282280a55c412c56`; Stable `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; migration disabled.
@@ -11,7 +11,7 @@
 
 ## One prioritized closeout queue
 
-1. **P0 — #59-07 month-end readiness (#463).** Current head `d395a0bc9207de336fe1181fef8a615352860089` is based on main `ddcb71546ae771b091004fae377dc7f04569f45f`. It now requires verified CSI scope through the final operating day plus a valid import/observation date reaching that day; regressions cover early export, incomplete scope, newer out-of-period import, explicit not-used scope, conflicting VIR, unknown-vs-zero metrics. Focused tests passed in Pub #40175213114; Clean Install #40175213117 passed; exact-head Codex #6395207977 found no major issues; all seven review threads were replied to and resolved. Pub is blocked only by the three old reachable blobs above. The branch contains required production/test work and is not obsolete. No branch deletion is authorized or exposed by the connected GitHub write tools; do not delete or rewrite.
+1. **P0 — #59-07 month-end readiness (#463).** Current head `d395a0bc9207de336fe1181fef8a615352860089` is based on main `ddcb71546ae771b091004fae377dc7f04569f45f`. It now requires verified CSI scope through the final operating day plus a valid import/observation date reaching that day; regressions cover early export, incomplete scope, newer out-of-period import, explicit not-used scope, conflicting VIR, unknown-vs-zero metrics. Focused tests passed in Pub #40175213114; Clean Install #40175213117 passed; exact-head Codex #6395207977 found no major issues; all seven review threads were replied to and resolved. Pub is blocked only by the three old reachable blobs above. The branch contains required production/test work and is not obsolete. Its corrected final tree has been copied additively to clean current-main draft PR #469, head `d2303ba612f382588baccc8860848ab0d7c73e1b`, with only the same two paths. #469 Publication Check #40194057493 and Clean Install #40194057483 are running; exact-head Codex review is pending. Do not merge either PR before current gates pass. No branch deletion is authorized or exposed by the connected GitHub write tools; do not delete or rewrite.
 2. **P0 — #61-05 exception freshness/security denial (#462).** Head `d535b7ed7db3537b5fb621061ca499e96a3e3c85`: Clean Install #40171417461 passed and exact review #6394693000 found no major issues. Pub #40171417472 failed at the shared history audit. This is test-only and preserves the explicit #61-05 security denial.
 3. **P1 — #58-04 Open RO render/search performance (#461).** Head `8baa721243ffc9abf2bae0a68ec351eda3c26cce`: Clean Install #40171886627 passed, exact review #6395117544 found no major issues, and Pub #40171886642 failed at the shared history audit. Synthetic VM timings are not browser/device timings.
 4. **P0/P1 — #58-06 Open RO search/save (#465).** Clean replacement head `558f7b25a79b352ac95a8d830810d49517d90714`: Clean Install #40171432456 passed, exact review #6395120936 found no major issues, Pub #40171432241 failed at the shared audit. Keep draft until eligible gates pass.
@@ -25,7 +25,7 @@
 
 ## History-audit blocker and required action
 
-The old #457 branch is already absent and its PR is closed unmerged. The current audit instead reports three flagged blobs in #463's reachable history. #463 is not obsolete; it carries required month-end production and test work. The connected GitHub tools allow safe fast-forward ref updates but expose no remote-ref deletion operation. Do not suppress the audit, delete the branch, or rewrite history. To unblock shared Publication Checks, first preserve the corrected #463 changes on a clean current-main contribution; then James must authorize deletion of the exact remote ref `test/59-07-month-end-source-readiness-20261025`, and an authorized GitHub branch-management action must remove it. Until that approval and capability are provided, every affected Pub Check remains blocked.
+The old #457 branch is already absent and its PR is closed unmerged. The current audit instead reports three flagged blobs in #463's reachable history. #463 is not obsolete; it carries required month-end production and test work, already preserved on clean current-main draft PR #469. The connected GitHub tools allow safe fast-forward ref updates but expose no remote-ref deletion operation. Do not suppress the audit, delete the branch, or rewrite history. To unblock shared Publication Checks, James must authorize deletion of the exact remote ref `test/59-07-month-end-source-readiness-20261025`, and an authorized GitHub branch-management action must remove it. Until that approval and capability are provided, every affected Pub Check remains blocked.
 
 ## Authorization gates and safeguards
 
@@ -33,7 +33,7 @@ The old #457 branch is already absent and its PR is closed unmerged. The current
 - Stable stays `0.10.17`; trusted Beta stays `0.10.18-beta.162`. Preserve Workspace/data boundaries, manual/source authority, backup/rollback, `file://`, OneDrive, updater integrity, and #61-05's denial.
 - Synthetic fixtures only. No protected Workspace or customer/dealership data was accessed. No installation, field testing, or continuous execution is claimed.
 
-**Next immediate action:** preserve #463's corrected two-file change in a clean current-main contribution, then request the exact #463 ref deletion authorization/capability; continue independent criterion work while the shared audit waits. Keep #164 closed.
+**Next immediate action:** inspect #469's exact-head checks/review, then request authorization for the exact #463 ref deletion through a GitHub branch-management action; continue independent criterion work while the shared audit waits. Keep #164 closed.
 
 **HISTORICAL CLOUD CHECKPOINT — 2026-10-22 17:39 UTC; superseded by the current #164 checkpoint.** Main is `d5af312d512af32e21d469925cd39fc25f245a70`, the protected merge of PR #379. Its required Publication Check is running; do not claim it has passed. Live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 includes #383's unsaved Open RO draft warning; no Workspace migration. No installation or field evidence is claimed.
 
