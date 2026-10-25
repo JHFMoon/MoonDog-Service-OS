@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/authorized-pr.json
-          python3 scripts/guarded_merge_policy.py check-authorization /tmp/authorized-pr.json --policy .github/guarded-merge-policy.json
+          python3 trusted/scripts/guarded_merge_policy.py check-authorization /tmp/authorized-pr.json --policy trusted/.github/guarded-merge-policy.json
 
       - name: Refuse automatic changes to trusted proof/automation files
         shell: bash
