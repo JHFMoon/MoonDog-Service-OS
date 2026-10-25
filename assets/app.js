@@ -1022,7 +1022,7 @@
     const vir=virConflict?null:latestMonthlySnapshot({...virSnapshots,...virPending},month,(item)=>virObservationDate(item)>=operatingEnd);
     const menu=latestMonthlySnapshot(metrics?.menu?.snapshots,month,(item)=>item.periodEnd>=operatingEnd);
     const media=latestMonthlySnapshot(metrics?.mediaAsr?.snapshots,month,(item)=>item.periodEnd>=operatingEnd);
-    const csiImports=(metrics?.csi?.imports||[]).filter((item)=>{const scopeStart=String(item?.scopeStart||""),scopeEnd=String(item?.scopeEnd||"");return item?.scopeVerified===true&&Boolean(scopeStart)&&Boolean(scopeEnd)&&scopeStart<=`${month}-01`&&scopeEnd>=operatingEnd;}).sort((a,b)=>String(a.latestCsiRefreshDate||a.refreshDate||"").localeCompare(String(b.latestCsiRefreshDate||b.refreshDate||"")));
+    const csiImports=(metrics?.csi?.imports||[]).filter((item)=>{const scopeStart=String(item?.scopeStart||""),scopeEnd=String(item?.scopeEnd||""),observationDate=String(item?.refreshDate||(item?.importedAt?localDateKey(item.importedAt):""));return item?.scopeVerified===true&&freshness.validDateKey(observationDate)&&observationDate>=operatingEnd&&Boolean(scopeStart)&&Boolean(scopeEnd)&&scopeStart<=`${month}-01`&&scopeEnd>=operatingEnd;}).sort((a,b)=>String(a.refreshDate||localDateKey(a.importedAt)||"").localeCompare(String(b.refreshDate||localDateKey(b.importedAt)||"")));
     const csiImport=csiImports.at(-1)||null;
     const csiExpectation=sourceExpectation("csi");
     const sources={
