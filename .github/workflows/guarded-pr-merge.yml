@@ -298,7 +298,10 @@ jobs:
                           break
                         fi
                         if [ "$REFRESH_STATUS" = "behind" ] || [ "$REFRESH_STATUS" = "diverged" ]; then
-                          gh api -X PUT "repos/$REPO/pulls/$OTHER_PR/update-branch" -f expected_head_sha="$REFRESHED_HEAD" || true
+                          if ! gh api -X PUT "repos/$REPO/pulls/$OTHER_PR/update-branch" -f expected_head_sha="$REFRESHED_HEAD"; then
+                            echo "GitHub refused the additive refresh for PR #$OTHER_PR; no alternate ref operation will be attempted." >&2
+                            exit 1
+                          fi
                           UPDATE_BASE="$REFRESHED_HEAD"
                         fi
                       fi
