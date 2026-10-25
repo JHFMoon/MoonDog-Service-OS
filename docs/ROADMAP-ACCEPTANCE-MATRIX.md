@@ -23,7 +23,7 @@
 
 ## History-audit blocker and authorization
 
-The current tree correction cannot remove the historical blob from PR #463's reachable branch history. This execution has no explicit approval to delete `test/59-07-month-end-source-readiness-20261025`, and the active ruleset prohibits branch deletion. The connected GitHub tools provide no authorized branch-deletion capability. Do not delete the ref, rewrite history, suppress the finding, or weaken the audit. To clear it, James must explicitly approve disposition of that exact ref and a GitHub administrator with branch-management rights must perform any deletion permitted under the active ruleset; preserve the corrected source and tests in a clean current-main contribution. Until then, affected Publication Checks remain blocked.
+The current tree correction cannot remove the historical blob from PR #463's reachable branch history. The active ruleset conditions target only the default branch (`main`), so its deletion rule does not prohibit deleting this feature branch. This execution has no explicit approval to delete `test/59-07-month-end-source-readiness-20261025`, and the connected GitHub tools expose no branch-deletion operation. Do not delete the ref, rewrite history, suppress the finding, or weaken the audit. To clear it, James must explicitly authorize disposition of that exact ref and an authorized GitHub branch-management capability must be used; preserve the corrected source and tests in a clean current-main contribution. Until then, affected Publication Checks remain blocked.
 
 ## Authorization gates and safeguards
 
