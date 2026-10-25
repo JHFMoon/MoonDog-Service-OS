@@ -41,7 +41,7 @@ function completeSources(){
   const period={periodStart:month+"-01",periodEnd:month+"-30"};
   const performance={...period,saprDaysCompleted:22,saprTotalDays:22,store:{},advisors:{}};
   const metrics={
-    csi:{imports:[{...period,latestCsiRefreshDate:month+"-30"}],surveys:{}},
+    csi:{imports:[{refreshDate:"2026-10-01",scopeStart:month+"-01",scopeEnd:month+"-30",scopeVerified:true}],surveys:{}},
     vir:{snapshots:{synthetic:{...period,observationTimestamp:month+"-30T12:00:00.000Z"}}},
     menu:{snapshots:{synthetic:{...period}}},
     mediaAsr:{snapshots:{synthetic:{...period}}}
@@ -77,11 +77,32 @@ test("complete synthetic source periods lock with explicit source provenance and
 
 test("stale CSI period remains pending even when its refresh timestamp reaches month end",()=>{
   const {month,metrics,performance}=completeSources(),ctx=harness();
-  metrics.csi.imports[0].periodEnd="2026-09-15";
+  metrics.csi.imports[0].scopeEnd="2026-09-15";
   const result=ctx.buildSummary(month,performance,metrics);
   assert.equal(result.status,"pending-finalization");
   assert.equal(result.readiness.csi.state,"pending");
   assert.ok(Array.from(result.needed).includes("csi"));
+});
+
+test("partial CSI scope cannot finalize the month even when the scope ends on month end",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  metrics.csi.imports[0].scopeStart="2026-09-02";
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"pending-finalization");
+  assert.equal(result.readiness.csi.state,"pending");
+  assert.equal(result.readiness.csi.status,"unverified-scope");
+  assert.ok(Array.from(result.needed).includes("csi"));
+});
+
+test("CSI with absent or unverified report scope remains pending despite a recent refresh",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  delete metrics.csi.imports[0].scopeStart;
+  delete metrics.csi.imports[0].scopeEnd;
+  metrics.csi.imports[0].scopeVerified=false;
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"pending-finalization");
+  assert.equal(result.readiness.csi.state,"pending");
+  assert.equal(result.readiness.csi.status,"unverified-scope");
 });
 
 test("same-period conflicting pending VIR evidence cannot lock the monthly summary",()=>{
@@ -91,8 +112,8 @@ test("same-period conflicting pending VIR evidence cannot lock the monthly summa
   metrics.vir.pending={syntheticPending:{...durable,store:{utilization:0.75}}};
   const result=ctx.buildSummary(month,performance,metrics);
   assert.equal(result.status,"pending-finalization");
-  assert.equal(result.readiness.vir.state,"pending");
-  assert.equal(result.readiness.vir.status,"conflict");
+  assert.equal(result.readiness.sources.vir.state,"pending");
+  assert.equal(result.readiness.sources.vir.status,"conflict");
   assert.ok(Array.from(result.needed).includes("vir"));
   assert.equal("store" in result,false,"conflicting monthly inputs cannot produce final totals");
 });

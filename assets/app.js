@@ -1029,7 +1029,9 @@
       menu:state("menu",menu,menu?.periodEnd),
       mediaAsr:state("mediaAsr",media,media?.periodEnd),
       // Freshness timestamps do not prove that the imported CSI report covers the month.
-      csi:state("csi",csiImport,csiImport?.periodEnd)
+      csi: csiImport?.scopeVerified&&csiImport.scopeStart<=`${month}-01`&&csiImport.scopeEnd>=operatingEnd
+        ?state("csi",{...csiImport,periodStart:csiImport.scopeStart},csiImport.scopeEnd)
+        :{state:"pending",status:"unverified-scope",detail:"Verified CSI report scope does not cover the complete month-end operating period"}
     };
     return{month,monthEnd,operatingEnd,sources,ready:Object.values(sources).every((item)=>["ready","not-used"].includes(item.state)),snapshots:{sapr,vir,menu,media}};
   }
