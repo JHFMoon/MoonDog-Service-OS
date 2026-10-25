@@ -139,3 +139,54 @@ test('controllable coaching ignores small percentage gaps and requires meaningfu
   assert.equal(coaching({...snapshot(100,0,3.4),validation:{...snapshot(100,0,3.4).validation,saprDaysVerified:false}}).length,0,
     'Unverified SAPR data must never generate coaching.');
 });
+
+
+test('RO writer fallback is clearly marked unconfirmed until follow-up ownership is assigned',()=>{
+  const ops=read('assets/daily-ops.js');
+  const start=ops.indexOf('  function roForm(task,host){');
+  const end=ops.indexOf('\\n  function ',start+20);
+  assert.ok(start>=0&&end>start,'production Open RO editor exists');
+  const context=vm.createContext({
+    model:{state:{records:[{id:'synthetic-ro-a1',ro:'SYNTHETIC-A1',customer:'Synthetic Customer',
+      advisor:'Synthetic RO Writer',management:{}}]}},
+    state:{editing:false,pending:false},
+    api:{cdkIndicator:()=>null,statuses:()=>['Repair'],status:()=>'',clarification:()=>false,
+      statusDetail:()=>'',statusDetails:()=>[],communication:['','Updated']},
+    document:{createElement:tag=>element(tag)},
+    Option:class{constructor(label,value){this.label=label;this.value=value;}},
+    compactField(form,label,name,value,control){
+      const field=element('div');field.className='daily-field';field.name=name;
+      control.name=name;control.value=value;control._field=field;field.children.push(control);form.append(field);
+      return field;
+    },
+    esc:value=>String(value??''),
+    today:()=> '2026-10-24',
+    button:()=>element('button'),
+    action:()=>{},
+    selectNext:async()=>{},
+    engine:{roTask:()=>null},
+    compactTask:value=>value,
+    log:async()=>{},
+    now:()=>Date.parse('2026-10-24T12:00:00Z'),
+    $:()=>({hidden:true}),
+    FormData:class{constructor(){return{entries:()=>[]};}},
+    Object,JSON,Date
+  });
+  vm.runInContext('function element(tag){return {tag,children:[],dataset:{},append(...nodes){this.children.push(...nodes);},add(...nodes){this.children.push(...nodes);},replaceChildren(...nodes){this.children=[...nodes];},addEventListener(){},closest(){return this._field||this;},querySelector(selector){if(selector==='textarea')return this._textarea||(this._textarea=element("textarea"));return element("span");}};}\\n'+ops.slice(start,end)+'\\nthis.testRoForm=roForm;',context);
+  const host={insertAdjacentHTML(){},append(node){this.form=node;}};
+  context.testRoForm({recordId:'synthetic-ro-a1',hard:true},host);
+  const form=host.form;
+  const ownerField=form.children.find(child=>child.name==='owner');
+  assert.ok(ownerField,'follow-up owner field is rendered');
+  const owner=ownerField.children[0];
+  assert.equal(owner.value,'Synthetic RO Writer','RO writer may be prefilled for convenience');
+  assert.match(ownerField.children[1]?.textContent||'',/not a confirmed follow-up assignment/i);
+  assert.match(ownerField.children[1]?.textContent||'',/verify ownership/i);
+
+  context.model.state.records[0].management={owner:'Synthetic Assigned Owner'};
+  const assignedHost={insertAdjacentHTML(){},append(node){this.form=node;}};
+  context.testRoForm({recordId:'synthetic-ro-a1',hard:true},assignedHost);
+  const assigned=assignedHost.form.children.find(child=>child.name==='owner');
+  assert.equal(assigned.children[0].value,'Synthetic Assigned Owner');
+  assert.equal(assigned.children.length,1,'confirmed manager assignment does not show the unconfirmed fallback warning');
+});
