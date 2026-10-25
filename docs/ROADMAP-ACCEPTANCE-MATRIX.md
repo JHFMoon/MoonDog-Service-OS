@@ -1,40 +1,41 @@
 # Roadmap acceptance matrix — MoonDog Service OS
 
-**Live checkpoint — 2026-10-25 20:16 UTC.** This section supersedes all older “current” snapshots below. Issue #164 remains closed.
+**Live checkpoint — 2026-10-25 20:48 UTC.** This section supersedes earlier current snapshots below. Issue #164 remains closed.
 
 ## Verified repository state
 
-- Current main: `429448bfeaf7179c22c9b3d2ec5d8ed01f0cd955`.
-- Trusted Beta: `0.10.18-beta.164`, SHA-256 `7e2a7e0d310328130e2a2bcb339fdefd5e99cc5e817738c0699f28af78af103b`. Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Manifest reports `migrationRequired: false`.
-- Active Protect Main ruleset #24665513 applies to main, requires a PR and strict Publication Check from GitHub Actions app 15368, blocks main deletion and non-fast-forward updates, has no bypass actor, and reports current-user bypass as `never`.
-- PR #474's universal verified-merge guard is merged as `e1497aead406469556894a7f22905c00b6dc13d5` from exact head `fa093388f4a1880d6cdf4f3305e206e4dbe374d4`; Publication Check #40221687471, Clean Install Proof #40221687518, and exact-head Codex no-findings review #6401542502 passed. Repository metadata still reports native `allow_auto_merge: false`; merges must use the existing guarded protected route after every gate passes.
-- The #463 flagged branch deletion is verified by the prior live checkpoint; its clean replacement #469 is merged as `352103a9bd0cb113486fce1337cad4a9907e25ae`. The replacement's exact-head checks now pass on head `020769926358603618d1d5d871c792b897e26212`: Publication #40221022291, Clean Install #40221022193, Codex review #6401443613.
-- Open PRs at this checkpoint: #470, #466, #458, #408, #406, #397, and #389 (7 total; 5 fewer than the previous 12-open checkpoint). The universal merge authorization applies only after required verification, active protections, and current-head conditions pass.
-- All public fixtures use synthetic data. Stable and Workspace protections remain intact. No field validation, local installation, or continuous execution is claimed.
+- Current main: `15b880d93fed85a82d21c029237384ce02e28fbd`.
+- Trusted Beta: `0.10.18-beta.164`, SHA-256 `7e2a7e0d310328130e2a2bcb339fdefd5e99cc5e817738c0699f28af78af103b`. Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; manifest migration is disabled.
+- Protect Main ruleset #24665513 remains active on main; it requires a PR and strict Publication Check from GitHub Actions app 15368, with no bypass actors and current-user bypass `never`.
+- The universal verified-merge guard PR #474 is merged as `e1497aead406469556894a7f22905c00b6dc13d5`. Repository auto-merge remains disabled; use the existing protected GitHub merge route only after all current gates pass.
+- Flagged #463 branch cleanup is complete. Replacement PR #469 is merged as `352103a9bd0cb113486fce1337cad4a9907e25ae`, preserving its runtime and synthetic regression.
+- Open PRs: #470, #466, #406, and #389 (4). PR #458 was closed as superseded by trusted Beta .164; #397 was closed as a duplicate after its synthetic recovery regression was confirmed byte-identical in #408; #408 is now merged.
+- Fixtures are synthetic only. Stable and Workspace protections remain unchanged. No field validation, installation, or continuous execution is claimed.
 
 ## One prioritized closeout queue
 
-1. **P1 — #58-01 connected Home workload (#470).** Fresh head `72b454b5d3df25c0757982b9c08fc63ad095f46d` is based on current main and changes only the synthetic workload test. Clean Install Proof #40229346423 passed; exact-head Codex review #6402579267 found no issues. Publication Check #40229346546 passed focused/runtime/source/tracked-content steps and is still running the strict redacted full-history scan. Resume #470 when that external scan completes; merge only if Publication Check passes and live protection/current-head checks remain satisfied.
-2. **P2 — #61-07 acceptance matrix (#466).** Refresh this document against live main, the Beta/Stable manifest, merged criteria, and current exact-head evidence. Obtain fresh Publication Check, Clean Install Proof, and exact-head review before protected merge.
-3. **P0/P1 — existing runtime and test PRs (#397, #408, #406, #389).** Process serially by safety impact and eligibility after #466; do not carry stale or restricted-head evidence forward.
-4. **Release metadata (#458).** Verify whether its package work is still needed now that trusted Beta .164 is live; consolidate or close only after proving no unique required changes would be lost.
-5. **Remaining #58–#61 criteria.** Continue source lineage, recovery, save retry, scheduler, startup/reconnect, performance, and updater coverage using synthetic fixtures. Mark each criterion only from current objective evidence; keep #212 deferred.
+1. **P1 — #58-01 connected Home workload (#470).** Current head `4c95b122c13ae301b8ccbf2aa3eb3f48f30b8af7`, based on main `15b880d93fed85a82d21c029237384ce02e28fbd`, ahead 5/behind 0; only the 121-line synthetic workload baseline file changes. Clean Install Proof #40231291228 passed. Exact-head Codex review found no issues. Publication Check #40231291227 has passed focused checks and reachable-history audit; its strict redacted full-history scan is running. Do not merge while it is pending; revisit before stale evidence.
+2. **P2 — #61-07 acceptance matrix (#466).** This PR is refreshing the same matrix against merged #408, current open PRs, and live Beta/Stable state. Fresh Publication Check, Clean Install Proof, and exact-head review are required for its refreshed head. No Beta package change is needed.
+3. **P0/P1 — remaining recovery and persistence work (#406, #389).** Process serially after the higher queue items; do not merge drafts or use stale evidence. #408 now contributes a verified synthetic competing-edit regression on main; broader #164-05 remains partial.
+4. **Remaining #58–#61 criteria.** Continue source lineage, save retry, scheduling, startup/reconnect, performance, and updater criteria with synthetic fixtures. Mark only the acceptance criteria objectively satisfied. Keep #212 deferred.
 
 ## Verified criterion increments
 
-- **#164-02:** synthetic production-worker parsing criterion is verified on merged PR #370 and shipped in earlier Beta package evidence; the current manifest is Beta .164. Physical Windows/Edge/OneDrive validation and installed-copy performance remain untested.
-- **#59-07:** merged #469 preserves CSI period scope, source readiness, conflict, late-arrival, and missing-versus-zero synthetic coverage. Broader criterion remains partial pending the full acceptance matrix.
+- **#164-05 / #59-05 / #61-03 — partial progress:** PR #408 merged as `15b880d93fed85a82d21c029237384ce02e28fbd`. Exact head `3d1d7d335e34e4e959000f7357ab2b45a816dc30` passed Publication Check #40230899180, Clean Install Proof #40230899174, and exact-head Codex review with no findings. The synthetic test proves a same-Workspace edit arriving during controlled restore remains authoritative and prevents the next overwrite; broader recovery acceptance remains partial.
+- **#58-01 — partial progress:** #470 measures production Home summary dispatch for synthetic 2,100-record and empty workspaces. Current exact-head checks are recorded on PR #470; no browser/device timing claim is made.
+- **#164-02:** synthetic production-worker parsing remains verified on merged #370 and trusted Beta; current manifest is Beta .164. Physical Windows/Edge/OneDrive validation and installed-app performance remain untested.
+- **#59-07:** merged #469 preserves synthetic CSI period scope, source readiness, conflict, late-arrival, and missing-versus-zero coverage; broader criterion remains partial.
 - **#61-05:** merged #462 adds synthetic exception freshness and missed-promise regressions while preserving security denials.
-- **#59-01:** merged #473 connects synthetic Menu import/read-back evidence to Meeting; source-lineage work remains partial.
+- **#59-01:** merged #473 connects synthetic Menu import/read-back evidence to Meeting; lineage work remains partial.
 - **#60-06:** merged #472 protects a dirty Open RO draft across transient write failure and verified retry; broader interruption/navigation cases remain partial.
 - **#59-03:** merged #471 serializes post-connect scans with Workspace reconnect; broader startup/reconnect behavior remains partial.
-- **#58-06:** merged #465 adds synthetic Open RO search/save, permission retry, and business-date rollover coverage; broader performance and background-refresh behavior remains partial.
+- **#58-06:** merged #465 adds synthetic Open RO search/save, permission retry, and business-date rollover coverage; broader performance/background refresh remains partial.
 - **#60-05:** merged #460 preserves follow-up owner confidence across source updates; umbrella workflow evidence remains partial.
 - **#58-04:** merged #461 measures synthetic Open RO search/render behavior over large and empty datasets; full browser editor timing and lossless edit round trips remain partial.
-- **#61-02:** trusted package PR #477 merged as `8caa05c860d76095a36afb3f98161cb513ff6838`; live manifest confirms Beta .164 and Stable .17. This proves repository package/manifest evidence only, not installation.
-- **#61-01:** universal protected merge guard #474 is merged; native repository auto-merge remains disabled. Active branch protection and exact current checks remain mandatory.
+- **#61-02:** trusted package PR #477 merged; live manifest confirms Beta .164 and Stable .17. This proves repository package/manifest evidence only, not installation.
+- **#61-01:** universal protected merge guard #474 is merged; native repository auto-merge remains disabled. Existing protections and current exact-head checks remain mandatory.
 
-**Checkpoint limits:** A merged increment is not an umbrella-issue completion claim. Historical entries below remain for audit context and are superseded by this live checkpoint.
+**Checkpoint limits:** A merged increment is not a claim that an umbrella issue is complete. Older entries below remain as audit history and are superseded by this live checkpoint.
 
 **HISTORICAL CLOUD CHECKPOINT — 2026-10-22 17:39 UTC; superseded by the current #164 checkpoint.** Main is `d5af312d512af32e21d469925cd39fc25f245a70`, the protected merge of PR #379. Its required Publication Check is running; do not claim it has passed. Live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 includes #383's unsaved Open RO draft warning; no Workspace migration. No installation or field evidence is claimed.
 
