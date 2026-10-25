@@ -87,6 +87,16 @@ class SecurityWorkflowTests(unittest.TestCase):
             self.assertIn("python3 scripts/check_publication.py", text)
             self.assertIn("python3 scripts/audit_git_history.py", text)
 
+    def test_guarded_merge_workflow_has_no_unindented_command_continuations(self):
+        # YAML run: | content must stay indented. A previous Codex request
+        # accidentally put its body at column zero, making this entire
+        # protected workflow invalid even though all PR proofs were green.
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        top_level = re.compile(r"^(?:name|on|permissions|concurrency|jobs|env):(?:\s|$)")
+        for line_no, line in enumerate(merge.splitlines(), 1):
+            if line.strip() and not line[0].isspace() and not line.startswith("#"):
+                self.assertRegex(line, top_level, f"Unexpected column-zero text at line {line_no}")
+
     def test_guarded_merge_and_offline_distribution_are_hands_off_safe(self):
         merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
         self.assertIn('workflows: ["Publication check", "Clean Install Proof"]', merge)

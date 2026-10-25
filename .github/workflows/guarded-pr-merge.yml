@@ -188,10 +188,7 @@ jobs:
             if [ "$REVIEW_STATE" = "pending" ] && [ "$CODEX_STATE" = "pending" ] && [ "$REVIEW_REQUESTED" = "0" ]; then
               CURRENT_MAIN="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
               gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
-                -f body="@codex review
-
-MoonDog-Codex-Review-Request:$HEAD_SHA
-Review exact head $HEAD_SHA against current main $CURRENT_MAIN after the trusted path check. Review the full PR diff and report findings for this exact commit."
+                -f body="@codex review. MoonDog-Codex-Review-Request:$HEAD_SHA. Review exact head $HEAD_SHA against current main $CURRENT_MAIN after the trusted path check. Review the full PR diff and report findings for this exact commit."
             fi
           fi
 
@@ -269,9 +266,7 @@ Review exact head $HEAD_SHA against current main $CURRENT_MAIN after the trusted
             gh workflow run publication-check.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
             gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
             gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
-              -f body="@codex review
-
-Review exact head $REFRESHED_HEAD against current main $CURRENT_MAIN after the additive branch refresh. Check the full PR diff and report findings for this exact commit."
+              -f body="@codex review. Review exact head $REFRESHED_HEAD against current main $CURRENT_MAIN after the additive branch refresh. Check the full PR diff and report findings for this exact commit."
             echo "updated=true" >> "$GITHUB_OUTPUT"
             echo "Verified refreshed PR #$PR_NUMBER head $REFRESHED_HEAD; exact-head checks and review request dispatched."
           else
@@ -415,9 +410,7 @@ Review exact head $REFRESHED_HEAD against current main $CURRENT_MAIN after the a
                     gh workflow run publication-check.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
                     gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
                     gh api -X POST "repos/$REPO/issues/$OTHER_PR/comments" \
-                      -f body="@codex review
-
-Review exact head $REFRESHED_HEAD against current main $CURRENT_MAIN after the additive branch refresh. Check the full PR diff and report findings for this exact commit."
+                      -f body="@codex review. Review exact head $REFRESHED_HEAD against current main $CURRENT_MAIN after the additive branch refresh. Check the full PR diff and report findings for this exact commit."
                     echo "Verified refreshed PR #$OTHER_PR head $REFRESHED_HEAD; exact-head checks and review request dispatched."
                   else
                     echo "Could not refresh PR #$OTHER_PR without a conflict; leaving it unchanged."
