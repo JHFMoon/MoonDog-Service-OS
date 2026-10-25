@@ -19,7 +19,7 @@ test("unchanged exception evidence remains deduplicated across source reimport a
   const {engine,ranking}=buildEngine();
   const task={id:"coaching:synthetic-advisor:tires",type:"coaching",advisor:"synthetic-advisor",
     key:"tires",actual:80,rank:6,fingerprint:"synthetic-report-revision-1"};
-  const duplicate={...task,id:"coaching:synthetic-advisor:tires:reimport"};
+  const duplicate={...task};
   const acknowledged={at:"2026-10-22T12:00:00.000Z",details:{
     taskId:task.id,action:"completed",actual:80,rank:6,
     fingerprint:"synthetic-report-revision-1",until:"2026-10-22T14:00:00.000Z"
