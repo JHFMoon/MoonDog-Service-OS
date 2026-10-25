@@ -22,7 +22,8 @@
 
 ## Latest verified merged/runtime evidence
 
-- #368 merged at `9b22bc4650745378553facbdc1d192b51afce942`; #370 merged at `db4c5365c8db66f7326ec50dc613829c20ff9f52`. #374, #376, and #377 are also merged at their previously recorded exact heads.
+- #368 reviewed head `9b22bc4650745378553facbdc1d192b51afce942`, protected merge commit `73f64632b03008b1d6b40a08516f0438f58e0684`; #370 reviewed head `db4c5365c8db66f7326ec50dc613829c20ff9f52`, protected merge commit `5b411f772753fb250fb79533708add210a8cd2d8`.
+- #374 reviewed head `435dda70492b98b7e0c6b21090dd542eacb3c3aa`, merge commit `d421c74b8195ad012c921d493198fa12c49ed345`; #376 reviewed head `80e9357b53932ca3e36c6130c962663327f419ee`, merge commit `48d3285f05defe7846cfe43b77361ec72ca43338`; #377 reviewed head `3d618ef7c639a82639c42c67364676057f2cf6d5`, merge commit `649a452aa2780a1bf595f2b9a6ac60af23179651`.
 - #164-02 synthetic worker acceptance is verified complete through #370 and trusted Beta 161. No device/installed-app validation is implied.
 - No PR merged and no Beta release occurred in the latest closeout execution. Stable 0.10.17 is unchanged.
 
