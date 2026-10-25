@@ -4205,10 +4205,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     await writeJson(SETTINGS_PATH,model.settings);
     await addHistory("settings-update","Updated product settings",{schemaVersion:model.settings.schemaVersion});
     renderAll();
-    // A later checkbox edit can occur before the first file write finishes.
-    // Do not show "Saved" for an older snapshot; schedule the latest model.
-    if(JSON.stringify(model.settings)!==submitted){queueSettingsAutosave();return;}
+    // A later user edit already owns a newer queued or in-flight save. Its
+    // revision also accounts for save-generated updatedAt timestamps, which
+    // must not be mistaken for another edit or trigger an endless save loop.
     if(settingsAutosaveRevision!==startingRevision)return;
+    if(JSON.stringify(model.settings)!==submitted){queueSettingsAutosave();return;}
     ui.settingsSaveStatus.dataset.saveState="saved";
     ui.settingsSaveStatus.textContent=`Saved ${new Date(model.settings.updatedAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`;
   }
