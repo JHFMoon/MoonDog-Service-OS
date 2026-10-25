@@ -148,6 +148,37 @@ jobs:
           set -euo pipefail
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/pr-paths.txt
           python3 scripts/pipeline_guard.py check-paths /tmp/pr-paths.txt
+
+          # A GITHUB_TOKEN branch refresh may leave PR-triggered runs in an
+          # approval-required state. Start missing proofs only after the trusted
+          # path guard above and only on this verified same-repository head.
+          RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=50")"
+          RUNS="$(jq --arg head "$HEAD_SHA" --arg repo "$REPO" '{workflow_runs: [.workflow_runs[] | select(.head_sha==$head and .head_repository.full_name==$repo and (.event=="pull_request" or .event=="workflow_dispatch")) | select((.name=="Publication check" and .path==".github/workflows/publication-check.yml") or (.name=="Clean Install Proof" and .path==".github/workflows/clean-install-proof.yml"))]}' <<<"$RUNS")"
+          PUB_OK="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")] | length' <<<"$RUNS")"
+          CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")] | length' <<<"$RUNS")"
+          PUB_PENDING="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .status!="completed")] | length' <<<"$RUNS")"
+          CLEAN_PENDING="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .status!="completed")] | length' <<<"$RUNS")"
+          HARD_FAIL="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out"))] | length' <<<"$RUNS")"
+          if [ "$HARD_FAIL" = "0" ]; then
+            if [ "$PUB_OK" = "0" ] && [ "$PUB_PENDING" = "0" ]; then
+              gh workflow run publication-check.yml --repo "$REPO" --ref "$HEAD_BRANCH"
+            fi
+            if [ "$CLEAN_OK" = "0" ] && [ "$CLEAN_PENDING" = "0" ]; then
+              gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$HEAD_BRANCH"
+            fi
+            gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/pr-comments.json
+            CODEX_STATE="$(python3 scripts/guarded_merge_policy.py codex-review-state /tmp/pr-comments.json "$HEAD_SHA")"
+            REVIEW_REQUESTED="$(jq --arg head "$HEAD_SHA" '[.[] | select((.body | contains($head)) and (.body | contains("@codex review")))] | length' /tmp/pr-comments.json)"
+            if [ "$CODEX_STATE" = "pending" ] && [ "$REVIEW_REQUESTED" = "0" ]; then
+              CURRENT_MAIN="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+              gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
+                -f body="@codex review
+
+MoonDog-Codex-Review-Request:$HEAD_SHA
+Review exact head $HEAD_SHA against current main $CURRENT_MAIN after the trusted path check. Review the full PR diff and report findings for this exact commit."
+            fi
+          fi
+
           for attempt in {1..42}; do
             RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=50")"
             RUNS="$(jq --arg head "$HEAD_SHA" --arg repo "$REPO" '{workflow_runs: [.workflow_runs[] | select(.head_sha==$head and .head_repository.full_name==$repo and (.event=="pull_request" or .event=="workflow_dispatch")) | select((.name=="Publication check" and .path==".github/workflows/publication-check.yml") or (.name=="Clean Install Proof" and .path==".github/workflows/clean-install-proof.yml"))]}' <<<"$RUNS")"
