@@ -1,36 +1,34 @@
 # Roadmap acceptance matrix — MoonDog Service OS
 
-**Live closeout checkpoint — 2026-10-24 23:35 PDT.** Verified directly from GitHub:
+**Live closeout checkpoint — 2026-10-25 06:45 UTC.** Verified directly from GitHub:
 
-- Default branch `main`: `0b52ff4a3714b11b17e365a61ef8eec5c00733ac`.
-- Trusted Beta `0.10.18-beta.161`, SHA-256 `d1b3fb90e6dd8043cbf11110eaa4bd8e14750321563fdcbd20edaf35fc3c381c`; Stable `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; migration disabled.
-- Active Protect Main ruleset #24665513 requires PRs and strict `Publication Check` (Actions app 15368). It blocks deletion/non-fast-forward, has no bypass actors/current-user bypass `never`, and requires extra approval for unattributed changes.
+- Default branch `main`: `6b69b3066623337b2594bed78cfe112ea9d98cef`.
+- Trusted Beta `0.10.18-beta.162`, SHA-256 `bf24db3f81947b7eea41dc2a56462be84f9fe2829e21d33f282280a55c412c56`; Stable `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; migration disabled.
+- Active Protect Main ruleset #24665513 requires PRs and strict `Publication Check` (Actions app 15368), prohibits deletion/non-fast-forward, has no bypass actors/current-user bypass `never`, and requires extra approval for unattributed changes.
 - #164 remains closed. No installation, field test, or continuous execution is claimed.
+- Trusted package PR #468 merged via Guarded PR Merge as main `6b69b3066623337b2594bed78cfe112ea9d98cef` from exact head `15dc3c1a460d33075e4c8f0dccb699ad99193428`. Exact Publication Check #40169477968, Clean Install Proof #40169479283, and Codex no-findings receipt #6394473388 passed. Stable fields are unchanged. Post-package main Publication Check #40169904568 is still running.
+- Reachable-history/public-surface audit #40169464239 completed successfully. The retired Open RO PR is closed unmerged and its branch ref is absent; no branch deletion was performed. Its clean replacement is PR #465.
 
 ## One prioritized closeout queue
 
-1. **P0 — Complete validated source-integrity work.** #453 (#59-01) refreshed head `7d9c55b8189716886bf9302f392cc19774b55e2c` and #459 (#59-04) refreshed head `1cf8e7052e4c8b818a273bfd982f76d8831b52bf` are current-main additive merges with one-file diffs; their Publication/Clean Install runs are in progress and exact-head reviews are pending. #464's transient-save retry regression merged to main as `0b52ff4a3714b11b17e365a61ef8eec5c00733ac`; post-merge history/package workflows remain in progress. This is incremental #60-06 evidence, not completion of #60.
-2. **P0/P1 — Continue remaining source/conflict and recovery criteria.** #462 (#61-05), #463 (#59-07), #460 (#60-05), #461 (#58-04), #465 (#58-06), and #467 (#59-02) had successful Publication/Clean Install and no-major Codex review evidence at their exact heads before main advanced. They now need additive current-main refresh and fresh checks/reviews before merge. #465 remains draft. #397/#408 remain separately merge-authorization gated.
-3. **P1 — Complete Beta packaging safely.** #458's PR-run Publication/Clean Install workflows are `action_required`; workflow-dispatch Publication passed on the same head but does not substitute for the PR-required gate. Beta remains 161. No workflow approval was bypassed.
-4. **P1 — Keep closeout evidence current.** This PR updates the matrix for the #464 protected merge, the shared history audit passing on current refs, and current PR heads/checks. This refreshed doc commit itself still requires current-head Publication, Clean Install and Codex review.
-5. **Authorization-only/deferred items.** #373 remains closed unmerged; #397/#408 require their separate merge authorization. #189/#183 remain closed unmerged and approval restricted; #212 remains deferred. #406/#389 remain drafts under their recorded restrictions.
+1. **P0 — #59 source authority and observation lineage.** PR #453 current head `88668b827ac1993b540025b3530146b911e003cc`: Publication #40169991935 in progress; Clean Install #40169991941 passed; exact-head Codex review #6394503419 found no major issues. Test-only synthetic SOR dates; criterion remains partial pending all gates and broader source authority coverage.
+2. **P0 — #58 Open RO search/save safety and performance.** Clean replacement PR #465 current head `a9c99cadfa2d1d80b094393266479ae2747ac7cc`: Publication #40170026746 in progress; Clean Install #40170026725 passed; exact-head Codex review #6394510450 found no major issues. It remains draft. Old-head evidence is superseded.
+3. **P0 — #61 exception freshness and missed commitments.** PR #462 current head `7be214ce80b549c61f424b16a6f4855eff176914`: Publication #40170060761 in progress; Clean Install #40170060744 passed; exact-head Codex review #6394512408 found no major issues. Test-only; no security denial or permission behavior changed.
+4. **P0 — #59 report period integrity.** PR #459 current head `0697eafa590ad3d9c322e78a12735714c3e23438`: Publication #40170074884 and Clean Install #40170074873 in progress; exact-head Codex review #6394512070 found no major issues.
+5. **P0 — #59 month-end source readiness.** PR #463 current head `a1ee30e2bc9df2e307990cf46081c4630142214f`: Publication #40170097498 and Clean Install #40170097826 in progress; exact-head Codex review #6394515882 found no major issues.
+6. **P1 — #58 full Open RO search/render performance.** PR #461 current head `675a15a45721fcec12bfd52310d457f2bdac220d`: Publication #40170112029 and Clean Install #40170112030 in progress; refreshed-head Codex review is pending.
+7. **P1 — #60 Manager attention source confidence.** PR #460 current head `91d988d95a158ad6b33d2eec87eff071e18257ed`: Publication #40170154059 and Clean Install #40170154068 in progress; refreshed-head Codex review is pending.
+8. **P1 — #59 Daily Focus/Home priority parity.** PR #467 current head `ef2e84746f09b8ab431031903dd6b33a401aee64`: Publication #40170139544 and Clean Install #40170139616 in progress; refreshed-head Codex review is pending.
+9. **P1 — #61 living acceptance evidence.** PR #466 updates this matrix. It must be refreshed to current main and receive fresh Publication, Clean Install, and exact-head review before merge.
+10. **P1 — #60-06 save retry.** PR #464 merged as main `0b52ff4a3714b11b17e365a61ef8eec5c00733ac`; its regression verifies transient write failure, retained draft, safe retry and durable read-back. The broader #60 workflow remains partial.
+11. Continue remaining #58 startup/navigation/idle-resume, #59 scheduler/fairness/recovery, #60 usability and #61 release/lineage criteria from their issue bodies. Keep all issue-level status partial until each full acceptance matrix is evidenced.
 
-## Current exact-head evidence
+## Authorization-only and deferred work
 
-- #464 head `b788283ea5bc67263b32619207064a2e3d40c99b` had Publication #40151432286, Clean Install #40151432289 and no-major Codex review #6394395597; protected squash merge is main `0b52ff4a3714b11b17e365a61ef8eec5c00733ac`.
-- #453 current refreshed head `7d9c55b8189716886bf9302f392cc19774b55e2c`: Publication #40169510198 and Clean Install #40169510205 in progress; exact-head review requested in #6394428463.
-- #459 current refreshed head `1cf8e7052e4c8b818a273bfd982f76d8831b52bf`: Publication #40169561411 and Clean Install #40169561326 in progress; exact-head review requested in #6394434734.
-- #465 prior head `618eea6cf53e65b6e7224a2a10087fe55c5503a8` passed Publication #40152899225 (attempt 2), Clean Install #40152899258, and full-history/strict redacted scan; its fresh Codex review #6394400439 found no major issues. Refresh needed after #464 merge.
-- #466's previous doc head `04f2ad5583583509415e929c9a8ef3db754d7f0f` passed Clean Install #40169369479; Publication #40169369467 was still running. The doc now refreshes to current main; those prior-head checks/review are superseded.
-- The latest reachable-history audit passed on current refs in #465 run #40152899225. The former Open RO branch has no matching GitHub ref; no deletion was performed.
-
-## Verified merged/runtime state
-
-- #368, #370, #374, #376, and #377 are already merged as documented in the history below; #464 newly merged.
-- #164-02 worker software acceptance is in trusted Beta 161. No device, installation, or field validation is implied.
-- No new Beta package or release is verified in this execution. Stable 0.10.17 remains unchanged.
-
-All public regression fixtures are synthetic. Preserve Workspace isolation, source/manual-edit authority, recovery/rollback, `file://`, OneDrive, updater integrity, and the protected workflow.
+- #373/#397/#408 remain separately merge-authorization gated; do not merge or enable auto-merge.
+- #189/#183 remain approval restricted; #212 deferred. #61-05 security denial unchanged.
+- Stable 0.10.17 remains unchanged. Preserve Workspace isolation, source/manual-edit authority, recovery/rollback, `file://`, OneDrive, updater integrity and trusted Beta-only publication.
+- Public regression fixtures are synthetic. No customer/dealer data was accessed. No field test, installation, or continuous execution is claimed.
 
 **HISTORICAL CLOUD CHECKPOINT — 2026-10-22 17:39 UTC; superseded by the current #164 checkpoint.** Main is `d5af312d512af32e21d469925cd39fc25f245a70`, the protected merge of PR #379. Its required Publication Check is running; do not claim it has passed. Live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 includes #383's unsaved Open RO draft warning; no Workspace migration. No installation or field evidence is claimed.
 
