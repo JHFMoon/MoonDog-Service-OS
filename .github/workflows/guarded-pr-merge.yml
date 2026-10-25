@@ -281,7 +281,13 @@ jobs:
                 OTHER_STATUS="$(gh api "repos/$REPO/compare/main...$OTHER_HEAD" --jq .status)"
                 if [ "$OTHER_STATUS" = "behind" ] || [ "$OTHER_STATUS" = "diverged" ]; then
                   if gh api -X PUT "repos/$REPO/pulls/$OTHER_PR/update-branch" -f expected_head_sha="$OTHER_HEAD"; then
-                    echo "Refreshed PR #$OTHER_PR onto current main; new checks and review must pass."
+                    echo "Refreshed PR #$OTHER_PR onto current main; dispatching exact-head verification."
+                    OTHER_BRANCH="$(jq -r '.head.ref' /tmp/other-pr.json)"
+                    # Updates made with GITHUB_TOKEN do not trigger pull_request
+                    # workflows. Dispatch both required proofs explicitly on the
+                    # refreshed branch; their workflow_run events gate any merge.
+                    gh workflow run publication-check.yml --repo "$REPO" --ref "$OTHER_BRANCH"
+                    gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$OTHER_BRANCH"
                   else
                     echo "Could not refresh PR #$OTHER_PR without a conflict; leaving it unchanged."
                   fi
