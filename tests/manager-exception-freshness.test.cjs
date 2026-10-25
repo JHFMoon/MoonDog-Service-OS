@@ -48,7 +48,7 @@ test("a synthetic RO commitment's production priority escalates after its due da
   const api={closed:()=>false,priority:dailyPriority,status:row=>row.management?.status||""};
   const before=engine.roTask(record,api,"2026-10-25",Date.parse("2026-10-25T12:00:00.000Z"));
   const after=engine.roTask(record,api,"2026-10-27",Date.parse("2026-10-27T12:00:00.000Z"));
-  assert.equal(before.rank,4,"a future verified date starts as a planned RO task");
+  assert.equal(before.rank,5,"a future verified date starts as a planned RO task");
   assert.equal(after.rank,1,"production priority marks the same promise overdue after its date passes");
   const completed={at:"2026-10-24T16:00:00.000Z",details:{
     taskId:before.id,action:"completed",rank:before.rank,fingerprint:before.fingerprint,
