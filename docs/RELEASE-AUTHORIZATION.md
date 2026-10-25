@@ -25,5 +25,7 @@ Merging a Stable promotion PR is authorized by this standing instruction. Public
 - Installation into a local browser-authorized folder requires James's confirmation. No silent overwrite of locally held operational files.
 - Deliver a concise completion record: change, Beta/Stable version, validation result, deployment URL, and any blockers.
 
-## Remaining engineering tasks
-See #34 for unattended PR merges, automatic Beta package generation, verified notification on dashboard open and end-to-end integration tests. These are not guaranteed by this policy document alone.
+## Automation boundary
+After the protected policy change is merged, the trusted main-branch Guarded PR Merge workflow enforces the standing authorization for eligible open PRs. It waits for exact-head Publication Check, Clean Install Proof, and Codex review with no findings, then uses the ordinary GitHub merge API so active rulesets and required checks remain authoritative. If it refreshes a branch, it waits for the new head to include current main and dispatches both verification workflows for that exact branch before another merge attempt.
+
+The PR template supplies the standalone `MoonDog-Auto-Merge: yes` line to future PRs, and existing open PRs carry that line. The policy document alone is not an executor; no continuous agent run or installation is implied. Issue #34 tracks broader release/update and workflow integration work that remains independent of this merge authorization.
