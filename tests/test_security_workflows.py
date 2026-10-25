@@ -105,6 +105,22 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("Final guarded merge refused", merge)
         self.assertIn("PR is no longer based on current main", merge)
         self.assertIn("exact-head Codex review", merge)
+        proof_wait = merge.split("Wait for Publication, Clean Install, and exact-head Codex proof", 1)[1].split("Bring branch current with main if needed", 1)[0]
+        self.assertLess(
+            proof_wait.index("python3 scripts/pipeline_guard.py check-paths"),
+            proof_wait.index("# A GITHUB_TOKEN branch refresh"),
+        )
+        self.assertIn('head_sha=$HEAD_SHA', proof_wait)
+        self.assertIn('head_repository.full_name==$repo', proof_wait)
+        self.assertIn('gh workflow run publication-check.yml --repo "$REPO" --ref "$HEAD_BRANCH"', proof_wait)
+        self.assertIn('gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$HEAD_BRANCH"', proof_wait)
+        self.assertIn('MoonDog-Codex-Review-Request:$HEAD_SHA', proof_wait)
+        self.assertIn('if [ "$HARD_FAIL" = "0" ]; then', proof_wait)
+        self.assertIn('if [ "$CODEX_STATE" = "pending" ] && [ "$REVIEW_REQUESTED" = "0" ]; then', proof_wait)
+        self.assertLess(
+            proof_wait.index("MoonDog-Codex-Review-Request:$HEAD_SHA"),
+            proof_wait.index("for attempt in {1..42}; do"),
+        )
         current_refresh = merge.split("Bring branch current with main if needed", 1)[1].split("Squash merge verified current PR", 1)[0]
         self.assertIn('pulls/$PR_NUMBER/update-branch', current_refresh)
         self.assertIn("for settle in {1..42}", current_refresh)
