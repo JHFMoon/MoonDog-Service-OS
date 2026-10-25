@@ -1036,8 +1036,6 @@
         :["not-used","temporarily-unavailable"].includes(csiExpectation)
           ?state("csi",null,null)
           :{state:"pending",status:"unverified-scope",detail:"Verified CSI report scope does not cover the complete month-end operating period"}
-        ?state("csi",{...csiImport,periodStart:csiImport.scopeStart},csiImport.scopeEnd)
-        :{state:"pending",status:"unverified-scope",detail:"Verified CSI report scope does not cover the complete month-end operating period"}
     };
     return{month,monthEnd,operatingEnd,sources,ready:Object.values(sources).every((item)=>["ready","not-used"].includes(item.state)),snapshots:{sapr,vir,menu,media}};
   }
