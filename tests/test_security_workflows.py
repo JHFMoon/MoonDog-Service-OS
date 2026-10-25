@@ -89,36 +89,97 @@ class SecurityWorkflowTests(unittest.TestCase):
 
     def test_guarded_merge_and_offline_distribution_are_hands_off_safe(self):
         merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
-        self.assertIn('workflows: ["Publication check"]', merge)
+        self.assertIn('workflows: ["Publication check", "Clean Install Proof"]', merge)
         self.assertIn("ref: main", merge)
-        self.assertIn("python3 scripts/guarded_merge_authorization.py /tmp/pr.json", merge)
-        self.assertEqual(merge.count("'authorization': has_explicit_approval("), 2)
-        self.assertEqual(merge.count("from scripts.guarded_merge_authorization import has_explicit_approval"), 2)
+        self.assertIn("python3 scripts/guarded_merge_policy.py check-authorization", merge)
+        self.assertEqual(merge.count("'authorization': has_merge_authorization("), 2)
+        self.assertEqual(merge.count("from scripts.guarded_merge_policy import has_merge_authorization, load_policy"), 1)
+        self.assertIn("from scripts.guarded_merge_policy import codex_review_state, has_merge_authorization, load_policy", merge)
         self.assertNotIn('contains("MoonDog-Auto-Merge: yes")', merge)
         self.assertIn("Clean Install Proof", merge)
         self.assertIn("workflow_dispatch", merge)
         self.assertIn('pulls?state=open&head=$OWNER:$HEAD_BRANCH', merge)
-        self.assertIn("this PR changes Stable and requires James explicit approval", merge)
+        self.assertIn("Classify verified release channel", merge)
+        self.assertIn("Stable changed under standing authorization", merge)
         self.assertIn("merge_base_commit.sha", merge)
         self.assertIn("Final guarded merge refused", merge)
         self.assertIn("PR is no longer based on current main", merge)
-        self.assertIn("Final guarded merge refused: Stable invariant changed.", merge)
+        self.assertIn("exact-head Codex review", merge)
+        proof_wait = merge.split("Wait for Publication, Clean Install, and exact-head Codex proof", 1)[1].split("Bring branch current with main if needed", 1)[0]
+        self.assertLess(
+            proof_wait.index("python3 scripts/pipeline_guard.py check-paths"),
+            proof_wait.index("# A GITHUB_TOKEN branch refresh"),
+        )
+        self.assertIn('head_sha=$HEAD_SHA', proof_wait)
+        self.assertIn('head_repository.full_name==$repo', proof_wait)
+        self.assertIn("CURRENT_PR_BRANCH", merge)
+        self.assertIn('HEAD_BRANCH="$CURRENT_PR_BRANCH"', merge)
+        self.assertLess(merge.index('HEAD_BRANCH="$CURRENT_PR_BRANCH"'), merge.index('gh workflow run publication-check.yml --repo "$REPO" --ref "$HEAD_BRANCH"'))
+        self.assertIn('gh workflow run publication-check.yml --repo "$REPO" --ref "$HEAD_BRANCH"', proof_wait)
+        self.assertIn('gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$HEAD_BRANCH"', proof_wait)
+        self.assertIn('MoonDog-Codex-Review-Request:$HEAD_SHA', proof_wait)
+        self.assertIn('if [ "$HARD_FAIL" = "0" ]; then', proof_wait)
+        self.assertIn('if [ "$CODEX_STATE" = "pending" ] && [ "$REVIEW_REQUESTED" = "0" ]; then', proof_wait)
+        self.assertLess(
+            proof_wait.index("MoonDog-Codex-Review-Request:$HEAD_SHA"),
+            proof_wait.index("for attempt in {1..42}; do"),
+        )
+        current_refresh = merge.split("Bring branch current with main if needed", 1)[1].split("Squash merge verified current PR", 1)[0]
+        self.assertIn('pulls/$PR_NUMBER/update-branch', current_refresh)
+        self.assertIn("for settle in {1..42}", current_refresh)
+        self.assertIn('repos/$REPO/compare/$CURRENT_MAIN...$REFRESHED_HEAD', current_refresh)
+        self.assertIn('gh workflow run publication-check.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"', current_refresh)
+        self.assertIn('gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"', current_refresh)
+        self.assertIn('gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments"', current_refresh)
+        self.assertIn('-f body="@codex review', current_refresh)
+        self.assertIn('$REFRESHED_HEAD against current main $CURRENT_MAIN', current_refresh)
+        self.assertLess(current_refresh.index('if [ "$UPDATED" != "true" ]'), current_refresh.index('gh workflow run publication-check.yml'))
+        self.assertIn("pull_request_target:", merge)
+        self.assertIn("issue_comment:", merge)
+        self.assertIn("chatgpt-codex-connector[bot]", merge)
+        self.assertIn("codex-review-state:v1", merge)
         self.assertIn("gh workflow run publication-check.yml", merge)
         self.assertIn('pulls/$PR_NUMBER/update-branch', merge)
+        refresh = merge.split("Refresh other open same-repository PRs", 1)[1].split("exit 0", 1)[0]
+        update = 'gh api -X PUT "repos/$REPO/pulls/$OTHER_PR/update-branch"'
+        self.assertIn(update, refresh)
+        self.assertIn('pulls/$OTHER_PR/files?per_page=100', refresh)
+        self.assertIn('python3 scripts/pipeline_guard.py check-paths /tmp/other-pr-paths.txt', refresh)
+        self.assertLess(
+            refresh.index('python3 scripts/pipeline_guard.py check-paths /tmp/other-pr-paths.txt'),
+            refresh.index(update),
+        )
+        self.assertIn('gh workflow run publication-check.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"', refresh)
+        self.assertIn('gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"', refresh)
+        self.assertIn('gh api -X POST "repos/$REPO/issues/$OTHER_PR/comments"', refresh)
+        self.assertIn('-f body="@codex review', refresh)
+        self.assertIn('$REFRESHED_HEAD against current main $CURRENT_MAIN', refresh)
+        self.assertLess(refresh.index(update), refresh.index('gh workflow run publication-check.yml'))
+        self.assertLess(refresh.index('gh workflow run publication-check.yml'), refresh.index('gh workflow run clean-install-proof.yml'))
+        self.assertIn("for settle in {1..42}", refresh)
+        self.assertIn('repos/$REPO/compare/$CURRENT_MAIN...$REFRESHED_HEAD', refresh)
+        self.assertIn('REFRESH_STATUS" = "ahead"', refresh)
+        self.assertIn('REFRESH_BASE" = "$CURRENT_MAIN"', refresh)
+        self.assertLess(refresh.index('if [ "$UPDATED" != "true" ]'), refresh.index('gh workflow run publication-check.yml'))
         self.assertIn('pulls/$PR_NUMBER/merge', merge)
         self.assertIn("-f merge_method=squash", merge)
-        self.assertIn("all exact-head Publication and Clean Install runs to settle", merge)
+        self.assertIn("exact-head Publication, Clean Install, and Codex review proof to settle", merge)
         self.assertIn("Required status check.*(in progress|expected)", merge)
 
         prepare = (ROOT / ".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
+        package_job = prepare.split("  package-unadvertised-main-runtime:", 1)[1]
+        self.assertIn('[ "$CODEX_STATE" = "clean" ]; then', package_job)
         self.assertNotIn("\n  pull_request_target:", prepare)
         self.assertIn("  workflow_dispatch:", prepare)
         self.assertIn("  package-unadvertised-main-runtime:", prepare)
         self.assertIn("reviewed_commit:", prepare)
-        self.assertIn("python3 trusted/scripts/guarded_merge_authorization.py /tmp/authorized-pr.json", prepare)
-        self.assertIn("has_explicit_approval(pr.get('body'))", prepare)
+        self.assertIn("python3 trusted/scripts/guarded_merge_policy.py check-authorization", prepare)
+        self.assertIn("has_merge_authorization(pr.get('body'), policy)", prepare)
+        self.assertIn("exact_codex_review", prepare)
         self.assertNotIn("contains(github.event.pull_request.body", prepare)
         self.assertIn("Refuse automatic changes to trusted proof/automation files", prepare)
+        self.assertIn("codex-review-state", prepare)
+        self.assertIn("MoonDog-Auto-Merge: yes", prepare)
         self.assertIn("trusted/scripts/pipeline_guard.py check-paths", prepare)
         self.assertIn("without executing candidate code", prepare)
         self.assertIn("trusted/scripts/build_beta_package.py", prepare)
@@ -160,7 +221,7 @@ class SecurityWorkflowTests(unittest.TestCase):
     def test_guarded_merge_skips_stale_heads_before_reviewing_approval(self):
         merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
         guard = merge.split("      - name: Verify automation authorization and PR safety", 1)[1]
-        guard = guard.split("      - name: Keep Stable promotion explicit", 1)[0]
+        guard = guard.split("      - name: Classify verified release channel", 1)[0]
         fetch = 'gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/pr.json'
         self.assertEqual(guard.count(fetch), 1)
         self.assertIn("CURRENT_PR_HEAD=", guard)
@@ -171,7 +232,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('echo "skip=true" >> "$GITHUB_OUTPUT"', guard[stale:end])
         self.assertIn("exit 0", guard[stale:end])
         self.assertLess(guard.index(fetch), guard.index("CURRENT_PR_HEAD="))
-        self.assertLess(stale, guard.index("python3 scripts/guarded_merge_authorization.py"))
+        self.assertLess(stale, guard.index("python3 scripts/guarded_merge_policy.py check-authorization"))
         self.assertLess(stale, guard.index('echo "skip=false" >> "$GITHUB_OUTPUT"'))
         self.assertIn("'head': pr.get('head',{}).get('sha')==expected", merge)
         self.assertIn("Final guarded merge refused", merge)
