@@ -136,6 +136,8 @@ test("post-connection maintenance yields between serialized jobs and continues a
   const context = vm.createContext({
     model: { root },
     permissionWasPending: false,
+    workspaceConnectionBusy: false,
+    postConnectionScanBusy: false,
     writeAuthority: { canWrite: true },
     renderRecovery() {},
     folderWatchScan: run("Report inbox"),

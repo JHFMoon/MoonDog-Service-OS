@@ -998,7 +998,46 @@
   function latestMonthlySnapshot(snapshots,month,predicate=()=>true){const dateOf=(item)=>item?.periodEnd||item?.date||virObservationDate(item);return Object.values(snapshots||{}).filter((item)=>String(dateOf(item)).slice(0,7)===month&&predicate(item)).sort((a,b)=>String(dateOf(a)).localeCompare(String(dateOf(b)))).at(-1)||null;}
   function monthFinalOperatingDate(month){return freshness.finalOperatingDay(month);}
   function monthEndSourceReadiness(month,metrics=model.operationalMetrics,performanceSnapshots=model.performance?.snapshots||{}){
-    const monthEnd=lastDayOfMonth(month),operatingEnd=monthFinalOperatingDate(month),state=(key,item,periodEnd)=>{const expectation=sourceExpectation(key);if(expectation==="not-used")return{state:"not-used",status:"not-used"};if(expectation==="temporarily-unavailable")return{state:"pending",status:"temporarily-unavailable",detail:"Historical source still required before finalization"};const evidence=freshness.evaluateSource({key,exists:Boolean(item),purpose:"historical",targetStart:`${month}-01`,targetEnd:operatingEnd,periodStart:item?.periodStart||periodEnd,periodEnd:periodEnd||item?.periodEnd,sourceTimestamp:item?.importedAt,expectation:"recommended"});return evidence.safeForPurpose?{state:"ready",status:evidence.status,detail:evidence.periodEnd}:{state:"pending",status:evidence.status,detail:evidence.reason};},sapr=latestMonthlySnapshot(performanceSnapshots,month,(item)=>item.periodStart===`${month}-01`&&item.periodEnd>=operatingEnd&&Number.isFinite(item.saprDaysCompleted)&&Number.isFinite(item.saprTotalDays)&&item.saprDaysCompleted>=item.saprTotalDays),vir=latestMonthlySnapshot({...metrics?.vir?.snapshots,...metrics?.vir?.pending},month,(item)=>virObservationDate(item)>=operatingEnd),menu=latestMonthlySnapshot(metrics?.menu?.snapshots,month,(item)=>item.periodEnd>=operatingEnd),media=latestMonthlySnapshot(metrics?.mediaAsr?.snapshots,month,(item)=>item.periodEnd>=operatingEnd),csiImport=(metrics?.csi?.imports||[]).filter((item)=>String(item.latestCsiRefreshDate||item.refreshDate||"")>=monthEnd).sort((a,b)=>String(a.latestCsiRefreshDate||a.refreshDate).localeCompare(String(b.latestCsiRefreshDate||b.refreshDate))).at(-1),sources={sapr:state("sapr",sapr,sapr?.periodEnd),vir:state("vir",vir,virObservationDate(vir)),menu:state("menu",menu,menu?.periodEnd),mediaAsr:state("mediaAsr",media,media?.periodEnd),csi:state("csi",csiImport,operatingEnd)};return{month,monthEnd,operatingEnd,sources,ready:Object.values(sources).every((item)=>["ready","not-used"].includes(item.state)),snapshots:{sapr,vir,menu,media}};
+    const monthEnd=lastDayOfMonth(month),operatingEnd=monthFinalOperatingDate(month);
+    const state=(key,item,periodEnd,conflict=false)=>{
+      const expectation=sourceExpectation(key);
+      if(expectation==="not-used")return{state:"not-used",status:"not-used"};
+      if(expectation==="temporarily-unavailable")return{state:"pending",status:"temporarily-unavailable",detail:"Historical source still required before finalization"};
+      if(conflict)return{state:"pending",status:"conflict",detail:"Conflicting pending and durable source evidence for the same period"};
+      const evidence=freshness.evaluateSource({key,exists:Boolean(item),purpose:"historical",targetStart:`${month}-01`,targetEnd:operatingEnd,periodStart:item?.periodStart||periodEnd,periodEnd:periodEnd||item?.periodEnd,sourceTimestamp:item?.importedAt,expectation:"recommended"});
+      return evidence.safeForPurpose?{state:"ready",status:evidence.status,detail:evidence.periodEnd}:{state:"pending",status:evidence.status,detail:evidence.reason};
+    };
+    const stable=value=>{
+      if(Array.isArray(value))return value.map(stable);
+      if(value&&typeof value==="object"){const sorted={};for(const key of Object.keys(value).sort())sorted[key]=stable(value[key]);return sorted;}
+      return value;
+    };
+    const virSnapshots=metrics?.vir?.snapshots||{},virPending=metrics?.vir?.pending||{};
+    const virDurable=latestMonthlySnapshot(virSnapshots,month,(item)=>virObservationDate(item)>=operatingEnd);
+    const virUnverified=latestMonthlySnapshot(virPending,month,(item)=>virObservationDate(item)>=operatingEnd);
+    const sameVirPeriod=Boolean(virDurable&&virUnverified&&String(virDurable.periodEnd||"")===String(virUnverified.periodEnd||"")&&String(virDurable.periodStart||"")===String(virUnverified.periodStart||""));
+    const virContent=item=>JSON.stringify(stable({store:item?.store||null,advisors:item?.advisors||null}));
+    const virConflict=sameVirPeriod&&virContent(virDurable)!==virContent(virUnverified);
+    const sapr=latestMonthlySnapshot(performanceSnapshots,month,(item)=>item.periodStart===`${month}-01`&&item.periodEnd>=operatingEnd&&Number.isFinite(item.saprDaysCompleted)&&Number.isFinite(item.saprTotalDays)&&item.saprDaysCompleted>=item.saprTotalDays);
+    const vir=virConflict?null:latestMonthlySnapshot({...virSnapshots,...virPending},month,(item)=>virObservationDate(item)>=operatingEnd);
+    const menu=latestMonthlySnapshot(metrics?.menu?.snapshots,month,(item)=>item.periodEnd>=operatingEnd);
+    const media=latestMonthlySnapshot(metrics?.mediaAsr?.snapshots,month,(item)=>item.periodEnd>=operatingEnd);
+    const csiImports=(metrics?.csi?.imports||[]).filter((item)=>{const scopeStart=String(item?.scopeStart||""),scopeEnd=String(item?.scopeEnd||""),observationDate=String(item?.refreshDate||(item?.importedAt?localDateKey(item.importedAt):""));return item?.scopeVerified===true&&freshness.validDateKey(observationDate)&&observationDate>=operatingEnd&&Boolean(scopeStart)&&Boolean(scopeEnd)&&scopeStart<=`${month}-01`&&scopeEnd>=operatingEnd;}).sort((a,b)=>String(a.refreshDate||localDateKey(a.importedAt)||"").localeCompare(String(b.refreshDate||localDateKey(b.importedAt)||"")));
+    const csiImport=csiImports.at(-1)||null;
+    const csiExpectation=sourceExpectation("csi");
+    const sources={
+      sapr:state("sapr",sapr,sapr?.periodEnd),
+      vir:state("vir",vir,virObservationDate(vir),virConflict),
+      menu:state("menu",menu,menu?.periodEnd),
+      mediaAsr:state("mediaAsr",media,media?.periodEnd),
+      // Freshness timestamps do not prove that the imported CSI report covers the month.
+      csi: csiImport
+        ?state("csi",{...csiImport,periodStart:csiImport.scopeStart},csiImport.scopeEnd)
+        :["not-used","temporarily-unavailable"].includes(csiExpectation)
+          ?state("csi",null,null)
+          :{state:"pending",status:"unverified-scope",detail:"Verified CSI report scope does not cover the complete month-end operating period"}
+    };
+    return{month,monthEnd,operatingEnd,sources,ready:Object.values(sources).every((item)=>["ready","not-used"].includes(item.state)),snapshots:{sapr,vir,menu,media}};
   }
   function monthlyMetricEntity(entity={},vir=null,menu=null,media=null,nps=null){return{totalGross:Number.isFinite(entity.totalGross)?entity.totalGross:null,cpGross:Number.isFinite(entity.cpGross)?entity.cpGross:null,roCount:Number.isFinite(entity.totalRO)?entity.totalRO:null,cpHoursPerRo:Number.isFinite(entity.cpHours)?entity.cpHours:null,cpElr:Number.isFinite(entity.cpElr)?entity.cpElr:null,vir:Number.isFinite(vir?.utilization)?vir.utilization:null,menuPresentation:Number.isFinite(menu?.presentation)?menu.presentation:null,menuPenetration:Number.isFinite(menu?.penetration)?menu.penetration:null,mediaViewed:Number.isFinite(media?.mediaViewedRate)?media.mediaViewedRate:Number.isFinite(entity.mediaViewed)?entity.mediaViewed:null,nps:Number.isFinite(nps)?nps:null,controllables:entity.controllables?JSON.parse(JSON.stringify(entity.controllables)):null};}
   function buildMonthEndSummary(month,performanceSnapshots=model.performance?.snapshots||{},metrics=model.operationalMetrics){const readiness=monthEndSourceReadiness(month,metrics,performanceSnapshots),{sapr,vir,menu,media}=readiness.snapshots;if(!readiness.ready)return{month,status:"pending-finalization",readiness,needed:Object.entries(readiness.sources).filter(([,item])=>item.state==="pending").map(([source])=>source)};const surveys=Object.values(metrics?.csi?.surveys||{}).filter((item)=>String(item.surveyDate||"").slice(0,7)===month),storeNps=npsSummary(Object.fromEntries(surveys.map((item,index)=>[item.inviteId||index,item]))).nps,advisors={};for(const [code,entity]of Object.entries(sapr.advisors||{})){const setting=model.settings.advisors?.[code];if(!setting?.participation?.advisorMeeting||setting.removed||!validAdvisorIdentity(code,setting.name||entity.name))continue;const advisorSurveys=surveys.filter((item)=>String(item.advisorCode||"")===code),advisorNps=npsSummary(Object.fromEntries(advisorSurveys.map((item,index)=>[item.inviteId||index,item])));advisors[code]={code,name:advisorDisplayName(code,entity),metrics:monthlyMetricEntity(entity,vir?.advisors?.[code],menu?.advisors?.[code],media?.advisors?.[code],advisorNps.responses?advisorNps.nps:null)};}return{schemaVersion:2,month,status:"locked",lockedAt:now(),readiness:readiness.sources,basis:{saprPeriodEnd:sapr.periodEnd,virPeriodEnd:vir?.periodEnd||"",menuPeriodEnd:menu?.periodEnd||"",mediaPeriodEnd:media?.periodEnd||"",csiResponses:surveys.length},store:monthlyMetricEntity(sapr.store,vir?.store,menu?.store,media?.store,surveys.length&&Number.isFinite(storeNps)?storeNps:null),advisors};}
@@ -1168,6 +1207,15 @@
   // All folder changes, including automatic restoration, share one exclusive
   // connection operation. A second picker must not overlap this root's model load.
   let workspaceConnectionBusy=false;
+  // A queued maintenance task may be writing durable state. Do not switch the
+  // active Workspace until that one task has settled; do not start another
+  // queued task while a connection is already in progress.
+  let postConnectionScanBusy=false;
+  function workspaceConnectionBlockReason(){
+    return folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy
+      ? "Service Operations Dashboard is finishing another workspace operation. Reconnect after it finishes."
+      : "";
+  }
   async function finishConnection(handle, ask) {
     if(workspaceConnectionBusy){
       const error=new Error("Another Workspace connection is still finishing. Try again when it completes.");
@@ -1179,7 +1227,12 @@
     finally{workspaceConnectionBusy=false;}
   }
   async function completeWorkspaceConnection(handle, ask) {
-    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)throw new Error("Service Operations Dashboard is finishing an import. Reconnect after it finishes.");
+    const connectionBlock=workspaceConnectionBlockReason();
+    if(connectionBlock){
+      const error=new Error(connectionBlock);
+      error.code="WORKSPACE_CONNECTION_BUSY";
+      throw error;
+    }
     const permissionWasPending=model.pendingRoot===handle;
     if (await permission(handle, ask) !== "granted") throw new Error("Folder access was not granted.");
     await writeAuthority.validate(handle, ask);
@@ -1290,11 +1343,13 @@
       // excluded from automatic reconnection. User-triggered import remains
       // available; do not repeatedly parse historical learning files.
       for(const [label,run] of jobs){
-        if(model.root!==connectedRoot||!writeAuthority.canWrite)break;
+        if(model.root!==connectedRoot||!writeAuthority.canWrite||workspaceConnectionBusy)break;
         await sleepBetweenChecks();
-        if(model.root!==connectedRoot||!writeAuthority.canWrite)break;
+        if(model.root!==connectedRoot||!writeAuthority.canWrite||workspaceConnectionBusy)break;
+        postConnectionScanBusy=true;
         try{await run();}
         catch(error){recordDiagnostic('POST-CONNECTION SCAN',label+': '+String(error?.message||error));}
+        finally{postConnectionScanBusy=false;}
       }
       if(model.root===connectedRoot){
         renderRecovery();
