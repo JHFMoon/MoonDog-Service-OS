@@ -111,6 +111,13 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("codex-review-state:v1", merge)
         self.assertIn("gh workflow run publication-check.yml", merge)
         self.assertIn('pulls/$PR_NUMBER/update-branch', merge)
+        refresh = merge.split("Refresh other open same-repository PRs", 1)[1].split("exit 0", 1)[0]
+        update = 'gh api -X PUT "repos/$REPO/pulls/$OTHER_PR/update-branch"'
+        self.assertIn(update, refresh)
+        self.assertIn('gh workflow run publication-check.yml --repo "$REPO" --ref "$OTHER_BRANCH"', refresh)
+        self.assertIn('gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$OTHER_BRANCH"', refresh)
+        self.assertLess(refresh.index(update), refresh.index('gh workflow run publication-check.yml'))
+        self.assertLess(refresh.index('gh workflow run publication-check.yml'), refresh.index('gh workflow run clean-install-proof.yml'))
         self.assertIn('pulls/$PR_NUMBER/merge', merge)
         self.assertIn("-f merge_method=squash", merge)
         self.assertIn("exact-head Publication, Clean Install, and Codex review proof to settle", merge)
