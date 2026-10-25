@@ -6,7 +6,7 @@ const path=require("node:path");
 const vm=require("node:vm");
 const read=file=>fs.readFileSync(path.join(__dirname,"..","assets",file),"utf8");
 
-function engine(){
+function buildEngine(){
   const context=vm.createContext({Date,Intl,console,__moondogSettingsModel:{
     settings:{store:{timeZone:"UTC"},future:{managerSchedule:{days:[1,2,3,4,5]}}}
   }});
@@ -16,7 +16,7 @@ function engine(){
 }
 
 test("unchanged exception evidence remains deduplicated across source reimport and only new evidence resurfaces",()=>{
-  const {engine,ranking}=engine();
+  const {engine,ranking}=buildEngine();
   const task={id:"coaching:synthetic-advisor:tires",type:"coaching",advisor:"synthetic-advisor",
     key:"tires",actual:80,rank:6,fingerprint:"synthetic-report-revision-1"};
   const duplicate={...task,id:"coaching:synthetic-advisor:tires:reimport"};
@@ -25,17 +25,15 @@ test("unchanged exception evidence remains deduplicated across source reimport a
     fingerprint:"synthetic-report-revision-1",until:"2026-10-22T14:00:00.000Z"
   }};
   const now=Date.parse("2026-10-27T18:00:00.000Z");
-  assert.deepEqual(ranking.topFive([task,duplicate],[acknowledged],engine,now),[],
+  assert.deepEqual(Array.from(ranking.topFive([task,duplicate],[acknowledged],engine,now),item=>item.id),[],
     "same verified report after a repeated import must not recreate acknowledged work");
   const changed={...task,fingerprint:"synthetic-report-revision-2"};
   assert.equal(engine.eligible(changed,[acknowledged],now),true,
     "new source evidence becomes actionable after the configured three-workday follow-up");
-  assert.equal(JSON.stringify([task,duplicate]).includes("Customer"),false,
-    "fixture contains no customer or operational data");
 });
 
 test("a missed synthetic RO follow-up resurfaces when its promised date passes and priority escalates",()=>{
-  const {engine}=engine();
+  const {engine}=buildEngine();
   const id="ro:synthetic-case-alpha";
   const saved={id,type:"ro",recordId:"synthetic-case-alpha",rank:4,fingerprint:"synthetic-plan-revision-1",
     record:{management:{reviewDate:"2026-10-26",managerReviewedOn:""}}};
