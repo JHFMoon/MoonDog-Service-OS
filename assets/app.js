@@ -1168,6 +1168,15 @@
   // All folder changes, including automatic restoration, share one exclusive
   // connection operation. A second picker must not overlap this root's model load.
   let workspaceConnectionBusy=false;
+  // A queued maintenance task may be writing durable state. Do not switch the
+  // active Workspace until that one task has settled; do not start another
+  // queued task while a connection is already in progress.
+  let postConnectionScanBusy=false;
+  function workspaceConnectionBlockReason(){
+    return folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy
+      ? "Service Operations Dashboard is finishing another workspace operation. Reconnect after it finishes."
+      : "";
+  }
   async function finishConnection(handle, ask) {
     if(workspaceConnectionBusy){
       const error=new Error("Another Workspace connection is still finishing. Try again when it completes.");
@@ -1179,7 +1188,8 @@
     finally{workspaceConnectionBusy=false;}
   }
   async function completeWorkspaceConnection(handle, ask) {
-    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)throw new Error("Service Operations Dashboard is finishing an import. Reconnect after it finishes.");
+    const connectionBlock=workspaceConnectionBlockReason();
+    if(connectionBlock)throw new Error(connectionBlock);
     const permissionWasPending=model.pendingRoot===handle;
     if (await permission(handle, ask) !== "granted") throw new Error("Folder access was not granted.");
     await writeAuthority.validate(handle, ask);
@@ -1290,11 +1300,13 @@
       // excluded from automatic reconnection. User-triggered import remains
       // available; do not repeatedly parse historical learning files.
       for(const [label,run] of jobs){
-        if(model.root!==connectedRoot||!writeAuthority.canWrite)break;
+        if(model.root!==connectedRoot||!writeAuthority.canWrite||workspaceConnectionBusy)break;
         await sleepBetweenChecks();
-        if(model.root!==connectedRoot||!writeAuthority.canWrite)break;
+        if(model.root!==connectedRoot||!writeAuthority.canWrite||workspaceConnectionBusy)break;
+        postConnectionScanBusy=true;
         try{await run();}
         catch(error){recordDiagnostic('POST-CONNECTION SCAN',label+': '+String(error?.message||error));}
+        finally{postConnectionScanBusy=false;}
       }
       if(model.root===connectedRoot){
         renderRecovery();
