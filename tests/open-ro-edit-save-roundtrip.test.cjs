@@ -144,7 +144,7 @@ function harness(failPath = null, failOnce = false, productionDraftFlow = false)
   });
   const draftSupport = productionDraftFlow ? "\n" + draftGuardSource + "\n" + finishSavedSource : "";
   const draftExports = productionDraftFlow
-    ? "\nthis.setDraftDirty=value=>{editDraftDirty=value;}; this.isDraftDirty=()=>editDraftDirty; this.guardDraftUnload=guardUnsavedEditUnload;"
+    ? "\nthis.setDraftDirty=value=>{editDraftDirty=value;}; this.isDraftDirty=()=>editDraftDirty; this.guardDraftUnload=guardUnsavedEditUnload; this.setReadJsonForTest=fn=>{readJson=fn;};"
     : "";
   vm.runInContext(
     storageSource + draftSupport +
@@ -214,30 +214,57 @@ test("failed Open RO durable save retains prior clarification, source, and manua
   assert.equal(h.finishCount, 0, "post-save completion does not run before verified persistence");
 });
 
-test("failed durable save keeps draft protected from page exit until verified retry", async () => {
-  const h = harness("data/current-state.json", true, true);
+test("draft stays protected during failed read-back and clears only after verified retry", async () => {
+  const h = harness(null, false, true);
   h.context.setDraftDirty(true);
 
-  const failed = await h.context.saveForTest({ preventDefault() {} });
-  assert.equal(failed, undefined, "failed write does not report a completed save");
-  assert.equal(h.ui.editNextAction.value, "Complete synthetic inspection");
-  assert.deepStrictEqual(hostCopy(h.model.state), originalState);
-  assert.equal(h.context.isDraftDirty(), true, "failed durability must leave the draft marked unsaved");
+  let releaseFirstReadback;
+  let readbackStarted;
+  const firstReadback = new Promise(resolve => { readbackStarted = resolve; });
+  const readbackGate = new Promise(resolve => { releaseFirstReadback = resolve; });
+  const originalReadJson = h.context.readForTest;
+  let failFirstCurrentStateReadback = true;
+  h.context.setReadJsonForTest(async (path, fallback) => {
+    if (path.join("/") === "data/current-state.json" && failFirstCurrentStateReadback) {
+      failFirstCurrentStateReadback = false;
+      readbackStarted();
+      await readbackGate;
+      throw new Error("Synthetic verification read-back failure");
+    }
+    return originalReadJson(path, fallback);
+  });
 
-  let prevented = false;
-  const unload = { returnValue: null, preventDefault() { prevented = true; } };
-  h.context.guardDraftUnload(unload);
-  assert.equal(prevented, true, "a refresh or close must prompt while the failed draft remains");
-  assert.equal(unload.returnValue, "", "the browser receives its native unsaved-change prompt");
-  assert.equal(h.context.isDraftDirty(), true, "the guard does not discard the user's draft");
+  let preventedWhilePending = false;
+  const pendingUnload = { returnValue: null, preventDefault() { preventedWhilePending = true; } };
+  const saving = h.context.saveForTest({ preventDefault() {} });
+  await firstReadback;
+  assert.equal(h.context.isDraftDirty(), true, "the draft remains dirty while production read-back is pending");
+  h.context.guardDraftUnload(pendingUnload);
+  assert.equal(preventedWhilePending, true, "unload remains guarded during verification");
+  assert.equal(pendingUnload.returnValue, "");
+  assert.equal(h.dialogClosed, 0, "the editor must stay open until verification completes");
+  releaseFirstReadback();
+
+  const failed = await saving;
+  assert.equal(failed, undefined, "a failed current-state read-back does not report save success");
+  assert.equal(h.context.isDraftDirty(), true, "failed verification must not clear the unsaved marker");
+  assert.equal(h.ui.editNextAction.value, "Complete synthetic inspection");
+  assert.deepStrictEqual(hostCopy(h.model.state), originalState, "failed verification restores the authoritative model");
+  assert.equal(h.dialogClosed, 0, "failed verification leaves the editor open");
+
+  let preventedAfterFailure = false;
+  const failedUnload = { returnValue: null, preventDefault() { preventedAfterFailure = true; } };
+  h.context.guardDraftUnload(failedUnload);
+  assert.equal(preventedAfterFailure, true, "the native unload guard remains active after failed verification");
+  assert.equal(failedUnload.returnValue, "");
 
   const retried = await h.context.saveForTest({ preventDefault() {} });
-  assert.equal(retried, true, "the same draft can be saved after storage recovers");
+  assert.equal(retried, true, "the same draft can be saved after read access recovers");
   const durable = await h.context.readForTest(h.context.statePathForTest, null);
   assert.deepStrictEqual(hostCopy(h.model.state), durable);
   assert.equal(durable.records[0].management.nextAction, "Complete synthetic inspection");
   assert.equal(durable.records[0].management.owner, "Synthetic Assigned Owner");
   assert.deepStrictEqual(durable.records[0].sourceFields, originalState.records[0].sourceFields);
-  assert.equal(h.context.isDraftDirty(), false, "production post-save completion clears dirty only after read-back success");
-  assert.equal(h.dialogClosed, 1, "the production post-save path closes the editor after durable verification");
+  assert.equal(h.context.isDraftDirty(), false, "production completion clears dirty only after successful read-back");
+  assert.equal(h.dialogClosed, 1, "the production post-save path closes the editor only after verified retry");
 });
