@@ -147,8 +147,8 @@ test('RO writer fallback is clearly marked unconfirmed until follow-up ownership
   const end=ops.indexOf('\n  function ',start+20);
   assert.ok(start>=0&&end>start,'production Open RO editor exists');
   const context=vm.createContext({
-    model:{state:{records:[{id:'synthetic-ro-a1',ro:'SYNTHETIC-A1',customer:'Synthetic Customer',
-      advisor:'Synthetic RO Writer',management:{}}]}},
+    model:{state:{records:[{id:'synthetic-case-alpha',ro:'Synthetic case alpha',customer:'Synthetic Customer',
+      advisor:'Synthetic Writer',management:{}}]}},
     state:{editing:false,pending:false},
     api:{cdkIndicator:()=>null,statuses:()=>['Repair'],status:()=>'',clarification:()=>false,
       statusDetail:()=>'',statusDetails:()=>[],communication:['','Updated']},
@@ -174,18 +174,18 @@ test('RO writer fallback is clearly marked unconfirmed until follow-up ownership
   });
   vm.runInContext('function element(tag){return {tag,children:[],dataset:{},append(...nodes){this.children.push(...nodes);},add(...nodes){this.children.push(...nodes);},replaceChildren(...nodes){this.children=[...nodes];},addEventListener(){},closest(){return this._field||this;},querySelector(selector){if(selector==='textarea')return this._textarea||(this._textarea=element("textarea"));return element("span");}};}\n'+ops.slice(start,end)+'\nthis.testRoForm=roForm;',context);
   const host={insertAdjacentHTML(){},append(node){this.form=node;}};
-  context.testRoForm({recordId:'synthetic-ro-a1',hard:true},host);
+  context.testRoForm({recordId:'synthetic-case-alpha',hard:true},host);
   const form=host.form;
   const ownerField=form.children.find(child=>child.name==='owner');
   assert.ok(ownerField,'follow-up owner field is rendered');
   const owner=ownerField.children[0];
-  assert.equal(owner.value,'Synthetic RO Writer','RO writer may be prefilled for convenience');
+  assert.equal(owner.value,'Synthetic Writer','RO writer may be prefilled for convenience');
   assert.match(ownerField.children[1]?.textContent||'',/not a confirmed follow-up assignment/i);
   assert.match(ownerField.children[1]?.textContent||'',/verify ownership/i);
 
   context.model.state.records[0].management={owner:'Synthetic Assigned Owner'};
   const assignedHost={insertAdjacentHTML(){},append(node){this.form=node;}};
-  context.testRoForm({recordId:'synthetic-ro-a1',hard:true},assignedHost);
+  context.testRoForm({recordId:'synthetic-case-alpha',hard:true},assignedHost);
   const assigned=assignedHost.form.children.find(child=>child.name==='owner');
   assert.equal(assigned.children[0].value,'Synthetic Assigned Owner');
   assert.equal(assigned.children.length,1,'confirmed manager assignment does not show the unconfirmed fallback warning');
