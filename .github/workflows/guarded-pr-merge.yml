@@ -281,13 +281,39 @@ jobs:
                 OTHER_STATUS="$(gh api "repos/$REPO/compare/main...$OTHER_HEAD" --jq .status)"
                 if [ "$OTHER_STATUS" = "behind" ] || [ "$OTHER_STATUS" = "diverged" ]; then
                   if gh api -X PUT "repos/$REPO/pulls/$OTHER_PR/update-branch" -f expected_head_sha="$OTHER_HEAD"; then
-                    echo "Refreshed PR #$OTHER_PR onto current main; dispatching exact-head verification."
-                    OTHER_BRANCH="$(jq -r '.head.ref' /tmp/other-pr.json)"
+                    echo "Requested additive main refresh for PR #$OTHER_PR; waiting for the refreshed head."
+                    UPDATE_BASE="$OTHER_HEAD"
+                    UPDATED=false
+                    for settle in {1..42}; do
+                      gh api "repos/$REPO/pulls/$OTHER_PR" > /tmp/refreshed-pr.json
+                      REFRESHED_HEAD="$(jq -r '.head.sha // empty' /tmp/refreshed-pr.json)"
+                      REFRESHED_BRANCH="$(jq -r '.head.ref // empty' /tmp/refreshed-pr.json)"
+                      CURRENT_MAIN="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+                      if [ -n "$REFRESHED_HEAD" ] && [ "$REFRESHED_HEAD" != "$UPDATE_BASE" ]; then
+                        REFRESH_COMPARE="$(gh api "repos/$REPO/compare/$CURRENT_MAIN...$REFRESHED_HEAD")"
+                        REFRESH_STATUS="$(jq -r .status <<<"$REFRESH_COMPARE")"
+                        REFRESH_BASE="$(jq -r '.merge_base_commit.sha // empty' <<<"$REFRESH_COMPARE")"
+                        if [ "$REFRESH_STATUS" = "ahead" ] && [ "$REFRESH_BASE" = "$CURRENT_MAIN" ]; then
+                          UPDATED=true
+                          break
+                        fi
+                        if [ "$REFRESH_STATUS" = "behind" ] || [ "$REFRESH_STATUS" = "diverged" ]; then
+                          gh api -X PUT "repos/$REPO/pulls/$OTHER_PR/update-branch" -f expected_head_sha="$REFRESHED_HEAD" || true
+                          UPDATE_BASE="$REFRESHED_HEAD"
+                        fi
+                      fi
+                      sleep 10
+                    done
+                    if [ "$UPDATED" != "true" ]; then
+                      echo "PR #$OTHER_PR did not settle on an exact current-main descendant; refusing to dispatch stale verification." >&2
+                      exit 1
+                    fi
                     # Updates made with GITHUB_TOKEN do not trigger pull_request
-                    # workflows. Dispatch both required proofs explicitly on the
-                    # refreshed branch; their workflow_run events gate any merge.
-                    gh workflow run publication-check.yml --repo "$REPO" --ref "$OTHER_BRANCH"
-                    gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$OTHER_BRANCH"
+                    # workflows. Dispatch both required proofs only after the
+                    # PR API confirms the new head includes current main.
+                    gh workflow run publication-check.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
+                    gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
+                    echo "Verified refreshed PR #$OTHER_PR head $REFRESHED_HEAD; exact-head checks dispatched."
                   else
                     echo "Could not refresh PR #$OTHER_PR without a conflict; leaving it unchanged."
                   fi
