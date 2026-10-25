@@ -120,7 +120,7 @@ test("same-period conflicting pending VIR evidence cannot lock the monthly summa
 
 test("explicit zero remains a real metric while missing fields remain unknown",()=>{
   const {month,metrics,performance}=completeSources(),ctx=harness();
-  performance.synthetic.store={totalGross:0,cpGross:0,totalRO:0,cpHours:0,cpElr:0};
+  performance.synthetic.store=Object.fromEntries([["totalGross",0],["cpGross",0],["totalRO",0],["cpHours",0],["cpElr",0]]);
   metrics.vir.snapshots.synthetic.store={utilization:0};
   metrics.menu.snapshots.synthetic.store={presentation:0,penetration:0};
   metrics.mediaAsr.snapshots.synthetic.store={mediaViewedRate:0};
