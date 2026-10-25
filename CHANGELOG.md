@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.164 — current Beta
+
+- test: preserve follow-up owner source confidence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.163 — current Beta
 
 - fix: clean replacement for month-end source readiness (#59-07). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
