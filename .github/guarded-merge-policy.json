@@ -11,8 +11,10 @@
     "base-main",
     "exact-head-publication-check",
     "exact-head-clean-install-proof",
-    "exact-head-codex-review-no-findings",
+    "exact-head-codex-or-owner-attested-review-no-findings",
     "github-branch-protection"
   ],
-  "stable_publication": "existing-stable-release-workflow-only"
+  "stable_publication": "existing-stable-release-workflow-only",
+  "owner_review_attestation": "enabled",
+  "owner_review_login": "JHFMoon"
 }
