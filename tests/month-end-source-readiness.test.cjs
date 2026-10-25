@@ -94,6 +94,16 @@ test("partial CSI scope cannot finalize the month even when the scope ends on mo
   assert.ok(Array.from(result.needed).includes("csi"));
 });
 
+test("an early CSI export cannot finalize a month before its observation date reaches month end",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  metrics.csi.imports[0].refreshDate="2026-09-15";
+  metrics.csi.imports[0].importedAt="2026-09-15T16:00:00.000Z";
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"pending-finalization");
+  assert.equal(result.readiness.sources.csi.state,"pending");
+  assert.ok(Array.from(result.needed).includes("csi"));
+});
+
 test("an explicitly unused CSI source does not block finalization without a report",()=>{
   const {month,metrics,performance}=completeSources(),ctx=harness({csi:"not-used"});
   metrics.csi.imports=[];
