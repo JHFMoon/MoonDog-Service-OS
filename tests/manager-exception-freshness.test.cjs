@@ -7,7 +7,7 @@ const vm=require("node:vm");
 const read=file=>fs.readFileSync(path.join(__dirname,"..","assets",file),"utf8");
 const app=read("app.js");
 const priorityStart=app.indexOf("  function dailyFocusPriority(record");
-const priorityEnd=app.indexOf("\\n  const MANAGER_WORK_DAYS",priorityStart);
+const priorityEnd=app.indexOf("\n  const MANAGER_WORK_DAYS",priorityStart);
 assert.ok(priorityStart>=0&&priorityEnd>priorityStart,"production manager priority function exists");
 const dailyPriority=app.slice(priorityStart,priorityEnd);
 
@@ -17,7 +17,10 @@ function buildEngine(){
   }});
   vm.runInContext(read("freshness.js"),context);
   vm.runInContext(read("daily-engine.js"),context);
-  return {engine:context.MoonDogDailyEngine,ranking:context.ServiceRefreshIntelligence};
+  context.freshness=context.MoonDogFreshness;
+  context.clarificationFor=()=>false;
+  vm.runInContext(dailyPriority+"\\nthis.dailyPriority=dailyFocusPriority;",context);
+  return {engine:context.MoonDogDailyEngine,ranking:context.ServiceRefreshIntelligence,dailyPriority:context.dailyPriority};
 }
 
 test("unchanged exception evidence remains deduplicated across source reimport and only new evidence resurfaces",()=>{
