@@ -31,9 +31,9 @@
 - #466: Publication #40165464221 (attempt 2) and Clean Install #40165464244 — success.
 - #467: Publication #40165976782 and Clean Install #40165976763 — success.
 
-## #457 history-gate resolution
+## Retired Open RO branch history-gate resolution
 
-PR #457 is closed unmerged. GitHub matching refs for `test/58-06-open-ro-search-save-flow-20261024` currently returns no branch ref; no branch deletion was performed in this execution. The current reachable-history audit passed on #465 at run #40152899225 attempt 2. #465 retains the replacement test with synthetic `synthetic-record-####` identifiers. It remains draft pending fresh exact-head review; the old historical finding is no longer a current Publication Check blocker.
+The former Open RO PR is closed unmerged. GitHub matching refs for `test/58-06-open-ro-search-save-flow-20261024` currently returns no branch ref; no branch deletion was performed in this execution. The current reachable-history audit passed on #465 at run #40152899225 attempt 2. #465 retains the replacement test with synthetic `synthetic-record-####` identifiers. It remains draft pending fresh exact-head review; the old historical finding is no longer a current Publication Check blocker.
 
 ## Verified merged/runtime state
 
