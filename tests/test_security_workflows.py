@@ -105,6 +105,13 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("Final guarded merge refused", merge)
         self.assertIn("PR is no longer based on current main", merge)
         self.assertIn("exact-head Codex review", merge)
+        current_refresh = merge.split("Bring branch current with main if needed", 1)[1].split("Squash merge verified current PR", 1)[0]
+        self.assertIn('pulls/$PR_NUMBER/update-branch', current_refresh)
+        self.assertIn("for settle in {1..42}", current_refresh)
+        self.assertIn('repos/$REPO/compare/$CURRENT_MAIN...$REFRESHED_HEAD', current_refresh)
+        self.assertIn('gh workflow run publication-check.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"', current_refresh)
+        self.assertIn('gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"', current_refresh)
+        self.assertLess(current_refresh.index('if [ "$UPDATED" != "true" ]'), current_refresh.index('gh workflow run publication-check.yml'))
         self.assertIn("pull_request_target:", merge)
         self.assertIn("issue_comment:", merge)
         self.assertIn("chatgpt-codex-connector[bot]", merge)
