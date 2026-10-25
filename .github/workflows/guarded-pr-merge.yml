@@ -2,7 +2,7 @@ name: Guarded PR Merge
 
 on:
   workflow_run:
-    workflows: ["Publication check"]
+    workflows: ["Publication check", "Clean Install Proof"]
     types: [completed]
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, edited]
