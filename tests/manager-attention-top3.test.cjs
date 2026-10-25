@@ -146,12 +146,14 @@ test('RO writer fallback is clearly marked unconfirmed until follow-up ownership
   const start=ops.indexOf('  function roForm(task,host){');
   const end=ops.indexOf('\n  function ',start+20);
   assert.ok(start>=0&&end>start,'production Open RO editor exists');
+  const element=tag=>({tag,children:[],dataset:{},append(...nodes){this.children.push(...nodes);},add(...nodes){this.children.push(...nodes);},replaceChildren(...nodes){this.children=[...nodes];},addEventListener(){},closest(){return this._field||this;},querySelector(selector){if(selector==='textarea')return this._textarea||(this._textarea=element('textarea'));return element('span');}});
   const context=vm.createContext({
     model:{state:{records:[{id:'synthetic-case-alpha',ro:'Synthetic case alpha',customer:'Synthetic Customer',
       advisor:'Synthetic Writer',management:{}}]}},
     state:{editing:false,pending:false},
     api:{cdkIndicator:()=>null,statuses:()=>['Repair'],status:()=>'',clarification:()=>false,
       statusDetail:()=>'',statusDetails:()=>[],communication:['','Updated']},
+    element,
     document:{createElement:tag=>element(tag)},
     Option:class{constructor(label,value){this.label=label;this.value=value;}},
     compactField(form,label,name,value,control){
@@ -172,7 +174,7 @@ test('RO writer fallback is clearly marked unconfirmed until follow-up ownership
     FormData:class{constructor(){return{entries:()=>[]};}},
     Object,JSON,Date
   });
-  vm.runInContext("function element(tag){return {tag,children:[],dataset:{},append(...nodes){this.children.push(...nodes);},add(...nodes){this.children.push(...nodes);},replaceChildren(...nodes){this.children=[...nodes];},addEventListener(){},closest(){return this._field||this;},querySelector(selector){if(selector==='textarea')return this._textarea||(this._textarea=element(\"textarea\"));return element(\"span\");}};}"+"\n"+ops.slice(start,end)+"\nthis.testRoForm=roForm;",context);
+  vm.runInContext(ops.slice(start,end)+"\nthis.testRoForm=roForm;",context);
   const host={insertAdjacentHTML(){},append(node){this.form=node;}};
   context.testRoForm({recordId:'synthetic-case-alpha',hard:true},host);
   const form=host.form;
