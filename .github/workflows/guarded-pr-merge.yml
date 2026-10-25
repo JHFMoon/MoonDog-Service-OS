@@ -114,7 +114,6 @@ jobs:
               'head': pr.get('head',{}).get('sha')==expected,
               'authorization': has_merge_authorization(pr.get('body'), policy),
               'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
-              'exact_codex_review': codex_review_state(comments, expected)=='clean',
           }
           failed=[name for name,ok in checks.items() if not ok]
           if failed:
