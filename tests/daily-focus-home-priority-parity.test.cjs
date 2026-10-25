@@ -18,7 +18,7 @@ test("Daily Walk and Home rank the same synthetic Open ROs in the same urgency o
   const freshness = {
     DEFAULT_TIME_ZONE: "UTC",
     validDateKey(value) {
-      return typeof value === "string" && /^\\d{4}-\\d{2}-\\d{2}$/.test(value) &&
+      return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
         Number.isFinite(Date.parse(value + "T12:00:00Z"));
     }
   };
