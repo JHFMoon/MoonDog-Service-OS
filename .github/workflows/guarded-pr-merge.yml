@@ -181,9 +181,47 @@ jobs:
           set -euo pipefail
           STATUS="$(gh api "repos/$REPO/compare/main...$HEAD_SHA" --jq .status)"
           if [ "$STATUS" = "diverged" ] || [ "$STATUS" = "behind" ]; then
-            gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/update-branch"               -f expected_head_sha="$HEAD_SHA"
+            if ! gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/update-branch" -f expected_head_sha="$HEAD_SHA"; then
+              echo "GitHub refused the additive main refresh for PR #$PR_NUMBER." >&2
+              exit 1
+            fi
+            echo "Requested additive refresh for PR #$PR_NUMBER; waiting for GitHub to publish the new head."
+            UPDATE_BASE="$HEAD_SHA"
+            UPDATED=false
+            for settle in {1..42}; do
+              gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/refreshed-current-pr.json
+              REFRESHED_HEAD="$(jq -r '.head.sha // empty' /tmp/refreshed-current-pr.json)"
+              REFRESHED_BRANCH="$(jq -r '.head.ref // empty' /tmp/refreshed-current-pr.json)"
+              CURRENT_MAIN="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+              if [ -n "$REFRESHED_HEAD" ] && [ "$REFRESHED_HEAD" != "$UPDATE_BASE" ]; then
+                REFRESH_COMPARE="$(gh api "repos/$REPO/compare/$CURRENT_MAIN...$REFRESHED_HEAD")"
+                REFRESH_STATUS="$(jq -r .status <<<"$REFRESH_COMPARE")"
+                REFRESH_BASE="$(jq -r '.merge_base_commit.sha // empty' <<<"$REFRESH_COMPARE")"
+                if [ "$REFRESH_STATUS" = "ahead" ] && [ "$REFRESH_BASE" = "$CURRENT_MAIN" ]; then
+                  UPDATED=true
+                  break
+                fi
+                if [ "$REFRESH_STATUS" = "behind" ] || [ "$REFRESH_STATUS" = "diverged" ]; then
+                  if ! gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/update-branch" -f expected_head_sha="$REFRESHED_HEAD"; then
+                    echo "GitHub refused the follow-up additive refresh for PR #$PR_NUMBER." >&2
+                    exit 1
+                  fi
+                  UPDATE_BASE="$REFRESHED_HEAD"
+                fi
+              fi
+              sleep 10
+            done
+            if [ "$UPDATED" != "true" ]; then
+              echo "PR #$PR_NUMBER did not settle on an exact current-main descendant; refusing to dispatch stale verification." >&2
+              exit 1
+            fi
+            # GITHUB_TOKEN branch updates do not trigger pull_request workflows.
+            # Dispatch both required proofs only after the refreshed head is visible
+            # and its merge base is the current main commit.
+            gh workflow run publication-check.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
+            gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
             echo "updated=true" >> "$GITHUB_OUTPUT"
-            echo "Branch was updated from main. New checks will gate the new head."
+            echo "Verified refreshed PR #$PR_NUMBER head $REFRESHED_HEAD; exact-head checks dispatched."
           else
             echo "updated=false" >> "$GITHUB_OUTPUT"
           fi
