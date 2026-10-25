@@ -24,6 +24,8 @@ test("post-connection jobs cancel before starting when the Workspace changes dur
   const context = vm.createContext({
     model,
     writeAuthority: { canWrite: true },
+    workspaceConnectionBusy: false,
+    postConnectionScanBusy: false,
     permissionWasPending: false,
     folderWatchScan: async () => calls.push("Report inbox"),
     ensurePreviousMonthSummary: async () => calls.push("Month-end summary"),
@@ -87,7 +89,7 @@ test("post-connection scans and Workspace switches exclude each other",async()=>
   const pendingSummary=new Promise(resolve=>{releaseSummary=resolve;});
   const context=vm.createContext({
     model,writeAuthority:{canWrite:true},folderWatch:{busy:false},
-    dailyImportBusy:false,appointmentImportBusy:false,
+    dailyImportBusy:false,appointmentImportBusy:false,permissionWasPending:false,
     folderWatchScan:async()=>{calls.push("Report inbox");},
     ensurePreviousMonthSummary:async()=>{calls.push("Month-end summary");summaryStarted();await pendingSummary;},
     ensureDailyFocus:async()=>calls.push("Daily focus"),scanAppointmentFiles:async()=>calls.push("Appointment sources"),
