@@ -23,7 +23,7 @@ test("Daily Walk and Home rank the same synthetic Open ROs in the same urgency o
     }
   };
   const context = vm.createContext({
-    Date, Intl, MoonDogFreshness: freshness,
+    Date, Intl, freshness, MoonDogFreshness: freshness,
     localDateKey: () => today,
     clarificationFor: record => record.management?.clarification || null
   });
