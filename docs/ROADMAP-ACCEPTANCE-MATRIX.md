@@ -1,7 +1,32 @@
-**CURRENT #164-02 EVIDENCE — 2026-10-24.** Main at the documentation refresh is `43b6451026473e4a9d420897d6164b984cbf4412`; Beta `0.10.18-beta.161` SHA-256 `d1b3fb90e6dd8043cbf11110eaa4bd8e14750321563fdcbd20edaf35fc3c381c`; Stable remains `0.10.17` SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. The latest trusted package is PR #450; its exact-head Publication Check `120875532440`, Clean Install Proof `120875536078`, and Codex reviews `#6384382348` / `#6384394789` passed. No Workspace migration, installation, or field test is claimed.
+# Roadmap acceptance matrix — MoonDog Service OS
 
-- **164-02 — VERIFIED COMPLETE for synthetic software acceptance.** Merged PR #370 exact head `db4c5365c8db66f7326ec50dc613829c20ff9f52` passed Publication Check `39790675201`, Clean Install Proof `39790675161`, and exact-head Codex review `#6342516610` with no findings. The packaged `file://` production smoke connects a synthetic working folder, requires the production worker path, parses the 25,000-row XLSX, checks parser options and row results, source-byte integrity, main-thread responsiveness, failure fallback, and worker cleanup. Beta 161 retains the verified runtime. No Windows/Edge/OneDrive field test or installed-app validation is claimed.
-- Issue #164 remains closed; this criterion is not a completion claim for the remaining recovery, lifecycle, or performance work.
+**Live closeout checkpoint — 2026-10-24 22:22 PDT.** This section supersedes older checkpoint snapshots below. Source of truth verified from GitHub:
+
+- Default branch `main`: `28d8d0d1e620cb4251fa3aa7df85d5da3e7c7871`.
+- Trusted Beta `0.10.18-beta.161`, SHA-256 `d1b3fb90e6dd8043cbf11110eaa4bd8e14750321563fdcbd20edaf35fc3c381c`; Stable `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; migration disabled.
+- Protect Main ruleset #24665513 is active. It requires PRs and a strict Publication Check (GitHub Actions app 15368); no bypass actors/current-user bypass `never`; branch deletion and non-fast-forward blocked; extra approval applies to unattributed changes.
+- Parent #164 remains closed. No installation, field test, or continuous execution is claimed.
+
+## One prioritized closeout queue
+
+1. **P0 — Resolve the shared reachable-history gate without bypass.** PRs #453, #457, #459, #460, #461, #462, #463, #464, and #465 have latest Publication Check failures at the required history audit. #462/#464/#465 run all focused validation stages successfully and #460/#461/#463 have successful Clean Install and no-major exact-head review evidence. The audit has three redacted findings reachable through the #457 ref `test/58-06-open-ro-search-save-flow-20261024`; latest #462 audit scanned 2,410 reachable blobs / 2,381 commits. No deletion is authorized for this ref; do not rewrite or delete it. PR #465 is a clean current-main replacement with the tests preserved under unambiguous synthetic IDs, but remains draft pending a separately authorized branch disposition and passing Publication Check.
+2. **P0 — Finish Open RO durability/fault coverage.** #464 (#60-06) exact head `b788283ea5bc67263b32619207064a2e3d40c99b`: Clean Install Proof #40151432289 passed; Codex review #6392042799 found no major issues; Publication Check #40151432286 failed only at the shared audit. It tests a transient production save failure, rollback, retained draft, verified retry, source/manual-state preservation, and Save & Next gating.
+3. **P0/P1 — Finish source lineage, conflict, exception, and month-readiness evidence.**
+   - #453 head `df6896bd0cf8ad9e53056c3736bb3b3af23c8dcb` and #459 head `2038d9b845a46c235f8724d1a9d13f16a07998c3`: Clean Install and exact-head Codex review passed; Publication is blocked by item 1.
+   - #463 (#59-07) head `79fd69b498ded9170529c9d3df3a853ee748c333`: Clean Install #40150955256 passed; exact-head Codex review found no major issues; Publication #40150955257 failed at item 1.
+   - #462 (#61-05) head `300ae9c12e42cf75b00bcc82bfaaf747a39fdcd8`: Clean Install #40151178558 passed; review #6392014335 found no major issues; Publication #40151178516 failed at item 1 after focused tests and other stages passed.
+4. **P1 — Finish performance/owner-confidence increments.** #460 head `de4dcfd523a54f5950b65201f68d3ecc3929b33f` and #461 head `0cfedaf9f45083986d5506b3f0497042e3988461`: Clean Install and exact-head reviews passed; Publication failed at item 1. #461 synthetic VM-DOM timings are not browser or device measurements.
+5. **P0 — Trusted Beta delivery for merged runtime.** #458 head `0184944e6b7c2074c97a679bc6c1a4b0c99c40a9`: latest Publication/Clean Install attempts are `action_required`; do not treat a merge or prepared package as publication. Current Beta remains 161.
+6. **Authorization-only merge gates.** #373 is closed/unmerged and requires its separate authorization. #397 and #408 require their separate merge authorizations. #189/#183 require explicit approval; #212 remains deferred. #406/#389 remain drafts under explicit restrictions. No merge is eligible while Publication Check fails.
+7. **P2 — Maintain release documentation.** Keep this matrix and the #164 checkpoint synchronized; do not mark an issue closed from documentation alone.
+
+## Latest verified merged/runtime evidence
+
+- #368 merged at `9b22bc4650745378553facbdc1d192b51afce942`; #370 merged at `db4c5365c8db66f7326ec50dc613829c20ff9f52`. #374, #376, and #377 are also merged at their previously recorded exact heads.
+- #164-02 synthetic worker acceptance is verified complete through #370 and trusted Beta 161. No device/installed-app validation is implied.
+- No PR merged and no Beta release occurred in the latest closeout execution. Stable 0.10.17 is unchanged.
+
+All public regression data is synthetic. Preserve Workspace isolation, source/manual-edit authority, recovery/rollback, `file://`, OneDrive, updater integrity, and the existing protected workflow.
 
 **HISTORICAL CLOUD CHECKPOINT — 2026-10-22 17:39 UTC; superseded by the current #164 checkpoint.** Main is `d5af312d512af32e21d469925cd39fc25f245a70`, the protected merge of PR #379. Its required Publication Check is running; do not claim it has passed. Live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 includes #383's unsaved Open RO draft warning; no Workspace migration. No installation or field evidence is claimed.
 
