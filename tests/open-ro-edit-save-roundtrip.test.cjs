@@ -18,6 +18,8 @@ const storageSource = [
   extract("  async function saveState(", "\n\n  function syncFilter("),
   extract("  async function saveRecord(", "\n  async function closeRo(")
 ].join("\n");
+const draftGuardSource = extract("  let editDraftDirty = false;", "  function visibleFocusIds()");
+const finishSavedSource = extract("  async function finishSavedOpenRo(", "  async function saveRecord(");
 const originalState = {
   updatedAt: "2026-10-24T11:00:00.000Z",
   records: [{
@@ -40,13 +42,14 @@ const originalState = {
   source: { kind: "synthetic-fixture" }
 };
 const hostCopy = value => JSON.parse(JSON.stringify(value));
-function harness(failPath = null, failOnce = false) {
+function harness(failPath = null, failOnce = false, productionDraftFlow = false) {
   let failedOnce = false;
   const files = new Map();
   const directories = new Set(["data", "backups"]);
   const model = { state: hostCopy(originalState), selectedId: "synthetic-ro-101", editOrigin: "table", root: null };
   const diagnostics = [];
   let finishCount = 0;
+  let dialogClosed = 0;
   function notFound() { return Object.assign(new Error("Synthetic file is absent"), { name: "NotFoundError" }); }
   function directoryHandle(prefix) {
     return {
@@ -84,13 +87,23 @@ function harness(failPath = null, failOnce = false) {
     editAdminTaskDate: { value: "" },
     editAdminCloseDate: { value: "" },
     editAdminChangeReason: { value: "" },
-    editValidation: { hidden: true, textContent: "" }
+    editValidation: { hidden: true, textContent: "" },
+    editDialog: { close() { dialogClosed += 1; } }
   };
   const context = vm.createContext({
     model, ui, VERSION: "0.10.18-beta.synthetic",
     STATE_PATH: ["data", "current-state.json"],
     COMMUNICATION_STATUSES: ["", "Updated", "Attempted / no response", "Needs update", "Not needed"],
     TextEncoder, TextDecoder, JSON, Error, Object, Array, String, Boolean, Map, Set, Promise,
+    window: { confirm: () => true },
+    addHistory: async () => {},
+    markSupervisorWorkbookStale: async () => {},
+    renderAll: () => {},
+    status: () => {},
+    transientWorkspaceState: () => false,
+    connectedNativeRoot: null,
+    scheduleAuthorityRevalidation: () => {},
+    openEdit: () => {},
     writeAuthority: { requireWrite() {} },
     MoonDogMaintenance: {
       async safeWrite(_io, name, bytes) {
@@ -127,14 +140,18 @@ function harness(failPath = null, failOnce = false) {
     stamp: () => "20261024-120000",
     slug: value => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
     recordDiagnostic: (kind, message) => diagnostics.push({ kind, message }),
-    finishSavedOpenRo: async () => { finishCount += 1; return true; }
+    finishSavedOpenRo: productionDraftFlow ? undefined : async () => { finishCount += 1; return true; }
   });
+  const draftSupport = productionDraftFlow ? "\n" + draftGuardSource + "\n" + finishSavedSource : "";
+  const draftExports = productionDraftFlow
+    ? "\nthis.setDraftDirty=value=>{editDraftDirty=value;}; this.isDraftDirty=()=>editDraftDirty; this.guardDraftUnload=guardUnsavedEditUnload;"
+    : "";
   vm.runInContext(
-    storageSource +
-      "\nthis.saveForTest = saveRecord; this.readForTest = readJson; this.statePathForTest = STATE_PATH;",
+    storageSource + draftSupport +
+      "\nthis.saveForTest = saveRecord; this.readForTest = readJson; this.statePathForTest = STATE_PATH;" + draftExports,
     context
   );
-  return { context, model, ui, files, diagnostics, get finishCount() { return finishCount; } };
+  return { context, model, ui, files, diagnostics, get finishCount() { return finishCount; }, get dialogClosed() { return dialogClosed; } };
 }
 
 test("Open RO production save verifies read-back, preserves source/manual fields, and clears the acknowledged clarification", async () => {
@@ -195,4 +212,32 @@ test("failed Open RO durable save retains prior clarification, source, and manua
   assert.equal(h.ui.editValidation.hidden, false, "the failed save remains visible and retryable");
   assert.equal(h.ui.editNextAction.value, "Complete synthetic inspection");
   assert.equal(h.finishCount, 0, "post-save completion does not run before verified persistence");
+});
+
+test("failed durable save keeps draft protected from page exit until verified retry", async () => {
+  const h = harness("data/current-state.json", true, true);
+  h.context.setDraftDirty(true);
+
+  const failed = await h.context.saveForTest({ preventDefault() {} });
+  assert.equal(failed, undefined, "failed write does not report a completed save");
+  assert.equal(h.ui.editNextAction.value, "Complete synthetic inspection");
+  assert.deepStrictEqual(hostCopy(h.model.state), originalState);
+  assert.equal(h.context.isDraftDirty(), true, "failed durability must leave the draft marked unsaved");
+
+  let prevented = false;
+  const unload = { returnValue: null, preventDefault() { prevented = true; } };
+  h.context.guardDraftUnload(unload);
+  assert.equal(prevented, true, "a refresh or close must prompt while the failed draft remains");
+  assert.equal(unload.returnValue, "", "the browser receives its native unsaved-change prompt");
+  assert.equal(h.context.isDraftDirty(), true, "the guard does not discard the user's draft");
+
+  const retried = await h.context.saveForTest({ preventDefault() {} });
+  assert.equal(retried, true, "the same draft can be saved after storage recovers");
+  const durable = await h.context.readForTest(h.context.statePathForTest, null);
+  assert.deepStrictEqual(hostCopy(h.model.state), durable);
+  assert.equal(durable.records[0].management.nextAction, "Complete synthetic inspection");
+  assert.equal(durable.records[0].management.owner, "Synthetic Assigned Owner");
+  assert.deepStrictEqual(durable.records[0].sourceFields, originalState.records[0].sourceFields);
+  assert.equal(h.context.isDraftDirty(), false, "production post-save completion clears dirty only after read-back success");
+  assert.equal(h.dialogClosed, 1, "the production post-save path closes the editor after durable verification");
 });
