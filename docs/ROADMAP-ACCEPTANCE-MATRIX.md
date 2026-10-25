@@ -1,7 +1,36 @@
-**CURRENT #164-02 EVIDENCE — 2026-10-24.** Main at the documentation refresh is `43b6451026473e4a9d420897d6164b984cbf4412`; Beta `0.10.18-beta.161` SHA-256 `d1b3fb90e6dd8043cbf11110eaa4bd8e14750321563fdcbd20edaf35fc3c381c`; Stable remains `0.10.17` SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. The latest trusted package is PR #450; its exact-head Publication Check `120875532440`, Clean Install Proof `120875536078`, and Codex reviews `#6384382348` / `#6384394789` passed. No Workspace migration, installation, or field test is claimed.
+# Roadmap acceptance matrix — MoonDog Service OS
 
-- **164-02 — VERIFIED COMPLETE for synthetic software acceptance.** Merged PR #370 exact head `db4c5365c8db66f7326ec50dc613829c20ff9f52` passed Publication Check `39790675201`, Clean Install Proof `39790675161`, and exact-head Codex review `#6342516610` with no findings. The packaged `file://` production smoke connects a synthetic working folder, requires the production worker path, parses the 25,000-row XLSX, checks parser options and row results, source-byte integrity, main-thread responsiveness, failure fallback, and worker cleanup. Beta 161 retains the verified runtime. No Windows/Edge/OneDrive field test or installed-app validation is claimed.
-- Issue #164 remains closed; this criterion is not a completion claim for the remaining recovery, lifecycle, or performance work.
+**Live closeout checkpoint — 2026-10-24 23:35 PDT.** Verified directly from GitHub:
+
+- Default branch `main`: `0b52ff4a3714b11b17e365a61ef8eec5c00733ac`.
+- Trusted Beta `0.10.18-beta.161`, SHA-256 `d1b3fb90e6dd8043cbf11110eaa4bd8e14750321563fdcbd20edaf35fc3c381c`; Stable `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; migration disabled.
+- Active Protect Main ruleset #24665513 requires PRs and strict `Publication Check` (Actions app 15368). It blocks deletion/non-fast-forward, has no bypass actors/current-user bypass `never`, and requires extra approval for unattributed changes.
+- #164 remains closed. No installation, field test, or continuous execution is claimed.
+
+## One prioritized closeout queue
+
+1. **P0 — Complete validated source-integrity work.** #453 (#59-01) refreshed head `7d9c55b8189716886bf9302f392cc19774b55e2c` and #459 (#59-04) refreshed head `1cf8e7052e4c8b818a273bfd982f76d8831b52bf` are current-main additive merges with one-file diffs; their Publication/Clean Install runs are in progress and exact-head reviews are pending. #464's transient-save retry regression merged to main as `0b52ff4a3714b11b17e365a61ef8eec5c00733ac`; post-merge history/package workflows remain in progress. This is incremental #60-06 evidence, not completion of #60.
+2. **P0/P1 — Continue remaining source/conflict and recovery criteria.** #462 (#61-05), #463 (#59-07), #460 (#60-05), #461 (#58-04), #465 (#58-06), and #467 (#59-02) had successful Publication/Clean Install and no-major Codex review evidence at their exact heads before main advanced. They now need additive current-main refresh and fresh checks/reviews before merge. #465 remains draft. #397/#408 remain separately merge-authorization gated.
+3. **P1 — Complete Beta packaging safely.** #458's PR-run Publication/Clean Install workflows are `action_required`; workflow-dispatch Publication passed on the same head but does not substitute for the PR-required gate. Beta remains 161. No workflow approval was bypassed.
+4. **P1 — Keep closeout evidence current.** This PR updates the matrix for the #464 protected merge, the shared history audit passing on current refs, and current PR heads/checks. This refreshed doc commit itself still requires current-head Publication, Clean Install and Codex review.
+5. **Authorization-only/deferred items.** #373 remains closed unmerged; #397/#408 require their separate merge authorization. #189/#183 remain closed unmerged and approval restricted; #212 remains deferred. #406/#389 remain drafts under their recorded restrictions.
+
+## Current exact-head evidence
+
+- #464 head `b788283ea5bc67263b32619207064a2e3d40c99b` had Publication #40151432286, Clean Install #40151432289 and no-major Codex review #6394395597; protected squash merge is main `0b52ff4a3714b11b17e365a61ef8eec5c00733ac`.
+- #453 current refreshed head `7d9c55b8189716886bf9302f392cc19774b55e2c`: Publication #40169510198 and Clean Install #40169510205 in progress; exact-head review requested in #6394428463.
+- #459 current refreshed head `1cf8e7052e4c8b818a273bfd982f76d8831b52bf`: Publication #40169561411 and Clean Install #40169561326 in progress; exact-head review requested in #6394434734.
+- #465 prior head `618eea6cf53e65b6e7224a2a10087fe55c5503a8` passed Publication #40152899225 (attempt 2), Clean Install #40152899258, and full-history/strict redacted scan; its fresh Codex review #6394400439 found no major issues. Refresh needed after #464 merge.
+- #466's previous doc head `04f2ad5583583509415e929c9a8ef3db754d7f0f` passed Clean Install #40169369479; Publication #40169369467 was still running. The doc now refreshes to current main; those prior-head checks/review are superseded.
+- The latest reachable-history audit passed on current refs in #465 run #40152899225. The former Open RO branch has no matching GitHub ref; no deletion was performed.
+
+## Verified merged/runtime state
+
+- #368, #370, #374, #376, and #377 are already merged as documented in the history below; #464 newly merged.
+- #164-02 worker software acceptance is in trusted Beta 161. No device, installation, or field validation is implied.
+- No new Beta package or release is verified in this execution. Stable 0.10.17 remains unchanged.
+
+All public regression fixtures are synthetic. Preserve Workspace isolation, source/manual-edit authority, recovery/rollback, `file://`, OneDrive, updater integrity, and the protected workflow.
 
 **HISTORICAL CLOUD CHECKPOINT — 2026-10-22 17:39 UTC; superseded by the current #164 checkpoint.** Main is `d5af312d512af32e21d469925cd39fc25f245a70`, the protected merge of PR #379. Its required Publication Check is running; do not claim it has passed. Live `updates/manifest.json` advertises trusted Beta `0.10.18-beta.152`, SHA-256 `a68864c68e3a7f4e6333c98246eb52f27c7a037872bbbfa11b60fc9977e28a22`; Stable remains `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`. Beta 152 includes #383's unsaved Open RO draft warning; no Workspace migration. No installation or field evidence is claimed.
 
