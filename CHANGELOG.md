@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.162 — current Beta
+
+- test: cover durable Open RO save retry without losing draft (#464). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.161 — current Beta
 
 - perf: bound Workspace reconnect snapshot reads (#58) (#448). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
