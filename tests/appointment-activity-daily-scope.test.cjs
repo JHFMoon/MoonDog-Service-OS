@@ -265,3 +265,35 @@ test("identical SOR reimport normalizes derived dates and provenance while chang
   assert.deepEqual(f.removed(),["synthetic-sor (1).xlsx"],
     "the genuine conflict remains available for review");
 });
+
+test("overlapping Appointment Activity exports keep one daily projection per date",async()=>{
+  const f=fixture([
+    row("9001","2026-10-19","2026-10-19","SERVICE_REMINDER"),
+    row("9001","2026-10-20","2026-10-20","REPAIR_BOOKING"),
+    row("1002","2026-10-20","2026-10-20")
+  ],{localDate:"2026-10-22"});
+  await f.import(false,"synthetic-appointments-early.xlsx");
+  assert.deepEqual(Object.keys(f.durable().appointmentActivity.dailySnapshots).sort(),
+    ["2026-10-19","2026-10-20"]);
+
+  f.setRows([
+    row("9001","2026-10-20","2026-10-20","REPAIR_BOOKING"),
+    row("9001","2026-10-21","2026-10-22","SERVICE_REMINDER"),
+    row("1002","2026-10-21","2026-10-21")
+  ]);
+  await f.import(false,"synthetic-appointments-later.xlsx");
+
+  const family=f.durable().appointmentActivity;
+  assert.deepEqual(Object.keys(family.snapshots).sort(),["2026-10-20","2026-10-21"],
+    "the distinct source reports remain available as separate snapshots");
+  assert.deepEqual(Object.keys(family.dailySnapshots).sort(),
+    ["2026-10-19","2026-10-20","2026-10-21"]);
+  assert.equal(family.dailySnapshots["2026-10-20"].rowCount,1,
+    "the overlap day remains one day-level observation instead of being added twice");
+  assert.equal(family.dailySnapshots["2026-10-20"].sourceFile,"synthetic-appointments-later.xlsx");
+  assert.equal(Object.values(family.dailySnapshots).reduce((sum,snapshot)=>sum+snapshot.rowCount,0),3);
+  assert.equal(Object.values(family.snapshots).reduce((sum,snapshot)=>sum+snapshot.rowCount,0),4,
+    "report totals overlap and must not be treated as unique appointment totals");
+  assert.doesNotMatch(JSON.stringify(family),/SYNTHETIC-ONLY-NOT-VIN|Synthetic Private|Synthetic note/,
+    "row-level customer-like fields are never retained");
+});
