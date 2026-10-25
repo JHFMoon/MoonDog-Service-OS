@@ -114,7 +114,7 @@ test("overlapping autosaves do not requeue for newer save timestamps",async()=>{
     setTimeout:fn=>{const task={fn,cancelled:false};tasks.push(task);return task;},
     clearTimeout:task=>{if(task)task.cancelled=true;},run:fn=>fn()
   });
-  vm.runInContext(saveSource+"\\nthis.queueSettingsAutosave=queueSettingsAutosave;",ctx);
+  vm.runInContext(saveSource+"\nthis.queueSettingsAutosave=queueSettingsAutosave;",ctx);
   ctx.queueSettingsAutosave();
   const firstSave=tasks[0].fn();
   await enteredFirst.promise;
