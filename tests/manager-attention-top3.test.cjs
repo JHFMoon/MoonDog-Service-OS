@@ -144,7 +144,7 @@ test('controllable coaching ignores small percentage gaps and requires meaningfu
 test('RO writer fallback is clearly marked unconfirmed until follow-up ownership is assigned',()=>{
   const ops=read('assets/daily-ops.js');
   const start=ops.indexOf('  function roForm(task,host){');
-  const end=ops.indexOf('\\n  function ',start+20);
+  const end=ops.indexOf('\n  function ',start+20);
   assert.ok(start>=0&&end>start,'production Open RO editor exists');
   const context=vm.createContext({
     model:{state:{records:[{id:'synthetic-ro-a1',ro:'SYNTHETIC-A1',customer:'Synthetic Customer',
@@ -172,7 +172,7 @@ test('RO writer fallback is clearly marked unconfirmed until follow-up ownership
     FormData:class{constructor(){return{entries:()=>[]};}},
     Object,JSON,Date
   });
-  vm.runInContext('function element(tag){return {tag,children:[],dataset:{},append(...nodes){this.children.push(...nodes);},add(...nodes){this.children.push(...nodes);},replaceChildren(...nodes){this.children=[...nodes];},addEventListener(){},closest(){return this._field||this;},querySelector(selector){if(selector==='textarea')return this._textarea||(this._textarea=element("textarea"));return element("span");}};}\\n'+ops.slice(start,end)+'\\nthis.testRoForm=roForm;',context);
+  vm.runInContext('function element(tag){return {tag,children:[],dataset:{},append(...nodes){this.children.push(...nodes);},add(...nodes){this.children.push(...nodes);},replaceChildren(...nodes){this.children=[...nodes];},addEventListener(){},closest(){return this._field||this;},querySelector(selector){if(selector==='textarea')return this._textarea||(this._textarea=element("textarea"));return element("span");}};}\n'+ops.slice(start,end)+'\nthis.testRoForm=roForm;',context);
   const host={insertAdjacentHTML(){},append(node){this.form=node;}};
   context.testRoForm({recordId:'synthetic-ro-a1',hard:true},host);
   const form=host.form;
