@@ -107,6 +107,9 @@ test("Menu Sales import keeps its verified release period attached to Meeting ev
   assert.equal(saved.periodEnd, "2026-10-18");
   assert.deepEqual(h.history.map(item => item.type), ["menu-sales-import"]);
   assert.deepEqual(h.events, ["write", "readback", "history", "render"]);
+  h.model.operationalMetrics = structuredClone(h.persisted());
+  assert.notEqual(h.model.operationalMetrics, h.persisted(),
+    "Meeting receives a fresh model reconstructed from the verified durable snapshot");
 
   const evidence = h.context.api.menuMeetingEvidence("presentation");
   assert.equal(evidence.period, "2026-10-12");
