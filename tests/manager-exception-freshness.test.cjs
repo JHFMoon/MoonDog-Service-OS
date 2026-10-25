@@ -19,7 +19,7 @@ function buildEngine(){
   vm.runInContext(read("daily-engine.js"),context);
   context.freshness=context.MoonDogFreshness;
   context.clarificationFor=()=>false;
-  vm.runInContext(dailyPriority+"\\nthis.dailyPriority=dailyFocusPriority;",context);
+  vm.runInContext(dailyPriority+"\nthis.dailyPriority=dailyFocusPriority;",context);
   return {engine:context.MoonDogDailyEngine,ranking:context.ServiceRefreshIntelligence,dailyPriority:context.dailyPriority};
 }
 
