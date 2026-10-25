@@ -220,8 +220,12 @@ jobs:
             # and its merge base is the current main commit.
             gh workflow run publication-check.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
             gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
+            gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
+              -f body="@codex review
+
+Review exact head $REFRESHED_HEAD against current main $CURRENT_MAIN after the additive branch refresh. Check the full PR diff and report findings for this exact commit."
             echo "updated=true" >> "$GITHUB_OUTPUT"
-            echo "Verified refreshed PR #$PR_NUMBER head $REFRESHED_HEAD; exact-head checks dispatched."
+            echo "Verified refreshed PR #$PR_NUMBER head $REFRESHED_HEAD; exact-head checks and review request dispatched."
           else
             echo "updated=false" >> "$GITHUB_OUTPUT"
           fi
@@ -354,7 +358,11 @@ jobs:
                     # PR API confirms the new head includes current main.
                     gh workflow run publication-check.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
                     gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$REFRESHED_BRANCH"
-                    echo "Verified refreshed PR #$OTHER_PR head $REFRESHED_HEAD; exact-head checks dispatched."
+                    gh api -X POST "repos/$REPO/issues/$OTHER_PR/comments" \
+                      -f body="@codex review
+
+Review exact head $REFRESHED_HEAD against current main $CURRENT_MAIN after the additive branch refresh. Check the full PR diff and report findings for this exact commit."
+                    echo "Verified refreshed PR #$OTHER_PR head $REFRESHED_HEAD; exact-head checks and review request dispatched."
                   else
                     echo "Could not refresh PR #$OTHER_PR without a conflict; leaving it unchanged."
                   fi
