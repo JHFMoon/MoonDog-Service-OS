@@ -64,32 +64,43 @@ test("post-connection jobs cancel before starting when the Workspace changes dur
     "no queued task may run against a different Workspace after the idle yield");
 });
 
-const guardStart=app.indexOf("  let workspaceConnectionBusy=false;");
-const guardEnd=app.indexOf("  async function finishConnection(",guardStart);
-assert.ok(guardStart>=0&&guardEnd>guardStart,"production connection exclusion guard exists");
-const connectionGuards=app.slice(guardStart,guardEnd);
-const reconnectGateStart=app.indexOf("  async function completeWorkspaceConnection(");
-const reconnectGateEnd=app.indexOf("    const permissionWasPending=model.pendingRoot===handle;",reconnectGateStart);
-assert.ok(reconnectGateStart>=0&&reconnectGateEnd>reconnectGateStart);
-const productionGate=app.slice(
-  app.indexOf("    const connectionBlock=workspaceConnectionBlockReason();",reconnectGateStart),
-  reconnectGateEnd
-);
-assert.match(productionGate,/workspaceConnectionBlockReason\(\)/,
-  "Workspace reconnect must use the background-operation exclusion gate");
 
-test("post-connection scans and Workspace switches exclude each other",async()=>{
+const guardStart=app.indexOf("  let workspaceConnectionBusy=false;");
+const finishStart=app.indexOf("  async function finishConnection(",guardStart);
+const completeStart=app.indexOf("  async function completeWorkspaceConnection(",finishStart);
+const gateEnd=app.indexOf("    const permissionWasPending=model.pendingRoot===handle;",completeStart);
+const connectStart=app.indexOf("  async function connect() {",completeStart);
+const connectEnd=app.indexOf("  async function restoreConnection()",connectStart);
+assert.ok(guardStart>=0&&finishStart>guardStart&&completeStart>finishStart&&gateEnd>completeStart);
+assert.ok(connectStart>gateEnd&&connectEnd>connectStart,"production connection wrapper is present");
+const connectionGuards=app.slice(guardStart,finishStart);
+const finishFunction=app.slice(finishStart,completeStart);
+const productionGate=app.slice(completeStart,gateEnd)+
+  "    return \"synthetic connected\";\n  }\n";
+const productionConnect=app.slice(connectStart,connectEnd);
+assert.match(productionGate,/workspaceConnectionBlockReason\(\)/,
+  "production Workspace switch must use the background-operation exclusion gate");
+assert.match(productionGate,/WORKSPACE_CONNECTION_BUSY/,
+  "a scan-busy rejection must be classified as non-destructive");
+
+test("post-connection scans and Workspace switches exclude each other without revoking writes",async()=>{
   const connectedRoot={name:"Synthetic Workspace A"};
-  const model={root:connectedRoot};
+  const model={root:connectedRoot,pendingRoot:null,workspaceConnectionCommittedRoot:connectedRoot};
   const callbacks=[];
   const calls=[];
+  const connectionStates=[];
+  let pickerCalls=0;
   let releaseSummary;
   let summaryStarted;
   const started=new Promise(resolve=>{summaryStarted=resolve;});
   const pendingSummary=new Promise(resolve=>{releaseSummary=resolve;});
+  const writeAuthority={canWrite:true,disableCount:0,disable(){this.disableCount++;this.canWrite=false;}};
   const context=vm.createContext({
-    model,writeAuthority:{canWrite:true},folderWatch:{busy:false},
+    model,writeAuthority,folderWatch:{busy:false},
     dailyImportBusy:false,appointmentImportBusy:false,permissionWasPending:false,
+    __moondogDailyUI:{confirmWorkspaceChange:()=>true},
+    window:{showDirectoryPicker:async()=>{pickerCalls++;return {name:"Synthetic Workspace B"};}},
+    setConnectionState:(state,message)=>connectionStates.push({state,message}),
     folderWatchScan:async()=>{calls.push("Report inbox");},
     ensurePreviousMonthSummary:async()=>{calls.push("Month-end summary");summaryStarted();await pendingSummary;},
     ensureDailyFocus:async()=>calls.push("Daily focus"),scanAppointmentFiles:async()=>calls.push("Appointment sources"),
@@ -104,11 +115,10 @@ test("post-connection scans and Workspace switches exclude each other",async()=>
     Promise,setImmediate,console
   });
   vm.runInContext(
-    connectionGuards+
-    "\nasync function exerciseProductionConnectionGate(handle,ask){\n"+productionGate+"\n}"+
-    "\nthis.connectionBlockReason=workspaceConnectionBlockReason;"+
+    connectionGuards+finishFunction+productionGate+productionConnect+
+    "\nthis.connectWorkspace=connect;"+
     "\nthis.setConnectionBusy=value=>{workspaceConnectionBusy=value;};"+
-    "\nthis.exerciseProductionConnectionGate=exerciseProductionConnectionGate;",
+    "\nthis.isConnectionBusy=()=>workspaceConnectionBusy;",
     context
   );
   const start=s=>vm.runInContext("(function(){"+s+"}).call(this);",context);
@@ -120,20 +130,28 @@ test("post-connection scans and Workspace switches exclude each other",async()=>
   await callbacks.shift()();
   assert.deepEqual(calls,[]);
 
-  // If a maintenance task starts first, its durable work holds the reconnect gate.
+  // If maintenance starts first, the real connect wrapper rejects the switch harmlessly.
   context.setConnectionBusy(false);
   start(postConnectJobs);
   const inFlight=callbacks.shift()();
   await started;
   assert.deepEqual(calls,["Report inbox","Month-end summary"]);
-  assert.match(context.connectionBlockReason(),/another workspace operation/i);
-  await assert.rejects(context.exerciseProductionConnectionGate({}),
-    /another workspace operation/i,
-    "the exact production gate rejects switching during an active scan");
+  const originalRoot=model.root;
+  await assert.rejects(context.connectWorkspace(),
+    error=>error?.code==="WORKSPACE_CONNECTION_BUSY",
+    "the production wrapper must identify a scan-busy reconnect as retryable");
+  assert.equal(writeAuthority.canWrite,true,"a rejected switch must preserve current Workspace write authority");
+  assert.equal(writeAuthority.disableCount,0);
+  assert.equal(model.root,originalRoot,"a rejected switch must not replace the current root");
+  assert.equal(connectionStates.length,0,"a transient busy rejection must not publish a connection failure");
+  assert.equal(context.isConnectionBusy(),false,"the connection mutex releases after the rejection");
+
   releaseSummary();
   await inFlight;
-  assert.equal(context.connectionBlockReason(),"","The connection exclusion must release after the task settles.");
-  await context.exerciseProductionConnectionGate({});
+  assert.equal(context.isConnectionBusy(),false);
+  assert.equal(await context.connectWorkspace(),"synthetic connected","retry succeeds after the scan settles");
+  assert.equal(pickerCalls,2);
+  assert.equal(writeAuthority.canWrite,true);
   assert.deepEqual(calls,[
     "Report inbox","Month-end summary","Daily focus","Appointment sources",
     "Performance sources","Meeting baseline","Recovery backups","Verified update follow-up"

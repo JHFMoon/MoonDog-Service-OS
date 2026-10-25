@@ -1189,7 +1189,11 @@
   }
   async function completeWorkspaceConnection(handle, ask) {
     const connectionBlock=workspaceConnectionBlockReason();
-    if(connectionBlock)throw new Error(connectionBlock);
+    if(connectionBlock){
+      const error=new Error(connectionBlock);
+      error.code="WORKSPACE_CONNECTION_BUSY";
+      throw error;
+    }
     const permissionWasPending=model.pendingRoot===handle;
     if (await permission(handle, ask) !== "granted") throw new Error("Folder access was not granted.");
     await writeAuthority.validate(handle, ask);
