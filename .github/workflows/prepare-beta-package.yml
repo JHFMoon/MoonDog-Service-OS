@@ -145,7 +145,14 @@ jobs:
               done <<<"$FAILED_IDS"
               exit 1
             fi
-            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ] && [ "$CODEX_STATE" = "clean" ]; then
+            gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/generated-pr-comments.json
+            gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/generated-pr-reviews.json
+            REVIEW_STATE="$(python3 trusted/scripts/guarded_merge_policy.py merge-review-state /tmp/generated-pr-comments.json /tmp/generated-pr-reviews.json "$CURRENT_HEAD" --policy trusted/.github/guarded-merge-policy.json)"
+            if [ "$REVIEW_STATE" = "findings" ]; then
+              echo "Generated-head review reported findings; refusing merge." >&2
+              exit 1
+            fi
+            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ] && [ "$REVIEW_STATE" = "clean" ]; then
               break
             fi
             if [ "$attempt" = "42" ]; then
@@ -395,9 +402,10 @@ jobs:
             PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .event=="workflow_dispatch" and .status!="completed")] | length' <<<"$RUNS")"
             HARD_FAIL="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .event=="workflow_dispatch" and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out"))] | length' <<<"$RUNS")"
             gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/package-pr-comments.json
-            CODEX_STATE="$(python3 scripts/guarded_merge_policy.py codex-review-state /tmp/package-pr-comments.json "$PACKAGE_HEAD")"
-            if [ "$CODEX_STATE" = "findings" ]; then
-              echo "Generated Beta exact-head Codex review reported findings." >&2
+            gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/package-pr-reviews.json
+            REVIEW_STATE="$(python3 scripts/guarded_merge_policy.py merge-review-state /tmp/package-pr-comments.json /tmp/package-pr-reviews.json "$PACKAGE_HEAD" --policy .github/guarded-merge-policy.json)"
+            if [ "$REVIEW_STATE" = "findings" ]; then
+              echo "Generated Beta exact-head Codex or owner review reported findings." >&2
               exit 1
             fi
             if [ "$HARD_FAIL" != "0" ]; then
@@ -411,7 +419,7 @@ jobs:
               done <<<"$FAILED_IDS"
               exit 1
             fi
-            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ] && [ "$CODEX_STATE" = "clean" ]; then
+            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ] && [ "$REVIEW_STATE" = "clean" ]; then
               break
             fi
             if [ "$attempt" = "42" ]; then
@@ -429,11 +437,13 @@ jobs:
 
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/beta-pr.json
           gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/final-package-pr-comments.json
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/final-package-pr-reviews.json
           python3 - <<'PY'
           import json, os
-          from scripts.guarded_merge_policy import codex_review_state, has_merge_authorization, load_policy
+          from scripts.guarded_merge_policy import merge_review_state, has_merge_authorization, load_policy
           pr=json.load(open('/tmp/beta-pr.json',encoding='utf-8'))
           comments=json.load(open('/tmp/final-package-pr-comments.json',encoding='utf-8'))
+          reviews=json.load(open('/tmp/final-package-pr-reviews.json',encoding='utf-8'))
           policy=load_policy('.github/guarded-merge-policy.json')
           checks={
               'open': pr.get('state')=='open',
@@ -443,7 +453,7 @@ jobs:
               'head': pr.get('head',{}).get('sha')==os.environ['PACKAGE_HEAD'],
               'machine_marker': 'MoonDog-Automation-Package: yes' in (pr.get('body') or ''),
               'standing_authorization': has_merge_authorization(pr.get('body'), policy),
-              'exact_codex_review': codex_review_state(comments, os.environ['PACKAGE_HEAD']) == 'clean',
+              'exact_review': merge_review_state(comments, reviews, os.environ['PACKAGE_HEAD'], policy) == 'clean',
           }
           failed=[name for name,ok in checks.items() if not ok]
           if failed:

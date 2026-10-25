@@ -94,7 +94,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("python3 scripts/guarded_merge_policy.py check-authorization", merge)
         self.assertEqual(merge.count("'authorization': has_merge_authorization("), 2)
         self.assertEqual(merge.count("from scripts.guarded_merge_policy import has_merge_authorization, load_policy"), 1)
-        self.assertIn("from scripts.guarded_merge_policy import codex_review_state, has_merge_authorization, load_policy", merge)
+        self.assertIn("from scripts.guarded_merge_policy import merge_review_state, load_policy", merge)
         self.assertNotIn('contains("MoonDog-Auto-Merge: yes")', merge)
         self.assertIn("Clean Install Proof", merge)
         self.assertIn("workflow_dispatch", merge)
@@ -104,7 +104,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("merge_base_commit.sha", merge)
         self.assertIn("Final guarded merge refused", merge)
         self.assertIn("PR is no longer based on current main", merge)
-        self.assertIn("exact-head Codex review", merge)
+        self.assertIn("exact-head Codex or owner-attested review", merge)
         proof_wait = merge.split("Wait for Publication, Clean Install, and exact-head Codex proof", 1)[1].split("Bring branch current with main if needed", 1)[0]
         self.assertLess(
             proof_wait.index("python3 scripts/pipeline_guard.py check-paths"),
@@ -119,7 +119,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$HEAD_BRANCH"', proof_wait)
         self.assertIn('MoonDog-Codex-Review-Request:$HEAD_SHA', proof_wait)
         self.assertIn('if [ "$HARD_FAIL" = "0" ]; then', proof_wait)
-        self.assertIn('if [ "$CODEX_STATE" = "pending" ] && [ "$REVIEW_REQUESTED" = "0" ]; then', proof_wait)
+        self.assertIn('if [ "$REVIEW_STATE" = "pending" ] && [ "$CODEX_STATE" = "pending" ] && [ "$REVIEW_REQUESTED" = "0" ]; then', proof_wait)
         self.assertLess(
             proof_wait.index("MoonDog-Codex-Review-Request:$HEAD_SHA"),
             proof_wait.index("for attempt in {1..42}; do"),
@@ -136,6 +136,11 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertLess(current_refresh.index('if [ "$UPDATED" != "true" ]'), current_refresh.index('gh workflow run publication-check.yml'))
         self.assertIn("pull_request_target:", merge)
         self.assertIn("issue_comment:", merge)
+        self.assertIn("pull_request_review:", merge)
+        self.assertIn("MoonDog-Owner-Review: approved", merge)
+        self.assertIn("repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100", merge)
+        self.assertIn("merge-review-state", merge)
+        self.assertIn("final-pr-reviews.json", merge)
         self.assertIn("chatgpt-codex-connector[bot]", merge)
         self.assertIn("codex-review-state:v1", merge)
         self.assertIn("gh workflow run publication-check.yml", merge)
@@ -168,17 +173,17 @@ class SecurityWorkflowTests(unittest.TestCase):
 
         prepare = (ROOT / ".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
         package_job = prepare.split("  package-unadvertised-main-runtime:", 1)[1]
-        self.assertIn('[ "$CODEX_STATE" = "clean" ]; then', package_job)
+        self.assertIn('[ "$REVIEW_STATE" = "clean" ]; then', package_job)
         self.assertNotIn("\n  pull_request_target:", prepare)
         self.assertIn("  workflow_dispatch:", prepare)
         self.assertIn("  package-unadvertised-main-runtime:", prepare)
         self.assertIn("reviewed_commit:", prepare)
         self.assertIn("python3 trusted/scripts/guarded_merge_policy.py check-authorization", prepare)
         self.assertIn("has_merge_authorization(pr.get('body'), policy)", prepare)
-        self.assertIn("exact_codex_review", prepare)
+        self.assertIn("exact_review", prepare)
         self.assertNotIn("contains(github.event.pull_request.body", prepare)
         self.assertIn("Refuse automatic changes to trusted proof/automation files", prepare)
-        self.assertIn("codex-review-state", prepare)
+        self.assertIn("merge-review-state", prepare)
         self.assertIn("MoonDog-Auto-Merge: yes", prepare)
         self.assertIn("trusted/scripts/pipeline_guard.py check-paths", prepare)
         self.assertIn("without executing candidate code", prepare)

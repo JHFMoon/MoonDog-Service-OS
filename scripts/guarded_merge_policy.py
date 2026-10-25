@@ -70,6 +70,65 @@ def codex_review_state(comments: list, expected_head: str) -> str:
     return "pending"
 
 
+OWNER_MARKER = "MoonDog-Owner-Review: approved"
+OWNER_SHA_PREFIX = "Reviewed-Commit: "
+
+
+def owner_review_state(reviews: list, expected_head: str, owner_login: str) -> str:
+    """Trust only a GitHub PR review by the configured owner at this exact commit.
+
+    COMMENTED reviews allow transparent owner self-attestation where GitHub
+    cannot accept the PR author's APPROVE review. Issue comments never count.
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", expected_head) or not owner_login:
+        return "pending"
+    for review in reversed(reviews if isinstance(reviews, list) else []):
+        if not isinstance(review, dict):
+            continue
+        user = review.get("user", {})
+        if not isinstance(user, dict) or user.get("login") != owner_login:
+            continue
+        if review.get("commit_id") != expected_head:
+            continue
+        state = review.get("state")
+        if state in {"CHANGES_REQUESTED", "REQUEST_CHANGES"}:
+            return "findings"
+        body = review.get("body") or ""
+        if not isinstance(body, str):
+            continue
+        lines = {line.strip() for line in body.splitlines()}
+        if state in {"COMMENTED", "APPROVED"} and OWNER_MARKER in lines and (
+            OWNER_SHA_PREFIX + expected_head
+        ) in lines:
+            return "clean"
+        if OWNER_MARKER in lines:
+            # A newer malformed or dismissed attestation invalidates an older one.
+            return "pending"
+    return "pending"
+
+
+def merge_review_state(comments: list, reviews: list, expected_head: str, policy: dict) -> str:
+    """Codex findings veto an owner fallback; both paths require exact-head proof."""
+    codex = codex_review_state(comments, expected_head)
+    # A prior verified finding on this immutable head cannot be overridden by
+    # a later stale bot summary or an owner attestation.
+    if codex == "findings" or any(
+        codex_review_state([comment], expected_head) == "findings"
+        for comment in comments if isinstance(comment, dict)
+    ):
+        return "findings"
+    owner = "pending"
+    if (
+        has_standing_authorization(policy)
+        and policy.get("owner_review_attestation") == "enabled"
+        and policy.get("owner_review_login") == "JHFMoon"
+    ):
+        owner = owner_review_state(reviews, expected_head, policy["owner_review_login"])
+    if owner == "findings":
+        return "findings"
+    return "clean" if codex == "clean" or owner == "clean" else "pending"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -79,6 +138,11 @@ def main() -> int:
     review = sub.add_parser("codex-review-state")
     review.add_argument("comments_json", type=Path)
     review.add_argument("head_sha")
+    combined = sub.add_parser("merge-review-state")
+    combined.add_argument("comments_json", type=Path)
+    combined.add_argument("reviews_json", type=Path)
+    combined.add_argument("head_sha")
+    combined.add_argument("--policy", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "check-authorization":
         try:
@@ -93,10 +157,18 @@ def main() -> int:
         return 0
     try:
         comments = json.loads(args.comments_json.read_text(encoding="utf-8"))
+        if args.command == "merge-review-state":
+            reviews = json.loads(args.reviews_json.read_text(encoding="utf-8"))
+        else:
+            reviews = []
     except (OSError, ValueError):
         print("pending")
         return 0
-    state = codex_review_state(comments, args.head_sha)
+    state = (
+        merge_review_state(comments, reviews, args.head_sha, load_policy(args.policy))
+        if args.command == "merge-review-state"
+        else codex_review_state(comments, args.head_sha)
+    )
     print(state)
     return 0
 

@@ -2,6 +2,8 @@ import unittest
 
 from scripts.guarded_merge_policy import (
     codex_review_state,
+    merge_review_state,
+    owner_review_state,
     has_merge_authorization,
     has_standing_authorization,
 )
@@ -11,8 +13,10 @@ POLICY = {
     "standing_authorization": "authorized",
     "scope": "all_existing_and_future_pull_requests",
     "stable_publication": "existing-stable-release-workflow-only",
+    "owner_review_attestation": "enabled",
+    "owner_review_login": "JHFMoon",
 }
-HEAD = "abc123"
+HEAD = "a" * 40
 
 
 def summary(sha=HEAD, status="completed", findings=False, unresolved=False):
@@ -59,6 +63,54 @@ class StandingAuthorizationTests(unittest.TestCase):
     def test_non_codex_comment_cannot_forge_review_state(self):
         forged = {**summary(), "user": {"login": "JHFMoon"}}
         self.assertEqual(codex_review_state([forged], HEAD), "pending")
+
+
+def owner_review(sha=HEAD, user="JHFMoon", state="COMMENTED", body=None):
+    if body is None:
+        body = f"Reviewed the full PR diff. No blocking findings.\nMoonDog-Owner-Review: approved\nReviewed-Commit: {sha}"
+    return {"user": {"login": user}, "commit_id": sha, "state": state, "body": body}
+
+
+class OwnerReviewFallbackTests(unittest.TestCase):
+    def test_exact_owner_review_accepted_without_codex_quota(self):
+        self.assertEqual(owner_review_state([owner_review()], HEAD, "JHFMoon"), "clean")
+        self.assertEqual(merge_review_state([], [owner_review()], HEAD, POLICY), "clean")
+
+    def test_wrong_identity_or_wrong_head_fails_closed(self):
+        self.assertEqual(merge_review_state([], [owner_review(user="other")], HEAD, POLICY), "pending")
+        self.assertEqual(merge_review_state([], [owner_review(sha="b" * 40)], HEAD, POLICY), "pending")
+        self.assertEqual(merge_review_state([], [owner_review()], "b" * 40, POLICY), "pending")
+
+    def test_marker_and_commit_must_be_standalone_in_review_body(self):
+        marker_only = f"MoonDog-Owner-Review: approved\nReviewed-Commit: {'b' * 40}"
+        self.assertEqual(merge_review_state([], [owner_review(body=marker_only)], HEAD, POLICY), "pending")
+        quoted = f"quote MoonDog-Owner-Review: approved\nReviewed-Commit: {HEAD}"
+        self.assertEqual(merge_review_state([], [owner_review(body=quoted)], HEAD, POLICY), "pending")
+        self.assertEqual(merge_review_state([], [{"body": owner_review()["body"]}], HEAD, POLICY), "pending")
+
+    def test_issue_comment_and_other_account_cannot_impersonate_review(self):
+        forged_comment = {"user": {"login": "JHFMoon"}, "body": owner_review()["body"]}
+        self.assertEqual(merge_review_state([forged_comment], [], HEAD, POLICY), "pending")
+        self.assertEqual(merge_review_state([], [owner_review(user="chatgpt-codex-connector[bot]")], HEAD, POLICY), "pending")
+
+    def test_owner_request_changes_vetoes_prior_attestation(self):
+        reviews = [owner_review(), owner_review(state="CHANGES_REQUESTED", body="Fix persistence bug")]
+        self.assertEqual(merge_review_state([], reviews, HEAD, POLICY), "findings")
+        self.assertEqual(merge_review_state([summary()], reviews, HEAD, POLICY), "findings")
+
+    def test_newer_invalid_attestation_supersedes_clean_one(self):
+        newer = owner_review(body=f"MoonDog-Owner-Review: approved\nReviewed-Commit: {'b' * 40}")
+        self.assertEqual(merge_review_state([], [owner_review(), newer], HEAD, POLICY), "pending")
+
+    def test_codex_findings_cannot_be_suppressed_by_owner_attestation(self):
+        self.assertEqual(merge_review_state([summary(findings=True)], [owner_review()], HEAD, POLICY), "findings")
+        self.assertEqual(merge_review_state([summary(findings=True), summary("b" * 40)], [owner_review()], HEAD, POLICY), "findings")
+
+    def test_disabled_or_untrusted_policy_does_not_enable_owner_attestation(self):
+        self.assertEqual(merge_review_state([], [owner_review()], HEAD, {}), "pending")
+        self.assertEqual(merge_review_state([], [owner_review()], HEAD, {**POLICY, "owner_review_login": "other"}), "pending")
+        self.assertEqual(merge_review_state([], [owner_review()], HEAD, {**POLICY, "owner_review_attestation": "disabled"}), "pending")
+        self.assertEqual(merge_review_state([summary()], [owner_review()], HEAD, {}), "clean")
 
 
 if __name__ == "__main__":

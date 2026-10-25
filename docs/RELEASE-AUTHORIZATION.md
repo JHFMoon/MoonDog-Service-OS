@@ -1,6 +1,6 @@
 # James-approved MoonDog release contract
 
-**Standing authorization:** James authorizes automatic merging of all existing and future same-repository pull requests after the exact-head Publication Check, Clean Install Proof, Codex review, applicable tests, and GitHub protections pass. This includes previously gated PRs and Stable release-related PRs. Do not ask for per-PR merge approval. The repository PR template carries the standalone `MoonDog-Auto-Merge: yes` directive; the trusted main-branch policy is the source of the standing authorization.
+**Standing authorization:** James authorizes automatic merging of all existing and future same-repository pull requests after the exact-head Publication Check, Clean Install Proof, an exact-head Codex review **or an owner-attested GitHub PR review**, applicable tests, and GitHub protections pass. This includes previously gated PRs and Stable release-related PRs. Do not ask for per-PR merge approval. The repository PR template carries the standalone `MoonDog-Auto-Merge: yes` directive; the trusted main-branch policy is the source of the standing authorization.
 
 
 Merging a Stable promotion PR is authorized by this standing instruction. Publication still runs only through the existing `.github/workflows/stable-release.yml` workflow after protected merge and successful main Publication Check; never install it or dispatch a separate manual deployment merely because a PR merged.
@@ -26,6 +26,19 @@ Merging a Stable promotion PR is authorized by this standing instruction. Public
 - Deliver a concise completion record: change, Beta/Stable version, validation result, deployment URL, and any blockers.
 
 ## Automation boundary
-After the protected policy change is merged, the trusted main-branch Guarded PR Merge workflow enforces the standing authorization for eligible open PRs. It waits for exact-head Publication Check, Clean Install Proof, and Codex review with no findings, then uses the ordinary GitHub merge API so active rulesets and required checks remain authoritative. If it refreshes a branch, it waits for the new head to include current main and dispatches both verification workflows for that exact branch before another merge attempt.
+After the protected policy change is merged, the trusted main-branch Guarded PR Merge workflow enforces the standing authorization for eligible open PRs. It waits for exact-head Publication Check, Clean Install Proof, and either a clean Codex review or a qualifying owner-attested GitHub PR review, then uses the ordinary GitHub merge API so active rulesets and required checks remain authoritative. If it refreshes a branch, it waits for the new head to include current main and dispatches both verification workflows for that exact branch before another merge attempt.
 
 The PR template supplies the standalone `MoonDog-Auto-Merge: yes` line to future PRs, and existing open PRs carry that line. The policy document alone is not an executor; no continuous agent run or installation is implied. Issue #34 tracks broader release/update and workflow integration work that remains independent of this merge authorization.
+
+## Owner-attested manual review when Codex review is unavailable
+
+James explicitly permits a review submitted through the connected ChatGPT GitHub account to satisfy the *repository automation review gate*, including a self-attested PR by `JHFMoon`. This is **not an independent Codex or third-party review**. The reviewer must actually inspect the current PR diff and the exact SHA, report findings, and submit a **GitHub pull-request review** using the authenticated `JHFMoon` account, with these two standalone lines:
+
+```text
+MoonDog-Owner-Review: approved
+Reviewed-Commit: <full 40-character lowercase PR head SHA>
+```
+
+A PR description, issue comment, review by another account, stale commit, or summary without those lines does not pass. A newer owner request for changes or *any authenticated Codex findings on that same SHA* vetoes the fallback. The review is stored in the GitHub review audit trail. On every new PR head (including an additive main refresh), a fresh review and fresh CI are required. The ordinary branch protection and required status checks remain mandatory: this exception neither forges a Codex bot receipt nor bypasses GitHub merge restrictions.
+
+The trusted main-branch `.github/guarded-merge-policy.json` explicitly enables the alternative. Changes to this policy, merge workflows, guard scripts, and their tests are **protected automation changes**: propose them in a separate PR, run proof checks, and use the established protected bootstrap/manual merge path. The automatic guarded merger must continue rejecting its own protected policy files.
