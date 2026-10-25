@@ -40,7 +40,8 @@ const originalState = {
   source: { kind: "synthetic-fixture" }
 };
 const hostCopy = value => JSON.parse(JSON.stringify(value));
-function harness(failPath = null) {
+function harness(failPath = null, failOnce = false) {
+  let failedOnce = false;
   const files = new Map();
   const directories = new Set(["data", "backups"]);
   const model = { state: hostCopy(originalState), selectedId: "synthetic-ro-101", editOrigin: "table", root: null };
@@ -93,7 +94,10 @@ function harness(failPath = null) {
     writeAuthority: { requireWrite() {} },
     MoonDogMaintenance: {
       async safeWrite(_io, name, bytes) {
-        if (name === failPath) throw Object.assign(new Error("Synthetic durable write failure"), { name: "NotReadableError" });
+        if (name === failPath && (!failOnce || !failedOnce)) {
+          failedOnce = true;
+          throw Object.assign(new Error("Synthetic durable write failure"), { name: "NotReadableError" });
+        }
         files.set(name, Uint8Array.from(bytes));
       }
     },
@@ -158,6 +162,26 @@ test("Open RO production save verifies read-back, preserves source/manual fields
   assert.deepStrictEqual(record.management.adminCloseout, originalState.records[0].management.adminCloseout);
   assert.equal(h.finishCount, 1, "post-save UI completion runs only after production read-back succeeds");
   assert.ok(h.diagnostics.some(item => item.kind === "DURABLE WRITE"));
+});
+
+test("transient Open RO write failure preserves the draft for a verified retry", async () => {
+  const h = harness("data/current-state.json", true);
+  const failed = await h.context.saveForTest({ preventDefault() {} });
+  assert.equal(failed, undefined, "the first unverified write must not report success");
+  assert.deepStrictEqual(hostCopy(h.model.state), originalState, "a failed write restores the prior authoritative model");
+  assert.equal(h.ui.editNextAction.value, "Complete synthetic inspection", "the typed draft remains available for retry");
+  assert.equal(h.finishCount, 0, "Save & Next does not advance on failed durability");
+
+  const retried = await h.context.saveForTest({ preventDefault() {} });
+  assert.equal(retried, true, "a later successful durable save completes the same draft");
+  const durable = await h.context.readForTest(h.context.statePathForTest, null);
+  assert.deepStrictEqual(hostCopy(h.model.state), durable, "the model is replaced only with verified read-back");
+  assert.equal(durable.records[0].management.nextAction, "Complete synthetic inspection");
+  assert.equal(durable.records[0].management.owner, "Synthetic Assigned Owner");
+  assert.deepStrictEqual(durable.records[0].sourceFields, originalState.records[0].sourceFields,
+    "retry does not rewrite source-report authority");
+  assert.equal(durable.records[0].management.manualAnnotation, "Synthetic manager-entered annotation");
+  assert.equal(h.finishCount, 1, "post-save completion runs exactly once after verified retry");
 });
 
 test("failed Open RO durable save retains prior clarification, source, and manual fields", async () => {
