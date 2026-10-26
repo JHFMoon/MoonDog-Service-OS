@@ -314,7 +314,8 @@ test("verified Appointment Activity period and aggregate remain aligned in the H
   f.ctx.ui={managerSourceGrid:grid};
   f.ctx.document={createElement:()=>({className:"",innerHTML:""})};
   const managerRenderer=source("  function latestFamily(family) {","  function renderAll() {");
-  vm.runInNewContext(managerRenderer+"\\nrenderManagerIntelligence();",f.ctx);
+  vm.runInNewContext(managerRenderer,f.ctx);
+  f.ctx.renderManagerIntelligence();
 
   const card=grid.children.find(item=>item.innerHTML.includes("APPOINTMENT ACTIVITY"));
   assert.ok(card,"Home must render the Appointment Activity source card from reloaded operational metrics");
