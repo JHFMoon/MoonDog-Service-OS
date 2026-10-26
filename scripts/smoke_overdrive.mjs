@@ -19,7 +19,7 @@ try{
    throw Error("Production Manager Home renderer bridge location is not unique");
  fs.writeFileSync(packagedAppPath,
    packagedAppOriginal.replace(renderBridgeMarker,
-     "globalThis.__moondogManagerHomeRenderProbe=renderAll;\\n"+renderBridgeMarker));
+     "globalThis.__moondogManagerHomeRenderProbe=renderAll;\n"+renderBridgeMarker));
 
  for(const [width,height] of [[1920,1080],[1600,900],[1366,768]]){
   const page=await browser.newPage({viewport:{width,height},reducedMotion:width===1600?"no-preference":"reduce"});
