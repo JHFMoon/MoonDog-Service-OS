@@ -49,5 +49,20 @@ class BetaDispatchTests(unittest.TestCase):
                         "Only the validated reviewed commit may be used for release notes")
 
 
+    def test_trusted_beta_packager_reuses_identical_open_candidate_and_refreshes_additively(self):
+        workflow = PACKAGE.read_text(encoding="utf-8")
+        helper = ROOT / "scripts/beta_candidate_reuse.py"
+        self.assertTrue(helper.exists(), "candidate reuse must use a tested fail-closed selector")
+        self.assertIn("python3 scripts/beta_candidate_reuse.py candidates", workflow)
+        self.assertIn("python3 scripts/beta_candidate_reuse.py select", workflow)
+        self.assertIn("update-branch", workflow)
+        self.assertIn('expected_head_sha="$PACKAGE_HEAD"', workflow)
+        self.assertIn("existing_pr_number=$EXISTING_PR_NUMBER", workflow)
+        self.assertIn("existing_pr_number == ''", workflow)
+        self.assertIn("for attempt in {1..180}; do", workflow)
+        self.assertIn('gh api -X POST "repos/$REPO/statuses/$PACKAGE_HEAD"', workflow)
+        self.assertIn('if expected.get("stable") != candidate.get("stable"):', helper.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
