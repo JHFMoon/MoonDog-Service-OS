@@ -53,7 +53,7 @@ function fixture(mode = "verified") {
     removeSourceEntry: async () => { events.push("delete-source"); },
     renderOverviewIntelligence: () => { events.push("render"); }
   };
-  vm.runInNewContext(comparator + "\\n" + importer, ctx);
+  vm.runInNewContext(comparator + "\n" + importer, ctx);
   return { run: () => ctx.importMenuSalesFile("synthetic-menu-sales.xlsx", true), model, old, snapshot, events, saved: () => persisted };
 }
 
