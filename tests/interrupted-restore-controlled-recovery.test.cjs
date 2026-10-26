@@ -216,7 +216,7 @@ function controlledRecoveryExecutionFixture(options={}){
     zip:{file(name){const bytes=files[name.slice("payload/".length)];return bytes&&{async:async()=>new Uint8Array(bytes)};}}});
   const backups={
     [marker.safetyBackup]:options.invalidSafety?null:archive(safety),
-    [marker.sourceFile]:archive(source)
+    [marker.sourceFile]:options.invalidSource?null:archive(source)
   };
   const live=new Map(Object.entries(safety).map(([p,b])=>[p,new Uint8Array(b)]));
   if(options.conflict)live.set("data/state.json",enc({records:[{id:"independent"}]}));
@@ -247,6 +247,8 @@ function controlledRecoveryExecutionFixture(options={}){
         const name=p.slice("backups/".length);
         if(options.missingSafety&&name===marker.safetyBackup)
           throw Object.assign(Error("Synthetic safety backup missing"),{name:"NotFoundError"});
+        if(options.missingSource&&name===marker.sourceFile)
+          throw Object.assign(Error("Synthetic source backup missing"),{name:"NotFoundError"});
         return enc(name);
       }
       const bytes=live.get(p);
@@ -360,13 +362,15 @@ test("actual recovery refuses foreign operational bytes before the first write",
   assert.equal(f.active,false);
 });
 
-test("actual recovery refuses missing or invalid safety backups before replacing operational state",async()=>{
-  for(const options of [{missingSafety:true},{invalidSafety:true}]){
+test("actual recovery validates both source and safety backups before replacing operational state",async()=>{
+  for(const options of [
+    {missingSafety:true},{invalidSafety:true},{missingSource:true},{invalidSource:true}
+  ]){
     const f=controlledRecoveryExecutionFixture(options);
     const before=new Map([...f.live].map(([path,bytes])=>[path,new Uint8Array(bytes)]));
     await assert.rejects(f.recover());
     assert.equal(f.marker.restoreId,owner,"the interrupted restore hold must remain");
-    assert.equal(f.writeLog.length,0,"no operational bytes may be written");
+    assert.equal(f.writeLog.length,0,"no operational bytes may be written before both backups validate");
     assert.equal(f.active,false,"failed validation must release only the temporary recovery capability");
     assert.equal(f.live.size,before.size);
     for(const [path,bytes]of before)assert.deepEqual(f.live.get(path),bytes,path+" must remain byte-identical");
