@@ -16,7 +16,8 @@ const managerImport = app.slice(start, end);
 const mediaScopeStart = app.indexOf("  function mediaScope(");
 const mediaScopeEnd = app.indexOf("  function mediaTechReports(", mediaScopeStart);
 const trendSourcesStart = app.indexOf("const TREND_SOURCES=");
-const trendSourcesEnd = app.indexOf("\\n", trendSourcesStart);
+const lineBreak = String.fromCharCode(10);
+const trendSourcesEnd = app.indexOf(lineBreak, trendSourcesStart);
 const trendObservationStart = app.indexOf("  function sourceTrendObservations(");
 const trendMeasuresStart = app.indexOf("  function trendMeasures(", trendObservationStart);
 const trendPointsStart = app.indexOf("  function trendPoints(", trendMeasuresStart);
@@ -25,7 +26,7 @@ assert.ok([mediaScopeStart, mediaScopeEnd, trendSourcesStart, trendSourcesEnd, t
   "production Media ASR Performance lineage selectors are present");
 const mediaScopeProductionSource = app.slice(mediaScopeStart, mediaScopeEnd);
 const trendSourcesProductionDeclaration = app.slice(trendSourcesStart, trendSourcesEnd);
-const mediaAsrPerformanceLineageSource = app.slice(trendObservationStart, trendMeasuresStart) + "\\n" +
+const mediaAsrPerformanceLineageSource = app.slice(trendObservationStart, trendMeasuresStart) + lineBreak +
   app.slice(trendPointsStart, trendAvailableEnd);
 
 const saved = {
