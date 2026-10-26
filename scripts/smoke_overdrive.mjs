@@ -1085,7 +1085,7 @@ try{
           fieldEntryCount:summarizeUxMetric("fieldEntryCount"),
           scrollDistancePx:summarizeUxMetric("scrollDistancePx"),
           browserErrorCount:uxBrowserErrorCount,sampleResults:uxTaskSamples};
-        fs.writeFileSync(path.join(out,"open-ro-workflow-metrics.json"),JSON.stringify(uxWorkflow,null,2)+"\\n");
+        fs.writeFileSync(path.join(out,"open-ro-workflow-metrics.json"),JSON.stringify(uxWorkflow,null,2)+"\n");
         if(uxTaskSamples.length!==9||failedUxTasks.length!==0||uxBrowserErrorCount!==0||
           completedUxTasks.some(sample=>sample.clickCount!==4||sample.fieldEntryCount<5||
             !Number.isFinite(sample.scrollDistancePx)||sample.scrollDistancePx<0))
