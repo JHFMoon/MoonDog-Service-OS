@@ -22,7 +22,6 @@ function harness(){
     classList:makeClassList(),setAttribute(){},removeAttribute(){}}]));
   const views=Object.fromEntries(names.map(name=>[name,{classList:makeClassList()}]));
   const context={
-    confirmEditNavigation:()=>true,
     ui:{pageTitle:{textContent:""},appointmentDate:{value:"2026-10-12"},arrivalSearch:{value:""},
       ...Object.fromEntries(Object.entries(views).map(([n,v])=>["view-"+n,v]))},
     document:{
