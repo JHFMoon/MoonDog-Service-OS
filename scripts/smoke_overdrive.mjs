@@ -1102,7 +1102,7 @@ try{
                     return r.width>0&&r.height>0&&s.display!=="none"&&s.visibility!=="hidden"&&s.opacity!=="0"&&!el.closest("[hidden]");
                   };
                   const name=el=>{
-                    const labelled=el.getAttribute("aria-labelledby")?.split(/\\s+/).map(id=>document.getElementById(id)?.textContent||"").join(" ").trim();
+                    const labelled=el.getAttribute("aria-labelledby")?.split(/\s+/).map(id=>document.getElementById(id)?.textContent||"").join(" ").trim();
                     const alt=el.querySelector("img[alt]")?.getAttribute("alt")||"";
                     const text=(el.innerText||el.textContent||"").trim();
                     const inputValue=/^(button|submit|reset)$/i.test(el.type||"")?el.value:"";
