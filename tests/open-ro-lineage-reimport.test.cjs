@@ -98,7 +98,9 @@ test("verified manager edit survives durable reload and complete-source reimport
 
   const reloadedAgain=JSON.parse(JSON.stringify({records:merged.records,closedRecords:merged.closedRecords}));
   const repeatedMerge=productionMerge(reloadedAgain);
-  const next=copy(repeatedMerge([{...incoming,advisor:"Synthetic Advisor C"}],
+  const latestIncoming={...incoming,advisor:"Synthetic Advisor C",
+    sourceFields:{...incoming.sourceFields,Advisor:"Synthetic Advisor C"}};
+  const next=copy(repeatedMerge([latestIncoming],
     "2026-10-26T12:00:00.000Z","open-ro-xlsx").records[0]);
   assert.deepEqual(next.management,manualState.records[0].management,
     "a second durable reload and reimport cannot replace the manager's saved plan");
