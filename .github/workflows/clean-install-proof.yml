@@ -95,6 +95,21 @@ jobs:
           assert 0<=home["p50Ms"]<=home["p95Ms"]<=home["maxMs"]
           assert p.stat().st_size<4096
           print("PASS: synthetic-only navigation timing artifact validated")
+
+          ux_path=Path(".clean-install-smoke/overdrive-proof/open-ro-workflow-metrics.json")
+          ux=json.loads(ux_path.read_text(encoding="utf-8"))
+          assert set(ux)=={"schemaVersion","dataset","scenario","records","attemptedSamples","completedSamples","failedSamples","errorRate","taskDurationMs","clickCount","fieldEntryCount","scrollDistancePx","browserErrorCount"}
+          assert ux["schemaVersion"]==1 and ux["dataset"]=="synthetic-clean-install"
+          assert ux["records"]==2100 and ux["attemptedSamples"]==9 and ux["completedSamples"]==9
+          assert ux["failedSamples"]==0 and ux["errorRate"]==0 and ux["browserErrorCount"]==0
+          for key in ("taskDurationMs","clickCount","fieldEntryCount","scrollDistancePx"):
+              metric=ux[key]
+              assert set(metric)=={"count","p50","p95","max"} and metric["count"]==9
+              assert 0<=metric["p50"]<=metric["p95"]<=metric["max"]
+          assert ux["clickCount"]["p50"]==4 and ux["clickCount"]["max"]==4
+          assert ux["fieldEntryCount"]["p50"]>=5
+          assert ux_path.stat().st_size<4096
+          print("PASS: synthetic Open RO workflow metrics validated")
           PY
 
       - name: Upload proof artifact
@@ -106,5 +121,6 @@ jobs:
             dist/Service-Operations-Dashboard.zip.sha256
             dist/Service-Operations-Dashboard.manifest.json
             .clean-install-smoke/overdrive-proof/navigation-baseline.json
+            .clean-install-smoke/overdrive-proof/open-ro-workflow-metrics.json
           if-no-files-found: error
           retention-days: 7
