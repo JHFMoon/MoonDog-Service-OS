@@ -415,6 +415,57 @@ try{
     console.log("Synthetic Home warm-tab activation baseline",
       JSON.stringify({scope:"warm production Home tab activation to animation frame; 413 synthetic ROs in memory; excludes Home repaint, connection and filesystem latency",
         viewport:{width,height},...homeBaseline}));
+    // #58-01 browser DOM baseline: re-render Manager Home from 413 synthetic in-memory Open ROs.
+    // This measures actual file:// DOM work through the next animation frame; it does not
+    // claim a durable folder connection, browser-cold startup, or OneDrive/device latency.
+    const managerHomeDomMs=[];
+    for(let sample=0;sample<9;sample++){
+      await page.locator('.nav-item[data-view="performance"]').click({timeout:3500});
+      await page.waitForFunction(()=>document.getElementById("view-performance")?.classList.contains("active"),null,{timeout:3500});
+      await page.evaluate(()=>{
+        const metric=document.getElementById("metricOpen");
+        const overview=document.querySelector('.nav-item[data-view="overview"]');
+        if(!metric||!overview)throw new Error("Synthetic Manager Home DOM probe is unavailable");
+        metric.textContent="__synthetic_home_pending__";
+        globalThis.__moondogManagerHomeStarted=performance.now();
+        overview.click();
+      });
+      await page.waitForFunction(()=>{
+        const view=document.getElementById("view-overview");
+        const metric=document.getElementById("metricOpen");
+        return view?.classList.contains("active")&&metric?.textContent!=="__synthetic_home_pending__";
+      },null,{timeout:5000});
+      const rendered=await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>{
+        const view=document.getElementById("view-overview");
+        const metric=document.getElementById("metricOpen");
+        const needs=document.getElementById("moondogNeeds");
+        const bounds=view?.getBoundingClientRect();
+        return resolve({
+          elapsedMs:performance.now()-globalThis.__moondogManagerHomeStarted,
+          active:view?.classList.contains("active"),
+          visible:!!bounds&&bounds.width>0&&bounds.height>0,
+          openCount:Number((metric?.textContent||"").replace(/[^0-9]/g,"")),
+          managerContentReady:!!needs&&needs.textContent.trim().length>0
+        });
+      })));
+      if(!rendered.active||!rendered.visible||rendered.openCount!==413||!rendered.managerContentReady)
+        throw new Error("Synthetic Manager Home did not render verified in-memory workload: "+JSON.stringify(rendered));
+      managerHomeDomMs.push(rendered.elapsedMs);
+    }
+    const managerHomeDom=summarizeNavigationMs(managerHomeDomMs);
+    console.log("Synthetic Manager Home DOM render baseline",JSON.stringify({
+      scope:"9 file:// browser samples; actual Manager Home DOM after navigating from Performance; 413 synthetic in-memory Open ROs; not a durable folder connection or OneDrive timing",
+      rowCount:413,viewport:{width,height},...managerHomeDom
+    }));
+    const navigationArtifact=path.join(out,"navigation-baseline.json");
+    const navigationReport=JSON.parse(fs.readFileSync(navigationArtifact,"utf8"));
+    navigationReport.managerHomeDom={
+      dataset:"synthetic-in-memory-manager-home",
+      scope:"Actual Manager Home DOM after tab navigation to next animation frame; no durable folder connection or OneDrive timing",
+      rowCount:413,sampleCount:managerHomeDom.count,viewport:{width,height},
+      p50Ms:managerHomeDom.p50,p95Ms:managerHomeDom.p95,maxMs:managerHomeDom.max
+    };
+    fs.writeFileSync(navigationArtifact,JSON.stringify(navigationReport,null,2)+"\\n");
     // The fixture updates model memory directly; refresh the cached table once
     // before timing navigation so the first circuit starts with all 413 synthetic rows.
     await page.locator('.nav-item[data-view="open-ro"]').click({timeout:3500});
