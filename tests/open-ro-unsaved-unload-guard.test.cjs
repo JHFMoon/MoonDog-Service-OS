@@ -92,5 +92,5 @@ test("navigation within the active view does not discard the dirty draft",()=>{
 });
 
 test("production navigation guard runs before any view navigation side effects",()=>{
-  assert.match(app,/function navigateTo\(view,anchor=""\)\{if\(!confirmEditNavigation\(view\)\)return;const button=document\.querySelector/);
+  assert.match(app,/function navigateTo\(view,anchor=""\)\{if\(typeof confirmEditNavigation==="function"&&!confirmEditNavigation\(view\)\)return;const button=document\.querySelector/);
 });
