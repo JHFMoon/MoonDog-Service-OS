@@ -833,6 +833,7 @@ try{
                 nextAction:i===0?"LONG SYNTHETIC FOLLOW-UP ACTION ".repeat(6):"Synthetic next step",reviewDate:"2026-10-25",communication:"Updated",
                 note:"Synthetic existing note",manualAnnotation:"preserve-"+i}
             }));
+            settings.sourceAdapters={schemaVersion:1,assignNextAdvisors:{"100":"Synthetic Advisor"}};
             settings.advisors={"100":{
               number:"100",name:"Synthetic Advisor",active:true,removed:false,
               participation:{assignNext:true,openRoControl:true,advisorPerformance:true,advisorMeeting:true,dailyWalk:true,arrivals:true}
