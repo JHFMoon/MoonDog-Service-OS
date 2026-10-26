@@ -37,6 +37,7 @@ if(process.argv[2]==="--probe"){
   const pendingFrames=[],pendingTimers=[];
   const draw={meeting:0,performance:0,openRo:0,arrivals:0};
   const context={
+    confirmEditNavigation:()=>true,
     ui:{pageTitle:{textContent:""},appointmentDate:{value:"2026-10-12"},arrivalSearch:{value:""},
       ...Object.fromEntries(Object.entries(views).map(([name,view])=>["view-"+name,view]))},
     document:{
