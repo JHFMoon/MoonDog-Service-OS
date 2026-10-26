@@ -1671,11 +1671,42 @@
   function shouldStoreVir(candidate, existing) { return !existing||newerVirSnapshot(candidate,existing); }
   function applyVirResolution(snapshot,resolution){snapshot.observationTimestamp=resolution.observationTimestamp;snapshot.coverageMethod="vir-point-in-time";snapshot.validation.coverageMethod="vir-point-in-time";snapshot.validation.coverageBasis=resolution.basis;delete snapshot.effectiveDataThrough;}
   async function saveVirSnapshot(snapshot) {
-    const resolution=virObservationResolution(snapshot),key=virObservationKey(snapshot);model.operationalMetrics.vir.pending||={};model.operationalMetrics.vir.snapshots||={};applyVirResolution(snapshot,resolution);model.operationalMetrics.vir.snapshots[key]=snapshot;model.operationalMetrics.vir.snapshots=pruneDatedSnapshots(model.operationalMetrics.vir.snapshots);model.operationalMetrics.updatedAt=now();await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);
-    const check=await readJson(OPERATIONAL_METRICS_PATH,null),retained=check?.vir?.snapshots?.[key];if(!retained)throw new Error("The VIR observation could not be verified after saving.");
-    try{await addHistory("vir-import","Added independent VIR point-in-time observation",{fileName:snapshot.sourceFile,observationDate:virObservationDate(snapshot),totalROs:snapshot.store.totalROs});}catch(error){recordDiagnostic("VIR INTAKE",`VIR was durably saved but its history summary was deferred (${error.name||"Error"})`);}
+    const priorMetrics=structuredClone(model.operationalMetrics);
+    const resolution=virObservationResolution(snapshot),key=virObservationKey(snapshot);
+    model.operationalMetrics.vir.pending||={};
+    model.operationalMetrics.vir.snapshots||={};
+    applyVirResolution(snapshot,resolution);
+    model.operationalMetrics.vir.snapshots[key]=snapshot;
+    model.operationalMetrics.vir.snapshots=pruneDatedSnapshots(model.operationalMetrics.vir.snapshots);
+    model.operationalMetrics.updatedAt=now();
+    try {
+      await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);
+      const check=await readJson(OPERATIONAL_METRICS_PATH,null);
+      const retained=check?.vir?.snapshots?.[key];
+      if(JSON.stringify(retained)!==JSON.stringify(snapshot))
+        throw new Error("The VIR observation could not be verified after saving.");
+    } catch(error) {
+      // A failed write or partial/mismatched read-back cannot become runtime
+      // authority. importVirFile will also leave the original source in place.
+      model.operationalMetrics=priorMetrics;
+      throw error;
+    }
+    try {
+      await addHistory("vir-import","Added independent VIR point-in-time observation",{
+        fileName:snapshot.sourceFile,
+        observationDate:virObservationDate(snapshot),
+        totalROs:snapshot.store.totalROs
+      });
+    } catch(error) {
+      recordDiagnostic("VIR INTAKE",`VIR was durably saved but its history summary was deferred (${error.name||"Error"})`);
+    }
     recordDiagnostic("VIR INTAKE","Recognized VIR imported as an independent point-in-time observation");
-    try{renderOverviewIntelligence();}catch(error){recordDiagnostic("VIR INTAKE",`VIR was durably saved but its immediate view refresh was deferred (${error.name||"Error"})`);}return{resolved:true,date:virObservationDate(snapshot),key};
+    try {
+      renderOverviewIntelligence();
+    } catch(error) {
+      recordDiagnostic("VIR INTAKE",`VIR was durably saved but its immediate view refresh was deferred (${error.name||"Error"})`);
+    }
+    return{resolved:true,date:virObservationDate(snapshot),key};
   }
   async function importVirFile(name, deleteAfterSuccess = false) {
     const file = await (await sourceFileHandle(name)).getFile(), snapshot = parseVirCsv(await file.text(), name); snapshot.sourceModifiedAt = new Date(file.lastModified).toISOString(); snapshot.observationTimestamp=snapshot.reportDate?`${snapshot.reportDate}T12:00:00-07:00`:snapshot.sourceModifiedAt||snapshot.importedAt;snapshot.sourceLocation=sourceLocations.get(name)||"root"; const result = await saveVirSnapshot(snapshot);

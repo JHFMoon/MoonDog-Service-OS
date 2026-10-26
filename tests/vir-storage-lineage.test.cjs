@@ -28,6 +28,7 @@ test("synthetic VIR observation keeps its source date through durable storage an
   const model = { operationalMetrics: { vir: { snapshots: {}, pending: {} } } };
   const context = vm.createContext({
     ADVISOR_NAMES: { A1: "Demo Advisor" },
+    structuredClone,
     model,
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
     text: value => String(value ?? ""),
@@ -93,4 +94,89 @@ test("synthetic VIR observation keeps its source date through durable storage an
   assert.equal(futureEvidence.verified, false);
   assert.equal(futureEvidence.period, "Observed 2026-10-24");
   assert.match(futureEvidence.reason, /future-dated/);
+});
+
+
+function failedReadbackFixture(mode) {
+  const csv = [
+    "Report Date,2026-10-22",
+    "Advisor Name,Total ROs,VIR Printed/Emailed/Texted,VIR Use %",
+    "Demo Advisor,4,3,75"
+  ].join("\n") + "\n";
+  const existing = {
+    vir: {
+      snapshots: { "prior-observation": { sourceFile: "synthetic-prior-vir.csv", store: { totalROs: 2, used: 1 } } },
+      pending: {}
+    },
+    updatedAt: "2026-10-21T18:00:00.000Z"
+  };
+  const model = { operationalMetrics: structuredClone(existing) };
+  let durable = structuredClone({ operationalMetrics: existing });
+  const events = [];
+  const history = [];
+  const context = vm.createContext({
+    ADVISOR_NAMES: { A1: "Demo Advisor" },
+    structuredClone,
+    model,
+    sourceLocations: new Map([["synthetic-vir.csv", "root"]]),
+    OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
+    text: value => String(value ?? ""),
+    norm: value => String(value ?? "").trim().toLowerCase(),
+    csvNumber: value => value === "" || value == null ? null : Number(value),
+    parseCsv: value => value.trimEnd().split(/\r?\n/).map(line => line.split(",")),
+    internalObservationDate: () => "2026-10-22",
+    now: () => "2026-10-22T19:00:00.000Z",
+    localDateKey: date => date ? date.toISOString().slice(0, 10) : "2026-10-23",
+    previousOperatingDateKey: () => "2026-10-22",
+    meetingVirRosterCodes: () => ["A1"],
+    sourceExpectation: () => "required",
+    metricEvidence: value => ({ ...value, verified: ["verified", "known-zero"].includes(value.status) }),
+    pruneDatedSnapshots: snapshots => snapshots,
+    sourceFileHandle: async () => ({
+      getFile: async () => ({
+        lastModified: Date.parse("2026-10-22T19:00:00.000Z"),
+        text: async () => csv
+      })
+    }),
+    removeSourceEntry: async () => { events.push("delete-source"); },
+    writeJson: async (_path, value) => {
+      events.push("write");
+      if (mode === "write-error") throw new Error("synthetic write denied");
+      durable = structuredClone(value);
+    },
+    readJson: async () => {
+      events.push("readback");
+      const result = structuredClone(durable);
+      if (mode === "readback-mismatch") {
+        const key = Object.keys(result.vir.snapshots).find(item => item.startsWith("observation-"));
+        result.vir.snapshots[key].store.used = 2;
+      }
+      return result;
+    },
+    addHistory: async (...entry) => { events.push("history"); history.push(entry); },
+    recordDiagnostic: () => {},
+    renderOverviewIntelligence: () => {}
+  });
+  vm.runInContext(parser + "\n" + lineage + '\nVIR_NAME_CODES["demo advisor"] = "A1"; this.importVirFile = importVirFile;',
+    context);
+  return { context, events, history, model, existing, durable: () => durable };
+}
+
+test("failed VIR write restores runtime and keeps the source available", async () => {
+  const f = failedReadbackFixture("write-error");
+  await assert.rejects(f.context.importVirFile("synthetic-vir.csv", true), /synthetic write denied/);
+  assert.equal(JSON.stringify(f.model.operationalMetrics), JSON.stringify(f.existing));
+  assert.deepEqual(f.events, ["write"]);
+  assert.deepEqual(f.history, []);
+});
+
+test("mismatched VIR read-back is rejected before history or source deletion", async () => {
+  const f = failedReadbackFixture("readback-mismatch");
+  await assert.rejects(f.context.importVirFile("synthetic-vir.csv", true), /could not be verified after saving/);
+  assert.equal(JSON.stringify(f.model.operationalMetrics), JSON.stringify(f.existing));
+  assert.deepEqual(f.events, ["write", "readback"]);
+  assert.deepEqual(f.history, []);
+  assert.ok(f.durable().vir.snapshots["prior-observation"]);
+  assert.ok(Object.keys(f.durable().vir.snapshots).some(key => key.startsWith("observation-")),
+    "uncertain candidate bytes remain available for controlled recovery");
 });
