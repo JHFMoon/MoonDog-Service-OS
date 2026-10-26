@@ -17,6 +17,7 @@ function extract(start, end, label) {
 const menuEvidence = extract("  function menuMeetingEvidence(metric)", "  function csiMetricEvidence(", "Menu Meeting evidence");
 const meeting = extract("  function meetingAdvisorTv(", "  function renderMeetingArenaStore(", "active Meeting renderer");
 const menuImporter = extract("  async function importMenuSalesFile(", "  const CSI_ADVISOR_CODES =", "Menu Sales importer");
+const managerComparison = extract("  function comparableManagerSnapshot(", "  function managerConflictObservationDate(", "manager conflict comparator");
 
 function fixture(releaseWeek) {
   const snapshot = {
@@ -59,7 +60,7 @@ function fixture(releaseWeek) {
     compactMoney: value => "$" + Math.round(value / 1000) + "K",
     meetingEscape: value => String(value ?? "")
   });
-  vm.runInNewContext(menuImporter + "\n" + menuEvidence + "\n" + meeting +
+  vm.runInNewContext(managerComparison + "\n" + menuImporter + "\n" + menuEvidence + "\n" + meeting +
     "\nthis.api={importMenuSalesFile,menuMeetingEvidence,meetingAdvisorTv};", context);
   const latest = {
     periodStart: "2026-10-01",
@@ -132,4 +133,39 @@ test("Menu Sales import keeps its verified release period attached to Meeting ev
   assert.match(html, /MENUS SHOWN/);
   assert.match(html, /UPDATED 2026-10-12/);
   assert.match(html, /82%/);
+});
+
+test("equivalent Menu Sales reimport ignores refreshed derived metadata", async () => {
+  const h = fixture("2026-10-12");
+  const key = "2026-10-12";
+  h.model.operationalMetrics.menu.snapshots[key] = structuredClone(h.snapshot);
+  h.snapshot.importedAt = "refreshed-import-time";
+  h.snapshot.sourceFile = "synthetic-menu-sales (1).xlsx";
+  h.snapshot.coverageDate = "2026-10-19";
+
+  await h.context.api.importMenuSalesFile("synthetic-menu-sales (1).xlsx", false, new ArrayBuffer(8));
+
+  assert.equal(h.persisted().menu.snapshots[key].store.presentation, 82);
+  assert.deepEqual(h.events, ["write", "readback", "history", "render"]);
+  assert.deepEqual(h.history.map(item => item.type), ["menu-sales-import"]);
+});
+
+test("conflicting Menu Sales values fail closed before mutation and source deletion", async () => {
+  const h = fixture("2026-10-12");
+  const key = "2026-10-12";
+  const prior = structuredClone(h.snapshot);
+  h.model.operationalMetrics.menu.snapshots[key] = structuredClone(prior);
+  h.snapshot.store.presentation = 70;
+  h.snapshot.advisors.SYNTHETIC_ADVISOR.presentation = 70;
+  h.snapshot.importedAt = "later-import-time";
+
+  await assert.rejects(
+    h.context.api.importMenuSalesFile("synthetic-menu-correction.xlsx", true, new ArrayBuffer(8)),
+    /Conflicting Menu Sales report for release week 2026-10-12 is already saved/
+  );
+
+  assert.deepEqual(h.model.operationalMetrics.menu.snapshots[key], prior,
+    "the previously verified release-week snapshot remains authoritative");
+  assert.deepEqual(h.events, [], "conflicts must be rejected before write, read-back, history, render, or source deletion");
+  assert.deepEqual(h.history, []);
 });
