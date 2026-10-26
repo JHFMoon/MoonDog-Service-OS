@@ -28,6 +28,7 @@ test("synthetic VIR observation keeps its source date through durable storage an
   const model = { operationalMetrics: { vir: { snapshots: {}, pending: {} } } };
   const context = vm.createContext({
     ADVISOR_NAMES: { A1: "Demo Advisor" },
+    structuredClone,
     model,
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
     text: value => String(value ?? ""),
@@ -115,6 +116,7 @@ function failedReadbackFixture(mode) {
   const history = [];
   const context = vm.createContext({
     ADVISOR_NAMES: { A1: "Demo Advisor" },
+    structuredClone,
     model,
     sourceLocations: new Map([["synthetic-vir.csv", "root"]]),
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
