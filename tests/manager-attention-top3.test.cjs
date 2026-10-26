@@ -185,7 +185,7 @@ test('RO writer fallback is clearly marked unconfirmed until follow-up ownership
   assert.match(ownerField.children[1]?.textContent||'',/not a confirmed follow-up assignment/i);
   assert.match(ownerField.children[1]?.textContent||'',/verify ownership/i);
 
-  context.model.state.records[0].management={owner:'Synthetic Assigned Owner'};
+  context.model.state.records[0].management={owner:'Synthetic Assigned Owner',ownerAssignmentSource:'manager-confirmed'};
   const assignedHost={insertAdjacentHTML(){},append(node){this.form=node;}};
   context.testRoForm({recordId:'synthetic-case-alpha',hard:true},assignedHost);
   const assigned=assignedHost.form.children.find(child=>child.name==='owner');
@@ -201,9 +201,19 @@ test('Home secondary priorities show ownership, due date, blocker, next step, an
   assert.ok(start>=0&&renderStart>start&&renderEnd>renderStart,'production Home priority summary exists');
   const source=ops.slice(start,renderEnd);
   const node=()=>({children:[],textContent:'',className:'',dataset:{},append(...items){this.children.push(...items);},setAttribute(){}});
+  const app=read('assets/app.js');
+  const defaultStart=app.indexOf('  function defaultManagementFor(');
+  const defaultEnd=app.indexOf('  function pruneClosedRecords(',defaultStart);
+  assert.ok(defaultStart>=0&&defaultEnd>defaultStart,'production Open RO source-owner default exists');
+  const appContext=vm.createContext({});
+  vm.runInContext(app.slice(defaultStart,defaultEnd),appContext);
+  const importedManagement=appContext.defaultManagementFor({advisor:'Synthetic Writer'});
+  assert.equal(importedManagement.owner,'Synthetic Writer');
+  assert.equal(importedManagement.ownerAssignmentSource,'source-writer');
+
   const record={
     id:'synthetic-ro-context',ro:'SYN-CONTEXT-1',
-    management:{owner:'Synthetic Follow-up Owner',reviewDate:'2026-10-27',status:'Waiting Parts',
+    management:{owner:'Synthetic Follow-up Owner',ownerAssignmentSource:'manager-confirmed',reviewDate:'2026-10-27',status:'Waiting Parts',
       statusDetail:'Synthetic part ETA',nextAction:'Recheck synthetic part ETA'},
     cdkOperational:{status:'Awaiting Technician Attention',stale:false}
   };
@@ -231,7 +241,7 @@ test('Home secondary priorities show ownership, due date, blocker, next step, an
   assert.match(detail.textContent,/synthetic-open-ro\.xlsx · 2026-10-26/);
   assert.match(detail.textContent,/Current source confirms Awaiting Technician Attention/);
 
-  record.management={status:'',statusDetail:'',nextAction:'',reviewDate:''};
+  record.management={owner:'Synthetic Writer',ownerAssignmentSource:'source-writer',status:'',statusDetail:'',nextAction:'',reviewDate:''};
   record.advisor='Synthetic Writer';
   record.cdkOperational={status:'Being Repaired',stale:true};
   context.api.status=()=> '';
