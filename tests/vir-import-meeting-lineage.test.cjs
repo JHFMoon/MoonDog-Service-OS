@@ -93,7 +93,7 @@ test("one synthetic VIR observation keeps its durable lineage consistent in Home
     "Report Date,2026-10-22",
     "Advisor Name,Total ROs,VIR Printed/Emailed/Texted,VIR Use %",
     "Demo Advisor,4,3,75"
-  ].join("\\n")+"\\n";
+  ].join("\n")+"\n";
   const model={operationalMetrics:{vir:{snapshots:{},pending:{}}}};
   let durable=null;
   const history=[];
@@ -114,7 +114,7 @@ test("one synthetic VIR observation keeps its durable lineage consistent in Home
     text:value=>String(value??""),
     norm:value=>String(value??"").trim().toLowerCase(),
     csvNumber:value=>value===""||value==null?null:Number(value),
-    parseCsv:value=>value.trimEnd().split(/\\r?\\n/).map(line=>line.split(",")),
+    parseCsv:value=>value.trimEnd().split(/\r?\n/).map(line=>line.split(",")),
     internalObservationDate:()=>"2026-10-22",
     validAdvisorIdentity:(code,name)=>code==="A1"&&name==="Demo Advisor",
     now:()=>"2026-10-22T19:00:00.000Z",
@@ -148,8 +148,8 @@ test("one synthetic VIR observation keeps its durable lineage consistent in Home
     document:{createElement:makeNode}
   });
   vm.runInContext(
-    parser+"\\nVIR_NAME_CODES[\\"demo advisor\\"]=\\"A1\\";\\n"+storage+"\\n"+metricEvidence+"\\n"+completeness+"\\n"+meetingEvidence+"\\n"+home+
-    "\\nthis.importVirFile=importVirFile;this.virMeetingEvidence=virMeetingEvidence;this.renderHome=renderOverviewIntelligence;",
+    parser+"\nVIR_NAME_CODES[\"demo advisor\"]=\"A1\";\n"+storage+"\n"+metricEvidence+"\n"+completeness+"\n"+meetingEvidence+"\n"+home+
+    "\nthis.importVirFile=importVirFile;this.virMeetingEvidence=virMeetingEvidence;this.renderHome=renderOverviewIntelligence;",
     context
   );
   await context.importVirFile("synthetic-vir.csv",false);
@@ -164,7 +164,7 @@ test("one synthetic VIR observation keeps its durable lineage consistent in Home
   assert.equal(meeting.verified,true);
   assert.equal(meeting.period,"Observed 2026-10-22");
   assert.equal(meeting.value,75);
-  assert.match(rendered(ui.virSummary),/Store VIR 75\\.0%/,
+  assert.match(rendered(ui.virSummary),/Store VIR 75\.0%/,
     "Home renders the same utilization retained by the imported observation");
   assert.equal(ui.virCoverage.textContent,
     "Latest point-in-time observation · 2026-10-22 · "+snapshot.deliveryHeader,
