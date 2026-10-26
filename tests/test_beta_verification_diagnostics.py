@@ -15,6 +15,28 @@ class BetaVerificationDiagnosticsTests(unittest.TestCase):
         self.assertEqual(workflow.count("- name: Verify package PR and merge exact head"),1)
         self.assertIn("for attempt in {1..180}; do",workflow)
         self.assertNotIn("\\${{",workflow)
+        build_end=workflow.index("- name: Open isolated package PR")
+        reuse_loop=workflow.index("while IFS=
+        self.assertIn("Generated-head verification failed; exact-head run IDs and failed job names:",workflow)
+        self.assertIn("select(.conclusion==\"failure\" or .conclusion==\"cancelled\" or .conclusion==\"timed_out\")",workflow)
+        self.assertIn("done <<<\"$FAILED_IDS\"",workflow)
+        self.assertIn('echo "Generated-head verification failed; exact-head run IDs and failed job names:"',workflow)
+        self.assertIn("exit 1",workflow)
+
+    def test_proof_remains_strict_and_never_touches_stable(self):
+        workflow=(ROOT/".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
+        self.assertIn('test "$CURRENT_MAIN" = "$EXPECTED_MAIN"',workflow)
+        self.assertIn("if main.get('stable') != package.get('stable'):",workflow)
+        self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"',workflow)
+        self.assertIn("PYTHONDONTWRITEBYTECODE: '1'",workflow)
+
+if __name__=="__main__":
+    unittest.main()
+\\t' read -r CANDIDATE_NUMBER CANDIDATE_HEAD; do")
+        self.assertLess(reuse_loop,build_end)
+        self.assertIn('done <<< "$CANDIDATE_LIST"',workflow[:build_end])
+        self.assertIn('PUB_RUN_ID: ${{ steps.verification.outputs.publication_run_id }}',workflow)
+        self.assertIn('CLEAN_RUN_ID: ${{ steps.verification.outputs.clean_install_run_id }}',workflow)
         self.assertIn("Generated-head verification failed; exact-head run IDs and failed job names:",workflow)
         self.assertIn("select(.conclusion==\"failure\" or .conclusion==\"cancelled\" or .conclusion==\"timed_out\")",workflow)
         self.assertIn("done <<<\"$FAILED_IDS\"",workflow)
