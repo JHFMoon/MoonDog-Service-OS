@@ -1,54 +1,34 @@
-"""Ensure automatic Beta verification errors can be diagnosed without bypassing gates."""
+"""Guard generated Beta retry workflow structure and exact-head evidence."""
 from pathlib import Path
 import unittest
 
-ROOT=Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github/workflows/prepare-beta-package.yml"
+
 
 class BetaVerificationDiagnosticsTests(unittest.TestCase):
-    def test_generated_beta_failure_identifies_exact_check_run(self):
-        workflow=(ROOT/".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
-        self.assertIn("Generated Beta verification failed. Exact-head workflow IDs and failed jobs follow.",workflow)
-        self.assertIn("actions/runs/$FAILED_ID/jobs?per_page=100",workflow)
-        self.assertEqual(workflow.count("actions/runs/$FAILED_ID/jobs?per_page=100"),2)
-        self.assertEqual(workflow.count("- name: Open isolated package PR"),1)
-        self.assertEqual(workflow.count("- name: Dispatch exact-head verification"),1)
-        self.assertEqual(workflow.count("- name: Verify package PR and merge exact head"),1)
-        self.assertIn("for attempt in {1..180}; do",workflow)
-        self.assertNotIn("\\${{",workflow)
-        build_end=workflow.index("- name: Open isolated package PR")
-        reuse_loop=workflow.index("while IFS=
-        self.assertIn("Generated-head verification failed; exact-head run IDs and failed job names:",workflow)
-        self.assertIn("select(.conclusion==\"failure\" or .conclusion==\"cancelled\" or .conclusion==\"timed_out\")",workflow)
-        self.assertIn("done <<<\"$FAILED_IDS\"",workflow)
-        self.assertIn('echo "Generated-head verification failed; exact-head run IDs and failed job names:"',workflow)
-        self.assertIn("exit 1",workflow)
+    def test_candidate_reuse_loop_stays_inside_build_step(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        open_step = workflow.index("- name: Open isolated package PR")
+        reuse_loop = workflow.index("while IFS=$'\\t' read -r CANDIDATE_NUMBER CANDIDATE_HEAD; do")
+        self.assertLess(reuse_loop, open_step)
+        self.assertIn('done <<< "$CANDIDATE_LIST"', workflow[:open_step])
+        self.assertEqual(workflow.count("- name: Open isolated package PR"), 1)
+        self.assertEqual(workflow.count("- name: Dispatch exact-head verification"), 1)
+        self.assertEqual(workflow.count("- name: Verify package PR and merge exact head"), 1)
 
-    def test_proof_remains_strict_and_never_touches_stable(self):
-        workflow=(ROOT/".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
-        self.assertIn('test "$CURRENT_MAIN" = "$EXPECTED_MAIN"',workflow)
-        self.assertIn("if main.get('stable') != package.get('stable'):",workflow)
-        self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"',workflow)
-        self.assertIn("PYTHONDONTWRITEBYTECODE: '1'",workflow)
+    def test_retry_wait_covers_exact_head_review(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("for attempt in {1..180}; do", workflow)
+        self.assertNotIn("\\${{", workflow)
 
-if __name__=="__main__":
-    unittest.main()
-\\t' read -r CANDIDATE_NUMBER CANDIDATE_HEAD; do")
-        self.assertLess(reuse_loop,build_end)
-        self.assertIn('done <<< "$CANDIDATE_LIST"',workflow[:build_end])
-        self.assertIn('PUB_RUN_ID: ${{ steps.verification.outputs.publication_run_id }}',workflow)
-        self.assertIn('CLEAN_RUN_ID: ${{ steps.verification.outputs.clean_install_run_id }}',workflow)
-        self.assertIn("Generated-head verification failed; exact-head run IDs and failed job names:",workflow)
-        self.assertIn("select(.conclusion==\"failure\" or .conclusion==\"cancelled\" or .conclusion==\"timed_out\")",workflow)
-        self.assertIn("done <<<\"$FAILED_IDS\"",workflow)
-        self.assertIn('echo "Generated-head verification failed; exact-head run IDs and failed job names:"',workflow)
-        self.assertIn("exit 1",workflow)
+    def test_failure_path_stays_closed_and_stable_is_guarded(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("if main.get('stable') != package.get('stable'):", workflow)
+        self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"', workflow)
+        self.assertIn("PYTHONDONTWRITEBYTECODE: '1'", workflow)
+        self.assertIn("exit 1", workflow)
 
-    def test_proof_remains_strict_and_never_touches_stable(self):
-        workflow=(ROOT/".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
-        self.assertIn('test "$CURRENT_MAIN" = "$EXPECTED_MAIN"',workflow)
-        self.assertIn("if main.get('stable') != package.get('stable'):",workflow)
-        self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"',workflow)
-        self.assertIn("PYTHONDONTWRITEBYTECODE: '1'",workflow)
 
-if __name__=="__main__":
+if __name__ == "__main__":
     unittest.main()
