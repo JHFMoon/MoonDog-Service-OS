@@ -3336,7 +3336,7 @@
       model.performance = priorPerformance;
       throw error;
     }
-    await addHistory("performance-import", `${replacing ? "Replaced" : "Added"} performance snapshot for ${snapshot.date}`, { date: snapshot.date, fileName: name, advisors: Object.keys(snapshot.advisors).length, rawCopyRetained: false });
+    await addHistory("performance-import", `${replacing ? "Replaced" : "Added"} performance snapshot for ${snapshot.date}`, { date: snapshot.date, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, fileName: name, advisors: Object.keys(snapshot.advisors).length, rawCopyRetained: false });
     renderPerformance();
     let deleted = false;
     if (deleteAfterSuccess || (!dailyPickedSources.has(name) && window.confirm(`Performance import complete and verified.\n\nDelete the original source file "${name}" from the Report Inbox?\n\nThe compact daily metrics are saved; no extra workbook copy was created.`))) {

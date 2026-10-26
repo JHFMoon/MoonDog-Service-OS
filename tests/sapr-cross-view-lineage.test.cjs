@@ -129,8 +129,8 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
   assert.deepEqual(JSON.parse(JSON.stringify(history)), [{
     type: "performance-import",
     message: "Added performance snapshot for 2026-10-21",
-    details: { date: "2026-10-21", fileName: "synthetic-sapr.xlsx", advisors: 1, rawCopyRetained: false }
-  }], "history must retain the imported report date, synthetic source identity, and compact-copy policy");
+    details: { date: "2026-10-21", periodStart: "2026-10-01", periodEnd: "2026-10-21", fileName: "synthetic-sapr.xlsx", advisors: 1, rawCopyRetained: false }
+  }], "history must retain the imported report date, exact source period, synthetic source identity, and compact-copy policy");
   assert.equal(ui.performancePeriod.textContent, "2026-10-01 through 2026-10-21",
     "Performance must show the exact imported reporting period");
   assert.match(ui.performanceSource.textContent, /synthetic-sapr\.xlsx/);
