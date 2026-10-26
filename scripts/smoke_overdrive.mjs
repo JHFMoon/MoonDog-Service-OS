@@ -840,7 +840,13 @@ try{
               ["advisor-performance.json",JSON.parse(JSON.stringify(model.performance))],
               ["operational-metrics.json",JSON.parse(JSON.stringify(model.operationalMetrics))],
               ["meeting-cycle.json",JSON.parse(JSON.stringify(model.meetingCycle))],
-              ["assign-next.json",{schemaVersion:3,days:{},currentOpenRo:{synthetic:true}}],
+              ["assign-next.json",(()=>{
+                const observedAt=new Date(),timeZone=model.settings?.store?.timeZone||"America/Los_Angeles";
+                const coverageDate=new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit"}).format(observedAt);
+                return {schemaVersion:3,days:{},currentOpenRo:{sourceType:"open-ro",asOf:observedAt.toISOString(),
+                  observedAt:observedAt.toISOString(),coverageDate,validation:{canonicalRecords:1},
+                  records:[{ro:"900000",advisorCode:"100",isOpen:true,openedDate:coverageDate}]}};
+              })()],
               ["auto-import.json",{seen:{}}],
               ["recovery.json",JSON.parse(JSON.stringify(model.recovery))]
             ];
@@ -1057,6 +1063,93 @@ try{
               return {elapsedMs:performance.now()-probe.startedAt,clickCount:probe.clicks,
                 fieldEntryCount:probe.fieldEntries,scrollDistancePx:probe.scrollDistancePx};
             });
+            const taskNavigate=async view=>{
+              await connectedPage.locator('.nav-item[data-view="'+view+'"]').click({timeout:5000});
+              await connectedPage.waitForFunction(v=>document.getElementById("view-"+v)?.classList.contains("active"),view,{timeout:5000});
+            };
+            const measureScreenTask=async(name,action)=>{
+              await connectedPage.evaluate(()=>{
+                const p=globalThis.__moondogUxTaskProbe;
+                p.startedAt=performance.now();p.clicks=0;p.fieldEntries=0;p.scrollDistancePx=0;p.previous=new WeakMap();
+              });
+              try{
+                const evidence=await action();
+                const metrics=await connectedPage.evaluate(()=>{
+                  const p=globalThis.__moondogUxTaskProbe;
+                  return {taskDurationMs:performance.now()-p.startedAt,clickCount:p.clicks,
+                    fieldEntryCount:p.fieldEntries,scrollDistancePx:p.scrollDistancePx};
+                });
+                return {name,success:true,...metrics,evidence:String(evidence||"").slice(0,240)};
+              }catch(error){
+                const metrics=await connectedPage.evaluate(()=>{
+                  const p=globalThis.__moondogUxTaskProbe;
+                  return {taskDurationMs:performance.now()-p.startedAt,clickCount:p.clicks,
+                    fieldEntryCount:p.fieldEntries,scrollDistancePx:p.scrollDistancePx};
+                });
+                return {name,success:false,...metrics,error:String(error?.message||error).slice(0,240)};
+              }
+            };
+            const screenTaskEffort=[
+              await measureScreenTask("manager-home-priority",async()=>{
+                await taskNavigate("home");
+                const text=await connectedPage.locator("#dailyTask").innerText();
+                const ready=await connectedPage.locator("#dailyTask .daily-main-priority").count();
+                if(!text.trim()||!ready)throw Error("Manager Home did not present a prioritized next action");
+                return "Daily Focus priority visible; synthetic 2,100-record Workspace";
+              }),
+              await measureScreenTask("assign-next-review-and-exclude",async()=>{
+                await taskNavigate("assign-next");
+                const availability=connectedPage.locator('#assignAdvisorGrid [data-assign-availability="100"]');
+                await availability.waitFor({state:"visible",timeout:5000});
+                const before=await availability.innerText();
+                if(!before.startsWith("Available"))throw Error("Synthetic advisor was not initially eligible");
+                await availability.click();
+                await connectedPage.waitForFunction(()=>document.querySelector('#assignAdvisorGrid [data-assign-availability="100"]')?.textContent?.startsWith("Unavailable"),null,{timeout:5000});
+                const card=await connectedPage.locator('#assignAdvisorGrid [data-assign-code="100"]').innerText();
+                if(!card.includes("1")||!card.includes("Unavailable"))throw Error("Availability change did not retain the synthetic workload context");
+                return "Synthetic advisor workload reviewed and availability changed through the production control";
+              }),
+              await measureScreenTask("performance-report-readiness",async()=>{
+                await taskNavigate("performance");
+                const period=await connectedPage.locator("#performancePeriod").innerText();
+                const source=await connectedPage.locator("#performanceSource").innerText();
+                if(!period.includes("No report loaded")||!source.includes("Choose a performance workbook"))
+                  throw Error("Performance missing-report state did not explain its next action");
+                return period+"; "+source;
+              }),
+              await measureScreenTask("imports-refresh-and-empty-state",async()=>{
+                await taskNavigate("imports");
+                const refresh=connectedPage.locator("#scanFiles");
+                await refresh.waitFor({state:"visible",timeout:5000});
+                await refresh.click();
+                await connectedPage.waitForFunction(()=>document.querySelector("#sourceSelect option[value='']")?.textContent?.includes("No XLSX files in Report Inbox"),null,{timeout:5000});
+                const importDisabled=await connectedPage.locator("#importButton").isDisabled();
+                if(!importDisabled)throw Error("Import enabled without a selected synthetic report");
+                return "Report Inbox refreshed; no workbook available; import remains disabled";
+              }),
+              await measureScreenTask("meeting-source-readiness",async()=>{
+                await taskNavigate("meeting");
+                const period=await connectedPage.locator("#unifiedMeetingPeriod").innerText();
+                if(!period.includes("Import verified SAPR data"))
+                  throw Error("Meeting view did not identify its missing verified source");
+                return period;
+              }),
+              await measureScreenTask("settings-browser-preference",async()=>{
+                await taskNavigate("settings");
+                await connectedPage.locator("#deviceStartPage").selectOption("open-ro");
+                const selected=await connectedPage.locator("#deviceStartPage").inputValue();
+                if(selected!=="open-ro")throw Error("Browser-only start-page preference did not update");
+                await connectedPage.locator("#deviceStartPageReset").click();
+                await connectedPage.waitForFunction(()=>document.getElementById("deviceStartPage")?.value==="home",null,{timeout:5000});
+                const feedback=await connectedPage.locator("#deviceStartPageFeedback").innerText();
+                if(!feedback.includes("Manager Home is the default again"))
+                  throw Error("Settings did not confirm the browser-only reset");
+                return "Browser-only start page selected and reset; shared Workspace untouched";
+              })
+            ];
+            uxMetrics.screenTaskEffort=screenTaskEffort;
+            if(screenTaskEffort.some(task=>!task.success))
+              throw Error("Synthetic screen task-effort failures: "+JSON.stringify(screenTaskEffort.filter(task=>!task.success)));
             if(browserErrors.length)throw Error("Connected browser page errors: "+browserErrors.join("; "));
 
             if(sample===8){
@@ -1078,12 +1171,34 @@ try{
                 {label:"1366x768 at 150%",width:911,height:512}
               ];
               const allViews=["overview","tools","arrivals","assign-next","performance","meeting","open-ro","imports","settings","home"];
-              const routeResults=[],zoomResults=[],longTextResults=[],keyboardResults=[],failures[];
+              const routeResults=[],zoomResults=[],longTextResults=[],keyboardResults=[],failures=[];
               await connectedPage.evaluate(()=>{
                 const search=document.getElementById("searchInput");
                 if(search){search.value="";search.dispatchEvent(new Event("input",{bubbles:true}));}
               });
               await connectedPage.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===2100,null,{timeout:10000});
+              async function measureKeyboardRoute(view){
+                const tab=connectedPage.locator('.nav-item[data-view="'+view+'"]');
+                await tab.focus();
+                let focus=null,steps=0;
+                for(;steps<80;steps++){
+                  await connectedPage.keyboard.press("Tab");
+                  focus=await connectedPage.evaluate(v=>{
+                    const active=document.getElementById("view-"+v),el=document.activeElement,s=getComputedStyle(el),r=el.getBoundingClientRect();
+                    const text=(el.getAttribute("aria-label")||el.innerText||el.textContent||el.value||"").trim();
+                    return {view:v,tag:el.tagName,id:el.id||null,accessibleName:text||null,
+                      inActiveRoute:!!active?.contains(el),visible:r.width>0&&r.height>0&&s.display!=="none"&&s.visibility!=="hidden",
+                      keyboardFocusVisible:el.matches(":focus-visible"),
+                      focusIndicator:(s.outlineStyle!=="none"&&parseFloat(s.outlineWidth)>0)||s.boxShadow!=="none"};
+                  },view);
+                  if(focus.inActiveRoute)break;
+                }
+                focus.tabSequenceSteps=steps+1;
+                keyboardResults.push(focus);
+                if(!focus.inActiveRoute||!focus.accessibleName||!focus.visible||!focus.keyboardFocusVisible||!focus.focusIndicator)
+                  failures.push({case:"keyboard/"+view,reason:"Keyboard traversal did not reach a named active-route control with visible focus",focus});
+                return focus;
+              }
               async function measureRoute(viewport,view,kind){
                 await connectedPage.setViewportSize({width:viewport.width,height:viewport.height});
                 await connectedPage.evaluate(async v=>{
@@ -1094,19 +1209,8 @@ try{
                 },view);
                 await connectedPage.waitForFunction(v=>document.getElementById("view-"+v)?.classList.contains("active"),view,{timeout:5000});
                 await connectedPage.waitForTimeout(35);
-                if(kind==="standard"&&viewport.label==="1280x720"){
-                  await connectedPage.evaluate(()=>document.activeElement?.blur?.());
-                  await connectedPage.keyboard.press("Tab");
-                  const focus=await connectedPage.evaluate(()=>{
-                    const el=document.activeElement,s=getComputedStyle(el),r=el.getBoundingClientRect();
-                    return {view,tag:el.tagName,id:el.id||null,visible:r.width>0&&r.height>0&&s.display!=="none"&&s.visibility!=="hidden",
-                      keyboardFocusVisible:el.matches(":focus-visible"),
-                      focusIndicator:(s.outlineStyle!=="none"&&parseFloat(s.outlineWidth)>0)||s.boxShadow!=="none"};
-                  });
-                  keyboardResults.push(focus);
-                  if(!focus.visible||!focus.keyboardFocusVisible||!focus.focusIndicator)
-                    failures.push({case:"keyboard/"+view,reason:"Tab did not expose visible focus indication",focus});
-                }
+                if(kind==="standard"&&viewport.label==="1280x720")
+                  await measureKeyboardRoute(view);
                 const result=await connectedPage.evaluate(({view,label,kind})=>{
                   const active=document.getElementById("view-"+view);
                   const root=document.scrollingElement||document.documentElement;
@@ -1149,33 +1253,84 @@ try{
                     const linear=color.map(value=>{const c=value/255;return c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4;});
                     return 0.2126*linear[0]+0.7152*linear[1]+0.0722*linear[2];
                   };
+                  const splitLayers=value=>{
+                    const layers=[];let start=0,depth=0;
+                    for(let i=0;i<value.length;i++){
+                      if(value[i]==="(")depth++;
+                      else if(value[i]===")")depth--;
+                      else if(value[i]===","&&depth===0){layers.push(value.slice(start,i).trim());start=i+1;}
+                    }
+                    layers.push(value.slice(start).trim());
+                    return layers;
+                  };
+                  const sampleGradientColors=layer=>{
+                    const tokens=(layer.match(/rgba?\([^)]+\)|#[0-9a-f]{3,8}/gi)||[]).map(parseColor).filter(Boolean);
+                    if(!tokens.length)return [];
+                    const samples=[];
+                    for(let i=0;i<tokens.length;i++){
+                      samples.push(tokens[i]);
+                      if(i+1<tokens.length){
+                        for(const t of [0.25,0.5,0.75]){
+                          const a=tokens[i],b=tokens[i+1];
+                          samples.push(a.map((channel,index)=>channel+(b[index]-channel)*t));
+                        }
+                      }
+                    }
+                    return samples;
+                  };
+                  const uniqueColors=colors=>{
+                    const seen=new Set(),out=[];
+                    for(const color of colors){
+                      const key=color.map(value=>Math.round(value*1000)/1000).join(",");
+                      if(!seen.has(key)){seen.add(key);out.push(color);}
+                      if(out.length>=128)break;
+                    }
+                    return out;
+                  };
                   const backgroundsFor=el=>{
                     const chain=[];for(let node=el;node;node=node.parentElement)chain.push(node);
                     let backgrounds=[[255,255,255,1]],unknown=false;
                     for(const node of chain.reverse()){
                       const style=getComputedStyle(node),solid=parseColor(style.backgroundColor);
+                      // Background color is below this element's background-image layers.
                       if(solid&&solid[3]>0)backgrounds=backgrounds.map(bg=>composite(solid,bg));
                       const image=style.backgroundImage;
                       if(image&&image!=="none"){
-                        if(/url\(/i.test(image)){unknown=true;continue;}
-                        if(/gradient/i.test(image)){
-                          const colors=(image.match(/rgba?\([^)]+\)|#[0-9a-f]{3,8}/gi)||[]).map(parseColor).filter(Boolean);
+                        const layers=splitLayers(image);
+                        // CSS paints the first image layer on top; composite from back to front.
+                        for(const layer of layers.reverse()){
+                          if(/url\(/i.test(layer)){unknown=true;continue;}
+                          if(!/gradient/i.test(layer)){unknown=true;continue;}
+                          const colors=sampleGradientColors(layer);
                           if(!colors.length){unknown=true;continue;}
-                          backgrounds=colors.flatMap(color=>backgrounds.map(bg=>composite(color,bg)));
-                        }else unknown=true;
+                          backgrounds=uniqueColors(colors.flatMap(color=>backgrounds.map(bg=>composite(color,bg))));
+                        }
                       }
                     }
                     return {backgrounds,unknown};
                   };
                   const textSelector="h1,h2,h3,h4,h5,p,li,th,td,label,button,a,summary,legend,input,select,textarea,[role=button],[role=link],span,strong,small";
+                  const renderedText=el=>{
+                    if(el instanceof HTMLInputElement){
+                      if(/^(button|submit|reset)$/i.test(el.type))return el.value||"";
+                      if(/^(text|search|email|url|tel|password|number|date|datetime-local|month|week|time)$/i.test(el.type))
+                        return el.value||el.placeholder||"";
+                      return "";
+                    }
+                    if(el instanceof HTMLTextAreaElement)return el.value||el.placeholder||"";
+                    if(el instanceof HTMLSelectElement)return [...el.selectedOptions].map(option=>option.innerText||option.textContent||"").join(" ").trim();
+                    return (el.innerText||el.textContent||"").trim();
+                  };
                   const textElements=[...active.querySelectorAll(textSelector)].filter(el=>{
-                    if(!visible(el)||!(el.innerText||el.textContent||"").trim())return false;
+                    if(!visible(el)||!renderedText(el))return false;
                     const r=el.getBoundingClientRect();return r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight;
                   }).slice(0,160);
                   const lowContrast=[];
                   let unmeasuredContrastCount=0,contrastSampleCount=0;
                   for(const el of textElements){
-                    const fg=parseColor(getComputedStyle(el).color),bg=backgroundsFor(el);
+                    const controlPlaceholder=el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement;
+                    const usesPlaceholder=controlPlaceholder&&!el.value&&!!el.placeholder;
+                    const fg=parseColor(usesPlaceholder?getComputedStyle(el,"::placeholder").color:getComputedStyle(el).color),bg=backgroundsFor(el);
                     if(!fg||bg.unknown||!bg.backgrounds.length){unmeasuredContrastCount++;continue;}
                     const ratios=bg.backgrounds.map(base=>{
                       const effectiveFg=fg[3]<1?composite(fg,base):fg;
@@ -1185,7 +1340,7 @@ try{
                     const style=getComputedStyle(el),size=parseFloat(style.fontSize)||0,weight=parseInt(style.fontWeight,10)||400;
                     const large=size>=24||(size>=18.66&&weight>=700),required=large?3:4.5,min=Math.min(...ratios);
                     contrastSampleCount++;
-                    if(min+0.01<required)lowContrast.push({tag:el.tagName,id:el.id||null,text:(el.innerText||el.textContent||"").trim().slice(0,90),
+                    if(min+0.01<required)lowContrast.push({tag:el.tagName,id:el.id||null,text:renderedText(el).slice(0,90),
                       contrast:Math.round(min*100)/100,required});
                   }
                   const contrast={sampleCount:contrastSampleCount,unmeasuredCount:unmeasuredContrastCount,
@@ -1232,29 +1387,26 @@ try{
               const zoomRoutes=["home","open-ro","meeting"];
               for(const viewport of zoomViewports)
                 for(const view of zoomRoutes)zoomResults.push(await measureRoute(viewport,view,"zoom-equivalent-css-viewport"));
-              await connectedPage.setViewportSize({width:1280,height:720});
-              await connectedPage.evaluate(()=>{
-                document.querySelector('.nav-item[data-view="home"]')?.click();
-                document.activeElement?.blur?.();
-              });
-              await connectedPage.waitForFunction(()=>document.getElementById("view-home")?.classList.contains("active"),null,{timeout:5000});
-              await connectedPage.keyboard.press("Tab");
-              const keyboardFocus=await connectedPage.evaluate(()=>{
-                const el=document.activeElement,s=getComputedStyle(el),r=el.getBoundingClientRect();
-                return {tag:el.tagName,id:el.id||null,accessibleName:el.getAttribute("aria-label")||el.innerText?.trim()||el.textContent?.trim()||null,
-                  visible:r.width>0&&r.height>0&&s.display!=="none"&&s.visibility!=="hidden",
-                  keyboardFocusVisible:el.matches(":focus-visible"),
-                  focusIndicator:(s.outlineStyle!=="none"&&parseFloat(s.outlineWidth)>0)||s.boxShadow!=="none"};
-              });
-              if(!keyboardFocus.visible||!keyboardFocus.keyboardFocusVisible||!keyboardFocus.focusIndicator)
-                failures.push({case:"keyboard focus",reason:"Tab did not expose a visible focus indicator",keyboardFocus});
+              const keyboardFocus=keyboardResults.find(item=>item.view==="home")||null;
+              if(!keyboardFocus)failures.push({case:"keyboard focus",reason:"Home route has no keyboard traversal result"});
               const successfulTasks=[...uxTaskSamples.filter(item=>item.success),{success:true,...uxMetrics}];
               const metric=key=>successfulTasks.length?summarizeNavigationMs(successfulTasks.map(item=>item[key])):null;
+              const taskNames=["manager-home-priority","assign-next-review-and-exclude","performance-report-readiness","imports-refresh-and-empty-state","meeting-source-readiness","settings-browser-preference"];
+              const collectedScreenTasks=[...uxTaskSamples.filter(item=>item.success).flatMap(item=>item.screenTaskEffort||[]),
+                ...(uxMetrics.screenTaskEffort||[])];
+              const screenTaskEffort=taskNames.map(name=>{
+                const samples=collectedScreenTasks.filter(item=>item.name===name);
+                const metric=key=>samples.length?summarizeNavigationMs(samples.map(item=>item[key])):null;
+                return {name,attemptedSamples:uxTaskSamples.length+1,completedSamples:samples.filter(item=>item.success).length,
+                  failedSamples:uxTaskSamples.filter(item=>!item.success).length+samples.filter(item=>!item.success).length,
+                  taskDurationMs:metric("taskDurationMs"),clickCount:metric("clickCount"),
+                  fieldEntryCount:metric("fieldEntryCount"),scrollDistancePx:metric("scrollDistancePx"),sampleResults:samples};
+              });
               const report={schemaVersion:1,dataset:"synthetic-clean-install",
                 scope:"Packaged file:// Chromium, in-memory synthetic Workspace, 2,100 synthetic ROs; zoom cases use equivalent CSS viewport dimensions, not native browser zoom or physical displays.",
                 routes:allViews,standardViewportCount:standardViewports.length,standardRouteSampleCount:routeResults.length,
                 zoomEquivalentViewportCount:zoomViewports.length,zoomEquivalentRouteSampleCount:zoomResults.length,
-                routeResults,zoomEquivalentResults:zoomResults,longTextResults,keyboardFocus,keyboardRouteResults:keyboardResults,
+                routeResults,zoomEquivalentResults:zoomResults,longTextResults,keyboardFocus,keyboardRouteResults:keyboardResults,screenTaskEffort,
                 openRoTaskEffort:{scenario:"search, edit, add note, save, and verify durable read-back",attemptedSamples:uxTaskSamples.length+1,
                   completedSamples:successfulTasks.length,failedSamples:uxTaskSamples.filter(item=>!item.success).length,
                   taskDurationMs:metric("elapsedMs"),clickCount:metric("clickCount"),fieldEntryCount:metric("fieldEntryCount"),scrollDistancePx:metric("scrollDistancePx")},

@@ -116,7 +116,7 @@ jobs:
 
           matrix_path=Path(".clean-install-smoke/overdrive-proof/responsive-ux-matrix.json")
           matrix=json.loads(matrix_path.read_text(encoding="utf-8"))
-          assert set(matrix)=={"schemaVersion","dataset","scope","routes","standardViewportCount","standardRouteSampleCount","zoomEquivalentViewportCount","zoomEquivalentRouteSampleCount","routeResults","zoomEquivalentResults","longTextResults","keyboardFocus","keyboardRouteResults","openRoTaskEffort","failures"}
+          assert set(matrix)=={"schemaVersion","dataset","scope","routes","standardViewportCount","standardRouteSampleCount","zoomEquivalentViewportCount","zoomEquivalentRouteSampleCount","routeResults","zoomEquivalentResults","longTextResults","keyboardFocus","keyboardRouteResults","screenTaskEffort","openRoTaskEffort","failures"}
           assert matrix["schemaVersion"]==1 and matrix["dataset"]=="synthetic-clean-install"
           assert matrix["standardViewportCount"]==10 and matrix["standardRouteSampleCount"]==100
           assert matrix["zoomEquivalentViewportCount"]==4 and matrix["zoomEquivalentRouteSampleCount"]==12
@@ -124,7 +124,19 @@ jobs:
           assert len(matrix["routeResults"])==100 and len(matrix["zoomEquivalentResults"])==12
           assert not matrix["failures"]
           assert len(matrix["keyboardRouteResults"])==10
-          assert all(item["visible"] and item["keyboardFocusVisible"] and item["focusIndicator"] for item in matrix["keyboardRouteResults"])
+          assert all(item["view"] in matrix["routes"] and item["inActiveRoute"] and item["accessibleName"] and item["visible"] and item["keyboardFocusVisible"] and item["focusIndicator"] for item in matrix["keyboardRouteResults"])
+          task_names=["manager-home-priority","assign-next-review-and-exclude","performance-report-readiness","imports-refresh-and-empty-state","meeting-source-readiness","settings-browser-preference"]
+          assert [task["name"] for task in matrix["screenTaskEffort"]]==task_names
+          for task in matrix["screenTaskEffort"]:
+              assert task["attemptedSamples"]==9 and task["completedSamples"]==9 and task["failedSamples"]==0
+              assert len(task["sampleResults"])==9 and all(sample["success"] for sample in task["sampleResults"])
+              for key in ("taskDurationMs","clickCount","fieldEntryCount","scrollDistancePx"):
+                  metric=task[key]
+                  assert set(metric)=={"count","p50","p95","max"} and metric["count"]==9
+                  assert 0<=metric["p50"]<=metric["p95"]<=metric["max"]
+          assert matrix["screenTaskEffort"][1]["clickCount"]["p50"]>=2
+          assert matrix["screenTaskEffort"][3]["clickCount"]["p50"]>=2
+          assert matrix["screenTaskEffort"][5]["fieldEntryCount"]["p50"]>=1
           assert all(item["contrast"]["sampleCount"]>0 and item["contrast"]["unmeasuredCount"]==0 and item["contrast"]["lowContrastCount"]==0 for item in matrix["routeResults"]+matrix["zoomEquivalentResults"])
           all_routes=matrix["routeResults"]+matrix["zoomEquivalentResults"]
           assert all(item["active"] and item["documentHorizontalOverflowPx"]<=4 and item["viewRightOverflowPx"]<=4 and item["unnamedControlCount"]==0 for item in all_routes)
@@ -140,7 +152,7 @@ jobs:
           assert effort["clickCount"]["p50"]==4 and effort["clickCount"]["max"]==4
           assert effort["fieldEntryCount"]["p50"]>=5
           assert matrix_path.stat().st_size<200000
-          print("PASS: 100 screen/viewport routes, 12 zoom-equivalent routes, keyboard focus, long text, and nine measured Open RO tasks validated")
+          print("PASS: 100 screen/viewport routes, 12 zoom-equivalent routes, route keyboard focus, contrast, long text, nine Open RO tasks, and 54 measured screen tasks validated")
           PY
 
       - name: Upload proof artifact
