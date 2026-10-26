@@ -827,7 +827,7 @@ try{
               sourceStatus:"Open",daysOpen:i%8,
               sourceFields:{"RO Number":String(900000+i),"Source Status":"Open","Synthetic Marker":"source-"+i},
               management:{status:"Being Repaired",owner:"Synthetic Existing Owner",
-                nextAction:"Synthetic next step",reviewDate:"2026-10-25",communication:"Current",
+                nextAction:"Synthetic next step",reviewDate:"2026-10-25",communication:"Updated",
                 note:"Synthetic existing note",manualAnnotation:"preserve-"+i}
             }));
             const snapshots=[
@@ -1016,11 +1016,13 @@ try{
               saved.record.management.nextAction!=="Synthetic roundtrip action"||
               saved.record.management.reviewDate!=="2026-10-27"||
               saved.record.management.note!=="Synthetic roundtrip note"||
+              saved.record.management.communication!=="Updated"||
               JSON.stringify(saved.record.sourceFields)!==JSON.stringify(editCycle.sourceFields)||
               saved.record.management.manualAnnotation!==editCycle.manualAnnotation)
               throw Error("Synthetic Open RO edit/read-back lost or changed source/manual data: "+JSON.stringify({
                 owner:saved.record?.management?.owner,action:saved.record?.management?.nextAction,
                 reviewDate:saved.record?.management?.reviewDate,note:saved.record?.management?.note,
+                communication:saved.record?.management?.communication,
                 sourceFieldsPreserved:JSON.stringify(saved.record?.sourceFields)===JSON.stringify(editCycle.sourceFields),
                 manualAnnotationPreserved:saved.record?.management?.manualAnnotation===editCycle.manualAnnotation
               }));
