@@ -1008,6 +1008,12 @@
       const until=Date.parse(details?.until||'');
       if(Number.isFinite(until)&&until>at&&until<next)next=until;
     }
+    // Report refresh snoozes use the same exact-time semantics but live in
+    // private Settings, outside the operational task-event history.
+    for(const source of Object.values(api.refreshHistory()?.sources||{})){
+      const until=Date.parse(source?.notNowUntil||'');
+      if(Number.isFinite(until)&&until>at&&until<next)next=until;
+    }
     return next;
   }
   const renderHomeWithFullRefresh=renderHome;
