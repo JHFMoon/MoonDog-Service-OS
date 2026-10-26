@@ -157,6 +157,8 @@ test('owner provenance is invalidated when a returned workbook changes an assign
     'a direct manager edit can confirm the replacement');
   assert.equal(ownerAssignmentSourceForManagerSave(confirmed,'Synthetic Writer','Synthetic Writer',true),'manager-confirmed',
     'a deliberate manager reassignment can name the RO writer');
+  assert.equal(ownerAssignmentSourceForManagerSave({owner:'Synthetic Writer',ownerAssignmentSource:'source-writer'},'Synthetic Writer','Synthetic Writer',true),'manager-confirmed',
+    'typing the unchanged source-writer name explicitly can confirm it');
   assert.equal(ownerAssignmentSourceForManagerSave({owner:'',ownerAssignmentSource:''},'Synthetic Writer','Synthetic Writer',false),'source-writer',
     'an untouched Home prefill remains unconfirmed');
 });
