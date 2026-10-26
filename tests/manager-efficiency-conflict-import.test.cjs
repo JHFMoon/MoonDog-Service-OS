@@ -208,7 +208,7 @@ test("verified Media ASR import projects the same report date, source and adviso
   const measure = { family: "mediaAsr", key: "mediaCreated", unit: "count", roles: ["advisor"] };
   const points = f.trendPoints(measure, "advisor", "SYN01", "2026-10-23");
   assert.equal(points.length, 1, "one verified report observation produces one advisor trend point");
-  assert.deepEqual(points[0], {
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(points[0])), {
     date: "2026-10-21",
     value: 3,
     source: "Media ASR — Advisor",
@@ -217,11 +217,11 @@ test("verified Media ASR import projects the same report date, source and adviso
     periodStart: "2026-10-01",
     periodEnd: "2026-10-21",
     periodVerified: true,
-    completed: undefined,
-    totalDays: undefined,
     benchmark: null,
     bic: null
   });
+  assert.equal(f.durable().mediaAsr.snapshots["2026-10-21"].sourceModifiedAt, "2026-10-22T00:00:00.000Z",
+    "local file modification time remains distinct from the verified report observation date");
   assert.deepEqual(f.events, ["write", "readback", "history", "delete"],
     "the displayed trend follows successful durable verification and source audit");
 });
