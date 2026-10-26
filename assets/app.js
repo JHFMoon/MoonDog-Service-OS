@@ -4294,6 +4294,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function guardUnsavedEditUnload(event){if(editDraftDirty){event.preventDefault();event.returnValue="";}}
     function confirmDiscardEdit(){return !editDraftDirty||window.confirm("You have unsaved RO changes. Close this update and discard them?");}
   function closeEditDialog(){if(confirmDiscardEdit()){editDraftDirty=false;ui.editDialog.close();}}
+  function confirmEditNavigation(view){if(!editDraftDirty)return true;const activeView=document.querySelector(".view.active");if(activeView?.id===`view-${view}`)return true;if(!confirmDiscardEdit())return false;editDraftDirty=false;if(ui.editDialog.open)ui.editDialog.close();return true;}
   function visibleFocusIds() { return [...ui.dailyFocusGrid.querySelectorAll("button[data-focus-id]")].map((button) => button.dataset.focusId); }
   function updateStatusDetailEditor(record=null){
     const status=ui.editStatus.value,options=statusDetailsFor(status),storedParent=record?reviewedCanonicalStatus(record):"",stored=record&&storedParent===canonicalReviewStatus(status)?reviewStatusDetail(record):ui.editStatusDetail.value;
@@ -4695,7 +4696,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     performanceRenderedClock=reportClockToken();
     return output;
   };
-  function navigateTo(view,anchor=""){const button=document.querySelector(`.nav-item[data-view="${view}"]`);if(!button)return;
+  function navigateTo(view,anchor=""){if(!confirmEditNavigation(view))return;const button=document.querySelector(`.nav-item[data-view="${view}"]`);if(!button)return;
     document.querySelectorAll(".nav-item").forEach((item)=>{item.classList.remove("active");item.removeAttribute("aria-current");});
     document.querySelectorAll(".view").forEach((item)=>item.classList.remove("active"));
     button.classList.add("active");button.setAttribute("aria-current","page");
