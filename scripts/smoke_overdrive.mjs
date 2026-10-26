@@ -1160,10 +1160,11 @@ try{
               }),
               await measureScreenTask("meeting-source-readiness",async()=>{
                 await taskNavigate("meeting");
-                const period=await connectedPage.locator("#unifiedMeetingPeriod").innerText();
-                if(!period.includes("Import verified SAPR data"))
-                  throw Error("Meeting view did not identify its missing verified source");
-                return period;
+                const period=await connectedPage.locator("#meetingV3Range").innerText();
+                const readiness=await connectedPage.locator("#meetingV3Freshness").innerText();
+                if(!period.includes("WAITING FOR VERIFIED SAPR")||!readiness.includes("WAITING FOR VERIFIED SOURCES"))
+                  throw Error("Meeting scoreboard did not identify its missing verified sources");
+                return period+"; "+readiness;
               }),
               await measureScreenTask("settings-browser-preference",async()=>{
                 await taskNavigate("settings");
