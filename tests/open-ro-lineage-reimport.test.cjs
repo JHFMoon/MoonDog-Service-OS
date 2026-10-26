@@ -215,7 +215,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
     decodeUtf8:bytes=>new TextDecoder().decode(bytes),
     sha256:hash,validateBackupBytes,
     writeValidatedBackup:async()=>({name:"synthetic-safety.zip",path:"backups/synthetic-safety.zip"}),
-    writeAuthority:{beginRestore:async()=>{},endRestore:()=>{},journaledDelete:async()=>{}},
+    writeAuthority:{beginRestore:async()=>{},endRestore:()=>{},disable:()=>{},journaledDelete:async()=>{}},
     maintenanceIO:{remove:async path=>{files.delete(path);events.push("remove:"+path);}},
     physicalWorkspacePath:path=>["System Files","Workspace",...path],
     status:()=>{},console
