@@ -58,11 +58,6 @@ function fixture(candidate) {
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
     now: () => "2026-10-23T12:00:00.000Z",
     localDateKey: () => "2026-10-23",
-    text: value => String(value ?? ""),
-    dailyEvidenceDate: (_family, item) => item.coverageDate || item.periodEnd || "",
-    validCoverageDate: value => /^20\\d{2}-\\d{2}-\\d{2}$/.test(String(value || "")) ? String(value) : "",
-    TREND_SOURCES: { mediaAsr: "Media ASR — Advisor" },
-    advisorDisplayName: id => "Synthetic Advisor " + id,
     sourceFileHandle: async () => ({ getFile: async () => ({ lastModified: Date.UTC(2026, 9, 22) }) }),
     parseSorWorkbook: () => { throw new Error("Unexpected SOR parse"); },
     parseAppointmentActivityWorkbook: () => { throw new Error("Unexpected appointment parse"); },
@@ -79,11 +74,7 @@ function fixture(candidate) {
     addHistory: async () => { events.push("history"); },
     removeSourceEntry: async name => { events.push("delete"); removed.push(name); }
   });
-  vm.runInContext(
-    managerImport + "\n" + mediaScopeProductionSource + "\n" + trendSourcesProductionDeclaration + "\n" + mediaAsrPerformanceLineageSource +
-      "\nthis.importManagerSource = importManagerSource; this.mediaAsrTrendPoints = trendPoints;",
-    context
-  );
+  vm.runInContext(managerImport + "\nthis.importManagerSource = importManagerSource;", context);
   return {
     model, events, removed, durable: () => durable,
     run: (name = "synthetic-efficiency (1).xlsx") => context.importManagerSource(name, "efficiency", [], true)
@@ -140,6 +131,8 @@ function mediaFixture(candidate) {
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
     now: () => "2026-10-23T12:00:00.000Z",
     localDateKey: () => "2026-10-23",
+    text: value => String(value ?? ""),
+    advisorDisplayName: id => "Synthetic Advisor " + id,
     sourceFileHandle: async () => ({ getFile: async () => ({ lastModified: Date.UTC(2026, 9, 22) }) }),
     parseSorWorkbook: () => { throw new Error("Unexpected SOR parse"); },
     parseAppointmentActivityWorkbook: () => { throw new Error("Unexpected appointment parse"); },
@@ -156,7 +149,11 @@ function mediaFixture(candidate) {
     addHistory: async () => { events.push("history"); },
     removeSourceEntry: async name => { events.push("delete"); removed.push(name); }
   });
-  vm.runInContext(managerImport + "\nthis.importManagerSource = importManagerSource;", context);
+  vm.runInContext(
+    managerImport + "\n" + mediaScopeProductionSource + "\n" + trendSourcesProductionDeclaration + "\n" + mediaAsrPerformanceLineageSource +
+      "\nthis.importManagerSource = importManagerSource; this.mediaAsrTrendPoints = trendPoints;",
+    context
+  );
   return {
     model, events, removed, context, durable: () => durable,
     trendPoints: (measure, role, id, today) => context.mediaAsrTrendPoints(measure, role, id, today),
