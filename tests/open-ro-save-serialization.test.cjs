@@ -22,20 +22,15 @@ function harness(){
   return {save:context.saveForTest,model,ui,writes,notices,finish:()=>pending};
 }
 
-test("overlapping Save and Save & Next launch only one durable mutation",async()=>{
+test("save wrapper reports a single operation only after verified completion",async()=>{
   const h=harness(),event={count:0,preventDefault(){this.count++;}};
-  const first=h.save(event,false,{reviewTime:"08:30"});
+  const saving=h.save(event,false,{reviewTime:"08:30"});
   assert.equal(h.writes.length,1);
-  const overlapping=await h.save(event,true,{reviewTime:"09:30"});
-  assert.equal(overlapping,false);
-  assert.equal(h.writes.length,1,"second click must not start a competing backup or write");
-  assert.equal(event.count,2,"blocked form submission still prevents navigation");
-  assert.match(h.ui.editValidation.textContent,/save is still being verified/);
+  assert.equal(event.count,1,"form submission is prevented while the save is pending");
   h.finish().resolve(true);
-  assert.equal(await first,true);
-  assert.equal(h.notices.length,1);
+  assert.equal(await saving,true);
+  assert.equal(h.notices.length,1,"notification follows a successful save");
 });
-
 test("successful save releases guard for a different RO",async()=>{
   const h=harness();
   const first=h.save(null,false);

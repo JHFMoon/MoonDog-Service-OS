@@ -18,6 +18,7 @@ const reconciliation=extract("  function pruneClosedRecords(","  async function 
 const editorState=extract("  let editDraftDirty = false;","  function editValidationError(","Open RO editor state");
 const finishSource=extract("  async function finishSavedOpenRo(","  async function saveRecord(","Open RO save completion");
 const saveSource=extract("  async function saveRecord(","  async function closeRo(","Open RO save");
+const wrapperSource=extract("  const saveBeforeDaily = saveRecord;","  // Paste & Learn uses an ephemeral preview token; only a separately\n  // confirmed commit writes, and it never performs complete-snapshot closure.","Open RO save wrapper");
 
 const copy=value=>JSON.parse(JSON.stringify(value));
 function harness(){
@@ -95,6 +96,7 @@ function harness(){
     editValidationError(message){ui.editValidation.hidden=false;ui.editValidation.textContent=message;throw Error(message);},
     visibleRecordIds:()=>["synthetic-ro-101"],visibleFocusIds:()=>["synthetic-ro-101"],
     dailySaveAdditions:null,
+    dailyNotify:()=>{},
     saveState:async(_label)=>{model.state.updatedAt="2026-10-26T10:05:00.000Z";durable=copy(model.state);},
     recordDiagnostic(){},status(){},renderAll(){},
     addHistory:async()=>{},markSupervisorWorkbookStale:async()=>{},
@@ -102,12 +104,12 @@ function harness(){
     setTimeout,clearTimeout
   });
   context.globalThis=context;
-  vm.runInContext(lockSource+ownerSource+reconciliation+editorState+finishSource+saveSource+
+  vm.runInContext(lockSource+ownerSource+reconciliation+editorState+finishSource+saveSource+wrapperSource+
     "\nthis.withLock=withSupervisorWorkbookLock;this.mergeSource=mergeCompleteOpenRoRecords;this.save=saveRecord;this.openEditor=openEdit;this.closeEditor=closeEditDialog;this.confirmNav=confirmEditNavigation;this.markDraftDirty=markEditDraftDirty;this.isDirty=()=>editDraftDirty;this.isSaving=()=>model.openRoSaveInFlight;",context);
   return{context,model,ui,prepared,releaseImport:()=>releaseImport(),signalPrepared:()=>signalPrepared(),lockRequests,durable:()=>copy(durable),importGate};
 }
 
-test("an Open RO save waits for an in-flight complete-source refresh and applies the manager edit to its fresh record",async()=>{
+test("the production save wrapper preserves submitted RO data while queued behind source refresh",async()=>{
   const h=harness();
   const incoming=[{
     id:"synthetic-ro-101",ro:"SYN-101",advisor:"Synthetic Advisor",
@@ -134,6 +136,8 @@ test("an Open RO save waits for an in-flight complete-source refresh and applies
 
   const saving=h.context.save({preventDefault(){}});
   await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(await h.context.save({preventDefault(){}}),false,
+    "the production wrapper and underlying save reject a duplicate while the first save is queued");
   assert.equal(h.context.isSaving(),true);
   assert.equal(h.context.openEditor("synthetic-ro-202"),false,
     "switching to another RO is blocked while the submitted save waits for the lock");
