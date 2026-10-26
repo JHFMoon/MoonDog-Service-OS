@@ -1,6 +1,6 @@
 "use strict";
 
-// #59-04: exercise the production manager-source importer for the Efficiency
+// #59-04 conflict checks and #59-01 source-lineage coverage for the Efficiency
 // family. All report values and labels are synthetic fixtures.
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -236,4 +236,54 @@ test("verified Media ASR import projects the same report date, source and adviso
     "local file modification time remains distinct from the verified report observation date");
   assert.deepEqual(f.events, ["write", "readback", "history", "delete"],
     "the displayed trend follows successful durable verification and source audit");
+});
+
+
+
+test("Manager Home carries the verified Efficiency report period with its displayed source values", () => {
+  const start = app.indexOf("  function latestFamily(");
+  const end = app.indexOf("  function renderAll()", start);
+  assert.ok(start >= 0 && end > start, "production Manager Home source summary exists");
+  const snapshot = {
+    periodStart: "2026-10-01",
+    periodEnd: "2026-10-21",
+    store: { efficiency: 0.9, flagHours: 120, clockHours: 100, efficiencyBic: 0.95 }
+  };
+  const managerSourceGrid = { children: [], replaceChildren() { this.children = []; }, append(item) { this.children.push(item); } };
+  const context = vm.createContext({
+    model: {
+      state: { records: [] },
+      operationalMetrics: { efficiency: { snapshots: { "2026-10": snapshot } } }
+    },
+    ui: { managerSourceGrid },
+    document: { createElement: () => ({ className: "", innerHTML: "" }) },
+    performanceFormat: (value, style) => style === "percent" ? Math.round(Number(value) * 100) + "%" : String(value ?? "—")
+  });
+  vm.runInContext(app.slice(start, end) + "\nthis.renderManagerIntelligence = renderManagerIntelligence;", context);
+  context.renderManagerIntelligence();
+  const shopCard = managerSourceGrid.children[2].innerHTML;
+  assert.match(shopCard, /2026-10-01 through 2026-10-21/);
+  assert.match(shopCard, /90%/);
+  assert.match(shopCard, /120 flag \/ 100 clock hours/);
+});
+
+test("Manager Home marks missing Efficiency period as unverified rather than inferring coverage", () => {
+  const start = app.indexOf("  function latestFamily(");
+  const end = app.indexOf("  function renderAll()", start);
+  const managerSourceGrid = { children: [], replaceChildren() { this.children = []; }, append(item) { this.children.push(item); } };
+  const context = vm.createContext({
+    model: {
+      state: { records: [] },
+      operationalMetrics: { efficiency: { snapshots: { "2026-10": {
+        store: { efficiency: 0.9, flagHours: 120, clockHours: 100, efficiencyBic: 0.95 }
+      } } } }
+    },
+    ui: { managerSourceGrid },
+    document: { createElement: () => ({ className: "", innerHTML: "" }) },
+    performanceFormat: (value, style) => style === "percent" ? Math.round(Number(value) * 100) + "%" : String(value ?? "—")
+  });
+  vm.runInContext(app.slice(start, end) + "\nthis.renderManagerIntelligence = renderManagerIntelligence;", context);
+  context.renderManagerIntelligence();
+  assert.match(managerSourceGrid.children[2].innerHTML, /Period unverified/);
+  assert.doesNotMatch(managerSourceGrid.children[2].innerHTML, /2026-10-26/);
 });
