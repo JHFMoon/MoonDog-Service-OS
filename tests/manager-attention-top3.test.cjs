@@ -239,7 +239,7 @@ test('Home secondary priorities show ownership, due date, blocker, next step, an
   assert.match(detail.textContent,/Follow-up date: 2026-10-27/);
   assert.match(detail.textContent,/Status \/ blocker: Waiting Parts — Synthetic part ETA/);
   assert.match(detail.textContent,/Next step: Recheck synthetic part ETA/);
-  assert.match(detail.textContent,/synthetic-open-ro\\.xlsx · Report period 2026-10-26/);
+  assert.match(detail.textContent,/synthetic-open-ro\.xlsx · Report period 2026-10-26/);
 
   model.state.source={fileName:'synthetic-open-ro.xlsx',sourceModifiedAt:'2026-10-25T18:00:00Z',importedAt:'2026-10-26T09:00:00Z'};
   const modifiedHost=node();
