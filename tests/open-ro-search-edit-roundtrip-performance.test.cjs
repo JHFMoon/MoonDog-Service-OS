@@ -14,6 +14,7 @@ function section(startText, endText) {
   return app.slice(start, end);
 }
 const production = [
+  section("  function ownerAssignmentSourceForManagerSave(", "  function pruneClosedRecords("),
   section("  function sortOpenRoRows(", "  function renderTable()"),
   section("  function renderTable()", "\n  function "),
   section("  async function writeJson(", "\n  async function "),
