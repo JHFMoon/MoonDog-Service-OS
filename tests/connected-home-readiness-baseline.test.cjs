@@ -97,6 +97,7 @@ async function syntheticSnapshotHydration(recordCount,options={}){
   payload.state={records:Array.from({length:recordCount},(_,i)=>({
     id:"SYNTHETIC-"+i,management:{reviewDate:"2026-10-25",nextAction:"Follow up"}
   })),closedRecords:[]};
+  const serialized=Object.fromEntries(names.map(name=>[name,JSON.stringify(payload[name])]));
   let inflight=0,maximumInflight=0,reads=0;
   const readJson=async(filePath)=>{
     const index=paths.indexOf(filePath);
@@ -105,10 +106,10 @@ async function syntheticSnapshotHydration(recordCount,options={}){
     inflight++;
     maximumInflight=Math.max(maximumInflight,inflight);
     try{
-      // Deterministic synthetic async I/O, not a OneDrive timing surrogate.
+      // Deterministic async wait plus real JSON parsing, not a OneDrive timing surrogate.
       await new Promise(resolve=>setTimeout(resolve,options.latencyMs??2));
       if(options.failAt===index)throw Error("Synthetic unavailable snapshot");
-      return payload[names[index]];
+      return JSON.parse(serialized[names[index]]);
     }finally{inflight--;}
   };
   const context=vm.createContext({
@@ -130,7 +131,7 @@ async function syntheticSnapshotHydration(recordCount,options={}){
     return {failed:true,maximumInflight,reads};
   }
   const elapsedMs=performance.now()-started;
-  for(const name of names)assert.equal(model[name],payload[name],
+  for(const name of names)assert.deepEqual(model[name],payload[name],
     "Commit the verified group once all eight reads succeed: "+name);
   assert.equal(model.state.records.length,recordCount);
   return {failed:false,elapsedMs,maximumInflight,reads};
