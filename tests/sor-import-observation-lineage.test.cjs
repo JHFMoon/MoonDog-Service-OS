@@ -18,13 +18,19 @@ const dateHelpers = extract("  function internalObservationDate(", "  function d
 const dailyEvidence = extract("  function dailyEvidenceDate(", "  function dailySourceCoverage(", "daily evidence selector");
 const comparison = extract("  function comparableManagerSnapshot(", "  async function importManagerSource(", "report comparison");
 const importer = extract("  async function importManagerSource(", "  async function classifyImportFile(", "manager source import");
+const homeRenderer = extract("  function latestFamily(", "  function renderAll()", "Home source summary renderer");
+
 
 function fixture(snapshot, { sourceModifiedAt, rows }) {
-  const model = { operationalMetrics: {}, settings: {} };
+  const managerGrid = { children: [], replaceChildren(...items) { this.children = items; }, append(item) { this.children.push(item); } };
+  const model = { operationalMetrics: {}, settings: {}, state: { records: [] } };
   let durable = {};
   const history = [];
   const context = vm.createContext({
     text: value => String(value ?? ""),
+    performanceFormat: (value, style) => style === "money" ? "$" + Number(value).toFixed(0) : String(value ?? ""),
+    ui: { managerSourceGrid: managerGrid },
+    document: { createElement: () => ({ className: "", innerHTML: "" }) },
     model,
     structuredClone,
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
@@ -47,8 +53,8 @@ function fixture(snapshot, { sourceModifiedAt, rows }) {
     removeSourceEntry: async () => { throw new Error("This regression never deletes its synthetic source."); }
   });
   vm.runInContext(
-    dateHelpers + "\n" + dailyEvidence + "\n" + comparison + "\n" + importer +
-      "\nthis.api = { importManagerSource, dailyEvidenceDate };",
+    dateHelpers + "\n" + dailyEvidence + "\n" + comparison + "\n" + importer + "\n" + homeRenderer +
+      "\nthis.api = { importManagerSource, dailyEvidenceDate }; this.renderManagerIntelligence = renderManagerIntelligence;",
     context
   );
   return { context, model, durable: () => durable, history };
@@ -63,6 +69,7 @@ test("SOR report observation date survives production import, durable readback, 
     financialMonth: "2026-10",
     store: { totalGross: 1200, totalRO: 5 },
     advisors: { SYN01: { totalGross: 1200, totalRO: 5 } },
+    metrics: { "CP Labor Gross": { currentActual: 1200 }, "CP ELR": { currentActual: 150 } },
     validation: { totalsVerified: true }
   };
   const f = fixture(snapshot, {
@@ -79,6 +86,12 @@ test("SOR report observation date survives production import, durable readback, 
   assert.equal(f.durable().sor.dailySnapshots["2026-10-20"].coverageDate, "2026-10-20");
   assert.equal(f.context.api.dailyEvidenceDate("sor", saved), "2026-10-20");
   assert.deepEqual(f.history.map(item => item.type), ["sor-import"]);
+  f.context.renderManagerIntelligence();
+  assert.equal(managerGrid.children.length, 5, "Home renders its source summaries from durable operational metrics");
+  assert.match(managerGrid.children[0].innerHTML, /2026-10/,
+    "Home reports the imported financial period from the retained source snapshot");
+  assert.match(managerGrid.children[0].innerHTML, /1,200 CP labor gross/,
+    "Home derives SOR financial output from the same imported source values");
 });
 
 test("month-only SOR with an out-of-period file timestamp does not fabricate daily coverage", async () => {
