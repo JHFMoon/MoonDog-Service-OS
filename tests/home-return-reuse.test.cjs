@@ -40,7 +40,17 @@ test("verified, unchanged Home return preserves mounted DOM but all source and p
   context.renderHome();assert.equal(paints,1);
   assert.equal(context.canReuse(),true,"an already verified Home can be reused in the same minute");
   minute+=25000;assert.equal(context.canReuse(),true);
-  minute+=45000;assert.equal(context.canReuse(),false,"a new minute re-evaluates time-dependent priorities");
+  // A deferred task can become eligible before a clock minute changes.
+  // Production MoonDogDailyEngine.eligible evaluates details.until exactly.
+  state.events.push({id:"synthetic-suppression",at:"2026-10-25T20:02:25.000Z",
+    details:{taskId:"synthetic-task",action:"deferred",fingerprint:"one",rank:1,
+      until:"2026-10-25T20:02:45.000Z"}});
+  context.renderHome();
+  minute+=10000;assert.equal(context.canReuse(),true,"suppressed task remains hidden before exact expiry");
+  minute+=15000;assert.equal(context.canReuse(),false,
+    "a same-minute suppression expiry must re-evaluate the priority task");
+  context.renderHome();assert.equal(context.canReuse(),true,"an expired suppression can be freshly painted");
+  minute+=20000;assert.equal(context.canReuse(),false,"a new minute re-evaluates time-dependent priorities");
   context.renderHome();assert.equal(context.canReuse(),true);
 
   model.state.updatedAt="2026-10-25T20:03:20Z";
