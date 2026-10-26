@@ -119,3 +119,66 @@ test("connected Home remains accurate and nonmutating for an empty synthetic Wor
   assert.equal(ui.exportButton.disabled, true);
   assert.equal(JSON.stringify(model.state.records), original);
 });
+
+
+test("production Home summary matches legacy three-pass counts and measures a single-pass synthetic baseline",()=>{
+  const summaryStart=renderHome.indexOf("    const records = model.state.records || [];");
+  const summaryEnd=renderHome.indexOf("ui.metricUpdated.textContent",summaryStart);
+  assert.ok(summaryStart>=0&&summaryEnd>summaryStart,
+    "The production summary block must stay directly measurable after refactors");
+  const currentBody=renderHome.slice(summaryStart,summaryEnd);
+  assert.match(currentBody,/for \(const record of records\)/,
+    "The active Home summary must scan the source rows in one pass");
+  const originalThreePass=[
+    "const records=model.state.records||[];",
+    "const today=localDateKey();",
+    "const active=records.filter(row=>!isClosedManagement(row.management));",
+    "ui.metricOpen.textContent=active.length;",
+    "ui.metricDue.textContent=active.filter(row=>row.management.reviewDate===today).length;",
+    "ui.metricMissing.textContent=active.filter(row=>!row.management.nextAction).length;"
+  ].join("\n");
+  function probe(size){
+    const records=makeWorkspace(size).state.records;
+    const model={state:{records},recovery:{}};
+    const ui={metricOpen:{textContent:0},metricDue:{textContent:0},metricMissing:{textContent:0}};
+    const context=vm.createContext({
+      model,ui,localDateKey:()=>"2026-10-25",
+      isClosedManagement:management=>management?.status==="closed"
+    });
+    vm.runInContext(
+      "this.legacySummary=function(){"+originalThreePass+"};"+
+      "this.currentSummary=function(){"+currentBody+"};",context);
+    const snapshot=JSON.stringify(records);
+    context.legacySummary();
+    const before=[ui.metricOpen.textContent,ui.metricDue.textContent,ui.metricMissing.textContent];
+    context.currentSummary();
+    const after=[ui.metricOpen.textContent,ui.metricDue.textContent,ui.metricMissing.textContent];
+    assert.deepEqual(after,before,"one-pass summary must match all three legacy counts");
+    assert.equal(JSON.stringify(records),snapshot,"Home metrics cannot modify source rows");
+    const runTiming=fn=>{
+      for(let warmup=0;warmup<8;warmup++)fn();
+      const samples=[];
+      for(let sample=0;sample<21;sample++){
+        const began=performance.now();
+        for(let repeat=0;repeat<15;repeat++)fn();
+        samples.push((performance.now()-began)/15);
+      }
+      return {p50Ms:Number(percentile(samples,0.5).toFixed(3)),
+        p95Ms:Number(percentile(samples,0.95).toFixed(3))};
+    };
+    return {records:size,counts:after,legacyThreePass:runTiming(context.legacySummary),
+      productionSinglePass:runTiming(context.currentSummary)};
+  }
+  const empty=probe(0),large=probe(2100),stress=probe(25000);
+  for(const row of [empty,large,stress]){
+    for(const path of ["legacyThreePass","productionSinglePass"]){
+      const timing=row[path];
+      assert.ok(Number.isFinite(timing.p50Ms)&&timing.p50Ms>=0);
+      assert.ok(Number.isFinite(timing.p95Ms)&&timing.p95Ms>=timing.p50Ms);
+    }
+  }
+  console.log("Synthetic Home metric pass comparison",JSON.stringify({
+    scope:"production RO summary count block, with stub UI fields; no browser DOM, file reads, connected folder, or OneDrive latency",
+    empty,large,stress
+  }));
+});
