@@ -1493,12 +1493,6 @@
       paint();
     }catch(error){if(token!==state.searchToken||model.root!==searchRoot)return;paint();const p=document.createElement('p');p.textContent='Some saved files could not be searched. Check folder access and try again.';host.append(p);}
   }
-  // Invalidate synchronously before asynchronous source/restore listeners
-  // complete; an old Home task must never be reused during a source change.
-  for(const eventName of ['moondog-data','moondog-imported','moondog-saved',
-    'moondog-workspace-changing','moondog-recovered']){
-    document.addEventListener(eventName,()=>{homePaintReceipt=null;},true);
-  }
   document.addEventListener('moondog-recovered',async()=>{historyFileCache.clear();fullHistoryCache=null;fullHistoryCacheNames=null;historyCacheRoot=null;state.current=null;state.editing=false;state.loadedRoot=null;await ready();});
   document.addEventListener('moondog-workspace-changing',suspendForWorkspaceChange);
   document.addEventListener('moondog-data',ready);
@@ -1536,6 +1530,12 @@
   // heartbeat rewrote timestamp-only mobile pages to OneDrive.
   window.addEventListener('focus',checkOperatingDate);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkOperatingDate();});
+  // Invalidate synchronously before asynchronous source/restore listeners
+  // complete; an old Home task must never be reused during a source change.
+  for(const eventName of ['moondog-data','moondog-imported','moondog-saved',
+    'moondog-workspace-changing','moondog-recovered']){
+    document.addEventListener(eventName,()=>{homePaintReceipt=null;},true);
+  }
   installThemeToggle();installShell();renderHome();ready();queueMobilePublish(3500);
   globalThis.__moondogDailyUI=Object.freeze({state,candidates:allTasks,selectNext,renderHome,renderTools,searchAll,settingsCategory,ready,confirmWorkspaceChange:discardDraftOk});
 })();
