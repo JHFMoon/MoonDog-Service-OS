@@ -981,6 +981,44 @@
     say(state.error);
   }
 
+  // #58-03: Reuse a fully painted Home on a verified, unchanged return.
+  // A source/permission update, new task event, date/minute boundary, or
+  // Workspace switch invalidates the receipt before Home becomes actionable.
+  let homePaintReceipt=null;
+  function homePaintSignature(){
+    const lastEvent=state.events?.at(-1);
+    return JSON.stringify([
+      today(),businessHour(),Math.floor(now()/60000),
+      model.state?.updatedAt,model.state?.records?.length,model.state?.source?.importedAt,
+      model.appointments?.updatedAt,model.performance?.updatedAt,
+      model.operationalMetrics?.updatedAt,model.assignNext?.updatedAt,
+      model.settings?.updatedAt,model.recovery?.updatedAt,
+      state.events?.length||0,lastEvent?.id,lastEvent?.at,
+      state.current?.id,state.current?.fingerprint
+    ]);
+  }
+  const renderHomeWithFullRefresh=renderHome;
+  renderHome=function(...args){
+    const result=renderHomeWithFullRefresh(...args);
+    // selectNext paints the first verified Home while ready() is finishing
+    // its loading flag. The model root is already committed at that point;
+    // reuse is still forbidden until loading/busy clears on return.
+    homePaintReceipt=model.root&&state.loadedRoot===model.root&&
+      model.workspaceConnectionCommittedRoot===model.root?
+      {root:model.root,signature:homePaintSignature()}:null;
+    return result;
+  };
+  function canReuseHomeOnReturn(){
+    return Boolean(
+      homePaintReceipt&&model.root===homePaintReceipt.root&&
+      state.loadedRoot===model.root&&model.workspaceConnectionCommittedRoot===model.root&&
+      model.connectionState==="CONNECTED"&&!model.pendingRoot&&
+      !state.busy&&!state.loading&&!state.editing&&!state.pending&&
+      homePaintReceipt.signature===homePaintSignature()&&
+      $('dailyTask')&&$('view-home')?.contains($('dailyTask'))
+    );
+  }
+
   function settingsCategory(category){
     const feature=settingsFeatures.find(item=>item.key===category);
     if(!feature)return;
@@ -1455,6 +1493,12 @@
       paint();
     }catch(error){if(token!==state.searchToken||model.root!==searchRoot)return;paint();const p=document.createElement('p');p.textContent='Some saved files could not be searched. Check folder access and try again.';host.append(p);}
   }
+  // Invalidate synchronously before asynchronous source/restore listeners
+  // complete; an old Home task must never be reused during a source change.
+  for(const eventName of ['moondog-data','moondog-imported','moondog-saved',
+    'moondog-workspace-changing','moondog-recovered']){
+    document.addEventListener(eventName,()=>{homePaintReceipt=null;},true);
+  }
   document.addEventListener('moondog-recovered',async()=>{historyFileCache.clear();fullHistoryCache=null;fullHistoryCacheNames=null;historyCacheRoot=null;state.current=null;state.editing=false;state.loadedRoot=null;await ready();});
   document.addEventListener('moondog-workspace-changing',suspendForWorkspaceChange);
   document.addEventListener('moondog-data',ready);
@@ -1467,7 +1511,7 @@
   // Re-select immediately when the authoritative source model changes.
   // The 'ready' listener already reconciles changed data; avoid a duplicate selection pass.
   document.addEventListener('moondog-imported',()=>queueMobilePublish(1200));
-  document.addEventListener('moondog-navigation',e=>{if(e.detail.view==='tools')renderTools();if(e.detail.view==='settings')$('view-settings').querySelectorAll('.daily-settings-hidden').forEach(el=>el.classList.remove('daily-settings-hidden'));if(e.detail.view==='home'&&!state.editing){if(state.busy||state.loading)renderHome();else refreshCurrent();}if(e.detail.anchor){const el=$(e.detail.anchor);for(let parent=el;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;}});
+  document.addEventListener('moondog-navigation',e=>{if(e.detail.view==='tools')renderTools();if(e.detail.view==='settings')$('view-settings').querySelectorAll('.daily-settings-hidden').forEach(el=>el.classList.remove('daily-settings-hidden'));if(e.detail.view==='home'&&!state.editing){if(state.busy||state.loading)renderHome();else if(!canReuseHomeOnReturn())refreshCurrent();}if(e.detail.anchor){const el=$(e.detail.anchor);for(let parent=el;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;}});
   document.addEventListener('moondog-imported',()=>{if(!state.busy&&!state.editing)action(async()=>{await loadHistory();await selectNext();});else state.pending=true;});
   document.addEventListener('moondog-saved',e=>{
     queueMobilePublish(1200);
