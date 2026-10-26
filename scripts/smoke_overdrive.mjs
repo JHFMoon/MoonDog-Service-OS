@@ -640,6 +640,7 @@ try{
     const scenarios=[["empty",0,0],["large",2100,0],["large-slow-read",2100,25]];
     for(const [scenario,recordCount,readDelayMs] of scenarios){
       const connectionSamples=[],launcherSamples=[];
+      const firstTabSamples={},repeatTabSamples={};
       for(let sample=0;sample<9;sample++){
         const connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
         const browserErrors=[];
@@ -803,7 +804,60 @@ try{
           if(browserErrors.length)throw Error("Synthetic browser connection page errors: "+browserErrors.join("; "));
           connectionSamples.push(outcome.connectionToFrameMs);
           launcherSamples.push(launcherToFrameMs);
+          // #58-03: measure first-open and repeat navigation on the same
+          // committed synthetic Workspace, after the verified Home frame.
+          if(scenario==="large"){
+            const views=["open-ro","assign-next","performance","meeting","arrivals","home"];
+            for(let pass=0;pass<2;pass++){
+              for(const view of views){
+                const measurement=await connectedPage.evaluate(async v=>{
+                  const tab=document.querySelector('.nav-item[data-view="'+v+'"]');
+                  if(!tab)throw Error("Missing synthetic tab "+v);
+                  const started=performance.now();
+                  tab.click();
+                  // Navigation activates the shell immediately; expensive
+                  // Open RO/Performance/Meeting builds are deferred through
+                  // rAF + setTimeout. Time the activation frame separately,
+                  // then wait for queued render work before the next tab.
+                  await new Promise(resolve=>requestAnimationFrame(resolve));
+                  const ms=performance.now()-started;
+                  await new Promise(resolve=>setTimeout(resolve,80));
+                  await new Promise(resolve=>requestAnimationFrame(resolve));
+                  const target=document.getElementById("view-"+v);
+                  const rows=v==="open-ro"?document.querySelectorAll("#roTable tr[data-id]").length:null;
+                  const performanceSourceText=document.getElementById("performanceSource")?.textContent?.trim()||"";
+                  // The unrendered HTML shell says "Connect the working
+                  // folder to begin". renderPerformance() replaces it with
+                  // either a safe no-report state or verified SAPR provenance.
+                  const performanceReady=v!=="performance"||Boolean(
+                    performanceSourceText&&performanceSourceText!=="Connect the working folder to begin");
+                  const meetingFreshness=document.getElementById("meetingV3Freshness")?.textContent?.trim()||"";
+                  const meetingComparison=document.getElementById("meetingV3GrossPrior")?.textContent?.trim()||"";
+                  // The shell starts as WAITING FOR VERIFIED SOURCES / PRIOR 7
+                  // DAYS UNAVAILABLE. Only completed renderMeetingV3Accurate()
+                  // changes both to these safe rendered source/no-source labels.
+                  const meetingReady=v!=="meeting"||Boolean(
+                    meetingFreshness.startsWith("UPDATED THROUGH ")&&
+                    meetingComparison.startsWith("Previous 7"));
+                  return {ms,active:!!target?.classList.contains("active"),rows,performanceReady,meetingReady};
+                },view);
+                if(!measurement.active||(view==="open-ro"&&measurement.rows<1)||!measurement.performanceReady||!measurement.meetingReady)
+                  throw Error("Synthetic connected tab was not usable: "+JSON.stringify({view,pass,...measurement}));
+                const slot=pass===0?firstTabSamples:repeatTabSamples;
+                (slot[view==="home"?(pass===0?"homeFirstReturn":"homeRepeatReturn"):view]||=[]).push(measurement.ms);
+              }
+            }
+            if(browserErrors.length)throw Error("Connected navigation page errors: "+browserErrors.join("; "));
+          }
         }finally{await connectedPage.close();}
+      }
+      if(scenario==="large"){
+        const summarizeTabs=samples=>Object.fromEntries(
+          Object.entries(samples).map(([view,values])=>[view,summarizeNavigationMs(values)]));
+        console.log("58-03 synthetic connected Chromium first/repeat tab activation",
+          JSON.stringify({records:recordCount,firstVisitOrHomeReturn:summarizeTabs(firstTabSamples),
+            repeatVisit:summarizeTabs(repeatTabSamples),
+            scope:"9 connected browser page starts, 6 views x 2 passes; activation to first rAF timed, deferred tab render given 80ms plus next rAF before checking usable DOM and advancing; Home measurements are returns after verified initial Home, not first open; not installed Edge timings"}));
       }
       console.log("58-01 synthetic Chromium first verified Home",
         JSON.stringify({scenario,records:recordCount,syntheticReadDelayMs:readDelayMs,
