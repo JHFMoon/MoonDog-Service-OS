@@ -83,3 +83,60 @@ test("synthetic VIR report keeps its observation date and values through durable
   assert.equal(evidence.value, 75);
   assert.match(evidence.reconciliation, /PASS/);
 });
+
+
+test("one synthetic VIR observation keeps its durable lineage consistent in Home, Meeting, and import history",async()=>{
+  const f=fixture();
+  await f.context.importVirFile("synthetic-vir.csv",false);
+  const durable=structuredClone(f.durable());
+  f.context.model.operationalMetrics=durable;
+
+  const makeNode=()=>({
+    textContent:"",className:"",children:[],
+    replaceChildren(...items){this.children=[...items];},
+    append(...items){this.children.push(...items);}
+  });
+  const ui=Object.fromEntries([
+    "moondogNeeds","nextAppointmentsSummary","nextAppointmentsCoverage",
+    "virSummary","virCoverage","menuSummary","menuCoverage","csiSummary","csiCoverage"
+  ].map(key=>[key,makeNode()]));
+  Object.assign(f.context,{
+    ui,
+    document:{createElement:makeNode},
+    renderAdminCloseoutAttention(){},
+    latestNextAppointmentsSnapshot:()=>null,
+    currentCsiSurveys:()=>({}),
+    latestCsiRefreshDate:()=>"not-recorded",
+    npsSummary:()=>({responses:0,nps:0,promoters:0,detractors:0}),
+    managerAttentionRequests:()=>[],
+    trendCoverageAudit:()=>({}),
+    reportNeeds:()=>({}),
+    sourceFreshness:()=>({}),
+    sourceStatusLabel:()=>"CURRENT",
+    renderTrendCoverageSummary(){},
+    renderPreviousMonthTotals(){},
+    standard:key=>key==="vir"?80:NaN,
+    performanceFormat:value=>String(value)+"%",
+    shortDate:value=>String(value||"")
+  });
+  vm.runInContext(home+"\\nthis.renderHome=renderOverviewIntelligence;",f.context);
+  f.context.renderHome();
+
+  const rendered=node=>{
+    return String(node.textContent||"")+" "+(node.children||[]).map(rendered).join(" ");
+  };
+  const snapshot=Object.values(durable.vir.snapshots)[0];
+  const meeting=f.context.virMeetingEvidence();
+  assert.ok(snapshot,"the production import leaves a retained durable observation");
+  assert.equal(snapshot.reportDate,"2026-10-22");
+  assert.equal(meeting.verified,true);
+  assert.equal(meeting.period,"Observed 2026-10-22");
+  assert.equal(meeting.value,75);
+  assert.match(rendered(ui.virSummary),/Store VIR 75\\.0%/,
+    "Home renders the same utilization retained by the imported observation");
+  assert.equal(ui.virCoverage.textContent,
+    "Latest point-in-time observation · 2026-10-22 · "+snapshot.deliveryHeader,
+    "Home shows the actual source observation date, rather than file or import time");
+  assert.equal(f.history[0].details.observationDate,"2026-10-22",
+    "the import audit retains the same report date shown by Home and Meeting");
+});
