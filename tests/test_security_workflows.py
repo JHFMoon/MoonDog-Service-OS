@@ -276,15 +276,14 @@ class SecurityWorkflowTests(unittest.TestCase):
             "      - name: Wait for Publication, Clean Install, and exact-head Codex proof",
             1,
         )[1].split("      - name: Bring branch current with main if needed", 1)[0]
-        loop_line = next(
-            (line.strip() for line in wait.splitlines()
-             if line.strip().startswith("for attempt in {1..") and line.strip().endswith("}; do"),
-            "",
-        )
-        interval_line = next(
-            (line.strip() for line in wait.splitlines() if line.strip().startswith("sleep ")),
-            "",
-        )
+        loop_line = ""
+        interval_line = ""
+        for line in wait.splitlines():
+            candidate = line.strip()
+            if candidate.startswith("for attempt in {1..") and candidate.endswith("}; do"):
+                loop_line = candidate
+            if not interval_line and candidate.startswith("sleep "):
+                interval_line = candidate
         self.assertTrue(loop_line, "the exact-head proof wait must stay bounded")
         self.assertTrue(interval_line, "the proof wait must keep an explicit polling interval")
         attempts = int(loop_line.removeprefix("for attempt in {1..").removesuffix("}; do"))
