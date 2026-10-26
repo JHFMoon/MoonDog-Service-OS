@@ -16,6 +16,15 @@ const restoreEnd=app.indexOf("  function latestImportSummary()",restoreStart);
 assert.ok(start>=0&&end>start&&restoreStart>=end&&restoreEnd>restoreStart,
   "production restore/preflight functions must be available");
 const production=app.slice(start,end)+"\n"+app.slice(restoreStart,restoreEnd);
+const mergeStart=app.indexOf("  function defaultManagementFor(");
+const mergeEnd=app.indexOf("  async function importCdkRepairOrdersDocx(",mergeStart);
+assert.ok(mergeStart>=0&&mergeEnd>mergeStart,"production complete-source Open RO merge must exist");
+function mergeOpenRo(state,incoming){
+  const context={model:{state},CLOSED_RO_RETENTION_DAYS:730,
+    canonicalCdkStatus:value=>value==="Review"?"Ready for Review":value==="Working"?"Being Repaired":""};
+  const merge=vm.runInNewContext(app.slice(mergeStart,mergeEnd)+"\\nmergeCompleteOpenRoRecords",context);
+  return JSON.parse(JSON.stringify(merge(incoming,"2026-10-26T12:00:00.000Z","open-ro-xlsx")));
+}
 const encode=s=>new TextEncoder().encode(s);
 const decode=b=>new TextDecoder().decode(b);
 const digest=b=>crypto.createHash("sha256").update(b).digest("hex");
@@ -33,7 +42,7 @@ function fixture(options={}){
   const before=Object.fromEntries(keys.map(p=>[p,JSON.parse(decode(files.get(p)))]));
   const safety={values:before,manifest:{entries:[{path:history,size:files.get(history).length,sha256:digest(files.get(history))}]}};
   const incoming=new Map([
-    [keys[0],json({records:[{id:"restored"}]})],
+    [keys[0],json(options.restoredState||{records:[{id:"restored"}]})],
     [keys[1],json({schemaVersion:4,store:{name:"restored"}})],
     [history,json({records:[{id:"restored-history"}]})]
   ]);
@@ -175,6 +184,64 @@ test("an interrupted history replacement retains the safety package and disables
   assert.equal(f.disabled,1);
   assert.equal(f.safetyExists,true);
   assert.equal(f.actions.filter(([a])=>a==="write").length,2,"do not write canonical files again as rollback");
+});
+
+test("recovered Open RO manager fields remain authoritative through the next complete-source reimport",async()=>{
+  const management={
+    status:"Waiting Parts",
+    owner:"Synthetic Recovery Owner",
+    nextAction:"Recheck synthetic part ETA",
+    reviewDate:"2026-10-27",
+    communication:"Updated",
+    note:"Synthetic manager follow-up",
+    manualAnnotation:"Synthetic recovery annotation",
+    updatedAt:"2026-10-26T10:00:00.000Z"
+  };
+  const restoredState={
+    schemaVersion:1,
+    updatedAt:"2026-10-26T10:00:00.000Z",
+    records:[{
+      id:"synthetic-ro-recovery-201",
+      ro:"SYN-201",
+      sourceStatus:"Working",
+      advisor:"Synthetic Advisor A",
+      technician:"Synthetic Technician A",
+      sourceFields:{"RO Number":"SYN-201","Source Status":"Working","Advisor":"Synthetic Advisor A","Technician":"Synthetic Technician A"},
+      management
+    }],
+    closedRecords:[],
+    source:{fileName:"synthetic-open-ro.xlsx",importedAt:"2026-10-26T09:55:00.000Z"}
+  };
+  const f=fixture({restoredState});
+  await f.restore();
+  const recovered=JSON.parse(decode(f.files.get(keys[0])));
+  assert.deepEqual(recovered,restoredState,
+    "the actual verified restore writes back the saved manager plan and its source provenance");
+  assert.equal(f.model.recovery.status,"Restore verified");
+  assert.equal(f.files.has("data/restore-in-progress.json"),false);
+
+  const incoming={
+    id:"synthetic-ro-recovery-201",
+    ro:"SYN-201",
+    sourceStatus:"Review",
+    advisor:"Synthetic Advisor B",
+    technician:"Synthetic Technician B",
+    sourceFields:{
+      "RO Number":"SYN-201","Source Status":"Review",
+      "Advisor":"Synthetic Advisor B","Technician":"Synthetic Technician B",
+      "Reported Hours":"2.5"
+    },
+    management:{owner:"UNTRUSTED SOURCE OWNER",nextAction:"UNTRUSTED SOURCE PLAN"}
+  };
+  const merged=mergeOpenRo(recovered,[incoming]);
+  const result=merged.records[0];
+  assert.deepEqual(result.management,management,
+    "restored manager-authoritative fields survive the production complete-source merge");
+  assert.deepEqual(result.sourceFields,incoming.sourceFields,
+    "the newly accepted report refreshes source-owned fields after recovery");
+  assert.equal(result.sourceStatus,"Review");
+  assert.equal(result.advisor,"Synthetic Advisor B");
+  assert.equal(result.technician,"Synthetic Technician B");
 });
 
 test("an unchanged synthetic restore still succeeds without disabling write authority",async()=>{
