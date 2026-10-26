@@ -79,7 +79,6 @@ test("synthetic VIR observation keeps its source date through durable storage an
     currentCsiSurveys: () => ({}),
     latestCsiRefreshDate: () => "",
     npsSummary: () => ({ responses: 0, nps: null, promoters: 0, detractors: 0 }),
-    localDateKey: () => "2026-10-23",
     standard: () => 90,
     performanceFormat: value => String(value),
     shortDate: value => value === "2026-10-22" ? "Oct 22" : String(value || "—")
