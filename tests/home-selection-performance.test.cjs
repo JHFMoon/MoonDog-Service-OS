@@ -68,7 +68,7 @@ test("Indexed event eligibility preserves production task decisions and bounds h
 
 test("Home navigation does not redundantly rebuild the entire task DOM",()=>{
   const daily=read("assets/daily-ops.js");
-  assert.match(daily,/if\(e\.detail\.view==='home'&&!state\.editing\)\{if\(state\.busy\|\|state\.loading\)renderHome\(\);else refreshCurrent\(\);\}/);
+  assert.match(daily,/if\(e\.detail\.view==='home'&&!state\.editing\)\{if\(state\.busy\|\|state\.loading\)renderHome\(\);else if\(!canReuseHomeOnReturn\(\)\)refreshCurrent\(\);\}/);
   assert.doesNotMatch(daily,/refreshCurrent\(\);renderHome\(\);/);
   assert.match(daily,/top \|\|= attentionTopThree\(\)/);
 });
