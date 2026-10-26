@@ -61,7 +61,7 @@ class BetaDispatchTests(unittest.TestCase):
         self.assertIn("existing_pr_number == ''", workflow)
         self.assertIn("for attempt in {1..180}; do", workflow)
         self.assertIn('gh api -X POST "repos/$REPO/statuses/$PACKAGE_HEAD"', workflow)
-        self.assertIn('if main.get("stable") != candidate.get("stable"):', helper.read_text(encoding="utf-8"))
+        self.assertIn('if expected.get("stable") != candidate.get("stable"):', helper.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
