@@ -708,7 +708,7 @@ try{
     for(const [scenario,recordCount,readDelayMs] of scenarios){
       const connectionSamples=[],launcherSamples=[];
       const firstTabSamples={},repeatTabSamples={};
-      const connectedEditSamples={search:[],editor:[],durableSave:[]};
+      const connectedEditSamples={search:[],editor:[],noteReveal:[],durableSave:[]};
       for(let sample=0;sample<9;sample++){
         const connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
         const browserErrors=[];
@@ -964,26 +964,16 @@ try{
             await connectedPage.locator("#editOwner").fill("Synthetic Roundtrip Owner");
             await connectedPage.locator("#editNextAction").fill("Synthetic roundtrip action");
             await connectedPage.locator("#editReviewDate").fill("2026-10-27");
-            await connectedPage.locator("#editNote").evaluate(el=>el.scrollIntoView({block:"center",inline:"nearest"}));
-            const noteVisibility=await connectedPage.locator("#editNote").evaluate(el=>{
-              const bounds=el.getBoundingClientRect(),style=getComputedStyle(el),ancestors=[];
-              for(let parent=el;parent&&parent!==document.documentElement;parent=parent.parentElement){
-                const computed=getComputedStyle(parent),rect=parent.getBoundingClientRect();
-                ancestors.push({tag:parent.tagName,id:parent.id,className:String(parent.className||"").slice(0,80),
-                  hidden:parent.hidden,display:computed.display,visibility:computed.visibility,
-                  opacity:computed.opacity,width:rect.width,height:rect.height,
-                  overflow:computed.overflow,overflowY:computed.overflowY});
-              }
-              return {visible:bounds.width>0&&bounds.height>0&&style.visibility!=="hidden"&&style.display!=="none",
-                checkVisibility:el.checkVisibility?.(),hidden:el.hidden,display:style.display,
-                visibility:style.visibility,opacity:style.opacity,rect:{x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height},
-                dialogOpen:document.getElementById("editDialog")?.open,
-                openRoActive:document.getElementById("view-open-ro")?.classList.contains("active"),
-                ancestors};
-            });
-            console.log("Synthetic editor note visibility",JSON.stringify(noteVisibility));
-            if(!noteVisibility.visible)throw Error("Synthetic editor note is not visibly rendered: "+JSON.stringify(noteVisibility));
-            await connectedPage.locator("#editNote").fill("Synthetic roundtrip note",{timeout:3500});
+            const noteDisclosure=connectedPage.locator("#editNote").locator("xpath=ancestor::details[1]");
+            const disclosureLabel=(await noteDisclosure.locator("summary").textContent()||"").trim();
+            if(disclosureLabel!=="Add note")throw Error("Synthetic note editor disclosure label changed: "+disclosureLabel);
+            const noteRevealStarted=await connectedPage.evaluate(()=>performance.now());
+            await noteDisclosure.locator("summary").click({timeout:3500});
+            await connectedPage.locator("#editNote").scrollIntoViewIfNeeded();
+            await connectedPage.locator("#editNote").waitFor({state:"visible",timeout:3500});
+            const noteRevealMs=await connectedPage.evaluate(started=>performance.now()-started,noteRevealStarted);
+            const noteVisible=await connectedPage.locator("#editNote").evaluate(el=>el.checkVisibility?.()??false);
+            if(!noteVisible)throw Error("Synthetic note field remained hidden after expanding Add note");
             // The timer starts after editor entry and field updates, isolating
             // verified persistence and dialog completion from automation typing.
             await connectedPage.evaluate(()=>{globalThis.__moondogSearchEditSaveStarted=performance.now();});
@@ -1009,6 +999,7 @@ try{
               }));
             connectedEditSamples.search.push(editCycle.searchMs);
             connectedEditSamples.editor.push(editCycle.editorMs);
+            connectedEditSamples.noteReveal.push(noteRevealMs);
             connectedEditSamples.durableSave.push(saved.elapsedMs);
             if(browserErrors.length)throw Error("Connected browser page errors: "+browserErrors.join("; "));
           }
@@ -1025,8 +1016,9 @@ try{
           JSON.stringify({records:2100,samples:connectedEditSamples.search.length,
             search:summarizeNavigationMs(connectedEditSamples.search),
             editor:summarizeNavigationMs(connectedEditSamples.editor),
+            noteReveal:summarizeNavigationMs(connectedEditSamples.noteReveal),
             durableSave:summarizeNavigationMs(connectedEditSamples.durableSave),
-            scope:"packaged file:// Chromium, connected memory-only File System Access-compatible Workspace; exact search to rendered result, production editor open to frame, production save to verified durable read-back; sourceFields and manager manual annotation preserved; synthetic-only"}));
+            scope:"packaged file:// Chromium, connected memory-only File System Access-compatible Workspace; exact search to rendered result, production editor open to frame, visible Add note disclosure expansion, production save to verified durable read-back; sourceFields and manager manual annotation preserved; synthetic-only"}));
       }
       console.log("58-01 synthetic Chromium first verified Home",
         JSON.stringify({scenario,records:recordCount,syntheticReadDelayMs:readDelayMs,
