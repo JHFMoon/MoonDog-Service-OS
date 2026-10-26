@@ -649,6 +649,7 @@ try{
           await connectedPage.goto(pathToFileURL(path.resolve(launcher)).href,{waitUntil:"load",timeout:30000});
           await connectedPage.waitForURL(u=>u.protocol==="file:"&&u.pathname.endsWith("/index.html"),{timeout:15000});
           await connectedPage.waitForFunction(()=>Boolean(globalThis.__moondogDaily?.model&&globalThis.__moondogDailyUI?.renderHome),null,{timeout:15000});
+          const launcherToShellMs=performance.now()-launcherStarted;
           const outcome=await connectedPage.evaluate(async count=>{
             const api=globalThis.__moondogDaily,model=api.model;
             const notFound=()=>Object.assign(new Error("Synthetic entry missing"),{name:"NotFoundError"});
@@ -774,21 +775,30 @@ try{
             Object.defineProperty(window,"showDirectoryPicker",{configurable:true,value:async()=>root});
             const started=performance.now();
             await api.connect();
+            const daily=globalThis.__moondogDailyUI;
+            const deadline=performance.now()+8000;
+            while((daily.state.loadedRoot!==model.root||daily.state.loading)&&performance.now()<deadline)
+              await new Promise(resolve=>setTimeout(resolve,16));
             await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
             const home=document.getElementById("view-home");
             const open=document.getElementById("metricOpen");
+            const homeTask=document.getElementById("dailyTask");
+            const homeTaskText=homeTask?.textContent||"";
+            const homeTaskReady=Boolean(home?.contains(homeTask)&&daily.state.loadedRoot===model.root&&
+              !daily.state.loading&&!/Loading your saved work|Connect Service Operations Dashboard|Connecting working folder/.test(homeTaskText)&&
+              (homeTask.querySelector(".daily-main-priority")||count===0));
             return {
               connectionToFrameMs:performance.now()-started,
               committed:model.workspaceConnectionCommittedRoot===model.root,
               connected:!!model.root,records:model.state.records.length,
               homeActive:!!home?.classList.contains("active"),
               openCount:Number(open?.textContent),
-              managerNeeds:!!document.getElementById("moondogNeeds")
+              homeTaskReady,homeTaskVisibleText:homeTaskText.slice(0,180)
             };
           },recordCount);
-          const launcherToFrameMs=performance.now()-launcherStarted;
+          const launcherToFrameMs=launcherToShellMs+outcome.connectionToFrameMs;
           if(!outcome.committed||!outcome.connected||!outcome.homeActive||
-             outcome.records!==recordCount||outcome.openCount!==recordCount||!outcome.managerNeeds)
+             outcome.records!==recordCount||outcome.openCount!==recordCount||!outcome.homeTaskReady)
             throw Error("Synthetic browser connected Home is not verified: "+JSON.stringify(outcome));
           if(browserErrors.length)throw Error("Synthetic browser connection page errors: "+browserErrors.join("; "));
           connectionSamples.push(outcome.connectionToFrameMs);
@@ -798,8 +808,8 @@ try{
       console.log("58-01 synthetic Chromium first verified Home",
         JSON.stringify({scenario,records:recordCount,
           connectionToFirstFrame:summarizeNavigationMs(connectionSamples),
-          launcherThroughConnectedHome:summarizeNavigationMs(launcherSamples),
-          scope:"packaged file:// Chromium with in-memory File System Access-compatible folder; nine page starts; browser process warm; no physical device, native picker, network or OneDrive latency"}));
+          launcherShellPlusVerifiedConnect:summarizeNavigationMs(launcherSamples),
+          scope:"packaged file:// Chromium with in-memory File System Access-compatible folder; nine page starts; composite launcher-shell plus connected-Home-frame timings exclude synthetic fixture construction; browser process warm; no physical device, native picker, network or OneDrive latency"}));
     }
   }
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
