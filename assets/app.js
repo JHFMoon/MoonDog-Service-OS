@@ -4303,10 +4303,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   let editDraftDirty = false;
   let editDraftRevision = 0;
   function markEditDraftDirty(){editDraftDirty=true;editDraftRevision+=1;}
-  function guardUnsavedEditUnload(event){if(model.openRoSaveInFlight||editDraftDirty){event.preventDefault();event.returnValue="";}}
+  function isOpenRoSavePending(){return typeof model!=="undefined"&&model.openRoSaveInFlight===true;}
+  function guardUnsavedEditUnload(event){if(isOpenRoSavePending()||editDraftDirty){event.preventDefault();event.returnValue="";}}
     function confirmDiscardEdit(){return !editDraftDirty||window.confirm("You have unsaved RO changes. Close this update and discard them?");}
-  function closeEditDialog(){if(model.openRoSaveInFlight){status("An Open RO save is waiting for the shared Workspace lock. Wait for it to finish before closing this editor.","error");return false;}if(confirmDiscardEdit()){editDraftDirty=false;ui.editDialog.close();return true;}return false;}
-  function confirmEditNavigation(view){if(model.openRoSaveInFlight){status("An Open RO save is waiting for the shared Workspace lock. Wait for it to finish before changing views.","error");return false;}if(!editDraftDirty)return true;const activeView=document.querySelector(".view.active");if(activeView?.id===`view-${view}`)return true;if(!confirmDiscardEdit())return false;editDraftDirty=false;if(ui.editDialog.open)ui.editDialog.close();return true;}
+  function closeEditDialog(){if(isOpenRoSavePending()){status("An Open RO save is waiting for the shared Workspace lock. Wait for it to finish before closing this editor.","error");return false;}if(confirmDiscardEdit()){editDraftDirty=false;ui.editDialog.close();return true;}return false;}
+  function confirmEditNavigation(view){if(isOpenRoSavePending()){status("An Open RO save is waiting for the shared Workspace lock. Wait for it to finish before changing views.","error");return false;}if(!editDraftDirty)return true;const activeView=document.querySelector(".view.active");if(activeView?.id===`view-${view}`)return true;if(!confirmDiscardEdit())return false;editDraftDirty=false;if(ui.editDialog.open)ui.editDialog.close();return true;}
   function visibleFocusIds() { return [...ui.dailyFocusGrid.querySelectorAll("button[data-focus-id]")].map((button) => button.dataset.focusId); }
   function updateStatusDetailEditor(record=null){
     const status=ui.editStatus.value,options=statusDetailsFor(status),storedParent=record?reviewedCanonicalStatus(record):"",stored=record&&storedParent===canonicalReviewStatus(status)?reviewStatusDetail(record):ui.editStatusDetail.value;
@@ -4413,7 +4414,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       adminTaskDate:ui.editAdminTaskDate.value,
       adminCloseDate:ui.editAdminCloseDate.value,
       adminChangeReason:ui.editAdminChangeReason.value,
-      adminEvidence:currentAdminCloseoutEvidence(),
+      adminEvidence:typeof currentAdminCloseoutEvidence==="function"?currentAdminCloseoutEvidence():{},
       dailySaveAdditions:dailySaveAdditions?{...dailySaveAdditions}:null
     };
     model.openRoSaveInFlight=true;
