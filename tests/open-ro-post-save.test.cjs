@@ -81,8 +81,9 @@ test("stale next selection closes after save rather than navigating into a remov
 test("production entry only delegates follow-ups after read-back verified saveState",()=>{
   const portion=app.slice(app.indexOf("  async function saveRecord("),app.indexOf("  async function closeRo("));
   assert.match(portion,/await saveState\("Updated RO "\+record\.ro, priorState\)/);
-  assert.match(portion,/return finishSavedOpenRo\(record,before,proposed,origin,advance,nextId,submittedDraftRevision\)/);
-  assert.ok(portion.indexOf("await saveState(")<portion.indexOf("return finishSavedOpenRo("));
+  assert.match(portion,/return await finishSavedOpenRo\(saved\.record,saved\.before,saved\.proposed,saved\.origin,advance,saved\.nextId,saved\.submittedDraftRevision\)/);
+  assert.ok(portion.indexOf('await saveState("Updated RO "+record.ro, priorState)')<portion.indexOf("return await finishSavedOpenRo("));
+  assert.match(portion,/if\(!saved\)return;/,"failed or unverified durability never runs post-save completion");
 });
 
 test("transient workbook invalidation schedules guarded authority revalidation but keeps saved RO",async()=>{
