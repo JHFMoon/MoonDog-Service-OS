@@ -1,6 +1,6 @@
 "use strict";
 
-// #59-01 synthetic SAPR lineage: carry one verified report through durable
+// #59-01 synthetic SAPR lineage: carry one verified report through durable read-back, Home, Performance, Meeting, and history
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -8,6 +8,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+const freshnessSource = fs.readFileSync(path.join(__dirname, "..", "assets", "freshness.js"), "utf8");
 function extract(startToken, endToken, label) {
   const start = app.indexOf(startToken);
   const end = app.indexOf(endToken, start + startToken.length);
@@ -21,6 +22,12 @@ const delta = extract("  function performanceDelta(", "  function trackerOpenCou
 const plan = extract("  function performancePlan(", "  function currentCsiSurveys(", "SAPR working-day projection");
 const performanceView = extract("  function renderPerformance() {", "  const renderPerformanceBase = renderPerformance;", "Performance view renderer");
 const meeting = extract("  function meetingAdvisorTv(", "  function renderMeetingArenaStore(", "Meeting renderer");
+const saprSnapshotSelector = extract("  function saprImportRank(", "  function verifiedSaprSnapshot(", "SAPR snapshot selector");
+const sourceExpectation = extract("  function sourceExpectation(", "  function sourceAvailable(", "source expectation");
+const sourceFreshness = extract("  function sourceFreshness(", "  function sourceStatusLabel(", "Home source freshness");
+const sourceStatusLabel = extract("  function sourceStatusLabel(", "  function advisorNextWin(", "Home source status");
+const reportNeeds = extract("  function reportNeeds(", "  function latestSupplementalFamily(", "Home source health needs");
+const homeRenderer = extract("  function renderOverviewIntelligence() {", "  const renderOverviewIntelligenceBase", "Home source health renderer");
 
 function node() {
   return {
@@ -38,7 +45,7 @@ const syntheticSnapshot = {
   sourceFile: "synthetic-sapr.xlsx",
   saprDaysCompleted: 8,
   saprTotalDays: 22,
-  validation: { saprDaysVerified: true, finalTotalsVerified: true },
+  validation: { advisorDetailSheets: 1, saprDaysVerified: true, finalTotalsVerified: true },
   store: {
     name: "Synthetic Store", totalGross: 2437, totalRO: 10, grossPerRo: 243.7, open: 2, aged: 1
   },
@@ -169,4 +176,76 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
     "Meeting gross must change with a different synthetic imported snapshot");
   assert.match(nextMeeting, /\$2K PROJECTED \(EST\.\)/,
     "Meeting forecast must change when gross and SAPR days-worked inputs change");
+
+  const homeUi = {
+    moondogNeeds: node(),
+    nextAppointmentsSummary: node(),
+    nextAppointmentsCoverage: node()
+  };
+  const homeModel = {
+    state: { records: [] },
+    settings: {
+      setup: { sourceExpectations: { sapr: "recommended" } },
+      store: { timeZone: "UTC" },
+      meeting: {},
+      advisors: {}
+    },
+    performance: { snapshots: structuredClone(durable.snapshots) },
+    appointments: { days: {} },
+    operationalMetrics: {
+      nextAppointments: { snapshots: {} },
+      vir: { snapshots: {} },
+      menu: { snapshots: {} },
+      csi: { surveys: {}, imports: [] },
+      monthlySummaries: {}
+    },
+    recovery: {}
+  };
+  const homeContext = vm.createContext({
+    model: homeModel,
+    ui: homeUi,
+    document: {
+      createElement: () => node(),
+      querySelector: () => ({ id: "view-overview" })
+    },
+    renderAdminCloseoutAttention: () => {},
+    latestNextAppointmentsSnapshot: () => null,
+    latestVirObservation: () => null,
+    virObservationDate: () => "",
+    currentCsiSurveys: () => ({}),
+    latestCsiRefreshDate: () => "",
+    managerAttentionRequests: () => [],
+    trendCoverageAudit: () => ({}),
+    renderTrendCoverageSummary: () => {},
+    renderPreviousMonthTotals: () => {},
+    latestOperationalSnapshot: () => null,
+    dailyEvidenceDate: () => "",
+    activeWorkloadSnapshot: () => null,
+    validCoverageDate: () => "",
+    reportCadenceDue: () => true
+  });
+  vm.runInContext(freshnessSource, homeContext);
+  homeContext.freshness = homeContext.MoonDogFreshness;
+  homeContext.businessTimeZone = () => "UTC";
+  homeContext.localDateKey = (value = new Date()) => homeContext.freshness.dateKey(value, "UTC");
+  vm.runInContext([
+    saprSnapshotSelector,
+    sourceExpectation,
+    sourceFreshness,
+    sourceStatusLabel,
+    reportNeeds,
+    homeRenderer,
+    "this.renderOverviewIntelligence = renderOverviewIntelligence;"
+  ].join("\n"), homeContext);
+  homeContext.renderOverviewIntelligence();
+  const homeHealth = homeUi.moondogNeeds.children
+    .map(function collectText(item) {
+      return [item.textContent || "", ...(item.children || []).map(collectText)].join(" ");
+    })
+    .join(" ");
+  assert.match(homeHealth, /SAPR: .*Last\/period: 2026-10-21/,
+    "the real Home health renderer must show the same SAPR report end date as the durable snapshot");
+  assert.doesNotMatch(homeHealth, /Last\/period: 2026-10-22/,
+    "the import date must not replace the report's authorized coverage period");
+
 });
