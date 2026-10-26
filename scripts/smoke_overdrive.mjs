@@ -637,8 +637,8 @@ try{
   // connector with a memory-only File System Access-compatible folder.
   // This is never the owner's native folder/OneDrive, and cannot measure it.
   if(width===1366){
-    const scenarios=[["empty",0],["large",2100]];
-    for(const [scenario,recordCount] of scenarios){
+    const scenarios=[["empty",0,0],["large",2100,0],["large-slow-read",2100,25]];
+    for(const [scenario,recordCount,readDelayMs] of scenarios){
       const connectionSamples=[],launcherSamples=[];
       for(let sample=0;sample<9;sample++){
         const connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
@@ -650,7 +650,7 @@ try{
           await connectedPage.waitForURL(u=>u.protocol==="file:"&&u.pathname.endsWith("/index.html"),{timeout:15000});
           await connectedPage.waitForFunction(()=>Boolean(globalThis.__moondogDaily?.model&&globalThis.__moondogDailyUI?.renderHome),null,{timeout:15000});
           const launcherToShellMs=performance.now()-launcherStarted;
-          const outcome=await connectedPage.evaluate(async count=>{
+          const outcome=await connectedPage.evaluate(async ({count,readDelay})=>{
             const api=globalThis.__moondogDaily,model=api.model;
             const notFound=()=>Object.assign(new Error("Synthetic entry missing"),{name:"NotFoundError"});
             const mismatch=()=>Object.assign(new Error("Synthetic kind mismatch"),{name:"TypeMismatchError"});
@@ -669,7 +669,7 @@ try{
                 async getFile(){
                   const copy=bytes.slice();
                   return {name,size:copy.length,lastModified:Date.now(),
-                    text:async()=>new TextDecoder().decode(copy),
+                    text:async()=>{if(readDelay&&/\.json$/.test(name))await new Promise(resolve=>setTimeout(resolve,readDelay));return new TextDecoder().decode(copy);},
                     arrayBuffer:async()=>copy.slice().buffer};
                 },
                 async createWritable({keepExistingData=false}={}){
@@ -795,7 +795,7 @@ try{
               openCount:Number(open?.textContent),
               homeTaskReady,homeTaskVisibleText:homeTaskText.slice(0,180)
             };
-          },recordCount);
+          },{count:recordCount,readDelay:readDelayMs});
           const launcherToFrameMs=launcherToShellMs+outcome.connectionToFrameMs;
           if(!outcome.committed||!outcome.connected||!outcome.homeActive||
              outcome.records!==recordCount||outcome.openCount!==recordCount||!outcome.homeTaskReady)
@@ -806,7 +806,7 @@ try{
         }finally{await connectedPage.close();}
       }
       console.log("58-01 synthetic Chromium first verified Home",
-        JSON.stringify({scenario,records:recordCount,
+        JSON.stringify({scenario,records:recordCount,syntheticReadDelayMs:readDelayMs,
           connectionToFirstFrame:summarizeNavigationMs(connectionSamples),
           launcherShellPlusVerifiedConnect:summarizeNavigationMs(launcherSamples),
           scope:"packaged file:// Chromium with in-memory File System Access-compatible folder; nine page starts; composite launcher-shell plus connected-Home-frame timings exclude synthetic fixture construction; browser process warm; no physical device, native picker, network or OneDrive latency"}));
