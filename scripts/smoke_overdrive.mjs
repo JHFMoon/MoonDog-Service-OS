@@ -964,7 +964,8 @@ try{
             await connectedPage.locator("#editOwner").fill("Synthetic Roundtrip Owner");
             await connectedPage.locator("#editNextAction").fill("Synthetic roundtrip action");
             await connectedPage.locator("#editReviewDate").fill("2026-10-27");
-            await connectedPage.locator("#editNote").fill("Synthetic roundtrip note");
+            await connectedPage.locator("#editNote").evaluate(el=>el.scrollIntoView({block:"center",inline:"nearest"}));
+            await connectedPage.locator("#editNote").fill("Synthetic roundtrip note",{timeout:3500});
             // The timer starts after editor entry and field updates, isolating
             // verified persistence and dialog completion from automation typing.
             await connectedPage.evaluate(()=>{globalThis.__moondogSearchEditSaveStarted=performance.now();});
