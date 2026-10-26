@@ -896,8 +896,11 @@
         'Source status not confirmed by latest import');
     const source=model.state.source||{};
     const sourceName=source.fileName||source.sourceFile||'Current Open RO snapshot';
-    const sourceDate=source.reportDate||source.coverageDate||
-      (typeof source.importedAt==='string'?source.importedAt.slice(0,10):'');
+    const sourceDate=source.reportDate||source.coverageDate
+      ?'Report period '+String(source.reportDate||source.coverageDate).slice(0,10)
+      :source.sourceModifiedAt?'File modified '+String(source.sourceModifiedAt).slice(0,10)
+      :typeof source.importedAt==='string'?'Imported '+source.importedAt.slice(0,10)
+      :'Report date not verified';
     return [
       'RO '+String(record.ro||''),
       'Follow-up owner: '+(owner||'Not confirmed'),
