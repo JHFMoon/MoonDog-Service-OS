@@ -1018,14 +1018,23 @@
   }
   const renderHomeWithFullRefresh=renderHome;
   renderHome=function(...args){
+    // Record eligibility *before* ranking and DOM construction. A suppression
+    // or report snooze may expire during a slow paint; a post-paint scan alone
+    // would miss the just-expired deadline and incorrectly certify stale DOM.
+    const paintStartedAt=now();
+    const eligibilityBoundary=nextHomeEligibilityBoundary(paintStartedAt);
     const result=renderHomeWithFullRefresh(...args);
+    const signature=homePaintSignature();
+    const paintFinishedAt=now();
+    const timeStable=paintFinishedAt>=paintStartedAt&&
+      Math.floor(paintFinishedAt/60000)===Math.floor(paintStartedAt/60000)&&
+      paintFinishedAt<eligibilityBoundary;
     // selectNext paints the first verified Home while ready() is finishing
     // its loading flag. The model root is already committed at that point;
     // reuse is still forbidden until loading/busy clears on return.
-    homePaintReceipt=model.root&&state.loadedRoot===model.root&&
+    homePaintReceipt=timeStable&&model.root&&state.loadedRoot===model.root&&
       model.workspaceConnectionCommittedRoot===model.root?
-      {root:model.root,signature:homePaintSignature(),
-       nextEligibilityBoundary:nextHomeEligibilityBoundary(now())}:null;
+      {root:model.root,signature,nextEligibilityBoundary:eligibilityBoundary}:null;
     return result;
   };
   function canReuseHomeOnReturn(){
