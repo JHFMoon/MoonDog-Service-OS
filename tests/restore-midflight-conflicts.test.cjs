@@ -22,7 +22,7 @@ assert.ok(mergeStart>=0&&mergeEnd>mergeStart,"production complete-source Open RO
 function mergeOpenRo(state,incoming){
   const context={model:{state},CLOSED_RO_RETENTION_DAYS:730,
     canonicalCdkStatus:value=>value==="Review"?"Ready for Review":value==="Working"?"Being Repaired":""};
-  const merge=vm.runInNewContext(app.slice(mergeStart,mergeEnd)+"\\nmergeCompleteOpenRoRecords",context);
+  const merge=vm.runInNewContext(app.slice(mergeStart,mergeEnd)+"\nmergeCompleteOpenRoRecords",context);
   return JSON.parse(JSON.stringify(merge(incoming,"2026-10-26T12:00:00.000Z","open-ro-xlsx")));
 }
 const encode=s=>new TextEncoder().encode(s);
