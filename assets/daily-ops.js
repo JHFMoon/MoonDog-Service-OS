@@ -887,7 +887,8 @@
     const management=record.management||{};
     const owner=management.ownerAssignmentSource==='manager-confirmed'?String(management.owner||'').trim():'';
     const status=api.status(record)||'Not confirmed';
-    const blocker=String(management.statusDetail||'').trim()||status;
+    const detail=String(api.statusDetailLabel?.(record)||management.statusDetail||'').trim();
+    const blocker=detail&&detail!==status?status+' — '+detail:detail||status;
     const operational=record.cdkOperational||{};
     const indicator=api.cdkIndicator(record);
     const sourceConfidence=indicator?.text||
