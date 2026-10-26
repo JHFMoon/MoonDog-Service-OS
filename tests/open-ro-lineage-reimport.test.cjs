@@ -220,7 +220,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
     physicalWorkspacePath:path=>["System Files","Workspace",...path],
     status:()=>{},console
   });
-  vm.runInContext(restoreSupport+"\n"+restore+"\nthis.runRestore=restoreSelectedBackup;",context);
+  vm.runInContext(restoreSupport+"\n"+restoreSource+"\nthis.runRestore=restoreSelectedBackup;",context);
 
   await context.runRestore();
   const restored=JSON.parse(JSON.stringify(model.state));
