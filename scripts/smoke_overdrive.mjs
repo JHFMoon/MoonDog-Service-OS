@@ -709,10 +709,10 @@ try{
       const connectionSamples=[],launcherSamples=[];
       const firstTabSamples={},repeatTabSamples={};
       const connectedEditSamples={search:[],editor:[],noteReveal:[],durableSave:[]};
-      const uxTaskSamples=[];
+      const uxTaskSamples=[],screenTaskSamples=[];
       let uxBrowserErrorCount=0;
       for(let sample=0;sample<9;sample++){
-        let connectedPage=null,uxMetrics=null,sampleFailure=null;
+        let connectedPage=null,uxMetrics=null,sampleFailure=null,screenTaskEffort=null;
         const browserErrors=[];
         try{
           connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
@@ -833,6 +833,8 @@ try{
                 nextAction:i===0?"LONG SYNTHETIC FOLLOW-UP ACTION ".repeat(6):"Synthetic next step",reviewDate:"2026-10-25",communication:"Updated",
                 note:"Synthetic existing note",manualAnnotation:"preserve-"+i}
             }));
+            const syntheticTimeZone=String(settings.store?.timeZone||Intl.DateTimeFormat().resolvedOptions().timeZone||"UTC");
+            settings.store={...(settings.store||{}),timeZone:syntheticTimeZone};
             settings.sourceAdapters={schemaVersion:1,assignNextAdvisors:{"100":"Synthetic Advisor"}};
             settings.advisors={"100":{
               number:"100",name:"Synthetic Advisor",active:true,removed:false,
@@ -846,7 +848,7 @@ try{
               ["operational-metrics.json",JSON.parse(JSON.stringify(model.operationalMetrics))],
               ["meeting-cycle.json",JSON.parse(JSON.stringify(model.meetingCycle))],
               ["assign-next.json",(()=>{
-                const observedAt=new Date(),timeZone=model.settings?.store?.timeZone||"America/Los_Angeles";
+                const observedAt=new Date(),timeZone=settings.store.timeZone;
                 const coverageDate=new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit"}).format(observedAt);
                 return {schemaVersion:3,days:{},currentOpenRo:{sourceType:"open-ro",asOf:observedAt.toISOString(),
                   observedAt:observedAt.toISOString(),coverageDate,validation:{canonicalRecords:1},
@@ -1094,7 +1096,7 @@ try{
                 return {name,success:false,...metrics,error:String(error?.message||error).slice(0,240)};
               }
             };
-            const screenTaskEffort=[
+            screenTaskEffort=[
               await measureScreenTask("manager-home-priority",async()=>{
                 await taskNavigate("home");
                 const text=await connectedPage.locator("#dailyTask").innerText();
@@ -1153,7 +1155,7 @@ try{
                 return "Browser-only start page selected and reset; shared Workspace untouched";
               })
             ];
-            uxMetrics.screenTaskEffort=screenTaskEffort;
+            screenTaskSamples.push({sample:sample+1,results:screenTaskEffort});
             if(screenTaskEffort.some(task=>!task.success))
               throw Error("Synthetic screen task-effort failures: "+JSON.stringify(screenTaskEffort.filter(task=>!task.success)));
             if(browserErrors.length)throw Error("Connected browser page errors: "+browserErrors.join("; "));
@@ -1358,15 +1360,24 @@ try{
                   let longText=null;
                   if(view==="open-ro"){
                     const row=document.querySelector('tr[data-id="synthetic-browser-ro-0"]');
-                    const cells=row?[...row.cells].filter(cell=>/LONG SYNTHETIC (CUSTOMER|VEHICLE|FOLLOW-UP ACTION)/.test(cell.textContent||"")):[];
-                    const clipped=cells.filter(cell=>[cell,...cell.querySelectorAll("*")].some(el=>{
-                      const style=getComputedStyle(el);
-                      const ellipsis=style.textOverflow==="ellipsis"&&(el.scrollWidth>el.clientWidth+1||el.scrollHeight>el.clientHeight+1);
-                      const clampValue=Number.parseInt(style.webkitLineClamp,10);
-                      const clamp=Number.isFinite(clampValue)&&clampValue>0&&el.scrollHeight>el.clientHeight+1;
-                      return ellipsis||clamp;
-                    }));
-                    longText={rowFound:!!row,visibleCells:cells.filter(visible).length,expectedCells:3,clippedCells:clipped.length};
+                    const fields=[
+                      {field:"customer",element:row?.querySelector("td:nth-child(3) strong"),marker:"LONG SYNTHETIC CUSTOMER"},
+                      {field:"vehicle",element:row?.querySelector("td:nth-child(3) small"),marker:"LONG SYNTHETIC VEHICLE DESCRIPTION"},
+                      {field:"follow-up action",element:row?.querySelector("td:nth-child(6) .ro-cell-stack > strong"),marker:"LONG SYNTHETIC FOLLOW-UP ACTION"}
+                    ].map(({field,element,marker})=>{
+                      const present=(element?.textContent||"").includes(marker),isVisible=Boolean(element&&visible(element));
+                      let clipped=false;
+                      for(let node=element;node&&node!==row;node=node.parentElement){
+                        const style=getComputedStyle(node);
+                        const ellipsis=style.textOverflow==="ellipsis"&&(node.scrollWidth>node.clientWidth+1||node.scrollHeight>node.clientHeight+1);
+                        const clampValue=Number.parseInt(style.webkitLineClamp,10);
+                        const clamp=Number.isFinite(clampValue)&&clampValue>0&&node.scrollHeight>node.clientHeight+1;
+                        if(ellipsis||clamp){clipped=true;break;}
+                      }
+                      return {field,present,visible:isVisible,clipped};
+                    });
+                    longText={rowFound:!!row,fields,visibleFields:fields.filter(item=>item.present&&item.visible).length,
+                      clippedFields:fields.filter(item=>item.clipped).length};
                   }
                   return {label,kind,view,width:innerWidth,height:innerHeight,active:!!active?.classList.contains("active"),
                     documentHorizontalOverflowPx:overflowPx,viewRightOverflowPx:viewOverflowPx,
@@ -1398,13 +1409,12 @@ try{
               const successfulTasks=[...uxTaskSamples.filter(item=>item.success),{success:true,...uxMetrics}];
               const metric=key=>successfulTasks.length?summarizeNavigationMs(successfulTasks.map(item=>item[key])):null;
               const taskNames=["manager-home-priority","assign-next-review-and-exclude","performance-report-readiness","imports-refresh-and-empty-state","meeting-source-readiness","settings-browser-preference"];
-              const collectedScreenTasks=[...uxTaskSamples.filter(item=>item.success).flatMap(item=>item.screenTaskEffort||[]),
-                ...(uxMetrics.screenTaskEffort||[])];
+              const collectedScreenTasks=screenTaskSamples.flatMap(item=>item.results||[]);
               const screenTaskEffort=taskNames.map(name=>{
                 const samples=collectedScreenTasks.filter(item=>item.name===name);
                 const metric=key=>samples.length?summarizeNavigationMs(samples.map(item=>item[key])):null;
-                return {name,attemptedSamples:uxTaskSamples.length+1,completedSamples:samples.filter(item=>item.success).length,
-                  failedSamples:uxTaskSamples.filter(item=>!item.success).length+samples.filter(item=>!item.success).length,
+                return {name,attemptedSamples:screenTaskSamples.length,completedSamples:samples.filter(item=>item.success).length,
+                  failedSamples:screenTaskSamples.length-samples.filter(item=>item.success).length,
                   taskDurationMs:metric("taskDurationMs"),clickCount:metric("clickCount"),
                   fieldEntryCount:metric("fieldEntryCount"),scrollDistancePx:metric("scrollDistancePx"),sampleResults:samples};
               });

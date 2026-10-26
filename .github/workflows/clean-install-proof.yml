@@ -140,7 +140,9 @@ jobs:
           assert all(item["contrast"]["sampleCount"]>0 and item["contrast"]["unmeasuredCount"]==0 and item["contrast"]["lowContrastCount"]==0 for item in matrix["routeResults"]+matrix["zoomEquivalentResults"])
           all_routes=matrix["routeResults"]+matrix["zoomEquivalentResults"]
           assert all(item["active"] and item["documentHorizontalOverflowPx"]<=4 and item["viewRightOverflowPx"]<=4 and item["unnamedControlCount"]==0 for item in all_routes)
-          assert len(matrix["longTextResults"])==14 and all(item["rowFound"] and item["visibleCells"]==3 and item["clippedCells"]==0 for item in matrix["longTextResults"])
+          assert len(matrix["longTextResults"])==14
+          assert all(item["rowFound"] and item["visibleFields"]==3 and item["clippedFields"]==0 and len(item["fields"])==3 for item in matrix["longTextResults"])
+          assert all(field["present"] and field["visible"] and not field["clipped"] for item in matrix["longTextResults"] for field in item["fields"])
           focus=matrix["keyboardFocus"]
           assert focus["visible"] and focus["keyboardFocusVisible"] and focus["focusIndicator"]
           effort=matrix["openRoTaskEffort"]
