@@ -465,7 +465,7 @@ try{
       rowCount:413,sampleCount:managerHomeDom.count,viewport:{width,height},
       p50Ms:managerHomeDom.p50,p95Ms:managerHomeDom.p95,maxMs:managerHomeDom.max
     };
-    fs.writeFileSync(navigationArtifact,JSON.stringify(navigationReport,null,2)+"\\n");
+    fs.writeFileSync(navigationArtifact,JSON.stringify(navigationReport,null,2)+"\n");
     // The fixture updates model memory directly; refresh the cached table once
     // before timing navigation so the first circuit starts with all 413 synthetic rows.
     await page.locator('.nav-item[data-view="open-ro"]').click({timeout:3500});
