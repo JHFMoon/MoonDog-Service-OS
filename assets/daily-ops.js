@@ -881,6 +881,32 @@
     host.append(section,input);
   }
   async function actionWrap(fn){await action(fn);}
+  function attentionSecondaryDetail(item){
+    if(item.type!=='ro')return item.next||item.description||'Review the source';
+    const record=item.record||model.state.records.find(value=>value.id===item.recordId)||{};
+    const management=record.management||{};
+    const owner=String(management.owner||'').trim();
+    const status=api.status(record)||'Not confirmed';
+    const blocker=String(management.statusDetail||'').trim()||status;
+    const operational=record.cdkOperational||{};
+    const indicator=api.cdkIndicator(record);
+    const sourceConfidence=indicator?.text||
+      (operational.status&&!operational.stale?'Current source confirms '+operational.status:
+        'Source status not confirmed by latest import');
+    const source=model.state.source||{};
+    const sourceName=source.fileName||source.sourceFile||'Current Open RO snapshot';
+    const sourceDate=source.reportDate||source.coverageDate||
+      (typeof source.importedAt==='string'?source.importedAt.slice(0,10):'');
+    return [
+      'RO '+String(record.ro||''),
+      'Follow-up owner: '+(owner||'Not confirmed'),
+      'Follow-up date: '+(String(management.reviewDate||'').trim()||'Not set'),
+      'Status / blocker: '+blocker,
+      'Next step: '+(String(management.nextAction||'').trim()||'Confirm next action'),
+      'Source confidence: '+sourceName+(sourceDate?' · '+sourceDate:'')+' · '+sourceConfidence
+    ].join(' · ');
+  }
+
   function renderOtherPriorities(task,host){
     const extra=attentionTopThree().filter(item=>item.id!==task?.id).slice(0,2);
     if(!extra.length)return;
@@ -890,8 +916,7 @@
       const row=document.createElement('div');row.className='daily-priority-row';
       const copy=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('small');
       title.textContent=item.title;
-      detail.textContent=item.type==='ro'?`RO ${item.record?.ro||''} · ${item.record?.management?.nextAction||'Confirm next action'}`:
-        item.next||item.description||'Review the source';
+      detail.className='daily-priority-context';detail.textContent=attentionSecondaryDetail(item);
       copy.append(title,detail);row.append(copy);
       if(item.type==='coaching')row.append(button('Advisor Notified',()=>action(()=>acknowledge(item,'completed')),'secondary'));
       else row.append(button(item.type==='report'?'Gather':'Open',()=>openAttention(item),'secondary'));
