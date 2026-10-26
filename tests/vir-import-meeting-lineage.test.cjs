@@ -119,7 +119,7 @@ test("one synthetic VIR observation keeps its durable lineage consistent in Home
     performanceFormat:value=>String(value)+"%",
     shortDate:value=>String(value||"")
   });
-  vm.runInContext(home+"\\nthis.renderHome=renderOverviewIntelligence;",f.context);
+  vm.runInContext(home+"\nthis.renderHome=renderOverviewIntelligence;",f.context);
   f.context.renderHome();
 
   const rendered=node=>{
@@ -132,7 +132,7 @@ test("one synthetic VIR observation keeps its durable lineage consistent in Home
   assert.equal(meeting.verified,true);
   assert.equal(meeting.period,"Observed 2026-10-22");
   assert.equal(meeting.value,75);
-  assert.match(rendered(ui.virSummary),/Store VIR 75\\.0%/,
+  assert.match(rendered(ui.virSummary),/Store VIR 75\.0%/,
     "Home renders the same utilization retained by the imported observation");
   assert.equal(ui.virCoverage.textContent,
     "Latest point-in-time observation · 2026-10-22 · "+snapshot.deliveryHeader,
