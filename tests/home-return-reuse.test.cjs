@@ -15,7 +15,7 @@ function section(start,end){
 test("verified, unchanged Home return preserves mounted DOM but all source and permission boundaries invalidate",()=>{
   const root={name:"Synthetic connected folder"},taskNode={},
         homeNode={contains:node=>node===taskNode};
-  let minute=Date.parse("2026-10-25T20:02:00Z"),businessDate="2026-10-25",hour=13,paints=0;
+  let minute=Date.parse("2026-10-25T20:02:00Z"),businessDate="2026-10-25",hour=13,paints=0,paintAdvanceMs=0;
   const model={
     root,workspaceConnectionCommittedRoot:root,pendingRoot:null,
     connectionState:"CONNECTED",
@@ -29,7 +29,7 @@ test("verified, unchanged Home return preserves mounted DOM but all source and p
   const listeners=new Map(),refresh={sources:{}};
   const context=vm.createContext({
     model,state,api:{refreshHistory:()=>refresh},now:()=>minute,today:()=>businessDate,businessHour:()=>hour,
-    renderHome:()=>{paints++;},
+    renderHome:()=>{paints++;minute+=paintAdvanceMs;},
     $:id=>id==="dailyTask"?taskNode:id==="view-home"?homeNode:null,
     document:{addEventListener:(type,listener)=>listeners.set(type,listener)}
   });
@@ -63,6 +63,22 @@ test("verified, unchanged Home return preserves mounted DOM but all source and p
   assert.equal(context.canReuse(),false,
     "same-minute report-snooze expiry must refresh Home report priorities");
   context.renderHome();assert.equal(context.canReuse(),true);
+
+  // Deadline and minute transitions during synchronous ranking/DOM painting
+  // must invalidate the receipt at creation, even before the next navigation.
+  refresh.sources.performance.notNowUntil="2026-10-25T20:05:45.000Z";
+  minute=Date.parse("2026-10-25T20:05:44.950Z");paintAdvanceMs=100;
+  context.renderHome();
+  assert.equal(context.canReuse(),false,
+    "report snooze crossing during paint must not certify stale Home DOM");
+  paintAdvanceMs=0;context.renderHome();
+  assert.equal(context.canReuse(),true,"a fresh post-expiry paint may be reused");
+  refresh.sources.performance.notNowUntil="";
+  minute=Date.parse("2026-10-25T20:06:59.950Z");paintAdvanceMs=100;
+  context.renderHome();
+  assert.equal(context.canReuse(),false,
+    "minute rollover during paint invalidates the just-rendered Home");
+  paintAdvanceMs=0;context.renderHome();assert.equal(context.canReuse(),true);
 
   model.state.updatedAt="2026-10-25T20:03:20Z";
   assert.equal(context.canReuse(),false,"durable source revision invalidates");
