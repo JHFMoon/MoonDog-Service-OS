@@ -103,6 +103,7 @@ function failedReadbackFixture(mode) {
     "Advisor Name,Total ROs,VIR Printed/Emailed/Texted,VIR Use %",
     "Demo Advisor,4,3,75"
   ].join("\n") + "\n";
+  let currentCsv = csv;
   const existing = {
     vir: {
       snapshots: { "prior-observation": { sourceFile: "synthetic-prior-vir.csv", store: { totalROs: 2, used: 1 } } },
@@ -135,7 +136,7 @@ function failedReadbackFixture(mode) {
     sourceFileHandle: async () => ({
       getFile: async () => ({
         lastModified: Date.parse("2026-10-22T19:00:00.000Z"),
-        text: async () => csv
+        text: async () => currentCsv
       })
     }),
     removeSourceEntry: async () => { events.push("delete-source"); },
@@ -157,10 +158,44 @@ function failedReadbackFixture(mode) {
     recordDiagnostic: () => {},
     renderOverviewIntelligence: () => {}
   });
-  vm.runInContext(parser + "\n" + lineage + '\nVIR_NAME_CODES["demo advisor"] = "A1"; this.importVirFile = importVirFile;',
+  vm.runInContext(parser + "\n" + lineage + '\nVIR_NAME_CODES["demo advisor"] = "A1"; this.importVirFile = importVirFile; this.parseVirCsv = parseVirCsv; this.saveVirSnapshot = saveVirSnapshot;',
     context);
-  return { context, events, history, model, existing, durable: () => durable };
+  return { context, events, history, model, existing, durable: () => durable, setCsv(value) { currentCsv = value; } };
 }
+
+test("same-date VIR reimports are idempotent and conflicting snapshots fail closed", async () => {
+  const f = failedReadbackFixture("success");
+  await f.context.importVirFile("synthetic-vir.csv");
+  const firstDurable = JSON.stringify(f.durable());
+  const firstRuntime = JSON.stringify(f.model.operationalMetrics);
+  const writesBeforeConflict = f.events.filter(event => event === "write").length;
+  const conflictCsv = [
+    "Report Date,2026-10-22",
+    "Advisor Name,Total ROs,VIR Printed/Emailed/Texted,VIR Use %",
+    "Demo Advisor,3,2,66.67",
+    "Synthetic Unknown,1,1,100"
+  ].join("\n") + "\n";
+  f.setCsv(conflictCsv);
+  await assert.rejects(
+    f.context.importVirFile("synthetic-conflicting-vir.csv", true),
+    /Conflicting VIR report for observation date 2026-10-22/
+  );
+  assert.equal(JSON.stringify(f.durable()), firstDurable, "a same-store-total advisor conflict must preserve durable authority");
+  assert.equal(JSON.stringify(f.model.operationalMetrics), firstRuntime, "a rejected conflict must preserve runtime authority");
+  assert.equal(f.events.filter(event => event === "write").length, writesBeforeConflict, "conflict detection must happen before storage mutation");
+  assert.equal(f.events.includes("delete-source"), false, "conflicting source must remain available for review");
+
+  f.setCsv([
+    "Report Date,2026-10-22",
+    "Advisor Name,Total ROs,VIR Printed/Emailed/Texted,VIR Use %",
+    "Demo Advisor,4,3,75"
+  ].join("\n") + "\n");
+  await f.context.importVirFile("synthetic-equivalent-vir.csv", true);
+  assert.equal(Object.keys(f.durable().vir.snapshots).length, 1, "equivalent reimport must not add another dated snapshot");
+  assert.equal(Object.values(f.durable().vir.snapshots)[0].sourceFile, "synthetic-vir.csv", "equivalent reimport must preserve original source lineage");
+  assert.equal(f.events.filter(event => event === "write").length, writesBeforeConflict, "equivalent reimport must not rewrite durable data");
+  assert.equal(f.events.at(-2), "delete-source", "the equivalent source may be removed only after its retained snapshot is confirmed");
+});
 
 test("failed VIR write restores runtime and keeps the source available", async () => {
   const f = failedReadbackFixture("write-error");

@@ -1660,6 +1660,12 @@
   function virObservationDate(snapshot) { const candidate=snapshot?.observationTimestamp||snapshot?.sourceModifiedAt||snapshot?.importedAt||"",date=new Date(candidate);return Number.isNaN(date.valueOf())?"":localDateKey(date); }
   function virObservationTime(snapshot) { const candidate=snapshot?.observationTimestamp||snapshot?.sourceModifiedAt||snapshot?.importedAt||"",time=Date.parse(candidate);return Number.isFinite(time)?time:0; }
   function virObservationKey(snapshot) { const stamp=new Date(snapshot.observationTimestamp||snapshot.sourceModifiedAt||snapshot.importedAt||now());return `observation-${Number.isNaN(stamp.valueOf())?Date.now():stamp.valueOf()}-${snapshot.store.totalROs}-${snapshot.store.used}`; }
+  function virConflictDate(snapshot) { const reportDate=text(snapshot?.reportDate);return /^20\d{2}-\d{2}-\d{2}$/.test(reportDate)?reportDate:virObservationDate(snapshot); }
+  function comparableVirSnapshot(snapshot) {
+    const advisors=Object.fromEntries(Object.keys(snapshot?.advisors||{}).sort().map(code=>{const row=snapshot.advisors[code]||{};return[code,{totalROs:row.totalROs,used:row.used,utilization:row.utilization}];}));
+    const ignored=(snapshot?.ignored||[]).map(row=>({totalROs:row.totalROs,used:row.used,utilization:row.utilization})).sort((a,b)=>a.totalROs-b.totalROs||a.used-b.used||a.utilization-b.utilization);
+    return JSON.stringify({reportDate:virConflictDate(snapshot),store:{totalROs:snapshot?.store?.totalROs,used:snapshot?.store?.used,utilization:snapshot?.store?.utilization},advisors,ignored});
+  }
   function allVirObservations() { return [...Object.values(model.operationalMetrics?.vir?.snapshots||{}),...Object.values(model.operationalMetrics?.vir?.pending||{})].filter(Boolean); }
   function latestVirObservation() { return allVirObservations().sort((a,b)=>virObservationTime(a)-virObservationTime(b)||text(a.sourceFile).localeCompare(text(b.sourceFile))).at(-1)||null; }
   function virObservationIsStale(snapshot,todayKey=localDateKey()) { const observed=virObservationDate(snapshot);return !observed||observed<previousOperatingDateKey(todayKey)||observed>todayKey; }
@@ -1671,11 +1677,19 @@
   function shouldStoreVir(candidate, existing) { return !existing||newerVirSnapshot(candidate,existing); }
   function applyVirResolution(snapshot,resolution){snapshot.observationTimestamp=resolution.observationTimestamp;snapshot.coverageMethod="vir-point-in-time";snapshot.validation.coverageMethod="vir-point-in-time";snapshot.validation.coverageBasis=resolution.basis;delete snapshot.effectiveDataThrough;}
   async function saveVirSnapshot(snapshot) {
-    const priorMetrics=structuredClone(model.operationalMetrics);
     const resolution=virObservationResolution(snapshot),key=virObservationKey(snapshot);
+    applyVirResolution(snapshot,resolution);
+    const reportDate=virConflictDate(snapshot);
+    const sameDate=reportDate?Object.entries(model.operationalMetrics.vir.snapshots||{}).filter(([,existing])=>virConflictDate(existing)===reportDate):[];
+    if(sameDate.length){
+      const candidate=comparableVirSnapshot(snapshot);
+      if(sameDate.some(([,existing])=>comparableVirSnapshot(existing)!==candidate))
+        throw new Error(`Conflicting VIR report for observation date ${reportDate} is already saved. The existing observation was retained; review the source conflict before importing.`);
+      return{resolved:true,date:virObservationDate(snapshot),key:sameDate[0][0],idempotent:true};
+    }
+    const priorMetrics=structuredClone(model.operationalMetrics);
     model.operationalMetrics.vir.pending||={};
     model.operationalMetrics.vir.snapshots||={};
-    applyVirResolution(snapshot,resolution);
     model.operationalMetrics.vir.snapshots[key]=snapshot;
     model.operationalMetrics.vir.snapshots=pruneDatedSnapshots(model.operationalMetrics.vir.snapshots);
     model.operationalMetrics.updatedAt=now();
@@ -2063,7 +2077,7 @@
   const MEDIA_FIELDS=[['roCount',1,'RO Count','count'],['mediaCreated',2,'Media Created Count','count'],['mediaCreatedRate',3,'Media Created %','percent'],['mediaSent',4,'Media Sent Count','count'],['mediaSentRate',5,'Media Sent %','percent'],['videoCreated',6,'Video Created Count','count'],['videoCreatedRate',7,'Video Created %','percent'],['videoSent',8,'Video Sent Count','count'],['videoSentRate',9,'Video Sent %','percent'],['imageCreated',10,'Image Created Count','count'],['imageCreatedRate',11,'Image Created %','percent'],['imageSent',12,'Image Sent Count','count'],['imageSentRate',13,'Image Sent %','percent'],['mediaViewed',14,'Media Viewed Count','count'],['mediaViewedRate',15,'Media Viewed %','percent'],['viewedCpGrossPerRo',16,'Viewed CP Gross / RO','money'],['notViewedCpGrossPerRo',17,'Not Viewed CP Gross / RO','money'],['cpGrossPerRo',18,'CP Gross / RO','money'],['viewedCpHoursPerRo',19,'Viewed CP Hours / RO','number'],['notViewedCpHoursPerRo',20,'Not Viewed CP Hours / RO','number'],['viewedAddonCpGrossPerRo',21,'Viewed Addon CP Gross / RO','money'],['notViewedAddonCpGrossPerRo',22,'Not Viewed Addon CP Gross / RO','money'],['viewedAddonCpHoursPerRo',23,'Viewed Addon CP Hours / RO','number'],['notViewedAddonCpHoursPerRo',24,'Not Viewed Addon CP Hours / RO','number'],['viewedHoursDifference',25,'Viewed / Not Viewed CP Hours Difference','number'],['viewedGrossDifference',26,'Viewed / Not Viewed CP Gross Difference','money']];
   function parseMediaAsrWorkbook(bytes,fileName,requiredScope=null) {
     const book=XLSX.read(bytes,{type:'array',raw:true,cellDates:true,cellNF:true}),sheetName=book.SheetNames.find(name=>/Media ASR Usage Report/i.test(text(book.Sheets[name]?.A1?.v))),sheet=book.Sheets[sheetName];if(!sheet)throw new Error('Media ASR internal title is missing.');
-    const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true}),heading=text(rows[1]?.[0]),match=heading.match(new RegExp("for\\s+" + escapeSourceCode(reportStoreCode("mediaAsr")) + "\\s*-[\\s\\S]*?From\\s+(\\d{1,2}/\\d{1,2}/20\\d{2})\\s+to\\s+(\\d{1,2}/\\d{1,2}/20\\d{2})", "i")),header=(rows[3]||[]).map(norm);
+    const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true}),heading=text(rows[1]?.[0]),match=heading.match(new RegExp("for\\s+" + escapeSourceCode(reportStoreCode("mediaAsr")) + "\\s*-[\\s\\S]*?From\\s+(\d{1,2}/\d{1,2}/20\d{2})\\s+to\\s+(\d{1,2}/\d{1,2}/20\d{2})", "i")),header=(rows[3]||[]).map(norm);
     if(!match||header[1]!=='cp and wp ro count'||!header.includes('video created')||!header.includes('media viewed by customer %'))throw new Error('Media ASR structure or store could not be verified.');
     const periodStart=strictReportDate(match[1]),periodEnd=strictReportDate(match[2]);if(!periodStart||!periodEnd||periodStart>periodEnd)throw new Error('Media ASR dates are invalid.');
     const signatures=['','cp and wp ro count','media created','media created %','media sent','media sent %','video created','video created %','video sent','video sent %','image created','image created %','image sent','image sent %','media viewed by customer','media viewed by customer %','customer viewed cp gross/ro','customer not viewed cp gross/ro','cp gross/ro','customer viewed cp hrs/ro','customer not viewed cp hrs/ro','customer viewed addon cp gross/ro','customer not viewed addon cp gross/ro','customer viewed addon cp hrs/ro','customer not viewed addon cp hrs/ro','customer viewed/not viewed differenece in cp hrs/ro','customer viewed/not viewed differenece in cp gross/ro'];if(signatures.slice(1,17).some((label,i)=>header[i+1]!==label))throw new Error('Media ASR metric header order changed.');
@@ -2235,7 +2249,7 @@
   }
   function parseServiceConsultingAudit(source,fileName) {
     const lines=reportTextLines(source),joined=lines.join(" ");if(!/Standards Performance Checklist/i.test(joined)||!/Service Flow Report/i.test(joined)||!/Action Plan Item 1/i.test(joined))throw new Error("The service consulting audit is incomplete.");
-    const auditDate=reportDateFromText((joined.match(/\bDate:\s*([A-Za-z]+\s+\d{1,2},\s*20\d{2})/i)||[])[1]),answer=(pattern)=>{const m=joined.match(new RegExp(pattern+"\\s+(Yes|No|Cashier|\\d+(?:\\.\\d+)?)","i"));return m?m[1]:null;},step=(a,b)=>{const m=joined.match(new RegExp(a+"[\\s\\S]{0,45}"+b+"\\s+(\\d+)","i"));return m?Number(m[1]):null;};
+    const auditDate=reportDateFromText((joined.match(/\bDate:\s*([A-Za-z]+\s+\d{1,2},\s*20\d{2})/i)||[])[1]),answer=(pattern)=>{const m=joined.match(new RegExp(pattern+"\\s+(Yes|No|Cashier|\d+(?:\\.\d+)?)","i"));return m?m[1]:null;},step=(a,b)=>{const m=joined.match(new RegExp(a+"[\\s\\S]{0,45}"+b+"\\s+(\d+)","i"));return m?Number(m[1]):null;};
     const flow={enteredToRo:step("Time Customer Entered","Customer RO Created"),roToBay:step("Time Customer RO Created","Time Vehicle Into Bay"),bayToMpi:step("Time Vehicle Into Bay","Time MPI Completed by Tech"),mpiToReview:step("Time MPI Completed by Tech","Time MPI Reviewed with Customer"),reviewToBayComplete:step("Time MPI Reviewed with Customer","Time Vehicle Completed in Bay"),bayCompleteToCash:step("Time Vehicle Completed in Bay","Time Customer Cashed Out"),cashToLeave:step("Time Customer Cashed Out","Time Customer Leaves Express")},total=joined.match(/Total\s+(\d+)\s+(\d+)\s+-?\d+%/i);if(total){flow.totalMinutes=Number(total[1]);flow.goalMinutes=Number(total[2]);}
     const actionItems=[];for(const match of joined.matchAll(/Action Plan Item\s+(\d+)\s+Reason for suggested change\s+([\s\S]*?)\s+Created Date:\s*(20\d{2}-\d{2}-\d{2})\s+Severity:\s*([A-Za-z]+)\s+Person Responsible to Effect Change:\s*([\s\S]*?)\s+Expected Completion Date:\s*(20\d{2}-\d{2}-\d{2})\s+Suggestion\s+([\s\S]*?)(?=Action Plan Item\s+\d+|Additional Notes|$)/gi)){actionItems.push({item:Number(match[1]),reason:match[2].replace(/\s+/g," ").trim().slice(0,1800),createdDate:match[3],severity:match[4],owner:match[5].replace(/\s+/g," ").trim(),expectedCompletionDate:match[6],suggestion:match[7].replace(/\s+/g," ").trim().slice(0,1800)});}
     const observedRos=(joined.match(/RO\s*#\s+((?:\d{5}\s+){1,5}\d{5})/i)?.[1]||"").trim().split(/\s+/).filter(Boolean),recommendations=[...joined.matchAll(/Additional Recommendations\s+(\d+)[\s\S]{0,90}?Recommended:\s*(\d+)[\s\S]{0,50}?Approved:\s*(\d+)/gi)].map((m)=>({observation:Number(m[1]),recommended:Number(m[2]),approved:Number(m[3])}));
