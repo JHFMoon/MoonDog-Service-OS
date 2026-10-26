@@ -22,7 +22,7 @@ function harness(){
   const folderWatch={timer:null,busy:false,pending:new Map(),lastChecked:"",state:"OFF",message:""};
   const model={root:{name:"synthetic-root"},autoImport:{}};
   const context=vm.createContext({
-    model,folderWatch,writeAuthority:{canWrite:true},dailyImportBusy:false,appointmentImportBusy:false,
+    model,folderWatch,writeAuthority:{canWrite:true},workspaceConnectionBusy:false,postConnectionScanBusy:false,dailyImportBusy:false,appointmentImportBusy:false,
     REPORT_INBOX:"Report Inbox",AUTO_IMPORT_PATH:["data","auto-import.json"],
     folderWatchEnabled:()=>true,permission:async()=> "granted",watchStatus:()=>{},
     watchCandidates:async()=>{calls.watchCandidates++;markReadStarted();return readGate;},
@@ -52,4 +52,30 @@ test("Report Inbox watch coalesces an overlapping scan and defers learned-file r
   assert.equal(h.folderWatch.busy,false,"the intake slot must be released after the delayed scan completes");
   assert.equal(h.calls.watchCandidates,1);
   assert.equal(h.calls.writes,2,"empty synthetic first-run inventory metadata should be persisted once per required ledger");
+});
+
+
+test("Report Inbox timer defers while connection or serialized reconnect work is active",async()=>{
+  const h=harness();
+
+  h.context.workspaceConnectionBusy=true;
+  await h.context.folderWatchScan("focus");
+  assert.equal(h.calls.watchCandidates,0,"a focus scan must not enumerate during Workspace hydration");
+  assert.equal(h.folderWatch.busy,false,"a deferred connection scan must not take the inbox slot");
+
+  h.context.workspaceConnectionBusy=false;
+  h.context.postConnectionScanBusy=true;
+  await h.context.folderWatchScan("poll");
+  assert.equal(h.calls.watchCandidates,0,"a timer tick must not overlap serialized post-connect maintenance");
+  assert.equal(h.folderWatch.busy,false,"a deferred timer scan must leave the slot available");
+
+  const queuedConnectionScan=h.context.folderWatchScan("connection");
+  await h.readStarted;
+  assert.equal(h.calls.watchCandidates,1,"the scheduler's intentional Report Inbox job must run within its protected queue slot");
+  assert.equal(h.folderWatch.busy,true);
+  h.releaseRead([]);
+  await queuedConnectionScan;
+  assert.equal(h.folderWatch.busy,false,"the scheduled connection scan releases the shared slot");
+  assert.equal(h.calls.watchCandidates,1);
+  assert.equal(h.calls.writes,2,"only the queued production scan may persist the synthetic initial inventory");
 });

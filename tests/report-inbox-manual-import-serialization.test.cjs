@@ -36,6 +36,8 @@ for (const busyImport of ["dailyImportBusy", "appointmentImportBusy"]) {
       model,
       folderWatch,
       writeAuthority: { canWrite: true },
+      workspaceConnectionBusy: false,
+      postConnectionScanBusy: false,
       get dailyImportBusy() { return dailyImportBusy; },
       get appointmentImportBusy() { return appointmentImportBusy; },
       AUTO_IMPORT_PATH: ["data", "auto-import.json"],

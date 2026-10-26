@@ -37,7 +37,7 @@ test("Report Inbox retries a temporary file read failure, confirms stability, an
   };
   const window = { scrollX: 0, scrollY: 0, scrollTo() {} };
   const context = vm.createContext({
-    model, folderWatch, window, writeAuthority: { canWrite: true },
+    model, folderWatch, window, writeAuthority: { canWrite: true }, workspaceConnectionBusy: false, postConnectionScanBusy: false,
     dailyImportBusy: false, appointmentImportBusy: false,
     AUTO_IMPORT_PATH: ["data", "auto-import.json"],
     folderWatchEnabled: () => true,
@@ -104,7 +104,7 @@ test("overlapping Report Inbox scans share the busy guard and still import a sta
   const imported = [];
   const context = vm.createContext({
     model, folderWatch, window: { scrollX: 0, scrollY: 0, scrollTo() {} },
-    writeAuthority: { canWrite: true }, dailyImportBusy: false, appointmentImportBusy: false,
+    writeAuthority: { canWrite: true }, workspaceConnectionBusy: false, postConnectionScanBusy: false, dailyImportBusy: false, appointmentImportBusy: false,
     AUTO_IMPORT_PATH: ["data", "auto-import.json"],
     folderWatchEnabled: () => true,
     permission: async () => "granted",
@@ -162,7 +162,7 @@ test("Report Inbox retains its stable marker and retries after a transient impor
   let imports = 0;
   const context = vm.createContext({
     model, folderWatch, window: { scrollX: 0, scrollY: 0, scrollTo() {} },
-    writeAuthority: { canWrite: true }, dailyImportBusy: false, appointmentImportBusy: false,
+    writeAuthority: { canWrite: true }, workspaceConnectionBusy: false, postConnectionScanBusy: false, dailyImportBusy: false, appointmentImportBusy: false,
     AUTO_IMPORT_PATH: ["data", "auto-import.json"],
     folderWatchEnabled: () => true,
     permission: async () => "granted",

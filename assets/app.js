@@ -2855,7 +2855,7 @@
   function referenceOnlyHint(name){return Boolean(referenceOnlyDocumentType(name,""));}
   function recognizedFamilyHint(name,bytes){const label=String(name||"");if(/DealerDashboard|Service.?Advisor.?Performance|VIR.?Use.?Utilization|Next.?Appointments.?Scheduled|AppointmentsCreatedSummary|Menu.?Sales|PreRO|Greeter.?Appointment|Open.?RO|(?:MoonDog|Service.?Operations).?Supervisor|Retail.?Rewards|ServiceView|TireWorks|Controllable.?Ranking|Action.?Plan|Service.?Flow|Cash.?Clearing|Credit.?Holds|Efficiency.?Tracking|Media.?ASR|SDL|QIR|Transcript|Loss.?Notice|All.?Answers|Technician.?Video.?Playbook|Dodge.?Ram/i.test(label))return true;try{const sample=new TextDecoder().decode(new Uint8Array(bytes).slice(0,4096));return /Invite_ID|INCLUDE_IN_SCORING|Next Appointments Scheduled Summary|Summary of Appointments Created|Advisor Name,Total ROs,VIR Printed|Service Advisor Performance/i.test(sample);}catch(_){return false;}}
   async function folderWatchScan(reason="poll"){
-    if(!writeAuthority.canWrite||folderWatch.busy||dailyImportBusy||appointmentImportBusy||!model.root||!folderWatchEnabled())return;
+    if(!writeAuthority.canWrite||workspaceConnectionBusy||(postConnectionScanBusy&&reason!=="connection")||folderWatch.busy||dailyImportBusy||appointmentImportBusy||!model.root||!folderWatchEnabled())return;
     folderWatch.busy=true;watchStatus("CHECKING REPORT INBOX");
     try{
       if(await permission(model.root,false)!=="granted"){stopFolderWatch("FOLDER PERMISSION REQUIRED");model.pendingRoot=connectedNativeRoot;ui.permissionBadge.textContent=`Reconnect: ${model.root.name}`;ui.connectButton.textContent="Reconnect folder";recordDiagnostic("REPORT INBOX WATCH","Folder permission was lost; watching paused");return;}
