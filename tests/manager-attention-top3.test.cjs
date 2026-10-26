@@ -214,7 +214,7 @@ test('Home secondary priorities show ownership, due date, blocker, next step, an
   const record={
     id:'synthetic-ro-context',ro:'SYN-CONTEXT-1',
     management:{owner:'Synthetic Follow-up Owner',ownerAssignmentSource:'manager-confirmed',reviewDate:'2026-10-27',status:'Waiting Parts',
-      statusDetail:'Synthetic part ETA',nextAction:'Recheck synthetic part ETA'},
+      statusDetail:'Other',statusDetailOther:'Synthetic part ETA',nextAction:'Recheck synthetic part ETA'},
     cdkOperational:{status:'Awaiting Technician Attention',stale:false}
   };
   const model={state:{records:[record],source:{fileName:'synthetic-open-ro.xlsx',reportDate:'2026-10-26'}}};
@@ -222,6 +222,7 @@ test('Home secondary priorities show ownership, due date, blocker, next step, an
     model,state:{events:[]},
     api:{
       status:value=>value.management.status,
+      statusDetailLabel:value=>value.management.statusDetail==='Other'?value.management.statusDetailOther:value.management.statusDetail,
       cdkIndicator:value=>value.cdkOperational.stale?{text:'Not confirmed by latest import'}:null,
       recordRefresh:async()=>{}
     },
@@ -236,7 +237,7 @@ test('Home secondary priorities show ownership, due date, blocker, next step, an
   const section=host.children[0],row=section.children[1],detail=row.children[0].children[1];
   assert.match(detail.textContent,/Follow-up owner: Synthetic Follow-up Owner/);
   assert.match(detail.textContent,/Follow-up date: 2026-10-27/);
-  assert.match(detail.textContent,/Status \/ blocker: Synthetic part ETA/);
+  assert.match(detail.textContent,/Status \/ blocker: Waiting Parts — Synthetic part ETA/);
   assert.match(detail.textContent,/Next step: Recheck synthetic part ETA/);
   assert.match(detail.textContent,/synthetic-open-ro\.xlsx · 2026-10-26/);
   assert.match(detail.textContent,/Current source confirms Awaiting Technician Attention/);
