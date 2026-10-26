@@ -1,29 +1,46 @@
 # Roadmap acceptance matrix — MoonDog Service OS
 
-**Live verified checkpoint — 2026-10-25 (Pacific).** This section supersedes earlier snapshots retained below for audit history. Issue #164 remains closed.
+**Live verified checkpoint — 2026-10-26 03:20 UTC.** This section supersedes earlier snapshots retained below for audit history. Issue #164 remains closed.
 
 ## Verified repository state
 
-- Main: `ba7243c235d6b99e5d9e0ab18147f89c08a2e278` after protected PR #482; no runtime or release install is implied by that policy-workflow merge.
-- Trusted Beta: `0.10.18-beta.164`; Stable: `0.10.17`. Stable promotion/installation is not authorized by ordinary PR merges. Only synthetic public repository evidence is claimed, not installed OneDrive/Windows field validation.
-- PR #481 merged as `cafd57bbc161e5b0bd96f8067488070493cb1278`: the trusted policy now accepts an authenticated, exact-head owner-attested GitHub PR review as an alternative to a Codex bot review while preserving the two exact-head checks and GitHub protections. Owner self-attestation is expressly not an independent Codex review.
-- PR #482 merged as `ba7243c235d6b99e5d9e0ab18147f89c08a2e278`: fixes three YAML-unindented Codex-request bodies that had made the Guarded PR Merge workflow invalid. Publication Check #40246247404 and Clean Install Proof #40246247468 passed; an independent YAML parser accepted the corrected workflow. The automatic merge path still needs a post-fix end-to-end run before claiming autonomous closure.
-- PR #470 merged as `6e95be277273ffac85972abe90c0b1688296e40f`: synthetic Home workload baseline; actual device measurements and broader #58 requirements remain open.
-- PR #406 merged as `8fec4ad618373699b881844e4581cadd1acc72a9`: tests immutable settings readback, genuine disk mismatch, overlapping edits and stale save badges. Publication Check #40245179119 and Clean Install Proof #40245179148 passed; the exact-head owner-attested review is auditable on PR #406. The protected API merge was manual because the workflow YAML was invalid at that time.
-- PR #389 closed unmerged as superseded, with specific runtime/source/test evidence on the PR; its old branch was not deleted. Main already contains identical `writeJson` logic and newer serialized settings writes. PR #397 and #458 were previously closed with separate supersession evidence.
-- Open PRs at this checkpoint: **#466 only** (this documentation refresh); open issues: #58, #59, #60, #61 and deferred #212. No umbrella issue is complete solely because its incremental PRs merged.
+- Main: `d559bf881058d800edf31dbd6a01c9f346720bfc`. PR #494 merged at this commit; it contains the current #58-03 Home return implementation and synthetic regression.
+- Trusted Beta: `0.10.18-beta.165`, SHA-256 `ecf31c44a8606e4042fbd20a02595ea9c4a58119bd1ebada830bab9126ae28b3`.
+- Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; `migrationRequired=false`. Stable and its manifest section are unchanged.
+- Protect Main ruleset #24665513 is active for the default branch. It requires a PR and strict `Publication Check` from GitHub Actions app 15368, requires extra approval for unattributed changes, has no bypass actors, and current-user bypass is `never`. Allowed merge methods include squash. Repository native auto-merge is disabled; use the existing guarded protected merge route. No protection was changed.
+- Issue #164 remains closed.
+- Open PRs before this documentation refresh: #496 only. PRs #493 and #495 were closed unmerged as superseded/redundant after verifying their required implementation and tests are present in main through #494. No work was discarded.
 
-## Single prioritized execution queue
+## Current PR and evidence
 
-1. **#61-01: prove the repaired merge automation end-to-end.** Refresh this documentation-only PR onto current main, run exact-head Publication Check and Clean Install Proof, submit an auditable exact-head review, and observe whether the trusted guard merges it automatically. If it stalls, diagnose the exact workflow run before opening another PR. Do not weaken protected path checks.
-2. **#58 performance (next independent code criterion):** measure synthetic browser cold/warm connection and first usable Home/each-tab p50/p95, large and empty data, and permission/reconnect paths; then implement one evidenced bottleneck fix at a time. The #470 Home baseline is partial evidence, not measured end-to-end completion.
-3. **#59 architecture and recovery:** reconcile source authority/lineage, scheduler concurrency, persistence and interruption-safe recovery, month readiness/late corrections, and health checks against existing merged coverage. Preserve the current serialized settings write and OneDrive readback contracts.
-4. **#60 UX/workflow:** measure and improve Open RO save-next, settings retries, actionable Manager Home, cross-view source confidence and navigation/accessibility with synthetic timed scenarios. Keep manual authority and existing TV design.
-5. **#61 release/operations:** verify Beta manifest/package/runtime consistency after each runtime merge, regression scenario coverage, exceptions, lineage, runbook and preference acceptance. Automatic Stable promotion or device installation remains out of scope absent explicit approval.
-6. **#212:** future trend-aware coaching, explicitly deferred; do not prematurely close or implement it while core acceptance remains incomplete.
+- **#496 — Beta package synchronization for merged #494 runtime; OPEN, externally awaiting exact-head Codex review.** Head `e10a04d3f52b7b30946c2becc90bb0306fd6ea1a`, base main `d559bf881058d800edf31dbd6a01c9f346720bfc`, ahead 1 / behind 0. It changes only changelog, README, manifest, and generated Beta package files.
+- Candidate channel is Beta `0.10.18-beta.166`, manifest SHA-256 `986234a99fe9637d45ea1eebc6f22b6e622651e5868a5a074fbcfdb73c59abd5`. The candidate Stable manifest section matches current main byte-for-byte and migration remains false.
+- Exact-head Publication Check run #40261526568 passed. Its steps include focused tests, updater-compatible runtime verification, clean-install source contract, browser update check, tracked-publication checks, reachable-history audit, and strict redacted full-history scan.
+- Exact-head Clean Install Proof run #40261528318 passed, including deterministic build, app/browser smoke, TV rotation, verified Beta package launch, and synthetic navigation benchmark checks.
+- PR-triggered versions of the two workflows concluded `action_required`; the fresh workflow-dispatch runs above passed on the same exact head. No check is represented as successful on any other SHA.
+- Codex review request comment #6407187381 names the exact #496 head, but the live review list and PR comments still contain no completed review receipt. PR API reports mergeable but merge state `blocked`. Do not merge or enable auto-merge until a clean exact-head review is verified.
+- This PR has not merged and Beta .166 is only a candidate. Live trusted Beta remains .165. No installation is claimed.
 
-**Closure discipline:** Every criterion needs implemented behavior, relevant synthetic regression/measurement, exact-head proof and (where required) trusted Beta evidence. Do not claim local hardware/OneDrive testing. Continue one PR at a time; no new PR is needed solely to rewrite this matrix. Earlier detailed criteria and dated checkpoints remain below.
+## One prioritized execution queue
 
+1. **Finish #496 and synchronize trusted Beta.** Obtain the pending exact-head review; resolve any findings; recheck all gates and the current base/head immediately before normal protected merge. Then verify post-merge main Publication Check, Beta manifest/package version/hash, and unchanged Stable. No installation claim.
+2. **#61-01 — prove the repaired guarded merge path end-to-end.** Use the eligible #496 flow after its review; observe the actual guarded workflow result. Repository native auto-merge is disabled; do not change it or bypass protections.
+3. **P0 #59 integrity, source authority, scheduler, and recovery.** Continue from the existing partial matrix after verifying a concrete uncovered synthetic failure path; prioritize conflicting/stale sources, idempotent imports, write serialization, competing writers, backup/read-back, and month readiness. Preserve OneDrive/file read-back and manual-edit authority.
+4. **P1 #58 measured performance.** Extend synthetic cold/warm connection, first usable screen/tab, Open RO search/edit, empty/large data, and permission/reconnect measurements; change only evidenced bottlenecks and guard against stale or incomplete views.
+5. **#60 operational workflow and #61 regression/operations.** Continue save/retry, Manager Home, lineage/freshness, regression scenarios, release/runbook documentation, and device-scoped preferences against the detailed acceptance rows below.
+6. **#212 remains deferred** while core criteria are unfinished.
+
+## Verified criterion increments in the current source
+
+- **#58-03 partial-to-integrated increment:** PR #494 is the protected merge at current main. PR #495's four declared file blobs are already on main and its compare against main has an empty file diff; #493's earlier implementation/test is superseded by the stronger exact-deadline and paint-window logic and regression on main. This does not complete the broader #58 performance issue. Trusted Beta synchronization is pending in #496.
+- **#493/#495 consolidation:** both are closed unmerged with evidence on their PR conversations; current open PR count before this docs refresh was one (#496). Net reduction from the previous three open PRs was two; this docs-only #61-07 refresh is the sole additional PR.
+- Other per-criterion evidence below is retained as dated repository history; its old “live” SHAs/statuses are not current. Use the current checkpoint above and live GitHub state for decisions.
+
+## Scope and release controls
+
+Issues #58–#61 remain open until all their own acceptance criteria are evidenced. The matrix and merged PRs do not by themselves close umbrella issues. PRs #189 and #183 remain gated on James’s explicit approval. #212 remains deferred. Stable promotion, installation, and field-device validation are outside this checkpoint. Use synthetic fixtures only; do not access Workspace or customer/dealership data. Do not claim Windows/Edge/OneDrive field validation or continuous execution.
+
+**Closure discipline:** Every criterion needs implementation, relevant synthetic regression/measurement, exact-head Publication Check and Clean Install Proof where applicable, clean exact-head review, protected merge evidence, and trusted Beta evidence for runtime changes. Preserve issue and PR history; do not close umbrella issues until their complete criteria pass.
 
 **PREVIOUS CHECKPOINT — 2026-10-25 20:48 UTC (superseded by the live checkpoint above).** Issue #164 remains closed.
 
