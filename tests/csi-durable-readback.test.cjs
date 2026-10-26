@@ -34,6 +34,7 @@ function fixture(mode = "verified") {
   };
   const model = {operationalMetrics: structuredClone(previous)};
   const events = [];
+  const history = [];
   let persisted = structuredClone(previous);
   const ctx = {
     model, structuredClone, now: () => "2026-10-21T15:00:00Z",
@@ -60,7 +61,10 @@ function fixture(mode = "verified") {
       if (currentMode === "other-family-lost") delete data.anotherFamily;
       return data;
     },
-    addHistory: async kind => events.push("history:" + kind),
+    addHistory: async (kind, summary, details) => {
+      events.push("history:" + kind);
+      history.push({ kind, summary, details: structuredClone(details) });
+    },
     removeSourceEntry: async () => events.push("source-deleted"),
     status: (_message, kind) => events.push("status:" + kind),
     renderAll: () => events.push("render-all"),
@@ -68,7 +72,7 @@ function fixture(mode = "verified") {
   };
   vm.runInNewContext(importer + "\nthis.importCsiForTest = importCsiFile;", ctx);
   return {run: deleteSource => ctx.importCsiForTest("synthetic-csi.csv", deleteSource),
-    events, model, previous, parsed, persisted: () => persisted, setMode: next => { currentMode = next; }};
+    events, history, model, previous, parsed, persisted: () => persisted, setMode: next => { currentMode = next; }};
 }
 
 test("CSI importer verifies the entire saved payload before success and source deletion", async () => {
@@ -134,4 +138,27 @@ test("actual CSI importer is syntax-valid and uses full readback comparison", ()
   assert.match(importer, /structuredClone\(model\.operationalMetrics\)/);
   assert.match(importer, /JSON\.stringify\(check\) !== JSON\.stringify\(model\.operationalMetrics\)/);
   assert.match(importer, /model\.operationalMetrics = priorMetrics/);
+});
+
+
+test("cumulative CSI metric corrections retain period provenance in durable import history", async () => {
+  const f = fixture();
+  await f.run(false);
+  const first = f.history[0];
+  assert.equal(first.kind, "csi-import");
+  assert.match(first.summary, /revised 1 previously imported metric response/);
+  assert.equal(first.details.fileName, "synthetic-csi.csv");
+  assert.equal(first.details.sourcePeriodStart, "2026-10-19");
+  assert.equal(first.details.sourcePeriodEnd, "2026-10-21");
+  assert.equal(first.details.sourceScopeVerified, true);
+  assert.equal(first.details.revisedMetricSurveyCount, 1);
+  assert.equal(JSON.stringify(first.details).includes("prior-01"), false,
+    "audit provenance must not copy survey identifiers");
+  assert.equal(JSON.stringify(first.details).includes('"score"'), false,
+    "audit provenance records a correction count, not response values");
+
+  await f.run(false);
+  assert.deepEqual(f.history.map(entry => entry.details.revisedMetricSurveyCount), [1, 0],
+    "the repeated same cumulative export is idempotent and creates no false correction");
+  assert.equal(f.history[1].details.sourcePeriodEnd, "2026-10-21");
 });
