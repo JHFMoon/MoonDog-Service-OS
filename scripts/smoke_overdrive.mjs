@@ -760,9 +760,9 @@ try{
             }));
             const snapshots=[
               ["settings.json",settings],
-              ["state.json",{...JSON.parse(JSON.stringify(model.state)),records,closedRecords:[],source:null}],
+              ["current-state.json",{...JSON.parse(JSON.stringify(model.state)),records,closedRecords:[],source:null}],
               ["appointments.json",JSON.parse(JSON.stringify(model.appointments))],
-              ["performance.json",JSON.parse(JSON.stringify(model.performance))],
+              ["advisor-performance.json",JSON.parse(JSON.stringify(model.performance))],
               ["operational-metrics.json",JSON.parse(JSON.stringify(model.operationalMetrics))],
               ["meeting-cycle.json",JSON.parse(JSON.stringify(model.meetingCycle))],
               ["assign-next.json",{schemaVersion:3,days:{},currentOpenRo:{synthetic:true}}],
