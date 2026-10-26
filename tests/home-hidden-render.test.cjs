@@ -20,6 +20,10 @@ test("Background task refresh updates priorities and Home badge without rebuildi
     engine:{phase:()=>"midday"},
     today:()=>"2026-10-12",now:()=>Date.parse("2026-10-12T20:00:00.000Z"),
     attentionTopThree:()=>{rankCalls++;return priorities;},
+    // This narrow extraction tests hidden-tab render behavior, not clock
+    // boundaries. The separate Home receipt regression runs the actual
+    // rankedHomeSnapshot source and checks in-ranking/in-paint expirations.
+    rankedHomeSnapshot:()=>({top:env.attentionTopThree(),stable:true}),
     refreshAttentionCount:()=>{badgeCalls++;},
     active:()=>view,renderHome:top=>{drawCalls++;drawnTop=top;},
     action:async fn=>fn(),allTasks:()=>[]
