@@ -17,6 +17,19 @@ class BetaVerificationDiagnosticsTests(unittest.TestCase):
         self.assertEqual(workflow.count("- name: Dispatch exact-head verification"), 1)
         self.assertEqual(workflow.count("- name: Verify package PR and merge exact head"), 1)
 
+    def test_retries_track_only_new_exact_head_run_ids(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("BEFORE_RUN_IDS=", workflow)
+        self.assertIn("as $needle | ($before | contains($needle) | not)", workflow)
+        self.assertIn("publication_run_id=$PUB_RUN_ID", workflow)
+        self.assertIn("clean_install_run_id=$CLEAN_RUN_ID", workflow)
+        self.assertIn("steps.verification.outputs.publication_run_id", workflow)
+        self.assertIn("steps.verification.outputs.clean_install_run_id", workflow)
+        self.assertIn('PUB_RUN="$(gh api "repos/$REPO/actions/runs/$PUB_RUN_ID")"', workflow)
+        self.assertIn('CLEAN_RUN="$(gh api "repos/$REPO/actions/runs/$CLEAN_RUN_ID")"', workflow)
+        self.assertIn("Verification run head mismatch.", workflow)
+        self.assertIn("newly dispatched exact-head runs", workflow)
+
     def test_retry_wait_covers_exact_head_review(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("for attempt in {1..180}; do", workflow)

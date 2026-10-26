@@ -430,44 +430,56 @@ jobs:
           echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch exact-head verification
+        id: verification
         if: steps.detect.outputs.needed == 'true'
         shell: bash
         env:
           BRANCH: ${{ steps.build.outputs.branch }}
           PACKAGE_HEAD: ${{ steps.build.outputs.head_sha }}
-          EXISTING_PR_NUMBER: ${{ steps.build.outputs.existing_pr_number }}
         run: |
           set -euo pipefail
+          RUNS_BEFORE="$(gh api "repos/$REPO/actions/runs?head_sha=$PACKAGE_HEAD&per_page=100")"
+          BEFORE_RUN_IDS=" $(jq -r '.workflow_runs[].id' <<<"$RUNS_BEFORE" | tr '\n' ' ') "
           gh workflow run publication-check.yml --repo "$REPO" --ref "$BRANCH"
           gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$BRANCH"
-          if [ -n "$EXISTING_PR_NUMBER" ]; then
-            gh api --paginate "repos/$REPO/issues/$EXISTING_PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/reused-beta-comments.json
-            gh api --paginate "repos/$REPO/pulls/$EXISTING_PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/reused-beta-reviews.json
-            CODEX_STATE="$(python3 scripts/guarded_merge_policy.py codex-review-state /tmp/reused-beta-comments.json "$PACKAGE_HEAD")"
-            REQUESTED="$(jq --arg head "$PACKAGE_HEAD" '[.[] | select((.body | contains($head)) and (.body | contains("@codex review")))] | length' /tmp/reused-beta-comments.json)"
-            if [ "$CODEX_STATE" = "pending" ] && [ "$REQUESTED" = "0" ]; then
-              CURRENT_MAIN="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
-              gh pr comment "$EXISTING_PR_NUMBER" --repo "$REPO" --body "@codex review
-          Review reused generated Beta package exact head $PACKAGE_HEAD against current main $CURRENT_MAIN. Confirm the package diff remains restricted to Beta metadata/artifact, Stable is unchanged, and package integrity and source parity hold. Report findings for this exact head."
+          for attempt in {1..60}; do
+            RUNS_AFTER="$(gh api "repos/$REPO/actions/runs?head_sha=$PACKAGE_HEAD&per_page=100")"
+            PUB_RUN_ID="$(jq -r --arg before "$BEFORE_RUN_IDS" --arg head "$PACKAGE_HEAD" '[.workflow_runs[] | select(.name=="Publication check" and .event=="workflow_dispatch" and .head_sha==$head and ((" " + (.id|tostring) + " ") as $needle | ($before | contains($needle) | not)))] | sort_by(.created_at) | last | .id // empty' <<<"$RUNS_AFTER")"
+            CLEAN_RUN_ID="$(jq -r --arg before "$BEFORE_RUN_IDS" --arg head "$PACKAGE_HEAD" '[.workflow_runs[] | select(.name=="Clean Install Proof" and .event=="workflow_dispatch" and .head_sha==$head and ((" " + (.id|tostring) + " ") as $needle | ($before | contains($needle) | not)))] | sort_by(.created_at) | last | .id // empty' <<<"$RUNS_AFTER")"
+            if [ -n "$PUB_RUN_ID" ] && [ -n "$CLEAN_RUN_ID" ]; then
+              echo "publication_run_id=$PUB_RUN_ID" >> "$GITHUB_OUTPUT"
+              echo "clean_install_run_id=$CLEAN_RUN_ID" >> "$GITHUB_OUTPUT"
+              exit 0
             fi
-          fi
-
+            sleep 5
+          done
+          echo "Could not identify both newly dispatched exact-head verification runs." >&2
+          exit 1
       - name: Verify package PR and merge exact head
         if: steps.detect.outputs.needed == 'true'
         shell: bash
         env:
           BRANCH: ${{ steps.build.outputs.branch }}
           PACKAGE_HEAD: ${{ steps.build.outputs.head_sha }}
+          PUB_RUN_ID: ${{ steps.verification.outputs.publication_run_id }}
+          CLEAN_RUN_ID: ${{ steps.verification.outputs.clean_install_run_id }}
           PR_NUMBER: ${{ steps.build.outputs.existing_pr_number || steps.pr.outputs.number }}
           EXPECTED_MAIN: ${{ steps.detect.outputs.main_sha }}
         run: |
           set -euo pipefail
-          for attempt in {1..42}; do
-            RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$PACKAGE_HEAD&per_page=100")"
-            PUB_OK="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .event=="workflow_dispatch" and .conclusion=="success")] | length' <<<"$RUNS")"
-            CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .event=="workflow_dispatch" and .conclusion=="success")] | length' <<<"$RUNS")"
-            PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .event=="workflow_dispatch" and .status!="completed")] | length' <<<"$RUNS")"
-            HARD_FAIL="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .event=="workflow_dispatch" and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out"))] | length' <<<"$RUNS")"
+          for attempt in {1..180}; do
+            PUB_RUN="$(gh api "repos/$REPO/actions/runs/$PUB_RUN_ID")"
+            CLEAN_RUN="$(gh api "repos/$REPO/actions/runs/$CLEAN_RUN_ID")"
+            test "$(jq -r '.name' <<<"$PUB_RUN")" = "Publication check" || { echo "Publication run identity mismatch." >&2; exit 1; }
+            test "$(jq -r '.name' <<<"$CLEAN_RUN")" = "Clean Install Proof" || { echo "Clean Install run identity mismatch." >&2; exit 1; }
+            for RUN in "$PUB_RUN" "$CLEAN_RUN"; do
+              test "$(jq -r '.head_sha' <<<"$RUN")" = "$PACKAGE_HEAD" || { echo "Verification run head mismatch." >&2; exit 1; }
+              test "$(jq -r '.event' <<<"$RUN")" = "workflow_dispatch" || { echo "Verification event mismatch." >&2; exit 1; }
+            done
+            PUB_OK="$(jq -r 'if .status=="completed" and .conclusion=="success" then 1 else 0 end' <<<"$PUB_RUN")"
+            CLEAN_OK="$(jq -r 'if .status=="completed" and .conclusion=="success" then 1 else 0 end' <<<"$CLEAN_RUN")"
+            PENDING="$(jq -s '[.[] | select(.status!="completed")] | length' <<<"$PUB_RUN"$'\n'"$CLEAN_RUN")"
+            HARD_FAIL="$(jq -s '[.[] | select(.status=="completed" and .conclusion!="success")] | length' <<<"$PUB_RUN"$'\n'"$CLEAN_RUN")"
             gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/package-pr-comments.json
             gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/package-pr-reviews.json
             REVIEW_STATE="$(python3 scripts/guarded_merge_policy.py merge-review-state /tmp/package-pr-comments.json /tmp/package-pr-reviews.json "$PACKAGE_HEAD" --policy .github/guarded-merge-policy.json)"
@@ -476,26 +488,20 @@ jobs:
               exit 1
             fi
             if [ "$HARD_FAIL" != "0" ]; then
-              echo "Generated Beta verification failed. Exact-head workflow IDs and failed jobs follow." >&2
-              FAILED_IDS="$(jq -r '.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .event=="workflow_dispatch" and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out")) | .id' <<<"$RUNS")"
-              while IFS= read -r FAILED_ID; do
-                [ -n "$FAILED_ID" ] || continue
-                echo "Failed verification: https://github.com/$REPO/actions/runs/$FAILED_ID" >&2
-                gh api "repos/$REPO/actions/runs/$FAILED_ID/jobs?per_page=100" \
-                  --jq '.jobs[] | select(.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out") | [.name, .conclusion, (.id|tostring)] | @tsv' >&2
-              done <<<"$FAILED_IDS"
+              echo "Generated Beta verification failed on newly dispatched exact-head runs." >&2
+              echo "Publication run: https://github.com/$REPO/actions/runs/$PUB_RUN_ID" >&2
+              echo "Clean Install run: https://github.com/$REPO/actions/runs/$CLEAN_RUN_ID" >&2
               exit 1
             fi
-            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ] && [ "$REVIEW_STATE" = "clean" ]; then
+            if [ "$PENDING" = "0" ] && [ "$PUB_OK" = "1" ] && [ "$CLEAN_OK" = "1" ] && [ "$REVIEW_STATE" = "clean" ]; then
               break
             fi
-            if [ "$attempt" = "42" ]; then
+            if [ "$attempt" = "180" ]; then
               echo "Timed out waiting for generated Beta Publication, Clean Install, and exact-head Codex proof." >&2
               exit 1
             fi
             sleep 10
           done
-
           CURRENT_MAIN="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
           test "$CURRENT_MAIN" = "$EXPECTED_MAIN" || {
             echo "Main advanced while generated Beta was verifying; refusing stale merge." >&2
