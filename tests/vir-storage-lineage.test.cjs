@@ -101,7 +101,7 @@ function failedReadbackFixture(mode) {
     "Report Date,2026-10-22",
     "Advisor Name,Total ROs,VIR Printed/Emailed/Texted,VIR Use %",
     "Demo Advisor,4,3,75"
-  ].join("\\n") + "\\n";
+  ].join("\n") + "\n";
   const existing = {
     vir: {
       snapshots: { "prior-observation": { sourceFile: "synthetic-prior-vir.csv", store: { totalROs: 2, used: 1 } } },
@@ -121,7 +121,7 @@ function failedReadbackFixture(mode) {
     text: value => String(value ?? ""),
     norm: value => String(value ?? "").trim().toLowerCase(),
     csvNumber: value => value === "" || value == null ? null : Number(value),
-    parseCsv: value => value.trimEnd().split(/\\r?\\n/).map(line => line.split(",")),
+    parseCsv: value => value.trimEnd().split(/\r?\n/).map(line => line.split(",")),
     internalObservationDate: () => "2026-10-22",
     now: () => "2026-10-22T19:00:00.000Z",
     localDateKey: date => date ? date.toISOString().slice(0, 10) : "2026-10-23",
@@ -155,7 +155,7 @@ function failedReadbackFixture(mode) {
     recordDiagnostic: () => {},
     renderOverviewIntelligence: () => {}
   });
-  vm.runInContext(parser + "\\n" + lineage + '\\nVIR_NAME_CODES["demo advisor"] = "A1"; this.importVirFile = importVirFile;',
+  vm.runInContext(parser + "\n" + lineage + '\nVIR_NAME_CODES["demo advisor"] = "A1"; this.importVirFile = importVirFile;',
     context);
   return { context, events, history, model, existing, durable: () => durable };
 }
