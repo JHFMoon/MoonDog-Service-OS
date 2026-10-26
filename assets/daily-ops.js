@@ -813,6 +813,8 @@
       const hint=document.createElement('small');hint.textContent='Prefilled from CDK technician'+(r.technician?'':' code')+' — verify current assignment.';tech.closest('.daily-field').append(hint);
     }
     const owner=document.createElement('input');compactField(form,'Follow-up owner','owner',m.owner||r.advisor||r.advisorCode||'',owner,false);
+    const ownerAssignmentExplicit=document.createElement('input');ownerAssignmentExplicit.type='hidden';ownerAssignmentExplicit.name='ownerAssignmentExplicit';ownerAssignmentExplicit.value='false';form.append(ownerAssignmentExplicit);
+    owner.addEventListener('input',()=>ownerAssignmentExplicit.value='true');
     if(m.ownerAssignmentSource!=="manager-confirmed"){
       const hint=document.createElement('small');hint.textContent=m.ownerAssignmentSource==="source-writer"||(!m.owner&&(r.advisor||r.advisorCode))?'Prefilled from RO writer, not a confirmed follow-up assignment. Verify ownership.':'Follow-up owner is not confirmed. Verify ownership.';owner.closest('.daily-field').append(hint);
     }
