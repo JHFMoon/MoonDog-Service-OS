@@ -15,7 +15,7 @@ function extract(startText,endText,label){
 const lockSource=extract("  const sourceLocations = new Map();","  const dailyPickedSources = new Map();","shared source-operation lock");
 const ownerSource=extract("  function defaultManagementFor(raw){","  function pruneClosedRecords(","manager source authority helpers");
 const reconciliation=extract("  function pruneClosedRecords(","  async function importCdkRepairOrdersDocx(","complete-source Open RO reconciliation");
-const editorState=extract("  let editDraftDirty = false;","  function updateStatusDetailEditor(","Open RO editor state");
+const editorState=extract("  let editDraftDirty = false;","  function editValidationError(","Open RO editor state");
 const finishSource=extract("  async function finishSavedOpenRo(","  async function saveRecord(","Open RO save completion");
 const saveSource=extract("  async function saveRecord(","  async function closeRo(","Open RO save");
 
@@ -103,7 +103,7 @@ function harness(){
   });
   context.globalThis=context;
   vm.runInContext(lockSource+ownerSource+reconciliation+editorState+finishSource+saveSource+
-    "\nthis.withLock=withSupervisorWorkbookLock;this.mergeSource=mergeCompleteOpenRoRecords;this.save=saveRecord;this.openEditor=openEdit;this.closeEditor=closeEditDialog;this.confirmNav=confirmEditNavigation;this.markDraftDirty=markEditDraftDirty;this.isDirty=()=>editDraftDirty;this.isSaving=()=>openRoSaveInFlight;",context);
+    "\nthis.withLock=withSupervisorWorkbookLock;this.mergeSource=mergeCompleteOpenRoRecords;this.save=saveRecord;this.openEditor=openEdit;this.closeEditor=closeEditDialog;this.confirmNav=confirmEditNavigation;this.markDraftDirty=markEditDraftDirty;this.isDirty=()=>editDraftDirty;this.isSaving=()=>model.openRoSaveInFlight;",context);
   return{context,model,ui,prepared,releaseImport:()=>releaseImport(),signalPrepared:()=>signalPrepared(),lockRequests,durable:()=>copy(durable),importGate};
 }
 
