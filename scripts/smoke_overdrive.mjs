@@ -1090,7 +1090,7 @@ try{
         if(uxTaskSamples.length!==9||uxTaskSamples.some(sample=>sample.clickCount!==4||sample.fieldEntryCount<5||
           !Number.isFinite(sample.scrollDistancePx)||sample.scrollDistancePx<0))
           throw Error("Open RO UX task evidence incomplete: "+JSON.stringify(uxWorkflow));
-        fs.writeFileSync(path.join(out,"open-ro-workflow-metrics.json"),JSON.stringify(uxWorkflow,null,2)+"\\n");
+        fs.writeFileSync(path.join(out,"open-ro-workflow-metrics.json"),JSON.stringify(uxWorkflow,null,2)+"\n");
         console.log("60-10 synthetic Open RO task metrics",JSON.stringify(uxWorkflow));
       }
       console.log("58-01 synthetic Chromium first verified Home",
