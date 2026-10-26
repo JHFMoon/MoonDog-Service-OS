@@ -708,6 +708,7 @@ try{
     for(const [scenario,recordCount,readDelayMs] of scenarios){
       const connectionSamples=[],launcherSamples=[];
       const firstTabSamples={},repeatTabSamples={};
+      const connectedEditSamples={search:[],editor:[],noteReveal:[],durableSave:[]};
       for(let sample=0;sample<9;sample++){
         const connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
         const browserErrors=[];
@@ -824,8 +825,10 @@ try{
               id:"synthetic-browser-ro-"+i,ro:String(900000+i),advisor:"Synthetic Advisor",
               advisorCode:"100",customer:"Synthetic Customer",vehicle:"Synthetic Vehicle",
               sourceStatus:"Open",daysOpen:i%8,
-              management:{status:"Waiting Dispatch",nextAction:"Synthetic next step",
-                reviewDate:"2026-10-25",communication:"Current"}
+              sourceFields:{"RO Number":String(900000+i),"Source Status":"Open","Synthetic Marker":"source-"+i},
+              management:{status:"Being Repaired",owner:"Synthetic Existing Owner",
+                nextAction:"Synthetic next step",reviewDate:"2026-10-25",communication:"Updated",
+                note:"Synthetic existing note",manualAnnotation:"preserve-"+i}
             }));
             const snapshots=[
               ["settings.json",settings],
@@ -914,7 +917,127 @@ try{
                 (slot[view==="home"?(pass===0?"homeFirstReturn":"homeRepeatReturn"):view]||=[]).push(measurement.ms);
               }
             }
-            if(browserErrors.length)throw Error("Connected navigation page errors: "+browserErrors.join("; "));
+            // #58-04: measure the real packaged Open RO search, editor, and
+            // durable save/read-back path with connected synthetic Workspace data.
+            const editCycle=await connectedPage.evaluate(async()=>{
+              const api=globalThis.__moondogDaily;
+              const openTab=document.querySelector('.nav-item[data-view="open-ro"]');
+              if(!openTab)throw Error("Open RO navigation control is missing");
+              openTab.click();
+              const renderDeadline=performance.now()+5000;
+              while(document.querySelectorAll("#roTable tr[data-id]").length!==2100&&performance.now()<renderDeadline)
+                await new Promise(resolve=>setTimeout(resolve,16));
+              await new Promise(resolve=>requestAnimationFrame(resolve));
+              const openView=document.getElementById("view-open-ro");
+              const visibleRow=document.querySelector('#roTable tr[data-id="synthetic-browser-ro-0"]');
+              const viewBounds=openView?.getBoundingClientRect(),rowBounds=visibleRow?.getBoundingClientRect();
+              if(!openView?.classList.contains("active")||!viewBounds?.width||!rowBounds?.width||
+                document.querySelectorAll("#roTable tr[data-id]").length!==2100)
+                throw Error("Connected synthetic Open RO table is not active, visible, and complete before search measurement");
+              const search=document.getElementById("searchInput");
+              const searchStarted=performance.now();
+              search.value="900312";
+              search.dispatchEvent(new Event("input",{bubbles:true}));
+              await new Promise(resolve=>requestAnimationFrame(resolve));
+              const row=document.querySelector('#roTable tr[data-id="synthetic-browser-ro-312"]');
+              const rows=document.querySelectorAll("#roTable tr[data-id]");
+              const searchMs=performance.now()-searchStarted;
+              if(rows.length!==1||!row)throw Error("Synthetic exact Open RO search did not isolate the expected record");
+              const button=row.querySelector("button[data-id]");
+              if(!button)throw Error("Connected synthetic Open RO edit action is missing");
+              const editorStarted=performance.now();
+              button.click();
+              await new Promise(resolve=>requestAnimationFrame(resolve));
+              const dialog=document.getElementById("editDialog");
+              const dialogBounds=dialog?.getBoundingClientRect();
+              const editorMs=performance.now()-editorStarted;
+              if(!dialog?.open||!dialogBounds?.width||!dialogBounds?.height||
+                document.getElementById("dialogTitle")?.textContent!=="RO 900312")
+                throw Error("Connected synthetic search did not open the matching editor");
+              const before=await api.readJson("data/current-state.json");
+              const prior=before.records.find(item=>item.id==="synthetic-browser-ro-312");
+              if(!prior)throw Error("Selected synthetic record is absent from durable state");
+              globalThis.__moondogSearchEditSaveStarted=performance.now();
+              return {searchMs,editorMs,sourceFields:prior.sourceFields,
+                manualAnnotation:prior.management.manualAnnotation};
+            });
+            await connectedPage.locator("#editOwner").fill("Synthetic Roundtrip Owner");
+            await connectedPage.locator("#editNextAction").fill("Synthetic roundtrip action");
+            await connectedPage.locator("#editReviewDate").fill("2026-10-27");
+            const noteDisclosure=connectedPage.locator("#editNote").locator("xpath=ancestor::details[1]");
+            const disclosureLabel=(await noteDisclosure.locator("summary").textContent()||"").trim();
+            if(disclosureLabel!=="Add note")throw Error("Synthetic note editor disclosure label changed: "+disclosureLabel);
+            const noteRevealStarted=await connectedPage.evaluate(()=>performance.now());
+            await noteDisclosure.locator("summary").click({timeout:3500});
+            await connectedPage.locator("#editNote").scrollIntoViewIfNeeded();
+            await connectedPage.locator("#editNote").waitFor({state:"visible",timeout:3500});
+            const noteRevealMs=await connectedPage.evaluate(started=>performance.now()-started,noteRevealStarted);
+            const noteVisible=await connectedPage.locator("#editNote").evaluate(el=>el.checkVisibility?.()??false);
+            if(!noteVisible)throw Error("Synthetic note field remained hidden after expanding Add note");
+            await connectedPage.locator("#editNote").fill("Synthetic roundtrip note",{timeout:3500});
+            // The timer starts after editor entry and field updates, isolating
+            // verified persistence and dialog completion from automation typing.
+            await connectedPage.evaluate(()=>{globalThis.__moondogSearchEditSaveStarted=performance.now();});
+            const beforeSave=await connectedPage.locator("#editForm").evaluate(form=>({
+              status:form.querySelector("#editStatus")?.value||"",
+              statusDetail:form.querySelector("#editStatusDetail")?.value||"",
+              communication:form.querySelector("#editCommunication")?.value||"",
+              nextAction:form.querySelector("#editNextAction")?.value||"",
+              reviewDate:form.querySelector("#editReviewDate")?.value||"",
+              note:form.querySelector("#editNote")?.value||""
+            }));
+            if(!beforeSave.status||!beforeSave.nextAction||!beforeSave.reviewDate||
+              beforeSave.note!=="Synthetic roundtrip note")
+              throw Error("Synthetic Open RO form was incomplete before save: "+JSON.stringify(beforeSave));
+            await connectedPage.locator("#saveRecordClose").click({timeout:3500});
+            let saveWaitError="";
+            try{
+              await connectedPage.waitForFunction(()=>{
+                const dialog=document.getElementById("editDialog"),validation=document.getElementById("editValidation");
+                return !dialog?.open||Boolean(validation&&!validation.hidden&&validation.textContent.trim());
+              },null,{timeout:15000});
+            }catch(error){saveWaitError=String(error);}
+            const saveOutcome=await connectedPage.evaluate(()=>({
+              dialogOpen:Boolean(document.getElementById("editDialog")?.open),
+              validation:document.getElementById("editValidation")?.textContent?.trim()||"",
+              status:document.getElementById("editStatus")?.value||"",
+              statusDetail:document.getElementById("editStatusDetail")?.value||"",
+              communication:document.getElementById("editCommunication")?.value||"",
+              connection:document.getElementById("status")?.textContent?.trim()||""
+            }));
+            if(saveOutcome.validation)
+              throw Error("Production Open RO editor rejected the synthetic save: "+JSON.stringify({beforeSave,...saveOutcome}));
+            if(saveWaitError)
+              throw Error("Timed out waiting for production Open RO save completion: "+JSON.stringify({
+                beforeSave,...saveOutcome,waitError:saveWaitError,browserErrors
+              }));
+            if(saveOutcome.dialogOpen)
+              throw Error("Production Open RO save remained pending without validation or dialog completion: "+JSON.stringify({beforeSave,...saveOutcome,browserErrors}));
+            const saved=await connectedPage.evaluate(async()=>{
+              const elapsedMs=performance.now()-globalThis.__moondogSearchEditSaveStarted;
+              const state=await globalThis.__moondogDaily.readJson("data/current-state.json");
+              const record=state?.records?.find(item=>item.id==="synthetic-browser-ro-312");
+              return {elapsedMs,record};
+            });
+            if(!saved.record||saved.record.management.owner!=="Synthetic Roundtrip Owner"||
+              saved.record.management.nextAction!=="Synthetic roundtrip action"||
+              saved.record.management.reviewDate!=="2026-10-27"||
+              saved.record.management.note!=="Synthetic roundtrip note"||
+              saved.record.management.communication!=="Updated"||
+              JSON.stringify(saved.record.sourceFields)!==JSON.stringify(editCycle.sourceFields)||
+              saved.record.management.manualAnnotation!==editCycle.manualAnnotation)
+              throw Error("Synthetic Open RO edit/read-back lost or changed source/manual data: "+JSON.stringify({
+                owner:saved.record?.management?.owner,action:saved.record?.management?.nextAction,
+                reviewDate:saved.record?.management?.reviewDate,note:saved.record?.management?.note,
+                communication:saved.record?.management?.communication,
+                sourceFieldsPreserved:JSON.stringify(saved.record?.sourceFields)===JSON.stringify(editCycle.sourceFields),
+                manualAnnotationPreserved:saved.record?.management?.manualAnnotation===editCycle.manualAnnotation
+              }));
+            connectedEditSamples.search.push(editCycle.searchMs);
+            connectedEditSamples.editor.push(editCycle.editorMs);
+            connectedEditSamples.noteReveal.push(noteRevealMs);
+            connectedEditSamples.durableSave.push(saved.elapsedMs);
+            if(browserErrors.length)throw Error("Connected browser page errors: "+browserErrors.join("; "));
           }
         }finally{await connectedPage.close();}
       }
@@ -925,6 +1048,13 @@ try{
           JSON.stringify({records:recordCount,firstVisitOrHomeReturn:summarizeTabs(firstTabSamples),
             repeatVisit:summarizeTabs(repeatTabSamples),
             scope:"9 connected browser page starts, 6 views x 2 passes; activation to first rAF timed, deferred tab render given 80ms plus next rAF before checking usable DOM and advancing; Home measurements are returns after verified initial Home, not first open; not installed Edge timings"}));
+        console.log("58-04 synthetic connected Open RO search/editor/durable save",
+          JSON.stringify({records:2100,samples:connectedEditSamples.search.length,
+            search:summarizeNavigationMs(connectedEditSamples.search),
+            editor:summarizeNavigationMs(connectedEditSamples.editor),
+            noteReveal:summarizeNavigationMs(connectedEditSamples.noteReveal),
+            durableSave:summarizeNavigationMs(connectedEditSamples.durableSave),
+            scope:"packaged file:// Chromium, connected memory-only File System Access-compatible Workspace; exact search to rendered result, production editor open to frame, visible Add note disclosure expansion, production save to verified durable read-back; sourceFields and manager manual annotation preserved; synthetic-only"}));
       }
       console.log("58-01 synthetic Chromium first verified Home",
         JSON.stringify({scenario,records:recordCount,syntheticReadDelayMs:readDelayMs,
