@@ -13,6 +13,21 @@ const start = app.indexOf("  function comparableManagerSnapshot(");
 const end = app.indexOf("  async function classifyImportFile(", start);
 assert.ok(start >= 0 && end > start, "Production manager snapshot comparison and import path must be present");
 const managerImport = app.slice(start, end);
+const mediaScopeStart = app.indexOf("  function mediaScope(");
+const mediaScopeEnd = app.indexOf("  function mediaTechReports(", mediaScopeStart);
+const trendSourcesStart = app.indexOf("const TREND_SOURCES=");
+const lineBreak = String.fromCharCode(10);
+const trendSourcesEnd = app.indexOf(lineBreak, trendSourcesStart);
+const trendObservationStart = app.indexOf("  function sourceTrendObservations(");
+const trendMeasuresStart = app.indexOf("  function trendMeasures(", trendObservationStart);
+const trendPointsStart = app.indexOf("  function trendPoints(", trendMeasuresStart);
+const trendAvailableEnd = app.indexOf("  function availableTrendMeasures(", trendPointsStart);
+assert.ok([mediaScopeStart, mediaScopeEnd, trendSourcesStart, trendSourcesEnd, trendObservationStart, trendMeasuresStart, trendPointsStart, trendAvailableEnd].every(index => index >= 0),
+  "production Media ASR Performance lineage selectors are present");
+const mediaScopeProductionSource = app.slice(mediaScopeStart, mediaScopeEnd);
+const trendSourcesProductionDeclaration = app.slice(trendSourcesStart, trendSourcesEnd);
+const mediaAsrPerformanceLineageSource = app.slice(trendObservationStart, trendMeasuresStart) + lineBreak +
+  app.slice(trendPointsStart, trendAvailableEnd);
 
 const saved = {
   period: "2026-10",
@@ -94,6 +109,7 @@ test("equivalent Efficiency reimport ignores learned labels and derived metadata
 const savedMedia = {
   periodStart: "2026-10-01",
   periodEnd: "2026-10-21",
+  sourceScope: "advisor",
   sourceFile: "synthetic-media-asr.xlsx",
   importedAt: "2026-10-21T18:00:00.000Z",
   sourceModifiedAt: "2026-10-21T00:00:00.000Z",
@@ -111,7 +127,8 @@ const equivalentMedia = {
   importedAt: "2026-10-22T18:00:00.000Z",
   sourceFile: "synthetic-media-asr (1).xlsx",
   periodEnd: "2026-10-21",
-  periodStart: "2026-10-01"
+  periodStart: "2026-10-01",
+  sourceScope: "advisor"
 };
 
 function mediaFixture(candidate) {
@@ -126,6 +143,8 @@ function mediaFixture(candidate) {
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
     now: () => "2026-10-23T12:00:00.000Z",
     localDateKey: () => "2026-10-23",
+    text: value => String(value ?? ""),
+    advisorDisplayName: id => "Synthetic Advisor " + id,
     sourceFileHandle: async () => ({ getFile: async () => ({ lastModified: Date.UTC(2026, 9, 22) }) }),
     parseSorWorkbook: () => { throw new Error("Unexpected SOR parse"); },
     parseAppointmentActivityWorkbook: () => { throw new Error("Unexpected appointment parse"); },
@@ -142,9 +161,14 @@ function mediaFixture(candidate) {
     addHistory: async () => { events.push("history"); },
     removeSourceEntry: async name => { events.push("delete"); removed.push(name); }
   });
-  vm.runInContext(managerImport + "\nthis.importManagerSource = importManagerSource;", context);
+  vm.runInContext(
+    managerImport + "\n" + mediaScopeProductionSource + "\n" + trendSourcesProductionDeclaration + "\n" + mediaAsrPerformanceLineageSource +
+      "\nthis.importManagerSource = importManagerSource; this.mediaAsrTrendPoints = trendPoints;",
+    context
+  );
   return {
-    model, events, removed, durable: () => durable,
+    model, events, removed, context, durable: () => durable,
+    trendPoints: (measure, role, id, today) => context.mediaAsrTrendPoints(measure, role, id, today),
     run: (name = "synthetic-media-asr (1).xlsx") => context.importManagerSource(name, "media-asr", [], true)
   };
 }
@@ -186,4 +210,30 @@ test("conflicting Efficiency measurements are rejected before mutation and sourc
   assert.equal(JSON.stringify(f.durable()), diskBefore, "no conflicting snapshot is written");
   assert.deepEqual(f.events, [], "no durable write, success history, or deletion occurs");
   assert.deepEqual(f.removed, [], "conflicting source remains available for review");
+});
+
+
+test("verified Media ASR import projects the same report date, source and advisor value into Performance trends", async () => {
+  const f = mediaFixture(equivalentMedia);
+  await f.run();
+
+  const measure = { family: "mediaAsr", key: "mediaCreated", unit: "count", roles: ["advisor"] };
+  const points = f.trendPoints(measure, "advisor", "SYN01", "2026-10-23");
+  assert.equal(points.length, 1, "one verified report observation produces one advisor trend point");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(points[0])), {
+    date: "2026-10-21",
+    value: 3,
+    source: "Media ASR — Advisor",
+    sourceFile: "synthetic-media-asr (1).xlsx",
+    entity: "Synthetic Advisor SYN01",
+    periodStart: "2026-10-01",
+    periodEnd: "2026-10-21",
+    periodVerified: true,
+    benchmark: null,
+    bic: null
+  });
+  assert.equal(f.durable().mediaAsr.snapshots["2026-10-21"].sourceModifiedAt, "2026-10-22T00:00:00.000Z",
+    "local file modification time remains distinct from the verified report observation date");
+  assert.deepEqual(f.events, ["write", "readback", "history", "delete"],
+    "the displayed trend follows successful durable verification and source audit");
 });
