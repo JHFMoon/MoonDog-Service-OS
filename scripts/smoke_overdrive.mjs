@@ -1071,19 +1071,6 @@ try{
         }finally{await connectedPage.close();}
       }
       if(scenario==="large"){
-        const summarizeTabs=samples=>Object.fromEntries(
-          Object.entries(samples).map(([view,values])=>[view,summarizeNavigationMs(values)]));
-        console.log("58-03 synthetic connected Chromium first/repeat tab activation",
-          JSON.stringify({records:recordCount,firstVisitOrHomeReturn:summarizeTabs(firstTabSamples),
-            repeatVisit:summarizeTabs(repeatTabSamples),
-            scope:"9 connected browser page starts, 6 views x 2 passes; activation to first rAF timed, deferred tab render given 80ms plus next rAF before checking usable DOM and advancing; Home measurements are returns after verified initial Home, not first open; not installed Edge timings"}));
-        console.log("58-04 synthetic connected Open RO search/editor/durable save",
-          JSON.stringify({records:2100,samples:connectedEditSamples.search.length,
-            search:summarizeNavigationMs(connectedEditSamples.search),
-            editor:summarizeNavigationMs(connectedEditSamples.editor),
-            noteReveal:summarizeNavigationMs(connectedEditSamples.noteReveal),
-            durableSave:summarizeNavigationMs(connectedEditSamples.durableSave),
-            scope:"packaged file:// Chromium, connected memory-only File System Access-compatible Workspace; exact search to rendered result, production editor open to frame, visible Add note disclosure expansion, production save to verified durable read-back; sourceFields and manager manual annotation preserved; synthetic-only"}));
         const completedUxTasks=uxTaskSamples.filter(sample=>sample.success);
         const failedUxTasks=uxTaskSamples.filter(sample=>!sample.success);
         const summarizeUxMetric=key=>completedUxTasks.length
@@ -1104,6 +1091,19 @@ try{
             !Number.isFinite(sample.scrollDistancePx)||sample.scrollDistancePx<0))
           throw Error("Open RO UX task evidence incomplete: "+JSON.stringify(uxWorkflow));
         console.log("60-10 synthetic Open RO task metrics",JSON.stringify(uxWorkflow));
+        const summarizeTabs=samples=>Object.fromEntries(
+          Object.entries(samples).map(([view,values])=>[view,summarizeNavigationMs(values)]));
+        console.log("58-03 synthetic connected Chromium first/repeat tab activation",
+          JSON.stringify({records:recordCount,firstVisitOrHomeReturn:summarizeTabs(firstTabSamples),
+            repeatVisit:summarizeTabs(repeatTabSamples),
+            scope:"9 connected browser page starts, 6 views x 2 passes; activation to first rAF timed, deferred tab render given 80ms plus next rAF before checking usable DOM and advancing; Home measurements are returns after verified initial Home, not first open; not installed Edge timings"}));
+        console.log("58-04 synthetic connected Open RO search/editor/durable save",
+          JSON.stringify({records:2100,samples:connectedEditSamples.search.length,
+            search:summarizeNavigationMs(connectedEditSamples.search),
+            editor:summarizeNavigationMs(connectedEditSamples.editor),
+            noteReveal:summarizeNavigationMs(connectedEditSamples.noteReveal),
+            durableSave:summarizeNavigationMs(connectedEditSamples.durableSave),
+            scope:"packaged file:// Chromium, connected memory-only File System Access-compatible Workspace; exact search to rendered result, production editor open to frame, visible Add note disclosure expansion, production save to verified durable read-back; sourceFields and manager manual annotation preserved; synthetic-only"}));
       }
       console.log("58-01 synthetic Chromium first verified Home",
         JSON.stringify({scenario,records:recordCount,syntheticReadDelayMs:readDelayMs,
