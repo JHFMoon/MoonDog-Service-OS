@@ -42,6 +42,32 @@ Issues #58–#61 remain open until all their own acceptance criteria are evidenc
 
 **Closure discipline:** Every criterion needs implementation, relevant synthetic regression/measurement, exact-head Publication Check and Clean Install Proof where applicable, clean exact-head review, protected merge evidence, and trusted Beta evidence for runtime changes. Preserve issue and PR history; do not close umbrella issues until their complete criteria pass.
 
+
+
+**SUPERSEDED LIVE CHECKPOINT — 2026-10-25 (Pacific; preserved for audit history).** This section supersedes earlier snapshots retained below for audit history. Issue #164 remains closed.
+
+## Verified repository state
+
+- Main: `ba7243c235d6b99e5d9e0ab18147f89c08a2e278` after protected PR #482; no runtime or release install is implied by that policy-workflow merge.
+- Trusted Beta: `0.10.18-beta.164`; Stable: `0.10.17`. Stable promotion/installation is not authorized by ordinary PR merges. Only synthetic public repository evidence is claimed, not installed OneDrive/Windows field validation.
+- PR #481 merged as `cafd57bbc161e5b0bd96f8067488070493cb1278`: the trusted policy now accepts an authenticated, exact-head owner-attested GitHub PR review as an alternative to a Codex bot review while preserving the two exact-head checks and GitHub protections. Owner self-attestation is expressly not an independent Codex review.
+- PR #482 merged as `ba7243c235d6b99e5d9e0ab18147f89c08a2e278`: fixes three YAML-unindented Codex-request bodies that had made the Guarded PR Merge workflow invalid. Publication Check #40246247404 and Clean Install Proof #40246247468 passed; an independent YAML parser accepted the corrected workflow. The automatic merge path still needs a post-fix end-to-end run before claiming autonomous closure.
+- PR #470 merged as `6e95be277273ffac85972abe90c0b1688296e40f`: synthetic Home workload baseline; actual device measurements and broader #58 requirements remain open.
+- PR #406 merged as `8fec4ad618373699b881844e4581cadd1acc72a9`: tests immutable settings readback, genuine disk mismatch, overlapping edits and stale save badges. Publication Check #40245179119 and Clean Install Proof #40245179148 passed; the exact-head owner-attested review is auditable on PR #406. The protected API merge was manual because the workflow YAML was invalid at that time.
+- PR #389 closed unmerged as superseded, with specific runtime/source/test evidence on the PR; its old branch was not deleted. Main already contains identical `writeJson` logic and newer serialized settings writes. PR #397 and #458 were previously closed with separate supersession evidence.
+- Open PRs at this checkpoint: **#466 only** (this documentation refresh); open issues: #58, #59, #60, #61 and deferred #212. No umbrella issue is complete solely because its incremental PRs merged.
+
+## Single prioritized execution queue
+
+1. **#61-01: prove the repaired merge automation end-to-end.** Refresh this documentation-only PR onto current main, run exact-head Publication Check and Clean Install Proof, submit an auditable exact-head review, and observe whether the trusted guard merges it automatically. If it stalls, diagnose the exact workflow run before opening another PR. Do not weaken protected path checks.
+2. **#58 performance (next independent code criterion):** measure synthetic browser cold/warm connection and first usable Home/each-tab p50/p95, large and empty data, and permission/reconnect paths; then implement one evidenced bottleneck fix at a time. The #470 Home baseline is partial evidence, not measured end-to-end completion.
+3. **#59 architecture and recovery:** reconcile source authority/lineage, scheduler concurrency, persistence and interruption-safe recovery, month readiness/late corrections, and health checks against existing merged coverage. Preserve the current serialized settings write and OneDrive readback contracts.
+4. **#60 UX/workflow:** measure and improve Open RO save-next, settings retries, actionable Manager Home, cross-view source confidence and navigation/accessibility with synthetic timed scenarios. Keep manual authority and existing TV design.
+5. **#61 release/operations:** verify Beta manifest/package/runtime consistency after each runtime merge, regression scenario coverage, exceptions, lineage, runbook and preference acceptance. Automatic Stable promotion or device installation remains out of scope absent explicit approval.
+6. **#212:** future trend-aware coaching, explicitly deferred; do not prematurely close or implement it while core acceptance remains incomplete.
+
+**Closure discipline:** Every criterion needs implemented behavior, relevant synthetic regression/measurement, exact-head proof and (where required) trusted Beta evidence. Do not claim local hardware/OneDrive testing. Continue one PR at a time; no new PR is needed solely to rewrite this matrix. Earlier detailed criteria and dated checkpoints remain below.
+
 **PREVIOUS CHECKPOINT — 2026-10-25 20:48 UTC (superseded by the live checkpoint above).** Issue #164 remains closed.
 
 ## Verified repository state
