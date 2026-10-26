@@ -31,6 +31,7 @@ test("synthetic VIR report keeps its observation date and values through durable
   const history = [];
   const context = vm.createContext({
     ADVISOR_NAMES: { A1: "Demo Advisor" },
+    structuredClone,
     model,
     sourceLocations: new Map([["synthetic-vir.csv", "root"]]),
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
