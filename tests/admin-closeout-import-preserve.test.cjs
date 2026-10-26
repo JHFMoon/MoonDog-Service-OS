@@ -155,6 +155,10 @@ test('owner provenance is invalidated when a returned workbook changes an assign
     'source-writer values remain unconfirmed');
   assert.equal(ownerAssignmentSourceForManagerSave(confirmed,'Synthetic Replacement','Synthetic Writer'),'manager-confirmed',
     'a direct manager edit can confirm the replacement');
+  assert.equal(ownerAssignmentSourceForManagerSave(confirmed,'Synthetic Writer','Synthetic Writer',true),'manager-confirmed',
+    'a deliberate manager reassignment can name the RO writer');
+  assert.equal(ownerAssignmentSourceForManagerSave({owner:'',ownerAssignmentSource:''},'Synthetic Writer','Synthetic Writer',false),'source-writer',
+    'an untouched Home prefill remains unconfirmed');
 });
 
 test('real closeout logic does not fabricate advisor promises from manager reminder dates', () => {
