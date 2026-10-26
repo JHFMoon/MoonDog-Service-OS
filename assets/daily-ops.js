@@ -695,11 +695,11 @@
   async function selectNext(){
     state.operatingDate=today();
     state.selectedPhase=engine.phase(now());
-    const top=attentionTopThree(),task=top[0]||null;
+    const ranked=rankedHomeSnapshot(),top=ranked.top,task=top[0]||null;
     state.current=task;state.editing=false;state.pending=false;state.error='';
     refreshAttentionCount(top);
     // Keep current priorities ready in the background without rebuilding hidden Home controls.
-    if(active()==='home')renderHome(top);
+    if(active()==='home')renderHome(top,ranked);
     // Rendering the next task must not block controls on an ancillary
     // "surfaced" history write. User actions are persisted separately.
     // Do not write a surfaced entry during a navigation action.
@@ -748,12 +748,12 @@
     if(typeof model!=='undefined'&&model.workspaceConnectionCommittedRoot&&model.root&&model.workspaceConnectionCommittedRoot!==model.root)return;
     if(state.busy||state.loading)return;
     if(!state.editing){
-      const top=attentionTopThree(),next=top[0];
+      const ranked=rankedHomeSnapshot(),top=ranked.top,next=top[0];
       if(next?.id!==state.current?.id||next?.fingerprint!==state.current?.fingerprint){
         if(active()==='home')void action(selectNext);else void selectNext();
         return;
       }
-      if(active()==='home')renderHome(top);else refreshAttentionCount(top);
+      if(active()==='home')renderHome(top,ranked);else refreshAttentionCount(top);
       return;
     }
     const fresh=allTasks().find(t=>t.id===state.current?.id);
@@ -979,6 +979,95 @@
       await selectNext();})));focus.append(footer);
     renderOtherPriorities(task,host);
     say(state.error);
+  }
+
+  // #58-03: Reuse a fully painted Home on a verified, unchanged return.
+  // A source/permission update, new task event, date/minute boundary, or
+  // Workspace switch invalidates the receipt before Home becomes actionable.
+  let homePaintReceipt=null;
+  function homePaintSignature(){
+    const lastEvent=state.events?.at(-1);
+    return JSON.stringify([
+      today(),businessHour(),Math.floor(now()/60000),
+      model.state?.updatedAt,model.state?.records?.length,model.state?.source?.importedAt,
+      model.appointments?.updatedAt,model.performance?.updatedAt,
+      model.operationalMetrics?.updatedAt,model.assignNext?.updatedAt,
+      model.settings?.updatedAt,model.recovery?.updatedAt,
+      state.events?.length||0,lastEvent?.id,lastEvent?.at,
+      state.current?.id,state.current?.fingerprint
+    ]);
+  }
+  // The ranking engine releases deferred/completed suppressions at an exact
+  // timestamp, not just a minute boundary. Capture the next such boundary
+  // when painting so a same-minute Home return never displays stale tasks.
+  function nextHomeEligibilityBoundary(at){
+    let next=Infinity;
+    for(const event of state.events||[]){
+      const details=event?.details;
+      if(!['deferred','completed'].includes(details?.action))continue;
+      const until=Date.parse(details?.until||'');
+      if(Number.isFinite(until)&&until>at&&until<next)next=until;
+    }
+    // Report refresh snoozes use the same exact-time semantics but live in
+    // private Settings, outside the operational task-event history.
+    for(const source of Object.values(api.refreshHistory()?.sources||{})){
+      const until=Date.parse(source?.notNowUntil||'');
+      if(Number.isFinite(until)&&until>at&&until<next)next=until;
+    }
+    return next;
+  }
+  // Preserve the exact ranking window when a caller hands priorities into
+  // Home. A task/report deadline can cross while ranking itself, before any
+  // DOM paint begins. Retry once rather than certifying that stale snapshot.
+  function homeTimeWindowValid(start,finish,deadline){
+    return finish>=start&&Math.floor(start/60000)===Math.floor(finish/60000)&&
+      finish<deadline;
+  }
+  function rankedHomeSnapshot(){
+    let result=null;
+    for(let attempt=0;attempt<2;attempt++){
+      const startedAt=now(),nextEligibilityBoundary=nextHomeEligibilityBoundary(startedAt);
+      const top=attentionTopThree(),finishedAt=now();
+      result={top,startedAt,nextEligibilityBoundary,
+        stable:homeTimeWindowValid(startedAt,finishedAt,nextEligibilityBoundary)};
+      if(result.stable)break;
+    }
+    return result;
+  }
+  const renderHomeWithFullRefresh=renderHome;
+  renderHome=function(prioritizedTop=null,ranked=null){
+    // Never leave a prior receipt actionable through a failed or interrupted
+    // repaint. A supplied ranking without a matching verified time window
+    // must be recomputed before the visible task gets rendered.
+    homePaintReceipt=null;
+    const needsRanking=model.root&&state.loadedRoot&&!state.editing;
+    if(needsRanking&&(!ranked||ranked.top!==prioritizedTop||!ranked.stable||
+      !homeTimeWindowValid(ranked.startedAt,now(),ranked.nextEligibilityBoundary))){
+      ranked=rankedHomeSnapshot();
+      prioritizedTop=ranked.top;
+    }
+    const paintStartedAt=now(),paintBoundary=nextHomeEligibilityBoundary(paintStartedAt);
+    const result=renderHomeWithFullRefresh(prioritizedTop);
+    const signature=homePaintSignature(),paintFinishedAt=now();
+    const timeStable=homeTimeWindowValid(paintStartedAt,paintFinishedAt,paintBoundary)&&
+      (!needsRanking||(ranked?.stable&&homeTimeWindowValid(
+        ranked.startedAt,paintFinishedAt,ranked.nextEligibilityBoundary)));
+    homePaintReceipt=timeStable&&model.root&&state.loadedRoot===model.root&&
+      model.workspaceConnectionCommittedRoot===model.root?
+      {root:model.root,signature,nextEligibilityBoundary:Math.min(
+        paintBoundary,ranked?.nextEligibilityBoundary??Infinity)}:null;
+    return result;
+  };
+  function canReuseHomeOnReturn(){
+    return Boolean(
+      homePaintReceipt&&model.root===homePaintReceipt.root&&
+      state.loadedRoot===model.root&&model.workspaceConnectionCommittedRoot===model.root&&
+      model.connectionState==="CONNECTED"&&!model.pendingRoot&&
+      !state.busy&&!state.loading&&!state.editing&&!state.pending&&
+      now()<homePaintReceipt.nextEligibilityBoundary&&
+      homePaintReceipt.signature===homePaintSignature()&&
+      $('dailyTask')&&$('view-home')?.contains($('dailyTask'))
+    );
   }
 
   function settingsCategory(category){
@@ -1467,7 +1556,7 @@
   // Re-select immediately when the authoritative source model changes.
   // The 'ready' listener already reconciles changed data; avoid a duplicate selection pass.
   document.addEventListener('moondog-imported',()=>queueMobilePublish(1200));
-  document.addEventListener('moondog-navigation',e=>{if(e.detail.view==='tools')renderTools();if(e.detail.view==='settings')$('view-settings').querySelectorAll('.daily-settings-hidden').forEach(el=>el.classList.remove('daily-settings-hidden'));if(e.detail.view==='home'&&!state.editing){if(state.busy||state.loading)renderHome();else refreshCurrent();}if(e.detail.anchor){const el=$(e.detail.anchor);for(let parent=el;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;}});
+  document.addEventListener('moondog-navigation',e=>{if(e.detail.view==='tools')renderTools();if(e.detail.view==='settings')$('view-settings').querySelectorAll('.daily-settings-hidden').forEach(el=>el.classList.remove('daily-settings-hidden'));if(e.detail.view==='home'&&!state.editing){if(state.busy||state.loading)renderHome();else if(!canReuseHomeOnReturn())refreshCurrent();}if(e.detail.anchor){const el=$(e.detail.anchor);for(let parent=el;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;}});
   document.addEventListener('moondog-imported',()=>{if(!state.busy&&!state.editing)action(async()=>{await loadHistory();await selectNext();});else state.pending=true;});
   document.addEventListener('moondog-saved',e=>{
     queueMobilePublish(1200);
@@ -1492,6 +1581,12 @@
   // heartbeat rewrote timestamp-only mobile pages to OneDrive.
   window.addEventListener('focus',checkOperatingDate);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkOperatingDate();});
+  // Invalidate synchronously before asynchronous source/restore listeners
+  // complete; an old Home task must never be reused during a source change.
+  for(const eventName of ['moondog-data','moondog-imported','moondog-saved',
+    'moondog-workspace-changing','moondog-recovered']){
+    document.addEventListener(eventName,()=>{homePaintReceipt=null;},true);
+  }
   installThemeToggle();installShell();renderHome();ready();queueMobilePublish(3500);
   globalThis.__moondogDailyUI=Object.freeze({state,candidates:allTasks,selectNext,renderHome,renderTools,searchAll,settingsCategory,ready,confirmWorkspaceChange:discardDraftOk});
 })();
