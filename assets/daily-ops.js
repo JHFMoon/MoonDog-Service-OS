@@ -813,8 +813,8 @@
       const hint=document.createElement('small');hint.textContent='Prefilled from CDK technician'+(r.technician?'':' code')+' — verify current assignment.';tech.closest('.daily-field').append(hint);
     }
     const owner=document.createElement('input');compactField(form,'Follow-up owner','owner',m.owner||r.advisor||r.advisorCode||'',owner,false);
-    if(!m.owner&&(r.advisor||r.advisorCode)){
-      const hint=document.createElement('small');hint.textContent='Prefilled from RO writer, not a confirmed follow-up assignment. Verify ownership.';owner.closest('.daily-field').append(hint);
+    if(m.ownerAssignmentSource!=="manager-confirmed"){
+      const hint=document.createElement('small');hint.textContent=m.ownerAssignmentSource==="source-writer"||(!m.owner&&(r.advisor||r.advisorCode))?'Prefilled from RO writer, not a confirmed follow-up assignment. Verify ownership.':'Follow-up owner is not confirmed. Verify ownership.';owner.closest('.daily-field').append(hint);
     }
     const note=document.createElement('details');note.className='daily-note';note.innerHTML='<summary>Add note</summary><label for="daily-note">Update note</label><textarea id="daily-note" name="note" rows="2"></textarea>';note.querySelector('textarea').value=m.note||'';form.append(note);
     const actions=document.createElement('div');actions.className='daily-ro-actions';
@@ -885,7 +885,7 @@
     if(item.type!=='ro')return item.next||item.description||'Review the source';
     const record=item.record||model.state.records.find(value=>value.id===item.recordId)||{};
     const management=record.management||{};
-    const owner=String(management.owner||'').trim();
+    const owner=management.ownerAssignmentSource==='manager-confirmed'?String(management.owner||'').trim():'';
     const status=api.status(record)||'Not confirmed';
     const blocker=String(management.statusDetail||'').trim()||status;
     const operational=record.cdkOperational||{};
