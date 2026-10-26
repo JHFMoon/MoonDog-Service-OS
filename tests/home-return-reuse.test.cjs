@@ -34,7 +34,7 @@ test("verified, unchanged Home return preserves mounted DOM but all source and p
     document:{addEventListener:(type,listener)=>listeners.set(type,listener)}
   });
   const helpers=section("  let homePaintReceipt=null;","  function settingsCategory(category){");
-  const invalidation=section("  for(const eventName of ['moondog-data'","  document.addEventListener('moondog-recovered'");
+  const invalidation=section("  for(const eventName of ['moondog-data'","  installThemeToggle();installShell();");
   vm.runInContext(helpers+"\n"+invalidation+"\nthis.canReuse=canReuseHomeOnReturn;",context);
 
   context.renderHome();assert.equal(paints,1);
