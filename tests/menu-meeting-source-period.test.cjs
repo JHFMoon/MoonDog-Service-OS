@@ -25,7 +25,7 @@ function fixture(releaseWeek) {
     periodStart: "2026-10-12",
     periodEnd: "2026-10-18",
     store: { presentation: 82, penetration: 44 },
-    advisors: { SYNTHETIC_ADVISOR: { presentation: 82, penetration: 44 } },
+    advisors: { SYNTHETIC_ADVISOR: { name: "Synthetic Advisor", presentation: 82, penetration: 44 } },
     importedAt: "synthetic-import"
   };
   const model = { operationalMetrics: { menu: { snapshots: { [releaseWeek]: snapshot } } } };
@@ -142,6 +142,7 @@ test("equivalent Menu Sales reimport ignores refreshed derived metadata", async 
   h.snapshot.importedAt = "refreshed-import-time";
   h.snapshot.sourceFile = "synthetic-menu-sales (1).xlsx";
   h.snapshot.coverageDate = "2026-10-19";
+  h.snapshot.advisors.SYNTHETIC_ADVISOR.name = "Renamed Synthetic Advisor";
 
   await h.context.api.importMenuSalesFile("synthetic-menu-sales (1).xlsx", false, new ArrayBuffer(8));
 
