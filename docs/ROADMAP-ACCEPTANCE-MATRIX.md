@@ -1,5 +1,32 @@
 # Roadmap acceptance matrix — MoonDog Service OS
 
+## Live continuation snapshot — 2026-10-26 08:43 UTC
+
+This snapshot supersedes the earlier dated state below.
+
+- Main: `f143921e1f145a7b9500c1b56da624f2e2e828bc`.
+- Trusted Beta: `0.10.18-beta.170`, SHA-256 `8140f0e4e1fc1df1aa564298738d24dd31d234f8dd1f7de40d3f30f0e8214721`; `migrationRequired=false`.
+- Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; unchanged.
+- Protect Main ruleset #24665513 remains active on main with strict Publication Check, pull-request requirement, deletion/non-fast-forward blocks, and no bypass actors.
+- Issue #164 remains closed. Immediately before the SAPR lineage follow-up, open PR count was 0. PR work remains serial.
+
+### Recent verified milestones
+
+- PR #515, head `916b2417f29c98380ec3f7e9e07759769452e83b`, merged as `a56652e44dd24800d89fe83663c35f8a3ca4f76c`: synthetic Manager Home DOM readiness increment for #58-01. Broader performance criteria remain partial.
+- PR #516, head `b8770b601ca1a66c175c96df71068508d81b3aaa`, merged as `afb4ac866a5ee57324c38a7543644b56de92084d`: controlled multi-file recovery remains under the durable hold after an interrupted write and resumes the same verified backup; missing/invalid source and safety backups fail before any operational write.
+- PR #517, head `5de829e80cfa5ad1787eafb04d06ed2e068f5ff6`, merged as `f143921e1f145a7b9500c1b56da624f2e2e828bc`: a synthetic partial target write retains the recovery hold and uncertain bytes; retry refuses before another write. Exact-head Publication Check #40292511020 and Clean Install Proof #40292510937 passed; exact-head Codex review completed with no findings. Guarded merge run #40292511187 attempt 2 completed successfully; GitHub records the merge by github-actions[bot]. Post-merge main Publication Check #40293753323 was still running its strict full-history audit at this snapshot. The trusted Beta workflow succeeded but skipped packaging because these changes were tests only.
+
+### Current acceptance status and next action
+
+- #164-05 / #59-05 / #61-03 remain **PARTIALLY COMPLETE**: #516 and #517 add synthetic production-function interruption, backup preflight, and ambiguous partial-write coverage. Cross-device validation-to-write atomicity remains outside the current filesystem API guarantee.
+- #58-01 remains **PARTIALLY COMPLETE** after the #515 synthetic Manager Home readiness increment; issue-level performance scenarios remain.
+- #59-01 remains **PARTIALLY COMPLETE**. Existing SAPR lineage coverage verifies durable import, Performance, and Meeting, but its import-history callback is stubbed. The source-authority inventory calls for imported source/period/calculation lineage through history and cross-view consumers. A narrowly scoped synthetic history-lineage regression is in progress on `test/59-01-sapr-history-lineage-20261026`; no check or merge result is claimed here.
+- Issues #58–#61 remain open pending their full criteria. #212 remains deferred.
+
+Stable stays unchanged; fixtures are synthetic. This snapshot makes no installation, field-testing, or continuous-execution claim.
+
+---
+
 **Live verified checkpoint — 2026-10-26 04:12 UTC.** This section supersedes older live snapshots retained below for audit history. Issue #164 remains closed.
 
 ## Verified repository state
