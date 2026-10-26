@@ -59,7 +59,8 @@ test('revising an advisor promise requires reason and preserves previous dates',
 test('update form and Open RO exception filters are manager-only; existing durable state is reused',()=>{
   for(const id of ['editAdminBlocker','editAdminCloseDate','editAdminChangeReason']) assert.ok(app.includes('id="'+id+'"'));
   for(const filter of ['admin-closeout','admin-commitment-needed','admin-overdue']) assert.ok(app.includes('value="'+filter+'"'));
-  assert.match(app,/adminCloseout=nextAdminCloseoutEvidence\(commitments,currentAdminCloseoutEvidence\(\),now\(\)\)/);
+  assert.match(app,/adminEvidence:typeof currentAdminCloseoutEvidence==="function"\?currentAdminCloseoutEvidence\(\):\{\}/,"admin evidence is captured with the submitted draft before any lock wait");
+  assert.match(app,/adminCloseout=nextAdminCloseoutEvidence\(commitments,submitted\.adminEvidence,now\(\)\)/,"the save consumes the submitted admin evidence snapshot");
   assert.ok(app.includes('await saveState("Updated RO "+record.ro, priorState)'));
   assert.match(app,/management=prior\?\.management\|\|defaultManagementFor\(raw\)/);
   assert.doesNotMatch(html,/data-view="advisor-closeout"/);
@@ -98,7 +99,10 @@ test('a manager review reminder is not an advisor closeout commitment', () => {
 test('admin promise has a dedicated date field distinct from general manager review', () => {
   assert.ok(app.includes('id="editAdminTaskDate"'));
   assert.ok(app.includes('ui.editAdminTaskDate.value = record.management.adminCloseout?.taskDate || ""'));
-  assert.ok(app.includes('nextAdminCloseout(record.management.adminCloseout,adminBlocker,ui.editAdminTaskDate.value,ui.editAdminCloseDate.value'));
+  assert.ok(app.includes('adminTaskDate:ui.editAdminTaskDate.value,'));
+  assert.ok(app.includes('adminCloseDate:ui.editAdminCloseDate.value,'));
+  assert.ok(app.includes('nextAdminCloseout(record.management.adminCloseout,adminBlocker,submitted.adminTaskDate,submitted.adminCloseDate,submitted.adminChangeReason,now())'));
+  assert.ok(!app.includes('nextAdminCloseout(record.management.adminCloseout,adminBlocker,ui.editAdminTaskDate.value,'));
   assert.ok(!app.includes('nextAdminCloseout(record.management.adminCloseout,adminBlocker,commitmentDate,'));
   assert.ok(app.includes('The regular review date above is not an advisor promise'));
 });

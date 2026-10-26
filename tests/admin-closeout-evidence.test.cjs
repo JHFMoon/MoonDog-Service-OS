@@ -143,7 +143,8 @@ test('manager editor wires the evidence fields into durable save without custome
     'editAdminPickupDate', 'editAdminWarrantyStatus', 'editAdminEvidence',
     'editAdminCoachingStatus', 'editAdminCoachingAction'
   ]) assert.ok(app.includes(`id="${id}"`));
-  assert.match(app, /nextAdminCloseoutEvidence\(commitments,currentAdminCloseoutEvidence\(\),now\(\)\)/);
+  assert.match(app, /adminEvidence:typeof currentAdminCloseoutEvidence==="function"\?currentAdminCloseoutEvidence\(\):\{\}/);
+  assert.match(app, /nextAdminCloseoutEvidence\(commitments,submitted\.adminEvidence,now\(\)\)/);
   assert.match(app, /loadAdminCloseoutEvidence\(record\)/);
   assert.match(app, /await saveState\("Updated RO "\+record\.ro, priorState\)/);
   assert.doesNotMatch(app, /sendCustomerMessage|closeRo\(record\.id\)/);

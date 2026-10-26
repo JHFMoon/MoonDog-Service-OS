@@ -4452,7 +4452,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           clarification:null,managerReviewedOn:localDateKey(),updatedAt:now()};
       record.management=proposed;
       try{
-        await saveState("Updated RO "+record.ro,priorState);
+        await saveState("Updated RO "+record.ro, priorState);
       }catch(error){
         model.state=priorState;
         ui.editValidation.textContent="Service Operations Dashboard could not save this RO to durable storage. Your entries are still shown; check the folder connection and try again.";
@@ -4466,7 +4466,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       const saved=globalThis.navigator?.locks?.request&&typeof withSupervisorWorkbookLock==="function"
         ?await withSupervisorWorkbookLock(performSave)
         :await performSave();
-      if(!saved)return false;
+      if(!saved)return;
       return await finishSavedOpenRo(saved.record,saved.before,saved.proposed,saved.origin,advance,saved.nextId,saved.submittedDraftRevision);
     }catch(error){
       if(ui.editValidation&&!ui.editValidation.hidden)throw error;
@@ -4476,7 +4476,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       ui.editValidation.hidden=false;
       recordDiagnostic("OPEN RO SAVE DEFERRED","Open RO save did not start because shared Workspace state changed ("+(error.name||"Error")+")");
       status("RO save was not completed. "+message,"error");
-      return false;
+      return;
     }finally{
       model.openRoSaveInFlight=false;
     }
