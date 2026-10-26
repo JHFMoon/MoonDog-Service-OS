@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.165 — current Beta
+
+- perf(#58): single-pass Home RO summary with synthetic before/after measurement (#485). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.164 — current Beta
 
 - fix: serialize reconnect with post-connect scans. Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
