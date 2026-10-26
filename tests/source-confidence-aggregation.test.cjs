@@ -68,7 +68,7 @@ test("every time-cadenced source rejects an old period as stale evidence",()=>{
     "same-business-day":{sourceDate:"2026-10-06"},
     "same-business-day-period":{periodStart:"2026-10-06",periodEnd:"2026-10-06"},
     "prior-operating-day":{periodStart:"2026-10-01",periodEnd:"2026-10-05"},
-    "cumulative-observation":{sourceDate:"2026-10-03"},
+    "cumulative-observation":{sourceDate:"2026-10-03",observationVerified:true},
     "weekly-monday":{releaseWeek:"2026-09-28"},
     "state-current":{stale:true}
   };
