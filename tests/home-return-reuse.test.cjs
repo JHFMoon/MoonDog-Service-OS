@@ -15,7 +15,8 @@ function section(start,end){
 test("verified, unchanged Home return preserves mounted DOM but all source and permission boundaries invalidate",()=>{
   const root={name:"Synthetic connected folder"},taskNode={},
         homeNode={contains:node=>node===taskNode};
-  let minute=Date.parse("2026-10-25T20:02:00Z"),businessDate="2026-10-25",hour=13,paints=0,paintAdvanceMs=0;
+  let minute=Date.parse("2026-10-25T20:02:00Z"),businessDate="2026-10-25",hour=13,
+      paints=0,paintAdvanceMs=0,rankingAdvanceMs=0,lastPaintedTask=null;
   const model={
     root,workspaceConnectionCommittedRoot:root,pendingRoot:null,
     connectionState:"CONNECTED",
@@ -29,13 +30,19 @@ test("verified, unchanged Home return preserves mounted DOM but all source and p
   const listeners=new Map(),refresh={sources:{}};
   const context=vm.createContext({
     model,state,api:{refreshHistory:()=>refresh},now:()=>minute,today:()=>businessDate,businessHour:()=>hour,
-    renderHome:()=>{paints++;minute+=paintAdvanceMs;},
+    attentionTopThree:()=>{
+      const until=Date.parse(refresh.sources.performance?.notNowUntil||"");
+      const id=Number.isFinite(until)&&minute<until?"report-snoozed":"report-due";
+      minute+=rankingAdvanceMs;
+      return [{id,fingerprint:id}];
+    },
+    renderHome:top=>{paints++;lastPaintedTask=top?.[0]?.id||null;minute+=paintAdvanceMs;},
     $:id=>id==="dailyTask"?taskNode:id==="view-home"?homeNode:null,
     document:{addEventListener:(type,listener)=>listeners.set(type,listener)}
   });
   const helpers=section("  let homePaintReceipt=null;","  function settingsCategory(category){");
   const invalidation=section("  for(const eventName of ['moondog-data'","  installThemeToggle();installShell();");
-  vm.runInContext(helpers+"\n"+invalidation+"\nthis.canReuse=canReuseHomeOnReturn;",context);
+  vm.runInContext(helpers+"\n"+invalidation+"\nthis.canReuse=canReuseHomeOnReturn;this.rankHome=rankedHomeSnapshot;",context);
 
   context.renderHome();assert.equal(paints,1);
   assert.equal(context.canReuse(),true,"an already verified Home can be reused in the same minute");
@@ -80,6 +87,30 @@ test("verified, unchanged Home return preserves mounted DOM but all source and p
     "minute rollover during paint invalidates the just-rendered Home");
   paintAdvanceMs=0;context.renderHome();assert.equal(context.canReuse(),true);
 
+  // selectNext()/refreshCurrent() pass a pre-ranked snapshot. If it becomes
+  // stale before painting, the Home wrapper must discard and recalculate it.
+  refresh.sources.performance.notNowUntil="2026-10-25T20:08:45.000Z";
+  minute=Date.parse("2026-10-25T20:08:44.950Z");
+  const stale=context.rankHome();
+  assert.equal(stale.top[0].id,"report-snoozed");
+  minute=Date.parse("2026-10-25T20:08:45.050Z");
+  context.renderHome(stale.top,stale);
+  assert.equal(lastPaintedTask,"report-due",
+    "a supplied task ranking from before a deadline must not paint stale Home");
+  assert.equal(context.canReuse(),true,"re-ranked fresh Home is reusable");
+
+  // Also cross a deadline *during* the task ranking function; the first
+  // selection is stale and must be retried before it is offered to Home.
+  refresh.sources.performance.notNowUntil="2026-10-25T20:09:45.000Z";
+  minute=Date.parse("2026-10-25T20:09:44.950Z");rankingAdvanceMs=100;
+  const retried=context.rankHome();
+  assert.equal(retried.stable,true,"ranking retries after a deadline crossing");
+  assert.equal(retried.top[0].id,"report-due",
+    "ranking crossing an exact deadline must pick the newly actionable report");
+  rankingAdvanceMs=0;context.renderHome(retried.top,retried);
+  assert.equal(lastPaintedTask,"report-due");
+  assert.equal(context.canReuse(),true);
+
   model.state.updatedAt="2026-10-25T20:03:20Z";
   assert.equal(context.canReuse(),false,"durable source revision invalidates");
   context.renderHome();assert.equal(context.canReuse(),true);
@@ -113,4 +144,8 @@ test("verified, unchanged Home return preserves mounted DOM but all source and p
   assert.equal(context.canReuse(),false,"old-root Home cannot be reused for a new Workspace");
   assert.match(daily,/if\(!canReuseHomeOnReturn\(\)\)refreshCurrent\(\)/,
     "actual navigation handler must use safe reuse predicate");
+  assert.match(daily,/const ranked=rankedHomeSnapshot\(\),top=ranked\.top,task=/,
+    "selectNext must preserve the time-tested ranking receipt until Home paint");
+  assert.match(daily,/const ranked=rankedHomeSnapshot\(\),top=ranked\.top,next=/,
+    "refreshCurrent must preserve the time-tested ranking receipt until Home paint");
 });
