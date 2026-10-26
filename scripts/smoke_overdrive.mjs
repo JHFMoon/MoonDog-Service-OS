@@ -632,6 +632,176 @@ try{
 
 
   }
+
+  // #58-01 synthetic browser proof: exercise the actual packaged file://
+  // connector with a memory-only File System Access-compatible folder.
+  // This is never the owner's native folder/OneDrive, and cannot measure it.
+  if(width===1366){
+    const scenarios=[["empty",0],["large",2100]];
+    for(const [scenario,recordCount] of scenarios){
+      const connectionSamples=[],launcherSamples=[];
+      for(let sample=0;sample<9;sample++){
+        const connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
+        const browserErrors=[];
+        connectedPage.on("pageerror",error=>browserErrors.push(error.message));
+        try{
+          const launcherStarted=performance.now();
+          await connectedPage.goto(pathToFileURL(path.resolve(launcher)).href,{waitUntil:"load",timeout:30000});
+          await connectedPage.waitForURL(u=>u.protocol==="file:"&&u.pathname.endsWith("/index.html"),{timeout:15000});
+          await connectedPage.waitForFunction(()=>Boolean(globalThis.__moondogDaily?.model&&globalThis.__moondogDailyUI?.renderHome),null,{timeout:15000});
+          const outcome=await connectedPage.evaluate(async count=>{
+            const api=globalThis.__moondogDaily,model=api.model;
+            const notFound=()=>Object.assign(new Error("Synthetic entry missing"),{name:"NotFoundError"});
+            const mismatch=()=>Object.assign(new Error("Synthetic kind mismatch"),{name:"TypeMismatchError"});
+            const encode=async value=>{
+              if(typeof value==="string")return new TextEncoder().encode(value);
+              if(value instanceof Blob)return new Uint8Array(await value.arrayBuffer());
+              if(value instanceof ArrayBuffer)return new Uint8Array(value);
+              if(ArrayBuffer.isView(value))return new Uint8Array(value.buffer,value.byteOffset,value.byteLength);
+              throw Error("Unexpected synthetic file write payload");
+            };
+            const makeFile=name=>{
+              let bytes=new Uint8Array();
+              const handle={kind:"file",name,
+                queryPermission:async()=>"granted",requestPermission:async()=>"granted",
+                isSameEntry:async other=>other===handle,
+                async getFile(){
+                  const copy=bytes.slice();
+                  return {name,size:copy.length,lastModified:Date.now(),
+                    text:async()=>new TextDecoder().decode(copy),
+                    arrayBuffer:async()=>copy.slice().buffer};
+                },
+                async createWritable({keepExistingData=false}={}){
+                  let draft=keepExistingData?bytes.slice():new Uint8Array(),cursor=0;
+                  return {
+                    async write(value){
+                      if(value&&typeof value==="object"&&value.type==="truncate"){
+                        const next=new Uint8Array(value.size||0);next.set(draft.subarray(0,next.length));draft=next;return;
+                      }
+                      if(value&&typeof value==="object"&&value.type==="seek"){cursor=value.position||0;return;}
+                      const operation=value&&typeof value==="object"&&value.type==="write";
+                      const data=await encode(operation?value.data:value);
+                      const position=operation?(value.position??cursor):cursor;
+                      const next=new Uint8Array(Math.max(draft.length,position+data.length));
+                      next.set(draft);next.set(data,position);draft=next;cursor=position+data.length;
+                    },
+                    async truncate(size){const next=new Uint8Array(size);next.set(draft.subarray(0,size));draft=next;},
+                    async seek(position){cursor=position;},
+                    async close(){bytes=draft.slice();},async abort(){}
+                  };
+                }
+              };
+              return handle;
+            };
+            const makeDirectory=name=>{
+              const children=new Map();
+              const handle={kind:"directory",name,
+                queryPermission:async()=>"granted",requestPermission:async()=>"granted",
+                isSameEntry:async other=>other===handle,
+                async resolve(other){
+                  if(other===handle)return [];
+                  for(const [key,child] of children){
+                    if(child===other)return [key];
+                    if(child.kind==="directory"){
+                      const descendant=await child.resolve(other);
+                      if(descendant)return [key,...descendant];
+                    }
+                  }
+                  return null;
+                },
+                async getDirectoryHandle(key,{create=false}={}){
+                  let child=children.get(key);
+                  if(!child&&create){child=makeDirectory(key);children.set(key,child);}
+                  if(!child)throw notFound();
+                  if(child.kind!=="directory")throw mismatch();
+                  return child;
+                },
+                async getFileHandle(key,{create=false}={}){
+                  let child=children.get(key);
+                  if(!child&&create){child=makeFile(key);children.set(key,child);}
+                  if(!child)throw notFound();
+                  if(child.kind!=="file")throw mismatch();
+                  return child;
+                },
+                async removeEntry(key,{recursive=false}={}){
+                  const child=children.get(key);
+                  if(!child)throw notFound();
+                  if(child.kind==="directory"&&child.children?.size&&!recursive)
+                    throw Object.assign(new Error("Not empty"),{name:"InvalidModificationError"});
+                  children.delete(key);
+                },
+                get children(){return children;},
+                async *entries(){for(const entry of children)yield entry;},
+                async *keys(){for(const [name] of children)yield name;},
+                async *values(){for(const [,value] of children)yield value;},
+                [Symbol.asyncIterator](){return this.entries();}
+              };
+              return handle;
+            };
+            const root=makeDirectory("Synthetic Browser Folder");
+            const set=async(parts,value)=>{
+              let parent=root;
+              for(const part of parts.slice(0,-1))parent=await parent.getDirectoryHandle(part,{create:true});
+              const file=await parent.getFileHandle(parts.at(-1),{create:true});
+              const stream=await file.createWritable();
+              await stream.write(JSON.stringify(value)+"\n");
+              await stream.close();
+            };
+            const settings=JSON.parse(JSON.stringify(model.settings));
+            settings.schemaVersion=5;
+            settings.advisors={};
+            settings.setup={...(settings.setup||{}),completedAt:"2026-10-25T12:00:00.000Z"};
+            const records=Array.from({length:count},(_,i)=>({
+              id:"synthetic-browser-ro-"+i,ro:String(900000+i),advisor:"Synthetic Advisor",
+              advisorCode:"100",customer:"Synthetic Customer",vehicle:"Synthetic Vehicle",
+              sourceStatus:"Open",daysOpen:i%8,
+              management:{status:"Waiting Dispatch",nextAction:"Synthetic next step",
+                reviewDate:"2026-10-25",communication:"Current"}
+            }));
+            const snapshots=[
+              ["settings.json",settings],
+              ["state.json",{...JSON.parse(JSON.stringify(model.state)),records,closedRecords:[],source:null}],
+              ["appointments.json",JSON.parse(JSON.stringify(model.appointments))],
+              ["performance.json",JSON.parse(JSON.stringify(model.performance))],
+              ["operational-metrics.json",JSON.parse(JSON.stringify(model.operationalMetrics))],
+              ["meeting-cycle.json",JSON.parse(JSON.stringify(model.meetingCycle))],
+              ["assign-next.json",{schemaVersion:3,days:{},currentOpenRo:{synthetic:true}}],
+              ["auto-import.json",{seen:{}}],
+              ["recovery.json",JSON.parse(JSON.stringify(model.recovery))]
+            ];
+            await set(["System Files","Workspace","data","store-revision.json"],{schemaVersion:1,revision:4});
+            for(const [filename,data] of snapshots)await set(["System Files","Workspace","data",filename],data);
+            Object.defineProperty(window,"showDirectoryPicker",{configurable:true,value:async()=>root});
+            const started=performance.now();
+            await api.connect();
+            await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
+            const home=document.getElementById("view-home");
+            const open=document.getElementById("metricOpen");
+            return {
+              connectionToFrameMs:performance.now()-started,
+              committed:model.workspaceConnectionCommittedRoot===model.root,
+              connected:!!model.root,records:model.state.records.length,
+              homeActive:!!home?.classList.contains("active"),
+              openCount:Number(open?.textContent),
+              managerNeeds:!!document.getElementById("moondogNeeds")
+            };
+          },recordCount);
+          const launcherToFrameMs=performance.now()-launcherStarted;
+          if(!outcome.committed||!outcome.connected||!outcome.homeActive||
+             outcome.records!==recordCount||outcome.openCount!==recordCount||!outcome.managerNeeds)
+            throw Error("Synthetic browser connected Home is not verified: "+JSON.stringify(outcome));
+          if(browserErrors.length)throw Error("Synthetic browser connection page errors: "+browserErrors.join("; "));
+          connectionSamples.push(outcome.connectionToFrameMs);
+          launcherSamples.push(launcherToFrameMs);
+        }finally{await connectedPage.close();}
+      }
+      console.log("58-01 synthetic Chromium first verified Home",
+        JSON.stringify({scenario,records:recordCount,
+          connectionToFirstFrame:summarizeNavigationMs(connectionSamples),
+          launcherThroughConnectedHome:summarizeNavigationMs(launcherSamples),
+          scope:"packaged file:// Chromium with in-memory File System Access-compatible folder; nine page starts; browser process warm; no physical device, native picker, network or OneDrive latency"}));
+    }
+  }
   if(errors.some(s=>/syntaxerror|referenceerror/i.test(s)))throw Error("Javascript browser exception "+errors.join(";"));
   console.log("Arena TV visual and 7-slide rotation proof PASS",width,height);
   await page.close();
