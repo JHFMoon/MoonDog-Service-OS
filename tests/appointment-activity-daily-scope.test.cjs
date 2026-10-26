@@ -297,3 +297,30 @@ test("overlapping Appointment Activity exports keep one daily projection per dat
   assert.doesNotMatch(JSON.stringify(family),/SYNTHETIC-ONLY-NOT-VIN|Synthetic Private|Synthetic note/,
     "row-level customer-like fields are never retained");
 });
+
+
+test("verified Appointment Activity period and aggregate remain aligned in the Home source card after durable reload",async()=>{
+  const f=fixture([
+    row("9001","2026-10-19","2026-10-20","SERVICE_REMINDER"),
+    row("9001","2026-10-20","2026-10-21","REPAIR_BOOKING"),
+    row("1002","2026-10-19","2026-10-19")
+  ]);
+  await f.import();
+  const durable=structuredClone(f.durable());
+  assert.equal(durable.appointmentActivity.snapshots["2026-10-20"].rowCount,2);
+
+  const grid={children:[],replaceChildren(...items){this.children=[...items];},append(item){this.children.push(item);}};
+  f.ctx.model.operationalMetrics=durable;
+  f.ctx.ui={managerSourceGrid:grid};
+  f.ctx.document={createElement:()=>({className:"",innerHTML:""})};
+  const managerRenderer=source("  function latestFamily(family) {","  function renderAll() {");
+  vm.runInContext(managerRenderer,f.ctx);
+  f.ctx.renderManagerIntelligence();
+
+  const card=grid.children.find(item=>item.innerHTML.includes("APPOINTMENT ACTIVITY"));
+  assert.ok(card,"Home must render the Appointment Activity source card from reloaded operational metrics");
+  assert.match(card.innerHTML,/2 configured-store records/);
+  assert.match(card.innerHTML,/2026-10-19 through 2026-10-20 · aggregate only/);
+  assert.doesNotMatch(card.innerHTML,/Synthetic Private|SYNTHETIC-ONLY-NOT-VIN|Synthetic note/,
+    "the Home source lineage remains aggregate-only and excludes customer-like report cells");
+});
