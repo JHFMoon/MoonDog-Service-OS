@@ -825,7 +825,12 @@ try{
                   await new Promise(resolve=>requestAnimationFrame(resolve));
                   const target=document.getElementById("view-"+v);
                   const rows=v==="open-ro"?document.querySelectorAll("#roTable tr[data-id]").length:null;
-                  const performanceReady=v!=="performance"||Boolean(document.getElementById("performancePeriod")?.textContent?.trim());
+                  const performanceSourceText=document.getElementById("performanceSource")?.textContent?.trim()||"";
+                  // The unrendered HTML shell says "Connect the working
+                  // folder to begin". renderPerformance() replaces it with
+                  // either a safe no-report state or verified SAPR provenance.
+                  const performanceReady=v!=="performance"||Boolean(
+                    performanceSourceText&&performanceSourceText!=="Connect the working folder to begin");
                   const meetingFreshness=document.getElementById("meetingV3Freshness")?.textContent?.trim()||"";
                   const meetingComparison=document.getElementById("meetingV3GrossPrior")?.textContent?.trim()||"";
                   // The shell starts as WAITING FOR VERIFIED SOURCES / PRIOR 7
