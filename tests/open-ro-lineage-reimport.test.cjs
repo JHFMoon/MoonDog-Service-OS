@@ -164,7 +164,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
     return{
       manifest:{createdAt,appVersion:"synthetic",entries},
       values:copy(values),
-      zip:{file:name=>({async:async()=>new Uint8Array(payloads.get(name.replace(/^payload\\//,""))||[])})}
+      zip:{file:name=>({async:async()=>new Uint8Array(payloads.get(name.startsWith("payload/")?name.slice(8):name)||[])})}
     };
   };
   const selected=await makeBackup(valuesFor(manualState),"2026-10-26T08:45:00.000Z");
