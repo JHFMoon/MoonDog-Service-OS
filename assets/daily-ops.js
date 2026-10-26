@@ -695,11 +695,11 @@
   async function selectNext(){
     state.operatingDate=today();
     state.selectedPhase=engine.phase(now());
-    const top=attentionTopThree(),task=top[0]||null;
+    const ranked=rankedHomeSnapshot(),top=ranked.top,task=top[0]||null;
     state.current=task;state.editing=false;state.pending=false;state.error='';
     refreshAttentionCount(top);
     // Keep current priorities ready in the background without rebuilding hidden Home controls.
-    if(active()==='home')renderHome(top);
+    if(active()==='home')renderHome(top,ranked);
     // Rendering the next task must not block controls on an ancillary
     // "surfaced" history write. User actions are persisted separately.
     // Do not write a surfaced entry during a navigation action.
@@ -748,12 +748,12 @@
     if(typeof model!=='undefined'&&model.workspaceConnectionCommittedRoot&&model.root&&model.workspaceConnectionCommittedRoot!==model.root)return;
     if(state.busy||state.loading)return;
     if(!state.editing){
-      const top=attentionTopThree(),next=top[0];
+      const ranked=rankedHomeSnapshot(),top=ranked.top,next=top[0];
       if(next?.id!==state.current?.id||next?.fingerprint!==state.current?.fingerprint){
         if(active()==='home')void action(selectNext);else void selectNext();
         return;
       }
-      if(active()==='home')renderHome(top);else refreshAttentionCount(top);
+      if(active()==='home')renderHome(top,ranked);else refreshAttentionCount(top);
       return;
     }
     const fresh=allTasks().find(t=>t.id===state.current?.id);
@@ -1016,25 +1016,46 @@
     }
     return next;
   }
+  // Preserve the exact ranking window when a caller hands priorities into
+  // Home. A task/report deadline can cross while ranking itself, before any
+  // DOM paint begins. Retry once rather than certifying that stale snapshot.
+  function homeTimeWindowValid(start,finish,deadline){
+    return finish>=start&&Math.floor(start/60000)===Math.floor(finish/60000)&&
+      finish<deadline;
+  }
+  function rankedHomeSnapshot(){
+    let result=null;
+    for(let attempt=0;attempt<2;attempt++){
+      const startedAt=now(),nextEligibilityBoundary=nextHomeEligibilityBoundary(startedAt);
+      const top=attentionTopThree(),finishedAt=now();
+      result={top,startedAt,nextEligibilityBoundary,
+        stable:homeTimeWindowValid(startedAt,finishedAt,nextEligibilityBoundary)};
+      if(result.stable)break;
+    }
+    return result;
+  }
   const renderHomeWithFullRefresh=renderHome;
-  renderHome=function(...args){
-    // Record eligibility *before* ranking and DOM construction. A suppression
-    // or report snooze may expire during a slow paint; a post-paint scan alone
-    // would miss the just-expired deadline and incorrectly certify stale DOM.
-    const paintStartedAt=now();
-    const eligibilityBoundary=nextHomeEligibilityBoundary(paintStartedAt);
-    const result=renderHomeWithFullRefresh(...args);
-    const signature=homePaintSignature();
-    const paintFinishedAt=now();
-    const timeStable=paintFinishedAt>=paintStartedAt&&
-      Math.floor(paintFinishedAt/60000)===Math.floor(paintStartedAt/60000)&&
-      paintFinishedAt<eligibilityBoundary;
-    // selectNext paints the first verified Home while ready() is finishing
-    // its loading flag. The model root is already committed at that point;
-    // reuse is still forbidden until loading/busy clears on return.
+  renderHome=function(prioritizedTop=null,ranked=null){
+    // Never leave a prior receipt actionable through a failed or interrupted
+    // repaint. A supplied ranking without a matching verified time window
+    // must be recomputed before the visible task gets rendered.
+    homePaintReceipt=null;
+    const needsRanking=model.root&&state.loadedRoot&&!state.editing;
+    if(needsRanking&&(!ranked||ranked.top!==prioritizedTop||!ranked.stable||
+      !homeTimeWindowValid(ranked.startedAt,now(),ranked.nextEligibilityBoundary))){
+      ranked=rankedHomeSnapshot();
+      prioritizedTop=ranked.top;
+    }
+    const paintStartedAt=now(),paintBoundary=nextHomeEligibilityBoundary(paintStartedAt);
+    const result=renderHomeWithFullRefresh(prioritizedTop);
+    const signature=homePaintSignature(),paintFinishedAt=now();
+    const timeStable=homeTimeWindowValid(paintStartedAt,paintFinishedAt,paintBoundary)&&
+      (!needsRanking||(ranked?.stable&&homeTimeWindowValid(
+        ranked.startedAt,paintFinishedAt,ranked.nextEligibilityBoundary)));
     homePaintReceipt=timeStable&&model.root&&state.loadedRoot===model.root&&
       model.workspaceConnectionCommittedRoot===model.root?
-      {root:model.root,signature,nextEligibilityBoundary:eligibilityBoundary}:null;
+      {root:model.root,signature,nextEligibilityBoundary:Math.min(
+        paintBoundary,ranked?.nextEligibilityBoundary??Infinity)}:null;
     return result;
   };
   function canReuseHomeOnReturn(){
