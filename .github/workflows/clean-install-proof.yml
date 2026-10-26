@@ -98,10 +98,13 @@ jobs:
 
           ux_path=Path(".clean-install-smoke/overdrive-proof/open-ro-workflow-metrics.json")
           ux=json.loads(ux_path.read_text(encoding="utf-8"))
-          assert set(ux)=={"schemaVersion","dataset","scenario","records","attemptedSamples","completedSamples","failedSamples","errorRate","taskDurationMs","clickCount","fieldEntryCount","scrollDistancePx","browserErrorCount"}
+          assert set(ux)=={"schemaVersion","dataset","scenario","records","attemptedSamples","completedSamples","failedSamples","errorRate","taskDurationMs","clickCount","fieldEntryCount","scrollDistancePx","browserErrorCount","sampleResults"}
           assert ux["schemaVersion"]==1 and ux["dataset"]=="synthetic-clean-install"
           assert ux["records"]==2100 and ux["attemptedSamples"]==9 and ux["completedSamples"]==9
           assert ux["failedSamples"]==0 and ux["errorRate"]==0 and ux["browserErrorCount"]==0
+          assert len(ux["sampleResults"])==9
+          assert [sample["sample"] for sample in ux["sampleResults"]]==list(range(1,10))
+          assert all(sample["success"] is True for sample in ux["sampleResults"])
           for key in ("taskDurationMs","clickCount","fieldEntryCount","scrollDistancePx"):
               metric=ux[key]
               assert set(metric)=={"count","p50","p95","max"} and metric["count"]==9
@@ -113,6 +116,7 @@ jobs:
           PY
 
       - name: Upload proof artifact
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: clean-install-proof
