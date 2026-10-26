@@ -997,6 +997,19 @@
       state.current?.id,state.current?.fingerprint
     ]);
   }
+  // The ranking engine releases deferred/completed suppressions at an exact
+  // timestamp, not just a minute boundary. Capture the next such boundary
+  // when painting so a same-minute Home return never displays stale tasks.
+  function nextHomeEligibilityBoundary(at){
+    let next=Infinity;
+    for(const event of state.events||[]){
+      const details=event?.details;
+      if(!['deferred','completed'].includes(details?.action))continue;
+      const until=Date.parse(details?.until||'');
+      if(Number.isFinite(until)&&until>at&&until<next)next=until;
+    }
+    return next;
+  }
   const renderHomeWithFullRefresh=renderHome;
   renderHome=function(...args){
     const result=renderHomeWithFullRefresh(...args);
@@ -1005,7 +1018,8 @@
     // reuse is still forbidden until loading/busy clears on return.
     homePaintReceipt=model.root&&state.loadedRoot===model.root&&
       model.workspaceConnectionCommittedRoot===model.root?
-      {root:model.root,signature:homePaintSignature()}:null;
+      {root:model.root,signature:homePaintSignature(),
+       nextEligibilityBoundary:nextHomeEligibilityBoundary(now())}:null;
     return result;
   };
   function canReuseHomeOnReturn(){
@@ -1014,6 +1028,7 @@
       state.loadedRoot===model.root&&model.workspaceConnectionCommittedRoot===model.root&&
       model.connectionState==="CONNECTED"&&!model.pendingRoot&&
       !state.busy&&!state.loading&&!state.editing&&!state.pending&&
+      now()<homePaintReceipt.nextEligibilityBoundary&&
       homePaintReceipt.signature===homePaintSignature()&&
       $('dailyTask')&&$('view-home')?.contains($('dailyTask'))
     );
