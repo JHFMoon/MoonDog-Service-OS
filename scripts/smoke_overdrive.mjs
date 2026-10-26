@@ -1394,7 +1394,7 @@ try{
                   failures.push({case:key,reason:"visible text contrast is below threshold or cannot be measured",contrast:result.contrast});
                 if(view==="open-ro"){
                   longTextResults.push({case:key,...result.longText});
-                  if(!result.longText?.rowFound||result.longText.visibleCells!==3||result.longText.clippedCells>0)
+                  if(!result.longText?.rowFound||result.longText.visibleFields!==3||result.longText.clippedFields>0)
                     failures.push({case:key,reason:"long synthetic Open RO text is missing or clipped",longText:result.longText});
                 }
                 return result;
