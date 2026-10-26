@@ -144,7 +144,7 @@ function harness(failPath = null, failOnce = false, productionDraftFlow = false)
   });
   const draftSupport = productionDraftFlow ? "\n" + draftGuardSource + "\n" + finishSavedSource : "";
   const draftExports = productionDraftFlow
-    ? "\nthis.setDraftDirty=value=>{editDraftDirty=value;}; this.isDraftDirty=()=>editDraftDirty; this.guardDraftUnload=guardUnsavedEditUnload; this.setReadJsonForTest=fn=>{readJson=fn;};"
+    ? "\nthis.setDraftDirty=value=>{editDraftDirty=value;}; this.markDraftDirty=markEditDraftDirty; this.isDraftDirty=()=>editDraftDirty; this.guardDraftUnload=guardUnsavedEditUnload; this.setReadJsonForTest=fn=>{readJson=fn;};"
     : "";
   vm.runInContext(
     storageSource + draftSupport +
@@ -267,4 +267,50 @@ test("draft stays protected during failed read-back and clears only after verifi
   assert.deepStrictEqual(durable.records[0].sourceFields, originalState.records[0].sourceFields);
   assert.equal(h.context.isDraftDirty(), false, "production completion clears dirty only after successful read-back");
   assert.equal(h.dialogClosed, 1, "the production post-save path closes the editor only after verified retry");
+});
+
+
+test("edits made while Open RO is saving remain dirty and retryable after verified read-back", async () => {
+  const h = harness(null, false, true);
+  const firstWriteStarted = new Promise(resolve => { h.signalFirstWrite = resolve; });
+  let releaseWrite;
+  const writeGate = new Promise(resolve => { releaseWrite = resolve; });
+  const originalSafeWrite = h.context.MoonDogMaintenance.safeWrite;
+  let holdNextCurrentStateWrite = true;
+  h.context.MoonDogMaintenance.safeWrite = async (io, name, bytes) => {
+    if (name === "data/current-state.json" && holdNextCurrentStateWrite) {
+      holdNextCurrentStateWrite = false;
+      h.signalFirstWrite();
+      await writeGate;
+    }
+    return originalSafeWrite(io, name, bytes);
+  };
+
+  h.context.markDraftDirty();
+  const saving = h.context.saveForTest({ preventDefault() {} }, true);
+  await firstWriteStarted;
+  h.ui.editNextAction.value = "Late synthetic correction";
+  h.context.markDraftDirty();
+  releaseWrite();
+
+  assert.equal(await saving, true, "the originally submitted version was durably saved");
+  const firstDurable = await h.context.readForTest(h.context.statePathForTest, null);
+  assert.equal(firstDurable.records[0].management.nextAction, "Complete synthetic inspection");
+  assert.equal(h.ui.editNextAction.value, "Late synthetic correction");
+  assert.equal(h.context.isDraftDirty(), true, "the later edit remains visibly unsaved");
+  assert.equal(h.dialogClosed, 0, "Save & Next must not close the editor over the later edit");
+  assert.equal(h.ui.editValidation.hidden, false);
+  assert.match(h.ui.editValidation.textContent, /still unsaved/);
+
+  let prevented = false;
+  const unload = { returnValue: null, preventDefault() { prevented = true; } };
+  h.context.guardDraftUnload(unload);
+  assert.equal(prevented, true, "the native unload guard remains active until the later edit is saved");
+
+  assert.equal(await h.context.saveForTest({ preventDefault() {} }, true), true,
+    "the same retained draft can be retried through the production save path");
+  const finalDurable = await h.context.readForTest(h.context.statePathForTest, null);
+  assert.equal(finalDurable.records[0].management.nextAction, "Late synthetic correction");
+  assert.equal(h.context.isDraftDirty(), false, "only the verified retry clears the dirty state");
+  assert.equal(h.dialogClosed, 1, "the editor closes only after the late edit is durably verified");
 });

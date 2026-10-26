@@ -10,6 +10,35 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+
+def should_verify_runtime_parity(event_name, ref, package_change_in_pr):
+    if event_name == "pull_request":
+        return package_change_in_pr
+    if event_name == "workflow_dispatch":
+        return ref == "refs/heads/main" or ref.startswith("refs/heads/beta/post-merge-")
+    return True
+
+
+class BetaRuntimeGateSelection(unittest.TestCase):
+    def test_manual_feature_branch_does_not_require_post_merge_beta_parity(self):
+        self.assertFalse(should_verify_runtime_parity(
+            "workflow_dispatch", "refs/heads/test/open-ro-edit", False))
+
+    def test_manual_generated_beta_package_requires_runtime_parity(self):
+        self.assertTrue(should_verify_runtime_parity(
+            "workflow_dispatch", "refs/heads/beta/post-merge-123", False))
+
+    def test_manual_main_validation_requires_runtime_parity(self):
+        self.assertTrue(should_verify_runtime_parity(
+            "workflow_dispatch", "refs/heads/main", False))
+
+    def test_pull_request_requires_parity_only_for_package_changes(self):
+        self.assertFalse(should_verify_runtime_parity(
+            "pull_request", "refs/pull/508/merge", False))
+        self.assertTrue(should_verify_runtime_parity(
+            "pull_request", "refs/pull/507/merge", True))
+
+
 class BetaRuntimeContract(unittest.TestCase):
     def test_beta_manifest_package_and_runtime_match(self):
         manifest = json.loads((ROOT / "updates/manifest.json").read_text())
@@ -46,8 +75,9 @@ class BetaRuntimeContract(unittest.TestCase):
         # A normal feature PR may legitimately change runtime before post-merge
         # packaging. But an actual package/manifest PR MUST already contain
         # the complete reviewed runtime. Previously all PRs skipped this check.
+        event_name = os.environ.get("GITHUB_EVENT_NAME")
         package_change_in_pr = False
-        if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
+        if event_name == "pull_request":
             changed = subprocess.check_output(
                 ["git", "diff", "--name-only", "HEAD^", "HEAD"], cwd=ROOT, text=True
             ).splitlines()
@@ -55,7 +85,13 @@ class BetaRuntimeContract(unittest.TestCase):
                 "updates/manifest.json" in changed
                 and any(path.startswith("updates/packages/moondog-") and path.endswith(".json") for path in changed)
             )
-        verify_runtime = os.environ.get("GITHUB_EVENT_NAME") != "pull_request" or package_change_in_pr
+        # Generated Beta branches use the explicit beta/post-merge-* prefix in
+        # prepare-beta-package.yml and receive workflow_dispatch validation.
+        # Preserve full parity for that publication gate while allowing manual
+        # validation of an ordinary source feature branch before Beta sync.
+        verify_runtime = should_verify_runtime_parity(
+            event_name, os.environ.get("GITHUB_REF", ""), package_change_in_pr
+        )
         if verify_runtime:
             self.assertEqual(app, source, "Beta app.js differs from reviewed source beyond version/build date")
             self.assertEqual(

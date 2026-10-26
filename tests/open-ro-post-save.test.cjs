@@ -81,7 +81,7 @@ test("stale next selection closes after save rather than navigating into a remov
 test("production entry only delegates follow-ups after read-back verified saveState",()=>{
   const portion=app.slice(app.indexOf("  async function saveRecord("),app.indexOf("  async function closeRo("));
   assert.match(portion,/await saveState\("Updated RO "\+record\.ro, priorState\)/);
-  assert.match(portion,/return finishSavedOpenRo\(record,before,proposed,origin,advance,nextId\)/);
+  assert.match(portion,/return finishSavedOpenRo\(record,before,proposed,origin,advance,nextId,submittedDraftRevision\)/);
   assert.ok(portion.indexOf("await saveState(")<portion.indexOf("return finishSavedOpenRo("));
 });
 
