@@ -827,8 +827,9 @@ try{
                   const rows=v==="open-ro"?document.querySelectorAll("#roTable tr[data-id]").length:null;
                   const performanceReady=v!=="performance"||Boolean(document.getElementById("performancePeriod")?.textContent?.trim());
                   const meetingReady=v!=="meeting"||Boolean(
-                    document.querySelector("#unifiedHeroes .unified-hero")&&
-                    document.getElementById("unifiedMeetingPeriod")?.textContent?.trim());
+                    document.querySelector("#view-meeting.meeting-scoreboard #meetingV3Range")&&
+                    document.querySelector("#view-meeting #meetingV3Gross")&&
+                    document.querySelector("#view-meeting #meetingV3Daily"));
                   return {ms,active:!!target?.classList.contains("active"),rows,performanceReady,meetingReady};
                 },view);
                 if(!measurement.active||(view==="open-ro"&&measurement.rows<1)||!measurement.performanceReady||!measurement.meetingReady)
