@@ -46,8 +46,9 @@ class BetaRuntimeContract(unittest.TestCase):
         # A normal feature PR may legitimately change runtime before post-merge
         # packaging. But an actual package/manifest PR MUST already contain
         # the complete reviewed runtime. Previously all PRs skipped this check.
+        event_name = os.environ.get("GITHUB_EVENT_NAME")
         package_change_in_pr = False
-        if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
+        if event_name == "pull_request":
             changed = subprocess.check_output(
                 ["git", "diff", "--name-only", "HEAD^", "HEAD"], cwd=ROOT, text=True
             ).splitlines()
@@ -55,7 +56,19 @@ class BetaRuntimeContract(unittest.TestCase):
                 "updates/manifest.json" in changed
                 and any(path.startswith("updates/packages/moondog-") and path.endswith(".json") for path in changed)
             )
-        verify_runtime = os.environ.get("GITHUB_EVENT_NAME") != "pull_request" or package_change_in_pr
+        # A manual run on a feature branch validates its tests and package
+        # integrity, but source parity is only meaningful for a PR that changes
+        # the package or for the integrated main branch. Otherwise a safe
+        # runtime change would fail solely because Beta synchronization follows
+        # protected source merge. Main and package PRs remain fully checked.
+        manual_feature_run = (
+            event_name == "workflow_dispatch"
+            and os.environ.get("GITHUB_REF") != "refs/heads/main"
+        )
+        verify_runtime = (
+            not manual_feature_run
+            and (event_name != "pull_request" or package_change_in_pr)
+        )
         if verify_runtime:
             self.assertEqual(app, source, "Beta app.js differs from reviewed source beyond version/build date")
             self.assertEqual(
