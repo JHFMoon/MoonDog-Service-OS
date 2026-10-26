@@ -20,16 +20,35 @@ const parser = app.slice(parserStart, parserEnd);
 const lineage = app.slice(parserEnd, lineageEnd);
 const evidence = app.slice(evidenceStart, evidenceEnd);
 const meetingEvidence = app.slice(meetingStart, meetingEnd);
+const homeStart = app.indexOf("  function renderOverviewIntelligence() {");
+const homeEnd = app.indexOf("  const renderOverviewIntelligenceBase=renderOverviewIntelligence;", homeStart);
+assert.ok(homeStart >= 0 && homeEnd > homeStart, "Missing production Home VIR renderer");
+const home = app.slice(homeStart, homeEnd);
+
+function viewNode() {
+  return { textContent: "", className: "", children: [],
+    replaceChildren(...values) { this.children = [...values]; },
+    append(...values) { this.children.push(...values); }
+  };
+}
+function viewText(value) {
+  return String(value?.textContent || "") + " " + (value?.children || []).map(viewText).join(" ");
+}
 
 test("synthetic VIR observation keeps its source date through durable storage and Meeting evidence", async () => {
   let durable = null;
   const events = [];
   const history = [];
-  const model = { operationalMetrics: { vir: { snapshots: {}, pending: {} } } };
+  const model = { settings: { csiPeriodStart: "2026-10-01" }, operationalMetrics: { vir: { snapshots: {}, pending: {} } } };
+  const ui = Object.fromEntries([
+    "moondogNeeds", "nextAppointmentsSummary", "nextAppointmentsCoverage",
+    "virSummary", "virCoverage", "menuSummary", "menuCoverage", "csiSummary", "csiCoverage"
+  ].map(key => [key, viewNode()]));
   const context = vm.createContext({
     ADVISOR_NAMES: { A1: "Demo Advisor" },
     structuredClone,
-    model,
+    model, ui,
+    document: { createElement: () => viewNode() },
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
     text: value => String(value ?? ""),
     norm: value => String(value ?? "").trim().toLowerCase(),
@@ -47,10 +66,25 @@ test("synthetic VIR observation keeps its source date through durable storage an
     readJson: async () => { events.push("readback"); return structuredClone(durable); },
     addHistory: async (...entry) => { events.push("history"); history.push(entry); },
     recordDiagnostic: () => {},
-    renderOverviewIntelligence: () => {}
+    renderOverviewIntelligence: () => { if (context.renderHome) context.renderHome(); },
+    renderAdminCloseoutAttention: () => {},
+    renderTrendCoverageSummary: () => {},
+    renderPreviousMonthTotals: () => {},
+    managerAttentionRequests: () => [],
+    trendCoverageAudit: () => ({}),
+    reportNeeds: () => ({}),
+    sourceFreshness: () => ({ status: "current" }),
+    sourceStatusLabel: () => "CURRENT",
+    latestNextAppointmentsSnapshot: () => null,
+    currentCsiSurveys: () => ({}),
+    latestCsiRefreshDate: () => "",
+    npsSummary: () => ({ responses: 0, nps: null, promoters: 0, detractors: 0 }),
+    standard: () => 90,
+    performanceFormat: value => String(value),
+    shortDate: value => value === "2026-10-22" ? "Oct 22" : String(value || "—")
   });
-  vm.runInContext(parser + "\n" + lineage + "\n" + evidence + "\n" + meetingEvidence + "\n" +
-    'VIR_NAME_CODES["demo advisor"] = "A1"; this.parseVirCsv = parseVirCsv; this.saveVirSnapshot = saveVirSnapshot; this.latestVirObservation = latestVirObservation; this.virMeetingEvidence = virMeetingEvidence; this.virCompletenessEvidence = virCompletenessEvidence;',
+  vm.runInContext(parser + "\n" + lineage + "\n" + evidence + "\n" + meetingEvidence + "\n" + home + "\n" +
+    'VIR_NAME_CODES["demo advisor"] = "A1"; this.parseVirCsv = parseVirCsv; this.saveVirSnapshot = saveVirSnapshot; this.latestVirObservation = latestVirObservation; this.virMeetingEvidence = virMeetingEvidence; this.virCompletenessEvidence = virCompletenessEvidence; this.renderHome = renderOverviewIntelligence;',
     context);
 
   const csv = [
@@ -85,6 +119,21 @@ test("synthetic VIR observation keeps its source date through durable storage an
   assert.equal(meeting.period, "Observed 2026-10-22");
   assert.equal(meeting.value, 75);
   assert.equal(meeting.status, "verified");
+
+  context.renderHome();
+  assert.match(viewText(ui.virSummary), /75\.0%/,
+    "Home VIR summary must use the durably imported observation");
+  assert.match(viewText(ui.virSummary), /VIR used\s+3/,
+    "Home must retain the imported numerator");
+  assert.match(viewText(ui.virSummary), /Eligible ROs\s+4/,
+    "Home must retain the imported denominator");
+  assert.match(ui.virCoverage.textContent, /Oct 22/,
+    "Home coverage must display the same VIR observation date used by Meeting");
+  assert.match(ui.virCoverage.textContent, /VIR Printed\/Emailed\/Texted/,
+    "Home must retain the source's delivery measure");
+  assert.equal(meeting.period, "Observed 2026-10-22");
+  assert.equal(meeting.value, stored.store.utilization);
+  assert.equal(meeting.source, "VIR");
 
   const future = structuredClone(stored);
   future.reportDate = "2026-10-24";
