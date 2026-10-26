@@ -116,13 +116,16 @@ jobs:
 
           matrix_path=Path(".clean-install-smoke/overdrive-proof/responsive-ux-matrix.json")
           matrix=json.loads(matrix_path.read_text(encoding="utf-8"))
-          assert set(matrix)=={"schemaVersion","dataset","scope","routes","standardViewportCount","standardRouteSampleCount","zoomEquivalentViewportCount","zoomEquivalentRouteSampleCount","routeResults","zoomEquivalentResults","longTextResults","keyboardFocus","openRoTaskEffort","failures"}
+          assert set(matrix)=={"schemaVersion","dataset","scope","routes","standardViewportCount","standardRouteSampleCount","zoomEquivalentViewportCount","zoomEquivalentRouteSampleCount","routeResults","zoomEquivalentResults","longTextResults","keyboardFocus","keyboardRouteResults","openRoTaskEffort","failures"}
           assert matrix["schemaVersion"]==1 and matrix["dataset"]=="synthetic-clean-install"
           assert matrix["standardViewportCount"]==10 and matrix["standardRouteSampleCount"]==100
           assert matrix["zoomEquivalentViewportCount"]==4 and matrix["zoomEquivalentRouteSampleCount"]==12
           assert matrix["routes"]==["overview","tools","arrivals","assign-next","performance","meeting","open-ro","imports","settings","home"]
           assert len(matrix["routeResults"])==100 and len(matrix["zoomEquivalentResults"])==12
           assert not matrix["failures"]
+          assert len(matrix["keyboardRouteResults"])==10
+          assert all(item["visible"] and item["keyboardFocusVisible"] and item["focusIndicator"] for item in matrix["keyboardRouteResults"])
+          assert all(item["contrast"]["sampleCount"]>0 and item["contrast"]["unmeasuredCount"]==0 and item["contrast"]["lowContrastCount"]==0 for item in matrix["routeResults"]+matrix["zoomEquivalentResults"])
           all_routes=matrix["routeResults"]+matrix["zoomEquivalentResults"]
           assert all(item["active"] and item["documentHorizontalOverflowPx"]<=4 and item["viewRightOverflowPx"]<=4 and item["unnamedControlCount"]==0 for item in all_routes)
           assert len(matrix["longTextResults"])==14 and all(item["rowFound"] and item["visibleCells"]==3 and item["clippedCells"]==0 for item in matrix["longTextResults"])

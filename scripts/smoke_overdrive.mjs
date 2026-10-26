@@ -1078,7 +1078,7 @@ try{
                 {label:"1366x768 at 150%",width:911,height:512}
               ];
               const allViews=["overview","tools","arrivals","assign-next","performance","meeting","open-ro","imports","settings","home"];
-              const routeResults=[],zoomResults=[],longTextResults=[],failures=[];
+              const routeResults=[],zoomResults=[],longTextResults=[],keyboardResults=[],failures[];
               await connectedPage.evaluate(()=>{
                 const search=document.getElementById("searchInput");
                 if(search){search.value="";search.dispatchEvent(new Event("input",{bubbles:true}));}
@@ -1094,6 +1094,19 @@ try{
                 },view);
                 await connectedPage.waitForFunction(v=>document.getElementById("view-"+v)?.classList.contains("active"),view,{timeout:5000});
                 await connectedPage.waitForTimeout(35);
+                if(kind==="standard"&&viewport.label==="1280x720"){
+                  await connectedPage.evaluate(()=>document.activeElement?.blur?.());
+                  await connectedPage.keyboard.press("Tab");
+                  const focus=await connectedPage.evaluate(()=>{
+                    const el=document.activeElement,s=getComputedStyle(el),r=el.getBoundingClientRect();
+                    return {view,tag:el.tagName,id:el.id||null,visible:r.width>0&&r.height>0&&s.display!=="none"&&s.visibility!=="hidden",
+                      keyboardFocusVisible:el.matches(":focus-visible"),
+                      focusIndicator:(s.outlineStyle!=="none"&&parseFloat(s.outlineWidth)>0)||s.boxShadow!=="none"};
+                  });
+                  keyboardResults.push(focus);
+                  if(!focus.visible||!focus.keyboardFocusVisible||!focus.focusIndicator)
+                    failures.push({case:"keyboard/"+view,reason:"Tab did not expose visible focus indication",focus});
+                }
                 const result=await connectedPage.evaluate(({view,label,kind})=>{
                   const active=document.getElementById("view-"+view);
                   const root=document.scrollingElement||document.documentElement;
@@ -1109,6 +1122,74 @@ try{
                     const inputValue=/^(button|submit|reset)$/i.test(el.type||"")?el.value:"";
                     return el.getAttribute("aria-label")||labelled||associatedLabel||el.getAttribute("title")||alt||inputValue||text;
                   };
+                  const parseColor=value=>{
+                    if(!value)return null;
+                    const functional=value.match(/rgba?\(([^)]+)\)/i);
+                    if(functional){
+                      const parts=functional[1].replace(/\//g,",").trim().split(/[ ,]+/).filter(Boolean);
+                      if(parts.length<3)return null;
+                      const channel=value=>value.endsWith("%")?parseFloat(value)*2.55:parseFloat(value);
+                      const alpha=parts[3]?(parts[3].endsWith("%")?parseFloat(parts[3])/100:parseFloat(parts[3])):1;
+                      return [channel(parts[0]),channel(parts[1]),channel(parts[2]),alpha];
+                    }
+                    const hex=value.match(/^#([0-9a-f]{3,8})$/i);
+                    if(hex){
+                      let h=hex[1];
+                      if(h.length===3||h.length===4)h=[...h].map(x=>x+x).join("");
+                      if(h.length===6||h.length===8)return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16),h.length===8?parseInt(h.slice(6,8),16)/255:1];
+                    }
+                    return value==="transparent"?[0,0,0,0]:null;
+                  };
+                  const composite=(front,back)=>{const alpha=front[3]+back[3]*(1-front[3]);if(alpha<=0)return [0,0,0,0];return [
+                    (front[0]*front[3]+back[0]*back[3]*(1-front[3]))/alpha,
+                    (front[1]*front[3]+back[1]*back[3]*(1-front[3]))/alpha,
+                    (front[2]*front[3]+back[2]*back[3]*(1-front[3]))/alpha,alpha
+                  ];};
+                  const luminance=color=>{
+                    const linear=color.map(value=>{const c=value/255;return c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4;});
+                    return 0.2126*linear[0]+0.7152*linear[1]+0.0722*linear[2];
+                  };
+                  const backgroundsFor=el=>{
+                    const chain=[];for(let node=el;node;node=node.parentElement)chain.push(node);
+                    let backgrounds=[[255,255,255,1]],unknown=false;
+                    for(const node of chain.reverse()){
+                      const style=getComputedStyle(node),solid=parseColor(style.backgroundColor);
+                      if(solid&&solid[3]>0)backgrounds=backgrounds.map(bg=>composite(solid,bg));
+                      const image=style.backgroundImage;
+                      if(image&&image!=="none"){
+                        if(/url\(/i.test(image)){unknown=true;continue;}
+                        if(/gradient/i.test(image)){
+                          const colors=(image.match(/rgba?\([^)]+\)|#[0-9a-f]{3,8}/gi)||[]).map(parseColor).filter(Boolean);
+                          if(!colors.length){unknown=true;continue;}
+                          backgrounds=colors.flatMap(color=>backgrounds.map(bg=>composite(color,bg)));
+                        }else unknown=true;
+                      }
+                    }
+                    return {backgrounds,unknown};
+                  };
+                  const textSelector="h1,h2,h3,h4,h5,p,li,th,td,label,button,a,summary,legend,input,select,textarea,[role=button],[role=link],span,strong,small";
+                  const textElements=[...active.querySelectorAll(textSelector)].filter(el=>{
+                    if(!visible(el)||!(el.innerText||el.textContent||"").trim())return false;
+                    const r=el.getBoundingClientRect();return r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight;
+                  }).slice(0,160);
+                  const lowContrast=[];
+                  let unmeasuredContrastCount=0,contrastSampleCount=0;
+                  for(const el of textElements){
+                    const fg=parseColor(getComputedStyle(el).color),bg=backgroundsFor(el);
+                    if(!fg||bg.unknown||!bg.backgrounds.length){unmeasuredContrastCount++;continue;}
+                    const ratios=bg.backgrounds.map(base=>{
+                      const effectiveFg=fg[3]<1?composite(fg,base):fg;
+                      const a=luminance(effectiveFg),b=luminance(base),hi=Math.max(a,b),lo=Math.min(a,b);
+                      return (hi+0.05)/(lo+0.05);
+                    });
+                    const style=getComputedStyle(el),size=parseFloat(style.fontSize)||0,weight=parseInt(style.fontWeight,10)||400;
+                    const large=size>=24||(size>=18.66&&weight>=700),required=large?3:4.5,min=Math.min(...ratios);
+                    contrastSampleCount++;
+                    if(min+0.01<required)lowContrast.push({tag:el.tagName,id:el.id||null,text:(el.innerText||el.textContent||"").trim().slice(0,90),
+                      contrast:Math.round(min*100)/100,required});
+                  }
+                  const contrast={sampleCount:contrastSampleCount,unmeasuredCount:unmeasuredContrastCount,
+                    lowContrastCount:lowContrast.length,lowContrast:lowContrast.slice(0,12)};
                   const controls=[...document.querySelectorAll('a[href],button,input:not([type="hidden"]),select,textarea,[role="button"],[role="link"]')].filter(visible);
                   const unnamed=controls.filter(el=>!String(name(el)||"").trim()).map(el=>({tag:el.tagName,id:el.id,role:el.getAttribute("role"),type:el.type||null}));
                   const overflowPx=Math.max(0,root.scrollWidth-innerWidth);
@@ -1128,7 +1209,7 @@ try{
                   }
                   return {label,kind,view,width:innerWidth,height:innerHeight,active:!!active?.classList.contains("active"),
                     documentHorizontalOverflowPx:overflowPx,viewRightOverflowPx:viewOverflowPx,
-                    visibleControlCount:controls.length,unnamedControlCount:unnamed.length,unnamedControls:unnamed.slice(0,12),longText};
+                    visibleControlCount:controls.length,unnamedControlCount:unnamed.length,unnamedControls:unnamed.slice(0,12),contrast,longText};
                 },{view,label:viewport.label,kind});
                 const key=kind+"/"+viewport.label+"/"+view;
                 if(!result.active||result.width!==viewport.width||result.height!==viewport.height)
@@ -1137,6 +1218,8 @@ try{
                   failures.push({case:key,reason:"horizontal page overflow",result});
                 if(result.unnamedControlCount>0)
                   failures.push({case:key,reason:"visible controls lack accessible names",result});
+                if(result.contrast.lowContrastCount>0||result.contrast.unmeasuredCount>0)
+                  failures.push({case:key,reason:"visible text contrast is below threshold or cannot be measured",contrast:result.contrast});
                 if(view==="open-ro"){
                   longTextResults.push({case:key,...result.longText});
                   if(!result.longText?.rowFound||result.longText.visibleCells!==3||result.longText.clippedCells>0)
@@ -1171,7 +1254,7 @@ try{
                 scope:"Packaged file:// Chromium, in-memory synthetic Workspace, 2,100 synthetic ROs; zoom cases use equivalent CSS viewport dimensions, not native browser zoom or physical displays.",
                 routes:allViews,standardViewportCount:standardViewports.length,standardRouteSampleCount:routeResults.length,
                 zoomEquivalentViewportCount:zoomViewports.length,zoomEquivalentRouteSampleCount:zoomResults.length,
-                routeResults,zoomEquivalentResults:zoomResults,longTextResults,keyboardFocus,
+                routeResults,zoomEquivalentResults:zoomResults,longTextResults,keyboardFocus,keyboardRouteResults:keyboardResults,
                 openRoTaskEffort:{scenario:"search, edit, add note, save, and verify durable read-back",attemptedSamples:uxTaskSamples.length+1,
                   completedSamples:successfulTasks.length,failedSamples:uxTaskSamples.filter(item=>!item.success).length,
                   taskDurationMs:metric("elapsedMs"),clickCount:metric("clickCount"),fieldEntryCount:metric("fieldEntryCount"),scrollDistancePx:metric("scrollDistancePx")},
