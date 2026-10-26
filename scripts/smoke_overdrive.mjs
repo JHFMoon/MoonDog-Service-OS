@@ -8,7 +8,19 @@ const launcher=process.argv[2],out=process.argv[3]||".clean-install-smoke/arena-
 if(!launcher)throw Error("usage: smoke_overdrive.mjs <launcher> [output]");
 fs.mkdirSync(out,{recursive:true});
 const browser=await chromium.launch({headless:true,channel:process.env.MOONDOG_BROWSER_CHANNEL||undefined});
+let packagedAppPath=null,packagedAppOriginal=null;
 try{
+ // Expose the unmodified production renderer only in the temporary extracted
+ // clean-install copy, so the DOM benchmark can invoke it deterministically.
+ packagedAppPath=path.join(path.dirname(path.resolve(launcher)),"System Files","assets","app.js");
+ packagedAppOriginal=fs.readFileSync(packagedAppPath,"utf8");
+ const renderBridgeMarker="globalThis.__moondogDaily = Object.freeze({";
+ if(packagedAppOriginal.split(renderBridgeMarker).length!==2)
+   throw Error("Production Manager Home renderer bridge location is not unique");
+ fs.writeFileSync(packagedAppPath,
+   packagedAppOriginal.replace(renderBridgeMarker,
+     "globalThis.__moondogManagerHomeRenderProbe=renderAll;\\n"+renderBridgeMarker));
+
  for(const [width,height] of [[1920,1080],[1600,900],[1366,768]]){
   const page=await browser.newPage({viewport:{width,height},reducedMotion:width===1600?"no-preference":"reduce"});
   const errors=[];page.on("pageerror",e=>errors.push(e.message));
@@ -415,9 +427,10 @@ try{
     console.log("Synthetic Home warm-tab activation baseline",
       JSON.stringify({scope:"warm production Home tab activation to animation frame; 413 synthetic ROs in memory; excludes Home repaint, connection and filesystem latency",
         viewport:{width,height},...homeBaseline}));
-    // #58-01 browser DOM baseline: re-render Manager Home from 413 synthetic in-memory Open ROs.
-    // This measures actual file:// DOM work through the next animation frame; it does not
-    // claim a durable folder connection, browser-cold startup, or OneDrive/device latency.
+    // #58-01 browser DOM baseline: measure the production renderAll() function with
+    // 413 synthetic in-memory Open ROs. The temporary test-only bridge exposes the
+    // unchanged renderer only in this extracted copy and is restored in finally.
+    // No durable folder connection, browser-cold startup, or OneDrive/device latency is claimed.
     const managerHomeDomMs=[];
     for(let sample=0;sample<9;sample++){
       await page.locator('.nav-item[data-view="performance"]').click({timeout:3500});
@@ -427,8 +440,11 @@ try{
         const overview=document.querySelector('.nav-item[data-view="overview"]');
         if(!metric||!overview)throw new Error("Synthetic Manager Home DOM probe is unavailable");
         metric.textContent="__synthetic_home_pending__";
+        const render=globalThis.__moondogManagerHomeRenderProbe;
+        if(typeof render!=="function")throw new Error("Production Manager Home renderer probe is unavailable");
         globalThis.__moondogManagerHomeStarted=performance.now();
         overview.click();
+        render();
       });
       await page.waitForFunction(()=>{
         const view=document.getElementById("view-overview");
@@ -454,14 +470,14 @@ try{
     }
     const managerHomeDom=summarizeNavigationMs(managerHomeDomMs);
     console.log("Synthetic Manager Home DOM render baseline",JSON.stringify({
-      scope:"9 file:// browser samples; actual Manager Home DOM after navigating from Performance; 413 synthetic in-memory Open ROs; not a durable folder connection or OneDrive timing",
+      scope:"9 file:// browser samples; production renderAll() invoked in the temporary extracted-copy test harness; 413 synthetic in-memory Open ROs; no durable folder connection or OneDrive timing",
       rowCount:413,viewport:{width,height},...managerHomeDom
     }));
     const navigationArtifact=path.join(out,"navigation-baseline.json");
     const navigationReport=JSON.parse(fs.readFileSync(navigationArtifact,"utf8"));
     navigationReport.managerHomeDom={
       dataset:"synthetic-in-memory-manager-home",
-      scope:"Actual Manager Home DOM after tab navigation to next animation frame; no durable folder connection or OneDrive timing",
+      scope:"Actual production renderAll() DOM after tab activation and explicit render; test-only bridge in the extracted copy; no durable folder connection or OneDrive timing",
       rowCount:413,sampleCount:managerHomeDom.count,viewport:{width,height},
       p50Ms:managerHomeDom.p50,p95Ms:managerHomeDom.p95,maxMs:managerHomeDom.max
     };
@@ -921,4 +937,7 @@ try{
   console.log("Arena TV visual and 7-slide rotation proof PASS",width,height);
   await page.close();
  }
-}finally{await browser.close()}
+}finally{
+ try{if(packagedAppPath&&packagedAppOriginal!==null)fs.writeFileSync(packagedAppPath,packagedAppOriginal);}
+ finally{await browser.close();}
+}
