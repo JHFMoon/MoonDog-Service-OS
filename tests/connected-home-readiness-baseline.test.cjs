@@ -79,3 +79,83 @@ test("synthetic connection reconciliation precedes stubbed render dispatch",asyn
   assert.ok(Number.isFinite(report.p50Ms)&&Number.isFinite(report.p95Ms)&&report.p50Ms>=0&&report.p95Ms>=report.p50Ms);
   console.log("Synthetic connected Home readiness baseline",JSON.stringify(report));
 });
+
+
+// #58-01: isolate the production essential snapshot hydration block. This
+// measures only the bounded read/atomic publication stage on synthetic handles.
+// It does NOT include browser/OneDrive latency, full connection, or real DOM.
+const hydrateSnapshots=extract(app,
+  "    const connectionReadSpecs = [",
+  "    model.state.closedRecords=pruneClosedRecords");
+async function syntheticSnapshotHydration(recordCount,options={}){
+  const names=["state","appointments","performance","operationalMetrics",
+    "meetingCycle","assignNext","autoImport","recovery"];
+  const paths=names.map((name,index)=>["synthetic",String(index)+"-"+name+".json"]);
+  const initial=Object.fromEntries(names.map(name=>[name,{unchanged:name}]));
+  const model={...initial};
+  const payload=Object.fromEntries(names.map(name=>[name,{source:"synthetic",rows:[]}]));
+  payload.state={records:Array.from({length:recordCount},(_,i)=>({
+    id:"SYNTHETIC-"+i,management:{reviewDate:"2026-10-25",nextAction:"Follow up"}
+  })),closedRecords:[]};
+  const serialized=Object.fromEntries(names.map(name=>[name,JSON.stringify(payload[name])]));
+  let inflight=0,maximumInflight=0,reads=0;
+  const readJson=async(filePath)=>{
+    const index=paths.indexOf(filePath);
+    assert.ok(index>=0,"Unexpected hydration path");
+    reads++;
+    inflight++;
+    maximumInflight=Math.max(maximumInflight,inflight);
+    try{
+      // Deterministic async wait plus real JSON parsing, not a OneDrive timing surrogate.
+      await new Promise(resolve=>setTimeout(resolve,options.latencyMs??2));
+      if(options.failAt===index)throw Error("Synthetic unavailable snapshot");
+      return JSON.parse(serialized[names[index]]);
+    }finally{inflight--;}
+  };
+  const context=vm.createContext({
+    model,readJson,
+    STATE_PATH:paths[0],APPOINTMENTS_PATH:paths[1],PERFORMANCE_PATH:paths[2],
+    OPERATIONAL_METRICS_PATH:paths[3],MEETING_CYCLE_PATH:paths[4],
+    ASSIGN_NEXT_PATH:paths[5],AUTO_IMPORT_PATH:paths[6],RECOVERY_PATH:paths[7]
+  });
+  const started=performance.now();
+  const hydration=vm.runInContext("(async()=>{\n"+hydrateSnapshots+"\n})()",context);
+  await Promise.resolve();
+  for(const name of names)assert.equal(model[name],initial[name],
+    "No partial snapshot may publish while reads are unfinished: "+name);
+  try{await hydration;}
+  catch(error){
+    assert.match(String(error),/Synthetic unavailable snapshot/);
+    for(const name of names)assert.equal(model[name],initial[name],
+      "A failed hydration must retain every original snapshot: "+name);
+    return {failed:true,maximumInflight,reads};
+  }
+  const elapsedMs=performance.now()-started;
+  for(const name of names)assert.deepEqual(model[name],payload[name],
+    "Commit the verified group once all eight reads succeed: "+name);
+  assert.equal(model.state.records.length,recordCount);
+  return {failed:false,elapsedMs,maximumInflight,reads};
+}
+test("eight production snapshot reads are bounded and atomically published for empty/large synthetic Workspaces",async()=>{
+  for(const count of [0,2100]){
+    const samples=[];
+    for(let trial=0;trial<9;trial++){
+      const result=await syntheticSnapshotHydration(count);
+      assert.equal(result.reads,8);
+      assert.equal(result.maximumInflight,3,
+        "The original connection path must limit independent reads to three");
+      samples.push(result.elapsedMs);
+    }
+    const report={scope:"synthetic essential snapshot reads through atomic model commit; excludes real folder permissions, browser rendering, file bytes and OneDrive",
+      records:count,samples:9,p50Ms:percentile(samples,0.5),
+      p95Ms:percentile(samples,0.95),maxMs:Math.max(...samples)};
+    assert.ok(Number.isFinite(report.p95Ms)&&report.p95Ms>=report.p50Ms);
+    console.log("Synthetic connection snapshot hydration baseline",JSON.stringify(report));
+  }
+});
+test("late essential snapshot failure cannot commit a partial connection",async()=>{
+  const failed=await syntheticSnapshotHydration(2100,{failAt:7,latencyMs:2});
+  assert.equal(failed.failed,true);
+  assert.equal(failed.reads,8);
+  assert.ok(failed.maximumInflight<=3);
+});
