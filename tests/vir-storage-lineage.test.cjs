@@ -148,8 +148,8 @@ function failedReadbackFixture(mode) {
       events.push("readback");
       const result = structuredClone(durable);
       if (mode === "readback-mismatch") {
-        const key = Object.keys(result.operationalMetrics.vir.snapshots).find(item => item.startsWith("observation-"));
-        result.operationalMetrics.vir.snapshots[key].store.used = 2;
+        const key = Object.keys(result.vir.snapshots).find(item => item.startsWith("observation-"));
+        result.vir.snapshots[key].store.used = 2;
       }
       return result;
     },
@@ -176,7 +176,7 @@ test("mismatched VIR read-back is rejected before history or source deletion", a
   assert.equal(JSON.stringify(f.model.operationalMetrics), JSON.stringify(f.existing));
   assert.deepEqual(f.events, ["write", "readback"]);
   assert.deepEqual(f.history, []);
-  assert.ok(f.durable().operationalMetrics.vir.snapshots["prior-observation"]);
-  assert.ok(Object.keys(f.durable().operationalMetrics.vir.snapshots).some(key => key.startsWith("observation-")),
+  assert.ok(f.durable().vir.snapshots["prior-observation"]);
+  assert.ok(Object.keys(f.durable().vir.snapshots).some(key => key.startsWith("observation-")),
     "uncertain candidate bytes remain available for controlled recovery");
 });
