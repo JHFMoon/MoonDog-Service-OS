@@ -113,6 +113,31 @@ jobs:
           assert ux["fieldEntryCount"]["p50"]>=5
           assert ux_path.stat().st_size<4096
           print("PASS: synthetic Open RO workflow metrics validated")
+
+          matrix_path=Path(".clean-install-smoke/overdrive-proof/responsive-ux-matrix.json")
+          matrix=json.loads(matrix_path.read_text(encoding="utf-8"))
+          assert set(matrix)=={"schemaVersion","dataset","scope","routes","standardViewportCount","standardRouteSampleCount","zoomEquivalentViewportCount","zoomEquivalentRouteSampleCount","routeResults","zoomEquivalentResults","longTextResults","keyboardFocus","openRoTaskEffort","failures"}
+          assert matrix["schemaVersion"]==1 and matrix["dataset"]=="synthetic-clean-install"
+          assert matrix["standardViewportCount"]==10 and matrix["standardRouteSampleCount"]==100
+          assert matrix["zoomEquivalentViewportCount"]==4 and matrix["zoomEquivalentRouteSampleCount"]==12
+          assert matrix["routes"]==["overview","tools","arrivals","assign-next","performance","meeting","open-ro","imports","settings","home"]
+          assert len(matrix["routeResults"])==100 and len(matrix["zoomEquivalentResults"])==12
+          assert not matrix["failures"]
+          all_routes=matrix["routeResults"]+matrix["zoomEquivalentResults"]
+          assert all(item["active"] and item["documentHorizontalOverflowPx"]<=4 and item["viewRightOverflowPx"]<=4 and item["unnamedControlCount"]==0 for item in all_routes)
+          assert len(matrix["longTextResults"])==14 and all(item["rowFound"] and item["visibleCells"]==3 and item["clippedCells"]==0 for item in matrix["longTextResults"])
+          focus=matrix["keyboardFocus"]
+          assert focus["visible"] and focus["keyboardFocusVisible"] and focus["focusIndicator"]
+          effort=matrix["openRoTaskEffort"]
+          assert effort["attemptedSamples"]==9 and effort["completedSamples"]==9 and effort["failedSamples"]==0
+          for key in ("taskDurationMs","clickCount","fieldEntryCount","scrollDistancePx"):
+              metric=effort[key]
+              assert set(metric)=={"count","p50","p95","max"} and metric["count"]==9
+              assert 0<=metric["p50"]<=metric["p95"]<=metric["max"]
+          assert effort["clickCount"]["p50"]==4 and effort["clickCount"]["max"]==4
+          assert effort["fieldEntryCount"]["p50"]>=5
+          assert matrix_path.stat().st_size<200000
+          print("PASS: 100 screen/viewport routes, 12 zoom-equivalent routes, keyboard focus, long text, and nine measured Open RO tasks validated")
           PY
 
       - name: Upload proof artifact
@@ -126,5 +151,6 @@ jobs:
             dist/Service-Operations-Dashboard.manifest.json
             .clean-install-smoke/overdrive-proof/navigation-baseline.json
             .clean-install-smoke/overdrive-proof/open-ro-workflow-metrics.json
+            .clean-install-smoke/overdrive-proof/responsive-ux-matrix.json
           if-no-files-found: error
           retention-days: 7

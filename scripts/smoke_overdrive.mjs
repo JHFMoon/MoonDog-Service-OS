@@ -826,11 +826,11 @@ try{
             settings.setup={...(settings.setup||{}),completedAt:"2026-10-25T12:00:00.000Z"};
             const records=Array.from({length:count},(_,i)=>({
               id:"synthetic-browser-ro-"+i,ro:String(900000+i),advisor:"Synthetic Advisor",
-              advisorCode:"100",customer:"Synthetic Customer",vehicle:"Synthetic Vehicle",
+              advisorCode:"100",customer:i===0?"LONG SYNTHETIC CUSTOMER ".repeat(8):"Synthetic Customer",vehicle:i===0?"LONG SYNTHETIC VEHICLE DESCRIPTION ".repeat(5):"Synthetic Vehicle",
               sourceStatus:"Open",daysOpen:i%8,
               sourceFields:{"RO Number":String(900000+i),"Source Status":"Open","Synthetic Marker":"source-"+i},
               management:{status:"Being Repaired",owner:"Synthetic Existing Owner",
-                nextAction:"Synthetic next step",reviewDate:"2026-10-25",communication:"Updated",
+                nextAction:i===0?"LONG SYNTHETIC FOLLOW-UP ACTION ".repeat(6):"Synthetic next step",reviewDate:"2026-10-25",communication:"Updated",
                 note:"Synthetic existing note",manualAnnotation:"preserve-"+i}
             }));
             const snapshots=[
@@ -1058,6 +1058,129 @@ try{
                 fieldEntryCount:probe.fieldEntries,scrollDistancePx:probe.scrollDistancePx};
             });
             if(browserErrors.length)throw Error("Connected browser page errors: "+browserErrors.join("; "));
+
+            if(sample===8){
+              // #60 responsive/keyboard audit on the real packaged file:// app.
+              // The connected folder is an in-memory synthetic Workspace only.
+              const standardViewports=[
+                {label:"320x568",width:320,height:568},{label:"390x844",width:390,height:844},
+                {label:"768x1024",width:768,height:1024},{label:"900x1600",width:900,height:1600},
+                {label:"1080x1920",width:1080,height:1920},{label:"1280x720",width:1280,height:720},
+                {label:"1366x768",width:1366,height:768},{label:"1600x900",width:1600,height:900},
+                {label:"1920x1080",width:1920,height:1080},{label:"2560x1440",width:2560,height:1440}
+              ];
+              // Desktop browser zoom reduces the effective CSS viewport. These
+              // test resulting responsive dimensions, not native browser zoom.
+              const zoomViewports=[
+                {label:"1280x720 at 125%",width:1024,height:576},
+                {label:"1280x720 at 150%",width:853,height:480},
+                {label:"1366x768 at 125%",width:1093,height:614},
+                {label:"1366x768 at 150%",width:911,height:512}
+              ];
+              const allViews=["overview","tools","arrivals","assign-next","performance","meeting","open-ro","imports","settings","home"];
+              const routeResults=[],zoomResults=[],longTextResults=[],failures=[];
+              await connectedPage.evaluate(()=>{
+                const search=document.getElementById("searchInput");
+                if(search){search.value="";search.dispatchEvent(new Event("input",{bubbles:true}));}
+              });
+              await connectedPage.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===2100,null,{timeout:10000});
+              async function measureRoute(viewport,view,kind){
+                await connectedPage.setViewportSize({width:viewport.width,height:viewport.height});
+                await connectedPage.evaluate(async v=>{
+                  const tab=document.querySelector('.nav-item[data-view="'+v+'"]');
+                  if(!tab)throw Error("Responsive matrix route missing: "+v);
+                  tab.click();
+                  await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+                },view);
+                await connectedPage.waitForFunction(v=>document.getElementById("view-"+v)?.classList.contains("active"),view,{timeout:5000});
+                await connectedPage.waitForTimeout(35);
+                const result=await connectedPage.evaluate(({view,label,kind})=>{
+                  const active=document.getElementById("view-"+view);
+                  const root=document.scrollingElement||document.documentElement;
+                  const visible=el=>{
+                    const r=el.getBoundingClientRect(),s=getComputedStyle(el);
+                    return r.width>0&&r.height>0&&s.display!=="none"&&s.visibility!=="hidden"&&s.opacity!=="0"&&!el.closest("[hidden]");
+                  };
+                  const name=el=>{
+                    const labelled=el.getAttribute("aria-labelledby")?.split(/\\s+/).map(id=>document.getElementById(id)?.textContent||"").join(" ").trim();
+                    const alt=el.querySelector("img[alt]")?.getAttribute("alt")||"";
+                    const text=(el.innerText||el.textContent||"").trim();
+                    const inputValue=/^(button|submit|reset)$/i.test(el.type||"")?el.value:"";
+                    return el.getAttribute("aria-label")||labelled||el.labels?.length||el.getAttribute("title")||alt||inputValue||text;
+                  };
+                  const controls=[...document.querySelectorAll('a[href],button,input:not([type="hidden"]),select,textarea,[role="button"],[role="link"]')].filter(visible);
+                  const unnamed=controls.filter(el=>!String(name(el)||"").trim()).map(el=>({tag:el.tagName,id:el.id,role:el.getAttribute("role"),type:el.type||null}));
+                  const overflowPx=Math.max(0,root.scrollWidth-innerWidth);
+                  const viewOverflowPx=active?Math.max(0,active.getBoundingClientRect().right-innerWidth):null;
+                  let longText=null;
+                  if(view==="open-ro"){
+                    const row=document.querySelector('tr[data-id="synthetic-browser-ro-0"]');
+                    const cells=row?[...row.cells].filter(cell=>/LONG SYNTHETIC (CUSTOMER|VEHICLE|FOLLOW-UP ACTION)/.test(cell.textContent||"")):[];
+                    const clipped=cells.filter(cell=>[cell,...cell.querySelectorAll("*")].some(el=>{
+                      const style=getComputedStyle(el);
+                      const ellipsis=style.textOverflow==="ellipsis"&&(el.scrollWidth>el.clientWidth+1||el.scrollHeight>el.clientHeight+1);
+                      const clamp=style.webkitLineClamp!=="none"&&style.webkitLineClamp!=="0"&&style.webkitLineClamp!==""&&el.scrollHeight>el.clientHeight+1;
+                      return ellipsis||clamp;
+                    }));
+                    longText={rowFound:!!row,visibleCells:cells.filter(visible).length,expectedCells:3,clippedCells:clipped.length};
+                  }
+                  return {label,kind,view,width:innerWidth,height:innerHeight,active:!!active?.classList.contains("active"),
+                    documentHorizontalOverflowPx:overflowPx,viewRightOverflowPx:viewOverflowPx,
+                    visibleControlCount:controls.length,unnamedControlCount:unnamed.length,unnamedControls:unnamed.slice(0,12),longText};
+                },{view,label:viewport.label,kind});
+                const key=kind+"/"+viewport.label+"/"+view;
+                if(!result.active||result.width!==viewport.width||result.height!==viewport.height)
+                  failures.push({case:key,reason:"route or viewport did not match",result});
+                if(result.documentHorizontalOverflowPx>4||result.viewRightOverflowPx>4)
+                  failures.push({case:key,reason:"horizontal page overflow",result});
+                if(result.unnamedControlCount>0)
+                  failures.push({case:key,reason:"visible controls lack accessible names",result});
+                if(view==="open-ro"){
+                  longTextResults.push({case:key,...result.longText});
+                  if(!result.longText?.rowFound||result.longText.visibleCells!==3||result.longText.clippedCells>0)
+                    failures.push({case:key,reason:"long synthetic Open RO text is missing or clipped",longText:result.longText});
+                }
+                return result;
+              }
+              for(const viewport of standardViewports)
+                for(const view of allViews)routeResults.push(await measureRoute(viewport,view,"standard"));
+              const zoomRoutes=["home","open-ro","meeting"];
+              for(const viewport of zoomViewports)
+                for(const view of zoomRoutes)zoomResults.push(await measureRoute(viewport,view,"zoom-equivalent-css-viewport"));
+              await connectedPage.setViewportSize({width:1280,height:720});
+              await connectedPage.evaluate(()=>{
+                document.querySelector('.nav-item[data-view="home"]')?.click();
+                document.activeElement?.blur?.();
+              });
+              await connectedPage.waitForFunction(()=>document.getElementById("view-home")?.classList.contains("active"),null,{timeout:5000});
+              await connectedPage.keyboard.press("Tab");
+              const keyboardFocus=await connectedPage.evaluate(()=>{
+                const el=document.activeElement,s=getComputedStyle(el),r=el.getBoundingClientRect();
+                return {tag:el.tagName,id:el.id||null,accessibleName:el.getAttribute("aria-label")||el.innerText?.trim()||el.textContent?.trim()||null,
+                  visible:r.width>0&&r.height>0&&s.display!=="none"&&s.visibility!=="hidden",
+                  keyboardFocusVisible:el.matches(":focus-visible"),
+                  focusIndicator:(s.outlineStyle!=="none"&&parseFloat(s.outlineWidth)>0)||s.boxShadow!=="none"};
+              });
+              if(!keyboardFocus.visible||!keyboardFocus.keyboardFocusVisible||!keyboardFocus.focusIndicator)
+                failures.push({case:"keyboard focus",reason:"Tab did not expose a visible focus indicator",keyboardFocus});
+              const successfulTasks=[...uxTaskSamples.filter(item=>item.success),{success:true,...uxMetrics}];
+              const metric=key=>successfulTasks.length?summarizeNavigationMs(successfulTasks.map(item=>item[key])):null;
+              const report={schemaVersion:1,dataset:"synthetic-clean-install",
+                scope:"Packaged file:// Chromium, in-memory synthetic Workspace, 2,100 synthetic ROs; zoom cases use equivalent CSS viewport dimensions, not native browser zoom or physical displays.",
+                routes:allViews,standardViewportCount:standardViewports.length,standardRouteSampleCount:routeResults.length,
+                zoomEquivalentViewportCount:zoomViewports.length,zoomEquivalentRouteSampleCount:zoomResults.length,
+                routeResults,zoomEquivalentResults:zoomResults,longTextResults,keyboardFocus,
+                openRoTaskEffort:{scenario:"search, edit, add note, save, and verify durable read-back",attemptedSamples:uxTaskSamples.length+1,
+                  completedSamples:successfulTasks.length,failedSamples:uxTaskSamples.filter(item=>!item.success).length,
+                  taskDurationMs:metric("elapsedMs"),clickCount:metric("clickCount"),fieldEntryCount:metric("fieldEntryCount"),scrollDistancePx:metric("scrollDistancePx")},
+                failures};
+              fs.writeFileSync(path.join(out,"responsive-ux-matrix.json"),JSON.stringify(report,null,2)+"\n");
+              if(failures.length)throw Error("Synthetic responsive/accessibility matrix failed: "+JSON.stringify(failures.slice(0,12)));
+              console.log("60 responsive, zoom-equivalent, keyboard, long-text, and task-effort evidence",
+                JSON.stringify({standardRoutes:routeResults.length,zoomEquivalentRoutes:zoomResults.length,keyboardFocus,
+                  longTextSamples:longTextResults.length,openRoTaskEffort:report.openRoTaskEffort}));
+            }
+
             connectedEditSamples.search.push(editCycle.searchMs);
             connectedEditSamples.editor.push(editCycle.editorMs);
             connectedEditSamples.noteReveal.push(noteRevealMs);
