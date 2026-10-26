@@ -640,6 +640,7 @@ try{
     const scenarios=[["empty",0,0],["large",2100,0],["large-slow-read",2100,25]];
     for(const [scenario,recordCount,readDelayMs] of scenarios){
       const connectionSamples=[],launcherSamples=[];
+      const firstTabSamples={},repeatTabSamples={};
       for(let sample=0;sample<9;sample++){
         const connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
         const browserErrors=[];
@@ -803,7 +804,39 @@ try{
           if(browserErrors.length)throw Error("Synthetic browser connection page errors: "+browserErrors.join("; "));
           connectionSamples.push(outcome.connectionToFrameMs);
           launcherSamples.push(launcherToFrameMs);
+          // #58-03: measure first-open and repeat navigation on the same
+          // committed synthetic Workspace, after the verified Home frame.
+          if(scenario==="large"){
+            const views=["open-ro","assign-next","performance","meeting","arrivals","home"];
+            for(let pass=0;pass<2;pass++){
+              for(const view of views){
+                const measurement=await connectedPage.evaluate(async v=>{
+                  const tab=document.querySelector('.nav-item[data-view="'+v+'"]');
+                  if(!tab)throw Error("Missing synthetic tab "+v);
+                  const started=performance.now();
+                  tab.click();
+                  await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+                  const target=document.getElementById("view-"+v);
+                  const rows=v==="open-ro"?document.querySelectorAll("#roTable tr[data-id]").length:null;
+                  return {ms:performance.now()-started,active:!!target?.classList.contains("active"),rows};
+                },view);
+                if(!measurement.active||(view==="open-ro"&&measurement.rows<1))
+                  throw Error("Synthetic connected tab was not usable: "+JSON.stringify({view,pass,...measurement}));
+                const slot=pass===0?firstTabSamples:repeatTabSamples;
+                (slot[view]||=[]).push(measurement.ms);
+              }
+            }
+            if(browserErrors.length)throw Error("Connected navigation page errors: "+browserErrors.join("; "));
+          }
         }finally{await connectedPage.close();}
+      }
+      if(scenario==="large"){
+        const summarizeTabs=samples=>Object.fromEntries(
+          Object.entries(samples).map(([view,values])=>[view,summarizeNavigationMs(values)]));
+        console.log("58-03 synthetic connected Chromium first/repeat tab activation",
+          JSON.stringify({records:recordCount,firstOpen:summarizeTabs(firstTabSamples),
+            repeatOpen:summarizeTabs(repeatTabSamples),
+            scope:"9 connected browser page starts, 6 tab views x 2 passes; DOM active and 2 rAF frames; not layout-stability or real installed Edge timings"}));
       }
       console.log("58-01 synthetic Chromium first verified Home",
         JSON.stringify({scenario,records:recordCount,syntheticReadDelayMs:readDelayMs,
