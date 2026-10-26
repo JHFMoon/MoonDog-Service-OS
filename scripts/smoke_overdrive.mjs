@@ -833,6 +833,10 @@ try{
                 nextAction:i===0?"LONG SYNTHETIC FOLLOW-UP ACTION ".repeat(6):"Synthetic next step",reviewDate:"2026-10-25",communication:"Updated",
                 note:"Synthetic existing note",manualAnnotation:"preserve-"+i}
             }));
+            settings.advisors={"100":{
+              number:"100",name:"Synthetic Advisor",active:true,removed:false,
+              participation:{assignNext:true,openRoControl:true,advisorPerformance:true,advisorMeeting:true,dailyWalk:true,arrivals:true}
+            }};
             const snapshots=[
               ["settings.json",settings],
               ["current-state.json",{...JSON.parse(JSON.stringify(model.state)),records,closedRecords:[],source:null}],
@@ -1105,8 +1109,9 @@ try{
                 if(!before.startsWith("Available"))throw Error("Synthetic advisor was not initially eligible");
                 await availability.click();
                 await connectedPage.waitForFunction(()=>document.querySelector('#assignAdvisorGrid [data-assign-availability="100"]')?.textContent?.startsWith("Unavailable"),null,{timeout:5000});
-                const card=await connectedPage.locator('#assignAdvisorGrid [data-assign-code="100"]').innerText();
-                if(!card.includes("1")||!card.includes("Unavailable"))throw Error("Availability change did not retain the synthetic workload context");
+                const card=connectedPage.locator('#assignAdvisorGrid [data-assign-code="100"]');
+                const cardText=await card.innerText(),workload=await card.locator("strong").innerText();
+                if(workload.trim()!=="1"||!cardText.includes("Unavailable"))throw Error("Availability change did not retain the one-RO synthetic workload context");
                 return "Synthetic advisor workload reviewed and availability changed through the production control";
               }),
               await measureScreenTask("performance-report-readiness",async()=>{
