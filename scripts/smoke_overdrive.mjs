@@ -1076,10 +1076,14 @@ try{
                 await connectedPage.waitForFunction(()=>document.getElementById("view-tools")?.classList.contains("active"),null,{timeout:5000});
                 await connectedPage.getByRole("button",{name:"Import or refresh data",exact:true}).click({timeout:5000});
                 await connectedPage.waitForFunction(()=>document.getElementById("dailyTools")?.dataset.category==="imports",null,{timeout:5000});
+                await connectedPage.locator("#dailyTools button").filter({hasText:"Supervisor workbook and detailed imports"}).click({timeout:5000});
+                await connectedPage.waitForFunction(()=>document.getElementById("view-imports")?.classList.contains("active"),null,{timeout:5000});
               }else if(view==="settings"){
                 const search=connectedPage.locator("#findAnything");
                 await search.fill("Change how Service Operations Dashboard works");
-                const result=connectedPage.getByRole("button",{name:/^Change how Service Operations Dashboard works/});
+                const result=connectedPage.locator("#findResults button.find-result")
+                  .filter({hasText:"Change how Service Operations Dashboard works"})
+                  .filter({hasText:"Open this area"});
                 await result.waitFor({state:"visible",timeout:5000});
                 await result.click({timeout:5000});
                 await connectedPage.waitForFunction(()=>document.getElementById("view-settings")?.classList.contains("active"),null,{timeout:5000});
