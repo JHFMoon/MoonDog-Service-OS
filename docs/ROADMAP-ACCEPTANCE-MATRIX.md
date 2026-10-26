@@ -1,20 +1,3 @@
-## Live continuation snapshot — 2026-10-26 09:38:35 UTC
-
-This snapshot supersedes the historical snapshots below.
-
-- Main: `60a637e85096ab1b583f159f0f423317f82b7e69`.
-- Trusted Beta: `0.10.18-beta.170`, SHA-256 `8140f0e4e1fc1df1aa564298738d24dd31d234f8dd1f7de40d3f30f0e8214721`; `migrationRequired=false`.
-- Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; unchanged.
-- Protect Main ruleset #24665513 remains active: PR required, strict Publication Check, no bypass actors, current-user bypass `never`. Issue #164 remains closed.
-- PR #519 merged as `60a637e85096ab1b583f159f0f423317f82b7e69`; its post-merge Publication Check succeeded and its Prepare Beta Package workflow skipped packaging as expected for a test/workflow/docs-only change. The separate public-surface audit remains in progress.
-- PR #520 exact head `bb97e637c2cfa8c228c5cc2b1a0105a07f117a10`: Publication Check #40299689835 SUCCESS; Clean Install Proof #40299689690 SUCCESS. The earlier-head P1 fixture finding was fixed and resolved. The trusted guard's exact-head Codex request #6412640398 is still awaiting a receipt; #520 remains open and unchanged.
-- PR #521 is now the sole actively engineered PR. It advances P0 #59-04 by rejecting malformed explicit source period starts in historical readiness while preserving legacy no-start behavior. Fresh exact-head gates/review are pending; runtime change means trusted Beta synchronization is required after a protected merge.
-- Open PRs: #520 (external review wait) and #521 (active). Count 0 before #520, 2 now; net open-count delta +2. One active engineering PR; no unrelated branch refresh.
-
-Synthetic fixtures only. Stable is unchanged; no Workspace data, installation, field test, or continuous execution is claimed.
-
----
-
 ## Live continuation snapshot — 2026-10-26 09:08 UTC
 
 This snapshot supersedes the 08:43 UTC state below.
