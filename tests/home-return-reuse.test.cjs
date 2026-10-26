@@ -26,9 +26,9 @@ test("verified, unchanged Home return preserves mounted DOM but all source and p
   };
   const state={events:[],current:{id:"synthetic-task",fingerprint:"one"},
     loadedRoot:root,busy:false,loading:false,editing:false,pending:false};
-  const listeners=new Map();
+  const listeners=new Map(),refresh={sources:{}};
   const context=vm.createContext({
-    model,state,now:()=>minute,today:()=>businessDate,businessHour:()=>hour,
+    model,state,api:{refreshHistory:()=>refresh},now:()=>minute,today:()=>businessDate,businessHour:()=>hour,
     renderHome:()=>{paints++;},
     $:id=>id==="dailyTask"?taskNode:id==="view-home"?homeNode:null,
     document:{addEventListener:(type,listener)=>listeners.set(type,listener)}
@@ -51,6 +51,17 @@ test("verified, unchanged Home return preserves mounted DOM but all source and p
     "a same-minute suppression expiry must re-evaluate the priority task");
   context.renderHome();assert.equal(context.canReuse(),true,"an expired suppression can be freshly painted");
   minute+=20000;assert.equal(context.canReuse(),false,"a new minute re-evaluates time-dependent priorities");
+  context.renderHome();assert.equal(context.canReuse(),true);
+
+  // Report reminder snoozes are persisted in refreshHistory, not task events.
+  // The source planner releases the report at its exact notNowUntil time.
+  refresh.sources.performance={notNowUntil:"2026-10-25T20:03:45.000Z"};
+  context.renderHome();
+  minute=Date.parse("2026-10-25T20:03:35.000Z");
+  assert.equal(context.canReuse(),true,"report remains snoozed before exact deadline");
+  minute=Date.parse("2026-10-25T20:03:50.000Z");
+  assert.equal(context.canReuse(),false,
+    "same-minute report-snooze expiry must refresh Home report priorities");
   context.renderHome();assert.equal(context.canReuse(),true);
 
   model.state.updatedAt="2026-10-25T20:03:20Z";
