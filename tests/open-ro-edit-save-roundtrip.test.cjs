@@ -348,3 +348,53 @@ test("edits made while Open RO is saving remain dirty and retryable after verifi
   assert.equal(h.context.isDraftDirty(), false, "only the verified retry clears the dirty state");
   assert.equal(h.dialogClosed, 1, "the editor closes only after the late edit is durably verified");
 });
+
+
+test("edits entered during a failed durable write stay dirty and retryable", async () => {
+  const h = harness(null, false, true);
+  let signalWriteStarted;
+  const firstWriteStarted = new Promise(resolve => { signalWriteStarted = resolve; });
+  let releaseWrite;
+  const writeGate = new Promise(resolve => { releaseWrite = resolve; });
+  const originalSafeWrite = h.context.MoonDogMaintenance.safeWrite;
+  let interruptFirstCurrentStateWrite = true;
+  h.context.MoonDogMaintenance.safeWrite = async (io, name, bytes) => {
+    if (name === "data/current-state.json" && interruptFirstCurrentStateWrite) {
+      interruptFirstCurrentStateWrite = false;
+      signalWriteStarted();
+      await writeGate;
+      throw Object.assign(new Error("Synthetic interrupted storage write"), { name: "NotReadableError" });
+    }
+    return originalSafeWrite(io, name, bytes);
+  };
+
+  h.context.markDraftDirty();
+  const saving = h.context.saveForTest({ preventDefault() {} }, true);
+  await firstWriteStarted;
+  h.ui.editNextAction.value = "Late synthetic retry action";
+  h.context.markDraftDirty();
+  releaseWrite();
+
+  assert.equal(await saving, undefined, "an interrupted durable write does not report success");
+  assert.deepStrictEqual(hostCopy(h.model.state), originalState,
+    "the model returns to its last authoritative snapshot after the write fails");
+  assert.equal(h.ui.editNextAction.value, "Late synthetic retry action",
+    "the newest typed value remains in the editor");
+  assert.equal(h.context.isDraftDirty(), true, "the interrupted edit remains marked unsaved");
+  assert.equal(h.dialogClosed, 0, "a failed Save & Next does not close or advance the editor");
+
+  let prevented = false;
+  const unload = { returnValue: null, preventDefault() { prevented = true; } };
+  h.context.guardDraftUnload(unload);
+  assert.equal(prevented, true, "the retained draft stays protected from accidental unload");
+  assert.equal(unload.returnValue, "");
+
+  assert.equal(await h.context.saveForTest({ preventDefault() {} }, true), true,
+    "the same latest edit can be retried after storage recovers");
+  const durable = await h.context.readForTest(h.context.statePathForTest, null);
+  assert.equal(durable.records[0].management.nextAction, "Late synthetic retry action");
+  assert.deepStrictEqual(durable.records[0].sourceFields, originalState.records[0].sourceFields,
+    "retry preserves imported source authority");
+  assert.equal(h.context.isDraftDirty(), false, "dirty state clears only after successful read-back");
+  assert.equal(h.dialogClosed, 1, "Save & Next completes only after the retried write verifies");
+});
