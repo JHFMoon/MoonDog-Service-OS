@@ -43,15 +43,15 @@ test("synthetic VIR report keeps its observation date and values through durable
     parseCsv: value => value.trimEnd().split(/\r?\n/).map(line => line.split(",")),
     internalObservationDate: () => "2026-10-22",
     validAdvisorIdentity: (code, name) => code === "A1" && name === "Demo Advisor",
-    now: () => "2026-10-22T19:00:00.000Z",
-    localDateKey: value => value instanceof Date ? value.toISOString().slice(0, 10) : "2026-10-22",
-    previousOperatingDateKey: () => "2026-10-21",
+    now: () => "2026-10-20T19:00:00.000Z",
+    localDateKey: value => value && typeof value.toISOString === "function" ? value.toISOString().slice(0, 10) : "2026-10-20",
+    previousOperatingDateKey: () => "2026-10-19",
     sourceExpectation: () => "recommended",
     meetingVirRosterCodes: () => ["A1"],
     pruneDatedSnapshots: value => value,
     sourceFileHandle: async () => ({
       getFile: async () => ({
-        lastModified: Date.parse("2026-10-22T19:00:00.000Z"),
+        lastModified: Date.parse("2026-10-20T19:00:00.000Z"),
         text: async () => csv
       })
     }),
@@ -72,6 +72,8 @@ test("synthetic VIR report keeps its observation date and values through durable
   const saved = Object.values(durable.vir.snapshots)[0];
   assert.ok(saved, "The imported VIR observation must be durably retained.");
   assert.equal(saved.reportDate, "2026-10-22");
+  assert.equal(saved.sourceModifiedAt, "2026-10-20T19:00:00.000Z");
+  assert.equal(saved.importedAt, "2026-10-20T19:00:00.000Z");
   assert.equal(saved.observationTimestamp, "2026-10-22T12:00:00-07:00");
   assert.equal(saved.coverageMethod, "vir-point-in-time");
   assert.equal(saved.validation.coverageBasis, "VIR source observation provenance");
@@ -117,14 +119,14 @@ test("one synthetic VIR observation keeps its durable lineage consistent in Home
     parseCsv:value=>value.trimEnd().split(/\r?\n/).map(line=>line.split(",")),
     internalObservationDate:()=>"2026-10-22",
     validAdvisorIdentity:(code,name)=>code==="A1"&&name==="Demo Advisor",
-    now:()=>"2026-10-22T19:00:00.000Z",
-    localDateKey:value=>value instanceof Date?value.toISOString().slice(0,10):"2026-10-22",
-    previousOperatingDateKey:()=>"2026-10-21",
+    now:()=>"2026-10-20T19:00:00.000Z",
+    localDateKey:value=>value&&typeof value.toISOString==="function"?value.toISOString().slice(0,10):"2026-10-20",
+    previousOperatingDateKey:()=>"2026-10-19",
     sourceExpectation:()=>"recommended",
     meetingVirRosterCodes:()=>["A1"],
     pruneDatedSnapshots:value=>value,
     sourceFileHandle:async()=>({getFile:async()=>({
-      lastModified:Date.parse("2026-10-22T19:00:00.000Z"),text:async()=>csv
+      lastModified:Date.parse("2026-10-20T19:00:00.000Z"),text:async()=>csv
     })}),
     writeJson:async(_path,value)=>{durable=structuredClone(value);},
     readJson:async()=>structuredClone(durable),
@@ -161,6 +163,9 @@ test("one synthetic VIR observation keeps its durable lineage consistent in Home
   const meeting=context.virMeetingEvidence();
   assert.ok(snapshot,"the production import leaves a retained durable observation");
   assert.equal(snapshot.reportDate,"2026-10-22");
+  assert.equal(snapshot.sourceModifiedAt,"2026-10-20T19:00:00.000Z");
+  assert.equal(snapshot.importedAt,"2026-10-20T19:00:00.000Z");
+  assert.equal(snapshot.observationTimestamp,"2026-10-22T12:00:00-07:00");
   assert.equal(meeting.verified,true);
   assert.equal(meeting.period,"Observed 2026-10-22");
   assert.equal(meeting.value,75);
