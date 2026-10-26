@@ -412,3 +412,27 @@ test("actual multi-file recovery stays held after an interrupted write and resum
   assert.equal(f.events.filter(path=>path.startsWith("data/history/")).length,1);
   assert.deepEqual(f.dailyEvents,["moondog-recovered"]);
 });
+
+
+test("actual recovery leaves uncertain partial restore bytes under the durable hold",async()=>{
+  const f=controlledRecoveryExecutionFixture({partialWriteAt:1});
+  const partial=new Uint8Array([123,34,112]);
+  await assert.rejects(f.recover(),/Synthetic partial target write/);
+  assert.equal(f.marker.restoreId,owner,"partial restore failure must retain the durable hold");
+  assert.equal(f.active,false,"temporary recovery authority must be released after the write failure");
+  assert.deepEqual(f.writeLog,["data/state.json"],"the restore must stop at the partial first-file write");
+  assert.deepEqual(f.read("data/state.json"),partial,"uncertain bytes must remain untouched for controlled repair");
+  assert.equal(f.pendingJournal.targetPath,"data/state.json","the synthetic interrupted-write journal must remain available");
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/settings.json"))).sourceAdapters.key,"safety",
+    "later files must remain untouched after the first partial write");
+
+  f.writeLog.length=0;
+  await assert.rejects(f.recover(),/differs from both verified backups/,
+    "retry must fail closed while the partial file matches neither complete backup");
+  assert.deepEqual(f.writeLog,[],"retry must stop during preflight before any further restore write");
+  assert.equal(f.marker.restoreId,owner,"the hold must remain until an operator selects a safe repair");
+  assert.equal(f.active,false);
+  assert.deepEqual(f.read("data/state.json"),partial,"retry must not overwrite uncertain partial bytes");
+  assert.equal(f.pendingJournal.targetPath,"data/state.json");
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/settings.json"))).sourceAdapters.key,"safety");
+});
