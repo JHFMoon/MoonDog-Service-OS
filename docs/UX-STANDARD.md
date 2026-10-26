@@ -27,6 +27,6 @@ Passing means: no unintended horizontal overflow, no clipped or inaccessible sou
 1. **Foundation:** documented contract; preserve Source in narrow Open RO cards; reflow advisor comparison and arrival cards; remove task-text truncation. Verify existing publication and clean-install checks.
 2. **TV presenter:** expand synthetic browser proof to portrait, short/long labels, 16:9 at 1080p, and zoom-equivalent widths; correct measured clipping without hiding information.
 3. **Remaining screens:** inspect and repair narrow/zoom overflow in Home, Tools, Assign Next, Imports/Exports and Settings; run route and keyboard checks.
-4. **Sustain:** run the viewport regression matrix in CI, track measured exceptions, and perform the 30-second find/understand/act task review before a Beta is recommended for Stable.
+4. **Sustain:** run the viewport regression matrix in CI, track measured exceptions, and perform the 30-second find/understand/act task review before a Beta is recommended for Stable. The clean-install artifact now includes a measured synthetic Open RO search/edit/note/save/read-back task (duration, clicks, field entries, scroll distance and failed-sample rate on 2,100 records); this covers that task only and does not complete the full viewport, zoom, accessibility or screen matrix.
 
 Do not claim Stage 2–4 complete until their browser evidence exists. Do not promote Stable without James's explicit approval. No dealership operational data may be used in public test fixtures.
