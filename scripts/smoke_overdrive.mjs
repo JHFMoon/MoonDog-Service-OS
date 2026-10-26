@@ -1135,7 +1135,7 @@ try{
                 if(!before.startsWith("Available"))throw Error("Synthetic advisor was not initially eligible");
                 await availability.click();
                 await connectedPage.waitForFunction(()=>document.querySelector('#assignAdvisorGrid [data-assign-availability="100"]')?.textContent?.startsWith("Unavailable"),null,{timeout:5000});
-                const card=connectedPage.locator('#assignAdvisorGrid [data-assign-code="100"]');
+                const card=connectedPage.locator('#assignAdvisorGrid article[data-assign-code="100"]');
                 const cardText=await card.innerText(),workload=await card.locator("strong").innerText();
                 if(workload.trim()!=="1"||!cardText.includes("Unavailable"))throw Error("Availability change did not retain the one-RO synthetic workload context");
                 return "Synthetic advisor workload reviewed and availability changed through the production control";
