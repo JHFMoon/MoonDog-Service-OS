@@ -1143,8 +1143,9 @@ try{
               await measureScreenTask("performance-report-readiness",async()=>{
                 await taskNavigate("performance");
                 const period=await connectedPage.locator("#performancePeriod").innerText();
+                await connectedPage.waitForFunction(()=>document.getElementById("performanceSource")?.textContent?.includes("Verified report required"),null,{timeout:5000});
                 const source=await connectedPage.locator("#performanceSource").innerText();
-                if(!period.includes("No report loaded")||!source.includes("Choose a performance workbook"))
+                if(!period.includes("No report loaded")||!source.includes("Verified report required"))
                   throw Error("Performance missing-report state did not explain its next action");
                 return period+"; "+source;
               }),
@@ -1160,9 +1161,10 @@ try{
               }),
               await measureScreenTask("meeting-source-readiness",async()=>{
                 await taskNavigate("meeting");
+                await connectedPage.waitForFunction(()=>document.getElementById("meetingV3Range")?.textContent?.includes("WAITING FOR VERIFIED SAPR")&&document.getElementById("meetingV3Freshness")?.textContent?.includes("AWAITING DATA"),null,{timeout:5000});
                 const period=await connectedPage.locator("#meetingV3Range").innerText();
                 const readiness=await connectedPage.locator("#meetingV3Freshness").innerText();
-                if(!period.includes("WAITING FOR VERIFIED SAPR")||!readiness.includes("WAITING FOR VERIFIED SOURCES"))
+                if(!period.includes("WAITING FOR VERIFIED SAPR")||!readiness.includes("AWAITING DATA"))
                   throw Error("Meeting scoreboard did not identify its missing verified sources");
                 return period+"; "+readiness;
               }),
