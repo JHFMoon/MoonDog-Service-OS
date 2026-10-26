@@ -1126,7 +1126,9 @@ try{
                 await taskNavigate("assign-next");
                 const workloadSummary=connectedPage.locator('#view-assign-next details.daily-disclosure > summary').filter({hasText:"Workload and advisor availability"});
                 await workloadSummary.click({timeout:5000});
-                await connectedPage.waitForFunction(()=>document.querySelector('#view-assign-next details.daily-disclosure')?.open===true,null,{timeout:5000});
+                const workloadDisclosure=workloadSummary.locator("xpath=..");
+                if(!await workloadDisclosure.evaluate(details=>details.open))
+                  throw Error("The Workload and advisor availability disclosure did not open");
                 const availability=connectedPage.locator('#assignAdvisorGrid [data-assign-availability="100"]');
                 await availability.waitFor({state:"visible",timeout:5000});
                 const before=await availability.innerText();
