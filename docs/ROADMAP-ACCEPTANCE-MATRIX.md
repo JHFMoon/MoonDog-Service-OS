@@ -1,3 +1,30 @@
+## Live continuation snapshot — 2026-10-26 09:28 UTC
+
+This snapshot supersedes the historical snapshots below.
+
+- Main: `60a637e85096ab1b583f159f0f423317f82b7e69`, protected merge of PR #519.
+- Trusted Beta: `0.10.18-beta.170`, SHA-256 `8140f0e4e1fc1df1aa564298738d24dd31d234f8dd1f7de40d3f30f0e8214721`, `migrationRequired=false`.
+- Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`, unchanged.
+- Protect Main ruleset #24665513 is active: pull request required, strict Publication Check (Actions app 15368), deletion/non-fast-forward blocked, no bypass actors, current-user bypass `never`.
+- Issue #164 remains closed.
+- Post-#519 main Publication Check #40298747575 and Public Repository History Safety Audit #40298747508 are running the reachable-history scan. Earlier job steps passed; no failure is reported yet. Do not treat either as complete until GitHub returns a conclusion.
+- Post-merge Prepare Beta Package #40298747303 succeeded and skipped package generation because #519 changed workflow/test/documentation only. The live manifest confirms Beta .170 and Stable .17 are unchanged.
+- PR #519 exact head `f01fdb22ca001f45eb17a7bef95b5c9b82dae5ea` merged as `60a637e85096ab1b583f159f0f423317f82b7e69` after Publication Check #40297723628, Clean Install Proof #40297723820, exact-head Codex no-findings, current-main ancestry, and active protections. It extends the bounded exact-head proof wait to 30 minutes without relaxing gates.
+- Open PR count: zero after #519; one after opening #520 (net +1), with only #520 active. Peak concurrent open PR work remains 1.
+
+### Current single-PR work
+
+- PR #520 advances P0 #59-01 with a synthetic production-function regression that asserts the Open RO summary's imported source filename and reporting period survive durable read-back and that audit history records the same lineage after read-back, before optional source deletion. It retains the existing conflict and idempotent-reimport assertions.
+- Test-only; no runtime/package change. Exact-head Publication Check, Clean Install Proof, required focused tests, and Codex review are pending on the final PR head.
+- #59-01 remains **PARTIALLY COMPLETE**: #473/#512/#513/#518 verify selected Menu, VIR, CSI, and SAPR lineage paths. Full source-family and manual-override lineage remains open.
+- #61-01 remains **PARTIALLY COMPLETE** after #519; the guard wait is bounded longer while preserving required checks and review gates.
+- #59-05 / #164-05 / #61-03 remain partial after #516/#517; cross-device validation-to-write atomicity is not guaranteed by the current filesystem API.
+- #58-01 remains partial after #515; broad issue-level performance evidence remains.
+
+Synthetic fixtures only. Stable remains unchanged. No Workspace/customer data access, installation, field testing, or continuous execution is claimed.
+
+---
+
 ## Live continuation snapshot — 2026-10-26 09:08 UTC
 
 This snapshot supersedes the 08:43 UTC state below.
@@ -243,7 +270,7 @@ PR #373 refreshed to current main at exact head `bddc48404d2f6d26b9ef4d6c8e3151f
 
 | ID | Testable acceptance outcome | Existing implementation and evidence | Remaining gap / production requirement | Priority and dependency | Verification and status |
 |---|---|---|---|---|---|
-| 59-01 | Each metric and Open RO field has one source-authority/lineage contract | `docs/ARCHITECTURE.md`, `docs/OPERATING-INTELLIGENCE.md` | Audit priority for SAPR, CSI, VIR, menu, WIP, history, manual overrides | P0 | PR #473 head `bb7ce689a2605911ea5f775932e918ebb73c4a00`: Publication #40226297878 and Clean Install #40226297873 passed; Codex review #6402164486 found no major issues; merged as `ca75c6a09338925c9d0a2d1c713d8829a2c9cce`. This adds Menu-to-Meeting lineage evidence; **PARTIALLY COMPLETE**. |
+| 59-01 | Each metric and Open RO field has one source-authority/lineage contract | `docs/ARCHITECTURE.md`, `docs/OPERATING-INTELLIGENCE.md`, production import/read-back/history selectors | Remaining family coverage: SAPR, CSI, VIR, menu, WIP, history, and manual overrides. PR #520 adds exact WIP source identity and audit period assertions after durable read-back; exact-head verification pending in this live snapshot. | P0 | #473 Menu-to-Meeting, #512 VIR Home/Meeting, #513 CSI provenance, and #518 SAPR durable history are verified increments. #59-01 remains **PARTIALLY COMPLETE**; the broader source-authority contract is not yet satisfied. |
 | 59-02 | Reused business calculations agree across views | `assets/freshness.js`, `assets/daily-engine.js`, app selectors | Inventory repeated calculations; extract only demonstrably conflicting ones | P1 | Same-input cross-view synthetic assertions; **PARTIALLY COMPLETE** |
 | 59-03 | Refresh/import/backup/update tasks are coalesced and cannot conflict | Existing per-operation guards in app/storage | Inventory schedules, cancellation, safe retry and revision checks | P0; #164 | PR #471 head `8921393531222f0d1b52d92e4c3b9f02eaf56642`: Publication #40222781032 and Clean Install #40222781038 passed; Codex review #6401676666 found no major issues; merged as `25a14efe5963778497ea2eaf6a00217dfb629880`. Broader connection and scheduling coverage remains **PARTIALLY COMPLETE**. |
 | 59-04 | Duplicate/missing/stale/unsupported sources report confidence without silent replacement | Existing source boundary and freshness tests | Verify complete source coverage and conflict states | P0 | Synthetic conflicting-month, missing/duplicate sources; **PARTIALLY COMPLETE** |
