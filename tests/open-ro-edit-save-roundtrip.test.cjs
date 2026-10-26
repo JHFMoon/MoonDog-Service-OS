@@ -229,6 +229,8 @@ test("transient Open RO write failure preserves the draft for a verified retry",
   assert.deepStrictEqual(hostCopy(h.model.state), durable, "the model is replaced only with verified read-back");
   assert.equal(durable.records[0].management.nextAction, "Complete synthetic inspection");
   assert.equal(durable.records[0].management.owner, "Synthetic Assigned Owner");
+  assert.equal(durable.records[0].management.ownerAssignmentSource, "manager-confirmed",
+    "a changed follow-up owner is recorded as an explicit manager assignment");
   assert.deepStrictEqual(durable.records[0].sourceFields, originalState.records[0].sourceFields,
     "retry does not rewrite source-report authority");
   assert.equal(durable.records[0].management.manualAnnotation, "Synthetic manager-entered annotation");
