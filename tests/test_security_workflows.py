@@ -130,9 +130,10 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('MoonDog-Codex-Review-Request:$HEAD_SHA', proof_wait)
         self.assertIn('if [ "$HARD_FAIL" = "0" ]; then', proof_wait)
         self.assertIn('if [ "$REVIEW_STATE" = "pending" ] && [ "$CODEX_STATE" = "pending" ] && [ "$REVIEW_REQUESTED" = "0" ]; then', proof_wait)
+        poll_loop = proof_wait.index("for attempt in {1..")
         self.assertLess(
             proof_wait.index("MoonDog-Codex-Review-Request:$HEAD_SHA"),
-            proof_wait.index("for attempt in {1..42}; do"),
+            poll_loop,
         )
         current_refresh = merge.split("Bring branch current with main if needed", 1)[1].split("Squash merge verified current PR", 1)[0]
         self.assertIn('pulls/$PR_NUMBER/update-branch', current_refresh)
@@ -268,6 +269,31 @@ class SecurityWorkflowTests(unittest.TestCase):
         text = (ROOT / "scripts/check_publication.py").read_text(encoding="utf-8")
         for suffix in ('.doc', '.docx', '.ppt', '.pptx', '.png', '.jpg', '.jpeg', '.webp', '.heic'):
             self.assertIn(f'"{suffix}"', text)
+
+
+    def test_guarded_merge_wait_budget_covers_long_clean_install_proof(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        wait = merge.split(
+            "      - name: Wait for Publication, Clean Install, and exact-head Codex proof",
+            1,
+        )[1].split("      - name: Bring branch current with main if needed", 1)[0]
+        loop_line = ""
+        interval_line = ""
+        for line in wait.splitlines():
+            candidate = line.strip()
+            if candidate.startswith("for attempt in {1..") and candidate.endswith("}; do"):
+                loop_line = candidate
+            if not interval_line and candidate.startswith("sleep "):
+                interval_line = candidate
+        self.assertTrue(loop_line, "the exact-head proof wait must stay bounded")
+        self.assertTrue(interval_line, "the proof wait must keep an explicit polling interval")
+        attempts = int(loop_line.removeprefix("for attempt in {1..").removesuffix("}; do"))
+        interval_seconds = int(interval_line.removeprefix("sleep "))
+        budget_seconds = attempts * interval_seconds
+        self.assertGreaterEqual(budget_seconds, 30 * 60)
+        self.assertLessEqual(budget_seconds, 45 * 60)
+        for required_gate in ("PUB_OK", "CLEAN_OK", "HARD_FAIL", "REVIEW_STATE"):
+            self.assertIn(required_gate, wait)
 
 
 if __name__ == "__main__":

@@ -192,7 +192,7 @@ jobs:
             fi
           fi
 
-          for attempt in {1..42}; do
+          for attempt in {1..90}; do
             RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=50")"
             RUNS="$(jq --arg head "$HEAD_SHA" --arg repo "$REPO" '{workflow_runs: [.workflow_runs[] | select(.head_sha==$head and .head_repository.full_name==$repo and (.event=="pull_request" or .event=="workflow_dispatch")) | select((.name=="Publication check" and .path==".github/workflows/publication-check.yml") or (.name=="Clean Install Proof" and .path==".github/workflows/clean-install-proof.yml"))]}' <<<"$RUNS")"
             PUB_OK="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")] | length' <<<"$RUNS")"
@@ -213,7 +213,7 @@ jobs:
             if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ] && [ "$REVIEW_STATE" = "clean" ]; then
               exit 0
             fi
-            sleep 10
+            sleep 20
           done
           echo "Timed out waiting for exact-head Publication, Clean Install, and Codex review proof to settle." >&2
           exit 1
