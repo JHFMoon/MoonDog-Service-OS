@@ -276,11 +276,20 @@ class SecurityWorkflowTests(unittest.TestCase):
             "      - name: Wait for Publication, Clean Install, and exact-head Codex proof",
             1,
         )[1].split("      - name: Bring branch current with main if needed", 1)[0]
-        attempts = re.search(r"for attempt in \\{1\\.\\.(\\d+)\\}; do", wait)
-        interval = re.search(r"^\\s*sleep (\\d+)\\s*$", wait, re.MULTILINE)
-        self.assertIsNotNone(attempts, "the exact-head proof wait must stay bounded")
-        self.assertIsNotNone(interval, "the proof wait must keep an explicit polling interval")
-        budget_seconds = int(attempts.group(1)) * int(interval.group(1))
+        loop = next(
+            (line.strip() for line in wait.splitlines()
+             if line.strip().startswith("for attempt in {1..") and line.strip().endswith("}; do"),
+            None,
+        )
+        interval_line = next(
+            (line.strip() for line in wait.splitlines() if line.strip().startswith("sleep ")),
+            None,
+        )
+        self.assertIsNotNone(loop, "the exact-head proof wait must stay bounded")
+        self.assertIsNotNone(interval_line, "the proof wait must keep an explicit polling interval")
+        attempts = int(loop.removeprefix("for attempt in {1..").removesuffix("}; do"))
+        interval_seconds = int(interval_line.removeprefix("sleep "))
+        budget_seconds = attempts * interval_seconds
         self.assertGreaterEqual(budget_seconds, 30 * 60)
         self.assertLessEqual(budget_seconds, 45 * 60)
         for required_gate in ("PUB_OK", "CLEAN_OK", "HARD_FAIL", "REVIEW_STATE"):
