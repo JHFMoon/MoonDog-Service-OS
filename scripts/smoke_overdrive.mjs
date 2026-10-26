@@ -978,8 +978,34 @@ try{
             // The timer starts after editor entry and field updates, isolating
             // verified persistence and dialog completion from automation typing.
             await connectedPage.evaluate(()=>{globalThis.__moondogSearchEditSaveStarted=performance.now();});
+            const beforeSave=await connectedPage.locator("#editForm").evaluate(form=>({
+              status:form.querySelector("#editStatus")?.value||"",
+              statusDetail:form.querySelector("#editStatusDetail")?.value||"",
+              communication:form.querySelector("#editCommunication")?.value||"",
+              nextAction:form.querySelector("#editNextAction")?.value||"",
+              reviewDate:form.querySelector("#editReviewDate")?.value||"",
+              note:form.querySelector("#editNote")?.value||""
+            }));
+            if(!beforeSave.status||!beforeSave.nextAction||!beforeSave.reviewDate||
+              beforeSave.note!=="Synthetic roundtrip note")
+              throw Error("Synthetic Open RO form was incomplete before save: "+JSON.stringify(beforeSave));
             await connectedPage.locator("#saveRecordClose").click({timeout:3500});
-            await connectedPage.waitForFunction(()=>!document.getElementById("editDialog")?.open,null,{timeout:15000});
+            await connectedPage.waitForFunction(()=>{
+              const dialog=document.getElementById("editDialog"),validation=document.getElementById("editValidation");
+              return !dialog?.open||Boolean(validation&&!validation.hidden&&validation.textContent.trim());
+            },null,{timeout:15000});
+            const saveOutcome=await connectedPage.evaluate(()=>({
+              dialogOpen:Boolean(document.getElementById("editDialog")?.open),
+              validation:document.getElementById("editValidation")?.textContent?.trim()||"",
+              status:document.getElementById("editStatus")?.value||"",
+              statusDetail:document.getElementById("editStatusDetail")?.value||"",
+              communication:document.getElementById("editCommunication")?.value||"",
+              connection:document.getElementById("connectionStatus")?.textContent?.trim()||""
+            }));
+            if(saveOutcome.validation)
+              throw Error("Production Open RO editor rejected the synthetic save: "+JSON.stringify({beforeSave,...saveOutcome}));
+            if(saveOutcome.dialogOpen)
+              throw Error("Production Open RO save remained pending without validation or dialog completion: "+JSON.stringify({beforeSave,...saveOutcome}));
             const saved=await connectedPage.evaluate(async()=>{
               const elapsedMs=performance.now()-globalThis.__moondogSearchEditSaveStarted;
               const state=await globalThis.__moondogDaily.readJson("data/current-state.json");
