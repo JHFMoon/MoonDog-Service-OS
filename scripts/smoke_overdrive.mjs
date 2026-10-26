@@ -965,6 +965,24 @@ try{
             await connectedPage.locator("#editNextAction").fill("Synthetic roundtrip action");
             await connectedPage.locator("#editReviewDate").fill("2026-10-27");
             await connectedPage.locator("#editNote").evaluate(el=>el.scrollIntoView({block:"center",inline:"nearest"}));
+            const noteVisibility=await connectedPage.locator("#editNote").evaluate(el=>{
+              const bounds=el.getBoundingClientRect(),style=getComputedStyle(el),ancestors=[];
+              for(let parent=el;parent&&parent!==document.documentElement;parent=parent.parentElement){
+                const computed=getComputedStyle(parent),rect=parent.getBoundingClientRect();
+                ancestors.push({tag:parent.tagName,id:parent.id,className:String(parent.className||"").slice(0,80),
+                  hidden:parent.hidden,display:computed.display,visibility:computed.visibility,
+                  opacity:computed.opacity,width:rect.width,height:rect.height,
+                  overflow:computed.overflow,overflowY:computed.overflowY});
+              }
+              return {visible:bounds.width>0&&bounds.height>0&&style.visibility!=="hidden"&&style.display!=="none",
+                checkVisibility:el.checkVisibility?.(),hidden:el.hidden,display:style.display,
+                visibility:style.visibility,opacity:style.opacity,rect:{x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height},
+                dialogOpen:document.getElementById("editDialog")?.open,
+                openRoActive:document.getElementById("view-open-ro")?.classList.contains("active"),
+                ancestors};
+            });
+            console.log("Synthetic editor note visibility",JSON.stringify(noteVisibility));
+            if(!noteVisibility.visible)throw Error("Synthetic editor note is not visibly rendered: "+JSON.stringify(noteVisibility));
             await connectedPage.locator("#editNote").fill("Synthetic roundtrip note",{timeout:3500});
             // The timer starts after editor entry and field updates, isolating
             // verified persistence and dialog completion from automation typing.
