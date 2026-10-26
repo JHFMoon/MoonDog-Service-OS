@@ -15,6 +15,8 @@ function extract(startText,endText,label){
 const lockSource=extract("  const sourceLocations = new Map();","  const dailyPickedSources = new Map();","shared source-operation lock");
 const ownerSource=extract("  function defaultManagementFor(raw){","  function pruneClosedRecords(","manager source authority helpers");
 const reconciliation=extract("  function pruneClosedRecords(","  async function importCdkRepairOrdersDocx(","complete-source Open RO reconciliation");
+const editorState=extract("  let editDraftDirty = false;","  function updateStatusDetailEditor(","Open RO editor state");
+const finishSource=extract("  async function finishSavedOpenRo(","  async function saveRecord(","Open RO save completion");
 const saveSource=extract("  async function saveRecord(","  async function closeRo(","Open RO save");
 
 const copy=value=>JSON.parse(JSON.stringify(value));
@@ -32,6 +34,11 @@ function harness(){
         manualAnnotation:"Synthetic annotation",
         ownerAssignmentSource:"manager-confirmed"
       }
+    },{
+      id:"synthetic-ro-202",ro:"SYN-202",advisor:"Synthetic Second Advisor",
+      sourceStatus:"Waiting Parts",
+      sourceFields:{"RO Number":"SYN-202","Source Status":"Waiting Parts"},
+      management:{status:"Waiting Parts",owner:"Synthetic Second Owner",nextAction:"Review synthetic second RO",reviewDate:"2026-10-29",communication:"Updated",note:"Synthetic second note"}
     }],
     closedRecords:[],
     source:{fileName:"synthetic-open-ro-before.xlsx",importedAt:"2026-10-26T10:00:00.000Z"}
@@ -61,8 +68,12 @@ function harness(){
     editNote:{value:"Synthetic manager update"},
     editAdminBlocker:{value:""},editAdminTaskDate:{value:""},
     editAdminCloseDate:{value:""},editAdminChangeReason:{value:""},
+    editAdminWorkStatus:{value:"unverified"},editAdminPickupStatus:{value:""},
+    editAdminPickupContactDate:{value:""},editAdminPickupDate:{value:""},
+    editAdminWarrantyStatus:{value:""},editAdminEvidence:{value:""},
+    editAdminCoachingStatus:{value:""},editAdminCoachingAction:{value:""},
     editValidation:{hidden:true,textContent:""},
-    editDialog:{close(){}}
+    editDialog:{open:true,closed:0,close(){this.closed++;this.open=false;}}
   };
   const context=vm.createContext({
     model,ui,VERSION:"synthetic",STATE_PATH:["data","current-state.json"],
@@ -85,15 +96,15 @@ function harness(){
     visibleRecordIds:()=>["synthetic-ro-101"],visibleFocusIds:()=>["synthetic-ro-101"],
     dailySaveAdditions:null,
     saveState:async(_label)=>{model.state.updatedAt="2026-10-26T10:05:00.000Z";durable=copy(model.state);},
-    finishSavedOpenRo:async()=>true,
-    recordDiagnostic(){},status(){},renderAll(){},openEdit(){},
+    recordDiagnostic(){},status(){},renderAll(){},
+    addHistory:async()=>{},markSupervisorWorkbookStale:async()=>{},
     Promise,Map,Set,Object,Array,String,Boolean,JSON,Error,Date,console,
     setTimeout,clearTimeout
   });
   context.globalThis=context;
-  vm.runInContext(lockSource+ownerSource+reconciliation+saveSource+
-    "\nthis.withLock=withSupervisorWorkbookLock;this.mergeSource=mergeCompleteOpenRoRecords;this.save=saveRecord;",context);
-  return{context,model,prepared,releaseImport:()=>releaseImport(),signalPrepared:()=>signalPrepared(),lockRequests,durable:()=>copy(durable),importGate};
+  vm.runInContext(lockSource+ownerSource+reconciliation+editorState+finishSource+saveSource+
+    "\nthis.withLock=withSupervisorWorkbookLock;this.mergeSource=mergeCompleteOpenRoRecords;this.save=saveRecord;this.openEditor=openEdit;this.closeEditor=closeEditDialog;this.confirmNav=confirmEditNavigation;this.markDraftDirty=markEditDraftDirty;this.isDirty=()=>editDraftDirty;this.isSaving=()=>openRoSaveInFlight;",context);
+  return{context,model,ui,prepared,releaseImport:()=>releaseImport(),signalPrepared:()=>signalPrepared(),lockRequests,durable:()=>copy(durable),importGate};
 }
 
 test("an Open RO save waits for an in-flight complete-source refresh and applies the manager edit to its fresh record",async()=>{
@@ -103,6 +114,11 @@ test("an Open RO save waits for an in-flight complete-source refresh and applies
     sourceStatus:"Ready for Review",
     sourceFields:{"RO Number":"SYN-101","Source Status":"Ready for Review","Synthetic Source Revision":"new"},
     cdkOperational:{status:"Ready for Review"}
+  },{
+    id:"synthetic-ro-202",ro:"SYN-202",advisor:"Synthetic Second Advisor",
+    sourceStatus:"Waiting Parts",
+    sourceFields:{"RO Number":"SYN-202","Source Status":"Waiting Parts","Synthetic Source Revision":"new"},
+    cdkOperational:{status:"Waiting Parts"}
   }];
   const importing=h.context.withLock(async()=>{
     const merged=h.context.mergeSource(incoming,"2026-10-26T10:04:00.000Z","cdk-repair-orders");
@@ -118,6 +134,16 @@ test("an Open RO save waits for an in-flight complete-source refresh and applies
 
   const saving=h.context.save({preventDefault(){}});
   await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(h.context.isSaving(),true);
+  assert.equal(h.context.openEditor("synthetic-ro-202"),false,
+    "switching to another RO is blocked while the submitted save waits for the lock");
+  h.context.closeEditor();
+  assert.equal(h.context.confirmNav("history"),false,
+    "view navigation is blocked while the queued save is active");
+  assert.equal(h.model.selectedId,"synthetic-ro-101");
+  assert.equal(h.ui.editDialog.closed,0,"the queued save cannot be discarded by closing the editor");
+  h.ui.editOwner.value="Synthetic Follow-up Owner";
+  h.context.markDraftDirty();
   h.releaseImport();
   await importing;
   assert.equal(await saving,true);
@@ -128,8 +154,14 @@ test("an Open RO save waits for an in-flight complete-source refresh and applies
   assert.equal(saved.records[0].sourceFields["Synthetic Source Revision"],"new",
     "fresh imported source fields survive the manager save");
   assert.equal(saved.records[0].management.owner,"Synthetic New Owner",
-    "the save applies the manager's edit after it waits for source reconciliation");
+    "the save persists the owner value captured when the manager submitted");
   assert.equal(saved.records[0].management.nextAction,"Complete synthetic inspection");
   assert.equal(saved.records[0].management.reviewDate,"2026-10-28");
   assert.equal(saved.records[0].management.manualAnnotation,"Synthetic annotation");
+  assert.equal(saved.records[1].management.owner,"Synthetic Second Owner",
+    "the second RO remains unchanged during the queued save");
+  assert.equal(h.ui.editOwner.value,"Synthetic Follow-up Owner",
+    "post-submit edits remain in the editor for a later explicit save");
+  assert.equal(h.context.isDirty(),true,"post-submit edits are still marked unsaved");
+  assert.equal(h.ui.editDialog.open,true,"the editor remains open for the later draft");
 });
