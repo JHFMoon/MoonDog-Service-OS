@@ -232,7 +232,7 @@ function controlledRecoveryExecutionFixture(options={}){
     ASSIGN_NEXT_PATH:["data","assign-next.json"],AUTO_IMPORT_PATH:["data","auto-import.json"],
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],MEETING_CYCLE_PATH:["data","meeting-cycle.json"],
     SOURCE_ADAPTER_BOOTSTRAP_PATH:["data","source-adapter-bootstrap.json"],
-    marker,live,backups,writeLog:[],events:[],active:false,finishFailures:options.finishFailures||0,
+    marker,live,backups,writeLog:[],events:[],active:false,partialWriteInjected:false,pendingJournal:null,finishFailures:options.finishFailures||0,
     now:()=>"2026-10-22T12:00:00.000Z",stamp:()=>"20261022T120000Z",slug:value=>String(value).replace(/[^a-z0-9]+/gi,"-"),
     window:{confirm:()=>options.confirm!==false},
     readJson:async(parts,fallback)=>{
@@ -274,6 +274,15 @@ function controlledRecoveryExecutionFixture(options={}){
       if(!context.active||restoreId!==owner)throw Error("Synthetic authority denied the write.");
       context.writeLog.push(parts.join("/"));
       if(options.failWriteAt===context.writeLog.length&&!context.writeFailureInjected){context.writeFailureInjected=true;throw Error("Synthetic interrupted write.");}
+      if(options.partialWriteAt===context.writeLog.length&&!context.partialWriteInjected){
+        context.partialWriteInjected=true;
+        const targetPath=parts.join("/");
+        const partial=new Uint8Array([123,34,112]);
+        context.live.set(targetPath,partial);
+        context.pendingJournal={path:"data/.moondog-txn-synthetic.json",targetPath,
+          journal:{format:"moondog-write-v1",before:[...safety[targetPath]],after:[...source[targetPath]]}};
+        throw Error("Synthetic partial target write.");
+      }
       live.set(parts.join("/"),new Uint8Array(bytes));
       if(options.competeAfterWriteAt===context.writeLog.length){
         context.live.set(options.competePath||"data/settings.json",enc(options.competeValue||{sourceAdapters:{schemaVersion:1,key:"external"},externalEdit:true}));
