@@ -13,6 +13,9 @@ const start = app.indexOf("  function comparableManagerSnapshot(");
 const end = app.indexOf("  async function classifyImportFile(", start);
 assert.ok(start >= 0 && end > start, "Production manager snapshot comparison and import path must be present");
 const managerImport = app.slice(start, end);
+const mediaScopeProductionSource = "  function mediaScope(snapshot) {\n    if(snapshot?.sourceScope)return snapshot.sourceScope;\n    const rows=snapshot?.technicians||[];\n    // The retired parser retained a code only from an actual NUMBER-NAME summary.\n    if(rows.length&&rows.every(row=>/^\\d+$/.test(row.id||'')&&row.name))return 'technician';\n    if(rows.length&&rows.some(row=>serviceAdvisorNumber(row.name)))return 'advisor';\n    return '';\n  }\n";
+const trendSourcesProductionDeclaration = "const TREND_SOURCES={sapr:'SAPR',csi:'Dealer Dashboard CSI',vir:'VIR',menu:'Menu Sales',nextAppointments:'Next Appointments / NSA',mediaAsr:'Media ASR — Advisor',mediaAsrTech:'Media ASR — Technician',efficiency:'Efficiency Tracking',sor:'SOR'};";
+const mediaAsrPerformanceLineageSource = "  function sourceTrendObservations(family) {\n    if(family==='sapr')return Object.values(model.performance.snapshots||{});\n    const branch=model.operationalMetrics[family]||{};let values=[...Object.values(branch.snapshots||{}),...Object.values(branch.dailySnapshots||{})];\n    if(family==='vir')values=allVirObservations();\n    if(family==='mediaAsrTech')values.push(...Object.values(model.operationalMetrics.mediaAsr?.snapshots||{}).filter(item=>mediaScope(item)==='technician'));\n    const dates=new Map();for(const item of values){if(family==='mediaAsr'&&mediaScope(item)!=='advisor')continue;const date=trendObservationDate(family,item);if(!date)continue;const prior=dates.get(date);if(!prior||text(item.importedAt)>=text(prior.importedAt))dates.set(date,item);}return [...dates.values()];\n  }\n  function trendObservationDate(family,item) {\n    if(family==='sapr')return validCoverageDate(item.periodEnd);\n    if(family==='menu')return validCoverageDate(item.releaseWeek); // Actual verified weekly release, never interpolated.\n    if(family==='nextAppointments')return validCoverageDate(item.periodEnd)||validCoverageDate(item.observationDate);\n    if(family==='mediaAsrTech')return validCoverageDate(item.periodEnd);\n    return dailyEvidenceDate(family,item);\n  }\n  function trendEntity(item,role,id,family) {\n    if(role==='store')return family==='nextAppointments'?item.summary:item.store;\n    if(role==='advisor'){\n      if(family==='mediaAsr'&&!item.advisors){const rows=(item.technicians||[]).filter(row=>serviceAdvisorNumber(row.name)===id);return rows.length===1?rows[0]:null;}\n      return item.advisors?.[id];\n    }\n    const rows=(item.technicians||[]).filter(row=>family==='efficiency'?resolveTechnicianName(row.name)===id:String(row.id||row.number)===id);\n    return rows.length===1?rows[0]:null;\n  }\n\n  function trendPoints(measure,role,id,today=localDateKey()) {\n    if(!measure?.roles.includes(role))return [];\n    const month=today.slice(0,7),start=month+'-01';\n    if(measure.family==='csi'){\n      const surveys=Object.values(model.operationalMetrics.csi?.surveys||{}).filter(s=>s.surveyDate>=start&&s.surveyDate<=today&&(role==='store'||s.advisorCode===id)),dates=[...new Set(surveys.map(s=>s.surveyDate))].sort();\n      return dates.map(date=>{const population=surveys.filter(s=>s.surveyDate<=date),summary=npsSummary(Object.fromEntries(population.map(s=>[s.id,s]))),provenance=(model.operationalMetrics.csi.imports||[]).filter(item=>item.coverageStart<=date&&item.coverageEnd>=date).at(-1);return {date,value:summary[measure.key],responses:summary.responses,source:TREND_SOURCES.csi,sourceFile:provenance?.sourceFile||'Retained Invite_ID survey history',entity:role==='store'?'Store Total':advisorDisplayName(id),periodStart:start,periodEnd:date};});\n    }\n    const points=[];\n    for(const item of sourceTrendObservations(measure.family)){\n      const date=trendObservationDate(measure.family,item);if(!date||date.slice(0,7)!==month||date>today)continue;\n      if(measure.family==='sapr'&&(item.periodStart!==start||['totalGross','totalRevenue'].includes(measure.key)&&!item.validation?.finalTotalsVerified))continue;\n      let entity=trendEntity(item,role,id,measure.family),value,benchmark=null,bic=null;\n      if(measure.controllable){const control=role==='store'?item.controllables?.store?.[measure.key]:item.controllables?.advisors?.[id]?.[measure.key];value=control?.actual;benchmark=control?.brandAverage;bic=control?.bic;}\n      else if(measure.serviceAppointments){entity=role==='store'?item.serviceAppointments?.store:item.serviceAppointments?.advisors?.[id];value=entity?.[measure.key];}\n      else if(measure.family==='sor'){const actual=item.metrics?.[measure.key]?.currentActual;value=measure.unit==='percent'?performancePercent(actual):actual;}\n      else value=entity?.[measure.key];\n      if(!Number.isFinite(value))continue;\n      if(measure.family==='efficiency'){if(item.validation?.parser==='efficiency-v2-role-hierarchy'){if(measure.key==='efficiency')bic=entity?.bic??entity?.efficiencyBic;if(measure.key==='bayUtilization')bic=entity?.bayUtilizationBic;}else if(measure.unit==='percent')continue;} // Legacy percentage conversion cannot prove ratios above 100%; re-import original.\n      if(measure.standard)benchmark=standard(measure.standard);\n      if((measure.family==='sapr'&&measure.key==='mediaViewed')||(measure.family==='mediaAsr'&&measure.key==='mediaViewedRate'))benchmark=standard('mediaViewed');\n      if(measure.family==='sapr'&&measure.key==='totalGross')benchmark=role==='store'?standard('storeGrossTarget'):configuredNumber(meetingSetting('grossStretch'));\n      const label=role==='store'?'Store Total':role==='advisor'?advisorDisplayName(id):technicianDirectory()[id]?.displayName||id;\n      points.push({date,value,source:TREND_SOURCES[measure.family],sourceFile:item.sourceFile,entity:label,periodStart:item.periodStart||item.period,periodEnd:item.periodEnd||date,periodVerified:measure.family==='nextAppointments'?Boolean(item.periodEnd):true,completed:item.saprDaysCompleted,totalDays:item.saprTotalDays,benchmark,bic});\n    }\n    return points.sort((a,b)=>a.date.localeCompare(b.date));\n  }\n";
 
 const saved = {
   period: "2026-10",
@@ -55,6 +58,11 @@ function fixture(candidate) {
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
     now: () => "2026-10-23T12:00:00.000Z",
     localDateKey: () => "2026-10-23",
+    text: value => String(value ?? ""),
+    dailyEvidenceDate: (_family, item) => item.coverageDate || item.periodEnd || "",
+    validCoverageDate: value => /^20\\d{2}-\\d{2}-\\d{2}$/.test(String(value || "")) ? String(value) : "",
+    TREND_SOURCES: { mediaAsr: "Media ASR — Advisor" },
+    advisorDisplayName: id => "Synthetic Advisor " + id,
     sourceFileHandle: async () => ({ getFile: async () => ({ lastModified: Date.UTC(2026, 9, 22) }) }),
     parseSorWorkbook: () => { throw new Error("Unexpected SOR parse"); },
     parseAppointmentActivityWorkbook: () => { throw new Error("Unexpected appointment parse"); },
@@ -71,7 +79,11 @@ function fixture(candidate) {
     addHistory: async () => { events.push("history"); },
     removeSourceEntry: async name => { events.push("delete"); removed.push(name); }
   });
-  vm.runInContext(managerImport + "\nthis.importManagerSource = importManagerSource;", context);
+  vm.runInContext(
+    managerImport + "\n" + mediaScopeProductionSource + "\n" + trendSourcesProductionDeclaration + "\n" + mediaAsrPerformanceLineageSource +
+      "\nthis.importManagerSource = importManagerSource; this.mediaAsrTrendPoints = trendPoints;",
+    context
+  );
   return {
     model, events, removed, durable: () => durable,
     run: (name = "synthetic-efficiency (1).xlsx") => context.importManagerSource(name, "efficiency", [], true)
@@ -94,6 +106,7 @@ test("equivalent Efficiency reimport ignores learned labels and derived metadata
 const savedMedia = {
   periodStart: "2026-10-01",
   periodEnd: "2026-10-21",
+  sourceScope: "advisor",
   sourceFile: "synthetic-media-asr.xlsx",
   importedAt: "2026-10-21T18:00:00.000Z",
   sourceModifiedAt: "2026-10-21T00:00:00.000Z",
@@ -111,7 +124,8 @@ const equivalentMedia = {
   importedAt: "2026-10-22T18:00:00.000Z",
   sourceFile: "synthetic-media-asr (1).xlsx",
   periodEnd: "2026-10-21",
-  periodStart: "2026-10-01"
+  periodStart: "2026-10-01",
+  sourceScope: "advisor"
 };
 
 function mediaFixture(candidate) {
@@ -144,7 +158,8 @@ function mediaFixture(candidate) {
   });
   vm.runInContext(managerImport + "\nthis.importManagerSource = importManagerSource;", context);
   return {
-    model, events, removed, durable: () => durable,
+    model, events, removed, context, durable: () => durable,
+    trendPoints: (measure, role, id, today) => context.mediaAsrTrendPoints(measure, role, id, today),
     run: (name = "synthetic-media-asr (1).xlsx") => context.importManagerSource(name, "media-asr", [], true)
   };
 }
@@ -186,4 +201,30 @@ test("conflicting Efficiency measurements are rejected before mutation and sourc
   assert.equal(JSON.stringify(f.durable()), diskBefore, "no conflicting snapshot is written");
   assert.deepEqual(f.events, [], "no durable write, success history, or deletion occurs");
   assert.deepEqual(f.removed, [], "conflicting source remains available for review");
+});
+
+
+test("verified Media ASR import projects the same report date, source and advisor value into Performance trends", async () => {
+  const f = mediaFixture(equivalentMedia);
+  await f.run();
+
+  const measure = { family: "mediaAsr", key: "mediaCreated", unit: "count", roles: ["advisor"] };
+  const points = f.trendPoints(measure, "advisor", "SYN01", "2026-10-23");
+  assert.equal(points.length, 1, "one verified report observation produces one advisor trend point");
+  assert.deepEqual(points[0], {
+    date: "2026-10-21",
+    value: 3,
+    source: "Media ASR — Advisor",
+    sourceFile: "synthetic-media-asr (1).xlsx",
+    entity: "Synthetic Advisor SYN01",
+    periodStart: "2026-10-01",
+    periodEnd: "2026-10-21",
+    periodVerified: true,
+    completed: undefined,
+    totalDays: undefined,
+    benchmark: null,
+    bic: null
+  });
+  assert.deepEqual(f.events, ["write", "readback", "history", "delete"],
+    "the displayed trend follows successful durable verification and source audit");
 });
