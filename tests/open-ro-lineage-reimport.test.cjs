@@ -112,11 +112,14 @@ test("verified manager edit survives durable reload and complete-source reimport
 test("verified backup restore keeps manager-owned RO lineage authoritative through the next source reimport",async()=>{
   const restoreSupportStart=app.indexOf("  function sameRestoreValue(");
   const restoreSupportEnd=app.indexOf("  async function inspectInterruptedRestore(",restoreSupportStart);
+  const historyReplaceStart=app.indexOf("  async function replaceHistoryFromBackup(");
+  const historyReplaceEnd=app.indexOf("  async function restoreSelectedBackup()",historyReplaceStart);
   const restoreStart=app.indexOf("  async function restoreSelectedBackup()");
   const restoreEnd=app.indexOf("  function latestImportSummary()",restoreStart);
-  assert.ok(restoreSupportStart>=0&&restoreSupportEnd>restoreSupportStart&&restoreEnd>restoreStart,
+  assert.ok(restoreSupportStart>=0&&restoreSupportEnd>restoreSupportStart&&historyReplaceStart>=0&&historyReplaceEnd>historyReplaceStart&&restoreEnd>restoreStart,
     "production restore preflight, verification, history replacement, and restore entry point exist");
   const restoreSupport=app.slice(restoreSupportStart,restoreSupportEnd);
+  const historyReplaceSource=app.slice(historyReplaceStart,historyReplaceEnd);
   const restoreSource=app.slice(restoreStart,restoreEnd);
   const nodeCrypto=require("node:crypto");
   const canonicalPaths=[
@@ -220,7 +223,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
     physicalWorkspacePath:path=>["System Files","Workspace",...path],
     status:()=>{},console
   });
-  vm.runInContext(restoreSupport+"\n"+restoreSource+"\nthis.runRestore=restoreSelectedBackup;",context);
+  vm.runInContext(restoreSupport+"\n"+historyReplaceSource+"\n"+restoreSource+"\nthis.runRestore=restoreSelectedBackup;",context);
 
   await context.runRestore();
   const restored=JSON.parse(JSON.stringify(model.state));
