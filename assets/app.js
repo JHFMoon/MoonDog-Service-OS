@@ -2543,11 +2543,11 @@
     return cdkRepairOrdersResult(layout,entries,errors,true);
   }
   function defaultManagementFor(raw){return{statusId:"",status:"",owner:raw.advisor||"",ownerAssignmentSource:raw.advisor?"source-writer":"",nextAction:"",reviewDate:"",communication:"",note:"",updatedAt:null};}
-  function ownerAssignmentSourceForManagerSave(current,nextOwner,sourceWriter){
+  function ownerAssignmentSourceForManagerSave(current,nextOwner,sourceWriter,explicitManagerEdit=true){
     const owner=String(nextOwner||"").trim(),previous=String(current?.owner||"").trim(),writer=String(sourceWriter||"").trim();
     if(!owner)return"";
     if(owner===previous)return current?.ownerAssignmentSource||(owner===writer?"source-writer":"unconfirmed");
-    return owner===writer?"source-writer":"manager-confirmed";
+    return owner===writer&&!explicitManagerEdit?"source-writer":"manager-confirmed";
   }
   function ownerAssignmentSourceForWorkbook(current,nextOwner,sourceWriter){
     const owner=String(nextOwner||"").trim(),previous=String(current?.owner||"").trim(),writer=String(sourceWriter||"").trim();
@@ -4392,7 +4392,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if (!nextAction || (!commitmentDate && !adminBlocker)) editValidationError("Enter the next action and a commitment date, or identify a confirmed admin blocker awaiting an advisor commitment.");
     let adminCloseout=null;
     if(adminBlocker || record.management.adminCloseout?.blocker)try{const commitments=nextAdminCloseout(record.management.adminCloseout,adminBlocker,ui.editAdminTaskDate.value,ui.editAdminCloseDate.value,ui.editAdminChangeReason.value,now());adminCloseout=nextAdminCloseoutEvidence(commitments,currentAdminCloseoutEvidence(),now());}catch(error){editValidationError(error.message);}
-    const origin = model.editOrigin, ids = origin === "focus" ? visibleFocusIds() : visibleRecordIds(), nextId = ids[ids.indexOf(record.id) + 1] || null, priorState = JSON.parse(JSON.stringify(model.state)), before = { ...record.management }, proposed = { ...record.management, ...(dailySaveAdditions || {}), statusId:selectedStatusId, status:selectedStatus, statusDetail, statusDetailOther, owner: ui.editOwner.value.trim(), ownerAssignmentSource: ownerAssignmentSourceForManagerSave(before,ui.editOwner.value.trim(),record.advisor||record.advisorCode), nextAction, reviewDate: commitmentDate, communication: ui.editCommunication.value, note: ui.editNote.value.trim(), ...(adminCloseout ? { adminCloseout } : {}), clarification: null, managerReviewedOn: localDateKey(), updatedAt: now() }; record.management = proposed; try { await saveState("Updated RO "+record.ro, priorState); } catch (error) { model.state = priorState; ui.editValidation.textContent = "Service Operations Dashboard could not save this RO to durable storage. Your entries are still shown; check the folder connection and try again."; ui.editValidation.hidden = false; recordDiagnostic("QUICK UPDATE SAVE FAILED", "Durable Open RO update failed ("+(error.name || "Error")+")"); return; } return finishSavedOpenRo(record,before,proposed,origin,advance,nextId,submittedDraftRevision); }
+    const origin = model.editOrigin, ids = origin === "focus" ? visibleFocusIds() : visibleRecordIds(), nextId = ids[ids.indexOf(record.id) + 1] || null, priorState = JSON.parse(JSON.stringify(model.state)), before = { ...record.management }, proposed = { ...record.management, ...(dailySaveAdditions || {}), statusId:selectedStatusId, status:selectedStatus, statusDetail, statusDetailOther, owner: ui.editOwner.value.trim(), ownerAssignmentSource: ownerAssignmentSourceForManagerSave(before,ui.editOwner.value.trim(),record.advisor||record.advisorCode,origin!=="home"||ui.editOwner.dataset?.ownerAssignmentExplicit==="true"), nextAction, reviewDate: commitmentDate, communication: ui.editCommunication.value, note: ui.editNote.value.trim(), ...(adminCloseout ? { adminCloseout } : {}), clarification: null, managerReviewedOn: localDateKey(), updatedAt: now() }; record.management = proposed; try { await saveState("Updated RO "+record.ro, priorState); } catch (error) { model.state = priorState; ui.editValidation.textContent = "Service Operations Dashboard could not save this RO to durable storage. Your entries are still shown; check the folder connection and try again."; ui.editValidation.hidden = false; recordDiagnostic("QUICK UPDATE SAVE FAILED", "Durable Open RO update failed ("+(error.name || "Error")+")"); return; } return finishSavedOpenRo(record,before,proposed,origin,advance,nextId,submittedDraftRevision); }
   async function closeRo(id=model.selectedId){
     const record=model.state.records.find((item)=>item.id===id);if(!record)return false;const priorState=structuredClone(model.state),closedAt=now(),archive={...record,closedAt,closedReason:"manual-manager-close"};
     model.state.records=model.state.records.filter((item)=>item.id!==id);model.state.closedRecords=pruneClosedRecords([...(model.state.closedRecords||[]).filter((item)=>item.id!==id),archive]);model.state.updatedAt=closedAt;
@@ -6056,6 +6056,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       model.selectedId=id; model.editOrigin='home';
       populateSelect(ui.editStatus, selectableStatusesFor(record)); ui.editStatus.value=values.status; updateStatusDetailEditor(record); ui.editStatusDetail.value=values.statusDetail||''; ui.editStatusDetailOther.value=values.statusDetailOther||'';
       for (const [key, field] of Object.entries({owner:'editOwner',nextAction:'editNextAction',reviewDate:'editReviewDate',communication:'editCommunication',note:'editNote'})) ui[field].value=values[key]||'';
+      ui.editOwner.dataset.ownerAssignmentExplicit=values.ownerAssignmentExplicit==='true'?'true':'false';
       // Home does not expose admin-closeout fields; preserve the target RO's commitments.
       ui.editAdminBlocker.value=record.management.adminCloseout?.blocker||'';
       ui.editAdminTaskDate.value=record.management.adminCloseout?.taskDate||'';
