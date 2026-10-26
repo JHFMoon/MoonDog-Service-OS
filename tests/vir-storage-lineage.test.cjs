@@ -39,7 +39,7 @@ test("synthetic VIR observation keeps its source date through durable storage an
   let durable = null;
   const events = [];
   const history = [];
-  const model = { operationalMetrics: { vir: { snapshots: {}, pending: {} } } };
+  const model = { settings: { csiPeriodStart: "2026-10-01" }, operationalMetrics: { vir: { snapshots: {}, pending: {} } } };
   const ui = Object.fromEntries([
     "moondogNeeds", "nextAppointmentsSummary", "nextAppointmentsCoverage",
     "virSummary", "virCoverage", "menuSummary", "menuCoverage", "csiSummary", "csiCoverage"
