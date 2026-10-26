@@ -813,8 +813,10 @@
       const hint=document.createElement('small');hint.textContent='Prefilled from CDK technician'+(r.technician?'':' code')+' — verify current assignment.';tech.closest('.daily-field').append(hint);
     }
     const owner=document.createElement('input');compactField(form,'Follow-up owner','owner',m.owner||r.advisor||r.advisorCode||'',owner,false);
-    if(!m.owner&&(r.advisor||r.advisorCode)){
-      const hint=document.createElement('small');hint.textContent='Prefilled from RO writer, not a confirmed follow-up assignment. Verify ownership.';owner.closest('.daily-field').append(hint);
+    const ownerAssignmentExplicit=document.createElement('input');ownerAssignmentExplicit.type='hidden';ownerAssignmentExplicit.name='ownerAssignmentExplicit';ownerAssignmentExplicit.value='false';form.append(ownerAssignmentExplicit);
+    owner.addEventListener('input',()=>ownerAssignmentExplicit.value='true');
+    if(m.ownerAssignmentSource!=="manager-confirmed"){
+      const hint=document.createElement('small');hint.textContent=m.ownerAssignmentSource==="source-writer"||(!m.owner&&(r.advisor||r.advisorCode))?'Prefilled from RO writer, not a confirmed follow-up assignment. Verify ownership.':'Follow-up owner is not confirmed. Verify ownership.';owner.closest('.daily-field').append(hint);
     }
     const note=document.createElement('details');note.className='daily-note';note.innerHTML='<summary>Add note</summary><label for="daily-note">Update note</label><textarea id="daily-note" name="note" rows="2"></textarea>';note.querySelector('textarea').value=m.note||'';form.append(note);
     const actions=document.createElement('div');actions.className='daily-ro-actions';
@@ -881,6 +883,36 @@
     host.append(section,input);
   }
   async function actionWrap(fn){await action(fn);}
+  function attentionSecondaryDetail(item){
+    if(item.type!=='ro')return item.next||item.description||'Review the source';
+    const record=item.record||model.state.records.find(value=>value.id===item.recordId)||{};
+    const management=record.management||{};
+    const owner=management.ownerAssignmentSource==='manager-confirmed'?String(management.owner||'').trim():'';
+    const status=api.status(record)||'Not confirmed';
+    const detail=String(api.statusDetailLabel?.(record)||management.statusDetail||'').trim();
+    const blocker=detail&&detail!==status?status+' — '+detail:detail||status;
+    const operational=record.cdkOperational||{};
+    const indicator=api.cdkIndicator(record);
+    const sourceConfidence=indicator?.text||
+      (operational.status&&!operational.stale?'Current source confirms '+operational.status:
+        'Source status not confirmed by latest import');
+    const source=model.state.source||{};
+    const sourceName=source.fileName||source.sourceFile||'Current Open RO snapshot';
+    const sourceDate=source.reportDate||source.coverageDate
+      ?'Report period '+String(source.reportDate||source.coverageDate).slice(0,10)
+      :source.sourceModifiedAt?'File modified '+String(source.sourceModifiedAt).slice(0,10)
+      :typeof source.importedAt==='string'?'Imported '+source.importedAt.slice(0,10)
+      :'Report date not verified';
+    return [
+      'RO '+String(record.ro||''),
+      'Follow-up owner: '+(owner||'Not confirmed'),
+      'Follow-up date: '+(String(management.reviewDate||'').trim()||'Not set'),
+      'Status / blocker: '+blocker,
+      'Next step: '+(String(management.nextAction||'').trim()||'Confirm next action'),
+      'Source confidence: '+sourceName+(sourceDate?' · '+sourceDate:'')+' · '+sourceConfidence
+    ].join(' · ');
+  }
+
   function renderOtherPriorities(task,host){
     const extra=attentionTopThree().filter(item=>item.id!==task?.id).slice(0,2);
     if(!extra.length)return;
@@ -890,8 +922,7 @@
       const row=document.createElement('div');row.className='daily-priority-row';
       const copy=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('small');
       title.textContent=item.title;
-      detail.textContent=item.type==='ro'?`RO ${item.record?.ro||''} · ${item.record?.management?.nextAction||'Confirm next action'}`:
-        item.next||item.description||'Review the source';
+      detail.className='daily-priority-context';detail.textContent=attentionSecondaryDetail(item);
       copy.append(title,detail);row.append(copy);
       if(item.type==='coaching')row.append(button('Advisor Notified',()=>action(()=>acknowledge(item,'completed')),'secondary'));
       else row.append(button(item.type==='report'?'Gather':'Open',()=>openAttention(item),'secondary'));

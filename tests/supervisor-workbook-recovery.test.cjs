@@ -33,7 +33,8 @@ const publicOperations = [
   extract("  async function generateWorkbook(", "  async function generateWorkbookUnlocked(")
 ].join("\n");
 const sourceImport = extract("  async function importSourceUnlocked(", "\n\n  const timeMinutes");
-const returnedImport = extract("  async function importReturnedWorkbookUnlocked(", "\n\n  async function importSource(");
+const ownerProvenance = extract("  function ownerAssignmentSourceForManagerSave(", "  function pruneClosedRecords(");
+const returnedImport = ownerProvenance + "\n" + extract("  async function importReturnedWorkbookUnlocked(", "\n\n  async function importSource(");
 const cdkImport = extract("  async function importCdkRepairOrdersDocxUnlocked(", "  function parseTechnicianVideoPlaybook");
 
 function importFailureHarness() {
