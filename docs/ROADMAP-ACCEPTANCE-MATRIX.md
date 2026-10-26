@@ -10,7 +10,7 @@ This snapshot supersedes earlier live snapshots below.
 - Sequential merges in the prior burn-down included #520, #521, #522, and trusted package syncs #523 and #524. The open PR count fell from three (#520/#521/#522) to zero before this single follow-up.
 - PR #522 runtime scheduling safeguard is in Beta .172; exact-head Publication Check #40308245179, Clean Install Proof #40308245091, no-major-findings Codex review, and guarded merge #40308242400 succeeded. Main post-package Publication Check #40310168339 succeeded.
 - PR #524 package candidate head `8f57c81eac1a88b112e935df70962b50c9ed525b`: Publication Check #40309184379 and Clean Install Proof #40309187851 passed; trusted Prepare Beta #40309147486 merged it as `b68448d92d98c910b2e9654ae530113a7162086b`. Stable remains unchanged.
-- Current work adds synthetic proof that production Open RO save history records the prior and durable manual state only after verified read-back while leaving imported source fields untouched. Exact-head checks/review pending. This is an incremental #59-01 regression, not criterion completion.
+- Current #525 work adds synthetic proof that production Open RO save history records the prior and durable manual state only after verified read-back while leaving imported source fields untouched. Initial Publication Check #40311344696 and Clean Install Proof #40311341913 exposed a test-only ordering assertion that accidentally included the test's later inspection read; the assertion is corrected to inspect events only before history. Fresh checks and exact-head review are pending. This is an incremental #59-01 regression, not criterion completion.
 
 ## Live continuation snapshot — 2026-10-26 09:28 UTC
 

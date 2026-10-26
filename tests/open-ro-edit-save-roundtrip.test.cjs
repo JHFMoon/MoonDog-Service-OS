@@ -204,9 +204,11 @@ test("manual Open RO edit history preserves source lineage after verified durabl
   assert.deepStrictEqual(record.sourceFields, originalState.records[0].sourceFields,
     "manual management edits do not replace imported report fields");
 
-  const stateWrite = h.events.findLastIndex(event => event.startsWith("write:") && event.includes("current-state.json"));
-  const stateReadback = h.events.findLastIndex(event => event.startsWith("read:") && event.includes("current-state.json"));
   const historyEvent = h.events.indexOf("history:ro-update");
+  const stateWrite = h.events.findLastIndex((event, index) =>
+    index < historyEvent && event.startsWith("write:") && event.includes("current-state.json"));
+  const stateReadback = h.events.findLastIndex((event, index) =>
+    index < historyEvent && event.startsWith("read:") && event.includes("current-state.json"));
   assert.ok(stateWrite >= 0 && stateReadback > stateWrite,
     "the production save writes and reads back the current-state file before recording history");
   assert.ok(historyEvent > stateReadback,
