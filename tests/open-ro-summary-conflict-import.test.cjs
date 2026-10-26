@@ -29,6 +29,7 @@ function fixture(candidate) {
   let durable = structuredClone(model.operationalMetrics);
   const events = [];
   const removed = [];
+  const history = [];
   const context = vm.createContext({
     model, structuredClone,
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
@@ -40,19 +41,19 @@ function fixture(candidate) {
     parseEfficiencyWorkbook: () => { throw new Error("Unexpected Efficiency parse"); },
     parseMediaAsrAdvisorWorkbook: () => { throw new Error("Unexpected Media ASR parse"); },
     parseMediaAsrTechWorkbook: () => { throw new Error("Unexpected Media ASR technician parse"); },
-    parseOpenRoSummaryWorkbook: () => structuredClone(candidate),
+    parseOpenRoSummaryWorkbook: (_bytes, fileName) => ({ ...structuredClone(candidate), sourceFile: fileName }),
     workbookGrid: () => ({ rows: [] }),
     dailyEvidenceDate: () => "2026-10-21",
     internalObservationDate: () => "",
     pruneDatedSnapshots: value => value,
     writeJson: async (_path, value) => { events.push("write"); durable = structuredClone(value); },
     readJson: async () => { events.push("readback"); return structuredClone(durable); },
-    addHistory: async () => { events.push("history"); },
+    addHistory: async (type, message, details) => { events.push("history"); history.push({ type, message, details }); },
     removeSourceEntry: async name => { events.push("delete"); removed.push(name); }
   });
   vm.runInContext(importer + "\nthis.importManagerSource = importManagerSource;", context);
   return {
-    model, events, removed, durable: () => durable,
+    model, events, removed, history, durable: () => durable,
     run: () => context.importManagerSource("synthetic-conflicting-open-ro-summary.xlsx", "open-ro-summary", [], true)
   };
 }
@@ -90,7 +91,13 @@ test("identical synthetic Open RO summary reimport tolerates refreshed derived m
   assert.equal(persisted.store.verifiedRows, saved.store.verifiedRows, "the identical aggregate is accepted without duplication");
   assert.equal(persisted.coverageDate, "2026-10-21", "coverage date is normalized from the source evidence");
   assert.equal(persisted.sourceModifiedAt, "2026-10-22T00:00:00.000Z", "current source metadata is refreshed");
+  assert.equal(persisted.sourceFile, "synthetic-open-ro-summary-reimport.xlsx", "the saved WIP snapshot identifies the exact imported source");
   assert.deepEqual(f.events, ["write", "readback", "history", "delete"], "source deletion follows verified durable read-back and history");
+  assert.deepEqual(JSON.parse(JSON.stringify(f.history)), [{
+    type: "open-ro-summary-import",
+    message: "Saved verified open-ro-summary snapshot",
+    details: { fileName: "synthetic-open-ro-summary-reimport.xlsx", periodStart: "2026-10-01", periodEnd: "2026-10-21", compact: true }
+  }], "WIP audit history must preserve source identity and the imported reporting period only after durable read-back");
   assert.deepEqual(f.removed, ["synthetic-conflicting-open-ro-summary.xlsx"]);
   assert.equal(JSON.stringify(f.model.operationalMetrics), JSON.stringify(f.durable()), "the verified in-memory and durable snapshots agree across VM realms");
 });
