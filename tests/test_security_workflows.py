@@ -130,9 +130,10 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('MoonDog-Codex-Review-Request:$HEAD_SHA', proof_wait)
         self.assertIn('if [ "$HARD_FAIL" = "0" ]; then', proof_wait)
         self.assertIn('if [ "$REVIEW_STATE" = "pending" ] && [ "$CODEX_STATE" = "pending" ] && [ "$REVIEW_REQUESTED" = "0" ]; then', proof_wait)
+        poll_loop = proof_wait.index("for attempt in {1..")
         self.assertLess(
             proof_wait.index("MoonDog-Codex-Review-Request:$HEAD_SHA"),
-            proof_wait.index("for attempt in {1..42}; do"),
+            poll_loop,
         )
         current_refresh = merge.split("Bring branch current with main if needed", 1)[1].split("Squash merge verified current PR", 1)[0]
         self.assertIn('pulls/$PR_NUMBER/update-branch', current_refresh)
