@@ -193,7 +193,9 @@ test("same-date VIR reimports are idempotent and conflicting snapshots fail clos
   const snapshotCountBeforeEquivalent = Object.keys(f.durable().vir.snapshots).length;
   await f.context.importVirFile("synthetic-equivalent-vir.csv", true);
   assert.equal(Object.keys(f.durable().vir.snapshots).length, snapshotCountBeforeEquivalent, "equivalent reimport must not add another dated snapshot");
-  assert.equal(Object.values(f.durable().vir.snapshots)[0].sourceFile, "synthetic-vir.csv", "equivalent reimport must preserve original source lineage");
+  const datedSnapshots = Object.values(f.durable().vir.snapshots).filter(snapshot => snapshot.reportDate === "2026-10-22");
+  assert.equal(datedSnapshots.length, 1, "same-date reimports must retain one dated source snapshot");
+  assert.equal(datedSnapshots[0].sourceFile, "synthetic-vir.csv", "equivalent reimport must preserve original source lineage");
   assert.equal(f.events.filter(event => event === "write").length, writesBeforeConflict, "equivalent reimport must not rewrite durable data");
   assert.equal(f.events.at(-2), "delete-source", "the equivalent source may be removed only after its retained snapshot is confirmed");
 });
