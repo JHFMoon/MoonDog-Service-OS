@@ -84,3 +84,19 @@ test("every time-cadenced source rejects an old period as stale evidence",()=>{
     assert.equal(metric.status,"stale",key+" stale confidence must remain visible");
   }
 });
+
+test("invalid duplicate period evidence blocks an otherwise current metric without hiding either dependency",()=>{
+  const current=F.evaluateSource({key:"menu",exists:true,today,releaseWeek:"2026-10-05"});
+  const duplicate=F.evaluateSource({
+    key:"menu",exists:true,today,releaseWeek:"2026-10-05",
+    invalid:"Conflicting duplicate synthetic Menu Sales report for the same release week."
+  });
+  const metric=F.evaluateMetric([current,duplicate]);
+
+  assert.equal(current.status,"current","the accepted report remains an independently valid source");
+  assert.equal(duplicate.status,"invalid","duplicate conflict stays explicitly classified");
+  assert.equal(metric.verified,false,"a valid report cannot mask a conflicting duplicate");
+  assert.equal(metric.status,"invalid","the invalid confidence is surfaced by the aggregate");
+  assert.deepEqual(metric.blocking,[duplicate],"the rejected duplicate remains the blocking evidence");
+  assert.deepEqual(metric.dependencies,[current,duplicate],"both source records remain auditable dependencies");
+});
