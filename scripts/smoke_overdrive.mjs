@@ -1071,8 +1071,22 @@ try{
                 fieldEntryCount:probe.fieldEntries,scrollDistancePx:probe.scrollDistancePx};
             });
             const taskNavigate=async view=>{
-              await connectedPage.locator('.nav-item[data-view="'+view+'"]').click({timeout:5000});
-              await connectedPage.waitForFunction(v=>document.getElementById("view-"+v)?.classList.contains("active"),view,{timeout:5000});
+              if(view==="imports"){
+                await connectedPage.locator('.nav-item[data-view="tools"]').click({timeout:5000});
+                await connectedPage.waitForFunction(()=>document.getElementById("view-tools")?.classList.contains("active"),null,{timeout:5000});
+                await connectedPage.getByRole("button",{name:"Import or refresh data",exact:true}).click({timeout:5000});
+                await connectedPage.waitForFunction(()=>document.getElementById("dailyTools")?.dataset.category==="imports",null,{timeout:5000});
+              }else if(view==="settings"){
+                const search=connectedPage.locator("#findAnything");
+                await search.fill("Change how Service Operations Dashboard works");
+                const result=connectedPage.getByRole("button",{name:/^Change how Service Operations Dashboard works/});
+                await result.waitFor({state:"visible",timeout:5000});
+                await result.click({timeout:5000});
+                await connectedPage.waitForFunction(()=>document.getElementById("view-settings")?.classList.contains("active"),null,{timeout:5000});
+              }else{
+                await connectedPage.locator('.nav-item[data-view="'+view+'"]').click({timeout:5000});
+                await connectedPage.waitForFunction(v=>document.getElementById("view-"+v)?.classList.contains("active"),view,{timeout:5000});
+              }
             };
             const measureScreenTask=async(name,action)=>{
               await connectedPage.evaluate(()=>{
@@ -1106,6 +1120,9 @@ try{
               }),
               await measureScreenTask("assign-next-review-and-exclude",async()=>{
                 await taskNavigate("assign-next");
+                const workloadSummary=connectedPage.locator('#view-assign-next details.daily-disclosure > summary').filter({hasText:"Workload and advisor availability"});
+                await workloadSummary.click({timeout:5000});
+                await connectedPage.waitForFunction(()=>document.querySelector('#view-assign-next details.daily-disclosure')?.open===true,null,{timeout:5000});
                 const availability=connectedPage.locator('#assignAdvisorGrid [data-assign-availability="100"]');
                 await availability.waitFor({state:"visible",timeout:5000});
                 const before=await availability.innerText();
@@ -1394,7 +1411,7 @@ try{
                   failures.push({case:key,reason:"visible text contrast is below threshold or cannot be measured",contrast:result.contrast});
                 if(view==="open-ro"){
                   longTextResults.push({case:key,...result.longText});
-                  if(!result.longText?.rowFound||result.longText.visibleFields!==3||result.longText.clippedFields>0)
+                  if(!result.longText?.rowFound||result.longText.visibleCells!==3||result.longText.clippedCells>0)
                     failures.push({case:key,reason:"long synthetic Open RO text is missing or clipped",longText:result.longText});
                 }
                 return result;
