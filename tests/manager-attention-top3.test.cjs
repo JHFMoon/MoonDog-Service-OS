@@ -192,3 +192,78 @@ test('RO writer fallback is clearly marked unconfirmed until follow-up ownership
   assert.equal(assigned.children[0].value,'Synthetic Assigned Owner');
   assert.equal(assigned.children.length,1,'confirmed manager assignment does not show the unconfirmed fallback warning');
 });
+
+test('Home secondary priorities show ownership, due date, blocker, next step, and source confidence without inference',()=>{
+  const ops=read('assets/daily-ops.js');
+  const start=ops.indexOf('  function attentionSecondaryDetail(');
+  const renderStart=ops.indexOf('  function renderOtherPriorities(',start);
+  const renderEnd=ops.indexOf('  function renderHome(',renderStart);
+  assert.ok(start>=0&&renderStart>start&&renderEnd>renderStart,'production Home priority summary exists');
+  const source=ops.slice(start,renderEnd);
+  const node=()=>({children:[],textContent:'',className:'',dataset:{},append(...items){this.children.push(...items);},setAttribute(){}});
+  const record={
+    id:'synthetic-ro-context',ro:'SYN-CONTEXT-1',
+    management:{owner:'Synthetic Follow-up Owner',reviewDate:'2026-10-27',status:'Waiting Parts',
+      statusDetail:'Synthetic part ETA',nextAction:'Recheck synthetic part ETA'},
+    cdkOperational:{status:'Awaiting Technician Attention',stale:false}
+  };
+  const model={state:{records:[record],source:{fileName:'synthetic-open-ro.xlsx',reportDate:'2026-10-26'}}};
+  const context=vm.createContext({
+    model,state:{events:[]},
+    api:{
+      status:value=>value.management.status,
+      cdkIndicator:value=>value.cdkOperational.stale?{text:'Not confirmed by latest import'}:null,
+      recordRefresh:async()=>{}
+    },
+    attentionTopThree:()=>[{id:'primary'}, {id:'secondary',type:'ro',recordId:record.id,record}],
+    document:{createElement:node},
+    button:(label)=>{const value=node();value.textContent=label;return value;},
+    action:fn=>fn(),openAttention:()=>{},engine:{deferUntil:()=>''},log:async()=>{},selectNext:async()=>{}
+  });
+  vm.runInContext(source+';this.renderOtherPriorities=renderOtherPriorities;',context);
+  const host=node();
+  context.renderOtherPriorities({id:'primary'},host);
+  const section=host.children[0],row=section.children[1],detail=row.children[0].children[1];
+  assert.match(detail.textContent,/Follow-up owner: Synthetic Follow-up Owner/);
+  assert.match(detail.textContent,/Follow-up date: 2026-10-27/);
+  assert.match(detail.textContent,/Status \/ blocker: Synthetic part ETA/);
+  assert.match(detail.textContent,/Next step: Recheck synthetic part ETA/);
+  assert.match(detail.textContent,/synthetic-open-ro\.xlsx · 2026-10-26/);
+  assert.match(detail.textContent,/Current source confirms Awaiting Technician Attention/);
+
+  record.management={status:'',statusDetail:'',nextAction:'',reviewDate:''};
+  record.advisor='Synthetic Writer';
+  record.cdkOperational={status:'Being Repaired',stale:true};
+  context.api.status=()=> '';
+  context.api.cdkIndicator=()=>({text:'Not confirmed by latest import'});
+  const staleHost=node();
+  context.renderOtherPriorities({id:'primary'},staleHost);
+  const staleText=staleHost.children[0].children[1].children[0].children[1].textContent;
+  assert.match(staleText,/Follow-up owner: Not confirmed/);
+  assert.match(staleText,/Follow-up date: Not set/);
+  assert.match(staleText,/Status \/ blocker: Not confirmed/);
+  assert.match(staleText,/Next step: Confirm next action/);
+  assert.match(staleText,/Not confirmed by latest import/);
+  assert.doesNotMatch(staleText,/Follow-up owner: Synthetic Writer/,'a source writer must not be presented as a confirmed manager assignment');
+});
+
+test('manager attention keeps parts, approval, dispatch, diagnosis, customer-update, and promise cases actionable',()=>{
+  const context=vm.createContext({Date,Intl});
+  vm.runInContext(read('assets/daily-engine.js'),context);
+  const engine=context.MoonDogDailyEngine;
+  const api={closed:()=>false,priority:()=>5,status:record=>record.management.status||''};
+  const cases=[
+    [{status:'Being Repaired',statusDetail:'Parts ETA pending'},'Waiting on parts','Follow up on parts'],
+    [{status:'Pending Authorization'},'Awaiting approval','Follow up on approval'],
+    [{status:'Awaiting Dispatch'},'Dispatch inspection','Check dispatch'],
+    [{status:'Needs Diagnosis'},'Complete diagnosis','Follow up on diagnosis'],
+    [{status:'Being Repaired',communication:'Needs update'},'Contact customer','Update this customer'],
+    [{status:'Being Repaired'},'Call customer — promised today','Follow up on this commitment']
+  ];
+  for(const [management,nextAction,title] of cases){
+    const task=engine.roTask({id:'synthetic-'+title,ro:'SYN-60',daysOpen:1,
+      sourceStatus:'',management:{...management,nextAction}},api,'2026-10-26',Date.parse('2026-10-26T12:00:00Z'));
+    assert.ok(task,'the source-specific/promise task is retained: '+title);
+    assert.equal(task.title,title);
+  }
+});
