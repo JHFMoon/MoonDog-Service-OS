@@ -66,6 +66,41 @@ test("UI surfaces have independent non-destructive visibility gates", () => {
   assert.match(app, /Object\.values\(latest\.advisors\)\.filter\(advisor => advisorShownInSection\(advisor\.code, "advisorPerformance"\)\)/);
   assert.match(app, /advisorShownInSection\(a\.number,'advisorPerformance'\)/);
   assert.match(app, /await writeJson\(SETTINGS_PATH,model\.settings\)/, "settings still saved to durable Workspace");
-  assert.match(app, /const records = model\.state\.records \|\| \[\]; const today = localDateKey\(\), active = records\.filter/, "global Home totals retain all source records");
+  // Evaluate the actual Home renderer: presentation-only advisor hiding may
+  // reduce the Open RO table, but cannot erase storewide source totals.
+  const homeStart=app.indexOf("  function renderAll() {");
+  const homeEnd=app.indexOf("  const renderAllWithCanonicalSourceLabels=renderAll;",homeStart);
+  assert.ok(homeStart>=0&&homeEnd>homeStart,"production Home renderer exists");
+  const management=[
+    {status:"Diagnosis",reviewDate:"2026-10-26",nextAction:""},
+    {status:"Repair",reviewDate:"2026-10-26",nextAction:"Waiting for parts"},
+    {status:"Closed",reviewDate:"2026-10-26",nextAction:""},
+    {status:"Repair",reviewDate:"2026-10-27",nextAction:""},
+    {status:"Diagnosis",reviewDate:"2026-10-26",nextAction:"Review"}
+  ];
+  const fullRecords=model.state.records.map((record,index)=>({...record,management:management[index]}));
+  const allRecordsBefore=JSON.stringify(fullRecords);
+  const homeModel={root:{},state:{records:fullRecords,updatedAt:null,source:null},
+    recovery:{supervisorWorkbook:null}};
+  const field=()=>({textContent:""});
+  const homeUi={metricOpen:field(),metricDue:field(),metricMissing:field(),
+    metricUpdated:field(),lastImport:field(),lastExport:field(),
+    exportButton:{disabled:true}};
+  const home=vm.runInNewContext(app.slice(homeStart,homeEnd)+"\n({renderAll})",{
+    model:homeModel,ui:homeUi,localDateKey:()=>"2026-10-26",
+    isClosedManagement:management=>norm(management?.status)==="closed",
+    renderOverviewIntelligence:()=>{},renderDailyFocus:()=>{},renderFilters:()=>{},
+    renderTable:()=>{},renderArrivals:()=>{},renderPerformance:()=>{},
+    renderMeeting:()=>{},renderAssignNext:()=>{},renderSetup:()=>{}
+  });
+  home.renderAll();
+  assert.equal(visibility.openRoVisibleRecords().length,2,
+    "advisor-scoped Open RO list hides an opted-out advisor");
+  assert.deepEqual([homeUi.metricOpen.textContent,homeUi.metricDue.textContent,
+    homeUi.metricMissing.textContent],[4,3,2],
+    "Home totals retain hidden advisor source rows while excluding only closed work");
+  assert.equal(homeUi.exportButton.disabled,false);
+  assert.equal(JSON.stringify(fullRecords),allRecordsBefore,
+    "presentation filters and Home counting must never mutate authoritative rows");
   new vm.Script(app);
 });
