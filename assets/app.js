@@ -4303,10 +4303,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   let editDraftDirty = false;
   let editDraftRevision = 0;
   function markEditDraftDirty(){editDraftDirty=true;editDraftRevision+=1;}
-  function guardUnsavedEditUnload(event){if(editDraftDirty){event.preventDefault();event.returnValue="";}}
+  function isOpenRoSavePending(){return typeof model!=="undefined"&&model.openRoSaveInFlight===true;}
+  function guardUnsavedEditUnload(event){if(isOpenRoSavePending()||editDraftDirty){event.preventDefault();event.returnValue="";}}
     function confirmDiscardEdit(){return !editDraftDirty||window.confirm("You have unsaved RO changes. Close this update and discard them?");}
-  function closeEditDialog(){if(confirmDiscardEdit()){editDraftDirty=false;ui.editDialog.close();}}
-  function confirmEditNavigation(view){if(!editDraftDirty)return true;const activeView=document.querySelector(".view.active");if(activeView?.id===`view-${view}`)return true;if(!confirmDiscardEdit())return false;editDraftDirty=false;if(ui.editDialog.open)ui.editDialog.close();return true;}
+  function closeEditDialog(){if(isOpenRoSavePending()){status("An Open RO save is waiting for the shared Workspace lock. Wait for it to finish before closing this editor.","error");return false;}if(confirmDiscardEdit()){editDraftDirty=false;ui.editDialog.close();return true;}return false;}
+  function confirmEditNavigation(view){if(isOpenRoSavePending()){status("An Open RO save is waiting for the shared Workspace lock. Wait for it to finish before changing views.","error");return false;}if(!editDraftDirty)return true;const activeView=document.querySelector(".view.active");if(activeView?.id===`view-${view}`)return true;if(!confirmDiscardEdit())return false;editDraftDirty=false;if(ui.editDialog.open)ui.editDialog.close();return true;}
   function visibleFocusIds() { return [...ui.dailyFocusGrid.querySelectorAll("button[data-focus-id]")].map((button) => button.dataset.focusId); }
   function updateStatusDetailEditor(record=null){
     const status=ui.editStatus.value,options=statusDetailsFor(status),storedParent=record?reviewedCanonicalStatus(record):"",stored=record&&storedParent===canonicalReviewStatus(status)?reviewStatusDetail(record):ui.editStatusDetail.value;
@@ -4339,12 +4340,14 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       coachingAction: ui.editAdminCoachingAction.value
     };
   }
-  function openEdit(id, origin = "table") { const record = model.state.records.find((r) => r.id === id); if (!record) return; model.selectedId = id; model.editOrigin = origin; const ids = origin === "focus" ? visibleFocusIds() : visibleRecordIds(), position = ids.indexOf(id), clarification = clarificationFor(record), currentStatus=statusForRecord(record), statusChoices=selectableStatusesFor(record); ui.dialogTitle.textContent = "RO "+record.ro; ui.editPosition.textContent = position >= 0 ? (position + 1)+" of "+ids.length+" "+(origin === "focus" ? "daily focus" : "shown") : ""; ui.editClarification.hidden = !clarification; ui.editClarification.textContent = clarification ? "Review needed: "+clarification : ""; ui.editValidation.hidden = true; ui.editValidation.textContent = ""; ui.recordSummary.replaceChildren(); [record.advisorCode ? record.advisor+" · "+record.advisorCode : record.advisor, record.customer, record.vehicle || record.tagNumber, record.vin].filter(Boolean).forEach((value) => { const item = document.createElement("span"); item.textContent = value; ui.recordSummary.append(item); }); populateSelect(ui.editStatus,statusChoices); ui.editStatus.value=statusChoices.includes(currentStatus)?currentStatus:""; updateStatusDetailEditor(record);renderCdkStatusIndicator(record); ui.editOwner.value = record.management.owner || ""; ui.editOwner.dataset.ownerAssignmentExplicit="false"; ui.editNextAction.value = record.management.nextAction || ""; ui.editReviewDate.value = record.management.reviewDate || ""; ui.editAdminBlocker.value = record.management.adminCloseout?.blocker || ""; ui.editAdminTaskDate.value = record.management.adminCloseout?.taskDate || ""; ui.editAdminCloseDate.value = record.management.adminCloseout?.expectedCloseDate || ""; ui.editAdminChangeReason.value = ""; restoreSelectValue(ui.editCommunication, normalizeCommunication(record.management.communication), COMMUNICATION_STATUSES); ui.editNote.value = record.management.note || ""; editDraftDirty=false; if (!ui.editDialog.open) ui.editDialog.showModal(); requestAnimationFrame(() => (ui.editStatus.value?ui.editNextAction:ui.editStatus).focus()); }
+  function openEdit(id, origin = "table") { if(model.openRoSaveInFlight){status("An Open RO save is in progress. Wait for it to finish before switching records.","error");return false;} const record = model.state.records.find((r) => r.id === id); if (!record) return false; model.selectedId = id; model.editOrigin = origin; const ids = origin === "focus" ? visibleFocusIds() : visibleRecordIds(), position = ids.indexOf(id), clarification = clarificationFor(record), currentStatus=statusForRecord(record), statusChoices=selectableStatusesFor(record); ui.dialogTitle.textContent = "RO "+record.ro; ui.editPosition.textContent = position >= 0 ? (position + 1)+" of "+ids.length+" "+(origin === "focus" ? "daily focus" : "shown") : ""; ui.editClarification.hidden = !clarification; ui.editClarification.textContent = clarification ? "Review needed: "+clarification : ""; ui.editValidation.hidden = true; ui.editValidation.textContent = ""; ui.recordSummary.replaceChildren(); [record.advisorCode ? record.advisor+" · "+record.advisorCode : record.advisor, record.customer, record.vehicle || record.tagNumber, record.vin].filter(Boolean).forEach((value) => { const item = document.createElement("span"); item.textContent = value; ui.recordSummary.append(item); }); populateSelect(ui.editStatus,statusChoices); ui.editStatus.value=statusChoices.includes(currentStatus)?currentStatus:""; updateStatusDetailEditor(record);renderCdkStatusIndicator(record); ui.editOwner.value = record.management.owner || ""; ui.editOwner.dataset.ownerAssignmentExplicit="false"; ui.editNextAction.value = record.management.nextAction || ""; ui.editReviewDate.value = record.management.reviewDate || ""; ui.editAdminBlocker.value = record.management.adminCloseout?.blocker || ""; ui.editAdminTaskDate.value = record.management.adminCloseout?.taskDate || ""; ui.editAdminCloseDate.value = record.management.adminCloseout?.expectedCloseDate || ""; ui.editAdminChangeReason.value = ""; restoreSelectValue(ui.editCommunication, normalizeCommunication(record.management.communication), COMMUNICATION_STATUSES); ui.editNote.value = record.management.note || ""; editDraftDirty=false; if (!ui.editDialog.open) ui.editDialog.showModal(); requestAnimationFrame(() => (ui.editStatus.value?ui.editNextAction:ui.editStatus).focus()); return true; }
   const openEditWithoutCloseoutEvidence = openEdit;
   openEdit = function(id, origin = "table") {
-    openEditWithoutCloseoutEvidence(id, origin);
+    const opened=openEditWithoutCloseoutEvidence(id, origin);
+    if(!opened)return false;
     const record = model.state.records.find((item) => item.id === id);
     if (record) loadAdminCloseoutEvidence(record);
+    return true;
   };
   function editValidationError(message) { ui.editValidation.textContent = message; ui.editValidation.hidden = false; throw new Error(message); }
   // The state write is already read-back verified by writeJson. Never reinterpret a
@@ -4380,7 +4383,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     editDraftDirty=false;
     const canAdvance=Boolean(advance&&nextId&&model.state.records.some(item=>item.id===nextId));
-    if(canAdvance)openEdit(nextId,origin);
+    if(canAdvance){const pending=model.openRoSaveInFlight;model.openRoSaveInFlight=false;try{openEdit(nextId,origin);}finally{model.openRoSaveInFlight=pending;}}
     else ui.editDialog.close();
     status("RO "+record.ro+" was saved and read-back verified."+
       (canAdvance?" Continue with the next displayed RO.":"")+
@@ -4388,12 +4391,98 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       warnings.length?"error":"success");
     return true;
   }
-  async function saveRecord(event, advance = false) { const submittedDraftRevision=typeof editDraftRevision==="number"?editDraftRevision:null; event?.preventDefault(); const record = model.state.records.find((r) => r.id === model.selectedId); if (!record) return; const nextAction = ui.editNextAction.value.trim(), commitmentDate = ui.editReviewDate.value, selectedStatus=canonicalReviewStatus(ui.editStatus.value), selectedStatusId=resolveStatusId(selectedStatus,"",true),detailOptions=statusDetailsFor(selectedStatus),statusDetail=detailOptions.length?normalizedStatusDetail(selectedStatus,ui.editStatusDetail.value):"",statusDetailOther=statusDetail==="Other"?ui.editStatusDetailOther.value.trim():""; ui.editValidation.hidden = true; if (!selectedStatus||!statusAllowedForSave(selectedStatus,record)) editValidationError("Choose one of the seven current CDK workflow statuses before saving."); if(detailOptions.length&&!statusDetail)editValidationError("Choose the status detail before saving.");if(statusDetail==="Other"&&!statusDetailOther)editValidationError("Describe the Other status detail before saving."); if (!COMMUNICATION_STATUSES.includes(ui.editCommunication.value)) editValidationError("Choose a recognized customer communication state before saving."); const adminBlocker=ui.editAdminBlocker.value;
-    if (!nextAction || (!commitmentDate && !adminBlocker)) editValidationError("Enter the next action and a commitment date, or identify a confirmed admin blocker awaiting an advisor commitment.");
-    let adminCloseout=null;
-    if(adminBlocker || record.management.adminCloseout?.blocker)try{const commitments=nextAdminCloseout(record.management.adminCloseout,adminBlocker,ui.editAdminTaskDate.value,ui.editAdminCloseDate.value,ui.editAdminChangeReason.value,now());adminCloseout=nextAdminCloseoutEvidence(commitments,currentAdminCloseoutEvidence(),now());}catch(error){editValidationError(error.message);}
-    const origin = model.editOrigin, ids = origin === "focus" ? visibleFocusIds() : visibleRecordIds(), nextId = ids[ids.indexOf(record.id) + 1] || null, priorState = JSON.parse(JSON.stringify(model.state)), before = { ...record.management }, proposed = { ...record.management, ...(dailySaveAdditions || {}), statusId:selectedStatusId, status:selectedStatus, statusDetail, statusDetailOther, owner: ui.editOwner.value.trim(), ownerAssignmentSource: ownerAssignmentSourceForManagerSave(before,ui.editOwner.value.trim(),record.advisor||record.advisorCode,ui.editOwner.dataset?.ownerAssignmentExplicit==="true"), nextAction, reviewDate: commitmentDate, communication: ui.editCommunication.value, note: ui.editNote.value.trim(), ...(adminCloseout ? { adminCloseout } : {}), clarification: null, managerReviewedOn: localDateKey(), updatedAt: now() }; record.management = proposed; try { await saveState("Updated RO "+record.ro, priorState); } catch (error) { model.state = priorState; ui.editValidation.textContent = "Service Operations Dashboard could not save this RO to durable storage. Your entries are still shown; check the folder connection and try again."; ui.editValidation.hidden = false; recordDiagnostic("QUICK UPDATE SAVE FAILED", "Durable Open RO update failed ("+(error.name || "Error")+")"); return; } return finishSavedOpenRo(record,before,proposed,origin,advance,nextId,submittedDraftRevision); }
+  async function saveRecord(event, advance = false) {
+    event?.preventDefault();
+    if(ui.editValidation)ui.editValidation.hidden=true;
+    if(model.openRoSaveInFlight){status("An Open RO save is already waiting for the shared Workspace lock.", "error");return false;}
+    const submittedDraftRevision=typeof editDraftRevision==="number"?editDraftRevision:null;
+    const submittedId=model.selectedId;
+    const origin=model.editOrigin;
+    const ids=origin==="focus"?visibleFocusIds():visibleRecordIds();
+    const nextId=ids[ids.indexOf(submittedId)+1]||null;
+    const submitted={
+      nextAction:ui.editNextAction.value,
+      reviewDate:ui.editReviewDate.value,
+      status:ui.editStatus.value,
+      statusDetail:ui.editStatusDetail.value,
+      statusDetailOther:ui.editStatusDetailOther.value,
+      communication:ui.editCommunication.value,
+      owner:ui.editOwner.value,
+      ownerExplicit:ui.editOwner.dataset?.ownerAssignmentExplicit==="true",
+      note:ui.editNote.value,
+      adminBlocker:ui.editAdminBlocker.value,
+      adminTaskDate:ui.editAdminTaskDate.value,
+      adminCloseDate:ui.editAdminCloseDate.value,
+      adminChangeReason:ui.editAdminChangeReason.value,
+      adminEvidence:typeof currentAdminCloseoutEvidence==="function"?currentAdminCloseoutEvidence():{},
+      dailySaveAdditions:dailySaveAdditions?{...dailySaveAdditions}:null
+    };
+    model.openRoSaveInFlight=true;
+    const performSave=async()=>{
+      const record=model.state.records.find((item)=>item.id===submittedId);
+      if(!record){
+        editDraftDirty=true;
+        const message="This RO is no longer in the refreshed Open RO source. Your entries remain shown; refresh the folder and confirm the current RO before retrying.";
+        ui.editValidation.textContent=message;
+        ui.editValidation.hidden=false;
+        status("RO save was not completed. "+message,"error");
+        return null;
+      }
+      const nextAction=submitted.nextAction.trim(),commitmentDate=submitted.reviewDate,
+        selectedStatus=canonicalReviewStatus(submitted.status),selectedStatusId=resolveStatusId(selectedStatus,"",true),
+        detailOptions=statusDetailsFor(selectedStatus),
+        statusDetail=detailOptions.length?normalizedStatusDetail(selectedStatus,submitted.statusDetail):"",
+        statusDetailOther=statusDetail==="Other"?submitted.statusDetailOther.trim():"";
+      ui.editValidation.hidden=true;
+      if(!selectedStatus||!statusAllowedForSave(selectedStatus,record))editValidationError("Choose one of the seven current CDK workflow statuses before saving.");
+      if(detailOptions.length&&!statusDetail)editValidationError("Choose the status detail before saving.");
+      if(statusDetail==="Other"&&!statusDetailOther)editValidationError("Describe the Other status detail before saving.");
+      if(!COMMUNICATION_STATUSES.includes(submitted.communication))editValidationError("Choose a recognized customer communication state before saving.");
+      const adminBlocker=submitted.adminBlocker;
+      if(!nextAction||(!commitmentDate&&!adminBlocker))editValidationError("Enter the next action and a commitment date, or identify a confirmed admin blocker awaiting an advisor commitment.");
+      let adminCloseout=null;
+      if(adminBlocker||record.management.adminCloseout?.blocker)try{
+        const commitments=nextAdminCloseout(record.management.adminCloseout,adminBlocker,submitted.adminTaskDate,submitted.adminCloseDate,submitted.adminChangeReason,now());
+        adminCloseout=nextAdminCloseoutEvidence(commitments,submitted.adminEvidence,now());
+      }catch(error){editValidationError(error.message);}
+      const priorState=JSON.parse(JSON.stringify(model.state)),before={...record.management},
+        proposed={...record.management,...(submitted.dailySaveAdditions||{}),statusId:selectedStatusId,status:selectedStatus,statusDetail,statusDetailOther,
+          owner:submitted.owner.trim(),ownerAssignmentSource:ownerAssignmentSourceForManagerSave(before,submitted.owner.trim(),record.advisor||record.advisorCode,submitted.ownerExplicit),
+          nextAction,reviewDate:commitmentDate,communication:submitted.communication,note:submitted.note.trim(),...(adminCloseout?{adminCloseout}:{}),
+          clarification:null,managerReviewedOn:localDateKey(),updatedAt:now()};
+      record.management=proposed;
+      try{
+        await saveState("Updated RO "+record.ro, priorState);
+      }catch(error){
+        model.state=priorState;
+        ui.editValidation.textContent="Service Operations Dashboard could not save this RO to durable storage. Your entries are still shown; check the folder connection and try again.";
+        ui.editValidation.hidden=false;
+        recordDiagnostic("QUICK UPDATE SAVE FAILED","Durable Open RO update failed ("+(error.name||"Error")+")");
+        return null;
+      }
+      return{record,before,proposed,origin,advance,nextId,submittedDraftRevision};
+    };
+    try{
+      const saved=globalThis.navigator?.locks?.request&&typeof withSupervisorWorkbookLock==="function"
+        ?await withSupervisorWorkbookLock(performSave)
+        :await performSave();
+      if(!saved)return;
+      return await finishSavedOpenRo(saved.record,saved.before,saved.proposed,saved.origin,advance,saved.nextId,saved.submittedDraftRevision);
+    }catch(error){
+      if(ui.editValidation&&!ui.editValidation.hidden)throw error;
+      editDraftDirty=true;
+      const message="The Workspace changed while this RO edit was waiting to save. Your entries remain shown; refresh the connected folder and retry.";
+      ui.editValidation.textContent=message;
+      ui.editValidation.hidden=false;
+      recordDiagnostic("OPEN RO SAVE DEFERRED","Open RO save did not start because shared Workspace state changed ("+(error.name||"Error")+")");
+      status("RO save was not completed. "+message,"error");
+      return;
+    }finally{
+      model.openRoSaveInFlight=false;
+    }
+  }
   async function closeRo(id=model.selectedId){
+    if(model.openRoSaveInFlight){status("An Open RO save is in progress. Wait for it to finish before closing a record.","error");return false;}
     const record=model.state.records.find((item)=>item.id===id);if(!record)return false;const priorState=structuredClone(model.state),closedAt=now(),archive={...record,closedAt,closedReason:"manual-manager-close"};
     model.state.records=model.state.records.filter((item)=>item.id!==id);model.state.closedRecords=pruneClosedRecords([...(model.state.closedRecords||[]).filter((item)=>item.id!==id),archive]);model.state.updatedAt=closedAt;
     try{await saveState("Manually closed RO "+record.ro,priorState);await addHistory("ro-closed","Marked RO "+record.ro+" closed",{ro:record.ro,method:"manual",retentionDays:CLOSED_RO_RETENTION_DAYS});if(model.state.source)await saveOpenRoWorkload(openRoWorkloadSnapshot(model.state.records,model.state.source));await ensureDailyFocus();await markSupervisorWorkbookStale("An RO was manually marked closed");renderAll();editDraftDirty=false;if(ui.editDialog.open)ui.editDialog.close();status("RO "+record.ro+" was removed from active workflow. Its saved information is retained for "+CLOSED_RO_RETENTION_DAYS+" days and will be restored if a later Open RO import shows it open again.","success");return true;}catch(error){model.state=priorState;renderAll();throw error;}
@@ -5664,6 +5753,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     applyRoDensity();saveRoDeviceView();renderTable();
   });
   ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", () => run(connect)); ui.homeConnect.addEventListener("click", () => run(connect)); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input",renderTable); [["advisor",ui.advisorFilter],["sourceStatus",ui.sourceStatusFilter],["managementStatus",ui.managementStatusFilter]].forEach(([field,select])=>select.addEventListener("change",()=>{saveOpenRoFilter(field,select);renderTable();})); ui.attentionFilter.addEventListener("change",renderTable); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; clearSavedOpenRoFilters(); saveRoDeviceView(); renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",markEditDraftDirty); ui.editForm.addEventListener("change",markEditDraftDirty); ui.editOwner.addEventListener("input",()=>{ui.editOwner.dataset.ownerAssignmentExplicit="true";}); window.addEventListener("beforeunload",guardUnsavedEditUnload); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(importAppointmentFile)); ui.appointmentDate.addEventListener("change", renderArrivals); ui.arrivalSearch.addEventListener("input", renderArrivals); ui.printArrivals.addEventListener("click", () => run(printPorterList)); ui.arrivalTimeline.addEventListener("change", (event) => { const select = event.target.closest("select[data-appointment-id]"); if (select) run(() => updateArrivalStatus(select.dataset.appointmentId, select.value)); }); ui.saveSettings.addEventListener("click", () => run(saveSettings)); const saveMeetingVoiceDraft=()=>{syncMeetingVoiceDraftSettings();queueSettingsAutosave();renderVoiceControlVisibility();};ui.meetingVoiceSurvey.addEventListener("change",()=>{previewMeetingVoiceSelection();saveMeetingVoiceDraft();});ui.meetingVoiceMode.addEventListener("change",saveMeetingVoiceDraft);ui.meetingVoiceSourceMethod.addEventListener("change",()=>{if(ui.meetingVoiceSourceMethod.value==="saved")previewMeetingVoiceSelection();else ui.meetingVoiceExcerpt.value=ui.meetingVoicePastedSource.value;saveMeetingVoiceDraft();});[ui.meetingVoicePastedSource,ui.meetingVoiceExcerpt,ui.meetingTeamMessage].forEach((field)=>field.addEventListener("input",saveMeetingVoiceDraft));ui.meetingVoiceUseFull.addEventListener("click",()=>{useFullMeetingVoice();saveMeetingVoiceDraft();}); ui.pinMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(true))); ui.clearMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(false)));
+  ui.editDialog.addEventListener("cancel",(event)=>{if(model.openRoSaveInFlight){event.preventDefault();status("An Open RO save is waiting for the shared Workspace lock. Wait for it to finish before closing this editor.","error");return;}});
   ui.recentlyReviewed.addEventListener("click",()=>{ui.recentlyReviewedPanel.hidden=!ui.recentlyReviewedPanel.hidden;ui.recentlyReviewed.setAttribute("aria-expanded",String(!ui.recentlyReviewedPanel.hidden));if(!ui.recentlyReviewedPanel.hidden)renderRecentlyReviewed();});ui.recentlyReviewedPanel.addEventListener("click",(event)=>{const button=event.target.closest("button[data-recently-reviewed-id]");if(!button)return;ui.recentlyReviewedPanel.hidden=true;ui.recentlyReviewed.setAttribute("aria-expanded","false");openEdit(button.dataset.recentlyReviewedId,"recent");});
   ui.openFirstRecord.addEventListener("click", () => { const id = visibleRecordIds()[0]; if (id) openEdit(id); });
   ui.searchInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { const id = visibleRecordIds()[0]; if (id) { event.preventDefault(); openEdit(id); } } });
@@ -5785,27 +5875,17 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     });
   };
   const saveBeforeDaily = saveRecord;
-  let openRoSaveInFlight = false;
-  saveRecord = async function(event, advance = false, additions = null) {
+  saveRecord=async function(event,advance=false,additions=null){
     event?.preventDefault();
-    // One durable mutation at a time protects the previous-state backup and read-back.
-    if(openRoSaveInFlight){
-      ui.editValidation.textContent="This RO save is still being verified. Finish the current save before trying again.";
-      ui.editValidation.hidden=false;
-      return false;
-    }
-    const id = model.selectedId, record = model.state.records.find(r => r.id === id);
-    if (!record) throw new Error('This RO is no longer in the current report. Refresh the task to continue.');
-    if (additions?.reviewTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(additions.reviewTime)) throw new Error('Choose a valid follow-up time.');
-    // The established save builds its proposed management from the current object.
-    // Additional Home fields are supplied separately so the pre-change backup remains exact.
-    openRoSaveInFlight = true;
-    dailySaveAdditions = additions;
-    try {
-      const saved = await saveBeforeDaily(event, advance);
-      if (saved) dailyNotify('moondog-saved', { id, origin: model.editOrigin });
+    const id=model.selectedId,record=model.state.records.find(item=>item.id===id);
+    if(!record)throw new Error("This RO is no longer in the current report. Refresh the task to continue.");
+    if(additions?.reviewTime&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(additions.reviewTime))throw new Error("Choose a valid follow-up time.");
+    dailySaveAdditions=additions;
+    try{
+      const saved=await saveBeforeDaily(event,advance);
+      if(saved)dailyNotify("moondog-saved",{id,origin:model.editOrigin});
       return saved;
-    } finally { dailySaveAdditions = null; openRoSaveInFlight = false; }
+    }finally{dailySaveAdditions=null;}
   };
   let dailySaveAdditions = null;
   // Paste & Learn uses an ephemeral preview token; only a separately
