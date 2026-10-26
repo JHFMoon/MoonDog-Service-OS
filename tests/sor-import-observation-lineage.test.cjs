@@ -90,7 +90,7 @@ test("SOR report observation date survives production import, durable readback, 
   assert.equal(f.managerGrid.children.length, 5, "Home renders its source summaries from durable operational metrics");
   assert.match(f.managerGrid.children[0].innerHTML, /2026-10/,
     "Home reports the imported financial period from the retained source snapshot");
-  assert.match(managerGrid.children[0].innerHTML, /1200 CP labor gross/,
+  assert.match(f.managerGrid.children[0].innerHTML, /1200 CP labor gross/,
     "Home derives SOR financial output from the same imported source values");
 });
 
