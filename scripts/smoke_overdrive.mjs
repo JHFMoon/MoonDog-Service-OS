@@ -709,11 +709,14 @@ try{
       const connectionSamples=[],launcherSamples=[];
       const firstTabSamples={},repeatTabSamples={};
       const connectedEditSamples={search:[],editor:[],noteReveal:[],durableSave:[]};
+      const uxTaskSamples=[];
+      let uxBrowserErrorCount=0;
       for(let sample=0;sample<9;sample++){
-        const connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
+        let connectedPage=null,uxMetrics=null,sampleFailure=null;
         const browserErrors=[];
-        connectedPage.on("pageerror",error=>browserErrors.push(error.message));
         try{
+          connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
+          connectedPage.on("pageerror",error=>browserErrors.push(error.message));
           const launcherStarted=performance.now();
           await connectedPage.goto(pathToFileURL(path.resolve(launcher)).href,{waitUntil:"load",timeout:30000});
           await connectedPage.waitForURL(u=>u.protocol==="file:"&&u.pathname.endsWith("/index.html"),{timeout:15000});
@@ -919,6 +922,21 @@ try{
             }
             // #58-04: measure the real packaged Open RO search, editor, and
             // durable save/read-back path with connected synthetic Workspace data.
+            await connectedPage.evaluate(()=>{
+              const probe={startedAt:performance.now(),clicks:0,fieldEntries:0,scrollDistancePx:0,previous:new WeakMap()};
+              document.addEventListener("click",()=>probe.clicks++,true);
+              document.addEventListener("input",event=>{
+                if(event.target?.matches?.("input,textarea,select"))probe.fieldEntries++;
+              },true);
+              document.addEventListener("scroll",event=>{
+                const target=event.target===document?document.scrollingElement:event.target;
+                if(!target||typeof target.scrollTop!=="number")return;
+                const previous=probe.previous.get(target);
+                probe.scrollDistancePx+=Math.abs(target.scrollTop-(previous??0));
+                probe.previous.set(target,target.scrollTop);
+              },true);
+              globalThis.__moondogUxTaskProbe=probe;
+            });
             const editCycle=await connectedPage.evaluate(async()=>{
               const api=globalThis.__moondogDaily;
               const openTab=document.querySelector('.nav-item[data-view="open-ro"]');
@@ -1033,15 +1051,60 @@ try{
                 sourceFieldsPreserved:JSON.stringify(saved.record?.sourceFields)===JSON.stringify(editCycle.sourceFields),
                 manualAnnotationPreserved:saved.record?.management?.manualAnnotation===editCycle.manualAnnotation
               }));
+            uxMetrics=await connectedPage.evaluate(()=>{
+              const probe=globalThis.__moondogUxTaskProbe;
+              if(!probe)throw Error("Open RO UX task instrumentation was lost");
+              return {elapsedMs:performance.now()-probe.startedAt,clickCount:probe.clicks,
+                fieldEntryCount:probe.fieldEntries,scrollDistancePx:probe.scrollDistancePx};
+            });
+            if(browserErrors.length)throw Error("Connected browser page errors: "+browserErrors.join("; "));
             connectedEditSamples.search.push(editCycle.searchMs);
             connectedEditSamples.editor.push(editCycle.editorMs);
             connectedEditSamples.noteReveal.push(noteRevealMs);
             connectedEditSamples.durableSave.push(saved.elapsedMs);
-            if(browserErrors.length)throw Error("Connected browser page errors: "+browserErrors.join("; "));
           }
-        }finally{await connectedPage.close();}
+        }catch(error){
+          sampleFailure=error;
+        }finally{
+          try{await connectedPage?.close();}
+          catch(error){sampleFailure??=error;}
+        }
+        uxBrowserErrorCount+=browserErrors.length;
+        if(sampleFailure){
+          uxTaskSamples.push({sample:sample+1,success:false,errorName:sampleFailure?.name||"Error",
+            error:String(sampleFailure?.message||sampleFailure).slice(0,240),browserErrorCount:browserErrors.length});
+        }else{
+          uxTaskSamples.push({sample:sample+1,success:true,...uxMetrics,browserErrorCount:browserErrors.length});
+        }
+      }
+      if(scenario!=="large"){
+        const failedScenarioSamples=uxTaskSamples.filter(sample=>!sample.success);
+        if(failedScenarioSamples.length)
+          throw Error("Synthetic connected browser scenario failed: "+JSON.stringify({
+            scenario,attemptedSamples:uxTaskSamples.length,failedSamples:failedScenarioSamples
+          }));
       }
       if(scenario==="large"){
+        const completedUxTasks=uxTaskSamples.filter(sample=>sample.success);
+        const failedUxTasks=uxTaskSamples.filter(sample=>!sample.success);
+        const summarizeUxMetric=key=>completedUxTasks.length
+          ?summarizeNavigationMs(completedUxTasks.map(sample=>sample[key])):null;
+        const uxWorkflow={schemaVersion:1,dataset:"synthetic-clean-install",
+          scenario:"Open RO search, edit, add note, save, and verify durable read-back",records:2100,
+          attemptedSamples:uxTaskSamples.length,completedSamples:completedUxTasks.length,
+          failedSamples:failedUxTasks.length,errorRate:uxTaskSamples.length
+            ?failedUxTasks.length/uxTaskSamples.length:1,
+          taskDurationMs:summarizeUxMetric("elapsedMs"),
+          clickCount:summarizeUxMetric("clickCount"),
+          fieldEntryCount:summarizeUxMetric("fieldEntryCount"),
+          scrollDistancePx:summarizeUxMetric("scrollDistancePx"),
+          browserErrorCount:uxBrowserErrorCount,sampleResults:uxTaskSamples};
+        fs.writeFileSync(path.join(out,"open-ro-workflow-metrics.json"),JSON.stringify(uxWorkflow,null,2)+"\n");
+        if(uxTaskSamples.length!==9||failedUxTasks.length!==0||uxBrowserErrorCount!==0||
+          completedUxTasks.some(sample=>sample.clickCount!==4||sample.fieldEntryCount<5||
+            !Number.isFinite(sample.scrollDistancePx)||sample.scrollDistancePx<0))
+          throw Error("Open RO UX task evidence incomplete: "+JSON.stringify(uxWorkflow));
+        console.log("60-10 synthetic Open RO task metrics",JSON.stringify(uxWorkflow));
         const summarizeTabs=samples=>Object.fromEntries(
           Object.entries(samples).map(([view,values])=>[view,summarizeNavigationMs(values)]));
         console.log("58-03 synthetic connected Chromium first/repeat tab activation",
