@@ -1,48 +1,34 @@
 # Roadmap acceptance matrix — MoonDog Service OS
 
-**Live verified checkpoint — 2026-10-26 03:20 UTC.** This section supersedes earlier snapshots retained below for audit history. Issue #164 remains closed.
+**Live verified checkpoint — 2026-10-26 04:12 UTC.** This section supersedes older live snapshots retained below for audit history. Issue #164 remains closed.
 
 ## Verified repository state
 
-- Main: `d559bf881058d800edf31dbd6a01c9f346720bfc`. PR #494 merged at this commit; it contains the current #58-03 Home return implementation and synthetic regression.
-- Trusted Beta: `0.10.18-beta.165`, SHA-256 `ecf31c44a8606e4042fbd20a02595ea9c4a58119bd1ebada830bab9126ae28b3`.
-- Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; `migrationRequired=false`. Stable and its manifest section are unchanged.
-- Protect Main ruleset #24665513 is active for the default branch. It requires a PR and strict `Publication Check` from GitHub Actions app 15368, requires extra approval for unattributed changes, has no bypass actors, and current-user bypass is `never`. Allowed merge methods include squash. Repository native auto-merge is disabled; use the existing guarded protected merge route. No protection was changed.
-- Issue #164 remains closed.
-- Open PRs before this documentation refresh: #496 only. PRs #493 and #495 were closed unmerged as superseded/redundant after verifying their required implementation and tests are present in main through #494. No work was discarded.
+- Main: `4e14f1c77332c13fadff67042d77469fcc8dfe05`, Beta package synchronization for reviewed runtime PR #500 merged through PR #501.
+- Trusted Beta: `0.10.18-beta.167`, SHA-256 `68298f152a0b63c472e1d9204bdc357efdcedccab26142aa5dcc25ec49a1eb48`.
+- Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; `migrationRequired=false`. Stable's manifest section and artifact are unchanged.
+- Protect Main ruleset #24665513 is active on the default branch. It requires a PR and strict `Publication Check` from GitHub Actions app 15368; no bypass actors; current-user bypass `never`. No protection was changed.
+- Issue #164 remains closed. There are currently no open PRs.
+- PRs are handled sequentially; no concurrent PR work is underway.
 
-## Current PR and evidence
+## Verified work in this checkpoint
 
-- **#496 — Beta package synchronization for merged #494 runtime; OPEN, externally awaiting exact-head Codex review.** Head `e10a04d3f52b7b30946c2becc90bb0306fd6ea1a`, base main `d559bf881058d800edf31dbd6a01c9f346720bfc`, ahead 1 / behind 0. It changes only changelog, README, manifest, and generated Beta package files.
-- Candidate channel is Beta `0.10.18-beta.166`, manifest SHA-256 `986234a99fe9637d45ea1eebc6f22b6e622651e5868a5a074fbcfdb73c59abd5`. The candidate Stable manifest section matches current main byte-for-byte and migration remains false.
-- Exact-head Publication Check run #40261526568 passed. Its steps include focused tests, updater-compatible runtime verification, clean-install source contract, browser update check, tracked-publication checks, reachable-history audit, and strict redacted full-history scan.
-- Exact-head Clean Install Proof run #40261528318 passed, including deterministic build, app/browser smoke, TV rotation, verified Beta package launch, and synthetic navigation benchmark checks.
-- PR-triggered versions of the two workflows concluded `action_required`; the fresh workflow-dispatch runs above passed on the same exact head. No check is represented as successful on any other SHA.
-- Codex review request comment #6407187381 names the exact #496 head, but the live review list and PR comments still contain no completed review receipt. PR API reports mergeable but merge state `blocked`. Do not merge or enable auto-merge until a clean exact-head review is verified.
-- This PR has not merged and Beta .166 is only a candidate. Live trusted Beta remains .165. No installation is claimed.
+- **PR #500 — #59-04 conflict guard increment.** Exact head `6796216ffa61685612280d22206acfe9094dde4a` passed Publication Check #40266145865 and Clean Install Proof #40266145731. Exact-head Codex review completed with no findings after its two P2 findings on an earlier head were corrected: the comparator now ignores mutable Menu advisor display labels, and the durable-readback fixture exercises equivalent reimport and stale/readback failure behavior. The focused regression verifies conflicting same-release Menu Sales values fail before mutation while equivalent imports remain idempotent. Protected merge commit: `8db4cd3474b4d387edc32b15646b83e19bf590e0`. **#59-04 remains PARTIALLY COMPLETE**; other report types and missing/stale/unsupported-source confidence coverage remain.
+- **PR #501 — trusted Beta synchronization.** Exact head `0850aaa1868645f10d903cf956abbac0fb762366` passed Publication Check #40266796262, Clean Install Proof #40266798737 and exact-head Codex review with no findings. Existing trusted package workflow #40266770662 succeeded and merged the allowlisted package changes as `4e14f1c77332c13fadff67042d77469fcc8dfe05`. Live manifest confirms Beta .167 above and Stable .17 unchanged; no Workspace migration.
+- **Post-package main Publication Check #40267439342** targets exact main `4e14f1c77332c13fadff67042d77469fcc8dfe05`. Focused tests, generated-runtime/source contract, browser update check, tracked-publication check, and reachable-history fetch have succeeded. The reachable-history sensitive-material audit and strict redacted full-history VIN/credential scan were still running at this checkpoint; no final pass is claimed until GitHub reports a conclusion.
+- Open PR count: 0 before the sequential #500/#501 work and 0 afterward; both changes were merged, not left open. Peak concurrent open PR work: 1.
 
 ## One prioritized execution queue
 
-1. **Finish #496 and synchronize trusted Beta.** Obtain the pending exact-head review; resolve any findings; recheck all gates and the current base/head immediately before normal protected merge. Then verify post-merge main Publication Check, Beta manifest/package version/hash, and unchanged Stable. No installation claim.
-2. **#61-01 — prove the repaired guarded merge path end-to-end.** Use the eligible #496 flow after its review; observe the actual guarded workflow result. Repository native auto-merge is disabled; do not change it or bypass protections.
-3. **P0 #59 integrity, source authority, scheduler, and recovery.** Continue from the existing partial matrix after verifying a concrete uncovered synthetic failure path; prioritize conflicting/stale sources, idempotent imports, write serialization, competing writers, backup/read-back, and month readiness. Preserve OneDrive/file read-back and manual-edit authority.
-4. **P1 #58 measured performance.** Extend synthetic cold/warm connection, first usable screen/tab, Open RO search/edit, empty/large data, and permission/reconnect measurements; change only evidenced bottlenecks and guard against stale or incomplete views.
-5. **#60 operational workflow and #61 regression/operations.** Continue save/retry, Manager Home, lineage/freshness, regression scenarios, release/runbook documentation, and device-scoped preferences against the detailed acceptance rows below.
-6. **#212 remains deferred** while core criteria are unfinished.
+1. Finish the in-progress post-package Publication Check and record its final result.
+2. Continue P0 #59-04: verify the next concrete missing/stale/unsupported or conflicting authoritative-source path with synthetic fixtures; reject destructive ambiguity before mutation and preserve lineage. Add only the narrowest regression needed.
+3. Continue P0 #59 scheduler/recovery work, beginning with the next uncovered competing-writer, retry, or read-back failure path from the existing matrix. Preserve original bytes, manual edits and source authority.
+4. Continue remaining #59/#164 integrity criteria, then P1 #58 measurable startup/navigation performance, #60 workflow reliability and #61 regression/operations.
+5. #212 remains deferred until higher-priority dependencies are complete.
 
-## Verified criterion increments in the current source
+## Scope and evidence controls
 
-- **#58-03 partial-to-integrated increment:** PR #494 is the protected merge at current main. PR #495's four declared file blobs are already on main and its compare against main has an empty file diff; #493's earlier implementation/test is superseded by the stronger exact-deadline and paint-window logic and regression on main. This does not complete the broader #58 performance issue. Trusted Beta synchronization is pending in #496.
-- **#493/#495 consolidation:** both are closed unmerged with evidence on their PR conversations; current open PR count before this docs refresh was one (#496). Net reduction from the previous three open PRs was two; this docs-only #61-07 refresh is the sole additional PR.
-- Other per-criterion evidence below is retained as dated repository history; its old “live” SHAs/statuses are not current. Use the current checkpoint above and live GitHub state for decisions.
-
-## Scope and release controls
-
-Issues #58–#61 remain open until all their own acceptance criteria are evidenced. The matrix and merged PRs do not by themselves close umbrella issues. PRs #189 and #183 remain gated on James’s explicit approval. #212 remains deferred. Stable promotion, installation, and field-device validation are outside this checkpoint. Use synthetic fixtures only; do not access Workspace or customer/dealership data. Do not claim Windows/Edge/OneDrive field validation or continuous execution.
-
-**Closure discipline:** Every criterion needs implementation, relevant synthetic regression/measurement, exact-head Publication Check and Clean Install Proof where applicable, clean exact-head review, protected merge evidence, and trusted Beta evidence for runtime changes. Preserve issue and PR history; do not close umbrella issues until their complete criteria pass.
-
-
+Issues #58–#61 remain open until their issue-specific acceptance criteria are fully evidenced. PRs #189 and #183 remain approval-gated; PRs #373, #397 and #408 retain their separate restrictions. Stable promotion remains unauthorized. Use synthetic fixtures only. Do not claim Workspace access, installation, field testing, or continuous execution.
 
 **SUPERSEDED LIVE CHECKPOINT — 2026-10-25 (Pacific; preserved for audit history).** This section supersedes earlier snapshots retained below for audit history. Issue #164 remains closed.
 
