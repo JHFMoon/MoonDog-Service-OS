@@ -63,6 +63,8 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
   ui.performanceAdvisor.value = "store";
   ui.performanceMetric.value = "totalGross";
   const chartPoints = [];
+  const history = [];
+  const persistenceEvents = [];
   const context = vm.createContext({
     model, ui, structuredClone,
     PERFORMANCE_PATH: ["data", "performance.json"],
@@ -70,9 +72,9 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
     now: () => "2026-10-22T12:00:00Z",
     parsePerformanceWorkbook: () => structuredClone(syntheticSnapshot),
     prunePerformanceSnapshots: snapshots => snapshots,
-    writeJson: async (_path, value) => { durable = structuredClone(value); },
-    readJson: async () => structuredClone(durable),
-    addHistory: async () => {},
+    writeJson: async (_path, value) => { persistenceEvents.push("write"); durable = structuredClone(value); },
+    readJson: async () => { persistenceEvents.push("readback"); return structuredClone(durable); },
+    addHistory: async (type, message, details) => { persistenceEvents.push("history"); history.push({ type, message, details }); },
     status: () => {},
     renderPerformanceChart: points => { chartPoints.push(...points); },
     performanceMetricMeta: { totalGross: ["Total gross"] },
@@ -115,6 +117,13 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
 
   assert.equal(JSON.stringify(durable.snapshots["2026-10-21"]), JSON.stringify(syntheticSnapshot),
     "the verified SAPR snapshot and its source period must survive durable read-back");
+  assert.deepEqual(persistenceEvents, ["write", "readback", "history"],
+    "a SAPR import must enter durable audit history only after its snapshot is verified");
+  assert.deepEqual(JSON.parse(JSON.stringify(history)), [{
+    type: "performance-import",
+    message: "Added performance snapshot for 2026-10-21",
+    details: { date: "2026-10-21", fileName: "synthetic-sapr.xlsx", advisors: 1, rawCopyRetained: false }
+  }], "history must retain the imported report date, synthetic source identity, and compact-copy policy");
   assert.equal(ui.performancePeriod.textContent, "2026-10-01 through 2026-10-21",
     "Performance must show the exact imported reporting period");
   assert.match(ui.performanceSource.textContent, /synthetic-sapr\.xlsx/);
