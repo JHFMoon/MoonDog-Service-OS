@@ -412,7 +412,7 @@ jobs:
           EXPECTED_MAIN: ${{ steps.detect.outputs.main_sha }}
         run: |
           set -euo pipefail
-          for attempt in {1..42}; do
+          for attempt in {1..180}; do
             RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$PACKAGE_HEAD&per_page=100")"
             PUB_OK="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .event=="workflow_dispatch" and .conclusion=="success")] | length' <<<"$RUNS")"
             CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .event=="workflow_dispatch" and .conclusion=="success")] | length' <<<"$RUNS")"
@@ -439,7 +439,7 @@ jobs:
             if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ] && [ "$REVIEW_STATE" = "clean" ]; then
               break
             fi
-            if [ "$attempt" = "42" ]; then
+            if [ "$attempt" = "180" ]; then
               echo "Timed out waiting for generated Beta Publication, Clean Install, and exact-head Codex proof." >&2
               exit 1
             fi

@@ -13,6 +13,8 @@ class BetaVerificationDiagnosticsTests(unittest.TestCase):
         self.assertEqual(workflow.count("- name: Open isolated package PR"),1)
         self.assertEqual(workflow.count("- name: Dispatch exact-head verification"),1)
         self.assertEqual(workflow.count("- name: Verify package PR and merge exact head"),1)
+        self.assertIn("for attempt in {1..180}; do",workflow)
+        self.assertNotIn("\\${{",workflow)
         self.assertIn("Generated-head verification failed; exact-head run IDs and failed job names:",workflow)
         self.assertIn("select(.conclusion==\"failure\" or .conclusion==\"cancelled\" or .conclusion==\"timed_out\")",workflow)
         self.assertIn("done <<<\"$FAILED_IDS\"",workflow)
