@@ -271,7 +271,7 @@ function controlledRecoveryExecutionFixture(options={}){
     writeBytes:async(parts,bytes,restoreId)=>{
       if(!context.active||restoreId!==owner)throw Error("Synthetic authority denied the write.");
       context.writeLog.push(parts.join("/"));
-      if(options.failWriteAt===context.writeLog.length)throw Error("Synthetic interrupted write.");
+      if(options.failWriteAt===context.writeLog.length&&!context.writeFailureInjected){context.writeFailureInjected=true;throw Error("Synthetic interrupted write.");}
       live.set(parts.join("/"),new Uint8Array(bytes));
       if(options.competeAfterWriteAt===context.writeLog.length){
         context.live.set(options.competePath||"data/settings.json",enc(options.competeValue||{sourceAdapters:{schemaVersion:1,key:"external"},externalEdit:true}));
@@ -383,4 +383,28 @@ test("actual recovery stops before overwriting a same-Workspace edit arriving mi
   assert.deepEqual(f.writeLog,["data/state.json"],"recovery must stop before another write");
   assert.deepEqual(JSON.parse(new TextDecoder().decode(f.read("data/settings.json"))),external,"the competing edit must remain byte-authoritative");
   assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/state.json"))).records[0].id,"source","the already-completed first file remains under the hold for controlled retry");
+});
+
+
+test("actual multi-file recovery stays held after an interrupted write and resumes the same verified backup",async()=>{
+  const f=controlledRecoveryExecutionFixture({failWriteAt:2});
+  await assert.rejects(f.recover(),/Synthetic interrupted write/);
+  assert.equal(f.marker.restoreId,owner,"the durable restore hold must remain after a partial multi-file restore");
+  assert.equal(f.active,false,"temporary recovery authority must be released after the failed attempt");
+  assert.deepEqual(f.writeLog,["data/state.json","data/settings.json"],"the injected failure must stop the sequence at the second file");
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/state.json"))).records[0].id,"source","the verified first write remains under the hold");
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/settings.json"))).sourceAdapters.key,"safety","the interrupted second file retains its prior verified bytes");
+  assert.equal(f.live.has("data/history/source.json"),false,"recovery must not advance to history before canonical files finish");
+
+  f.writeLog.length=0;
+  assert.equal(await f.recover(),true,"retry must resume the same selected verified source backup");
+  assert.equal(f.marker,null);
+  assert.equal(f.active,false);
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/state.json"))).records[0].id,"source");
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/settings.json"))).sourceAdapters.key,"source");
+  assert.equal(f.loadedAdapter,"source");
+  assert.equal(f.live.has("data/history/safety.json"),false);
+  assert.equal(JSON.parse(new TextDecoder().decode(f.read("data/history/source.json"))).type,"synthetic-source");
+  assert.equal(f.events.filter(path=>path.startsWith("data/history/")).length,1);
+  assert.deepEqual(f.dailyEvents,["moondog-recovered"]);
 });
