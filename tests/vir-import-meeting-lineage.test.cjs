@@ -94,7 +94,7 @@ test("one synthetic VIR observation keeps its durable lineage consistent in Home
     "Advisor Name,Total ROs,VIR Printed/Emailed/Texted,VIR Use %",
     "Demo Advisor,4,3,75"
   ].join("\n")+"\n";
-  const model={operationalMetrics:{vir:{snapshots:{},pending:{}}}};
+  const model={settings:{},operationalMetrics:{vir:{snapshots:{},pending:{}}}};
   let durable=null;
   const history=[];
   const makeNode=()=>({
