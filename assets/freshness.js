@@ -157,7 +157,11 @@
     if (input.invalid) return result(input, "invalid", { reason: input.invalid, requiredAction: input.requiredAction || `Load a corrected ${definition.label} source.` });
     if (input.purpose === "historical") {
       const targetStart = input.targetStart || input.targetEnd, targetEnd = input.targetEnd || input.targetStart;
-      const periodValid = validDateKey(targetEnd) && validDateKey(input.periodEnd) && input.periodEnd >= targetEnd && (!validDateKey(targetStart) || !validDateKey(input.periodStart) || input.periodStart <= targetStart);
+      const sourceStartMissing = input.periodStart === undefined || input.periodStart === null || input.periodStart === "";
+      const sourceStartValid = sourceStartMissing || validDateKey(input.periodStart);
+      const periodValid = validDateKey(targetStart) && validDateKey(targetEnd) &&
+        validDateKey(input.periodEnd) && input.periodEnd >= targetEnd &&
+        sourceStartValid && (sourceStartMissing || input.periodStart <= targetStart);
       return periodValid ? result(input, "historical-valid", { expectedPeriod: [targetStart, targetEnd].filter(Boolean).join(" through "), reason: "The source covers its requested historical period." }) : result(input, "stale", { expectedPeriod: [targetStart, targetEnd].filter(Boolean).join(" through "), reason: "The loaded source does not cover the requested historical period.", requiredAction: `Load ${definition.label} covering the requested historical period.` });
     }
     let current = false, expectedPeriod = "", reason = "", requiredAction = "";

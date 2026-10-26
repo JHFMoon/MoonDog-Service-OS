@@ -75,6 +75,17 @@ test("complete synthetic source periods lock with explicit source provenance and
   }
 });
 
+test("a malformed explicit historical source start cannot finalize the month",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  metrics.menu.snapshots.synthetic.periodStart="2026-02-30";
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"pending-finalization");
+  assert.equal(result.readiness.sources.menu.state,"pending");
+  assert.equal(result.readiness.sources.menu.status,"stale");
+  assert.ok(Array.from(result.needed).includes("menu"));
+  assert.equal("store" in result,false,"invalid source-period lineage cannot create final totals");
+});
+
 test("stale CSI period remains pending even when its refresh timestamp reaches month end",()=>{
   const {month,metrics,performance}=completeSources(),ctx=harness();
   metrics.csi.imports[0].scopeEnd="2026-09-15";

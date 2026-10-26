@@ -237,3 +237,31 @@ test('SOR financial month and local import time cannot substitute for a source o
   assert.equal(futureFile.report.state, 'NEED NOW',
     'a future file date cannot establish current source confidence');
 });
+
+test('historical source coverage rejects malformed explicit boundaries', () => {
+  const invalidSourceStart = F.evaluateSource({
+    key: 'menu', exists: true, purpose: 'historical',
+    targetStart: '2026-09-01', targetEnd: '2026-09-30',
+    periodStart: '2026-02-30', periodEnd: '2026-09-30'
+  });
+  assert.equal(invalidSourceStart.status, 'stale');
+  assert.equal(invalidSourceStart.safeForPurpose, false);
+
+  const invalidTargetStart = F.evaluateSource({
+    key: 'menu', exists: true, purpose: 'historical',
+    targetStart: '2026-02-30', targetEnd: '2026-09-30',
+    periodStart: '2026-09-01', periodEnd: '2026-09-30'
+  });
+  assert.equal(invalidTargetStart.status, 'stale');
+  assert.equal(invalidTargetStart.safeForPurpose, false);
+});
+
+test('legacy historical reports with no explicit start retain end-only coverage', () => {
+  const evidence = F.evaluateSource({
+    key: 'menu', exists: true, purpose: 'historical',
+    targetStart: '2026-09-30', targetEnd: '2026-09-30',
+    periodEnd: '2026-09-30'
+  });
+  assert.equal(evidence.status, 'historical-valid');
+  assert.equal(evidence.safeForPurpose, true);
+});
