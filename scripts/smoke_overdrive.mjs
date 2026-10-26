@@ -712,10 +712,11 @@ try{
       const uxTaskSamples=[];
       let uxBrowserErrorCount=0;
       for(let sample=0;sample<9;sample++){
-        const connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
+        let connectedPage=null,uxMetrics=null,sampleFailure=null;
         const browserErrors=[];
-        connectedPage.on("pageerror",error=>browserErrors.push(error.message));
         try{
+          connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
+          connectedPage.on("pageerror",error=>browserErrors.push(error.message));
           const launcherStarted=performance.now();
           await connectedPage.goto(pathToFileURL(path.resolve(launcher)).href,{waitUntil:"load",timeout:30000});
           await connectedPage.waitForURL(u=>u.protocol==="file:"&&u.pathname.endsWith("/index.html"),{timeout:15000});
@@ -1050,25 +1051,31 @@ try{
                 sourceFieldsPreserved:JSON.stringify(saved.record?.sourceFields)===JSON.stringify(editCycle.sourceFields),
                 manualAnnotationPreserved:saved.record?.management?.manualAnnotation===editCycle.manualAnnotation
               }));
-            const uxMetrics=await connectedPage.evaluate(()=>{
+            uxMetrics=await connectedPage.evaluate(()=>{
               const probe=globalThis.__moondogUxTaskProbe;
               if(!probe)throw Error("Open RO UX task instrumentation was lost");
               return {elapsedMs:performance.now()-probe.startedAt,clickCount:probe.clicks,
                 fieldEntryCount:probe.fieldEntries,scrollDistancePx:probe.scrollDistancePx};
             });
             if(browserErrors.length)throw Error("Connected browser page errors: "+browserErrors.join("; "));
-            uxTaskSamples.push({sample:sample+1,success:true,...uxMetrics,browserErrorCount:browserErrors.length});
-            uxBrowserErrorCount+=browserErrors.length;
             connectedEditSamples.search.push(editCycle.searchMs);
             connectedEditSamples.editor.push(editCycle.editorMs);
             connectedEditSamples.noteReveal.push(noteRevealMs);
             connectedEditSamples.durableSave.push(saved.elapsedMs);
           }
         }catch(error){
-          uxBrowserErrorCount+=browserErrors.length;
-          uxTaskSamples.push({sample:sample+1,success:false,errorName:error?.name||"Error",
-            error:String(error?.message||error).slice(0,240),browserErrorCount:browserErrors.length});
-        }finally{await connectedPage.close();}
+          sampleFailure=error;
+        }finally{
+          try{await connectedPage?.close();}
+          catch(error){sampleFailure??=error;}
+        }
+        uxBrowserErrorCount+=browserErrors.length;
+        if(sampleFailure){
+          uxTaskSamples.push({sample:sample+1,success:false,errorName:sampleFailure?.name||"Error",
+            error:String(sampleFailure?.message||sampleFailure).slice(0,240),browserErrorCount:browserErrors.length});
+        }else{
+          uxTaskSamples.push({sample:sample+1,success:true,...uxMetrics,browserErrorCount:browserErrors.length});
+        }
       }
       if(scenario==="large"){
         const completedUxTasks=uxTaskSamples.filter(sample=>sample.success);
