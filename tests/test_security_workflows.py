@@ -270,5 +270,22 @@ class SecurityWorkflowTests(unittest.TestCase):
             self.assertIn(f'"{suffix}"', text)
 
 
+    def test_guarded_merge_wait_budget_covers_long_clean_install_proof(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        wait = merge.split(
+            "      - name: Wait for Publication, Clean Install, and exact-head Codex proof",
+            1,
+        )[1].split("      - name: Bring branch current with main if needed", 1)[0]
+        attempts = re.search(r"for attempt in \\{1\\.\\.(\\d+)\\}; do", wait)
+        interval = re.search(r"^\\s*sleep (\\d+)\\s*$", wait, re.MULTILINE)
+        self.assertIsNotNone(attempts, "the exact-head proof wait must stay bounded")
+        self.assertIsNotNone(interval, "the proof wait must keep an explicit polling interval")
+        budget_seconds = int(attempts.group(1)) * int(interval.group(1))
+        self.assertGreaterEqual(budget_seconds, 30 * 60)
+        self.assertLessEqual(budget_seconds, 45 * 60)
+        for required_gate in ("PUB_OK", "CLEAN_OK", "HARD_FAIL", "REVIEW_STATE"):
+            self.assertIn(required_gate, wait)
+
+
 if __name__ == "__main__":
     unittest.main()
