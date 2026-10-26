@@ -557,7 +557,6 @@ jobs:
               raise SystemExit('Generated Beta merge refused: Beta did not advance.')
           PY
 
-          PUB_RUN_ID="$(jq -r '[.workflow_runs[] | select(.name=="Publication check" and .event=="workflow_dispatch" and .conclusion=="success")][0].id' <<<"$RUNS")"
           gh api -X POST "repos/$REPO/statuses/$PACKAGE_HEAD"             -f state=success             -f context="Publication Check"             -f description="Exact-head Publication Check and Clean Install Proof passed"             -f target_url="https://github.com/$REPO/actions/runs/$PUB_RUN_ID"
 
           for attempt in {1..12}; do

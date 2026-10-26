@@ -29,6 +29,8 @@ class BetaVerificationDiagnosticsTests(unittest.TestCase):
         self.assertIn('CLEAN_RUN="$(gh api "repos/$REPO/actions/runs/$CLEAN_RUN_ID")"', workflow)
         self.assertIn("Verification run head mismatch.", workflow)
         self.assertIn("newly dispatched exact-head runs", workflow)
+        self.assertNotIn('PUB_RUN_ID="$(jq -r \'[.workflow_runs[]', workflow)
+        self.assertIn('target_url="https://github.com/$REPO/actions/runs/$PUB_RUN_ID"', workflow)
 
     def test_retry_wait_covers_exact_head_review(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
