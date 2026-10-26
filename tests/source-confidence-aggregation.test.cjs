@@ -39,3 +39,48 @@ test("combined metrics retain every missing and stale dependency in input order"
   assert.deepEqual(metric.blocking,[stale,missing]);
   assert.deepEqual(metric.dependencies,[stale,missing]);
 });
+
+
+test("every catalogued source preserves missing and unsupported confidence as a metric blocker",()=>{
+  const keys=Object.keys(F.SOURCE_DEFINITIONS);
+  assert.equal(keys.length,14,"the confidence matrix must cover every catalogued source family");
+  for(const key of keys){
+    for(const [label,input] of [
+      ["missing",{exists:false}],
+      ["unsupported",{exists:true,invalid:"Unsupported synthetic report format"}]
+    ]){
+      const evidence=F.evaluateSource({key,today,...input});
+      const expectedStatus=label==="missing"?"missing":"invalid";
+      assert.equal(evidence.status,expectedStatus, key+" "+label+" state");
+      assert.equal(evidence.safeForCurrent,false,key+" "+label+" cannot be current");
+      assert.equal(evidence.safeForPurpose,false,key+" "+label+" cannot verify its purpose");
+      const metric=F.evaluateMetric([evidence]);
+      assert.equal(metric.verified,false,key+" "+label+" must block metric verification");
+      assert.equal(metric.status,expectedStatus,key+" confidence state must be visible");
+      assert.strictEqual(metric.blocking[0],evidence,key+" original evidence remains in the blocker list");
+      assert.strictEqual(metric.dependencies[0],evidence,key+" original evidence remains a dependency");
+    }
+  }
+});
+
+test("every time-cadenced source rejects an old period as stale evidence",()=>{
+  const staleByCadence={
+    "same-business-day":{sourceDate:"2026-10-06"},
+    "same-business-day-period":{periodStart:"2026-10-06",periodEnd:"2026-10-06"},
+    "prior-operating-day":{periodStart:"2026-10-01",periodEnd:"2026-10-05"},
+    "cumulative-observation":{sourceDate:"2026-10-03",observationVerified:true},
+    "weekly-monday":{releaseWeek:"2026-09-28"},
+    "state-current":{stale:true}
+  };
+  for(const [key,definition] of Object.entries(F.SOURCE_DEFINITIONS)){
+    const staleInput=staleByCadence[definition.cadence];
+    if(!staleInput)continue; // Period-bound reference feeds have no daily currentness rule.
+    const evidence=F.evaluateSource({key,exists:true,today,...staleInput});
+    assert.equal(evidence.status,"stale",key+" old source must be labeled stale");
+    assert.equal(evidence.safeForCurrent,false,key+" stale source cannot be used as current");
+    assert.equal(evidence.safeForPurpose,false,key+" stale source cannot verify its purpose");
+    const metric=F.evaluateMetric([evidence]);
+    assert.equal(metric.verified,false,key+" stale source must block metric verification");
+    assert.equal(metric.status,"stale",key+" stale confidence must remain visible");
+  }
+});
