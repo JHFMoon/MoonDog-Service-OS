@@ -990,22 +990,29 @@ try{
               beforeSave.note!=="Synthetic roundtrip note")
               throw Error("Synthetic Open RO form was incomplete before save: "+JSON.stringify(beforeSave));
             await connectedPage.locator("#saveRecordClose").click({timeout:3500});
-            await connectedPage.waitForFunction(()=>{
-              const dialog=document.getElementById("editDialog"),validation=document.getElementById("editValidation");
-              return !dialog?.open||Boolean(validation&&!validation.hidden&&validation.textContent.trim());
-            },null,{timeout:15000});
+            let saveWaitError="";
+            try{
+              await connectedPage.waitForFunction(()=>{
+                const dialog=document.getElementById("editDialog"),validation=document.getElementById("editValidation");
+                return !dialog?.open||Boolean(validation&&!validation.hidden&&validation.textContent.trim());
+              },null,{timeout:15000});
+            }catch(error){saveWaitError=String(error);}
             const saveOutcome=await connectedPage.evaluate(()=>({
               dialogOpen:Boolean(document.getElementById("editDialog")?.open),
               validation:document.getElementById("editValidation")?.textContent?.trim()||"",
               status:document.getElementById("editStatus")?.value||"",
               statusDetail:document.getElementById("editStatusDetail")?.value||"",
               communication:document.getElementById("editCommunication")?.value||"",
-              connection:document.getElementById("connectionStatus")?.textContent?.trim()||""
+              connection:document.getElementById("status")?.textContent?.trim()||""
             }));
             if(saveOutcome.validation)
               throw Error("Production Open RO editor rejected the synthetic save: "+JSON.stringify({beforeSave,...saveOutcome}));
+            if(saveWaitError)
+              throw Error("Timed out waiting for production Open RO save completion: "+JSON.stringify({
+                beforeSave,...saveOutcome,waitError:saveWaitError,browserErrors
+              }));
             if(saveOutcome.dialogOpen)
-              throw Error("Production Open RO save remained pending without validation or dialog completion: "+JSON.stringify({beforeSave,...saveOutcome}));
+              throw Error("Production Open RO save remained pending without validation or dialog completion: "+JSON.stringify({beforeSave,...saveOutcome,browserErrors}));
             const saved=await connectedPage.evaluate(async()=>{
               const elapsedMs=performance.now()-globalThis.__moondogSearchEditSaveStarted;
               const state=await globalThis.__moondogDaily.readJson("data/current-state.json");
