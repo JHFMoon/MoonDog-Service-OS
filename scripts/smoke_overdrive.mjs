@@ -1077,6 +1077,13 @@ try{
           uxTaskSamples.push({sample:sample+1,success:true,...uxMetrics,browserErrorCount:browserErrors.length});
         }
       }
+      if(scenario!=="large"){
+        const failedScenarioSamples=uxTaskSamples.filter(sample=>!sample.success);
+        if(failedScenarioSamples.length)
+          throw Error("Synthetic connected browser scenario failed: "+JSON.stringify({
+            scenario,attemptedSamples:uxTaskSamples.length,failedSamples:failedScenarioSamples
+          }));
+      }
       if(scenario==="large"){
         const completedUxTasks=uxTaskSamples.filter(sample=>sample.success);
         const failedUxTasks=uxTaskSamples.filter(sample=>!sample.success);
