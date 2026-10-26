@@ -921,6 +921,19 @@ try{
             // durable save/read-back path with connected synthetic Workspace data.
             const editCycle=await connectedPage.evaluate(async()=>{
               const api=globalThis.__moondogDaily;
+              const openTab=document.querySelector('.nav-item[data-view="open-ro"]');
+              if(!openTab)throw Error("Open RO navigation control is missing");
+              openTab.click();
+              const renderDeadline=performance.now()+5000;
+              while(document.querySelectorAll("#roTable tr[data-id]").length!==2100&&performance.now()<renderDeadline)
+                await new Promise(resolve=>setTimeout(resolve,16));
+              await new Promise(resolve=>requestAnimationFrame(resolve));
+              const openView=document.getElementById("view-open-ro");
+              const visibleRow=document.querySelector('#roTable tr[data-id="synthetic-browser-ro-0"]');
+              const viewBounds=openView?.getBoundingClientRect(),rowBounds=visibleRow?.getBoundingClientRect();
+              if(!openView?.classList.contains("active")||!viewBounds?.width||!rowBounds?.width||
+                document.querySelectorAll("#roTable tr[data-id]").length!==2100)
+                throw Error("Connected synthetic Open RO table is not active, visible, and complete before search measurement");
               const search=document.getElementById("searchInput");
               const searchStarted=performance.now();
               search.value="900312";
@@ -936,8 +949,10 @@ try{
               button.click();
               await new Promise(resolve=>requestAnimationFrame(resolve));
               const dialog=document.getElementById("editDialog");
+              const dialogBounds=dialog?.getBoundingClientRect();
               const editorMs=performance.now()-editorStarted;
-              if(!dialog?.open||document.getElementById("dialogTitle")?.textContent!=="RO 900312")
+              if(!dialog?.open||!dialogBounds?.width||!dialogBounds?.height||
+                document.getElementById("dialogTitle")?.textContent!=="RO 900312")
                 throw Error("Connected synthetic search did not open the matching editor");
               const before=await api.readJson("data/current-state.json");
               const prior=before.records.find(item=>item.id==="synthetic-browser-ro-312");
