@@ -1103,7 +1103,8 @@ try{
                   };
                   const name=el=>{
                     const labelled=el.getAttribute("aria-labelledby")?.split(/\s+/).map(id=>document.getElementById(id)?.textContent||"").join(" ").trim();
-                    const associatedLabel=el.labels?[...el.labels].map(label=>label.innerText||label.textContent||"").join(" ").trim():"";\n                  const alt=el.querySelector("img[alt]")?.getAttribute("alt")||"";
+                    const associatedLabel=el.labels?[...el.labels].map(label=>label.innerText||label.textContent||"").join(" ").trim():"";
+                  const alt=el.querySelector("img[alt]")?.getAttribute("alt")||"";
                     const text=(el.innerText||el.textContent||"").trim();
                     const inputValue=/^(button|submit|reset)$/i.test(el.type||"")?el.value:"";
                     return el.getAttribute("aria-label")||labelled||associatedLabel||el.getAttribute("title")||alt||inputValue||text;
@@ -1119,7 +1120,8 @@ try{
                     const clipped=cells.filter(cell=>[cell,...cell.querySelectorAll("*")].some(el=>{
                       const style=getComputedStyle(el);
                       const ellipsis=style.textOverflow==="ellipsis"&&(el.scrollWidth>el.clientWidth+1||el.scrollHeight>el.clientHeight+1);
-                      const clampValue=Number.parseInt(style.webkitLineClamp,10);\n                      const clamp=Number.isFinite(clampValue)&&clampValue>0&&el.scrollHeight>el.clientHeight+1;
+                      const clampValue=Number.parseInt(style.webkitLineClamp,10);
+                      const clamp=Number.isFinite(clampValue)&&clampValue>0&&el.scrollHeight>el.clientHeight+1;
                       return ellipsis||clamp;
                     }));
                     longText={rowFound:!!row,visibleCells:cells.filter(visible).length,expectedCells:3,clippedCells:clipped.length};
