@@ -57,7 +57,7 @@ function fixture(snapshot, { sourceModifiedAt, rows }) {
       "\nthis.api = { importManagerSource, dailyEvidenceDate }; this.renderManagerIntelligence = renderManagerIntelligence;",
     context
   );
-  return { context, model, durable: () => durable, history };
+  return { context, model, durable: () => durable, history, managerGrid };
 }
 
 test("SOR report observation date survives production import, durable readback, and daily coverage selection", async () => {
@@ -87,8 +87,8 @@ test("SOR report observation date survives production import, durable readback, 
   assert.equal(f.context.api.dailyEvidenceDate("sor", saved), "2026-10-20");
   assert.deepEqual(f.history.map(item => item.type), ["sor-import"]);
   f.context.renderManagerIntelligence();
-  assert.equal(managerGrid.children.length, 5, "Home renders its source summaries from durable operational metrics");
-  assert.match(managerGrid.children[0].innerHTML, /2026-10/,
+  assert.equal(f.managerGrid.children.length, 5, "Home renders its source summaries from durable operational metrics");
+  assert.match(f.managerGrid.children[0].innerHTML, /2026-10/,
     "Home reports the imported financial period from the retained source snapshot");
   assert.match(managerGrid.children[0].innerHTML, /1,200 CP labor gross/,
     "Home derives SOR financial output from the same imported source values");
