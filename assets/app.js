@@ -1660,6 +1660,12 @@
   function virObservationDate(snapshot) { const candidate=snapshot?.observationTimestamp||snapshot?.sourceModifiedAt||snapshot?.importedAt||"",date=new Date(candidate);return Number.isNaN(date.valueOf())?"":localDateKey(date); }
   function virObservationTime(snapshot) { const candidate=snapshot?.observationTimestamp||snapshot?.sourceModifiedAt||snapshot?.importedAt||"",time=Date.parse(candidate);return Number.isFinite(time)?time:0; }
   function virObservationKey(snapshot) { const stamp=new Date(snapshot.observationTimestamp||snapshot.sourceModifiedAt||snapshot.importedAt||now());return `observation-${Number.isNaN(stamp.valueOf())?Date.now():stamp.valueOf()}-${snapshot.store.totalROs}-${snapshot.store.used}`; }
+  function virConflictDate(snapshot) { const reportDate=text(snapshot?.reportDate);return /^20\d{2}-\d{2}-\d{2}$/.test(reportDate)?reportDate:virObservationDate(snapshot); }
+  function comparableVirSnapshot(snapshot) {
+    const advisors=Object.fromEntries(Object.keys(snapshot?.advisors||{}).sort().map(code=>{const row=snapshot.advisors[code]||{};return[code,{totalROs:row.totalROs,used:row.used,utilization:row.utilization}];}));
+    const ignored=(snapshot?.ignored||[]).map(row=>({totalROs:row.totalROs,used:row.used,utilization:row.utilization})).sort((a,b)=>a.totalROs-b.totalROs||a.used-b.used||a.utilization-b.utilization);
+    return JSON.stringify({reportDate:virConflictDate(snapshot),store:{totalROs:snapshot?.store?.totalROs,used:snapshot?.store?.used,utilization:snapshot?.store?.utilization},advisors,ignored});
+  }
   function allVirObservations() { return [...Object.values(model.operationalMetrics?.vir?.snapshots||{}),...Object.values(model.operationalMetrics?.vir?.pending||{})].filter(Boolean); }
   function latestVirObservation() { return allVirObservations().sort((a,b)=>virObservationTime(a)-virObservationTime(b)||text(a.sourceFile).localeCompare(text(b.sourceFile))).at(-1)||null; }
   function virObservationIsStale(snapshot,todayKey=localDateKey()) { const observed=virObservationDate(snapshot);return !observed||observed<previousOperatingDateKey(todayKey)||observed>todayKey; }
@@ -1671,11 +1677,19 @@
   function shouldStoreVir(candidate, existing) { return !existing||newerVirSnapshot(candidate,existing); }
   function applyVirResolution(snapshot,resolution){snapshot.observationTimestamp=resolution.observationTimestamp;snapshot.coverageMethod="vir-point-in-time";snapshot.validation.coverageMethod="vir-point-in-time";snapshot.validation.coverageBasis=resolution.basis;delete snapshot.effectiveDataThrough;}
   async function saveVirSnapshot(snapshot) {
-    const priorMetrics=structuredClone(model.operationalMetrics);
     const resolution=virObservationResolution(snapshot),key=virObservationKey(snapshot);
+    applyVirResolution(snapshot,resolution);
+    const reportDate=virConflictDate(snapshot);
+    const sameDate=reportDate?Object.entries(model.operationalMetrics.vir.snapshots||{}).filter(([,existing])=>virConflictDate(existing)===reportDate):[];
+    if(sameDate.length){
+      const candidate=comparableVirSnapshot(snapshot);
+      if(sameDate.some(([,existing])=>comparableVirSnapshot(existing)!==candidate))
+        throw new Error(`Conflicting VIR report for observation date ${reportDate} is already saved. The existing observation was retained; review the source conflict before importing.`);
+      return{resolved:true,date:virObservationDate(snapshot),key:sameDate[0][0],idempotent:true};
+    }
+    const priorMetrics=structuredClone(model.operationalMetrics);
     model.operationalMetrics.vir.pending||={};
     model.operationalMetrics.vir.snapshots||={};
-    applyVirResolution(snapshot,resolution);
     model.operationalMetrics.vir.snapshots[key]=snapshot;
     model.operationalMetrics.vir.snapshots=pruneDatedSnapshots(model.operationalMetrics.vir.snapshots);
     model.operationalMetrics.updatedAt=now();
