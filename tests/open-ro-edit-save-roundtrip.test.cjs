@@ -14,6 +14,7 @@ function extract(startText, endText) {
 }
 const storageSource = [
   extract("  async function directory(", "  let diagnosticsQueue = "),
+  extract("  function ownerAssignmentSourceForManagerSave(", "  function pruneClosedRecords("),
   extract("  async function writeJson(", "  async function addHistory("),
   extract("  async function saveState(", "\n\n  function syncFilter("),
   extract("  async function saveRecord(", "\n  async function closeRo(")
