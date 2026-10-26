@@ -20,7 +20,7 @@ function loadMerge(state) {
     canonicalCdkStatus: () => ''
   };
   const helpers = vm.runInNewContext(
-    app.slice(start, end) + '\n({mergeCompleteOpenRoRecords, defaultManagementFor})',
+    app.slice(start, end) + '\n({mergeCompleteOpenRoRecords, defaultManagementFor, ownerAssignmentSourceForManagerSave, ownerAssignmentSourceForWorkbook})',
     context
   );
   assert.equal(typeof helpers.mergeCompleteOpenRoRecords, 'function');
@@ -143,6 +143,26 @@ test('new ROs get defaults, not a fabricated administrative promise', () => {
   assert.equal(merged.records[0].management.adminCloseout, undefined);
 });
 
+test('owner provenance is invalidated when a returned workbook changes an assignment', () => {
+  const { ownerAssignmentSourceForManagerSave, ownerAssignmentSourceForWorkbook } =
+    loadMerge({records:[],closedRecords:[]});
+  const confirmed={owner:'Synthetic First Owner',ownerAssignmentSource:'manager-confirmed'};
+  assert.equal(ownerAssignmentSourceForWorkbook(confirmed,'Synthetic Replacement','Synthetic Writer'),'unconfirmed',
+    'a workbook replacement cannot inherit a prior manager confirmation');
+  assert.equal(ownerAssignmentSourceForWorkbook(confirmed,'Synthetic First Owner','Synthetic Writer'),'manager-confirmed',
+    'an unchanged owner keeps its existing confirmation');
+  assert.equal(ownerAssignmentSourceForWorkbook(confirmed,'Synthetic Writer','Synthetic Writer'),'source-writer',
+    'source-writer values remain unconfirmed');
+  assert.equal(ownerAssignmentSourceForManagerSave(confirmed,'Synthetic Replacement','Synthetic Writer'),'manager-confirmed',
+    'a direct manager edit can confirm the replacement');
+  assert.equal(ownerAssignmentSourceForManagerSave(confirmed,'Synthetic Writer','Synthetic Writer',true),'manager-confirmed',
+    'a deliberate manager reassignment can name the RO writer');
+  assert.equal(ownerAssignmentSourceForManagerSave({owner:'Synthetic Writer',ownerAssignmentSource:'source-writer'},'Synthetic Writer','Synthetic Writer',true),'manager-confirmed',
+    'typing the unchanged source-writer name explicitly can confirm it');
+  assert.equal(ownerAssignmentSourceForManagerSave({owner:'',ownerAssignmentSource:''},'Synthetic Writer','Synthetic Writer',false),'source-writer',
+    'an untouched Home prefill remains unconfirmed');
+});
+
 test('real closeout logic does not fabricate advisor promises from manager reminder dates', () => {
   const { nextAdminCloseout, nextAdminCloseoutEvidence, adminCloseoutState } = loadAdmin();
   const closeout = nextAdminCloseoutEvidence(nextAdminCloseout(
@@ -196,6 +216,7 @@ test('returned Supervisor Workbook keeps admin promises outside its proposed edi
   assert.ok(start >= 0 && end > start);
   const importer = app.slice(start, end);
   assert.match(importer, /managementUpdates\.set\(record\.id,\{ \.\.\.record\.management, \.\.\.proposed/);
+  assert.match(importer, /ownerAssignmentSourceForWorkbook/);
   assert.match(importer, /current\.adminCloseout\?\.blocker/);
   const proposedStart = importer.indexOf('proposed = {');
   const proposedEnd = importer.indexOf('}, baseline', proposedStart);

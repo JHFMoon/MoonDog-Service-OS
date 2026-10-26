@@ -9,7 +9,10 @@ const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
 const start=app.indexOf("  async function saveRecord(");
 const end=app.indexOf("  async function closeRo(",start);
 assert.ok(start>=0&&end>start,"production Open RO save handler exists");
-const production=app.slice(start,end);
+const helperStart=app.indexOf("  function ownerAssignmentSourceForManagerSave(");
+const helperEnd=app.indexOf("  function pruneClosedRecords(",helperStart);
+assert.ok(helperStart>=0&&helperEnd>helperStart,"owner provenance helper exists");
+const production=app.slice(helperStart,helperEnd)+"\n"+app.slice(start,end);
 
 function harness(){
   const record={id:"synthetic",ro:"SYNTHETIC-001",management:{status:"Open",owner:"Synthetic owner",nextAction:"Inspect",reviewDate:"2026-10-23",communication:"called",note:""}};

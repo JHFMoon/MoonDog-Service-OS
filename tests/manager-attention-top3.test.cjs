@@ -146,7 +146,7 @@ test('RO writer fallback is clearly marked unconfirmed until follow-up ownership
   const start=ops.indexOf('  function roForm(task,host){');
   const end=ops.indexOf('\n  function ',start+20);
   assert.ok(start>=0&&end>start,'production Open RO editor exists');
-  const element=tag=>({tag,children:[],dataset:{},append(...nodes){this.children.push(...nodes);},add(...nodes){this.children.push(...nodes);},replaceChildren(...nodes){this.children=[...nodes];},addEventListener(){},closest(){return this._field||this;},querySelector(selector){if(selector==='textarea')return this._textarea||(this._textarea=element('textarea'));return element('span');}});
+  const element=tag=>({tag,children:[],dataset:{},append(...nodes){this.children.push(...nodes);},add(...nodes){this.children.push(...nodes);},replaceChildren(...nodes){this.children=[...nodes];},addEventListener(type,fn){this.listeners??={};this.listeners[type]=fn;},closest(){return this._field||this;},querySelector(selector){if(selector==='textarea')return this._textarea||(this._textarea=element('textarea'));return element('span');}});
   const context=vm.createContext({
     model:{state:{records:[{id:'synthetic-case-alpha',ro:'Synthetic case alpha',customer:'Synthetic Customer',
       advisor:'Synthetic Writer',management:{}}]}},
@@ -184,11 +184,115 @@ test('RO writer fallback is clearly marked unconfirmed until follow-up ownership
   assert.equal(owner.value,'Synthetic Writer','RO writer may be prefilled for convenience');
   assert.match(ownerField.children[1]?.textContent||'',/not a confirmed follow-up assignment/i);
   assert.match(ownerField.children[1]?.textContent||'',/verify ownership/i);
+  const explicitOwner=form.children.find(child=>child.name==='ownerAssignmentExplicit');
+  assert.equal(explicitOwner?.value,'false','an imported writer prefill is not an explicit assignment');
+  owner.listeners.input();
+  assert.equal(explicitOwner.value,'true','typing in the owner field records an explicit manager assignment');
 
-  context.model.state.records[0].management={owner:'Synthetic Assigned Owner'};
+  context.model.state.records[0].management={owner:'Synthetic Assigned Owner',ownerAssignmentSource:'manager-confirmed'};
   const assignedHost={insertAdjacentHTML(){},append(node){this.form=node;}};
   context.testRoForm({recordId:'synthetic-case-alpha',hard:true},assignedHost);
   const assigned=assignedHost.form.children.find(child=>child.name==='owner');
   assert.equal(assigned.children[0].value,'Synthetic Assigned Owner');
   assert.equal(assigned.children.length,1,'confirmed manager assignment does not show the unconfirmed fallback warning');
+});
+
+test('Home secondary priorities show ownership, due date, blocker, next step, and source confidence without inference',()=>{
+  const ops=read('assets/daily-ops.js');
+  const start=ops.indexOf('  function attentionSecondaryDetail(');
+  const renderStart=ops.indexOf('  function renderOtherPriorities(',start);
+  const renderEnd=ops.indexOf('  function renderHome(',renderStart);
+  assert.ok(start>=0&&renderStart>start&&renderEnd>renderStart,'production Home priority summary exists');
+  const source=ops.slice(start,renderEnd);
+  const node=()=>({children:[],textContent:'',className:'',dataset:{},append(...items){this.children.push(...items);},setAttribute(){}});
+  const app=read('assets/app.js');
+  const defaultStart=app.indexOf('  function defaultManagementFor(');
+  const defaultEnd=app.indexOf('  function pruneClosedRecords(',defaultStart);
+  assert.ok(defaultStart>=0&&defaultEnd>defaultStart,'production Open RO source-owner default exists');
+  const appContext=vm.createContext({});
+  vm.runInContext(app.slice(defaultStart,defaultEnd),appContext);
+  const importedManagement=appContext.defaultManagementFor({advisor:'Synthetic Writer'});
+  assert.equal(importedManagement.owner,'Synthetic Writer');
+  assert.equal(importedManagement.ownerAssignmentSource,'source-writer');
+
+  const record={
+    id:'synthetic-ro-context',ro:'SYN-CONTEXT-1',
+    management:{owner:'Synthetic Follow-up Owner',ownerAssignmentSource:'manager-confirmed',reviewDate:'2026-10-27',status:'Waiting Parts',
+      statusDetail:'Other',statusDetailOther:'Synthetic part ETA',nextAction:'Recheck synthetic part ETA'},
+    cdkOperational:{status:'Awaiting Technician Attention',stale:false}
+  };
+  const model={state:{records:[record],source:{fileName:'synthetic-open-ro.xlsx',reportDate:'2026-10-26'}}};
+  const context=vm.createContext({
+    model,state:{events:[]},
+    api:{
+      status:value=>value.management.status,
+      statusDetailLabel:value=>value.management.statusDetail==='Other'?value.management.statusDetailOther:value.management.statusDetail,
+      cdkIndicator:value=>value.cdkOperational.stale?{text:'Not confirmed by latest import'}:null,
+      recordRefresh:async()=>{}
+    },
+    attentionTopThree:()=>[{id:'primary'}, {id:'secondary',type:'ro',recordId:record.id,record}],
+    document:{createElement:node},
+    button:(label)=>{const value=node();value.textContent=label;return value;},
+    action:fn=>fn(),openAttention:()=>{},engine:{deferUntil:()=>''},log:async()=>{},selectNext:async()=>{}
+  });
+  vm.runInContext(source+';this.renderOtherPriorities=renderOtherPriorities;',context);
+  const host=node();
+  context.renderOtherPriorities({id:'primary'},host);
+  const section=host.children[0],row=section.children[1],detail=row.children[0].children[1];
+  assert.match(detail.textContent,/Follow-up owner: Synthetic Follow-up Owner/);
+  assert.match(detail.textContent,/Follow-up date: 2026-10-27/);
+  assert.match(detail.textContent,/Status \/ blocker: Waiting Parts — Synthetic part ETA/);
+  assert.match(detail.textContent,/Next step: Recheck synthetic part ETA/);
+  assert.match(detail.textContent,/synthetic-open-ro\.xlsx · Report period 2026-10-26/);
+
+  model.state.source={fileName:'synthetic-open-ro.xlsx',sourceModifiedAt:'2026-10-25T18:00:00Z',importedAt:'2026-10-26T09:00:00Z'};
+  const modifiedHost=node();
+  context.renderOtherPriorities({id:'primary'},modifiedHost);
+  const modifiedText=modifiedHost.children[0].children[1].children[0].children[1].textContent;
+  assert.match(modifiedText,/File modified 2026-10-25/);
+  assert.doesNotMatch(modifiedText,/Report period 2026-10-26/);
+
+  model.state.source={fileName:'synthetic-open-ro.xlsx',importedAt:'2026-10-26T09:00:00Z'};
+  const importedHost=node();
+  context.renderOtherPriorities({id:'primary'},importedHost);
+  const importedText=importedHost.children[0].children[1].children[0].children[1].textContent;
+  assert.match(importedText,/Imported 2026-10-26/);
+  assert.doesNotMatch(importedText,/Report period 2026-10-26/);
+  assert.match(detail.textContent,/Current source confirms Awaiting Technician Attention/);
+
+  record.management={owner:'Synthetic Writer',ownerAssignmentSource:'source-writer',status:'',statusDetail:'',nextAction:'',reviewDate:''};
+  record.advisor='Synthetic Writer';
+  record.cdkOperational={status:'Being Repaired',stale:true};
+  context.api.status=()=> '';
+  context.api.cdkIndicator=()=>({text:'Not confirmed by latest import'});
+  const staleHost=node();
+  context.renderOtherPriorities({id:'primary'},staleHost);
+  const staleText=staleHost.children[0].children[1].children[0].children[1].textContent;
+  assert.match(staleText,/Follow-up owner: Not confirmed/);
+  assert.match(staleText,/Follow-up date: Not set/);
+  assert.match(staleText,/Status \/ blocker: Not confirmed/);
+  assert.match(staleText,/Next step: Confirm next action/);
+  assert.match(staleText,/Not confirmed by latest import/);
+  assert.doesNotMatch(staleText,/Follow-up owner: Synthetic Writer/,'a source writer must not be presented as a confirmed manager assignment');
+});
+
+test('manager attention keeps parts, approval, dispatch, diagnosis, customer-update, and promise cases actionable',()=>{
+  const context=vm.createContext({Date,Intl});
+  vm.runInContext(read('assets/daily-engine.js'),context);
+  const engine=context.MoonDogDailyEngine;
+  const api={closed:()=>false,priority:()=>5,status:record=>record.management.status||''};
+  const cases=[
+    [{status:'Being Repaired',statusDetail:'Parts ETA pending'},'Waiting on parts','Follow up on parts'],
+    [{status:'Pending Authorization'},'Awaiting approval','Follow up on approval'],
+    [{status:'Awaiting Dispatch'},'Dispatch inspection','Check dispatch'],
+    [{status:'Needs Diagnosis'},'Complete diagnosis','Follow up on diagnosis'],
+    [{status:'Being Repaired',communication:'Needs update'},'Contact customer','Update this customer'],
+    [{status:'Being Repaired'},'Call customer — promised today','Follow up on this commitment']
+  ];
+  for(const [management,nextAction,title] of cases){
+    const task=engine.roTask({id:'synthetic-'+title,ro:'SYN-60',daysOpen:1,
+      sourceStatus:'',management:{...management,nextAction}},api,'2026-10-26',Date.parse('2026-10-26T12:00:00Z'));
+    assert.ok(task,'the source-specific/promise task is retained: '+title);
+    assert.equal(task.title,title);
+  }
 });
