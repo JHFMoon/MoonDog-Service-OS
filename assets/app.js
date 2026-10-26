@@ -1799,6 +1799,9 @@
     const bytes = providedBytes || await (await (await sourceFileHandle(name)).getFile()).arrayBuffer();
     if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true });
     const snapshot = parseMenuSalesWorkbook(bytes, name);
+    const priorSnapshot = model.operationalMetrics.menu.snapshots?.[snapshot.releaseWeek];
+    if (priorSnapshot && comparableManagerSnapshot(priorSnapshot, "menu") !== comparableManagerSnapshot(snapshot, "menu"))
+      throw new Error(`Conflicting Menu Sales report for release week ${snapshot.releaseWeek} is already saved. The existing snapshot was retained; review the source conflict before importing.`);
     const priorMetrics = structuredClone(model.operationalMetrics);
     model.operationalMetrics.menu.snapshots[snapshot.releaseWeek] = snapshot;
     model.operationalMetrics.menu.snapshots = pruneDatedSnapshots(model.operationalMetrics.menu.snapshots, 156);
