@@ -710,6 +710,7 @@ try{
       const firstTabSamples={},repeatTabSamples={};
       const connectedEditSamples={search:[],editor:[],noteReveal:[],durableSave:[]};
       const uxTaskSamples=[];
+      let uxBrowserErrorCount=0;
       for(let sample=0;sample<9;sample++){
         const connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
         const browserErrors=[];
@@ -1055,13 +1056,18 @@ try{
               return {elapsedMs:performance.now()-probe.startedAt,clickCount:probe.clicks,
                 fieldEntryCount:probe.fieldEntries,scrollDistancePx:probe.scrollDistancePx};
             });
-            uxTaskSamples.push(uxMetrics);
+            if(browserErrors.length)throw Error("Connected browser page errors: "+browserErrors.join("; "));
+            uxTaskSamples.push({sample:sample+1,success:true,...uxMetrics,browserErrorCount:browserErrors.length});
+            uxBrowserErrorCount+=browserErrors.length;
             connectedEditSamples.search.push(editCycle.searchMs);
             connectedEditSamples.editor.push(editCycle.editorMs);
             connectedEditSamples.noteReveal.push(noteRevealMs);
             connectedEditSamples.durableSave.push(saved.elapsedMs);
-            if(browserErrors.length)throw Error("Connected browser page errors: "+browserErrors.join("; "));
           }
+        }catch(error){
+          uxBrowserErrorCount+=browserErrors.length;
+          uxTaskSamples.push({sample:sample+1,success:false,errorName:error?.name||"Error",
+            error:String(error?.message||error).slice(0,240),browserErrorCount:browserErrors.length});
         }finally{await connectedPage.close();}
       }
       if(scenario==="large"){
@@ -1078,19 +1084,25 @@ try{
             noteReveal:summarizeNavigationMs(connectedEditSamples.noteReveal),
             durableSave:summarizeNavigationMs(connectedEditSamples.durableSave),
             scope:"packaged file:// Chromium, connected memory-only File System Access-compatible Workspace; exact search to rendered result, production editor open to frame, visible Add note disclosure expansion, production save to verified durable read-back; sourceFields and manager manual annotation preserved; synthetic-only"}));
+        const completedUxTasks=uxTaskSamples.filter(sample=>sample.success);
+        const failedUxTasks=uxTaskSamples.filter(sample=>!sample.success);
+        const summarizeUxMetric=key=>completedUxTasks.length
+          ?summarizeNavigationMs(completedUxTasks.map(sample=>sample[key])):null;
         const uxWorkflow={schemaVersion:1,dataset:"synthetic-clean-install",
           scenario:"Open RO search, edit, add note, save, and verify durable read-back",records:2100,
-          attemptedSamples:9,completedSamples:uxTaskSamples.length,failedSamples:9-uxTaskSamples.length,
-          errorRate:(9-uxTaskSamples.length)/9,
-          taskDurationMs:summarizeNavigationMs(uxTaskSamples.map(sample=>sample.elapsedMs)),
-          clickCount:summarizeNavigationMs(uxTaskSamples.map(sample=>sample.clickCount)),
-          fieldEntryCount:summarizeNavigationMs(uxTaskSamples.map(sample=>sample.fieldEntryCount)),
-          scrollDistancePx:summarizeNavigationMs(uxTaskSamples.map(sample=>sample.scrollDistancePx)),
-          browserErrorCount:0};
-        if(uxTaskSamples.length!==9||uxTaskSamples.some(sample=>sample.clickCount!==4||sample.fieldEntryCount<5||
-          !Number.isFinite(sample.scrollDistancePx)||sample.scrollDistancePx<0))
+          attemptedSamples:uxTaskSamples.length,completedSamples:completedUxTasks.length,
+          failedSamples:failedUxTasks.length,errorRate:uxTaskSamples.length
+            ?failedUxTasks.length/uxTaskSamples.length:1,
+          taskDurationMs:summarizeUxMetric("elapsedMs"),
+          clickCount:summarizeUxMetric("clickCount"),
+          fieldEntryCount:summarizeUxMetric("fieldEntryCount"),
+          scrollDistancePx:summarizeUxMetric("scrollDistancePx"),
+          browserErrorCount:uxBrowserErrorCount,sampleResults:uxTaskSamples};
+        fs.writeFileSync(path.join(out,"open-ro-workflow-metrics.json"),JSON.stringify(uxWorkflow,null,2)+"\\n");
+        if(uxTaskSamples.length!==9||failedUxTasks.length!==0||uxBrowserErrorCount!==0||
+          completedUxTasks.some(sample=>sample.clickCount!==4||sample.fieldEntryCount<5||
+            !Number.isFinite(sample.scrollDistancePx)||sample.scrollDistancePx<0))
           throw Error("Open RO UX task evidence incomplete: "+JSON.stringify(uxWorkflow));
-        fs.writeFileSync(path.join(out,"open-ro-workflow-metrics.json"),JSON.stringify(uxWorkflow,null,2)+"\n");
         console.log("60-10 synthetic Open RO task metrics",JSON.stringify(uxWorkflow));
       }
       console.log("58-01 synthetic Chromium first verified Home",
