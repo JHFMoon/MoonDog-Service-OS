@@ -974,6 +974,7 @@ try{
             const noteRevealMs=await connectedPage.evaluate(started=>performance.now()-started,noteRevealStarted);
             const noteVisible=await connectedPage.locator("#editNote").evaluate(el=>el.checkVisibility?.()??false);
             if(!noteVisible)throw Error("Synthetic note field remained hidden after expanding Add note");
+            await connectedPage.locator("#editNote").fill("Synthetic roundtrip note",{timeout:3500});
             // The timer starts after editor entry and field updates, isolating
             // verified persistence and dialog completion from automation typing.
             await connectedPage.evaluate(()=>{globalThis.__moondogSearchEditSaveStarted=performance.now();});
