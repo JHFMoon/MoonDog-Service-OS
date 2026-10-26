@@ -4696,7 +4696,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     performanceRenderedClock=reportClockToken();
     return output;
   };
-  function navigateTo(view,anchor=""){if(!confirmEditNavigation(view))return;const button=document.querySelector(`.nav-item[data-view="${view}"]`);if(!button)return;
+  function navigateTo(view,anchor=""){if(typeof confirmEditNavigation==="function"&&!confirmEditNavigation(view))return;const button=document.querySelector(`.nav-item[data-view="${view}"]`);if(!button)return;
     document.querySelectorAll(".nav-item").forEach((item)=>{item.classList.remove("active");item.removeAttribute("aria-current");});
     document.querySelectorAll(".view").forEach((item)=>item.classList.remove("active"));
     button.classList.add("active");button.setAttribute("aria-current","page");
