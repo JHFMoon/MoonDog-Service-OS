@@ -1799,6 +1799,9 @@
     const bytes = providedBytes || await (await (await sourceFileHandle(name)).getFile()).arrayBuffer();
     if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true });
     const snapshot = parseMenuSalesWorkbook(bytes, name);
+    const priorSnapshot = model.operationalMetrics.menu.snapshots?.[snapshot.releaseWeek];
+    if (priorSnapshot && comparableManagerSnapshot(priorSnapshot, "menu") !== comparableManagerSnapshot(snapshot, "menu"))
+      throw new Error(`Conflicting Menu Sales report for release week ${snapshot.releaseWeek} is already saved. The existing snapshot was retained; review the source conflict before importing.`);
     const priorMetrics = structuredClone(model.operationalMetrics);
     model.operationalMetrics.menu.snapshots[snapshot.releaseWeek] = snapshot;
     model.operationalMetrics.menu.snapshots = pruneDatedSnapshots(model.operationalMetrics.menu.snapshots, 156);
@@ -2070,7 +2073,7 @@
       for(const technician of copy.technicians||[])delete technician.number;
       delete copy.unresolved;
     }
-    if(["efficiency","mediaAsr","mediaAsrTech","media-asr","media-asr-tech","openRoSummary"].includes(family)){
+    if(["efficiency","mediaAsr","mediaAsrTech","media-asr","media-asr-tech","openRoSummary","menu"].includes(family)){
       for(const advisor of Object.values(copy.advisors||{}))delete advisor.name;
     }
     const canonicalize=item=>item instanceof Date?item.toISOString():Array.isArray(item)?item.map(canonicalize):item&&typeof item==="object"?Object.fromEntries(Object.keys(item).sort().map(key=>[key,canonicalize(item[key])])):item;

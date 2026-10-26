@@ -6,18 +6,23 @@ const vm = require("node:vm");
 const path = require("node:path");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+const comparisonStart = app.indexOf("  function comparableManagerSnapshot(");
+const comparisonEnd = app.indexOf("  function managerConflictObservationDate(", comparisonStart);
+assert.ok(comparisonStart >= 0 && comparisonEnd > comparisonStart, "Shared report comparator exists");
+const comparator = app.slice(comparisonStart, comparisonEnd);
 const start = app.indexOf("  async function importMenuSalesFile(");
 const end = app.indexOf("  const CSI_ADVISOR_CODES =", start);
 assert.ok(start >= 0 && end > start, "Actual Menu Sales importer section changed; review test");
 const importer = app.slice(start, end);
 
 function fixture(mode = "verified") {
-  const old = { menu: { snapshots: { "2026-10-19": { verifiedPrior: true } } }, updatedAt: "prior-time" };
   const snapshot = {
     releaseWeek: "2026-10-19", periodStart: "2026-10-01", periodEnd: "2026-10-18",
     store: { roCount: 10 }, advisors: { "9001": { roCount: 10 } },
-    validation: { parser: "synthetic-only" }
+    validation: { parser: "synthetic-only" }, importedAt: "synthetic-current-import"
   };
+  const priorSnapshot = { ...structuredClone(snapshot), importedAt: "synthetic-prior-import" };
+  const old = { menu: { snapshots: { "2026-10-19": priorSnapshot } }, updatedAt: "prior-time" };
   const model = { operationalMetrics: structuredClone(old) };
   const events = [];
   let persisted = null;
@@ -48,7 +53,7 @@ function fixture(mode = "verified") {
     removeSourceEntry: async () => { events.push("delete-source"); },
     renderOverviewIntelligence: () => { events.push("render"); }
   };
-  vm.runInNewContext(importer, ctx);
+  vm.runInNewContext(comparator + "\n" + importer, ctx);
   return { run: () => ctx.importMenuSalesFile("synthetic-menu-sales.xlsx", true), model, old, snapshot, events, saved: () => persisted };
 }
 
