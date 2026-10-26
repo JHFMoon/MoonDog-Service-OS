@@ -123,9 +123,9 @@ test("synthetic VIR observation keeps its source date through durable storage an
   context.renderHome();
   assert.match(viewText(ui.virSummary), /75\.0%/,
     "Home VIR summary must use the durably imported observation");
-  assert.match(viewText(ui.virSummary), /VIR used 3/,
+  assert.match(viewText(ui.virSummary), /VIR used\s+3/,
     "Home must retain the imported numerator");
-  assert.match(viewText(ui.virSummary), /Eligible ROs 4/,
+  assert.match(viewText(ui.virSummary), /Eligible ROs\s+4/,
     "Home must retain the imported denominator");
   assert.match(ui.virCoverage.textContent, /Oct 22/,
     "Home coverage must display the same VIR observation date used by Meeting");
