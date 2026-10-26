@@ -1,8 +1,37 @@
+## Live continuation snapshot — 2026-10-26 09:08 UTC
+
+This snapshot supersedes the 08:43 UTC state below.
+
+- Main: `41df205f22e01056a4dc2a96a4f15dff564de4da`, protected merge of PR #518.
+- Trusted Beta: `0.10.18-beta.170`, SHA-256 `8140f0e4e1fc1df1aa564298738d24dd31d234f8dd1f7de40d3f30f0e8214721`, `migrationRequired=false`.
+- Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`, unchanged.
+- Protect Main ruleset #24665513 is active on main: strict required Publication Check, PR-only changes, no bypass actors, and current-user bypass `never`.
+- Issue #164 remains closed. There were zero open PRs after #518; the single #61-01 follow-up is being prepared on branch `fix/61-01-guard-clean-install-wait-20261026`.
+
+### Verified recent work
+
+- PR #515 merged as `a56652e44dd24800d89fe83663c35f8a3ca4f76c`: synthetic Manager Home readiness measurement increment for #58-01; broader performance criterion remains partial.
+- PR #516 merged as `afb4ac866a5ee57324c38a7543644b56de92084d`: controlled multi-file recovery keeps the durable hold across interruption and resumes the same verified backup; invalid source/safety backups fail before writes.
+- PR #517 merged as `f143921e1f145a7b9500c1b56da624f2e2e828bc`: partial restore writes retain the hold and uncertain bytes; retry fails preflight before further writes.
+- PR #518 exact head `500b872a98d90c03ec29dd6076726e00eb5ac9da`, merged as `41df205f22e01056a4dc2a96a4f15dff564de4da`: synthetic SAPR import history now follows durable readback and retains report date, source identity, advisor count, and compact-copy metadata. Publication Check #40294446736 passed; Clean Install Proof #40294446717 passed; exact-head Codex review completed without findings. Post-merge main Publication Check #40296419463 succeeded on `41df205f22e01056a4dc2a96a4f15dff564de4da`. Prepare Beta Package #40296422797 succeeded and correctly skipped package generation because #518 changed tests/docs only. No package sync was required.
+
+### Current criterion and next action
+
+- #59-01 remains **PARTIALLY COMPLETE**: #518 verifies SAPR audit-history lineage after durable readback; the wider source-authority contract across all metrics and Open RO fields remains.
+- #61-01 remains **PARTIALLY COMPLETE**. PR #518 demonstrated that the verified merge path succeeds after both exact-head checks and review are complete. A prior guard run #40294446801 exhausted its 42 × 10-second wait while Clean Install Proof #40294446717 was still running; the later required-check completion allowed protected merge. To avoid a needless timeout run, the single active follow-up raises only this bounded wait to 90 × 20 seconds (30 minutes) and adds a regression assertion that preserves Publication, Clean Install, hard-failure, and review gates. The change is in progress; no PR-head result is claimed yet.
+- #164-05/#59-05/#61-03 remain **PARTIALLY COMPLETE** after #516/#517; cross-device validation-to-write atomicity remains outside the current filesystem API guarantee.
+- #58-01 remains **PARTIALLY COMPLETE** after #515; complete workload and browser/device measurement remains outstanding.
+- Issues #58–#61 remain open pending their complete criteria. #212 stays deferred.
+
+Synthetic fixtures only. No protected Workspace/customer data was accessed; no installation, field testing, or continuous execution is claimed.
+
+---
+
 # Roadmap acceptance matrix — MoonDog Service OS
 
-## Live continuation snapshot — 2026-10-26 08:43 UTC
+## Superseded checkpoint snapshot — 2026-10-26 08:43 UTC
 
-This snapshot supersedes the earlier dated state below.
+Historical state as verified at 08:43 UTC; superseded by the live continuation snapshot above.
 
 - Main: `f143921e1f145a7b9500c1b56da624f2e2e828bc`.
 - Trusted Beta: `0.10.18-beta.170`, SHA-256 `8140f0e4e1fc1df1aa564298738d24dd31d234f8dd1f7de40d3f30f0e8214721`; `migrationRequired=false`.
