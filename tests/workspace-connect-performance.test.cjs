@@ -26,7 +26,7 @@ function percentile(samples, p) {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)];
 }
 
-async function measureReconnect(readDelayMs, permissionResults = ["granted"], inspectPendingRead = false) {
+async function measureReconnect(readDelayMs, permissionResults = ["granted"], inspectPendingRead = false, recordCount = 1) {
   const permissionSequence = [...permissionResults];
   let permissionIndex = 0;
   const handle = {
@@ -55,7 +55,10 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
       openRo: { managementStatuses: [] }
     },
     [paths.state]: {
-      records: [{ id: "synthetic-ro-1", ro: "SYN-001", customer: "Synthetic Customer" }],
+      records: Array.from({ length: recordCount }, (_, index) => ({
+        id: `synthetic-ro-${index + 1}`, ro: `SYN-${index + 1}`, customer: "Synthetic Customer",
+        management: { status: "Waiting Dispatch", reviewDate: "2026-10-23", nextAction: "Synthetic follow-up" }
+      })),
       closedRecords: [],
       source: null
     },
@@ -88,7 +91,7 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   const events = [];
   const writes = [];
   const backgroundJobs = [];
-  const firstRender = { at: null, loadedRecordId: null, count: 0 };
+  const firstRender = { at: null, loadedRecordId: null, count: 0, committedAtRender: false, renderedRecordCount: null };
   const ui = {
     homeConnect: { textContent: "", hidden: false },
     "view-home": { classList: { contains: value => value === "active" } }
@@ -169,6 +172,8 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
       if (firstRender.at === null) {
         firstRender.at = performance.now();
         firstRender.loadedRecordId = model.state.records[0]?.id || null;
+        firstRender.renderedRecordCount = model.state.records.length;
+        firstRender.committedAtRender = model.workspaceConnectionCommittedRoot === model.root && states.includes("CONNECTED");
       }
     },
     renderRecovery: () => {},
@@ -230,8 +235,12 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
     "CONNECTED must follow every essential settings, state, report, and recovery read");
   assert.equal(model.workspaceConnectionCommittedRoot, model.root,
     "connected state must be committed only after authoritative reads finish");
-  assert.equal(firstRender.loadedRecordId, "synthetic-ro-1",
-    "first Home render must see the synthetic durable state, not an empty or stale placeholder");
+  assert.equal(firstRender.loadedRecordId, recordCount ? "synthetic-ro-1" : null,
+    "first Home render must see the synthetic durable state, including a verified empty state");
+  assert.equal(firstRender.renderedRecordCount, recordCount,
+    "first Home render must see the complete verified snapshot, not partial or stale records");
+  assert.equal(firstRender.committedAtRender, true,
+    "Home must not appear usable before the Workspace and essential reads are verified");
   assert.ok(firstRender.at >= started && firstRender.at <= finished,
     "the first Home render must occur within the measured reconnect interval");
   assert.ok(firstRender.count >= 1, "the reconnect must render Home");
@@ -242,7 +251,8 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   return {
     firstHomeMs: firstRender.at - started,
     totalReconnectMs: finished - started,
-    maxConcurrentReadCount
+    maxConcurrentReadCount,
+    recordsAtFirstHome: firstRender.renderedRecordCount
   };
 }
 
@@ -284,4 +294,35 @@ test("synthetic reconnect uses a bounded snapshot-read batch and reaches usable 
   console.log("Synthetic connection-to-Home bounded-batch result", JSON.stringify(boundedBatch));
   assert.ok(Number.isFinite(boundedBatch.firstUsableHomeMs.p50) && boundedBatch.firstUsableHomeMs.p50 > 0);
   assert.ok(Number.isFinite(boundedBatch.firstUsableHomeMs.p95) && boundedBatch.firstUsableHomeMs.p95 >= boundedBatch.firstUsableHomeMs.p50);
+});
+
+
+test("58-01: verified first usable Home remains complete for empty and large synthetic snapshots under slow reads", async () => {
+  for (const [label, count, readDelay] of [
+    ["empty workspace", 0, 2],
+    ["2,100 records", 2100, 2],
+    ["2,100 records with slower synthetic I/O", 2100, 25]
+  ]) {
+    const firstHomeMs = [];
+    const reconnectMs = [];
+    for (let sample = 0; sample < 9; sample++) {
+      const measurement = await measureReconnect(readDelay, ["granted"], false, count);
+      assert.equal(measurement.recordsAtFirstHome, count, label);
+      assert.equal(measurement.maxConcurrentReadCount, 3, label);
+      firstHomeMs.push(measurement.firstHomeMs);
+      reconnectMs.push(measurement.totalReconnectMs);
+    }
+    const values = numbers => ({
+      p50: Number(percentile(numbers, .50).toFixed(2)),
+      p95: Number(percentile(numbers, .95).toFixed(2))
+    });
+    const result = {
+      scenario: label, records: count, syntheticReadDelayMs: readDelay,
+      firstUsableHomeMs: values(firstHomeMs), reconnectMs: values(reconnectMs),
+      scope: "production saved-folder reconnect core in a Node VM; in-memory synthetic reads and verified model/render timing only; excludes DOM, real browser startup and OneDrive"
+    };
+    console.log("58-01 verified-Home reconnect baseline", JSON.stringify(result));
+    assert.ok(result.firstUsableHomeMs.p50 >= 0 && result.firstUsableHomeMs.p95 >= result.firstUsableHomeMs.p50);
+    assert.ok(result.reconnectMs.p95 >= result.firstUsableHomeMs.p50);
+  }
 });
