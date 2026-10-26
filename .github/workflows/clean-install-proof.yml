@@ -75,7 +75,7 @@ jobs:
           from pathlib import Path
           p=Path(".clean-install-smoke/overdrive-proof/navigation-baseline.json")
           report=json.loads(p.read_text(encoding="utf-8"))
-          assert set(report)=={"schemaVersion","dataset","viewport","startupMs","navigationMs","responsiveness"}
+          assert set(report)=={"schemaVersion","dataset","viewport","startupMs","navigationMs","responsiveness","managerHomeDom"}
           assert report["schemaVersion"]==1 and report["dataset"]=="synthetic-clean-install"
           assert report["viewport"]=={"width":1600,"height":900}
           startup=report["startupMs"]
@@ -87,6 +87,12 @@ jobs:
           if report["responsiveness"] is not None:
               assert set(report["responsiveness"])=={"longTasks","maxLongTaskMs"}
               assert all(isinstance(v,(int,float)) and v>=0 for v in report["responsiveness"].values())
+          home=report["managerHomeDom"]
+          assert set(home)=={"dataset","scope","rowCount","sampleCount","viewport","p50Ms","p95Ms","maxMs"}
+          assert home["dataset"]=="synthetic-in-memory-manager-home"
+          assert home["rowCount"]==413 and home["sampleCount"]==9
+          assert home["viewport"]==report["viewport"]
+          assert 0<=home["p50Ms"]<=home["p95Ms"]<=home["maxMs"]
           assert p.stat().st_size<4096
           print("PASS: synthetic-only navigation timing artifact validated")
           PY
