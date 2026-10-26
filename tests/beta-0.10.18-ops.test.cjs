@@ -34,7 +34,14 @@ assert.ok(app.includes('attention === "long-5"'));
 assert.ok(app.includes('attention === "needs-update"'));
 assert.ok(app.includes('attention === "comeback"'));
 assert.ok(app.includes('setAttribute("aria-current","page")'));
-assert.ok(app.includes("ui.metricOpen.textContent = active.length"));
+const legacyHomeSummary = app.includes("ui.metricOpen.textContent = active.length");
+const singlePassHomeSummary = [
+  "ui.metricOpen.textContent = activeCount",
+  "ui.metricDue.textContent = dueCount",
+  "ui.metricMissing.textContent = missingCount"
+].every(fragment => app.includes(fragment));
+assert.ok(legacyHomeSummary || singlePassHomeSummary,
+  "Packaged Home must expose its management counts using a supported summary implementation");
 assert.ok(app.includes("You have unsaved RO changes"));
 assert.ok(!app.includes("Read-only write authority guard is unavailable."));
 assert.ok(app.includes("Workspace write guard is unavailable."));
