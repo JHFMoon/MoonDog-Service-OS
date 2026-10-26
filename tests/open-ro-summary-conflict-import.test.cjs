@@ -54,7 +54,7 @@ function fixture(candidate) {
   vm.runInContext(importer + "\nthis.importManagerSource = importManagerSource;", context);
   return {
     model, events, removed, history, durable: () => durable,
-    run: () => context.importManagerSource("synthetic-conflicting-open-ro-summary.xlsx", "open-ro-summary", [], true)
+    run: (fileName = "synthetic-conflicting-open-ro-summary.xlsx") => context.importManagerSource(fileName, "open-ro-summary", [], true)
   };
 }
 
@@ -85,7 +85,7 @@ test("identical synthetic Open RO summary reimport tolerates refreshed derived m
   reimport.coverageDate = "2026-10-22";
   const f = fixture(reimport);
 
-  await f.run();
+  await f.run("synthetic-open-ro-summary-reimport.xlsx");
 
   const persisted = f.durable().openRoSummary.snapshots["2026-10"];
   assert.equal(persisted.store.verifiedRows, saved.store.verifiedRows, "the identical aggregate is accepted without duplication");
@@ -98,6 +98,6 @@ test("identical synthetic Open RO summary reimport tolerates refreshed derived m
     message: "Saved verified open-ro-summary snapshot",
     details: { fileName: "synthetic-open-ro-summary-reimport.xlsx", periodStart: "2026-10-01", periodEnd: "2026-10-21", compact: true }
   }], "WIP audit history must preserve source identity and the imported reporting period only after durable read-back");
-  assert.deepEqual(f.removed, ["synthetic-conflicting-open-ro-summary.xlsx"]);
+  assert.deepEqual(f.removed, ["synthetic-open-ro-summary-reimport.xlsx"]);
   assert.equal(JSON.stringify(f.model.operationalMetrics), JSON.stringify(f.durable()), "the verified in-memory and durable snapshots agree across VM realms");
 });
