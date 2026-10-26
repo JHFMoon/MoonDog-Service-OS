@@ -826,10 +826,14 @@ try{
                   const target=document.getElementById("view-"+v);
                   const rows=v==="open-ro"?document.querySelectorAll("#roTable tr[data-id]").length:null;
                   const performanceReady=v!=="performance"||Boolean(document.getElementById("performancePeriod")?.textContent?.trim());
+                  const meetingFreshness=document.getElementById("meetingV3Freshness")?.textContent?.trim()||"";
+                  const meetingComparison=document.getElementById("meetingV3GrossPrior")?.textContent?.trim()||"";
+                  // The shell starts as WAITING FOR VERIFIED SOURCES / PRIOR 7
+                  // DAYS UNAVAILABLE. Only completed renderMeetingV3Accurate()
+                  // changes both to these safe rendered source/no-source labels.
                   const meetingReady=v!=="meeting"||Boolean(
-                    document.querySelector("#view-meeting.meeting-scoreboard #meetingV3Range")&&
-                    document.querySelector("#view-meeting #meetingV3Gross")&&
-                    document.querySelector("#view-meeting #meetingV3Daily"));
+                    meetingFreshness.startsWith("UPDATED THROUGH ")&&
+                    meetingComparison.startsWith("Previous 7"));
                   return {ms,active:!!target?.classList.contains("active"),rows,performanceReady,meetingReady};
                 },view);
                 if(!measurement.active||(view==="open-ro"&&measurement.rows<1)||!measurement.performanceReady||!measurement.meetingReady)
