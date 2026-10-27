@@ -642,8 +642,16 @@
       if(!details.taskId||!['deferred','completed','not-an-issue'].includes(details.action))continue;
       decisions.set(String(details.taskId),details);
     }
-    return [...decisions.values()].filter(item=>item.action==='deferred'&&
-      Number.isFinite(Date.parse(item.until))&&Date.parse(item.until)>now()).length;
+    // Deferred work is valid only while the SAME live task is suppressed by
+    // the canonical eligibility engine. Source changes or urgency escalation
+    // must move it back into Action now instead of labeling it safe to wait.
+    const currentTasks=new Map(allTasks().map(task=>[String(task.id),task]));
+    const at=now();
+    return [...decisions].filter(([id,item])=>{
+      const task=currentTasks.get(id),until=Date.parse(item.until);
+      return item.action==='deferred'&&task&&Number.isFinite(until)&&until>at&&
+        !engine.eligible(task,state.events,at);
+    }).length;
   }
   function renderManagerEvidence(host){
     const section=document.createElement('section');section.className='daily-manager-evidence';
