@@ -2160,6 +2160,9 @@
     let book;
     try { book = typeof prepareXlsxWorkbook === "function" ? await prepareXlsxWorkbook(bytes, { type: "array", cellDates: true, cellFormula: true }) : XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true }); } catch (_) { return null; }
     if (workbookIsHandoff(book, name)) throw new Error("Needs Review: advisor handoff snapshots are outbound only."); if (workbookHasReturnSchema(book)) return "ro-update"; if (workbookHasReturnIdentity(book)) throw new Error("Needs Review: damaged Supervisor Workbook cannot be imported as a generic Open RO report.");
+    // Recognize this named accounting export before generic workbook detection.
+    // A malformed or unconfigured store scope must fail visibly at import.
+    if (book.SheetNames.includes("Trade AR Error Report")) return "supplemental-workbook";
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", cellDates: true }); parseCsiWorkbook(bytes, name); return "csi"; } catch (_) {}
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true }); parseMenuSalesWorkbook(bytes, name); return "menu-sales"; } catch (_) {}
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true }); parsePerformanceWorkbook(bytes, name); return "performance"; } catch (_) {}
@@ -2397,6 +2400,70 @@
     const sdl=book.Sheets["Service Daily Log"];if(sdl){const rows=XLSX.utils.sheet_to_json(sdl,{header:1,defval:null,raw:true}),nonblank=rows.flat().filter((value)=>text(value).trim());if(!nonblank.length)return{family:"service-daily-log-empty",sourceFile:fileName,sourceFormat:"xlsx",importedAt:now(),periodStart:"",periodEnd:"",variant:"blank-export",metrics:{dataRows:0},validation:{parser:"recognized-empty-workbook-v1",supplementalOnly:true,kpiPromotion:false,reason:"Recognized Service Daily Log workbook is blank"}};}
     return null;
   }
+  function parseTradeArErrorWorkbook(bytes,fileName) {
+    // Multi-store accounts receivable is never an Open RO, SAPR, or sales KPI.
+    // Retain only a compact aggregate for the locally configured AN store.
+    const book=XLSX.read(bytes,{type:"array",raw:true,cellDates:true});
+    const sheet=book.Sheets["Trade AR Error Report"];
+    if(!sheet)return null;
+    const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true});
+    const headers=(rows[0]||[]).map(norm),required={
+      store:"an store#",customer:"customer #",invoice:"invoice #",
+      invoiceDate:"invoice date",days:"actual days open",status:"status",
+      invoiceAmount:"invoice amount (usd)",received:"amount received (usd)",
+      open:"open amount (usd)"
+    },columns={};
+    for(const [field,heading] of Object.entries(required)){
+      if(headers.filter(value=>value===heading).length!==1)
+        throw new Error("Needs Review: Trade AR detail columns are missing or duplicated.");
+      columns[field]=headers.indexOf(heading);
+    }
+    const configuredStore=reportStoreCode("tradeAr").replace(/^0+(?=\d)/,"");
+    if(!/^\d{1,6}$/.test(configuredStore))
+      throw new Error("Needs Review: configure a numeric AN Store# for Trade AR.");
+    const aging={under30:0,days30to59:0,days60to89:0,days90plus:0};
+    const attempts={"Attempt 1":0,"Attempt 2":0,"Attempt 3":0,Other:0};
+    const money={invoiceCents:0,receivedCents:0,openCents:0};
+    const seen=new Set();let sourceRows=0,matchedRows=0,oldestDays=0,earliestInvoiceDate="";
+    for(const row of rows.slice(1)){
+      if(!row.some(value=>value!==null&&text(value).trim()))continue;
+      const store=text(row[columns.store]).trim().replace(/^0+(?=\d)/,"");
+      const invoice=text(row[columns.invoice]).trim(),customer=text(row[columns.customer]).trim();
+      if(!/^\d{1,6}$/.test(store)||!invoice||!customer)
+        throw new Error("Needs Review: Trade AR contains an unscoped or unidentified invoice row.");
+      sourceRows++;
+      if(store!==configuredStore)continue;
+      const days=performanceNumber(row[columns.days]),invoiceDate=strictOpenRoDate(row[columns.invoiceDate]);
+      const invoiceAmount=performanceNumber(row[columns.invoiceAmount]);
+      const received=performanceNumber(row[columns.received]),open=performanceNumber(row[columns.open]);
+      if(!Number.isInteger(days)||days<0||days>10000||!invoiceDate
+        ||![invoiceAmount,received,open].every(Number.isFinite))
+        throw new Error("Needs Review: Trade AR aging, date, or money is unreadable for the configured store.");
+      const key=JSON.stringify([store,customer,invoice]);
+      if(seen.has(key))throw new Error("Needs Review: duplicate Trade AR invoice identity for the configured store.");
+      seen.add(key);matchedRows++;oldestDays=Math.max(oldestDays,days);
+      if(!earliestInvoiceDate||invoiceDate<earliestInvoiceDate)earliestInvoiceDate=invoiceDate;
+      aging[days>=90?"days90plus":days>=60?"days60to89":days>=30?"days30to59":"under30"]++;
+      const attempt=text(row[columns.status]).trim().match(/^Attempt\s+([123])$/i);
+      attempts[attempt?"Attempt "+attempt[1]:"Other"]++;
+      money.invoiceCents+=Math.round(invoiceAmount*100);
+      money.receivedCents+=Math.round(received*100);
+      money.openCents+=Math.round(open*100);
+    }
+    if(!sourceRows||!matchedRows)
+      throw new Error("Needs Review: Trade AR has no rows for the configured AN Store#. Check the local Trade AR store mapping.");
+    const dated=text(fileName).match(/(?:^|\s)(\d{1,2})[.\-](\d{1,2})[.\-](20\d{2})(?=\D|$)/);
+    const asOfDate=dated?validCoverageDate(dated[3]+"-"+dated[1].padStart(2,"0")+"-"+dated[2].padStart(2,"0")):"";
+    return{family:"trade-ar-errors",sourceFile:fileName,sourceFormat:"xlsx",importedAt:now(),
+      periodStart:"",periodEnd:"",asOfDate,variant:"configured-store",
+      metrics:{invoiceCount:matchedRows,openAmount:money.openCents/100,
+        invoiceAmount:money.invoiceCents/100,amountReceived:money.receivedCents/100,
+        oldestDays,earliestInvoiceDate,aging,attempts},
+      validation:{parser:"trade-ar-error-v1",supplementalOnly:true,kpiPromotion:false,
+        sourceRows,matchedStoreRows:matchedRows,otherStoreRowsExcluded:sourceRows-matchedRows,
+        storeScopeVerified:true,customerAndInvoiceDetailsNotRetained:true,
+        asOfDateFromFilenameOnly:Boolean(asOfDate),summaryPivotNotUsed:true}};
+  }
   function parseOpenRoAgingByAsmWorkbook(bytes,fileName) {
     // The advisor-grouped AN671 export is NOT an authoritative complete Open RO roster.
     // Individual ROs, tags, customer names and financial amounts must not be retained here.
@@ -2432,6 +2499,7 @@
   }
   function parseSupplementalWorkbook(bytes,fileName) {
     return parseOpenRoAgingByAsmWorkbook(bytes,fileName)
+      ||parseTradeArErrorWorkbook(bytes,fileName)
       ||parseCashClearingWorkbook(bytes,fileName)
       ||parseCreditHoldsWorkbook(bytes,fileName)
       ||parseEmptyKnownWorkbook(bytes,fileName);

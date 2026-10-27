@@ -67,6 +67,12 @@ The Report Inbox can recognize and durably retain compact snapshots for:
 - Appointments Created Summary CSV
 - Cash Clearing workbook summaries
 - Credit Holds workbook summaries
+- Trade AR Error Report workbook:
+  - exact `Trade AR Error Report` detail-sheet columns
+  - configured AN store filtering across a multi-store source
+  - invoice count, open/invoiced/received totals, aging buckets and follow-up-attempt counts
+  - no customer/invoice/PO/free-text detail retained and no service KPI promotion
+  - store mapping mismatch remains in local review instead of reporting a false zero
 - Mopar Quality Inspection Requests:
   - suspect part numbers
   - issue date
