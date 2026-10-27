@@ -709,10 +709,10 @@ try{
       const connectionSamples=[],launcherSamples=[];
       const firstTabSamples={},repeatTabSamples={};
       const connectedEditSamples={search:[],editor:[],noteReveal:[],durableSave:[]};
-      const uxTaskSamples=[];
+      const uxTaskSamples=[],screenTaskSamples=[];
       let uxBrowserErrorCount=0;
       for(let sample=0;sample<9;sample++){
-        let connectedPage=null,uxMetrics=null,sampleFailure=null;
+        let connectedPage=null,uxMetrics=null,sampleFailure=null,screenTaskEffort=null;
         const browserErrors=[];
         try{
           connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
@@ -826,13 +826,20 @@ try{
             settings.setup={...(settings.setup||{}),completedAt:"2026-10-25T12:00:00.000Z"};
             const records=Array.from({length:count},(_,i)=>({
               id:"synthetic-browser-ro-"+i,ro:String(900000+i),advisor:"Synthetic Advisor",
-              advisorCode:"100",customer:"Synthetic Customer",vehicle:"Synthetic Vehicle",
+              advisorCode:"100",customer:i===0?"LONG SYNTHETIC CUSTOMER ".repeat(8):"Synthetic Customer",vehicle:i===0?"LONG SYNTHETIC VEHICLE DESCRIPTION ".repeat(5):"Synthetic Vehicle",
               sourceStatus:"Open",daysOpen:i%8,
               sourceFields:{"RO Number":String(900000+i),"Source Status":"Open","Synthetic Marker":"source-"+i},
               management:{status:"Being Repaired",owner:"Synthetic Existing Owner",
-                nextAction:"Synthetic next step",reviewDate:"2026-10-25",communication:"Updated",
+                nextAction:i===0?"LONG SYNTHETIC FOLLOW-UP ACTION ".repeat(6):"Synthetic next step",reviewDate:"2026-10-25",communication:"Updated",
                 note:"Synthetic existing note",manualAnnotation:"preserve-"+i}
             }));
+            const syntheticTimeZone=String(settings.store?.timeZone||Intl.DateTimeFormat().resolvedOptions().timeZone||"UTC");
+            settings.store={...(settings.store||{}),timeZone:syntheticTimeZone};
+            settings.sourceAdapters={schemaVersion:1,assignNextAdvisors:{"100":"Synthetic Advisor"}};
+            settings.advisors={"100":{
+              number:"100",name:"Synthetic Advisor",active:true,removed:false,
+              participation:{assignNext:true,openRoControl:true,advisorPerformance:true,advisorMeeting:true,dailyWalk:true,arrivals:true}
+            }};
             const snapshots=[
               ["settings.json",settings],
               ["current-state.json",{...JSON.parse(JSON.stringify(model.state)),records,closedRecords:[],source:null}],
@@ -840,7 +847,13 @@ try{
               ["advisor-performance.json",JSON.parse(JSON.stringify(model.performance))],
               ["operational-metrics.json",JSON.parse(JSON.stringify(model.operationalMetrics))],
               ["meeting-cycle.json",JSON.parse(JSON.stringify(model.meetingCycle))],
-              ["assign-next.json",{schemaVersion:3,days:{},currentOpenRo:{synthetic:true}}],
+              ["assign-next.json",(()=>{
+                const observedAt=new Date(),timeZone=settings.store.timeZone;
+                const coverageDate=new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit"}).format(observedAt);
+                return {schemaVersion:3,days:{},currentOpenRo:{sourceType:"open-ro",asOf:observedAt.toISOString(),
+                  observedAt:observedAt.toISOString(),coverageDate,validation:{canonicalRecords:1},
+                  records:[{ro:"900000",advisorCode:"100",isOpen:true,openedDate:coverageDate}]}};
+              })()],
               ["auto-import.json",{seen:{}}],
               ["recovery.json",JSON.parse(JSON.stringify(model.recovery))]
             ];
@@ -1057,7 +1070,408 @@ try{
               return {elapsedMs:performance.now()-probe.startedAt,clickCount:probe.clicks,
                 fieldEntryCount:probe.fieldEntries,scrollDistancePx:probe.scrollDistancePx};
             });
+            const taskNavigate=async view=>{
+              if(view==="imports"){
+                await connectedPage.locator('.nav-item[data-view="tools"]').click({timeout:5000});
+                await connectedPage.waitForFunction(()=>document.getElementById("view-tools")?.classList.contains("active"),null,{timeout:5000});
+                await connectedPage.getByRole("button",{name:"Import or refresh data",exact:true}).click({timeout:5000});
+                await connectedPage.waitForFunction(()=>document.getElementById("dailyTools")?.dataset.category==="imports",null,{timeout:5000});
+                await connectedPage.locator("#dailyTools button").filter({hasText:"Supervisor workbook and detailed imports"}).click({timeout:5000});
+                await connectedPage.waitForFunction(()=>document.getElementById("view-imports")?.classList.contains("active"),null,{timeout:5000});
+              }else if(view==="settings"){
+                const search=connectedPage.locator("#findAnything");
+                await search.fill("Change how Service Operations Dashboard works");
+                const result=connectedPage.locator("#findResults button.find-result")
+                  .filter({hasText:"Change how Service Operations Dashboard works"})
+                  .filter({hasText:"Open this area"});
+                await result.waitFor({state:"visible",timeout:5000});
+                await result.click({timeout:5000});
+                await connectedPage.waitForFunction(()=>document.getElementById("view-settings")?.classList.contains("active"),null,{timeout:5000});
+              }else{
+                await connectedPage.locator('.nav-item[data-view="'+view+'"]').click({timeout:5000});
+                await connectedPage.waitForFunction(v=>document.getElementById("view-"+v)?.classList.contains("active"),view,{timeout:5000});
+              }
+            };
+            const measureScreenTask=async(name,action)=>{
+              await connectedPage.evaluate(()=>{
+                const p=globalThis.__moondogUxTaskProbe;
+                p.startedAt=performance.now();p.clicks=0;p.fieldEntries=0;p.scrollDistancePx=0;p.previous=new WeakMap();
+              });
+              try{
+                const evidence=await action();
+                const metrics=await connectedPage.evaluate(()=>{
+                  const p=globalThis.__moondogUxTaskProbe;
+                  return {taskDurationMs:performance.now()-p.startedAt,clickCount:p.clicks,
+                    fieldEntryCount:p.fieldEntries,scrollDistancePx:p.scrollDistancePx};
+                });
+                return {name,success:true,...metrics,evidence:String(evidence||"").slice(0,240)};
+              }catch(error){
+                const metrics=await connectedPage.evaluate(()=>{
+                  const p=globalThis.__moondogUxTaskProbe;
+                  return {taskDurationMs:performance.now()-p.startedAt,clickCount:p.clicks,
+                    fieldEntryCount:p.fieldEntries,scrollDistancePx:p.scrollDistancePx};
+                });
+                return {name,success:false,...metrics,error:String(error?.message||error).slice(0,240)};
+              }
+            };
+            screenTaskEffort=[
+              await measureScreenTask("manager-home-priority",async()=>{
+                await taskNavigate("home");
+                const text=await connectedPage.locator("#dailyTask").innerText();
+                const ready=await connectedPage.locator("#dailyTask .daily-main-priority").count();
+                if(!text.trim()||!ready)throw Error("Manager Home did not present a prioritized next action");
+                return "Daily Focus priority visible; synthetic 2,100-record Workspace";
+              }),
+              await measureScreenTask("assign-next-review-and-exclude",async()=>{
+                await taskNavigate("assign-next");
+                const workloadSummary=connectedPage.locator('#view-assign-next details.daily-disclosure > summary').filter({hasText:"Workload and advisor availability"});
+                await workloadSummary.click({timeout:5000});
+                const workloadDisclosure=workloadSummary.locator("xpath=..");
+                if(!await workloadDisclosure.evaluate(details=>details.open))
+                  throw Error("The Workload and advisor availability disclosure did not open");
+                const availability=connectedPage.locator('#assignAdvisorGrid [data-assign-availability="100"]');
+                await availability.waitFor({state:"visible",timeout:5000});
+                const before=await availability.innerText();
+                if(!before.startsWith("Available"))throw Error("Synthetic advisor was not initially eligible");
+                await availability.click();
+                await connectedPage.waitForFunction(()=>document.querySelector('#assignAdvisorGrid [data-assign-availability="100"]')?.textContent?.startsWith("Unavailable"),null,{timeout:5000});
+                const card=connectedPage.locator('#assignAdvisorGrid article[data-assign-code="100"]');
+                const cardText=await card.innerText(),workload=await card.locator("strong").innerText();
+                if(workload.trim()!=="1"||!cardText.includes("Unavailable"))throw Error("Availability change did not retain the one-RO synthetic workload context");
+                return "Synthetic advisor workload reviewed and availability changed through the production control";
+              }),
+              await measureScreenTask("performance-report-readiness",async()=>{
+                await taskNavigate("performance");
+                const period=await connectedPage.locator("#performancePeriod").innerText();
+                await connectedPage.waitForFunction(()=>document.getElementById("performanceSource")?.textContent?.includes("Verified report required"),null,{timeout:5000});
+                const source=await connectedPage.locator("#performanceSource").innerText();
+                if(!period.includes("No report loaded")||!source.includes("Verified report required"))
+                  throw Error("Performance missing-report state did not explain its next action");
+                return period+"; "+source;
+              }),
+              await measureScreenTask("imports-refresh-and-empty-state",async()=>{
+                await taskNavigate("imports");
+                const refresh=connectedPage.locator("#scanFiles");
+                await refresh.waitFor({state:"visible",timeout:5000});
+                await refresh.click();
+                await connectedPage.waitForFunction(()=>document.querySelector("#sourceSelect option[value='']")?.textContent?.includes("No XLSX files in Report Inbox"),null,{timeout:5000});
+                const importDisabled=await connectedPage.locator("#importButton").isDisabled();
+                if(!importDisabled)throw Error("Import enabled without a selected synthetic report");
+                return "Report Inbox refreshed; no workbook available; import remains disabled";
+              }),
+              await measureScreenTask("meeting-source-readiness",async()=>{
+                await taskNavigate("meeting");
+                await connectedPage.waitForFunction(()=>document.getElementById("meetingV3Range")?.textContent?.includes("WAITING FOR VERIFIED SAPR")&&document.getElementById("meetingV3Freshness")?.textContent?.includes("AWAITING DATA"),null,{timeout:5000});
+                const period=await connectedPage.locator("#meetingV3Range").innerText();
+                const readiness=await connectedPage.locator("#meetingV3Freshness").innerText();
+                if(!period.includes("WAITING FOR VERIFIED SAPR")||!readiness.includes("AWAITING DATA"))
+                  throw Error("Meeting scoreboard did not identify its missing verified sources");
+                return period+"; "+readiness;
+              }),
+              await measureScreenTask("settings-browser-preference",async()=>{
+                await taskNavigate("settings");
+                await connectedPage.locator("#deviceStartPage").selectOption("open-ro");
+                const selected=await connectedPage.locator("#deviceStartPage").inputValue();
+                if(selected!=="open-ro")throw Error("Browser-only start-page preference did not update");
+                await connectedPage.locator("#deviceStartPageReset").click();
+                await connectedPage.waitForFunction(()=>document.getElementById("deviceStartPage")?.value==="home",null,{timeout:5000});
+                const feedback=await connectedPage.locator("#deviceStartPageFeedback").innerText();
+                if(!feedback.includes("Manager Home is the default again"))
+                  throw Error("Settings did not confirm the browser-only reset");
+                return "Browser-only start page selected and reset; shared Workspace untouched";
+              })
+            ];
+            screenTaskSamples.push({sample:sample+1,results:screenTaskEffort});
+            if(screenTaskEffort.some(task=>!task.success))
+              throw Error("Synthetic screen task-effort failures: "+JSON.stringify(screenTaskEffort.filter(task=>!task.success)));
             if(browserErrors.length)throw Error("Connected browser page errors: "+browserErrors.join("; "));
+
+            if(sample===8){
+              // #60 responsive/keyboard audit on the real packaged file:// app.
+              // The connected folder is an in-memory synthetic Workspace only.
+              const standardViewports=[
+                {label:"320x568",width:320,height:568},{label:"390x844",width:390,height:844},
+                {label:"768x1024",width:768,height:1024},{label:"900x1600",width:900,height:1600},
+                {label:"1080x1920",width:1080,height:1920},{label:"1280x720",width:1280,height:720},
+                {label:"1366x768",width:1366,height:768},{label:"1600x900",width:1600,height:900},
+                {label:"1920x1080",width:1920,height:1080},{label:"2560x1440",width:2560,height:1440}
+              ];
+              // Desktop browser zoom reduces the effective CSS viewport. These
+              // test resulting responsive dimensions, not native browser zoom.
+              const zoomViewports=[
+                {label:"1280x720 at 125%",width:1024,height:576},
+                {label:"1280x720 at 150%",width:853,height:480},
+                {label:"1366x768 at 125%",width:1093,height:614},
+                {label:"1366x768 at 150%",width:911,height:512}
+              ];
+              const allViews=["overview","tools","arrivals","assign-next","performance","meeting","open-ro","imports","settings","home"];
+              const routeResults=[],zoomResults=[],longTextResults=[],keyboardResults=[],failures=[];
+              await connectedPage.evaluate(()=>{
+                const search=document.getElementById("searchInput");
+                if(search){search.value="";search.dispatchEvent(new Event("input",{bubbles:true}));}
+              });
+              await connectedPage.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===2100,null,{timeout:10000});
+              async function measureKeyboardRoute(view){
+                const tab=connectedPage.locator('.nav-item[data-view="'+view+'"]');
+                await tab.focus();
+                let focus=null,steps=0;
+                for(;steps<80;steps++){
+                  await connectedPage.keyboard.press("Tab");
+                  focus=await connectedPage.evaluate(v=>{
+                    const active=document.getElementById("view-"+v),el=document.activeElement,s=getComputedStyle(el),r=el.getBoundingClientRect();
+                    const text=(el.getAttribute("aria-label")||el.innerText||el.textContent||el.value||"").trim();
+                    return {view:v,tag:el.tagName,id:el.id||null,accessibleName:text||null,
+                      inActiveRoute:!!active?.contains(el),visible:r.width>0&&r.height>0&&s.display!=="none"&&s.visibility!=="hidden",
+                      keyboardFocusVisible:el.matches(":focus-visible"),
+                      focusIndicator:(s.outlineStyle!=="none"&&parseFloat(s.outlineWidth)>0)||s.boxShadow!=="none"};
+                  },view);
+                  if(focus.inActiveRoute)break;
+                }
+                focus.tabSequenceSteps=steps+1;
+                keyboardResults.push(focus);
+                if(!focus.inActiveRoute||!focus.accessibleName||!focus.visible||!focus.keyboardFocusVisible||!focus.focusIndicator)
+                  failures.push({case:"keyboard/"+view,reason:"Keyboard traversal did not reach a named active-route control with visible focus",focus});
+                return focus;
+              }
+              async function measureRoute(viewport,view,kind){
+                await connectedPage.setViewportSize({width:viewport.width,height:viewport.height});
+                await connectedPage.evaluate(async v=>{
+                  const tab=document.querySelector('.nav-item[data-view="'+v+'"]');
+                  if(!tab)throw Error("Responsive matrix route missing: "+v);
+                  tab.click();
+                  await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+                },view);
+                await connectedPage.waitForFunction(v=>document.getElementById("view-"+v)?.classList.contains("active"),view,{timeout:5000});
+                await connectedPage.waitForTimeout(35);
+                if(kind==="standard"&&viewport.label==="1280x720")
+                  await measureKeyboardRoute(view);
+                const result=await connectedPage.evaluate(({view,label,kind})=>{
+                  const active=document.getElementById("view-"+view);
+                  const root=document.scrollingElement||document.documentElement;
+                  const visible=el=>{
+                    const r=el.getBoundingClientRect(),s=getComputedStyle(el);
+                    return r.width>0&&r.height>0&&s.display!=="none"&&s.visibility!=="hidden"&&s.opacity!=="0"&&!el.closest("[hidden]");
+                  };
+                  const name=el=>{
+                    const labelled=el.getAttribute("aria-labelledby")?.split(/\s+/).map(id=>document.getElementById(id)?.textContent||"").join(" ").trim();
+                    const associatedLabel=el.labels?[...el.labels].map(label=>label.innerText||label.textContent||"").join(" ").trim():"";
+                  const alt=el.querySelector("img[alt]")?.getAttribute("alt")||"";
+                    const text=(el.innerText||el.textContent||"").trim();
+                    const inputValue=/^(button|submit|reset)$/i.test(el.type||"")?el.value:"";
+                    return el.getAttribute("aria-label")||labelled||associatedLabel||el.getAttribute("title")||alt||inputValue||text;
+                  };
+                  const parseColor=value=>{
+                    if(!value)return null;
+                    const functional=value.match(/rgba?\(([^)]+)\)/i);
+                    if(functional){
+                      const parts=functional[1].replace(/\//g,",").trim().split(/[ ,]+/).filter(Boolean);
+                      if(parts.length<3)return null;
+                      const channel=value=>value.endsWith("%")?parseFloat(value)*2.55:parseFloat(value);
+                      const alpha=parts[3]?(parts[3].endsWith("%")?parseFloat(parts[3])/100:parseFloat(parts[3])):1;
+                      return [channel(parts[0]),channel(parts[1]),channel(parts[2]),alpha];
+                    }
+                    const hex=value.match(/^#([0-9a-f]{3,8})$/i);
+                    if(hex){
+                      let h=hex[1];
+                      if(h.length===3||h.length===4)h=[...h].map(x=>x+x).join("");
+                      if(h.length===6||h.length===8)return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16),h.length===8?parseInt(h.slice(6,8),16)/255:1];
+                    }
+                    return value==="transparent"?[0,0,0,0]:null;
+                  };
+                  const composite=(front,back)=>{const alpha=front[3]+back[3]*(1-front[3]);if(alpha<=0)return [0,0,0,0];return [
+                    (front[0]*front[3]+back[0]*back[3]*(1-front[3]))/alpha,
+                    (front[1]*front[3]+back[1]*back[3]*(1-front[3]))/alpha,
+                    (front[2]*front[3]+back[2]*back[3]*(1-front[3]))/alpha,alpha
+                  ];};
+                  const luminance=color=>{
+                    const linear=color.map(value=>{const c=value/255;return c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4;});
+                    return 0.2126*linear[0]+0.7152*linear[1]+0.0722*linear[2];
+                  };
+                  const splitLayers=value=>{
+                    const layers=[];let start=0,depth=0;
+                    for(let i=0;i<value.length;i++){
+                      if(value[i]==="(")depth++;
+                      else if(value[i]===")")depth--;
+                      else if(value[i]===","&&depth===0){layers.push(value.slice(start,i).trim());start=i+1;}
+                    }
+                    layers.push(value.slice(start).trim());
+                    return layers;
+                  };
+                  const sampleGradientColors=layer=>{
+                    const tokens=(layer.match(/rgba?\([^)]+\)|#[0-9a-f]{3,8}/gi)||[]).map(parseColor).filter(Boolean);
+                    if(!tokens.length)return [];
+                    const samples=[];
+                    for(let i=0;i<tokens.length;i++){
+                      samples.push(tokens[i]);
+                      if(i+1<tokens.length){
+                        for(const t of [0.25,0.5,0.75]){
+                          const a=tokens[i],b=tokens[i+1];
+                          samples.push(a.map((channel,index)=>channel+(b[index]-channel)*t));
+                        }
+                      }
+                    }
+                    return samples;
+                  };
+                  const uniqueColors=colors=>{
+                    const seen=new Set(),out=[];
+                    for(const color of colors){
+                      const key=color.map(value=>Math.round(value*1000)/1000).join(",");
+                      if(!seen.has(key)){seen.add(key);out.push(color);}
+                      if(out.length>=128)break;
+                    }
+                    return out;
+                  };
+                  const backgroundsFor=el=>{
+                    const chain=[];for(let node=el;node;node=node.parentElement)chain.push(node);
+                    let backgrounds=[[255,255,255,1]],unknown=false;
+                    for(const node of chain.reverse()){
+                      const style=getComputedStyle(node),solid=parseColor(style.backgroundColor);
+                      // Background color is below this element's background-image layers.
+                      if(solid&&solid[3]>0)backgrounds=backgrounds.map(bg=>composite(solid,bg));
+                      const image=style.backgroundImage;
+                      if(image&&image!=="none"){
+                        const layers=splitLayers(image);
+                        // CSS paints the first image layer on top; composite from back to front.
+                        for(const layer of layers.reverse()){
+                          if(/url\(/i.test(layer)){unknown=true;continue;}
+                          if(!/gradient/i.test(layer)){unknown=true;continue;}
+                          const colors=sampleGradientColors(layer);
+                          if(!colors.length){unknown=true;continue;}
+                          backgrounds=uniqueColors(colors.flatMap(color=>backgrounds.map(bg=>composite(color,bg))));
+                        }
+                      }
+                    }
+                    return {backgrounds,unknown};
+                  };
+                  const textSelector="h1,h2,h3,h4,h5,p,li,th,td,label,button,a,summary,legend,input,select,textarea,[role=button],[role=link],span,strong,small";
+                  const renderedText=el=>{
+                    if(el instanceof HTMLInputElement){
+                      if(/^(button|submit|reset)$/i.test(el.type))return el.value||"";
+                      if(/^(text|search|email|url|tel|password|number|date|datetime-local|month|week|time)$/i.test(el.type))
+                        return el.value||el.placeholder||"";
+                      return "";
+                    }
+                    if(el instanceof HTMLTextAreaElement)return el.value||el.placeholder||"";
+                    if(el instanceof HTMLSelectElement)return [...el.selectedOptions].map(option=>option.innerText||option.textContent||"").join(" ").trim();
+                    return (el.innerText||el.textContent||"").trim();
+                  };
+                  const textElements=[...active.querySelectorAll(textSelector)].filter(el=>{
+                    if(!visible(el)||!renderedText(el))return false;
+                    const r=el.getBoundingClientRect();return r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight;
+                  }).slice(0,160);
+                  const lowContrast=[];
+                  let unmeasuredContrastCount=0,contrastSampleCount=0;
+                  for(const el of textElements){
+                    const controlPlaceholder=el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement;
+                    const usesPlaceholder=controlPlaceholder&&!el.value&&!!el.placeholder;
+                    const fg=parseColor(usesPlaceholder?getComputedStyle(el,"::placeholder").color:getComputedStyle(el).color),bg=backgroundsFor(el);
+                    if(!fg||bg.unknown||!bg.backgrounds.length){unmeasuredContrastCount++;continue;}
+                    const ratios=bg.backgrounds.map(base=>{
+                      const effectiveFg=fg[3]<1?composite(fg,base):fg;
+                      const a=luminance(effectiveFg),b=luminance(base),hi=Math.max(a,b),lo=Math.min(a,b);
+                      return (hi+0.05)/(lo+0.05);
+                    });
+                    const style=getComputedStyle(el),size=parseFloat(style.fontSize)||0,weight=parseInt(style.fontWeight,10)||400;
+                    const large=size>=24||(size>=18.66&&weight>=700),required=large?3:4.5,min=Math.min(...ratios);
+                    contrastSampleCount++;
+                    if(min+0.01<required)lowContrast.push({tag:el.tagName,id:el.id||null,
+                      className:String(el.className||"").slice(0,100),
+                      color:(usesPlaceholder?getComputedStyle(el,"::placeholder").color:getComputedStyle(el).color),
+                      text:renderedText(el).slice(0,90),contrast:Math.round(min*100)/100,required});
+                  }
+                  const contrast={sampleCount:contrastSampleCount,unmeasuredCount:unmeasuredContrastCount,
+                    lowContrastCount:lowContrast.length,lowContrast:lowContrast.slice(0,12)};
+                  const controls=[...document.querySelectorAll('a[href],button,input:not([type="hidden"]),select,textarea,[role="button"],[role="link"]')].filter(visible);
+                  const unnamed=controls.filter(el=>!String(name(el)||"").trim()).map(el=>({tag:el.tagName,id:el.id,role:el.getAttribute("role"),type:el.type||null}));
+                  const overflowPx=Math.max(0,root.scrollWidth-innerWidth);
+                  const viewOverflowPx=active?Math.max(0,active.getBoundingClientRect().right-innerWidth):null;
+                  let longText=null;
+                  if(view==="open-ro"){
+                    const row=document.querySelector('tr[data-id="synthetic-browser-ro-0"]');
+                    const fields=[
+                      {field:"customer",element:row?.querySelector("td:nth-child(3) strong"),marker:"LONG SYNTHETIC CUSTOMER"},
+                      {field:"vehicle",element:row?.querySelector("td:nth-child(3) small"),marker:"LONG SYNTHETIC VEHICLE DESCRIPTION"},
+                      {field:"follow-up action",element:row?.querySelector("td:nth-child(6) .ro-cell-stack > strong"),marker:"LONG SYNTHETIC FOLLOW-UP ACTION"}
+                    ].map(({field,element,marker})=>{
+                      const present=(element?.textContent||"").includes(marker),isVisible=Boolean(element&&visible(element));
+                      let clipped=false;
+                      for(let node=element;node&&node!==row;node=node.parentElement){
+                        const style=getComputedStyle(node);
+                        const ellipsis=style.textOverflow==="ellipsis"&&(node.scrollWidth>node.clientWidth+1||node.scrollHeight>node.clientHeight+1);
+                        const clampValue=Number.parseInt(style.webkitLineClamp,10);
+                        const clamp=Number.isFinite(clampValue)&&clampValue>0&&node.scrollHeight>node.clientHeight+1;
+                        if(ellipsis||clamp){clipped=true;break;}
+                      }
+                      return {field,present,visible:isVisible,clipped};
+                    });
+                    longText={rowFound:!!row,fields,visibleFields:fields.filter(item=>item.present&&item.visible).length,
+                      clippedFields:fields.filter(item=>item.clipped).length};
+                  }
+                  return {label,kind,view,width:innerWidth,height:innerHeight,active:!!active?.classList.contains("active"),
+                    documentHorizontalOverflowPx:overflowPx,viewRightOverflowPx:viewOverflowPx,
+                    visibleControlCount:controls.length,unnamedControlCount:unnamed.length,unnamedControls:unnamed.slice(0,12),contrast,longText};
+                },{view,label:viewport.label,kind});
+                const key=kind+"/"+viewport.label+"/"+view;
+                if(!result.active||result.width!==viewport.width||result.height!==viewport.height)
+                  failures.push({case:key,reason:"route or viewport did not match",result});
+                if(result.documentHorizontalOverflowPx>4||result.viewRightOverflowPx>4)
+                  failures.push({case:key,reason:"horizontal page overflow",result});
+                if(result.unnamedControlCount>0)
+                  failures.push({case:key,reason:"visible controls lack accessible names",result});
+                if(result.contrast.lowContrastCount>0||result.contrast.unmeasuredCount>0)
+                  failures.push({case:key,reason:"visible text contrast is below threshold or cannot be measured",contrast:result.contrast});
+                if(view==="open-ro"){
+                  longTextResults.push({case:key,...result.longText});
+                  if(!result.longText?.rowFound||result.longText.visibleFields!==3||result.longText.clippedFields>0)
+                    failures.push({case:key,reason:"long synthetic Open RO text is missing or clipped",longText:result.longText});
+                }
+                return result;
+              }
+              for(const viewport of standardViewports)
+                for(const view of allViews)routeResults.push(await measureRoute(viewport,view,"standard"));
+              const zoomRoutes=["home","open-ro","meeting"];
+              for(const viewport of zoomViewports)
+                for(const view of zoomRoutes)zoomResults.push(await measureRoute(viewport,view,"zoom-equivalent-css-viewport"));
+              const keyboardFocus=keyboardResults.find(item=>item.view==="home")||null;
+              if(!keyboardFocus)failures.push({case:"keyboard focus",reason:"Home route has no keyboard traversal result"});
+              const successfulTasks=[...uxTaskSamples.filter(item=>item.success),{success:true,...uxMetrics}];
+              const metric=key=>successfulTasks.length?summarizeNavigationMs(successfulTasks.map(item=>item[key])):null;
+              const taskNames=["manager-home-priority","assign-next-review-and-exclude","performance-report-readiness","imports-refresh-and-empty-state","meeting-source-readiness","settings-browser-preference"];
+              const collectedScreenTasks=screenTaskSamples.flatMap(item=>item.results||[]);
+              const screenTaskEffort=taskNames.map(name=>{
+                const samples=collectedScreenTasks.filter(item=>item.name===name);
+                const metric=key=>samples.length?summarizeNavigationMs(samples.map(item=>item[key])):null;
+                return {name,attemptedSamples:screenTaskSamples.length,completedSamples:samples.filter(item=>item.success).length,
+                  failedSamples:screenTaskSamples.length-samples.filter(item=>item.success).length,
+                  taskDurationMs:metric("taskDurationMs"),clickCount:metric("clickCount"),
+                  fieldEntryCount:metric("fieldEntryCount"),scrollDistancePx:metric("scrollDistancePx"),sampleResults:samples};
+              });
+              const report={schemaVersion:1,dataset:"synthetic-clean-install",
+                scope:"Packaged file:// Chromium, in-memory synthetic Workspace, 2,100 synthetic ROs; zoom cases use equivalent CSS viewport dimensions, not native browser zoom or physical displays.",
+                routes:allViews,standardViewportCount:standardViewports.length,standardRouteSampleCount:routeResults.length,
+                zoomEquivalentViewportCount:zoomViewports.length,zoomEquivalentRouteSampleCount:zoomResults.length,
+                routeResults,zoomEquivalentResults:zoomResults,longTextResults,keyboardFocus,keyboardRouteResults:keyboardResults,screenTaskEffort,
+                openRoTaskEffort:{scenario:"search, edit, add note, save, and verify durable read-back",attemptedSamples:uxTaskSamples.length+1,
+                  completedSamples:successfulTasks.length,failedSamples:uxTaskSamples.filter(item=>!item.success).length,
+                  taskDurationMs:metric("elapsedMs"),clickCount:metric("clickCount"),fieldEntryCount:metric("fieldEntryCount"),scrollDistancePx:metric("scrollDistancePx")},
+                failures};
+              fs.writeFileSync(path.join(out,"responsive-ux-matrix.json"),JSON.stringify(report,null,2)+"\n");
+              if(failures.length){
+                const contrastFindings=new Map();
+                for(const item of failures)for(const finding of item.contrast?.lowContrast||[]){
+                  const key=[finding.tag,finding.id,finding.className,finding.color,finding.text,finding.contrast].join("|");
+                  const existing=contrastFindings.get(key)||{...finding,cases:[]};
+                  if(existing.cases.length<6&&!existing.cases.includes(item.case))existing.cases.push(item.case);
+                  contrastFindings.set(key,existing);
+                }
+                if(contrastFindings.size)console.error("Synthetic responsive/accessibility low-contrast details",JSON.stringify([...contrastFindings.values()]));
+                throw Error("Synthetic responsive/accessibility matrix failed: "+JSON.stringify(failures.slice(0,12)));
+              }
+              console.log("60 responsive, zoom-equivalent, keyboard, long-text, and task-effort evidence",
+                JSON.stringify({standardRoutes:routeResults.length,zoomEquivalentRoutes:zoomResults.length,keyboardFocus,
+                  longTextSamples:longTextResults.length,openRoTaskEffort:report.openRoTaskEffort}));
+            }
+
             connectedEditSamples.search.push(editCycle.searchMs);
             connectedEditSamples.editor.push(editCycle.editorMs);
             connectedEditSamples.noteReveal.push(noteRevealMs);

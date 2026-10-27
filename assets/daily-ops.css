@@ -29,7 +29,7 @@ body.daily-operating #view-home~.view{min-width:0}
 .daily-primary{font-size:18px!important;padding:14px 26px!important;justify-self:start}
 .daily-task-footer{margin-top:16px;padding-top:14px;border-top:1px solid #dce4e6}
 .daily-task-footer button{font-size:17px;padding:11px 24px}
-.daily-hint{font-size:14px;color:#66767d;margin:15px 0}
+.daily-hint{font-size:14px;color:#53636a;margin:15px 0}
 #dailyError,#dailyChanged{padding:14px;background:#fff1d9;color:#6d4100;border-radius:8px;margin-bottom:20px;line-height:1.5}
 #dailyTask [hidden],.daily-operating [hidden]{display:none!important}
 .daily-search{position:relative;flex:1;max-width:560px}.daily-search label{font-size:13px;display:block;font-weight:700;margin-bottom:5px}.daily-search input{width:100%;font-size:16px;padding:12px 15px;box-sizing:border-box}
@@ -187,7 +187,7 @@ html[data-theme="dark"] body.daily-operating .manager-pulse-card.urgent{backgrou
 }
 #view-settings :is(input,select,textarea):disabled{background:#f0f5f7;color:#607886;opacity:.8}
 #view-settings .settings-grid{gap:18px 21px}
-#view-settings .settings-card small{color:#617f8f;line-height:1.35;font-size:11px}
+#view-settings .settings-card small{color:#526b77;line-height:1.35;font-size:11px}
 #view-settings .settings-sections>.meeting-config-premium{
   grid-column:1/-1;border-top:3px solid #3aaec5;
   padding:clamp(23px,2.5vw,39px);gap:17px;
@@ -908,7 +908,7 @@ html[data-theme="dark"] body #view-settings :is(input:not([type="checkbox"]),sel
   border-radius:50%;border:2px solid rgba(3,56,54,.12);
   box-shadow:0 0 0 30px rgba(3,56,54,.055);pointer-events:none;
 }
-.arena-store .as-challenge>span{color:#06424a!important}
+.arena-store .as-challenge>span{color:#00313a!important}
 .arena-store .as-challenge strong{
   position:relative;z-index:1;color:#052b36;font-size:clamp(36px,3.3cqw,59px);
   text-shadow:none;
