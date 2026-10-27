@@ -54,8 +54,22 @@ class StandingAuthorizationTests(unittest.TestCase):
         self.assertEqual(codex_review_state([], HEAD), "pending")
         self.assertEqual(codex_review_state([summary("old")], HEAD), "pending")
         self.assertEqual(codex_review_state([summary(status="running")], HEAD), "pending")
-        self.assertEqual(codex_review_state([summary(findings=True)], HEAD), "findings")
+        self.assertEqual(codex_review_state([summary(findings=True)], HEAD), "clean")
+        self.assertEqual(codex_review_state([summary(findings=True, unresolved=True)], HEAD), "findings")
+        self.assertEqual(codex_review_state([summary(findings=True, unresolved=None)], HEAD), "findings")
         self.assertEqual(codex_review_state([summary(unresolved=True)], HEAD), "findings")
+
+    def test_resolved_historical_findings_do_not_block_verified_exact_head(self):
+        old = summary(findings=True, unresolved=True)
+        final = summary(findings=True, unresolved=False)
+        self.assertEqual(codex_review_state([old, final], HEAD), "clean")
+        self.assertEqual(merge_review_state([old, final], [], HEAD, POLICY), "clean")
+        self.assertEqual(merge_review_state([final, old], [], HEAD, POLICY), "findings")
+
+    def test_unverified_or_missing_resolution_remains_blocking(self):
+        uncertain = summary(findings=True, unresolved=None)
+        self.assertEqual(codex_review_state([uncertain], HEAD), "findings")
+        self.assertEqual(codex_review_state([summary(unresolved=None)], HEAD), "pending")
 
     def test_newer_stale_summary_supersedes_an_older_clean_review(self):
         self.assertEqual(codex_review_state([summary(), summary("old")], HEAD), "pending")
@@ -103,8 +117,9 @@ class OwnerReviewFallbackTests(unittest.TestCase):
         self.assertEqual(merge_review_state([], [owner_review(), newer], HEAD, POLICY), "pending")
 
     def test_codex_findings_cannot_be_suppressed_by_owner_attestation(self):
-        self.assertEqual(merge_review_state([summary(findings=True)], [owner_review()], HEAD, POLICY), "findings")
-        self.assertEqual(merge_review_state([summary(findings=True), summary("b" * 40)], [owner_review()], HEAD, POLICY), "findings")
+        self.assertEqual(merge_review_state([summary(findings=True, unresolved=True)], [owner_review()], HEAD, POLICY), "findings")
+        self.assertEqual(merge_review_state([summary(findings=True, unresolved=True), summary("b" * 40)], [owner_review()], HEAD, POLICY), "findings")
+        self.assertEqual(merge_review_state([summary(findings=True, unresolved=False)], [owner_review()], HEAD, POLICY), "clean")
 
     def test_disabled_or_untrusted_policy_does_not_enable_owner_attestation(self):
         self.assertEqual(merge_review_state([], [owner_review()], HEAD, {}), "pending")
