@@ -17,7 +17,7 @@ function harness(){
         store:{cpGross:100000},validation:{saprDaysVerified:true,finalTotalsVerified:true}}
     }}
   };
-  const state={events:[]},navigation=[];
+  const state={events:[]},navigation=[],currentTasks=[];
   let health={safeForCurrent:true,periodEnd:'2026-10-26'};
   const element=tag=>({tag,children:[],attributes:{},className:'',textContent:'',
     setAttribute(name,value){this.attributes[name]=value;},
@@ -27,11 +27,14 @@ function harness(){
     today:()=> '2026-10-26',now:()=>Date.parse('2026-10-26T18:00:00Z'),
     document:{createElement:element},
     button:(label,click)=>({tag:'button',label,click}),go:view=>navigation.push(view),
+    allTasks:()=>currentTasks,
     __moondogFreshness:{sourceFreshness:()=>health}
   });
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../assets/daily-engine.js'),'utf8'),context);
+  vm.runInContext('this.engine=MoonDogDailyEngine;',context);
   vm.runInContext(app.slice(start,end)+';this.pace=verifiedGrossPaceDirection;'+
     'this.deferred=managerDeferredCount;this.renderEvidence=renderManagerEvidence;',context);
-  return {context,state,synthetic,navigation,setHealth:value=>{health=value;},element};
+  return {context,state,synthetic,navigation,currentTasks,setHealth:value=>{health=value;},element};
 }
 
 test('Home improvement is derived only from comparable, validated, current SAPR periods',()=>{
@@ -49,18 +52,29 @@ test('Home improvement is derived only from comparable, validated, current SAPR 
   assert.match(h.context.pace(),/not verified/i);
 });
 
-test('manager-deferral count uses latest task decision and rejects expired or unverified deferrals',()=>{
+test('manager-deferral count matches live eligibility and invalidates changed source or escalation',()=>{
   const h=harness();
+  const task=(id,rank=5,fingerprint='initial')=>({
+    id,type:'ro',rank,fingerprint,record:{management:{}}
+  });
+  const held=task('SYN-1');
+  const stale=task('SYN-2',5,'changed-source');
+  const urgent=task('SYN-3',2,'original');
+  h.currentTasks.push(held,stale,urgent);
   h.state.events=[
-    {details:{taskId:'SYN-1',action:'deferred',until:'2026-10-27T12:00:00Z'}},
-    {details:{taskId:'SYN-2',action:'deferred',until:'bad-timestamp'}},
-    {details:{taskId:'SYN-1',action:'completed'}},
-    {details:{taskId:'SYN-3',action:'deferred',until:'2026-10-24T12:00:00Z'}},
-    {details:{taskId:'SYN-4',action:'deferred',until:'2026-10-27T12:00:00Z'}}
+    {at:'2026-10-26T17:00:00Z',details:{taskId:'SYN-1',action:'deferred',until:'2026-10-27T12:00:00Z',rank:5,fingerprint:'initial'}},
+    {at:'2026-10-26T17:00:00Z',details:{taskId:'SYN-2',action:'deferred',until:'2026-10-27T12:00:00Z',rank:5,fingerprint:'original'}},
+    {at:'2026-10-26T17:00:00Z',details:{taskId:'SYN-3',action:'deferred',until:'2026-10-27T12:00:00Z',rank:5,fingerprint:'original'}},
+    {at:'2026-10-26T17:00:00Z',details:{taskId:'SYN-4',action:'deferred',until:'2026-10-27T12:00:00Z',rank:5,fingerprint:'removed'}}
   ];
+  assert.equal(h.context.deferred(),1,
+    'only the same live task with unchanged source/rank remains manager-deferred');
+  held.fingerprint='fresh-source';
+  assert.equal(h.context.deferred(),0,'fresh source evidence cancels Can wait classification');
+  held.fingerprint='initial';
   assert.equal(h.context.deferred(),1);
-  h.state.events.push({details:{taskId:'SYN-4',action:'not-an-issue'}});
-  assert.equal(h.context.deferred(),0);
+  h.state.events.push({at:'2026-10-26T18:00:00Z',details:{taskId:'SYN-1',action:'completed'}});
+  assert.equal(h.context.deferred(),0,'the latest manager action invalidates an earlier deferral');
 });
 
 test('Improving and Can wait are separate named and actionable summaries, not unsupported claims',()=>{
