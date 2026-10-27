@@ -243,9 +243,9 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
       return [item.textContent || "", ...(item.children || []).map(collectText)].join(" ");
     })
     .join(" ");
-  assert.match(homeHealth, /SAPR: .*Report period: 2026-10-21/,
+  assert.match(homeHealth, /SAPR: .*Report period: 2026-10-01 through 2026-10-21/,
     "the real Home health renderer must show the same SAPR report end date as the durable snapshot");
-  assert.doesNotMatch(homeHealth, /SAPR: .*Report period: 2026-10-22 · Last imported:/,
+  assert.doesNotMatch(homeHealth, /SAPR: .*Report period: 2026-10-01 through 2026-10-22 · Last imported:/,
     "the import date must not replace the report's authorized coverage period");
 
 });
