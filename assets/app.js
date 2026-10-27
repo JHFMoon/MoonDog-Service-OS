@@ -287,7 +287,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-27-trade-ar-v1";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-27-trade-ar-v2";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -2400,6 +2400,45 @@
     const sdl=book.Sheets["Service Daily Log"];if(sdl){const rows=XLSX.utils.sheet_to_json(sdl,{header:1,defval:null,raw:true}),nonblank=rows.flat().filter((value)=>text(value).trim());if(!nonblank.length)return{family:"service-daily-log-empty",sourceFile:fileName,sourceFormat:"xlsx",importedAt:now(),periodStart:"",periodEnd:"",variant:"blank-export",metrics:{dataRows:0},validation:{parser:"recognized-empty-workbook-v1",supplementalOnly:true,kpiPromotion:false,reason:"Recognized Service Daily Log workbook is blank"}};}
     return null;
   }
+  // Monetary source values are accepted only as numeric XLSX cells or an
+  // explicit decimal string with correctly grouped thousands and at most two
+  // fractional digits. Optional USD $ and accounting parentheses are supported;
+  // locale-dependent separators, percentages, blanks, and currency-only cells
+  // are rejected instead of being coerced to zero or another misleading amount.
+  function tradeArMoneyCents(value) {
+    let raw;
+    if(typeof value==="number") {
+      if(!Number.isFinite(value))return null;
+      raw=String(value);
+    } else if(typeof value==="string") raw=value.trim();
+    else return null;
+    if(!raw)return null;
+    let negative=false,body=raw;
+    if(body.startsWith("(")&&body.endsWith(")")) {
+      negative=true;body=body.slice(1,-1).trim();
+    } else if(body.startsWith("-")) {
+      negative=true;body=body.slice(1).trim();
+    }
+    const match=body.match(/^\\$?\\s*((?:\\d+|\\d{1,3}(?:,\\d{3})+)(?:\\.\\d{1,2})?)$/);
+    if(!match)return null;
+    const [whole,fraction=""]=match[1].replace(/,/g,"").split(".");
+    const cents=Number(whole)*100+Number((fraction+"00").slice(0,2));
+    if(!Number.isSafeInteger(cents))return null;
+    return negative?-cents:cents;
+  }
+  // Aging is an integer day count, never a currency/percent or a rounded
+  // arbitrary decimal. Grouping commas are accepted only in standard thousands.
+  function tradeArAgingDays(value) {
+    let raw;
+    if(typeof value==="number") {
+      if(!Number.isFinite(value))return null;
+      raw=String(value);
+    } else if(typeof value==="string") raw=value.trim();
+    else return null;
+    if(!/^(?:\\d+|\\d{1,3}(?:,\\d{3})+)$/.test(raw))return null;
+    const days=Number(raw.replace(/,/g,""));
+    return Number.isSafeInteger(days)&&days>=0&&days<=10000?days:null;
+  }
   function parseTradeArErrorWorkbook(bytes,fileName) {
     // Multi-store accounts receivable is never an Open RO, SAPR, or sales KPI.
     // Retain only a compact aggregate for the locally configured AN store.
@@ -2433,11 +2472,11 @@
         throw new Error("Needs Review: Trade AR contains an unscoped or unidentified invoice row.");
       sourceRows++;
       if(store!==configuredStore)continue;
-      const days=performanceNumber(row[columns.days]),invoiceDate=strictOpenRoDate(row[columns.invoiceDate]);
-      const invoiceAmount=performanceNumber(row[columns.invoiceAmount]);
-      const received=performanceNumber(row[columns.received]),open=performanceNumber(row[columns.open]);
-      if(!Number.isInteger(days)||days<0||days>10000||!invoiceDate
-        ||![invoiceAmount,received,open].every(Number.isFinite))
+      const days=tradeArAgingDays(row[columns.days]),invoiceDate=strictOpenRoDate(row[columns.invoiceDate]);
+      const invoiceCents=tradeArMoneyCents(row[columns.invoiceAmount]);
+      const receivedCents=tradeArMoneyCents(row[columns.received]),openCents=tradeArMoneyCents(row[columns.open]);
+      if(days===null||!invoiceDate
+        ||invoiceCents===null||receivedCents===null||openCents===null)
         throw new Error("Needs Review: Trade AR aging, date, or money is unreadable for the configured store.");
       const key=JSON.stringify([store,customer,invoice]);
       if(seen.has(key))throw new Error("Needs Review: duplicate Trade AR invoice identity for the configured store.");
@@ -2446,9 +2485,9 @@
       aging[days>=90?"days90plus":days>=60?"days60to89":days>=30?"days30to59":"under30"]++;
       const attempt=text(row[columns.status]).trim().match(/^Attempt\s+([123])$/i);
       attempts[attempt?"Attempt "+attempt[1]:"Other"]++;
-      money.invoiceCents+=Math.round(invoiceAmount*100);
-      money.receivedCents+=Math.round(received*100);
-      money.openCents+=Math.round(open*100);
+      money.invoiceCents+=invoiceCents;
+      money.receivedCents+=receivedCents;
+      money.openCents+=openCents;
     }
     if(!sourceRows||!matchedRows)
       throw new Error("Needs Review: Trade AR has no rows for the configured AN Store#. Check the local Trade AR store mapping.");
