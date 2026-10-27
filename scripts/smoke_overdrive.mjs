@@ -1454,7 +1454,11 @@ try{
                   taskDurationMs:metric("elapsedMs"),clickCount:metric("clickCount"),fieldEntryCount:metric("fieldEntryCount"),scrollDistancePx:metric("scrollDistancePx")},
                 failures};
               fs.writeFileSync(path.join(out,"responsive-ux-matrix.json"),JSON.stringify(report,null,2)+"\n");
-              if(failures.length)throw Error("Synthetic responsive/accessibility matrix failed: "+JSON.stringify(failures.slice(0,12)));
+              if(failures.length){
+                const contrastFindings=failures.flatMap(item=>item.contrast?.lowContrast||[]);
+                if(contrastFindings.length)console.error("Synthetic responsive/accessibility low-contrast details",JSON.stringify(contrastFindings));
+                throw Error("Synthetic responsive/accessibility matrix failed: "+JSON.stringify(failures.slice(0,12)));
+              }
               console.log("60 responsive, zoom-equivalent, keyboard, long-text, and task-effort evidence",
                 JSON.stringify({standardRoutes:routeResults.length,zoomEquivalentRoutes:zoomResults.length,keyboardFocus,
                   longTextSamples:longTextResults.length,openRoTaskEffort:report.openRoTaskEffort}));
