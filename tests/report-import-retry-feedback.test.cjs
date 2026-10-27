@@ -83,7 +83,7 @@ test('report input clears its selection immediately so a failed import can retry
 });
 
 test('the quick report-refresh picker also clears the source selection before awaiting import',()=>{
-  const section=productionFunction('  function renderRefreshStrip(host) {','  async function actionWrap(fn)');
+  const section=productionFunction('  function renderRefreshStrip(host) {','  function attentionSecondaryDetail(');
   assert.match(section,/const file=input\.files\?\.\[0\];if\(!file\)return;input\.value='';/);
   assert.match(section,/await api\.importFile\(file\);await selectNext\(\)/);
 });
