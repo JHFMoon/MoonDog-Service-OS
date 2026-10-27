@@ -591,7 +591,7 @@
   function renderManagerPulse(host){
     if(!model.root)return;
     const section=document.createElement('section');section.className='manager-control-pulse';section.setAttribute('aria-label','Manager control pulse');
-    const head=document.createElement('div');head.className='manager-control-pulse-head';head.innerHTML='<div><p class="eyebrow">AT RISK</p><strong>RO risks from loaded source</strong></div>';
+    const head=document.createElement('div');head.className='manager-control-pulse-head';head.innerHTML='<div><p class="eyebrow">CONTROL PULSE · AT RISK</p><strong>Finish work before starting more · RO risks from loaded source</strong></div>';
     head.append(button('Open RO Control',()=>openPulseFilter(''),'link-button'));
     section.append(head);
     const grid=document.createElement('div');grid.className='manager-control-pulse-grid';
