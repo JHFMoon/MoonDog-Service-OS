@@ -76,12 +76,24 @@
             "tests/admin-closeout-invalid-commitments.test.cjs"
           ]
         },
-        "60-09": null,
-        "60-10": null,
+        "60-09": {
+          "kind": "runtime",
+          "pr": 558,
+          "tests": [
+            "tests/manager-home-hierarchy-evidence.test.cjs"
+          ]
+        },
+        "60-10": {
+          "kind": "runtime",
+          "pr": 562,
+          "tests": [
+            "tests/source-lineage-ui-reporting.test.cjs"
+          ]
+        },
         "60-11": null,
         "60-12": null
       },
-      "package_pr": 554
+      "package_pr": 563
     },
     "61": {
       "criteria": {
