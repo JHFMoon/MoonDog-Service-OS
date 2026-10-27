@@ -2471,7 +2471,8 @@
     const attempts={"Attempt 1":0,"Attempt 2":0,"Attempt 3":0,Other:0};
     const money={invoiceCents:0,receivedCents:0,openCents:0};
     const seen=new Set();let sourceRows=0,matchedRows=0,oldestDays=0,earliestInvoiceDate="";
-    for(const row of rows.slice(1)){
+    for(let rowIndex=1;rowIndex<rows.length;rowIndex++){
+      const row=rows[rowIndex];
       if(!row.some(value=>value!==null&&text(value).trim()))continue;
       const store=text(row[columns.store]).trim().replace(/^0+(?=\d)/,"");
       const invoice=text(row[columns.invoice]).trim(),customer=text(row[columns.customer]).trim();
