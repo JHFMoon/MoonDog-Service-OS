@@ -1758,7 +1758,8 @@
     if(!required.every(header=>headers.includes(header)))throw new Error("The Menu Sales column structure changed.");
     const column=name=>headers.indexOf(name),groups=new Map(),summaries=new Map(),
       configuredCodes=new Set(configuredAdvisors().map(advisor=>String(advisor.number)).filter(validAdvisorIdentity));
-    for(const row of rows.slice(1)){
+    for(let rowIndex=1;rowIndex<rows.length;rowIndex++){
+      const row=rows[rowIndex];
       const account=text(row[column("account")]).trim();
       if(!account||norm(account)==="total")continue;
       const code=text(row[column("advisor code")]).trim(),
@@ -2439,10 +2440,16 @@
     const days=Number(raw.replace(/,/g,""));
     return Number.isSafeInteger(days)&&days>=0&&days<=10000?days:null;
   }
+  function tradeArCellHasPercentFormat(sheet,rowIndex,column) {
+    const range=sheet["!ref"]?XLSX.utils.decode_range(sheet["!ref"]):{s:{r:0,c:0}};
+    const address=XLSX.utils.encode_cell({r:range.s.r+rowIndex,c:range.s.c+column});
+    const cell=sheet[address];
+    return /%/.test(text(cell?.z||""))||/%/.test(text(cell?.w||""));
+  }
   function parseTradeArErrorWorkbook(bytes,fileName) {
     // Multi-store accounts receivable is never an Open RO, SAPR, or sales KPI.
     // Retain only a compact aggregate for the locally configured AN store.
-    const book=XLSX.read(bytes,{type:"array",raw:true,cellDates:true});
+    const book=XLSX.read(bytes,{type:"array",raw:true,cellDates:true,cellNF:true});
     const sheet=book.Sheets["Trade AR Error Report"];
     if(!sheet)return null;
     const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true});
@@ -2472,6 +2479,9 @@
         throw new Error("Needs Review: Trade AR contains an unscoped or unidentified invoice row.");
       sourceRows++;
       if(store!==configuredStore)continue;
+      if([columns.days,columns.invoiceAmount,columns.received,columns.open]
+        .some(column=>tradeArCellHasPercentFormat(sheet,rowIndex,column)))
+        throw new Error("Needs Review: percentage-formatted Trade AR values are ambiguous.");
       const days=tradeArAgingDays(row[columns.days]),invoiceDate=strictOpenRoDate(row[columns.invoiceDate]);
       const invoiceCents=tradeArMoneyCents(row[columns.invoiceAmount]);
       const receivedCents=tradeArMoneyCents(row[columns.received]),openCents=tradeArMoneyCents(row[columns.open]);
