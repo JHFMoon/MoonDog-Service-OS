@@ -833,7 +833,7 @@
   function importer(host,task=null){
     const input=document.createElement('input');input.type='file';input.accept='.xlsx,.csv,.pdf';input.hidden=true;
     const choose=button(task?`Import ${names[task.source]}`:'Choose a report',()=>input.click(),'primary daily-primary');
-    input.addEventListener('change',()=>{const file=input.files[0];if(!file)return;action(async()=>{const imported=await api.importFile(file);if(task&&imported===task.source)await log('completed',task,{until:new Date(now()+60000).toISOString()});await selectNext();if(active()==='tools')renderTools('imports');});});
+    input.addEventListener('change',()=>{const file=input.files[0];if(!file)return;input.value='';action(async()=>{const imported=await api.importFile(file);if(task&&imported===task.source)await log('completed',task,{until:new Date(now()+60000).toISOString()});await selectNext();if(active()==='tools')renderTools('imports');});});
     host.append(input,choose);
     const hint=document.createElement('p');hint.className='daily-hint';hint.textContent='Or place reports in “01 - DROP REPORTS HERE”. Service Operations Dashboard checks them automatically.';host.append(hint);
   }
@@ -881,7 +881,7 @@
     if(!section.querySelector('.daily-needed-row'))return;
     const input=document.createElement('input');input.type='file';input.id='dailyRefreshPicker';
     input.accept='.xlsx,.xls,.csv,.pdf,.docx';input.hidden=true;
-    input.addEventListener('change',()=>{const file=input.files?.[0];if(!file)return;
+    input.addEventListener('change',()=>{const file=input.files?.[0];if(!file)return;input.value='';
       actionWrap(async()=>{if(input.dataset.source)await api.recordRefresh(input.dataset.source,'requested');await api.importFile(file);await selectNext();});
     });
     host.append(section,input);
