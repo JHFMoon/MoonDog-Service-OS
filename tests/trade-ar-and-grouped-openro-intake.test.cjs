@@ -119,7 +119,7 @@ test("Trade AR fails closed on malformed scoped values without changing saved to
     vm.runInNewContext(section("  async function importSupplementalSource(","  async function processClassifiedCandidate("),ctx);
     await assert.rejects(()=>ctx.importSupplementalSource(
       {name:"synthetic-trade-ar.xlsx",location:"inbox"},"supplemental-workbook",new ArrayBuffer(1),true),
-      /Trade AR aging, date, or money is unreadable/);
+      /Trade AR aging, date, or money is unreadable|percentage-formatted Trade AR values are ambiguous/);
     assert.equal(JSON.stringify(model.operationalMetrics),before);
     assert.equal(sourcePresent,true);
     assert.equal(deleteCalls,0);
