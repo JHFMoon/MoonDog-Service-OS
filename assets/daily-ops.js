@@ -503,7 +503,11 @@
     const open=model.state.records.filter(r=>!api.closed(r.management||{})),parts=open.filter(r=>api.statusDetail(r)==='Approved — Waiting Parts'&&!engine.hasFuturePlan(r,day));
     if(parts.length>=3)items.push({id:`parts:${day}`,type:'parts',title:'Review the parts delays',description:`${parts.length} current ROs are waiting on parts. Confirm the next action and customer update with Parts.`,view:'open-ro',rank:8,once:true,fingerprint:day});
     const unresolved=open.filter(r=>r.management?.reviewDate===day||r.management?.communication==='Needs update'||Boolean(engine.stuckWork(r,day)));
-    if(hour>=15&&unresolved.length)items.push({id:`tomorrow:${day}`,type:'tomorrow',title:'Make tomorrow ready',description:`Review ${unresolved.length} unresolved follow-up${unresolved.length===1?'':'s'}, customer update${unresolved.length===1?'':'s'}, or finish plan${unresolved.length===1?'':'s'} before closing.`,view:'open-ro',rank:5.5,once:true,fingerprint:JSON.stringify([day,unresolved.map(r=>[r.id,r.management?.updatedAt,r.management?.reviewDate])])});
+    if(hour>=15&&unresolved.length){
+      const unconfirmedOwners=unresolved.filter(r=>r.management?.ownerAssignmentSource!=='manager-confirmed'||!String(r.management?.owner||'').trim()).length;
+      const ownerReminder=unconfirmedOwners?` ${unconfirmedOwners} follow-up owner${unconfirmedOwners===1?'':'s'} need${unconfirmedOwners===1?'s':''} manager confirmation.`:'';
+      items.push({id:`tomorrow:${day}`,type:'tomorrow',title:'Make tomorrow ready',description:`Review ${unresolved.length} unresolved follow-up${unresolved.length===1?'':'s'}, customer update${unresolved.length===1?'':'s'}, or finish plan${unresolved.length===1?'':'s'} before closing.${ownerReminder}`,view:'open-ro',rank:5.5,once:true,fingerprint:JSON.stringify([day,unresolved.map(r=>[r.id,r.management?.updatedAt,r.management?.reviewDate,r.management?.ownerAssignmentSource==='manager-confirmed',r.management?.communication,r.management?.nextAction])])});
+    }
     // All verified coaching opportunities compete with operational tasks; do not hide advisors in a separate rotation.
     items.push(...engine.coachingTasks(api.latestSapr(),api.advisors(),model.settings.performanceStandards,globalThis.__moondogFreshness.sourceFreshness('sapr',{today:day}).safeForCurrent,day));
     return items;
