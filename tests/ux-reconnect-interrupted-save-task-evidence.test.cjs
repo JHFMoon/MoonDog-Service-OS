@@ -62,8 +62,10 @@ test("a missing task measurement cannot masquerade as a passing reconnect",()=>{
 test("browser smoke exercises real failed Open RO save, retry and folder-reconnect UI on synthetic data",()=>{
   assert.match(smoke,/__moondogSyntheticWorkflowFaults=injectedWorkflowFaults/,
     "one-shot fault only exists in in-memory synthetic browser folder");
-  assert.match(smoke,/failNextRoBackup&&\/updated-ro-\/i\.test\(name\)/,
-    "fault strikes the state backup before the intended durable RO mutation");
+  assert.match(smoke,/!create&&injectedWorkflowFaults\.failNextRoBackup&&\/updated-ro-\/i\.test\(key\)/,
+    "recoverable synthetic backup failure strikes preflight read before transaction touch");
+  assert.doesNotMatch(smoke,/if\(injectedWorkflowFaults\.failNextRoBackup&&\/updated-ro-\/i\.test\(name\)\)/,
+    "a post-touch backup-write failure must not be incorrectly treated as an immediately retryable fault");
   assert.match(smoke,/await connectedPage\.locator\("#saveRecordClose"\)\.click\(\{timeout:5000\}\);/);
   assert.match(smoke,/waitForFunction\(\(\)=>\{\s*const dialog=document\.getElementById\("editDialog"\),error=/,
     "production form must surface the expected failure before retry");
