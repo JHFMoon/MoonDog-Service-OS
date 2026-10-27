@@ -107,6 +107,8 @@ test('Home keeps Action now and At risk visible when no immediate task exists',(
   assert.match(source,/renderManagerEvidence\(host\)/);
   assert.match(source,/host\.append\(pulse\)/);
   assert.match(app,/AT RISK/);
+  assert.match(app,/CONTROL PULSE/,'legacy Beta pulse title remains available');
+  assert.match(app,/Finish work before starting more/,'legacy Beta manager reminder remains available');
   assert.match(app,/No flagged RO risks in the loaded source/);
   assert.match(app,/if\(category==='recovery'\)/,'destructive/recovery tools remain separate from everyday settings');
 });
