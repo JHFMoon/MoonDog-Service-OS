@@ -1374,8 +1374,10 @@ try{
                     const style=getComputedStyle(el),size=parseFloat(style.fontSize)||0,weight=parseInt(style.fontWeight,10)||400;
                     const large=size>=24||(size>=18.66&&weight>=700),required=large?3:4.5,min=Math.min(...ratios);
                     contrastSampleCount++;
-                    if(min+0.01<required)lowContrast.push({tag:el.tagName,id:el.id||null,text:renderedText(el).slice(0,90),
-                      contrast:Math.round(min*100)/100,required});
+                    if(min+0.01<required)lowContrast.push({tag:el.tagName,id:el.id||null,
+                      className:String(el.className||"").slice(0,100),
+                      color:(usesPlaceholder?getComputedStyle(el,"::placeholder").color:getComputedStyle(el).color),
+                      text:renderedText(el).slice(0,90),contrast:Math.round(min*100)/100,required});
                   }
                   const contrast={sampleCount:contrastSampleCount,unmeasuredCount:unmeasuredContrastCount,
                     lowContrastCount:lowContrast.length,lowContrast:lowContrast.slice(0,12)};
@@ -1455,8 +1457,14 @@ try{
                 failures};
               fs.writeFileSync(path.join(out,"responsive-ux-matrix.json"),JSON.stringify(report,null,2)+"\n");
               if(failures.length){
-                const contrastFindings=failures.flatMap(item=>item.contrast?.lowContrast||[]);
-                if(contrastFindings.length)console.error("Synthetic responsive/accessibility low-contrast details",JSON.stringify(contrastFindings));
+                const contrastFindings=new Map();
+                for(const item of failures)for(const finding of item.contrast?.lowContrast||[]){
+                  const key=[finding.tag,finding.id,finding.className,finding.color,finding.text,finding.contrast].join("|");
+                  const existing=contrastFindings.get(key)||{...finding,cases:[]};
+                  if(existing.cases.length<6&&!existing.cases.includes(item.case))existing.cases.push(item.case);
+                  contrastFindings.set(key,existing);
+                }
+                if(contrastFindings.size)console.error("Synthetic responsive/accessibility low-contrast details",JSON.stringify([...contrastFindings.values()]));
                 throw Error("Synthetic responsive/accessibility matrix failed: "+JSON.stringify(failures.slice(0,12)));
               }
               console.log("60 responsive, zoom-equivalent, keyboard, long-text, and task-effort evidence",
