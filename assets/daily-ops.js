@@ -977,16 +977,21 @@
     const sourceName=source.fileName||source.sourceFile||'Current Open RO snapshot';
     const sourceDate=source.reportDate||source.coverageDate
       ?'Report period '+String(source.reportDate||source.coverageDate).slice(0,10)
-      :source.sourceModifiedAt?'File modified '+String(source.sourceModifiedAt).slice(0,10)
-      :typeof source.importedAt==='string'?'Imported '+source.importedAt.slice(0,10)
       :'Report date not verified';
+    const sourceModified=source.sourceModifiedAt?'File modified '+String(source.sourceModifiedAt).slice(0,10):'';
+    const importTime=typeof source.importedAt==='string'&&
+      /^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}/.test(source.importedAt)&&
+      Number.isFinite(Date.parse(source.importedAt))
+      ?'Imported '+new Date(source.importedAt).toISOString().slice(0,16).replace('T',' ')+' UTC'
+      :'Import time not verified';
+    const sourceContext=[sourceDate,sourceModified,importTime].filter(Boolean).join(' · ');
     return [
       'RO '+String(record.ro||''),
       'Follow-up owner: '+(owner||'Not confirmed'),
       'Follow-up date: '+(String(management.reviewDate||'').trim()||'Not set'),
       'Status / blocker: '+blocker,
       'Next step: '+(String(management.nextAction||'').trim()||'Confirm next action'),
-      'Source confidence: '+sourceName+(sourceDate?' · '+sourceDate:'')+' · '+sourceConfidence
+      'Source confidence: '+sourceName+' · '+sourceContext+' · '+sourceConfidence
     ].join(' · ');
   }
 

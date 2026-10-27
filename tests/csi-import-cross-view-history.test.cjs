@@ -14,6 +14,7 @@ function extract(first,last,label){
 }
 const ingestion=extract("  const CSI_ADVISOR_CODES = {};","  const isoCell =","CSI ingestion");
 const evidence=extract("  function csiMetricEvidence(","  const rawVirMeetingEvidence=virMeetingEvidence","CSI evidence");
+const lineageHelper=extract("  function sourceLineageLabel(evidence) {","  function advisorNextWin(","Source lineage helper");
 const home=extract("  function renderOverviewIntelligence() {","  const renderOverviewIntelligenceBase=renderOverviewIntelligence","Home renderer");
 const meeting=extract("  function meetingAdvisorTv(","  function renderMeetingArenaStore(","Meeting renderer");
 
@@ -75,7 +76,7 @@ test("synthetic CSI import keeps period and lineage aligned through durable stor
     compactMoney:value=>"$"+String(Math.round(value/1000))+"K",
     meetingEscape:value=>String(value),console
   });
-  vm.runInContext(ingestion+"\n"+evidence+"\n"+home+"\n"+meeting+
+  vm.runInContext(ingestion+"\n"+evidence+"\n"+lineageHelper+"\n"+home+"\n"+meeting+
     "\nthis.importCsiFile=importCsiFile;this.npsSummary=npsSummary;this.csiMetricEvidence=csiMetricEvidence;"+
     "this.renderHome=renderOverviewIntelligence;this.renderMeetingView=meetingAdvisorTv;",context);
 

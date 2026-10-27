@@ -14,6 +14,7 @@ function extract(source,first,last,label){
 }
 const summary=extract(app,"  function npsSummary(","  async function importCsiFile(","CSI summary");
 const evidence=extract(app,"  function csiMetricEvidence(","  const rawVirMeetingEvidence=virMeetingEvidence","CSI evidence");
+const lineageHelper=extract(app,"  function sourceLineageLabel(evidence) {","  function advisorNextWin(","Source lineage helper");
 const home=extract(app,"  function renderOverviewIntelligence() {","  const renderOverviewIntelligenceBase=renderOverviewIntelligence;","Home renderer");
 const meeting=extract(app,"  function meetingAdvisorTv(","  function renderMeetingArenaStore(","Meeting renderer");
 
@@ -61,7 +62,7 @@ test("one synthetic CSI observation keeps the same reporting period and source e
     compactMoney:value=>"$"+String(Math.round(value/1000))+"K",
     meetingEscape:value=>String(value),console
   });
-  vm.runInContext(summary+"\n"+evidence+"\n"+home+"\n"+meeting+
+  vm.runInContext(summary+"\n"+evidence+"\n"+lineageHelper+"\n"+home+"\n"+meeting+
     "\nthis.npsSummary=npsSummary;this.csiMetricEvidence=csiMetricEvidence;"+
     "this.renderHome=renderOverviewIntelligence;this.renderMeeting=meetingAdvisorTv;",context);
 
