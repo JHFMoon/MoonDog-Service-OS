@@ -1506,7 +1506,29 @@
     }
     return null;
   }
-  async function scanFiles() { const files = []; for await (const [name, handle] of (await reportInbox(false)).entries()) if (handle.kind === "file" && /\.xlsx$/i.test(name) && !/^~\$/.test(name)) files.push(name); for await (const [name, handle] of model.root.entries()) if (handle.kind === "file" && returnedWorkbookCandidate(name) && !files.includes(name)) files.push(name); files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); ui.sourceSelect.replaceChildren(new Option(files.length ? "Select Report Inbox XLSX" : "No XLSX files in Report Inbox", "")); files.forEach((name) => ui.sourceSelect.add(new Option(name, name))); ui.sourceSelect.disabled = !files.length; ui.importButton.disabled = true; }
+  async function scanFiles() {
+    const files=[],seen=new Set(),learned=new Set();
+    const add=(name,location)=>{if(seen.has(name))return;seen.add(name);files.push(name);sourceLocations.set(name,location);if(location==="learn")learned.add(name);};
+    for await(const [name,handle] of (await reportInbox(false)).entries())
+      if(handle.kind==="file"&&/\.xlsx$/i.test(name)&&!/^~\$/.test(name))add(name,"inbox");
+    // Files already misrouted by an older watcher must remain selectable for
+    // explicit Open RO review. Never promote arbitrary unrecognized learn files.
+    const priorKnownOpenRo=new Set(Object.values(model.autoImport?.seen||{})
+      .filter(item=>item?.storedAs&&/unsigned complete RO report requires explicit source/i.test(item.diagnostic||""))
+      .map(item=>item.storedAs));
+    try{
+      const learnFolder=await directory(["Files To Learn"],false);
+      for await(const [name,handle] of learnFolder.entries())
+        if(handle.kind==="file"&&/\.xlsx$/i.test(name)&&!/^~\$/.test(name)&&priorKnownOpenRo.has(name))
+          add(name,"learn");
+    }catch(error){if(error?.name!=="NotFoundError")throw error;}
+    for await(const [name,handle] of model.root.entries())
+      if(handle.kind==="file"&&returnedWorkbookCandidate(name))add(name,"root");
+    files.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+    ui.sourceSelect.replaceChildren(new Option(files.length?"Select Report Inbox or recovered Open RO XLSX":"No Open RO source files available",""));
+    files.forEach(name=>ui.sourceSelect.add(new Option(name+(learned.has(name)?" (Files To Learn)":""),name)));
+    ui.sourceSelect.disabled=!files.length;ui.importButton.disabled=true;
+  }
   async function scanPerformanceFiles() { const files = []; for await (const [name, handle] of (await reportInbox(false)).entries()) if (handle.kind === "file" && /\.xlsx$/i.test(name) && !/^~\$/.test(name) && !/^(?:MoonDog|Service Operations) Open RO/i.test(name)) files.push(name); files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); ui.performanceSourceSelect.replaceChildren(new Option(files.length ? "Select performance XLSX from Report Inbox" : "No performance XLSX in Report Inbox", "")); files.forEach((name) => ui.performanceSourceSelect.add(new Option(name, name))); ui.performanceSourceSelect.disabled = !files.length; ui.importPerformance.disabled = true; }
 
   function parseCsv(source) {
@@ -2861,7 +2883,14 @@
   function watchedInboxFile(name) { return Boolean(String(name || "").trim()); }
   function returnedWorkbookCandidate(name){return /\.xlsx$/i.test(name)&&!/^~\$/.test(name)&&/^(?:MoonDog|Service Operations) /i.test(name)&&!/-revision\.xlsx$/i.test(name);}
   async function watchCandidates(){const candidates=[],append=async(name,handle,location)=>{const relativePath=location==="inbox"?`${REPORT_INBOX}/${name}`:name;try{const file=await handle.getFile();candidates.push({name,location,relativePath,file,signature:`${relativePath}|${file.size}|${file.lastModified}`});}catch(error){candidates.push({name,location,relativePath,readError:error});}};const inbox=await reportInbox(false);for await(const[name,handle]of inbox.entries())if(handle.kind==="file"&&watchedInboxFile(name))await append(name,handle,"inbox");for await(const[name,handle]of model.root.entries())if(handle.kind==="file"&&returnedWorkbookCandidate(name)&&!candidates.some((candidate)=>candidate.name===name))await append(name,handle,"root");return candidates;}
-  function candidateNeedsImport(candidate) { if(candidate.readError)return false;if(candidate.location==="inbox")return !(model.autoImport.seen?.[candidate.signature]?.kind==="appointments"&&model.autoImport.seen[candidate.signature].importedAt);const seen=model.autoImport.seen?.[candidate.signature];return !seen||Boolean(seen.movedAt); }
+  function candidateNeedsImport(candidate) {
+    if(candidate.readError)return false;
+    const seen=model.autoImport.seen?.[candidate.signature];
+    if(candidate.location==="inbox")
+      return !(seen?.kind==="appointments"&&seen.importedAt)
+        &&!((seen?.kind==="open-ro"||seen?.kind==="open-ro-docx")&&seen.manualImportRequired);
+    return !seen||Boolean(seen.movedAt);
+  }
   function transientWorkspaceState(error){return ["AbortError","InvalidStateError","NotReadableError","UnknownError","TimeoutError"].includes(error?.name)||/state cached in an interface object|state had changed since it was read from disk|changed since it was read from disk/i.test(error?.message||"");}
   function transientIntakeError(error){return transientWorkspaceState(error)||["NotAllowedError","SecurityError","QuotaExceededError"].includes(error?.name)||/changed while|permission|temporar|read-back|write verification|could not be saved/i.test(error?.message||"");}
   function referenceOnlyHint(name){return Boolean(referenceOnlyDocumentType(name,""));}
@@ -2876,8 +2905,8 @@
       const present=new Set(candidates.map(item=>item.relativePath)),stable=new Set();
       for(const candidate of candidates){const prior=folderWatch.pending.get(candidate.relativePath);if(candidate.readError){if(!prior?.readPending)recordDiagnostic("REPORT INBOX PENDING","Temporary file read failure; retry scheduled");folderWatch.pending.set(candidate.relativePath,{readPending:true,firstSeenAt:prior?.firstSeenAt||now()});continue;}if(/^~\$/.test(candidate.name)){folderWatch.pending.set(candidate.relativePath,{temporary:true,firstSeenAt:prior?.firstSeenAt||now()});continue;}if(!candidateNeedsImport(candidate)){folderWatch.pending.delete(candidate.relativePath);continue;}if(prior?.signature===candidate.signature){prior.confirmations+=1;if(prior.confirmations>=2)stable.add(candidate.signature);}else{folderWatch.pending.set(candidate.relativePath,{signature:candidate.signature,confirmations:1,firstSeenAt:now()});recordDiagnostic("REPORT INBOX PENDING","File is still awaiting stability confirmation");}}
       for(const name of [...folderWatch.pending.keys()])if(!present.has(name))folderWatch.pending.delete(name);
-      if(stable.size){watchStatus("IMPORTING");const scrollX=window.scrollX,scrollY=window.scrollY,result=await autoSurveyFolder(stable);for(const candidate of candidates.filter(item=>stable.has(item.signature)))folderWatch.pending.delete(candidate.relativePath);renderAll();renderSetup();renderRecovery();window.scrollTo(scrollX,scrollY);folderWatch.lastChecked=now();if(result.imported.length){watchStatus("REPORT INBOX WATCHING",`${result.imported.length} supported report${result.imported.length===1?"":"s"} updated automatically`);recordDiagnostic("REPORT INBOX WATCH",`${result.imported.length} supported source file(s) imported automatically from the Report Inbox`);}else watchStatus(result.retained.length?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",result.learned.length?`${result.learned.length} unsupported or failed file(s) moved safely to Files To Learn.`:"");}
-      else{folderWatch.lastChecked=now();watchStatus(folderWatch.pending.size?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",folderWatch.pending.size?`${folderWatch.pending.size} file(s) remain pending stability or temporary read recovery.`:"");}
+      if(stable.size){watchStatus("IMPORTING");const scrollX=window.scrollX,scrollY=window.scrollY,result=await autoSurveyFolder(stable);for(const candidate of candidates.filter(item=>stable.has(item.signature)))folderWatch.pending.delete(candidate.relativePath);renderAll();renderSetup();renderRecovery();window.scrollTo(scrollX,scrollY);folderWatch.lastChecked=now();if(result.reviewRequired?.length){watchStatus("OPEN RO REVIEW REQUIRED",`${result.reviewRequired.length} recognized Open RO report(s) remain in Report Inbox. Choose Import Report to verify the source and roster.`);}else if(result.imported.length){watchStatus("REPORT INBOX WATCHING",`${result.imported.length} supported report${result.imported.length===1?"":"s"} updated automatically`);recordDiagnostic("REPORT INBOX WATCH",`${result.imported.length} supported source file(s) imported automatically from the Report Inbox`);}else watchStatus(result.retained.length?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",result.learned.length?`${result.learned.length} unsupported or failed file(s) moved safely to Files To Learn.`:"");}
+      else{folderWatch.lastChecked=now();const pendingManual=candidates.filter(item=>item.location==="inbox"&&model.autoImport.seen?.[item.signature]?.manualImportRequired).length;if(pendingManual)watchStatus("OPEN RO REVIEW REQUIRED",`${pendingManual} recognized Open RO report(s) are ready in Import Report for explicit roster verification.`);else watchStatus(folderWatch.pending.size?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",folderWatch.pending.size?`${folderWatch.pending.size} file(s) remain pending stability or temporary read recovery.`:"");}
     }catch(error){if(error.name==="NotFoundError"){stopFolderWatch("REPORT INBOX MISSING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox is missing");}else if(error.name==="NotAllowedError"||error.name==="SecurityError"){stopFolderWatch("FOLDER PERMISSION REQUIRED");recordDiagnostic("REPORT INBOX WATCH","Folder permission error paused watching");}else{watchStatus("REPORT INBOX ERROR","The last scan failed; Service Operations Dashboard will retry automatically.");recordDiagnostic("REPORT INBOX WATCH",`Report Inbox scan failed (${error.name||"Error"})`);}}finally{folderWatch.busy=false;}
   }
   async function autoSurveyFolder(eligibleSignatures = null) {
@@ -2885,7 +2914,7 @@
     for (const candidate of candidates) { candidate.modified=candidate.file.lastModified; candidate.structurePriority=10; if (/\.csv$/i.test(candidate.name)) { const start=(await candidate.file.slice(0,160).text()).trim().toLowerCase(); candidate.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     candidates.sort((a, b) => a.structurePriority - b.structurePriority || a.modified - b.modified || a.name.localeCompare(b.name, undefined, { numeric: true }));
     model.autoImport.seen ||= {};
-    const imported = [], learned = [], retired = [], retained = [];
+    const imported = [], learned = [], retired = [], retained = [], reviewRequired = [];
     let ledgerChanged = false, pdfFailureMessage="";
     for (const candidate of candidates.filter((item)=>item.signature).filter(candidateNeedsImport).filter((item) => !eligibleSignatures || eligibleSignatures.has(item.signature))) {
       let kind = null, bytes = null;
@@ -2898,6 +2927,18 @@
           ledgerChanged=true;
           recordDiagnostic("REPORT INBOX",referenceOnly?"Moved to Files To Learn - recognized reference only":recognized?"Moved to Files To Learn - recognized but invalid":"Moved to Files To Learn - unsupported");
           if(/\.pdf$/i.test(candidate.name)&&!referenceOnly){pdfFailureMessage="PDF is not a supported PreRO appointment or supplemental report. Source kept in Files To Learn for review.";recordDiagnostic("PDF INTAKE","No supported PDF structure; source preserved for learning");}
+          continue;
+        }
+        // A complete Open RO source is recognized, but a watch must never
+        // replace the active roster without deliberate source review.
+        if((kind==="open-ro"||kind==="open-ro-docx")&&candidate.location==="inbox"){
+          reviewRequired.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={fileName:candidate.name,
+            relativePath:candidate.relativePath,kind,manualImportRequired:true,queuedAt:now()};
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX","Recognized Open RO retained for explicit Import Report review (not Files To Learn)");
+          await addHistory("open-ro-review-required","Recognized Open RO retained pending explicit source and completeness review",
+            {fileName:candidate.name,sourceFamily:kind,sourcePreserved:true});
           continue;
         }
         const outcome=await processClassifiedCandidate(candidate, kind, bytes, true);if(kind==="appointments"&&outcome?.deleted===false)pdfFailureMessage="Verified appointments saved. Source retained: "+outcome.retainedReason+". Stable source will not be reread.";
@@ -2916,11 +2957,13 @@
       }
     }
     if (ledgerChanged) { const entries = Object.entries(model.autoImport.seen); if (entries.length > 1000) model.autoImport.seen = Object.fromEntries(entries.slice(-1000)); model.autoImport.updatedAt = now(); await writeJson(AUTO_IMPORT_PATH, model.autoImport); }
+    if(reviewRequired.length)await scanFiles();
+    const reviewNote=reviewRequired.length?` ${reviewRequired.length} recognized Open RO source(s) remain in Report Inbox for Import Report verification.`:"";
     const learnNote = learned.length ? ` ${learned.length} file${learned.length === 1 ? " was" : "s were"} moved safely to Files To Learn.` : "", retiredNote = retired.length ? ` ${retired.length} known non-service file${retired.length === 1 ? " was" : "s were"} retired from Service OS intake.` : "", retainedNote = retained.length ? ` ${retained.length} file${retained.length === 1 ? " remains" : "s remain"} in place because it could not be moved safely.` : "";
-    if (imported.length) status(`Folder checked automatically. Imported and removed ${imported.length} verified source file${imported.length === 1 ? "" : "s"}.${retiredNote}${learnNote}${retainedNote}`, retained.length ? "info" : "success");
-    else if (retired.length || learned.length || retained.length) status(`Folder checked automatically.${retiredNote}${learnNote}${retainedNote}`, retained.length ? "info" : "success");
+    if (imported.length) status(`Folder checked automatically. Imported and removed ${imported.length} verified source file${imported.length === 1 ? "" : "s"}.${retiredNote}${learnNote}${retainedNote}${reviewNote}`, retained.length||reviewRequired.length ? "info" : "success");
+    else if (retired.length || learned.length || retained.length || reviewRequired.length) status(`Folder checked automatically.${retiredNote}${learnNote}${retainedNote}${reviewNote}`, retained.length||reviewRequired.length ? "info" : "success");
     if(pdfFailureMessage)status(pdfFailureMessage,"error");
-    return { imported, retired, learned, retained, initialized: false };
+    return { imported, retired, learned, retained, reviewRequired, initialized: false };
   }
 
   async function importReturnedWorkbook(selectedName, deleteAfterSuccess = false, providedBytes = null) {
