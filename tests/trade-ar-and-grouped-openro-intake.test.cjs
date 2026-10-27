@@ -14,7 +14,6 @@ const section=(start,end)=>{
 const norm=value=>String(value??"").trim().toLowerCase().replace(/\s+/g," ");
 const text=value=>String(value??"");
 const validCoverageDate=value=>/^20\d{2}-\d{2}-\d{2}$/.test(value)?value:"";
-const performanceNumber=value=>value==null||value===""?null:Number(value);
 const arHeaders=[
   "B/U","Headquarters Id","Parent #","Customer #","Customer Name",
   "Actual Days Open","AN Store#","Full Store Name / Hyp","Market","AN Store Name",
@@ -40,11 +39,13 @@ function arHarness(rows,storeCode="101"){
       "Trade AR Error Report":{rows}}};
   const XLSX={read:()=>book,utils:{sheet_to_json:sheet=>sheet.rows}};
   const ctx={XLSX,norm,text,now:()=>"2026-01-10T00:00:00Z",
-    reportStoreCode:()=>storeCode,performanceNumber,
+    reportStoreCode:()=>storeCode,
     strictOpenRoDate:value=>validCoverageDate(text(value)),
     validCoverageDate};
+  vm.runInNewContext(section("  function tradeArMoneyCents(","  function parseTradeArErrorWorkbook("),ctx);
   vm.runInNewContext(section("  function parseTradeArErrorWorkbook(","  function parseOpenRoAgingByAsmWorkbook("),ctx);
-  return{parse:()=>ctx.parseTradeArErrorWorkbook([], "Trade AR Error Report 01.09.2026.xlsx"),book,XLSX};
+  return{parse:()=>ctx.parseTradeArErrorWorkbook([], "Trade AR Error Report 01.09.2026.xlsx"),
+    parseMoney:ctx.tradeArMoneyCents,parseDays:ctx.tradeArAgingDays,book,XLSX,ctx};
 }
 
 test("Trade AR takes only the configured store and retains no invoice/customer/note detail",()=>{
@@ -69,12 +70,61 @@ test("Trade AR takes only the configured store and retains no invoice/customer/n
     /FAKE-1|OTHER-STORE|SYNTHETIC-CUSTOMER|DO NOT SAVE|SENSITIVE|1000000/);
 });
 
-test("Trade AR rejects absent store, bad schema, duplicate identity and corrupt scoped money",()=>{
+test("Trade AR production numeric parsers accept only explicit decimal money and integer aging formats",()=>{
+  const harness=arHarness([arHeaders,arRow()]);
+  assert.equal(harness.parseMoney(200),20000);
+  assert.equal(harness.parseMoney("$1,234.56"),123456);
+  assert.equal(harness.parseMoney("-$5.10"),-510);
+  assert.equal(harness.parseMoney("(5.10)"),-510);
+  for(const value of [""," ","$","10%","1,2","$1,2","1.234","1e3","USD 5",null,undefined])
+    assert.equal(harness.parseMoney(value),null,JSON.stringify(value)+" must be rejected");
+  assert.equal(harness.parseDays(15),15);
+  assert.equal(harness.parseDays("1,000"),1000);
+  for(const value of [""," ","$1","1%","1,2","1.5","-1","1e2",null,undefined])
+    assert.equal(harness.parseDays(value),null,JSON.stringify(value)+" must be rejected");
+});
+
+test("Trade AR fails closed on malformed scoped values without changing saved totals or deleting source",async()=>{
+  const invalidMoney=[""," ","$","10%","1,2","$1,2","1.234","1e3","USD 5",null];
+  const invalidDays=[""," ","$1","1%","1,2","1.5","-1","1e2",null];
+  async function assertPreserved(rows){
+    const harness=arHarness(rows),originalSnapshot={family:"trade-ar-errors",metrics:{openAmount:77.25}};
+    const model={operationalMetrics:{supplementalReports:{snapshots:{existing:structuredClone(originalSnapshot)}}}};
+    const before=JSON.stringify(model.operationalMetrics);
+    let sourcePresent=true,deleteCalls=0,writeCalls=0;
+    const ctx=harness.ctx;
+    ctx.model=model;
+    ctx.prepareXlsxWorkbook=async()=>{};
+    ctx.parseSupplementalWorkbook=(bytes,name)=>ctx.parseTradeArErrorWorkbook(bytes,name);
+    ctx.sourceLocations=new Map();
+    ctx.sourceFileHandle=async()=>({getFile:async()=>({lastModified:0})});
+    ctx.supplementalSnapshotKey=()=> "new";
+    ctx.pruneSupplementalSnapshots=snapshots=>snapshots;
+    ctx.writeJson=async()=>{writeCalls++;};
+    ctx.readJson=async()=>null;
+    ctx.addHistory=async()=>{};
+    ctx.removeSourceEntry=async()=>{deleteCalls++;sourcePresent=false;};
+    vm.runInNewContext(section("  async function importSupplementalSource(","  async function processClassifiedCandidate("),ctx);
+    await assert.rejects(()=>ctx.importSupplementalSource(
+      {name:"synthetic-trade-ar.xlsx",location:"inbox"},"supplemental-workbook",new ArrayBuffer(1),true),
+      /Trade AR aging, date, or money is unreadable/);
+    assert.equal(JSON.stringify(model.operationalMetrics),before);
+    assert.equal(sourcePresent,true);
+    assert.equal(deleteCalls,0);
+    assert.equal(writeCalls,0);
+  }
+  for(const field of ["invoiceAmount","received","open"])
+    for(const value of invalidMoney)
+      await assertPreserved([arHeaders,arRow(),arRow({[field]:value})]);
+  for(const value of invalidDays)
+    await assertPreserved([arHeaders,arRow(),arRow({days:value})]);
+});
+
+test("Trade AR rejects absent store, bad schema and duplicate scoped identity",()=>{
   assert.throws(()=>arHarness([arHeaders,arRow({store:202})]).parse(),/configured AN Store#/);
   const badHeaders=arHeaders.slice();badHeaders[18]="Wrong Balance Column";
   assert.throws(()=>arHarness([badHeaders,arRow()]).parse(),/detail columns/);
   assert.throws(()=>arHarness([arHeaders,arRow(),arRow()]).parse(),/duplicate Trade AR/);
-  assert.throws(()=>arHarness([arHeaders,arRow({open:"not an amount"})]).parse(),/money is unreadable/);
   assert.throws(()=>arHarness([arHeaders,arRow({store:null})]).parse(),/unscoped/);
 });
 
