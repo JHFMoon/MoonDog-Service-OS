@@ -3399,7 +3399,7 @@
     const start=String(source.periodStart||"").trim(),end=String(source.periodEnd||"").trim();
     const period=start&&end?(start===end?end:start+" through "+end):end||start||"Not verified";
     const timestamp=String(source.sourceTimestamp||"").trim();
-    const importTime=/^20\\d{2}-\\d{2}-\\d{2}T\\d{2}:\\d{2}/.test(timestamp)&&
+    const importTime=/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}/.test(timestamp)&&
       Number.isFinite(Date.parse(timestamp))
       ?new Date(timestamp).toISOString().slice(0,16).replace("T"," ")+" UTC":"Not verified";
     return sourceStatusLabel(source)+" · Report period: "+period+" · Last imported: "+importTime;
