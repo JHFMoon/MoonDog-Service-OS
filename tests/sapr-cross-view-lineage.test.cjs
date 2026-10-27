@@ -24,6 +24,7 @@ const performanceView = extract("  function renderPerformance() {", "  const ren
 const meeting = extract("  function meetingAdvisorTv(", "  function renderMeetingArenaStore(", "Meeting renderer");
 const saprSnapshotSelector = extract("  function saprImportRank(", "  function verifiedSaprSnapshot(", "SAPR snapshot selector");
 const sourceExpectation = extract("  function sourceExpectation(", "  function sourceAvailable(", "source expectation");
+const csiReportedPeriod = extract("  function csiReportedPeriod(", "  function sourceFreshness(", "CSI report period");
 const sourceFreshness = extract("  function sourceFreshness(", "  function sourceStatusLabel(", "Home source freshness");
 const sourceStatusLabel = extract("  function sourceStatusLabel(", "  function advisorNextWin(", "Home source status");
 const reportNeeds = extract("  function reportNeeds(", "  function latestSupplementalFamily(", "Home source health needs");
@@ -231,6 +232,7 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
   vm.runInContext([
     saprSnapshotSelector,
     sourceExpectation,
+    csiReportedPeriod,
     sourceFreshness,
     sourceStatusLabel,
     reportNeeds,
