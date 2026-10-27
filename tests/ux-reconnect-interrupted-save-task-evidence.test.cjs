@@ -71,6 +71,14 @@ test("browser smoke exercises real failed Open RO save, retry and folder-reconne
     "reconnect measurement uses the actual user-facing working-folder control");
   assert.match(smoke,/model\.workspaceConnectionCommittedRoot===model\.root&&model\.connectionState==="CONNECTED"/,
     "the connection only passes after authoritative state commits");
+  assert.match(smoke,/__moondogSyntheticPickerCalls>globalThis\.__moondogBeforeSyntheticPickerCalls/,
+    "reconnection requires a new picker request, not a different object identity");
+  assert.match(smoke,/lastSuccessfulConnectionAt!==globalThis\.__moondogBeforeSyntheticReconnectAt/,
+    "reconnection must finish fresh durable reconciliation before passing");
+  assert.doesNotMatch(smoke,/model\.root!==globalThis\.__moondogBeforeSyntheticReconnect/,
+    "the same authorized folder handle is allowed on a verified reconnect");
+  assert.match(smoke,/if\(scenario==="large"&&sampleFailure\)/,
+    "the actual interrupted-save failure is surfaced before invalid summary metrics");
   assert.match(smoke,/sample\.interruptedSaveTask\.expectedWriteFailures!==1/,
     "the full browser proof refuses false success without actual fault injection");
 });
