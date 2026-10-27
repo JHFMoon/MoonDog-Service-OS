@@ -59,6 +59,9 @@ test("watch skips already queued unchanged Open RO and rechecks a replaced file"
   assert.equal(ctx.candidateNeedsImport({signature:"inbox|changed",location:"inbox"}),true);
   assert.equal(ctx.candidateNeedsImport({signature,location:"root"}),false);
   assert.equal(ctx.candidateNeedsImport({signature:"root|new",location:"root"}),true);
+  ctx.model.autoImport.seen[signature].manualImportRequired=false;
+  ctx.model.autoImport.seen[signature].importedAt="2026-10-27T12:00:00Z";
+  assert.equal(ctx.candidateNeedsImport({signature,location:"inbox"}),false);
 });
 
 test("manual report picker recovers previously misrouted Open RO without surfacing unrelated learn files",async()=>{
@@ -87,6 +90,27 @@ test("manual report picker recovers previously misrouted Open RO without surfaci
   assert.equal(ui.importButton.disabled,true);
   assert.ok(items.some(x=>x.text.includes("Files To Learn")));
   assert.ok(!choices.includes("unrecognized-financial.xlsx"));
+});
+
+test("successful explicit Open RO import clears only its matching inbox review flag",async()=>{
+  const name="Synthetic grouped Open RO.xlsx",modified=55,size=1234,importedAt="2026-10-27T12:00:00Z";
+  const signature="01 - DROP REPORTS HERE/"+name+"|"+size+"|"+modified;
+  const prior={kind:"open-ro",manualImportRequired:true,queuedAt:"2026-10-27T11:00:00Z"};
+  const model={autoImport:{seen:{[signature]:prior}}};
+  const writes=[];
+  const ctx=source("  async function markOpenRoManualReviewComplete(", "  async function verifyCompleteRoImport(",{
+    model,sourceLocations:new Map([[name,"inbox"]]),
+    REPORT_INBOX:"01 - DROP REPORTS HERE",AUTO_IMPORT_PATH:["data","auto-import.json"],
+    writeJson:async(path,value)=>{writes.push({path,value});}
+  });
+  const done=await ctx.markOpenRoManualReviewComplete(name,{size,lastModified:modified},importedAt);
+  assert.equal(done,true);
+  assert.equal(writes.length,1);
+  assert.equal(ctx.model.autoImport.seen[signature].manualImportRequired,false);
+  assert.equal(ctx.model.autoImport.seen[signature].importedAt,importedAt);
+  assert.equal(await ctx.markOpenRoManualReviewComplete(name,{size,lastModified:modified},importedAt),false);
+  assert.equal(writes.length,1);
+  assert.equal(prior.manualImportRequired,true,"prior object is not mutated before durable persistence");
 });
 
 test("production script remains syntactically valid",()=>{
