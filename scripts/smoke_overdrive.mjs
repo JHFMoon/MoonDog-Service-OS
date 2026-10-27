@@ -733,6 +733,8 @@ try{
               if(ArrayBuffer.isView(value))return new Uint8Array(value.buffer,value.byteOffset,value.byteLength);
               throw Error("Unexpected synthetic file write payload");
             };
+            const injectedWorkflowFaults={failNextRoBackup:false,backupFailures:0};
+            globalThis.__moondogSyntheticWorkflowFaults=injectedWorkflowFaults;
             const makeFile=name=>{
               let bytes=new Uint8Array();
               const handle={kind:"file",name,
@@ -745,6 +747,13 @@ try{
                     arrayBuffer:async()=>copy.slice().buffer};
                 },
                 async createWritable({keepExistingData=false}={}){
+                  // Synthetic-only interruption before an RO's verified backup is touched.
+                  // A failed backup MUST leave the operational-state save unattempted.
+                  if(injectedWorkflowFaults.failNextRoBackup&&/updated-ro-/i.test(name)){
+                    injectedWorkflowFaults.failNextRoBackup=false;
+                    injectedWorkflowFaults.backupFailures++;
+                    throw Object.assign(Error("Synthetic backup is temporarily unavailable"),{name:"NotReadableError"});
+                  }
                   let draft=keepExistingData?bytes.slice():new Uint8Array(),cursor=0;
                   return {
                     async write(value){
