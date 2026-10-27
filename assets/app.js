@@ -2435,7 +2435,7 @@
       raw=String(value);
     } else if(typeof value==="string") raw=value.trim();
     else return null;
-    if(!/^(?:\\d+|\\d{1,3}(?:,\\d{3})+)$/.test(raw))return null;
+    if(!/^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(raw))return null;
     const days=Number(raw.replace(/,/g,""));
     return Number.isSafeInteger(days)&&days>=0&&days<=10000?days:null;
   }
