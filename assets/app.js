@@ -2419,7 +2419,7 @@
     } else if(body.startsWith("-")) {
       negative=true;body=body.slice(1).trim();
     }
-    const match=body.match(/^\\$?\\s*((?:\\d+|\\d{1,3}(?:,\\d{3})+)(?:\\.\\d{1,2})?)$/);
+    const match=body.match(/^\$?\s*((?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?)$/);
     if(!match)return null;
     const [whole,fraction=""]=match[1].replace(/,/g,"").split(".");
     const cents=Number(whole)*100+Number((fraction+"00").slice(0,2));

@@ -49,7 +49,7 @@ function arHarness(rows,storeCode="101"){
 }
 
 test("Trade AR takes only the configured store and retains no invoice/customer/note detail",()=>{
-  const source=[arHeaders,arRow({invoice:"FAKE-1"}),
+  const source=[arHeaders,arRow({invoice:"FAKE-1",open:"$105.20",invoiceAmount:"$200.00",received:"$94.80"}),
     arRow({invoice:"FAKE-2",days:100,status:"Attempt 3",open:-5.10,invoiceAmount:0,received:5.10}),
     arRow({store:202,invoice:"OTHER-STORE",open:1000000})];
   const result=arHarness(source).parse();
