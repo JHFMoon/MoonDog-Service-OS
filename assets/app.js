@@ -2596,6 +2596,20 @@
   async function importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess=false) {
     return withSupervisorWorkbookLock(() => importCdkRepairOrdersDocxUnlocked(candidate,bytes,deleteAfterSuccess));
   }
+  async function markOpenRoManualReviewComplete(name,file,importedAt) {
+    // Clear the watcher prompt only after the authoritative, explicitly
+    // approved roster has completed its durable source import.
+    if(sourceLocations.get(name)!=="inbox")return false;
+    const signature=`${REPORT_INBOX}/${name}|${file.size}|${file.lastModified}`;
+    const prior=model.autoImport.seen?.[signature];
+    if(!prior?.manualImportRequired)return false;
+    const next={...model.autoImport,seen:{...model.autoImport.seen,
+      [signature]:{...prior,manualImportRequired:false,importedAt,
+        manualImportCompletedAt:importedAt}}};
+    await writeJson(AUTO_IMPORT_PATH,next);
+    model.autoImport=next;
+    return true;
+  }
   async function verifyCompleteRoImport(name, file, bytes, records) {
     if (!records.length || records.some(row => !text(row.ro).trim())) throw new Error("Needs Review: incomplete RO identity.");
     const keys = records.map(row => text(row.ro).trim());
@@ -2888,7 +2902,8 @@
     const seen=model.autoImport.seen?.[candidate.signature];
     if(candidate.location==="inbox")
       return !(seen?.kind==="appointments"&&seen.importedAt)
-        &&!((seen?.kind==="open-ro"||seen?.kind==="open-ro-docx")&&seen.manualImportRequired);
+        &&!((seen?.kind==="open-ro"||seen?.kind==="open-ro-docx")
+          &&(seen.manualImportRequired||seen.importedAt));
     return !seen||Boolean(seen.movedAt);
   }
   function transientWorkspaceState(error){return ["AbortError","InvalidStateError","NotReadableError","UnknownError","TimeoutError"].includes(error?.name)||/state cached in an interface object|state had changed since it was read from disk|changed since it was read from disk/i.test(error?.message||"");}
@@ -3017,6 +3032,7 @@
     if (!deleteAfterSuccess) await writeBytes(["imports", stamp()+"-"+slug(name.replace(/\.xlsx$/i, ""))+".xlsx"], new Uint8Array(bytes));
     const sheetName = legacy?.sheetName || table.sheetName, reportRows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { header: 1, defval: "" }), reportDate = internalObservationDate(reportRows) || null, nextState = { ...model.state, updatedAt: importedAt, source: { ...verifiedSource, fileName: name, importedAt, sourceModifiedAt:new Date(file.lastModified).toISOString(), reportDate, sheetName, rowCount: records.length, format: legacy?.format || "Generic table", advisorSections: legacy?.advisorSections || null }, records, closedRecords:merged.closedRecords };
     await writeJson(STATE_PATH,nextState);model.state=nextState;await retainDailyReport("openRo",{...model.state.source,coverageDate:reportDate||coverageTimestamp(model.state.source.sourceModifiedAt),rowCount:records.length,advisors:Object.fromEntries([...new Set(records.map(row=>row.advisorCode))].map(code=>[code,records.filter(row=>row.advisorCode===code).length]))});await saveOpenRoWorkload(openRoWorkloadSnapshot(legacy?.workloadRecords || records,model.state.source,model.state.source.sourceModifiedAt)); await ensureDailyFocus(); await addHistory("source-import", "Imported "+records.length+" open ROs from "+name, { fileName: name, reportDate, sheetName, format: model.state.source.format, advisorSections: model.state.source.advisorSections, rawCopyRetained: !deleteAfterSuccess,assignNextWorkload:true,closedByReconciliation:merged.closedCount,reopenedFromRetention:merged.reopenedCount });
+    await markOpenRoManualReviewComplete(name,file,importedAt);
     renderAll();
     let deleted = false;
     if (deleteAfterSuccess || (!dailyPickedSources.has(name) && window.confirm("Import complete and verified.\n\nDelete the original source file \""+name+"\" from the working folder?\n\nA timestamped audit copy remains in the imports folder."))) {
