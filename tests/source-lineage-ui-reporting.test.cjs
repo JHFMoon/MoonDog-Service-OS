@@ -18,8 +18,9 @@ function productionSourceLineage(){
 
 test('current sources present report coverage separately from validated import time',()=>{
   const p=productionSourceLineage();
-  const label=p.lineageLabel({status:'current',loaded:true,periodStart:'2026-10-01',
-    periodEnd:'2026-10-26',sourceTimestamp:'2026-10-27T01:16:00Z'});
+  const label=p.lineageLabel({status:'current',loaded:true,reportPeriodVerified:true,
+    periodStart:'2026-10-01',periodEnd:'2026-10-26',
+    sourceTimestamp:'2026-10-26T22:00:00Z',importTimestamp:'2026-10-27T01:16:00Z'});
   assert.match(label,/^Current · Report period: 2026-10-01 through 2026-10-26/);
   assert.match(label,/Last imported: 2026-10-27 01:16 UTC/);
   assert.doesNotMatch(label,/Last\/period/);
@@ -27,24 +28,40 @@ test('current sources present report coverage separately from validated import t
 
 test('recent import cannot relabel a stale source as current or invent a valid reporting period',()=>{
   const p=productionSourceLineage();
-  const stale=p.lineageLabel({status:'stale',loaded:true,
-    periodEnd:'2026-10-05',sourceTimestamp:'2026-10-27T09:01:00Z'});
+  const stale=p.lineageLabel({status:'stale',loaded:true,reportPeriodVerified:true,
+    periodEnd:'2026-10-05',sourceTimestamp:'2026-10-05T18:00:00Z',
+    importTimestamp:'2026-10-27T09:01:00Z'});
   assert.match(stale,/Loaded but stale · Needs updating/);
   assert.match(stale,/Report period: 2026-10-05/);
   assert.match(stale,/Last imported: 2026-10-27 09:01 UTC/);
   const invalid=p.lineageLabel({status:'invalid',loaded:true,
-    sourceTimestamp:'not-a-timestamp',periodStart:'',periodEnd:''});
+    sourceTimestamp:'not-a-timestamp',periodStart:'',periodEnd:'',reportPeriodVerified:false});
   assert.match(invalid,/Loaded · validation needed/);
   assert.match(invalid,/Report period: Not verified/);
   assert.match(invalid,/Last imported: Not verified/);
 });
 
+test('generated, modified, and observation timestamps are not mislabeled as imports',()=>{
+  const p=productionSourceLineage();
+  const generated=p.lineageLabel({status:'current',loaded:true,reportPeriodVerified:false,
+    periodStart:'2026-10-27',periodEnd:'2026-10-27',
+    sourceTimestamp:'2026-10-27T12:00:00Z'});
+  assert.match(generated,/Report period: Not verified/);
+  assert.match(generated,/Last imported: Not verified/);
+  const observed=p.lineageLabel({status:'current',loaded:true,reportPeriodVerified:true,
+    periodEnd:'2026-10-26',sourceTimestamp:'2026-10-26T22:00:00Z'});
+  assert.match(observed,/Report period: 2026-10-26/);
+  assert.match(observed,/Last imported: Not verified/);
+});
+
 test('missing and unused sources have truthful unknown coverage, not fabricated values or dates',()=>{
   const p=productionSourceLineage();
-  const missing=p.lineageLabel({status:'missing',loaded:false});
+  const missing=p.lineageLabel({status:'missing',loaded:false,
+    periodStart:'2026-10-27',periodEnd:'2026-10-27',reportPeriodVerified:false});
   assert.match(missing,/^Missing · Report period: Not verified · Last imported: Not verified$/);
   const unused=p.lineageLabel({status:'not-used',loaded:false,
-    sourceTimestamp:'2026-10-27',periodEnd:''});
+    sourceTimestamp:'2026-10-27T12:00:00Z',periodEnd:'2026-10-27',
+    reportPeriodVerified:false});
   assert.match(unused,/^Not used/);
   assert.match(unused,/Last imported: Not verified/);
   assert.doesNotMatch(missing,/0\.0%|\$0/);
