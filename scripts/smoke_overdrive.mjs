@@ -1128,8 +1128,24 @@ try{
                 failure.draft!=="Synthetic verified retry after temporary backup failure")
                 throw Error("Failed synthetic backup altered durable RO or lost unsaved form: "+JSON.stringify(failure));
               await connectedPage.locator("#saveRecordClose").click({timeout:5000});
-              await connectedPage.waitForFunction(()=>!document.getElementById("editDialog")?.open,
-                null,{timeout:20000});
+              try{
+                await connectedPage.waitForFunction(()=>!document.getElementById("editDialog")?.open,
+                  null,{timeout:8000});
+              }catch(error){
+                const diagnosis=await connectedPage.evaluate(async()=>{
+                  const app=globalThis.__moondogDaily,model=app.model;
+                  const state=await app.readJson("data/current-state.json");
+                  return {dialogOpen:!!document.getElementById("editDialog")?.open,
+                    validationHidden:document.getElementById("editValidation")?.hidden,
+                    validation:document.getElementById("editValidation")?.textContent?.trim().slice(0,350),
+                    connectionState:model.connectionState,saveInFlight:model.openRoSaveInFlight,
+                    persistedAction:state.records.find(r=>r.id==="synthetic-browser-ro-312")?.management?.nextAction,
+                    draft:document.getElementById("editNextAction")?.value,
+                    injectedFailures:globalThis.__moondogSyntheticWorkflowFaults.backupFailures};
+                });
+                throw Error("Synthetic retry did not complete after expected backup failure: "+
+                  JSON.stringify({waitError:String(error),diagnosis,browserErrors:browserErrors.slice(-5)}));
+              }
               const afterRetry=await connectedPage.evaluate(async()=>{
                 const state=await globalThis.__moondogDaily.readJson("data/current-state.json");
                 return state.records.find(record=>record.id==="synthetic-browser-ro-312");
