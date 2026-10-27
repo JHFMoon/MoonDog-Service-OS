@@ -78,3 +78,31 @@ test('Home data health and Performance SAPR/tracker views use the same productio
   assert.match(fn,/openRoHealth\.safeForCurrent\?performanceFormat\(trackerOpenCount\(code\), "count"\):"UPDATE PENDING"/,
     'unverified Open RO tracking must not present zero as a verified count');
 });
+
+function productionCsiReportedPeriod(){
+  const start=app.indexOf('  function csiReportedPeriod(');
+  const end=app.indexOf('  function sourceFreshness(',start);
+  assert.ok(start>0&&end>start,'production CSI coverage helper exists');
+  const context=vm.createContext({});
+  vm.runInContext(app.slice(start,end)+';this.csiReportedPeriod=csiReportedPeriod;',context);
+  return context.csiReportedPeriod;
+}
+
+test('CSI lineage uses verified export scope, not the configured scoring-window start',()=>{
+  const period=productionCsiReportedPeriod();
+  assert.deepEqual(JSON.parse(JSON.stringify(period('2026-10-20','2026-10-26',''))),
+    {periodStart:'2026-10-20',periodEnd:'2026-10-26',verified:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(period('','2026-10-26',''))),
+    {periodStart:'',periodEnd:'2026-10-26',verified:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(period('','','2026-10-26'))),
+    {periodStart:'2026-10-26',periodEnd:'2026-10-26',verified:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(period('','',''))),
+    {periodStart:'',periodEnd:'',verified:false});
+  const start=app.indexOf('if (key === "csi")');
+  const end=app.indexOf('if (key === "nextAppointments")',start);
+  const branch=app.slice(start,end);
+  assert.match(branch,/periodStart: reportPeriod\.periodStart/);
+  assert.match(branch,/periodEnd: reportPeriod\.periodEnd/);
+  assert.doesNotMatch(branch,/model\.settings\.csiPeriodStart/,
+    'configured scoring window must not be presented as source coverage');
+});
