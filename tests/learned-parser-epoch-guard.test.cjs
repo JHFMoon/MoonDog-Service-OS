@@ -51,6 +51,7 @@ const watched = Object.freeze([
   "parseOpenRoSummaryWorkbook",
   "parseMediaAsrWorkbook",
   "parseSupplementalWorkbook",
+  "parseTradeArErrorWorkbook",
   "parseEfficiencyWorkbook",
   "parseAppointmentActivityWorkbook",
   "parseSupplementalDocxReport",
