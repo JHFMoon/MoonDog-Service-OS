@@ -20,11 +20,46 @@
     },
     "60": {
       "criteria": {
+        "60-01": {
+          "kind": "runtime",
+          "pr": 536,
+          "tests": [
+            "tests/manager-attention-top3.test.cjs"
+          ]
+        },
+        "60-02": {
+          "kind": "runtime",
+          "pr": 548,
+          "tests": [
+            "tests/open-ro-source-save-serialization.test.cjs"
+          ]
+        },
+        "60-03": {
+          "kind": "runtime",
+          "pr": 536,
+          "tests": [
+            "tests/manager-attention-top3.test.cjs"
+          ]
+        },
         "60-04": {
           "kind": "runtime",
           "pr": 253,
           "tests": [
             "tests/daily-focus-configured-days.test.cjs"
+          ]
+        },
+        "60-05": {
+          "kind": "runtime",
+          "pr": 553,
+          "tests": [
+            "tests/manager-attention-top3.test.cjs"
+          ]
+        },
+        "60-06": {
+          "kind": "runtime",
+          "pr": 529,
+          "tests": [
+            "tests/open-ro-unsaved-unload-guard.test.cjs"
           ]
         },
         "60-07": {
@@ -40,9 +75,13 @@
           "tests": [
             "tests/admin-closeout-invalid-commitments.test.cjs"
           ]
-        }
+        },
+        "60-09": null,
+        "60-10": null,
+        "60-11": null,
+        "60-12": null
       },
-      "package_pr": 298
+      "package_pr": 554
     },
     "61": {
       "criteria": {
