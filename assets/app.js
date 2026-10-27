@@ -3362,6 +3362,11 @@
   function currentCsiSurveys(end = localDateKey()) { const start = model.settings.csiPeriodStart || `${end.slice(0, 7)}-01`; return Object.fromEntries(Object.entries(model.operationalMetrics?.csi?.surveys || {}).filter(([, survey]) => survey.surveyDate >= start && survey.surveyDate <= end)); }
   function latestCsiRefreshDate() { const csi = model.operationalMetrics?.csi || {}; if (/^20\d{2}-\d{2}-\d{2}$/.test(csi.lastSuccessfulRefreshDate || "")) return csi.lastSuccessfulRefreshDate; return (csi.imports || []).map((item) => item.refreshDate || (item.importedAt ? localDateKey(new Date(item.importedAt)) : "")).filter((value) => /^20\d{2}-\d{2}-\d{2}$/.test(value)).sort().at(-1) || ""; }
   function latestOperationalSnapshot(family) { if(family==="nextAppointments")return latestNextAppointmentsSnapshot();if(family==="vir")return latestVirObservation();if(family==="mediaAsr")return sourceTrendObservations("mediaAsr").sort((a,b)=>text(a.periodEnd).localeCompare(text(b.periodEnd))||text(a.importedAt).localeCompare(text(b.importedAt))).at(-1)||null;if(family==="mediaAsrTech")return mediaTechReports().sort((a,b)=>text(a.periodEnd).localeCompare(text(b.periodEnd))||text(a.importedAt).localeCompare(text(b.importedAt))).at(-1)||null; const snapshots = model.operationalMetrics?.[family]?.snapshots || {}, keys = Object.keys(snapshots).sort(); return keys.length ? snapshots[keys.at(-1)] : null; }
+  function csiReportedPeriod(scopeStart, scopeEnd, observedDate) {
+    if (scopeEnd) return { periodStart: scopeStart || "", periodEnd: scopeEnd, verified: true };
+    if (observedDate) return { periodStart: observedDate, periodEnd: observedDate, verified: true };
+    return { periodStart: "", periodEnd: "", verified: false };
+  }
   function sourceFreshness(key, options = {}) {
     const today = options.today || localDateKey(), purpose = options.purpose || "current", expectation = sourceExpectation(key), common = { key, today, purpose, targetStart: options.targetStart, targetEnd: options.targetEnd, expectation, timeZone: businessTimeZone() };
     const evaluate = (input, item, reportPeriodVerified = false) => {
@@ -3377,13 +3382,14 @@
       const branch = model.operationalMetrics?.csi || {}, imports = branch.imports || [],
         item = options.item || imports.at(-1),
         scopeEnd = item?.scopeVerified ? validCoverageDate(item.scopeEnd) : "",
-        // Local import/refresh time is not evidence of the report's covered dates.
-        // Only a verified report observation or a verified cumulative scope can be current.
-        observedDate = item?.reportObservationVerified ? validCoverageDate(item.reportObservationDate) : "";
+        scopeStart = scopeEnd && item?.scopeVerified ? validCoverageDate(item.scopeStart) : "",
+        // Local import time and configured scoring window are not source coverage.
+        observedDate = item?.reportObservationVerified ? validCoverageDate(item.reportObservationDate) : "",
+        reportPeriod = csiReportedPeriod(scopeStart, scopeEnd, observedDate);
       return evaluate({ ...common, exists: Boolean(item),
         sourceTimestamp: item?.importedAt, sourceDate: observedDate,
         observationVerified: Boolean(observedDate), scopeVerified: Boolean(scopeEnd), scopeEnd,
-        periodStart: model.settings.csiPeriodStart || "", periodEnd: scopeEnd || observedDate }, item, Boolean(scopeEnd || observedDate));
+        periodStart: reportPeriod.periodStart, periodEnd: reportPeriod.periodEnd }, item, reportPeriod.verified);
     }
     if (key === "nextAppointments") { const item = options.item || latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, Boolean(item?.periodStart && item?.periodEnd)); }
     if (key === "vir") { const item = options.item || latestVirObservation(); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.sourceModifiedAt || item?.observationTimestamp, periodEnd: virObservationDate(item) }, item, Boolean(virObservationDate(item))); }
