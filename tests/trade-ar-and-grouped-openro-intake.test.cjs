@@ -131,7 +131,7 @@ test("Trade AR fails closed on malformed scoped values without changing saved to
     await assertPreserved([arHeaders,arRow(),arRow({days:value})]);
   for(const field of ["invoiceAmount","received","open"]){
     const column={invoiceAmount:15,received:17,open:18}[field];
-    await assertPreserved([arHeaders,arRow(),arRow({[field]:0.1})],{"2:"+column:"0.00%"});
+    await assertPreserved([arHeaders,arRow(),arRow({[field]:0.1})],{["2:"+column]:"0.00%"});
   }
   await assertPreserved([arHeaders,arRow(),arRow({days:1})],{"2:5":"0%"});
 });
