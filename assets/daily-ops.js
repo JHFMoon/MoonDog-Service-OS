@@ -645,12 +645,16 @@
     // Deferred work is valid only while the SAME live task is suppressed by
     // the canonical eligibility engine. Source changes or urgency escalation
     // must move it back into Action now instead of labeling it safe to wait.
-    const currentTasks=new Map(allTasks().map(task=>[String(task.id),task]));
     const at=now();
-    return [...decisions].filter(([id,item])=>{
-      const task=currentTasks.get(id),until=Date.parse(item.until);
-      return item.action==='deferred'&&task&&Number.isFinite(until)&&until>at&&
-        !engine.eligible(task,state.events,at);
+    const pending=[...decisions].filter(([,item])=>{
+      const until=Date.parse(item.until);
+      return item.action==='deferred'&&Number.isFinite(until)&&until>at;
+    });
+    if(!pending.length)return 0; // Avoid a second 2,100-RO scan on ordinary Home renders.
+    const currentTasks=new Map(allTasks().map(task=>[String(task.id),task]));
+    return pending.filter(([id])=>{
+      const task=currentTasks.get(id);
+      return task&&!engine.eligible(task,state.events,at);
     }).length;
   }
   function renderManagerEvidence(host){
