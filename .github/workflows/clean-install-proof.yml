@@ -98,7 +98,7 @@ jobs:
 
           ux_path=Path(".clean-install-smoke/overdrive-proof/open-ro-workflow-metrics.json")
           ux=json.loads(ux_path.read_text(encoding="utf-8"))
-          assert set(ux)=={"schemaVersion","dataset","scenario","records","attemptedSamples","completedSamples","failedSamples","errorRate","taskDurationMs","clickCount","fieldEntryCount","scrollDistancePx","browserErrorCount","sampleResults"}
+          assert set(ux)=={"schemaVersion","dataset","scenario","records","attemptedSamples","completedSamples","failedSamples","errorRate","taskDurationMs","clickCount","fieldEntryCount","scrollDistancePx","browserErrorCount","interruptedSaveTask","reconnectTask","sampleResults"}
           assert ux["schemaVersion"]==1 and ux["dataset"]=="synthetic-clean-install"
           assert ux["records"]==2100 and ux["attemptedSamples"]==9 and ux["completedSamples"]==9
           assert ux["failedSamples"]==0 and ux["errorRate"]==0 and ux["browserErrorCount"]==0
@@ -111,8 +111,33 @@ jobs:
               assert 0<=metric["p50"]<=metric["p95"]<=metric["max"]
           assert ux["clickCount"]["p50"]==4 and ux["clickCount"]["max"]==4
           assert ux["fieldEntryCount"]["p50"]>=5
-          assert ux_path.stat().st_size<4096
-          print("PASS: synthetic Open RO workflow metrics validated")
+          # The same nine packaged file:// browser journeys must prove both
+          # pre-write fault recovery and a newly committed folder reconnect.
+          # Requiring all named nested measurements is stricter than accepting
+          # the previous success-only summary schema.
+          for name in ("interruptedSaveTask","reconnectTask"):
+              task=ux[name]
+              assert set(task)=={"scenario","samples","elapsedMs","clickCount","fieldEntryCount","scrollDistancePx","verifiedReadbacks"}
+              assert isinstance(task["scenario"],str) and task["scenario"].strip()
+              assert task["samples"]==9 and task["verifiedReadbacks"]==9
+              for key in ("elapsedMs","clickCount","fieldEntryCount","scrollDistancePx"):
+                  metric=task[key]
+                  assert set(metric)=={"count","p50","p95","max"} and metric["count"]==9
+                  assert 0<=metric["p50"]<=metric["p95"]<=metric["max"]
+              assert task["clickCount"]["p50"]>=1
+          assert ux["interruptedSaveTask"]["fieldEntryCount"]["p50"]>=2
+          assert all(
+              sample["interruptedSaveTask"]["verifiedReadback"] is True and
+              sample["interruptedSaveTask"]["unsavedDraftPreserved"] is True and
+              sample["interruptedSaveTask"]["expectedWriteFailures"]==1 and
+              sample["reconnectTask"]["verifiedReadback"] is True and
+              sample["reconnectTask"]["restoredManagerState"] is True
+              for sample in ux["sampleResults"]
+          )
+          # Expanded proof contains two extra measured sub-journeys per sample;
+          # retain a bounded, synthetic-only artifact size guard.
+          assert ux_path.stat().st_size<20000
+          print("PASS: nine complete Open RO save, pre-write failure/retry and reconnect measurements validated")
 
           matrix_path=Path(".clean-install-smoke/overdrive-proof/responsive-ux-matrix.json")
           matrix=json.loads(matrix_path.read_text(encoding="utf-8"))
