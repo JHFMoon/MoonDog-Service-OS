@@ -1339,3 +1339,14 @@ html[data-theme="light"] .daily-paste-error{color:#922d32}
 html[data-theme="light"] .daily-paste-success{color:#12613d}
 @media(max-width:700px){#dailyTools[data-category="paste"]{max-width:100%}.daily-paste-controls button{flex:1 1 140px}
  .daily-paste-preview,.daily-paste-lessons{padding:11px!important}}
+
+
+/* #60-09: make evidence-backed improvement and manager-deferred work visible
+   without crowding out the active Top 3 or mislabeling unknown data as safe. */
+.daily-manager-evidence{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:18px 0 8px}
+.daily-manager-evidence-card{min-width:0;padding:14px 16px;border:1px solid #cbdce2;border-radius:12px;background:#f8fbfc;color:#243b45}
+.daily-manager-evidence-card h3{font-size:16px;line-height:1.3;margin:0 0 6px;color:inherit}
+.daily-manager-evidence-card p{font-size:14px;line-height:1.5;margin:0 0 8px;overflow-wrap:anywhere;color:inherit}
+.daily-manager-evidence-card .link-button{min-height:38px}
+html[data-theme="dark"] body.daily-operating .daily-manager-evidence-card{background:#182937;border-color:#3a5262;color:#e8f1f7}
+@media(max-width:700px){.daily-manager-evidence{grid-template-columns:minmax(0,1fr)}}

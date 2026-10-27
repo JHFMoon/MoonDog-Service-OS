@@ -591,7 +591,7 @@
   function renderManagerPulse(host){
     if(!model.root)return;
     const section=document.createElement('section');section.className='manager-control-pulse';section.setAttribute('aria-label','Manager control pulse');
-    const head=document.createElement('div');head.className='manager-control-pulse-head';head.innerHTML='<div><p class="eyebrow">CONTROL PULSE</p><strong>Finish work before starting more</strong></div>';
+    const head=document.createElement('div');head.className='manager-control-pulse-head';head.innerHTML='<div><p class="eyebrow">AT RISK</p><strong>RO risks from loaded source</strong></div>';
     head.append(button('Open RO Control',()=>openPulseFilter(''),'link-button'));
     section.append(head);
     const grid=document.createElement('div');grid.className='manager-control-pulse-grid';
@@ -602,6 +602,79 @@
       grid.append(card);
     }
     section.append(grid);host.append(section);
+  }
+  // A positive comparison is displayed only for two verified SAPR reports
+  // covering successive completed days of the SAME operating month.
+  // This is informational store pace, never trend-aware advisor coaching.
+  function verifiedGrossPaceDirection(){
+    const health=globalThis.__moondogFreshness?.sourceFreshness?.('sapr',{today:today()});
+    if(!health?.safeForCurrent)return 'Improvement not verified: current SAPR source is missing or stale.';
+    const snapshots=Object.values(model.performance?.snapshots||{}).filter(item=>
+      item?.validation?.saprDaysVerified===true&&
+      item?.validation?.finalTotalsVerified===true&&
+      Number.isFinite(item.saprDaysCompleted)&&item.saprDaysCompleted>0&&
+      Number.isFinite(item.store?.cpGross)&&
+      /^20\d{2}-\d{2}-\d{2}$/.test(String(item.periodEnd||''))&&
+      /^20\d{2}-\d{2}-01$/.test(String(item.periodStart||''))
+    ).sort((a,b)=>String(a.periodEnd).localeCompare(String(b.periodEnd))||
+      String(a.importedAt||'').localeCompare(String(b.importedAt||'')));
+    const latest=snapshots.at(-1);
+    if(!latest||latest.periodEnd!==health.periodEnd)
+      return 'Improvement not verified: comparable current SAPR periods are unavailable.';
+    const previous=snapshots.filter(item=>item.periodStart===latest.periodStart&&
+      item.periodEnd<latest.periodEnd&&item.saprDaysCompleted<latest.saprDaysCompleted).at(-1);
+    if(!previous)return 'Improvement not verified: another comparable SAPR operating day is needed.';
+    const earlier=previous.store.cpGross/previous.saprDaysCompleted;
+    const current=latest.store.cpGross/latest.saprDaysCompleted;
+    if(!Number.isFinite(earlier)||!Number.isFinite(current))
+      return 'Improvement not verified: comparable SAPR totals are unavailable.';
+    const money=value=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(value);
+    return current>earlier
+      ?'CP gross per completed SAPR day improved: '+money(earlier)+' to '+money(current)+
+        ' ('+previous.periodEnd+' → '+latest.periodEnd+').'
+      :'No verified improvement in CP gross per completed SAPR day ('+
+        previous.periodEnd+' through '+latest.periodEnd+').';
+  }
+  function managerDeferredCount(){
+    const decisions=new Map();
+    for(const event of state.events||[]){
+      const details=event?.details||{};
+      if(!details.taskId||!['deferred','completed','not-an-issue'].includes(details.action))continue;
+      decisions.set(String(details.taskId),details);
+    }
+    // Deferred work is valid only while the SAME live task is suppressed by
+    // the canonical eligibility engine. Source changes or urgency escalation
+    // must move it back into Action now instead of labeling it safe to wait.
+    const at=now();
+    const pending=[...decisions].filter(([,item])=>{
+      const until=Date.parse(item.until);
+      return item.action==='deferred'&&Number.isFinite(until)&&until>at;
+    });
+    if(!pending.length)return 0; // Avoid a second 2,100-RO scan on ordinary Home renders.
+    const currentTasks=new Map(allTasks().map(task=>[String(task.id),task]));
+    return pending.filter(([id])=>{
+      const task=currentTasks.get(id);
+      return task&&!engine.eligible(task,state.events,at);
+    }).length;
+  }
+  function renderManagerEvidence(host){
+    const section=document.createElement('section');section.className='daily-manager-evidence';
+    section.setAttribute('aria-label','Manager improvement and deferred work');
+    const deferred=managerDeferredCount();
+    for(const item of [
+      {label:'Improving',detail:verifiedGrossPaceDirection(),view:'performance',action:'View verified performance'},
+      {label:'Can wait',detail:deferred
+        ?deferred+' manager-deferred task'+(deferred===1?'':'s')+' awaiting their recorded review time.'
+        :'No active manager-deferred tasks recorded. Unreviewed work is not automatically safe to postpone.',
+        view:'open-ro',action:'Review Open RO workload'}
+    ]){
+      const card=document.createElement('article');card.className='daily-manager-evidence-card';
+      const heading=document.createElement('h3');heading.textContent=item.label;
+      const detail=document.createElement('p');detail.textContent=item.detail;
+      card.append(heading,detail,button(item.action,()=>go(item.view),'link-button'));
+      section.append(card);
+    }
+    host.append(section);
   }
   function skippedAdvisorsToday(){
     const skipped=new Map();
@@ -975,13 +1048,27 @@
     // The legacy pulse and data strip remain available in detailed tools, never compete with Top 3.
     host.querySelector('.daily-data-needed')?.remove();
     const pulse=host.querySelector('.manager-control-pulse');
-    if(pulse){pulse.querySelectorAll('.manager-pulse-card:not(.urgent)').forEach(card=>card.remove());if(!pulse.querySelector('.manager-pulse-card'))pulse.remove();}
+    if(pulse){
+      pulse.querySelectorAll('.manager-pulse-card:not(.urgent)').forEach(card=>card.remove());
+      if(!pulse.querySelector('.manager-pulse-card')){
+        const note=document.createElement('p');note.className='daily-hint';
+        note.textContent='No flagged RO risks in the loaded source. Confirm source freshness before treating this as clear.';
+        pulse.append(note);
+      }
+    }
     if(!model.root){host.innerHTML='<p class="eyebrow">Your daily workspace</p><h2>Connect Service Operations Dashboard to begin</h2><p>Your saved work stays in the connected working folder.</p>';host.append(button('Connect working folder',()=>api.connect(),'primary'));return;}
     if(!state.loadedRoot&&!state.current){host.innerHTML='<h2>Loading your saved work…</h2>';return;}
     top ||= attentionTopThree();refreshAttentionCount(top);
     const task=state.current;
-    if(!task){host.replaceChildren();return;}
-    const focus=document.createElement('div');focus.className='daily-main-priority';focus.innerHTML=`<p class="eyebrow">Manager attention · 1 of ${top.length}</p><h2>${esc(task.title)}</h2><p id="dailyError" role="alert" hidden></p><div id="dailyChanged" hidden>New information is available. Your draft is still here. <button type="button">Refresh this task</button></div>`;host.append(focus);
+    if(!task){
+      const empty=document.createElement('section');empty.className='daily-main-priority';
+      empty.innerHTML='<p class="eyebrow">Action now</p><h2>No confirmed immediate priority selected</h2><p>Check source readiness and the complete Open RO workload; missing reports do not mean all work is finished.</p>';
+      host.append(empty);
+      if(pulse)host.append(pulse);
+      renderManagerEvidence(host);
+      return;
+    }
+    const focus=document.createElement('div');focus.className='daily-main-priority';focus.innerHTML=`<p class="eyebrow">Action now · Manager attention 1 of ${top.length}</p><h2>${esc(task.title)}</h2><p id="dailyError" role="alert" hidden></p><div id="dailyChanged" hidden>New information is available. Your draft is still here. <button type="button">Refresh this task</button></div>`;host.append(focus);
     $('dailyChanged').querySelector('button').onclick=()=>{if(discardDraftOk())action(selectNext);};
     if(task.type==='ro'){
       const code=advisorCodeFor(task);
@@ -1013,6 +1100,8 @@
       else await log('deferred',task,{until:engine.deferUntil(task,state.events,now()),fingerprint:task.fingerprint});
       await selectNext();})));focus.append(footer);
     renderOtherPriorities(task,host);
+    if(pulse)host.append(pulse);
+    renderManagerEvidence(host);
     say(state.error);
   }
 
