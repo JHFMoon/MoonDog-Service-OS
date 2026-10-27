@@ -63,10 +63,18 @@ def codex_review_state(comments: list, expected_head: str) -> str:
         return "pending"
     if latest.get("status") != "completed":
         return "pending"
-    if latest.get("has_any_findings") is True or latest.get("has_unresolved_findings") is True:
+    # 'has_any_findings' is a cumulative review-history indicator. Once all
+    # findings have been addressed, it can remain true indefinitely even when
+    # Codex independently re-reviews the exact head and reports no unresolved
+    # findings. Blocking that completed review causes a permanent false veto.
+    unresolved = latest.get("has_unresolved_findings")
+    any_findings = latest.get("has_any_findings")
+    if unresolved is True:
         return "findings"
-    if latest.get("has_any_findings") is False and latest.get("has_unresolved_findings") is False:
+    if unresolved is False and any_findings in (True, False):
         return "clean"
+    if any_findings is True:
+        return "findings"
     return "pending"
 
 
@@ -108,14 +116,12 @@ def owner_review_state(reviews: list, expected_head: str, owner_login: str) -> s
 
 
 def merge_review_state(comments: list, reviews: list, expected_head: str, policy: dict) -> str:
-    """Codex findings veto an owner fallback; both paths require exact-head proof."""
+    """Active Codex findings veto an owner fallback; require exact-head proof."""
     codex = codex_review_state(comments, expected_head)
-    # A prior verified finding on this immutable head cannot be overridden by
-    # a later stale bot summary or an owner attestation.
-    if codex == "findings" or any(
-        codex_review_state([comment], expected_head) == "findings"
-        for comment in comments if isinstance(comment, dict)
-    ):
+    # Only the newest authenticated exact-head summary can resolve previous
+    # findings. A stale summary still returns pending, never clean. Requiring
+    # every historical summary to be finding-free made resolution impossible.
+    if codex == "findings":
         return "findings"
     owner = "pending"
     if (
