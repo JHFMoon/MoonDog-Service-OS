@@ -3364,8 +3364,15 @@
   function latestOperationalSnapshot(family) { if(family==="nextAppointments")return latestNextAppointmentsSnapshot();if(family==="vir")return latestVirObservation();if(family==="mediaAsr")return sourceTrendObservations("mediaAsr").sort((a,b)=>text(a.periodEnd).localeCompare(text(b.periodEnd))||text(a.importedAt).localeCompare(text(b.importedAt))).at(-1)||null;if(family==="mediaAsrTech")return mediaTechReports().sort((a,b)=>text(a.periodEnd).localeCompare(text(b.periodEnd))||text(a.importedAt).localeCompare(text(b.importedAt))).at(-1)||null; const snapshots = model.operationalMetrics?.[family]?.snapshots || {}, keys = Object.keys(snapshots).sort(); return keys.length ? snapshots[keys.at(-1)] : null; }
   function sourceFreshness(key, options = {}) {
     const today = options.today || localDateKey(), purpose = options.purpose || "current", expectation = sourceExpectation(key), common = { key, today, purpose, targetStart: options.targetStart, targetEnd: options.targetEnd, expectation, timeZone: businessTimeZone() };
-    if (key === "openRo") { const item = options.item || model.state.source; return freshness.evaluateSource({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, sourceDate: item?.importedAt ? localDateKey(new Date(item.importedAt)) : "", periodStart: item?.reportDate || "", periodEnd: item?.reportDate || "" }); }
-    if (key === "sapr") { const item = options.item || currentSaprSnapshot(true); return freshness.evaluateSource({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }); }
+    const evaluate = (input, item, reportPeriodVerified = false) => {
+      const evidence = freshness.evaluateSource(input);
+      return Object.freeze({ ...evidence,
+        importTimestamp: typeof item?.importedAt === "string" ? item.importedAt : "",
+        reportPeriodVerified: Boolean(item && evidence.loaded && reportPeriodVerified)
+      });
+    };
+    if (key === "openRo") { const item = options.item || model.state.source; return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, sourceDate: item?.importedAt ? localDateKey(new Date(item.importedAt)) : "", periodStart: item?.reportDate || "", periodEnd: item?.reportDate || "" }, item, Boolean(item?.reportDate)); }
+    if (key === "sapr") { const item = options.item || currentSaprSnapshot(true); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, Boolean(item?.periodStart && item?.periodEnd)); }
     if (key === "csi") {
       const branch = model.operationalMetrics?.csi || {}, imports = branch.imports || [],
         item = options.item || imports.at(-1),
@@ -3373,18 +3380,18 @@
         // Local import/refresh time is not evidence of the report's covered dates.
         // Only a verified report observation or a verified cumulative scope can be current.
         observedDate = item?.reportObservationVerified ? validCoverageDate(item.reportObservationDate) : "";
-      return freshness.evaluateSource({ ...common, exists: Boolean(item),
+      return evaluate({ ...common, exists: Boolean(item),
         sourceTimestamp: item?.importedAt, sourceDate: observedDate,
         observationVerified: Boolean(observedDate), scopeVerified: Boolean(scopeEnd), scopeEnd,
-        periodStart: model.settings.csiPeriodStart || "", periodEnd: scopeEnd || observedDate });
+        periodStart: model.settings.csiPeriodStart || "", periodEnd: scopeEnd || observedDate }, item, Boolean(scopeEnd || observedDate));
     }
-    if (key === "nextAppointments") { const item = options.item || latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return freshness.evaluateSource({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }); }
-    if (key === "vir") { const item = options.item || latestVirObservation(); return freshness.evaluateSource({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.sourceModifiedAt || item?.observationTimestamp, periodEnd: virObservationDate(item) }); }
-    if (key === "menu") { const item = options.item || latestOperationalSnapshot("menu"); return freshness.evaluateSource({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd, releaseWeek: item?.releaseWeek }); }
-    if (key === "appointments") { const item = options.item || model.appointments.days?.[today]; return freshness.evaluateSource({ ...common, expectation: "recommended", exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.updatedAt, periodStart: item?.date || today, periodEnd: item?.date || (item ? today : "") }); }
-    if (["sor", "appointmentActivity", "efficiency", "mediaAsr", "mediaAsrTech", "openRoSummary"].includes(key)) { const item = options.item || latestOperationalSnapshot(key), period = item?.period || item?.date || ""; return freshness.evaluateSource({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt, periodStart: item?.periodStart || (period.length === 10 ? period : ""), periodEnd: item?.periodEnd || (period.length === 10 ? period : period.length === 7 ? lastDayOfMonth(period) : "") }); }
-    if (key === "supervisorWorkbook") { const item = options.item || model.recovery?.supervisorWorkbook; return freshness.evaluateSource({ ...common, expectation: "recommended", exists: Boolean(item?.generatedAt), sourceTimestamp: item?.generatedAt, periodStart: item?.generatedAt ? localDateKey(new Date(item.generatedAt)) : "", periodEnd: item?.generatedAt ? localDateKey(new Date(item.generatedAt)) : "", stale: item?.stale === true }); }
-    return freshness.evaluateSource({ ...common, exists: false });
+    if (key === "nextAppointments") { const item = options.item || latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, Boolean(item?.periodStart && item?.periodEnd)); }
+    if (key === "vir") { const item = options.item || latestVirObservation(); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.sourceModifiedAt || item?.observationTimestamp, periodEnd: virObservationDate(item) }, item, Boolean(virObservationDate(item))); }
+    if (key === "menu") { const item = options.item || latestOperationalSnapshot("menu"); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd, releaseWeek: item?.releaseWeek }, item, Boolean((item?.periodStart && item?.periodEnd) || item?.releaseWeek)); }
+    if (key === "appointments") { const item = options.item || model.appointments.days?.[today]; return evaluate({ ...common, expectation: "recommended", exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.updatedAt, periodStart: item?.date || today, periodEnd: item?.date || (item ? today : "") }, item, Boolean(item?.date)); }
+    if (["sor", "appointmentActivity", "efficiency", "mediaAsr", "mediaAsrTech", "openRoSummary"].includes(key)) { const item = options.item || latestOperationalSnapshot(key), period = item?.period || item?.date || ""; return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt, periodStart: item?.periodStart || (period.length === 10 ? period : ""), periodEnd: item?.periodEnd || (period.length === 10 ? period : period.length === 7 ? lastDayOfMonth(period) : "") }, item, Boolean(item && (item?.periodStart || item?.periodEnd || item?.period || item?.date))); }
+    if (key === "supervisorWorkbook") { const item = options.item || model.recovery?.supervisorWorkbook; return evaluate({ ...common, expectation: "recommended", exists: Boolean(item?.generatedAt), sourceTimestamp: item?.generatedAt, periodStart: item?.generatedAt ? localDateKey(new Date(item.generatedAt)) : "", periodEnd: item?.generatedAt ? localDateKey(new Date(item.generatedAt)) : "", stale: item?.stale === true }, item, false); }
+    return evaluate({ ...common, exists: false }, null, false);
   }
   function metricDependencyEvidence(dependencies, baseEvidence) {
     const check = freshness.evaluateMetric(dependencies), blocked = check.blocking[0];
@@ -3396,9 +3403,10 @@
   // import cannot manufacture a current reporting period or a verified zero.
   function sourceLineageLabel(evidence) {
     const source=evidence||{status:"missing",loaded:false};
-    const start=String(source.periodStart||"").trim(),end=String(source.periodEnd||"").trim();
+    const hasVerifiedPeriod=source.loaded&&source.reportPeriodVerified&&["current","stale","historical-valid"].includes(source.status);
+    const start=hasVerifiedPeriod?String(source.periodStart||"").trim():"",end=hasVerifiedPeriod?String(source.periodEnd||"").trim():"";
     const period=start&&end?(start===end?end:start+" through "+end):end||start||"Not verified";
-    const timestamp=String(source.sourceTimestamp||"").trim();
+    const timestamp=String(source.importTimestamp||"").trim();
     const importTime=/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}/.test(timestamp)&&
       Number.isFinite(Date.parse(timestamp))
       ?new Date(timestamp).toISOString().slice(0,16).replace("T"," ")+" UTC":"Not verified";
