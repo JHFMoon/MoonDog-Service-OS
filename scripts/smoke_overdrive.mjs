@@ -1602,6 +1602,15 @@ try{
         const failedUxTasks=uxTaskSamples.filter(sample=>!sample.success);
         const summarizeUxMetric=key=>completedUxTasks.length
           ?summarizeNavigationMs(completedUxTasks.map(sample=>sample[key])):null;
+        const summarizeRecoveryTask=key=>({
+          scenario:key==="interruptedSaveTask"?"failed durable Open RO backup, preserved draft, retry and verified save":"connected working-folder reconnect after a verified RO update",
+          samples:completedUxTasks.length,
+          elapsedMs:summarizeNavigationMs(completedUxTasks.map(sample=>sample[key]?.elapsedMs)),
+          clickCount:summarizeNavigationMs(completedUxTasks.map(sample=>sample[key]?.clickCount)),
+          fieldEntryCount:summarizeNavigationMs(completedUxTasks.map(sample=>sample[key]?.fieldEntryCount)),
+          scrollDistancePx:summarizeNavigationMs(completedUxTasks.map(sample=>sample[key]?.scrollDistancePx)),
+          verifiedReadbacks:completedUxTasks.filter(sample=>sample[key]?.verifiedReadback).length
+        });
         const uxWorkflow={schemaVersion:1,dataset:"synthetic-clean-install",
           scenario:"Open RO search, edit, add note, save, and verify durable read-back",records:2100,
           attemptedSamples:uxTaskSamples.length,completedSamples:completedUxTasks.length,
@@ -1611,11 +1620,17 @@ try{
           clickCount:summarizeUxMetric("clickCount"),
           fieldEntryCount:summarizeUxMetric("fieldEntryCount"),
           scrollDistancePx:summarizeUxMetric("scrollDistancePx"),
-          browserErrorCount:uxBrowserErrorCount,sampleResults:uxTaskSamples};
+          browserErrorCount:uxBrowserErrorCount,
+          interruptedSaveTask:summarizeRecoveryTask("interruptedSaveTask"),
+          reconnectTask:summarizeRecoveryTask("reconnectTask"),
+          sampleResults:uxTaskSamples};
         fs.writeFileSync(path.join(out,"open-ro-workflow-metrics.json"),JSON.stringify(uxWorkflow,null,2)+"\n");
         if(uxTaskSamples.length!==9||failedUxTasks.length!==0||uxBrowserErrorCount!==0||
           completedUxTasks.some(sample=>sample.clickCount!==4||sample.fieldEntryCount<5||
-            !Number.isFinite(sample.scrollDistancePx)||sample.scrollDistancePx<0))
+            !Number.isFinite(sample.scrollDistancePx)||sample.scrollDistancePx<0||
+            !sample.interruptedSaveTask?.verifiedReadback||!sample.reconnectTask?.verifiedReadback||
+            sample.interruptedSaveTask.expectedWriteFailures!==1||
+            sample.interruptedSaveTask.clickCount<4||sample.reconnectTask.clickCount<1))
           throw Error("Open RO UX task evidence incomplete: "+JSON.stringify(uxWorkflow));
         console.log("60-10 synthetic Open RO task metrics",JSON.stringify(uxWorkflow));
         const summarizeTabs=samples=>Object.fromEntries(
