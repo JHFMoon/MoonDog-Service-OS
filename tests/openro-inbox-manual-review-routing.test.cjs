@@ -57,7 +57,8 @@ test("watch skips already queued unchanged Open RO and rechecks a replaced file"
   });
   assert.equal(ctx.candidateNeedsImport({signature,location:"inbox"}),false);
   assert.equal(ctx.candidateNeedsImport({signature:"inbox|changed",location:"inbox"}),true);
-  assert.equal(ctx.candidateNeedsImport({signature,location:"root"}),true);
+  assert.equal(ctx.candidateNeedsImport({signature,location:"root"}),false);
+  assert.equal(ctx.candidateNeedsImport({signature:"root|new",location:"root"}),true);
 });
 
 test("manual report picker recovers previously misrouted Open RO without surfacing unrelated learn files",async()=>{
