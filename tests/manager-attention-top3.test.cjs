@@ -221,7 +221,7 @@ test('Home secondary priorities show ownership, due date, blocker, next step, an
       statusDetail:'Other',statusDetailOther:'Synthetic part ETA',nextAction:'Recheck synthetic part ETA'},
     cdkOperational:{status:'Awaiting Technician Attention',stale:false}
   };
-  const model={state:{records:[record],source:{fileName:'synthetic-open-ro.xlsx',reportDate:'2026-10-26'}}};
+  const model={state:{records:[record],source:{fileName:'synthetic-open-ro.xlsx',reportDate:'2026-10-26',importedAt:'2026-10-26T09:00:00Z'}}};
   const context=vm.createContext({
     model,state:{events:[]},
     api:{
@@ -244,19 +244,21 @@ test('Home secondary priorities show ownership, due date, blocker, next step, an
   assert.match(detail.textContent,/Status \/ blocker: Waiting Parts — Synthetic part ETA/);
   assert.match(detail.textContent,/Next step: Recheck synthetic part ETA/);
   assert.match(detail.textContent,/synthetic-open-ro\.xlsx · Report period 2026-10-26/);
+  assert.match(detail.textContent,/Imported 2026-10-26 09:00 UTC/);
 
   model.state.source={fileName:'synthetic-open-ro.xlsx',sourceModifiedAt:'2026-10-25T18:00:00Z',importedAt:'2026-10-26T09:00:00Z'};
   const modifiedHost=node();
   context.renderOtherPriorities({id:'primary'},modifiedHost);
   const modifiedText=modifiedHost.children[0].children[1].children[0].children[1].textContent;
   assert.match(modifiedText,/File modified 2026-10-25/);
+  assert.match(modifiedText,/Imported 2026-10-26 09:00 UTC/);
   assert.doesNotMatch(modifiedText,/Report period 2026-10-26/);
 
   model.state.source={fileName:'synthetic-open-ro.xlsx',importedAt:'2026-10-26T09:00:00Z'};
   const importedHost=node();
   context.renderOtherPriorities({id:'primary'},importedHost);
   const importedText=importedHost.children[0].children[1].children[0].children[1].textContent;
-  assert.match(importedText,/Imported 2026-10-26/);
+  assert.match(importedText,/Imported 2026-10-26 09:00 UTC/);
   assert.doesNotMatch(importedText,/Report period 2026-10-26/);
   assert.match(detail.textContent,/Current source confirms Awaiting Technician Attention/);
 
