@@ -296,3 +296,60 @@ test('manager attention keeps parts, approval, dispatch, diagnosis, customer-upd
     assert.equal(task.title,title);
   }
 });
+
+
+test('tomorrow readiness identifies unconfirmed follow-up ownership and updates after verified manager assignment',()=>{
+  const source=read('assets/daily-ops.js');
+  const start=source.indexOf('  function candidates(){');
+  const end=source.indexOf('  const historyFileCache=',start);
+  assert.ok(start>=0&&end>start,'production Home candidate selector exists');
+  const record={
+    id:'synthetic-tomorrow-101',ro:'SYN-TOMORROW',
+    daysOpen:2,
+    management:{
+      status:'Waiting Parts',communication:'Needs update',nextAction:'Confirm synthetic parts ETA',
+      reviewDate:'2026-10-26',updatedAt:'2026-10-26T13:00:00Z',
+      owner:'Synthetic RO Writer',ownerAssignmentSource:'source-writer'
+    }
+  };
+  let hour=16;
+  const model={
+    root:{},state:{records:[record],reviewQueue:[]},
+    settings:{advisors:{},performanceStandards:{}},assignNext:{currentOpenRo:null}
+  };
+  const api={
+    reportRefreshRequests:()=>[],closed:()=>false,priority:()=>5,
+    status:item=>item.management.status,statusDetail:item=>item.management.statusDetail||'',
+    latestSapr:()=>null,advisors:()=>[]
+  };
+  const context=vm.createContext({
+    Date,Intl,model,api,
+    today:()=> '2026-10-26',now:()=>Date.parse('2026-10-26T16:00:00Z'),
+    businessHour:()=>hour,
+    __moondogFreshness:{sourceFreshness:()=>({safeForCurrent:false})}
+  });
+  vm.runInContext(read('assets/daily-engine.js'),context);
+  vm.runInContext('this.engine=MoonDogDailyEngine;',context);
+  vm.runInContext(source.slice(start,end)+';this.makeCandidates=candidates;',context);
+  const getTomorrow=()=>context.makeCandidates().find(task=>task.type==='tomorrow');
+  const pending=getTomorrow();
+  assert.ok(pending,'unresolved current-day work appears in the closing review');
+  assert.match(pending.description,/1 follow-up owner needs manager confirmation/);
+  assert.equal(pending.view,'open-ro');
+  const oldFingerprint=pending.fingerprint;
+
+  record.management.owner='Synthetic Confirmed Manager';
+  record.management.ownerAssignmentSource='manager-confirmed';
+  const assigned=getTomorrow();
+  assert.ok(assigned);
+  assert.doesNotMatch(assigned.description,/owner needs manager confirmation/);
+  assert.notEqual(assigned.fingerprint,oldFingerprint,
+    'confirmed ownership invalidates the previous reminder');
+  
+  hour=14;
+  assert.equal(getTomorrow(),undefined,'the closing review is not shown before late-day planning');
+  hour=16;
+  record.management.reviewDate='2026-10-27';
+  record.management.communication='Updated';
+  assert.equal(getTomorrow(),undefined,'a future viable plan does not create a phantom carryover reminder');
+});
