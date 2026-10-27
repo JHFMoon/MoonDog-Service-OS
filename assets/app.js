@@ -1525,7 +1525,7 @@
     for await(const [name,handle] of model.root.entries())
       if(handle.kind==="file"&&returnedWorkbookCandidate(name))add(name,"root");
     files.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
-    ui.sourceSelect.replaceChildren(new Option(files.length?"Select Report Inbox or recovered Open RO XLSX":"No Open RO source files available",""));
+    ui.sourceSelect.replaceChildren(new Option(files.length?"Select Report Inbox or recovered Open RO XLSX":"No XLSX files in Report Inbox",""));
     files.forEach(name=>ui.sourceSelect.add(new Option(name+(learned.has(name)?" (Files To Learn)":""),name)));
     ui.sourceSelect.disabled=!files.length;ui.importButton.disabled=true;
   }
