@@ -868,7 +868,12 @@ try{
             ];
             await set(["System Files","Workspace","data","store-revision.json"],{schemaVersion:1,revision:4});
             for(const [filename,data] of snapshots)await set(["System Files","Workspace","data",filename],data);
-            Object.defineProperty(window,"showDirectoryPicker",{configurable:true,value:async()=>root});
+            // The user's real folder picker may return the SAME handle on
+            // reconnect. Count independently completed picker requests rather
+            // than treating a different object identity as connection proof.
+            globalThis.__moondogSyntheticPickerCalls=0;
+            Object.defineProperty(window,"showDirectoryPicker",{configurable:true,
+              value:async()=>{globalThis.__moondogSyntheticPickerCalls++;return root;}});
             const started=performance.now();
             await api.connect();
             const daily=globalThis.__moondogDailyUI;
@@ -1141,13 +1146,18 @@ try{
 
               const reconnectStart=await probeSnapshot();
               await connectedPage.evaluate(()=>{
-                globalThis.__moondogBeforeSyntheticReconnect=globalThis.__moondogDaily.model.root;
+                const model=globalThis.__moondogDaily.model;
+                globalThis.__moondogBeforeSyntheticPickerCalls=globalThis.__moondogSyntheticPickerCalls;
+                globalThis.__moondogBeforeSyntheticReconnectAt=model.recovery?.lastSuccessfulConnectionAt||"";
               });
               await connectedPage.locator("#connectButton").click({timeout:5000});
               await connectedPage.waitForFunction(()=>{
                 const model=globalThis.__moondogDaily?.model;
-                return model?.root&&model.root!==globalThis.__moondogBeforeSyntheticReconnect&&
-                  model.workspaceConnectionCommittedRoot===model.root&&model.connectionState==="CONNECTED";
+                return model?.root&&
+                  globalThis.__moondogSyntheticPickerCalls>globalThis.__moondogBeforeSyntheticPickerCalls&&
+                  model.workspaceConnectionCommittedRoot===model.root&&model.connectionState==="CONNECTED"&&
+                  Boolean(model.recovery?.lastSuccessfulConnectionAt)&&
+                  model.recovery.lastSuccessfulConnectionAt!==globalThis.__moondogBeforeSyntheticReconnectAt;
               },null,{timeout:25000});
               const afterConnect=await connectedPage.evaluate(async()=>{
                 const api=globalThis.__moondogDaily;
@@ -1583,6 +1593,12 @@ try{
           catch(error){sampleFailure??=error;}
         }
         uxBrowserErrorCount+=browserErrors.length;
+        // A failed 9/9 production browser journey must report its actual
+        // failure immediately, not wait for all nine long timeout samples and
+        // then throw a misleading "nonnegative milliseconds" summary error.
+        if(scenario==="large"&&sampleFailure)
+          throw Error("Synthetic interrupted-save/reconnect browser sample "+(sample+1)+
+            " failed: "+String(sampleFailure?.stack||sampleFailure));
         if(sampleFailure){
           uxTaskSamples.push({sample:sample+1,success:false,errorName:sampleFailure?.name||"Error",
             error:String(sampleFailure?.message||sampleFailure).slice(0,240),browserErrorCount:browserErrors.length});
