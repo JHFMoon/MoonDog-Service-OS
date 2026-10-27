@@ -747,13 +747,6 @@ try{
                     arrayBuffer:async()=>copy.slice().buffer};
                 },
                 async createWritable({keepExistingData=false}={}){
-                  // Synthetic-only interruption before an RO's verified backup is touched.
-                  // A failed backup MUST leave the operational-state save unattempted.
-                  if(injectedWorkflowFaults.failNextRoBackup&&/updated-ro-/i.test(name)){
-                    injectedWorkflowFaults.failNextRoBackup=false;
-                    injectedWorkflowFaults.backupFailures++;
-                    throw Object.assign(Error("Synthetic backup is temporarily unavailable"),{name:"NotReadableError"});
-                  }
                   let draft=keepExistingData?bytes.slice():new Uint8Array(),cursor=0;
                   return {
                     async write(value){
@@ -799,6 +792,15 @@ try{
                   return child;
                 },
                 async getFileHandle(key,{create=false}={}){
+                  // A recoverable read failure must occur BEFORE safeWrite's
+                  // transaction journal or target has been touched. Faults
+                  // after touch are intentionally recovery-required and must
+                  // never be presented as safe immediate retries.
+                  if(!create&&injectedWorkflowFaults.failNextRoBackup&&/updated-ro-/i.test(key)){
+                    injectedWorkflowFaults.failNextRoBackup=false;
+                    injectedWorkflowFaults.backupFailures++;
+                    throw Object.assign(Error("Synthetic backup preflight read is unavailable"),{name:"NotReadableError"});
+                  }
                   let child=children.get(key);
                   if(!child&&create){child=makeFile(key);children.set(key,child);}
                   if(!child)throw notFound();
