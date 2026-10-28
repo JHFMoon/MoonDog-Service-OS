@@ -2501,16 +2501,18 @@
     const matches=[];
     for(const rule of configured){
       if(rule?.family!=="trade-ar-errors"||rule.approved!==true||rule.enabled!==true||rule.writeEnabled!==false)continue;
-      const sheet=book?.Sheets?.[rule.sheetName];if(!sheet)continue;
-      const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true}),headerRow=Number(rule.headerRow);
-      if(!Number.isInteger(headerRow)||headerRow<0||headerRow>30)continue;
+      let checked;
+      try{checked=globalThis.MoonDogPasteLearn.safeReportLayout(rule,[]);}catch(_){continue;}
+      if(checked.id!==rule.id||!Number.isInteger(Number(rule.version))||Number(rule.version)<1)continue;
+      checked.version=Number(rule.version);
+      const sheet=book?.Sheets?.[checked.sheetName];if(!sheet)continue;
+      const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true}),headerRow=checked.headerRow;
       const headerValues=rows[headerRow]||[],normalized=headerValues.map(value=>norm(value)),columns={};let valid=true;
-      for(const field of Object.keys(rule.columns||{})){
-        const source=norm(rule.columns[field]),indexes=normalized.map((value,index)=>value===source?index:-1).filter(index=>index>=0);
+      for(const field of globalThis.MoonDogPasteLearn.REPORT_LAYOUT_FAMILIES["trade-ar-errors"]){
+        const source=norm(checked.columns[field]),indexes=normalized.map((value,index)=>value===source?index:-1).filter(index=>index>=0);
         if(indexes.length!==1){valid=false;break;}columns[field]=indexes[0];
       }
-      const required=["store","customer","invoice","invoiceDate","days","status","invoiceAmount","received","open"];
-      if(valid&&required.every(field=>Number.isInteger(columns[field])))matches.push({rule,sheet,rows,headerRow,columns});
+      if(valid)matches.push({rule:checked,sheet,rows,headerRow,columns});
     }
     if(matches.length>1)throw new Error("Needs Review: more than one local report layout matches this workbook.");
     return matches[0]||null;
