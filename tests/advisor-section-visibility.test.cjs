@@ -93,7 +93,7 @@ test("UI surfaces have independent non-destructive visibility gates", () => {
   homeUi["view-overview"]={classList:{contains:()=>overviewActive}};
   homeUi["view-open-ro"]={classList:{contains:()=>openRoActive}};
   const panels=vm.runInNewContext(homeHelperSource+app.slice(homeStart,homeEnd)+
-    "\\n({renderAll,renderOverviewPanelsIfNeeded,renderDailyFocusIfNeeded})",{
+    "\n({renderAll,renderOverviewPanelsIfNeeded,renderDailyFocusIfNeeded})",{
     model:homeModel,ui:homeUi,localDateKey:()=>todayKey,
     isClosedManagement:management=>norm(management?.status)==="closed",
     renderOverviewIntelligence:()=>{panelRenderCalls.overview++;},
