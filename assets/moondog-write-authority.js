@@ -19,6 +19,7 @@
   const sessionIdentities = new Map();
   let transientValidation = false;
   let validationReason = "NO_WORKSPACE";
+  let validationFailureName = "";
   let validationGeneration = 0;
   let validationInFlight = null;
   const transientValidationDelays = [0, 150, 400, 900, 1800];
@@ -201,6 +202,7 @@
       validationGeneration += 1;
       setTransientValidation(false); loadedRevision = null; setEditable(false);
       setValidationReason("NO_WORKSPACE");
+      validationFailureName = "";
       return false;
     }
     if (validationInFlight) {
@@ -210,6 +212,7 @@
       return validate(root, ask);
     }
     const generation = ++validationGeneration;
+    validationFailureName = "";
     const task = validateWorkspace(root, ask, generation);
     const entry = { root, ask, promise: null };
     entry.promise = task.finally(() => { if (validationInFlight === entry) validationInFlight = null; });
@@ -268,10 +271,12 @@
         }
         if (generation !== validationGeneration) return false;
         nativeRoot = root; loadedRevision = revision.revision;
+        validationFailureName = "";
         setValidationReason("READY");
         setTransientValidation(false); setEditable(true);
         return true;
       } catch (error) {
+        validationFailureName = String(error?.name || "Error");
         lastReason = validationFailureReason(error);
         if (lastReason !== "WORKSPACE_BUSY") break;
         if (generation !== validationGeneration) return false;
@@ -523,6 +528,16 @@
     originals.set(wrapped, handle);
     return wrapped;
   }
+  function suspendForTransient(error) {
+    if (!nativeRoot || !transientInterfaceState(error)) return false;
+    validationGeneration += 1;
+    validationFailureName = String(error?.name || "Error");
+    setTransientValidation(true);
+    setEditable(false);
+    loadedRevision = null;
+    setValidationReason("WORKSPACE_BUSY");
+    return true;
+  }
   const authority = {
     get canWrite() { return editable; },
     get mode() { return editable ? "EDITABLE" : ({
@@ -533,7 +548,9 @@
       VALIDATION_FAILED: "WORKSPACE VALIDATION FAILED"
     })[validationReason] || "WORKSPACE VALIDATION FAILED"; },
     get reason() { return validationReason; },
+    get failureName() { return validationFailureName; },
     get transientValidation() { return transientValidation; },
+    suspendForTransient,
     requireWrite,
     wrapDirectory,
     // A test build must opt in before loading this module. Normal builds cannot enable writes.
