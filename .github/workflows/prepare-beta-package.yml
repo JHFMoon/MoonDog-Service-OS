@@ -87,8 +87,26 @@ jobs:
           fi
           echo "current=true" >> "$GITHUB_OUTPUT"
 
-      - name: Build the Beta candidate with trusted code
+      - name: Check whether the candidate runtime needs a Beta package
+        id: parity
         if: steps.base.outputs.current == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=trusted python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.build_beta_package import current_beta_runtime_mismatches
+
+          mismatches = current_beta_runtime_mismatches(Path("candidate"))
+          needs_package = bool(mismatches)
+          print(json.dumps({"needsPackage": needs_package, "runtimeMismatches": mismatches}, sort_keys=True))
+          with open("$GITHUB_OUTPUT", "a", encoding="utf-8") as output:
+              output.write(f"needs_package={str(needs_package).lower()}\\n")
+          PY
+
+      - name: Build the Beta candidate with trusted code
+        if: steps.base.outputs.current == 'true' && steps.parity.outputs.needs_package == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -100,7 +118,7 @@ jobs:
 
       - name: Commit generated package locally
         id: commit
-        if: steps.base.outputs.current == 'true'
+        if: steps.base.outputs.current == 'true' && steps.parity.outputs.needs_package == 'true'
         shell: bash
         run: |
           set -euo pipefail
