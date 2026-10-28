@@ -6,6 +6,7 @@ from scripts.guarded_merge_policy import (
     owner_review_state,
     has_merge_authorization,
     has_standing_authorization,
+    has_accepted_pr_author,
 )
 
 POLICY = {
@@ -33,6 +34,43 @@ def summary(sha=HEAD, status="completed", findings=False, unresolved=False):
         "user": {"login": "chatgpt-codex-connector[bot]"},
         "body": "<!-- codex-review-state:v1 " + json.dumps(payload) + " -->",
     }
+
+
+class PackageBotAuthorTests(unittest.TestCase):
+    def test_trusted_same_repo_package_bot_is_accepted(self):
+        pr = {
+            "user": {"login": "github-actions[bot]"},
+            "author_association": "CONTRIBUTOR",
+            "head": {"repo": {"full_name": "JHFMoon/MoonDog-Service-OS"}},
+            "body": "MoonDog-Automation-Package: yes\\nMoonDog-Auto-Merge: yes",
+        }
+        self.assertTrue(has_accepted_pr_author(pr, "JHFMoon/MoonDog-Service-OS"))
+
+    def test_package_marker_alone_does_not_authorize_a_bot_or_fork(self):
+        base = {
+            "user": {"login": "github-actions[bot]"},
+            "author_association": "CONTRIBUTOR",
+            "head": {"repo": {"full_name": "JHFMoon/MoonDog-Service-OS"}},
+            "body": "MoonDog-Automation-Package: yes",
+        }
+        for change in (
+            {"user": {"login": "untrusted[bot]"}},
+            {"author_association": "NONE"},
+            {"head": {"repo": {"full_name": "attacker/MoonDog-Service-OS"}}},
+            {"body": "> MoonDog-Automation-Package: yes"},
+            {"body": "MoonDog-Automation-Package: yes please"},
+        ):
+            pr = {**base, **change}
+            self.assertFalse(has_accepted_pr_author(pr, "JHFMoon/MoonDog-Service-OS"))
+
+    def test_existing_human_collaborator_associations_remain_accepted(self):
+        for association in ("OWNER", "MEMBER", "COLLABORATOR"):
+            self.assertTrue(has_accepted_pr_author(
+                {"author_association": association}, "JHFMoon/MoonDog-Service-OS"
+            ))
+        self.assertFalse(has_accepted_pr_author(
+            {"author_association": "CONTRIBUTOR"}, "JHFMoon/MoonDog-Service-OS"
+        ))
 
 
 class StandingAuthorizationTests(unittest.TestCase):
