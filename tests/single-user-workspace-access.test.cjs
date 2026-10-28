@@ -114,22 +114,69 @@ test("bounded authority retries recover transient failures without an implicit p
   assert.equal(context.authorityRevalidationExhausted,false);
 });
 
-test("workspace validation retries stop on a durable transaction or restore hold",async()=>{
-  for(const hold of ["PENDING_TRANSACTION","INTERRUPTED_RESTORE"]){
-    const start=app.indexOf("  let authorityRevalidationTimer=null");
-    const end=app.indexOf("  ui.worksheetOrderSettings.addEventListener",start);
-    const timers=new Map();let next=1,calls=0,reason=hold;
-    const root={};const context={
-      connectedNativeRoot:root,authorityRevalidationExhausted:false,
-      writeAuthority:{canWrite:false,get reason(){return reason;},validate:async()=>{calls++;return false;}},
-      setTimeout:(fn,delay)=>{const id=next++;timers.set(id,fn);return id;},clearTimeout:id=>timers.delete(id),
+test("automatic validation never runs through a pending transaction or interrupted restore hold",()=>{
+  const start=app.indexOf("  let authorityRevalidationTimer=null");
+  const end=app.indexOf("  ui.worksheetOrderSettings.addEventListener",start);
+  for(const reason of ["PENDING_TRANSACTION","INTERRUPTED_RESTORE"]){
+    const timers=new Map();
+    const context={
+      connectedNativeRoot:{},authorityRevalidationExhausted:false,
+      writeAuthority:{canWrite:false,reason,validate:async()=>{throw Error("held states must not be automatically retried");}},
+      setTimeout:(fn,delay)=>{timers.set(1,{fn,delay});return 1;},clearTimeout:id=>timers.delete(id),
       window:{addEventListener(){}},document:{addEventListener(){},visibilityState:"visible"},
-      renderSetup(){},setConnectionState(){},status(){},console
+      setConnectionState(){},status(){},renderSetup(){},console
     };
-    vm.runInNewContext(app.slice(start,end)+"\nglobalThis.startRetry=scheduleAuthorityRevalidation;",context);
-    context.startRetry(root);
-    const [id,fn]=timers.entries().next().value;timers.delete(id);await fn();
-    assert.equal(calls,1,hold);
-    assert.equal(timers.size,0,hold);
+    vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.startRetry=scheduleAuthorityRevalidation;",context);
+    context.startRetry(context.connectedNativeRoot);
+    assert.equal(timers.size,0,reason);
   }
+});
+
+test("page focus immediately revalidates a restored permission without requesting it",async()=>{
+  const start=app.indexOf("  let authorityRevalidationTimer=null");
+  const end=app.indexOf("  ui.worksheetOrderSettings.addEventListener",start);
+  const timers=new Map(),listeners={window:{},document:{}},delays=[];
+  let next=1,reason="PERMISSION_REQUIRED",writable=false,calls=0;
+  const root={id:"persisted-handle"};
+  const context={
+    connectedNativeRoot:root,authorityRevalidationExhausted:false,
+    writeAuthority:{get canWrite(){return writable;},get reason(){return reason;},validate:async(_root,ask)=>{assert.equal(ask,false);calls++;writable=true;reason="READY";return true;}},
+    setTimeout:(fn,delay)=>{const id=next++;timers.set(id,fn);delays.push(delay);return id;},
+    clearTimeout:id=>timers.delete(id),
+    window:{addEventListener:(name,fn)=>listeners.window[name]=fn},
+    document:{addEventListener:(name,fn)=>listeners.document[name]=fn,visibilityState:"visible"},
+    renderSetup(){},setConnectionState(){},status(){},console
+  };
+  vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.startRetry=scheduleAuthorityRevalidation;",context);
+  context.startRetry(root);
+  listeners.window.focus();
+  assert.deepEqual(delays,[1200,0],"focus replaces the remaining backoff with an immediate query");
+  const [id,fn]=timers.entries().next().value;timers.delete(id);await fn();
+  assert.equal(calls,1);
+  assert.equal(timers.size,0);
+  assert.equal(writable,true);
+});
+
+test("refresh and browser restart reuse the saved handle and query permission without prompting",async()=>{
+  const start=app.indexOf("  async function restoreConnection() {");
+  const end=app.indexOf("  function headerMap(",start);
+  assert.ok(start>=0&&end>start,"extract production saved-handle restoration");
+  const handle={kind:"directory",name:"Synthetic Workspace",queryPermission:async()=>"granted"};
+  let used=null,ask=null,queries=0,requestCalls=0;
+  const context={
+    window:{showDirectoryPicker(){throw Error("restoring a saved handle must not open a picker");},indexedDB:{}},
+    indexedDB:{},model:{pendingRoot:null},ui:{homeConnect:{textContent:""}},
+    recallRoot:async()=>handle,
+    permission:async(received,request)=>{assert.equal(received,handle);queries++;if(request)requestCalls++;return "granted";},
+    finishConnection:async(received,request)=>{used=received;ask=request;},
+    setConnectionState(){},recordDiagnostic:async()=>{},stopFolderWatch(){},
+    writeAuthority:{disable(){}},transientWorkspaceState:()=>false,console
+  };
+  vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.restore=restoreConnection;",context);
+  await context.restore();
+  assert.equal(used,handle);
+  assert.equal(ask,false);
+  assert.equal(queries,1);
+  assert.equal(requestCalls,0);
+  assert.equal(context.model.pendingRoot,null);
 });
