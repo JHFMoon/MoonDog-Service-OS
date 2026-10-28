@@ -103,6 +103,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("ref: main", merge)
         self.assertIn("python3 scripts/guarded_merge_policy.py check-authorization", merge)
         self.assertEqual(merge.count("'authorization': has_merge_authorization("), 2)
+        self.assertEqual(merge.count("'association': has_accepted_pr_author(pr, os.environ['REPO'])"), 2)
         self.assertIn("has_accepted_pr_author(pr, os.environ['REPO'])", merge)
         self.assertEqual(merge.count("from scripts.guarded_merge_policy import has_accepted_pr_author, has_merge_authorization, load_policy"), 1)
         self.assertIn("from scripts.guarded_merge_policy import merge_review_state, load_policy", merge)

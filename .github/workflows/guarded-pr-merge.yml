@@ -302,7 +302,7 @@ jobs:
               'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
               'head': pr.get('head',{}).get('sha')==os.environ['HEAD_SHA'],
               'authorization': has_merge_authorization(pr.get('body'), policy),
-              'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
+              'association': has_accepted_pr_author(pr, os.environ['REPO']),
           }
           failed=[name for name,ok in checks.items() if not ok]
           if failed:
