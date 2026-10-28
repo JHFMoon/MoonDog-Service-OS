@@ -18,12 +18,16 @@
   const encoder = new TextEncoder();
   const sessionIdentities = new Map();
   let transientValidation = false;
+  let validationReason = "NO_WORKSPACE";
+  let validationGeneration = 0;
+  let validationInFlight = null;
   const transientValidationDelays = [0, 150, 400, 900, 1800];
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   function transientInterfaceState(error) { return ["AbortError","InvalidStateError","NotReadableError","UnknownError","TimeoutError"].includes(error?.name) || /state cached in an interface object|state had changed since it was read from disk|changed since it was read from disk/i.test(String(error?.message || "")); }
   const notify = () => global.dispatchEvent?.(new Event("moondog-write-authority"));
   function setEditable(value) { value = Boolean(value); if (editable === value) return; editable = value; notify(); }
   function setTransientValidation(value) { value = Boolean(value); if (transientValidation === value) return; transientValidation = value; notify(); }
+  function setValidationReason(value) { if (validationReason === value) return; validationReason = value; notify(); }
   async function localIdentity(markerDigest) {
     if (sessionIdentities.has(markerDigest)) return sessionIdentities.get(markerDigest);
     try {
@@ -178,28 +182,59 @@
       await removeRaw(root, journalPath.split("/"));
     }
   }
+  function validationFailureReason(error) {
+    const name = String(error?.name || "");
+    const message = String(error?.message || "");
+    if (["NotAllowedError", "SecurityError", "NoModificationAllowedError"].includes(name) ||
+        /permission (?:was not|is not) granted|request permission/i.test(message))
+      return "PERMISSION_REQUIRED";
+    if (/restore-in-progress|restore owns the durable hold|interrupted restore/i.test(message))
+      return "INTERRUPTED_RESTORE";
+    if (/journal|transaction|controlled recovery/i.test(message))
+      return "PENDING_TRANSACTION";
+    if (transientInterfaceState(error)) return "WORKSPACE_BUSY";
+    return "VALIDATION_FAILED";
+  }
   async function validate(root = nativeRoot, ask = false) {
-    // Temporary open-editing mode: any connected workspace with browser-granted
-    // read/write folder permission may edit. The former single-computer identity
-    // gate is intentionally disabled until a replacement coordination model exists.
     root = originals.get(root) || root;
-    if (!root) { setTransientValidation(false); setEditable(false); loadedRevision = null; return false; }
-    let lastTransient = false;
+    if (!root) {
+      validationGeneration += 1;
+      setTransientValidation(false); loadedRevision = null; setEditable(false);
+      setValidationReason("NO_WORKSPACE");
+      return false;
+    }
+    if (validationInFlight) {
+      const active = validationInFlight;
+      if (active.root === root && (!ask || active.ask)) return active.promise;
+      await active.promise.catch(() => false);
+      return validate(root, ask);
+    }
+    const generation = ++validationGeneration;
+    const task = validateWorkspace(root, ask, generation);
+    const entry = { root, ask, promise: null };
+    entry.promise = task.finally(() => { if (validationInFlight === entry) validationInFlight = null; });
+    validationInFlight = entry;
+    return entry.promise;
+  }
+  async function validateWorkspace(root, ask, generation) {
+    // Temporary interface errors are retried with bounded backoff. A failed
+    // attempt revokes editing immediately; a later verified retry may restore it.
+    let lastReason = "VALIDATION_FAILED";
     for (let attempt = 0; attempt < transientValidationDelays.length; attempt += 1) {
       if (transientValidationDelays[attempt]) await sleep(transientValidationDelays[attempt]);
       try {
         let permission = await root.queryPermission({ mode: "readwrite" });
-        if (permission !== "granted" && ask && attempt === 0) permission = await root.requestPermission({ mode: "readwrite" });
-        if (permission !== "granted") throw denied();
+        if (permission !== "granted" && ask && attempt === 0)
+          permission = await root.requestPermission({ mode: "readwrite" });
+        if (permission !== "granted") { lastReason = "PERMISSION_REQUIRED"; break; }
         // Check the durable restore hold before repairing any transaction
         // journals or initializing a missing revision. After a crash those
         // writes could modify a partial restore before the owner reviews it.
-        // Only the still-running initiating session may validate the hold.
-        const pendingRestore=await readBytes(root,["System Files","Workspace","data","restore-in-progress.json"]);
-        if(pendingRestore!==null){
+        const pendingRestore = await readBytes(root, ["System Files", "Workspace", "data", "restore-in-progress.json"]);
+        if (pendingRestore !== null) {
           let recorded;
-          try{recorded=JSON.parse(new TextDecoder().decode(pendingRestore));}catch(_){}
-          if(!localRestoreOwner || recorded?.restoreId!==localRestoreOwner)
+          try { recorded = JSON.parse(new TextDecoder().decode(pendingRestore)); } catch (_) {}
+          if (!localRestoreOwner || recorded?.restoreId !== localRestoreOwner)
             throw Error("Another restore owns the durable hold; controlled recovery is required.");
         }
         let revision = null;
@@ -231,13 +266,25 @@
             await write(root, REVISION, revision);
           }
         }
-        nativeRoot = root; loadedRevision = revision.revision; setTransientValidation(false); setEditable(true); return true;
+        if (generation !== validationGeneration) return false;
+        nativeRoot = root; loadedRevision = revision.revision;
+        setValidationReason("READY");
+        setTransientValidation(false); setEditable(true);
+        return true;
       } catch (error) {
-        lastTransient = transientInterfaceState(error);
-        if (!lastTransient) { setTransientValidation(false); break; }
+        lastReason = validationFailureReason(error);
+        if (lastReason !== "WORKSPACE_BUSY") break;
+        if (generation !== validationGeneration) return false;
+        // Never leave writes enabled while the filesystem reports a transient
+        // state. Preserve the handle, draft and every recovery journal.
+        setEditable(false); loadedRevision = null;
+        setValidationReason(lastReason); setTransientValidation(true);
       }
     }
-    setTransientValidation(lastTransient); setEditable(false); loadedRevision = null; return false;
+    if (generation !== validationGeneration) return false;
+    setTransientValidation(lastReason === "WORKSPACE_BUSY");
+    setEditable(false); loadedRevision = null; setValidationReason(lastReason);
+    return false;
   }
   async function provision(root) { return validate(root, true); }
   async function canProvision() { return false; }
@@ -478,7 +525,14 @@
   }
   const authority = {
     get canWrite() { return editable; },
-    get mode() { return editable ? "EDITABLE" : "FOLDER PERMISSION REQUIRED"; },
+    get mode() { return editable ? "EDITABLE" : ({
+      NO_WORKSPACE: "NO WORKSPACE", PERMISSION_REQUIRED: "FOLDER PERMISSION REQUIRED",
+      WORKSPACE_BUSY: "WORKSPACE TEMPORARILY UNAVAILABLE",
+      PENDING_TRANSACTION: "PENDING TRANSACTION RECOVERY REQUIRED",
+      INTERRUPTED_RESTORE: "INTERRUPTED RESTORE REVIEW REQUIRED",
+      VALIDATION_FAILED: "WORKSPACE VALIDATION FAILED"
+    })[validationReason] || "WORKSPACE VALIDATION FAILED"; },
+    get reason() { return validationReason; },
     get transientValidation() { return transientValidation; },
     requireWrite,
     wrapDirectory,
@@ -529,6 +583,7 @@
       loadedRevision = revision.revision;
       localRestoreOwner = restoreId;
       interruptedRecovery = true;
+      setValidationReason("INTERRUPTED_RESTORE");
       setTransientValidation(false);
       setEditable(false);
       return true;
@@ -558,6 +613,7 @@
       }
       localRestoreOwner = null;
       interruptedRecovery = false;
+      setValidationReason("READY");
       setTransientValidation(false);
       setEditable(true);
       return true;
@@ -566,13 +622,14 @@
       if (interruptedRecovery && localRestoreOwner === restoreId) {
         localRestoreOwner = null;
         interruptedRecovery = false;
+        setValidationReason("INTERRUPTED_RESTORE");
         setEditable(false);
         loadedRevision = null;
         nativeRoot = null;
       }
     },
     endRestore() { localRestoreOwner = null; },
-    disable() { localRestoreOwner = null; interruptedRecovery = false; setTransientValidation(false); setEditable(false); loadedRevision = null; nativeRoot = null; }
+    disable() { validationGeneration += 1; localRestoreOwner = null; interruptedRecovery = false; setTransientValidation(false); setEditable(false); loadedRevision = null; nativeRoot = null; setValidationReason("NO_WORKSPACE"); }
   };
   global.MoonDogWriteAuthority = Object.freeze(authority);
 })(globalThis);
