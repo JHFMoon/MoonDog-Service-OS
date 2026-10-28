@@ -340,7 +340,7 @@ test("explicit taught retry imports the approved aggregate from the selected she
   const standard=importContext.parseSupplementalWorkbook([],"synthetic-report.xlsx");
   assert.equal(selected.metrics.openAmount,999);
   assert.equal(standard.metrics.openAmount,10,"ordinary import retains built-in canonical-sheet precedence");
-  const retryAt=app.indexOf(`await processClassifiedCandidate(candidate,"supplemental-workbook"`),savedRuleAt=app.indexOf(",false,savedRule);",retryAt);
+  const retryAt=app.indexOf(`await processClassifiedCandidate(candidate,"supplemental-workbook"`),savedRuleAt=app.indexOf(",false,approvedRule);",retryAt);
   assert.ok(retryAt>=0&&savedRuleAt>retryAt,"explicit retry passes the approved layout into production intake");
   assert.match(app,/importSupplementalSource\(candidate,kind,bytes,deleteAfterSuccess,layoutOverride\)/);
   assert.match(app,/parseSupplementalWorkbook\(bytes,candidate\.name,layoutOverride\)/);
@@ -376,7 +376,7 @@ test("layout preview is local, uses production Trade AR validation, saves mappin
   assert.match(app,/saveLocalReportLayout/);
   assert.match(app,/updateLocalFuture\(future=>/);
   assert.match(app,/Retry this report/);
-  assert.match(app,/await sha256\(currentBytes\)!==previewProof/);
+  assert.match(app,/await sha256\(currentBytes\)!==approvedProof/);
   assert.match(app,/processClassifiedCandidate\(candidate,"supplemental-workbook"/);
   assert.match(app,/select\.addEventListener\("change",\(\)=>\{candidateRule=null;previewProof=null;savedRule=null;save\.disabled=true;retry\.disabled=true/);
   const validateAt=app.indexOf(`validate.addEventListener("click",()=>run(async()=>{`),resetAt=app.indexOf("candidateRule=null;previewProof=null;savedRule=null;save.disabled=true;retry.disabled=true;",validateAt),candidateAt=app.indexOf("const nextRule=engine.safeReportLayout",resetAt);
