@@ -10,6 +10,8 @@ on:
     types: [created]
   pull_request_review:
     types: [submitted]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -146,7 +148,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
           permission-checks: read
-          permission-contents: read
+          permission-contents: write
           permission-issues: write
           permission-pull-requests: write
 
@@ -378,3 +380,120 @@ jobs:
           test "$(jq -r '.merged_at != null' /tmp/merged-pr.json)" = "true"
           test "$(jq -r '.merge_commit_sha' /tmp/merged-pr.json)" = "$MERGED_SHA"
           echo "Protected merge verified at $MERGED_SHA. App-authenticated merge will trigger main push verification."
+
+  advance-beta-queue:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: beta-release-queue-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      REPO: ${{ github.repository }}
+      PACKAGE_BOT_LOGIN: ${{ vars.MOONDOG_RELEASE_APP_LOGIN }}
+    steps:
+      - name: Check out trusted queue policy from main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Create scoped MoonDog release App token
+        id: release-app
+        uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42
+        with:
+          app-id: ${{ secrets.MOONDOG_RELEASE_APP_ID }}
+          private-key: ${{ secrets.MOONDOG_RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Additively advance the next authorized runtime PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.release-app.outputs.token }}
+          APP_SLUG: ${{ steps.release-app.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          test "$PACKAGE_BOT_LOGIN" = "$APP_SLUG[bot]"
+          gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]' | jq -s '.' > /tmp/open-prs.json
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from scripts.beta_release_queue import select_next_runtime_pr
+          from scripts.guarded_merge_policy import load_policy
+
+          prs = json.load(open("/tmp/open-prs.json", encoding="utf-8"))
+          paths_by_pr = {}
+          for pr in prs:
+              if pr.get("state") != "open" or pr.get("draft") is not False:
+                  continue
+              number = pr.get("number")
+              if not isinstance(number, int):
+                  continue
+              result = subprocess.run(
+                  ["gh", "api", "--paginate",
+                   f"repos/{os.environ['REPO']}/pulls/{number}/files?per_page=100",
+                   "--jq", ".[].filename, (.previous_filename // empty)"],
+                  check=True, capture_output=True, text=True,
+              )
+              paths_by_pr[number] = [line for line in result.stdout.splitlines() if line]
+
+          candidate = select_next_runtime_pr(
+              prs,
+              paths_by_pr,
+              repository=os.environ["REPO"],
+              package_bot_login=os.environ.get("PACKAGE_BOT_LOGIN"),
+              policy=load_policy(".github/guarded-merge-policy.json"),
+          )
+          if candidate is None:
+              print("No authorized runtime PR is queued for Beta packaging.")
+              raise SystemExit(0)
+
+          number = candidate["number"]
+          expected_head = candidate["head"]["sha"]
+          main = subprocess.check_output(
+              ["gh", "api", f"repos/{os.environ['REPO']}/branches/main", "--jq", ".commit.sha"],
+              text=True,
+          ).strip()
+          compare = json.loads(subprocess.check_output(
+              ["gh", "api", f"repos/{os.environ['REPO']}/compare/{main}...{expected_head}"],
+              text=True,
+          ))
+          if compare.get("status") == "ahead" and compare.get("merge_base_commit", {}).get("sha") == main:
+              body = candidate.get("body") or ""
+              marker = f"<!-- moondog-beta-queue:{main} -->"
+              if marker not in body:
+                  import re
+                  body = re.sub(r"(?m)^<!-- moondog-beta-queue:[^>]+ -->\\s*\\n?", "", body).rstrip()
+                  body = (body + "\\n\\n" if body else "") + marker
+                  subprocess.run(
+                      ["gh", "api", "-X", "PATCH", f"repos/{os.environ['REPO']}/pulls/{number}",
+                       "-f", f"body={body}"],
+                      check=True, stdout=subprocess.DEVNULL,
+                  )
+                  print(f"PR #{number} already includes current main; a hidden queue marker triggers its event-driven packaging check.")
+              else:
+                  print(f"PR #{number} already includes current main and has been queued for this main SHA.")
+              raise SystemExit(0)
+          if compare.get("status") not in {"behind", "diverged"}:
+              raise SystemExit(f"Queue refused PR #{number}: unexpected compare state {compare.get('status')!r}.")
+          subprocess.run(
+              ["gh", "api", "-X", "PUT", f"repos/{os.environ['REPO']}/pulls/{number}/update-branch",
+               "-f", f"expected_head_sha={expected_head}"],
+              check=True,
+              stdout=subprocess.DEVNULL,
+          )
+          refreshed = json.loads(subprocess.check_output(
+              ["gh", "api", f"repos/{os.environ['REPO']}/pulls/{number}"],
+              text=True,
+          ))
+          if refreshed.get("head", {}).get("sha") == expected_head:
+              raise SystemExit(f"Queue refused PR #{number}: GitHub did not advance its head.")
+          print(f"Additively advanced PR #{number}; the synchronize event resumes trusted Beta packaging.")
+          PY
