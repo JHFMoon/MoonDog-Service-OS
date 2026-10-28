@@ -10,7 +10,7 @@ class BetaPackagingBytecodeTests(unittest.TestCase):
         env_block=workflow.split("\nenv:\n",1)[1].split("\nconcurrency:",1)[0]
         self.assertIn("PYTHONDONTWRITEBYTECODE: '1'",env_block)
         self.assertIn("git status --porcelain",workflow)
-        self.assertIn("Refuse automatic changes to trusted proof/automation files",workflow)
+        self.assertIn("Verify explicit authorization and protected path boundaries",workflow)
         self.assertIn("check-paths",workflow)
 
 if __name__=="__main__":
