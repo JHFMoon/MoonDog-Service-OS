@@ -1,4 +1,4 @@
-# Shared report-source learning — retired
+# Shared report-source sharing — retired
 
 This proposed cross-store sharing feature was explicitly retired and is not part of MoonDog Service OS.
 
@@ -6,7 +6,8 @@ This proposed cross-store sharing feature was explicitly retired and is not part
 - No cross-store upload, submission, network endpoint, or opt-in settings API is provided.
 - MoonDog may check GitHub for application updates and download verified application packages. No Workspace files, customer records, locally entered report-source locations, or correction history are transmitted by this process.
 - The private **Get it from** descriptions remain local to each Workspace and help staff retrieve source reports. They are not shared.
-- Files To Learn remains a separate, local ingestion/triage workflow. It is not a correction-learning database, not a cross-store sharing channel, and must not upload local Workspace content.
-- Report adapters and interpreter behavior change only through reviewed source updates and instructions, not by silently accumulating a local correction database.
+- Files To Learn remains a separate, local ingestion/triage workflow and is never a cross-store sharing channel. It must not upload local Workspace content.
+- Separate, explicitly approved declarative layout mappings for supported report families may be saved locally in the connected Workspace. These mappings contain field/header and worksheet structure only; they do not retain report rows, add executable rules, or change business meaning. Unknown business semantics still require a reviewed source adapter.
+- The local layout store is not a correction-learning database. No local mapping or correction history is uploaded or shared.
 
 Any future external sharing capability would require a new explicit user decision and separate security review. This retired design must not be re-enabled through an existing settings flag.
