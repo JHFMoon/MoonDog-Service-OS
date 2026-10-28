@@ -6475,6 +6475,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       renderSetup();
       if(ok){
         clearAuthorityRevalidation();
+        // Read-only startup stops Report Inbox polling; resume it after durable write access is revalidated.
+        startFolderWatch();
         setConnectionState("CONNECTED");
         status("Workspace verification succeeded. Editing is restored; saved files and drafts were retained.","success");
         return;
