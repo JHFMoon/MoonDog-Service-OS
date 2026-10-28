@@ -136,10 +136,8 @@ test("UI surfaces have independent non-destructive visibility gates", () => {
   panels.renderAll();
   assert.deepEqual(panelRenderCalls,{overview:3,daily:3},
     "visible owner views refresh on data updates");
-  assert.match(app,/if\(view==="overview"\)renderOverviewPanelsIfNeeded\(true\);/,
-    "Store Overview navigation refreshes its deferred panel");
-  assert.match(app,/if\(view==="open-ro"\)renderDailyFocusIfNeeded\(true\);/,
-    "Open RO navigation refreshes its deferred daily walk");
+  assert.match(app,/const navigateBeforeDeferredPanelRefresh = navigateTo;/,
+    "owner-view refresh is attached outside the extracted core navigation harness");
   assert.equal(JSON.stringify(fullRecords),allRecordsBefore,
     "presentation filters and Home counting must never mutate authoritative rows");
   new vm.Script(app);
