@@ -271,6 +271,30 @@ test("learned worksheet percent formats are checked on that worksheet when a nam
   assert.throws(()=>arHarness([],"101",{},[rule],mixed).parse(),/percentage-formatted/);
 });
 
+test("explicit layout preview validates the selected sheet even when a valid canonical Trade AR sheet is also present",()=>{
+  const begin=app.indexOf("/* MoonDog Paste & Learn — inert"),end=app.indexOf("})(globalThis);",begin);
+  const engineContext={};vm.runInNewContext(app.slice(begin,end+14),engineContext);
+  const mappings={store:"Location",customer:"Client Id",invoice:"Document Ref",invoiceDate:"Bill Date",
+    days:"Age Days",status:"Follow-up Attempt",invoiceAmount:"Billed USD",received:"Paid USD",open:"Balance USD"};
+  const rule=engineContext.MoonDogPasteLearn.safeReportLayout({family:"trade-ar-errors",
+    sheetName:"Receivables Detail",headerRow:2,columns:mappings},[]);
+  const fieldOrder=["invoice","store","days","customer","open","status","invoiceDate","received","invoiceAmount"];
+  const fields={store:"AN Store#",customer:"Customer #",invoice:"Invoice #",invoiceDate:"Invoice Date",
+    days:"Actual Days Open",status:"Status",invoiceAmount:"Invoice Amount (USD)",
+    received:"Amount Received (USD)",open:"Open Amount (USD)"};
+  const raw=arRow({invoice:"FAKE-BUILTIN",invoiceDate:"invalid synthetic date"});
+  const mapped=fieldOrder.map(field=>{
+    const builtInField=Object.keys(fields).find(key=>key===field);
+    return raw[arHeaders.indexOf(fields[builtInField])];
+  });
+  const mixed={SheetNames:["Trade AR Error Report","Receivables Detail"],Sheets:{
+    "Trade AR Error Report":{rows:[arHeaders,arRow({invoice:"FAKE-CANONICAL"})]},
+    "Receivables Detail":{rows:[["Report"],[],fieldOrder.map(field=>mappings[field]),mapped],"!ref":"A1:I4"}
+  }};
+  assert.throws(()=>arHarness([],"101",{},[rule],mixed).parse(rule),
+    /Trade AR aging, date, or money is unreadable/);
+});
+
 test("successful taught retry clears only the matching local failure record after verified persistence",async()=>{
   const helper=section("  async function resolveLearnedFailureRecords(","  async function scanFailedLearnedSources(");
   let durable=null,failWrite=false;
