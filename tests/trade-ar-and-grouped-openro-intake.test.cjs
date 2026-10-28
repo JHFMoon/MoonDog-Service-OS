@@ -370,6 +370,33 @@ test("successful taught retry clears only the matching local failure record afte
   assert.equal(JSON.stringify(context.model.autoImport),before,"failed read/write metadata proof rolls back approval state");
 });
 
+test("layout validation locks controls and rejects a preview after its selection changes",async()=>{
+  const helper=section("  async function validatePreviewBoundLayout(","  async function persistPreviewBoundLayout(");
+  let selection={sheetName:"Sheet A",headerRow:2,columns:{open:"Open A"}},release;
+  const gate=new Promise(resolve=>{release=resolve;}),busy=[],published=[];
+  const context={Error,JSON};
+  vm.runInNewContext(helper,context);
+  const pending=context.validatePreviewBoundLayout({
+    readSelection:()=>selection,
+    validate:async captured=>{assert.equal(captured.sheetName,"Sheet A");await gate;return{sheet:"Sheet A"};},
+    publish:value=>published.push(value),setBusy:value=>busy.push(value)
+  });
+  assert.deepEqual(busy,[true],"mapping controls lock before file preparation yields");
+  selection={sheetName:"Sheet B",headerRow:2,columns:{open:"Open B"}};
+  release();
+  await assert.rejects(pending,error=>/selection changed while preview was running/i.test(String(error)));
+  assert.deepEqual(published,[],"obsolete preview cannot restore Save or Retry approval");
+  assert.deepEqual(busy,[true,false],"controls unlock after stale preview is rejected");
+  let publishedBeforeUnlock=false;
+  await context.validatePreviewBoundLayout({
+    readSelection:()=>selection,validate:async()=>({sheet:"Sheet B"}),
+    publish:value=>published.push(value),
+    setBusy:value=>{if(!value)publishedBeforeUnlock=published.length===1;}
+  });
+  assert.equal(published[0].sheet,"Sheet B");
+  assert.equal(publishedBeforeUnlock,true,"valid preview is published before controls unlock");
+});
+
 test("a layout save cannot authorize a different preview selected while persistence is pending",async()=>{
   const helper=section("  async function persistPreviewBoundLayout(","  async function openTradeArLayoutTeaching(");
   const first={rule:{id:"layout-A"},proof:"synthetic-proof-A",size:100,modified:10};
@@ -404,6 +431,9 @@ test("layout preview is local, uses production Trade AR validation, saves mappin
   assert.match(app,/Preview and validate/);
   assert.match(app,/saveLocalReportLayout/);
   assert.match(app,/persistPreviewBoundLayout\(\{/);
+  assert.match(app,/await validatePreviewBoundLayout\(\{/);
+  assert.match(app,/readSelection,setBusy:setTeachingBusy/);
+  assert.match(app,/publish:validated=>\{/);
   assert.match(app,/const teachingControls=\(\)=>\[sheetSelect,headerSelect/);
   assert.match(app,/dialog\.addEventListener\("cancel",event=>\{if\(teachingBusy\)event\.preventDefault\(\);\}/);
   assert.match(app,/updateLocalFuture\(future=>/);
