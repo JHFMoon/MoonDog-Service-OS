@@ -5995,24 +5995,39 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         retry.disabled=false;save.disabled=true;
       }));
       retry.addEventListener("click",()=>run(async()=>{
-        if(!savedRule||!previewProof)throw new Error("Save a validated layout before retrying.");
+        const approvedRule=savedRule,approvedProof=previewProof,approvedSize=previewSize,approvedModified=previewModified;
+        if(!approvedRule||!approvedProof)throw new Error("Save a validated layout before retrying.");
         if(dailyImportBusy||folderWatch.busy)throw new Error("Another report scan or import is active. Retry when it finishes.");
-        const current=await source.handle.getFile(),currentBytes=new Uint8Array(await current.arrayBuffer());
-        if(current.size!==previewSize||current.lastModified!==previewModified||await sha256(currentBytes)!==previewProof)
-          throw new Error("The source changed after preview. It remains in Files To Learn; preview it again.");
-        const retryBook=await prepareXlsxWorkbook(currentBytes,{type:"array",raw:true,cellDates:true,cellNF:true,cellFormula:true});
-        assertTradeArLayoutSource(retryBook,source.name);
-        const relativePath=`Files To Learn/${source.name}`;
-        const candidate={name:source.name,location:"learn",relativePath,handle:source.handle,file:current,
-          signature:`${relativePath}|${current.size}|${current.lastModified}`};
-        sourceLocations.set(source.name,"learn");dailyImportBusy=true;
+        const controls=[sheetSelect,headerSelect,...fieldsHost.querySelectorAll("select[data-field]"),validate,save,retry,cancel];
+        controls.forEach(control=>control.disabled=true);dailyImportBusy=true;
         try{
-          await processClassifiedCandidate(candidate,"supplemental-workbook",currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),false,savedRule);
+          const current=await source.handle.getFile(),currentBytes=new Uint8Array(await current.arrayBuffer());
+          if(savedRule!==approvedRule||previewProof!==approvedProof)
+            throw new Error("The approved layout changed while retry preparation was running. Preview again before importing.");
+          if(current.size!==approvedSize||current.lastModified!==approvedModified||await sha256(currentBytes)!==approvedProof)
+            throw new Error("The source changed after preview. It remains in Files To Learn; preview it again.");
+          const retryBook=await prepareXlsxWorkbook(currentBytes,{type:"array",raw:true,cellDates:true,cellNF:true,cellFormula:true});
+          if(savedRule!==approvedRule||previewProof!==approvedProof)
+            throw new Error("The approved layout changed while retry preparation was running. Preview again before importing.");
+          assertTradeArLayoutSource(retryBook,source.name);
+          const relativePath=`Files To Learn/${source.name}`;
+          const candidate={name:source.name,location:"learn",relativePath,handle:source.handle,file:current,
+            signature:`${relativePath}|${current.size}|${current.lastModified}`};
+          sourceLocations.set(source.name,"learn");
+          await processClassifiedCandidate(candidate,"supplemental-workbook",currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),false,approvedRule);
           await resolveLearnedFailureRecords(source.name,candidate.signature,"supplemental-workbook");
           await removeSourceEntryWithByteGuard(source.name,currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteLength));
           dialog.close();await refreshFailedLearnedReportNotice();await scanFilesToTeachReportLayouts();
           status("Trade AR report saved and verified; source cleanup followed the successful read-back policy.","success");
-        }finally{dailyImportBusy=false;}
+        }finally{
+          dailyImportBusy=false;
+          if(dialog.open){
+            sheetSelect.disabled=false;headerSelect.disabled=false;
+            for(const control of fieldsHost.querySelectorAll("select[data-field]"))control.disabled=false;
+            validate.disabled=false;save.disabled=!candidateRule||!previewProof||Boolean(savedRule);
+            retry.disabled=!savedRule||!previewProof;cancel.disabled=false;
+          }
+        }
       }));
       document.body.append(dialog);dialog.showModal();
     }catch(error){dialog.remove();throw error;}
