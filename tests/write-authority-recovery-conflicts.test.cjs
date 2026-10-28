@@ -472,7 +472,7 @@ test("production transient suspension revokes writes immediately and retains the
     globalThis.state=()=>({nativeRoot,validationGeneration,validationFailureName,loadedRevision,validationReason,transientValidation,editable});
   `,context);
   assert.equal(context.suspend(Object.assign(Error("OneDrive sync lock"),{name:"NotReadableError"})),true);
-  assert.deepEqual(context.state(),{
+  assert.deepEqual({...context.state()},{
     nativeRoot:root,validationGeneration:5,validationFailureName:"NotReadableError",loadedRevision:null,
     validationReason:"WORKSPACE_BUSY",transientValidation:true,editable:false
   });
