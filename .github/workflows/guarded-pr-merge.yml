@@ -467,7 +467,7 @@ jobs:
           ))
           if compare.get("status") == "ahead" and compare.get("merge_base_commit", {}).get("sha") == main:
               body = candidate.get("body") or ""
-              marker = f"<!-- moondog-beta-queue:{main} -->"
+              marker = f"<!-- moondog-beta-queue:{main}:{os.environ['GITHUB_RUN_ID']} -->"
               if marker not in body:
                   import re
                   body = re.sub(r"(?m)^<!-- moondog-beta-queue:[^>]+ -->\s*\n?", "", body).rstrip()

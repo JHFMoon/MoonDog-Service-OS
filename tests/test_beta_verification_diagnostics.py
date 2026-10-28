@@ -62,6 +62,7 @@ class BetaVerificationDiagnosticsTests(unittest.TestCase):
         self.assertIn("select_next_runtime_pr", workflow)
         self.assertIn("types: [opened, reopened, synchronize, ready_for_review, edited, closed]", workflow)
         self.assertIn("github.event.pull_request.merged == false", workflow)
+        self.assertIn("GITHUB_RUN_ID", workflow)
         self.assertIn("the exact PR runtime is not present", workflow)
         self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"', workflow)
 
