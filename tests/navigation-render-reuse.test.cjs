@@ -12,12 +12,12 @@ const navigation=src.slice(begin,end);
 
 function harness(){
   let businessDate="2026-10-12",businessHour=10;
-  const pendingFrames=[],pendingTimers=[],draw={meeting:0,performance:0},calls={paint:0,activate:0,shell:0,openRo:0,arrivals:0};
+  const pendingFrames=[],pendingTimers=[],draw={meeting:0,performance:0},calls={paint:0,activate:0,shell:0,openRo:0,arrivals:0,overviewPanels:0,dailyFocusPanels:0};
   const makeClassList=()=>{const values=new Set();return{
     add:name=>values.add(name),remove:name=>values.delete(name),
     contains:name=>values.has(name),toggle:(name,on)=>on?values.add(name):values.delete(name)
   };};
-  const names=["home","tools","performance","meeting","open-ro","arrivals","assign-next"];
+  const names=["home","overview","tools","performance","meeting","open-ro","arrivals","assign-next"];
   const buttons=Object.fromEntries(names.map(name=>[name,{textContent:name,
     classList:makeClassList(),setAttribute(){},removeAttribute(){}}]));
   const views=Object.fromEntries(names.map(name=>[name,{classList:makeClassList()}]));
@@ -31,7 +31,7 @@ function harness(){
     },
     renderMeeting:()=>{draw.meeting++;},
     renderPerformance:()=>{draw.performance++;},
-    renderTable:()=>{calls.openRo++;},renderArrivals:()=>{calls.arrivals++;},renderAssignNext:()=>{},
+    renderTable:()=>{calls.openRo++;},renderArrivals:()=>{calls.arrivals++;},renderAssignNext:()=>{},\n    renderOverviewPanelsIfNeeded:active=>{if(active)calls.overviewPanels++;},\n    renderDailyFocusIfNeeded:active=>{if(active)calls.dailyFocusPanels++;},
     localDateKey:()=>businessDate,
     freshness:{timeParts:()=>({hour:businessHour})},businessTimeZone:()=>"America/Los_Angeles",
     ensureMeetingV3Shell:()=>{calls.shell++;},
@@ -54,7 +54,19 @@ function harness(){
   return {context,draw,calls,flush,views,setBusinessDate:day=>{businessDate=day;},setBusinessHour:hour=>{businessHour=hour;}};
 }
 
-test("repeated navigation reuses Meeting and Performance DOM on unchanged data",()=>{
+
+test("owner-view activation invokes the corresponding deferred panel refresh",()=>{
+  const {context,calls,flush,views}=harness();
+  context.navigateTo("overview");flush();
+  assert.equal(calls.overviewPanels,1,"Store Overview activation refreshes its panels");
+  assert.equal(calls.dailyFocusPanels,0,"Store Overview does not refresh Open RO Daily Focus");
+  context.navigateTo("open-ro");flush();
+  assert.equal(calls.overviewPanels,1,"Open RO does not refresh Store Overview");
+  assert.equal(calls.dailyFocusPanels,1,"Open RO activation refreshes its Daily Focus panel");
+  assert.equal(views.overview.classList.contains("active"),false);
+  assert.equal(views["open-ro"].classList.contains("active"),true);
+});
+\ntest("repeated navigation reuses Meeting and Performance DOM on unchanged data",()=>{
   const {context,draw,calls,flush,views}=harness();
   context.navigateTo("meeting");flush();
   context.navigateTo("performance");flush();
