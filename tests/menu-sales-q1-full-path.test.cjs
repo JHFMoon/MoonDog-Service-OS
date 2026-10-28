@@ -44,9 +44,9 @@ function fixture(opts={}){
   ];
   const reportName=opts.reportSheetName||"HyperBi Report",
     layoutOrder=opts.layoutOrder||Object.keys(canonicalIndexes),
-    reportHeaders=opts.layoutHeaders||headers,
+    reportHeaders=opts.includePrepaid?[...(opts.layoutHeaders||headers),"# Prepaid"]:(opts.layoutHeaders||headers),
     preamble=opts.preambleRows||[],
-    dataRows=opts.layoutHeaders?reportRows.map(sourceRow=>layoutOrder.map(field=>sourceRow[canonicalIndexes[field]])):reportRows,
+    dataRows=opts.layoutHeaders?reportRows.map(sourceRow=>[...layoutOrder.map(field=>sourceRow[canonicalIndexes[field]]),...(opts.includePrepaid?[sourceRow[12]]:[])]):reportRows,
     reportGrid=[...preamble,reportHeaders,...dataRows],
     sheetNames=[reportName,...(opts.copyOf?[opts.copyOf]:[]),"Parameters"],
     sheets={[reportName]:{rows:reportGrid,Q1:{v:"MALAC"}},Parameters:{rows:opts.params||originalParams}};
@@ -155,6 +155,20 @@ test("multiple matching local Menu Sales rules fail closed without selecting a w
   assert.throws(()=>f.parse(),/more than one local Menu Sales layout matches/);
   assert.equal(first.writeEnabled,false);assert.equal(second.writeEnabled,false);
 });
+
+test("taught Menu Sales layouts preserve the optional prepaid metric",()=>{
+  const expected=fixture().parse(),
+    layoutOrder=["advisor","menu","account","advisorCode","presented","ros","sold","hours","total","penetration","perMenu"],
+    labels={advisor:"Advisor Display",menu:"Menu Revenue",account:"Dealer Account",advisorCode:"Advisor #",
+      presented:"Presentation Rate",ros:"Repair Order Count",sold:"Menu Sold",hours:"Hours Per Menu",
+      total:"Total Revenue",penetration:"Penetration Rate",perMenu:"Revenue Per Menu"},
+    f=fixture({reportSheetName:"Menu Results",layoutOrder,layoutHeaders:layoutOrder.map(field=>labels[field]),includePrepaid:true}),
+    learned=f.parse(f.addLayout({sheetName:"Menu Results",headerRow:0,columns:labels}));
+  assert.equal(learned.store.prepaid,expected.store.prepaid);
+  assert.equal(learned.advisors["9001"].prepaid,expected.advisors["9001"].prepaid);
+  assert.equal(learned.advisors["9002"].prepaid,expected.advisors["9002"].prepaid);
+});
+
 test("full classifier must route a valid 17-column report to the real Menu Sales parser",async()=>{
   const f=fixture();
   assert.equal(await f.classify(),"menu-sales");

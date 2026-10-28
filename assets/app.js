@@ -1850,8 +1850,11 @@
       "% presented":"presented","sold":"sold","% penetration":"penetration","menu $":"menu",
       "total $":"total","$/menu":"perMenu","hrs/menu":"hours"};
     const column=name=>learnedLayout?learnedLayout.columns[learnedFieldByHeader[name]]:headers.indexOf(name),
+      prepaidIndexes=headers.map((value,index)=>value==="# prepaid"?index:-1).filter(index=>index>=0),
+      prepaidColumn=prepaidIndexes.length===1?prepaidIndexes[0]:-1,
       groups=new Map(),summaries=new Map(),
       configuredCodes=new Set(configuredAdvisors().map(advisor=>String(advisor.number)).filter(validAdvisorIdentity));
+    if(prepaidIndexes.length>1)throw new Error("Menu Sales contains duplicate optional prepaid columns.");
     for(let rowIndex=headerRow+1;rowIndex<rows.length;rowIndex++){
       const row=rows[rowIndex];
       const account=text(row[column("account")]).trim();
@@ -1905,7 +1908,7 @@
         totalDollars:csvNumber(row[column("total $")]),
         dollarsPerMenu:csvNumber(row[column("$/menu")]),
         hoursPerMenu:csvNumber(row[column("hrs/menu")]),
-        prepaid:headers.includes("# prepaid")?csvNumber(row[column("# prepaid")]):null});
+        prepaid:prepaidColumn>=0?csvNumber(row[prepaidColumn]):null});
     const store=metricRow(storeRow);
     if(![store.roCount,store.presentation,store.sold,store.penetration].every(Number.isFinite))
       throw new Error("The selected Menu Sales store summary has incomplete core values.");
