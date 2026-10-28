@@ -4592,6 +4592,17 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ["MEDIA EXECUTION", "Technician Media ASR", media ? `${performanceFormat(media.store.mediaCreatedRate, "percent")} created` : "Awaiting source", media ? `${performanceFormat(media.store.mediaViewedRate, "percent")} viewed · ${media.technicians.length} technicians` : "Media ASR required"],
     ["OPEN WORK", "Aggregate WIP", wip ? `${performanceFormat(wip.store.total.open, "count")} open · ${performanceFormat(wip.store.total.revenue, "money")}` : "Awaiting source", wip ? `${wip.date} aggregate report · detailed tracker remains ${model.state.records.length}` : "Aggregate Open RO required"]
   ]; ui.managerSourceGrid.replaceChildren(); cards.forEach(([eyebrow, title, value, note]) => { const card = document.createElement("article"); card.className = "manager-source-card card"; card.innerHTML = `<span>${eyebrow}</span><h3>${title}</h3><strong>${value}</strong><small>${note}</small>`; ui.managerSourceGrid.append(card); }); }
+  let homePanelsDirty = true, homePanelsRenderedDate = "";
+  function renderHomePanelsIfNeeded(active, force = false) {
+    if (!active) { homePanelsDirty = true; return false; }
+    const today = localDateKey();
+    if (!force && !homePanelsDirty && homePanelsRenderedDate === today) return false;
+    renderOverviewIntelligence();
+    renderDailyFocus();
+    homePanelsDirty = false;
+    homePanelsRenderedDate = today;
+    return true;
+  }
   function renderAll() {
     const records = model.state.records || [];
     const today = localDateKey(), workbookState = model.recovery.supervisorWorkbook;
@@ -4607,7 +4618,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.metricOpen.textContent = activeCount;
     ui.metricDue.textContent = dueCount;
     ui.metricMissing.textContent = missingCount;
-    ui.metricUpdated.textContent = model.state.updatedAt ? new Date(model.state.updatedAt).toLocaleString() : "—"; ui.lastImport.textContent = model.state.source ? `${model.state.source.fileName} · ${new Date(model.state.source.importedAt).toLocaleString()}` : "—"; ui.lastExport.textContent = workbookState?.stale ? "OUT OF DATE · Generate before importing changes" : workbookState?.generatedAt ? new Date(workbookState.generatedAt).toLocaleString() : "—"; ui.exportButton.disabled = !model.root || !records.length; renderOverviewIntelligence(); renderDailyFocus(); renderFilters(); if(ui["view-open-ro"]?.classList.contains("active"))renderTable(); if(ui["view-arrivals"]?.classList.contains("active")) renderArrivals(); if(ui["view-performance"]?.classList.contains("active")) renderPerformance(); if(ui["view-meeting"]?.classList.contains("active")) renderMeeting(); if(ui["view-assign-next"]?.classList.contains("active")) renderAssignNext(); renderSetup(); }
+    ui.metricUpdated.textContent = model.state.updatedAt ? new Date(model.state.updatedAt).toLocaleString() : "—"; ui.lastImport.textContent = model.state.source ? `${model.state.source.fileName} · ${new Date(model.state.source.importedAt).toLocaleString()}` : "—"; ui.lastExport.textContent = workbookState?.stale ? "OUT OF DATE · Generate before importing changes" : workbookState?.generatedAt ? new Date(workbookState.generatedAt).toLocaleString() : "—"; ui.exportButton.disabled = !model.root || !records.length; renderHomePanelsIfNeeded(!ui["view-home"] || ui["view-home"].classList.contains("active"), true); renderFilters(); if(ui["view-open-ro"]?.classList.contains("active"))renderTable(); if(ui["view-arrivals"]?.classList.contains("active")) renderArrivals(); if(ui["view-performance"]?.classList.contains("active")) renderPerformance(); if(ui["view-meeting"]?.classList.contains("active")) renderMeeting(); if(ui["view-assign-next"]?.classList.contains("active")) renderAssignNext(); renderSetup(); }
   const renderAllWithCanonicalSourceLabels=renderAll;
   renderAll=function(){renderAllWithCanonicalSourceLabels();const openRo=sourceFreshness("openRo"),workbook=sourceFreshness("supervisorWorkbook");if(model.state.source)ui.lastImport.textContent=`${model.state.source.fileName} · ${new Date(model.state.source.importedAt).toLocaleString()} · ${sourceStatusLabel(openRo)}`;if(model.recovery.supervisorWorkbook?.generatedAt)ui.lastExport.textContent=`${new Date(model.recovery.supervisorWorkbook.generatedAt).toLocaleString()} · ${sourceStatusLabel(workbook)}`;};
   const renderAllWithConfiguredLabels=renderAll;renderAll=function(){renderAllWithConfiguredLabels();const filename=model.settings.supervisorWorkbook?.filename||model.settings.exportName||DEFAULTS.supervisorWorkbook.filename,description=ui["view-imports"]?.querySelector(".two-col .card:nth-child(2) p:not(.step)"),path=ui["view-imports"]?.querySelector(".file-map code:last-of-type");if(description)description.textContent=`Generate ${filename} from durable Open RO state.`;if(path)path.textContent=`exports/${filename}`;};
@@ -5193,6 +5204,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     button.classList.add("active");button.setAttribute("aria-current","page");
     (ui[`view-${view}`]||document.getElementById(`view-${view}`))?.classList.add("active");
     ui.pageTitle.textContent=button.textContent;
+    if(view==="home")renderHomePanelsIfNeeded(true);
     const ticket=++meetingNavigationTicket;
     if(view==="open-ro"&&(openRoRenderedRevision!==navigationDataRevision||openRoRenderedDate!==localDateKey())){
       // An unchanged RO table stays mounted. When stale, let the tab paint
