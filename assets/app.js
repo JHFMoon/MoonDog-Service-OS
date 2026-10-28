@@ -2521,10 +2521,15 @@
     // Multi-store accounts receivable is never an Open RO, SAPR, or sales KPI.
     // Retain only a compact aggregate for the locally configured AN store.
     const book=XLSX.read(bytes,{type:"array",raw:true,cellDates:true,cellNF:true});
-    const learnedLayout=matchingTradeArReportLayout(book,layoutOverride);
-    const sheet=book.Sheets["Trade AR Error Report"]||learnedLayout?.sheet;
+    const builtInSheet=book.Sheets["Trade AR Error Report"]||null;
+    const builtInRows=builtInSheet?XLSX.utils.sheet_to_json(builtInSheet,{header:1,defval:null,raw:true}):null;
+    const builtInHeaders=(builtInRows?.[0]||[]).map(norm),canonical=["an store#","customer #","invoice #","invoice date",
+      "actual days open","status","invoice amount (usd)","amount received (usd)","open amount (usd)"];
+    const builtInLayoutValid=canonical.every(heading=>builtInHeaders.filter(value=>value===heading).length===1);
+    const learnedLayout=builtInLayoutValid?null:matchingTradeArReportLayout(book,layoutOverride);
+    const sheet=builtInSheet||learnedLayout?.sheet;
     if(!sheet)return null;
-    const rows=learnedLayout?.rows||XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true});
+    const rows=learnedLayout?.rows||builtInRows||XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true});
     const headerRow=learnedLayout?.headerRow||0;
     const headers=(rows[headerRow]||[]).map(norm),required={
       store:"an store#",customer:"customer #",invoice:"invoice #",
@@ -5796,46 +5801,52 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     return [...grouped.entries()].map(([name, metadata]) => ({name, metadata})).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
   }
   async function scanFailedLearnedSources() {
-    const records = pendingLearnedFailureRecords();
-    if (!model.root) return {rows: [], layoutFiles: [], folder: null};
+    const records=pendingLearnedFailureRecords();
+    if(!records.length||!model.root)return{rows:[],folder:null};
     let folder;
-    try { folder = await directory(["Files To Learn"], false); }
-    catch (error) {
-      if (error.name === "NotFoundError")
-        return {rows: records.map(item=>({...item,diagnostic:"Original missing from Files To Learn."})),layoutFiles:[],folder:null};
+    try{folder=await directory(["Files To Learn"],false);}
+    catch(error){
+      if(error.name==="NotFoundError")return{rows:records.map(item=>({...item,diagnostic:"Original missing from Files To Learn."})),folder:null};
       throw error;
     }
-    const handles=new Map(),files=new Map();
-    for await(const [name,handle] of folder.entries()){
-      if(handle.kind!=="file")continue;
-      handles.set(name,handle);
-      try{files.set(name,await handle.getFile());}catch(_){}
-    }
+    const handles=new Map();
+    for await(const [name,handle] of folder.entries())if(handle.kind==="file")handles.set(name,handle);
     const rows=[];
     for(const item of records){
-      const handle=handles.get(item.name),file=files.get(item.name);
-      if(!handle||!file){rows.push({...item,handle,diagnostic:`${item.metadata.diagnostic||"Import failed."} Original is unavailable in Files To Learn.`});continue;}
-      rows.push({...item,handle,file,size:file.size,lastModified:file.lastModified,
-        diagnostic:item.metadata.diagnostic||"Import failed; source retained for review."});
+      const handle=handles.get(item.name);
+      if(!handle){rows.push({...item,diagnostic:`${item.metadata.diagnostic||"Import failed."} Original missing from Files To Learn.`});continue;}
+      try{const file=await handle.getFile();rows.push({...item,handle,file,size:file.size,lastModified:file.lastModified,
+        diagnostic:item.metadata.diagnostic||"Import failed; source retained for review."});}
+      catch(error){rows.push({...item,handle,diagnostic:`${item.metadata.diagnostic||"Import failed."} Original cannot be read (${error.name||"Error"}).`});}
     }
-    const layoutFiles=[];
-    for(const [name,handle] of handles){
-      if(!/\.xlsx$/i.test(name)||/^~\$/.test(name))continue;
-      const file=files.get(name);
-      layoutFiles.push(file?{name,handle,file,size:file.size,lastModified:file.lastModified,location:"learn"}:
-        {name,handle,location:"learn",diagnostic:"Original cannot be read yet."});
+    return{rows,folder};
+  }
+  async function scanFilesToTeachReportLayouts(){
+    if(!model.root)throw new Error("Connect the working folder before scanning Files To Learn.");
+    const folder=await directory(["Files To Learn"],false),files=[];
+    for await(const [name,handle] of folder.entries())
+      if(handle.kind==="file"&&/\.xlsx$/i.test(name)&&!/^~\$/.test(name))files.push({name,handle,location:"learn"});
+    files.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+    ui.reportLayoutLearnList.replaceChildren();
+    for(const row of files){
+      const item=document.createElement("li"),label=document.createElement("span");
+      label.textContent=row.name;item.append(label);
+      const teach=document.createElement("button");teach.type="button";teach.textContent="Teach Trade AR layout";
+      teach.addEventListener("click",()=>run(()=>openTradeArLayoutTeaching(row)));
+      item.append(teach);ui.reportLayoutLearnList.append(item);
     }
-    layoutFiles.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
-    return {rows,layoutFiles,folder};
+    ui.reportLayoutLearnStatus.textContent=files.length
+      ?files.length+" XLSX source(s) found. Only known Trade AR reports can be taught; originals remain in place until a verified retry."
+      :"No XLSX sources were found in Files To Learn.";
   }
   async function refreshFailedLearnedReportNotice() {
     const host=ui.failedLearnedReportNotice;
     if(!host||!ui["view-imports"].classList.contains("active"))return;
-    const result=await scanFailedLearnedSources(),rows=result.rows,layoutFiles=result.layoutFiles||[];
-    host.hidden=rows.length===0&&layoutFiles.length===0;
+    const result=await scanFailedLearnedSources(),rows=result.rows;
+    host.hidden=!model.root;
     ui.failedLearnedReportSummary.textContent=rows.length
       ? `${rows.length} failed learned report${rows.length===1?"":"s"} need review. Originals stay local.`
-      : layoutFiles.length?"Files To Learn sources remain local. Teach only supported, known report families.":"No failed or learnable XLSX reports are waiting.";
+      :"No import failures are recorded. Scan Files To Learn to teach a supported layout.";
     ui.failedLearnedReportDetails.replaceChildren();
     let ready=rows.length>0&&Boolean(result.folder);
     for(const row of rows){
@@ -5848,16 +5859,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.failedLearnedPackageStatus.textContent=ready
       ?"The package includes original report bytes and per-file failure diagnostics; it does not upload anything."
       :"One or more originals are unavailable. No source will be deleted.";
-    ui.reportLayoutLearnList.replaceChildren();
-    for(const row of layoutFiles){
-      const item=document.createElement("li"),label=document.createElement("span");
-      label.textContent=row.name+(row.diagnostic?" · "+row.diagnostic:"");
-      item.append(label);
-      const teach=document.createElement("button");teach.type="button";teach.textContent="Teach Trade AR layout";
-      teach.disabled=!row.file||!row.handle;
-      teach.addEventListener("click",()=>run(()=>openTradeArLayoutTeaching(row)));
-      item.append(teach);ui.reportLayoutLearnList.append(item);
-    }
+    if(!ui.reportLayoutLearnList.childElementCount)ui.reportLayoutLearnStatus.textContent="Use Scan Files To Learn to list local XLSX sources.";
   }
   const tradeArLayoutFields=[
     ["store","AN Store#"],["customer","Customer #"],["invoice","Invoice #"],["invoiceDate","Invoice Date"],
@@ -5881,7 +5883,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     return saved;
   }
   async function openTradeArLayoutTeaching(source){
-    if(!source?.file||!source?.handle)throw new Error("The original report cannot be read. No changes were made.");
+    if(!source?.handle)throw new Error("The original report cannot be read. No changes were made.");
     const dialog=document.createElement("dialog"),title=document.createElement("h2"),help=document.createElement("p"),
       sheetLabel=document.createElement("label"),sheetSelect=document.createElement("select"),
       headerLabel=document.createElement("label"),headerSelect=document.createElement("select"),
@@ -5898,8 +5900,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     retry.type="button";retry.textContent="Retry this report";retry.disabled=true;
     cancel.type="button";cancel.textContent="Cancel";cancel.addEventListener("click",()=>dialog.close());
     actions.append(validate,save,retry,cancel);dialog.append(title,help,sheetLabel,headerLabel,fieldsHost,preview,actions);
-    document.body.append(dialog);
-    let activeBook=null,candidateRule=null,previewProof=null,savedRule=null,previewBytes=null;
+    let activeBook=null,candidateRule=null,previewProof=null,savedRule=null,previewBytes=null,previewSize=0,previewModified=0;
     const refreshFields=()=>{
       fieldsHost.replaceChildren();const name=sheetSelect.value,grid=activeBook&&name
         ?XLSX.utils.sheet_to_json(activeBook.Sheets[name],{header:1,defval:"",raw:true}):[];
@@ -5919,7 +5920,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       preview.textContent="Map all required columns, then preview and validate.";
     };
     try{
-      const bytes=new Uint8Array(await source.file.arrayBuffer());
+      const selectedFile=await source.handle.getFile(),bytes=new Uint8Array(await selectedFile.arrayBuffer());
+      source.size=selectedFile.size;source.lastModified=selectedFile.lastModified;
       activeBook=await prepareXlsxWorkbook(bytes,{type:"array",raw:true,cellDates:true,cellNF:true});
       for(const name of activeBook.SheetNames){const option=document.createElement("option");option.value=name;option.textContent=name;sheetSelect.append(option);}
       sheetSelect.value=activeBook.SheetNames.includes("Trade AR Error Report")?"Trade AR Error Report":activeBook.SheetNames[0]||"";
@@ -5939,8 +5941,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         const columns={};for(const select of fieldsHost.querySelectorAll("select[data-field]"))if(select.value)columns[select.dataset.field]=select.value;
         const engine=globalThis.MoonDogPasteLearn;
         candidateRule=engine.safeReportLayout({family:"trade-ar-errors",sheetName:sheetSelect.value,headerRow:Number(headerSelect.value),columns},localReportLayoutRules());
-        previewBytes=new Uint8Array(await source.file.arrayBuffer());
-        previewProof=await sha256(previewBytes);
+        const selectedFile=await source.handle.getFile();
+        if(selectedFile.size!==source.size||selectedFile.lastModified!==source.lastModified)
+          throw new Error("The source changed while the layout was being taught. It remains in Files To Learn.");
+        previewBytes=new Uint8Array(await selectedFile.arrayBuffer());
+        previewSize=selectedFile.size;previewModified=selectedFile.lastModified;previewProof=await sha256(previewBytes);
         const result=parseTradeArErrorWorkbook(previewBytes,source.name,candidateRule);
         if(!result?.validation?.storeScopeVerified||result.validation.kpiPromotion!==false)
           throw new Error("Trade AR preview did not prove configured-store scope.");
@@ -5957,7 +5962,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         if(!savedRule||!previewProof)throw new Error("Save a validated layout before retrying.");
         if(dailyImportBusy||folderWatch.busy)throw new Error("Another report scan or import is active. Retry when it finishes.");
         const current=await source.handle.getFile(),currentBytes=new Uint8Array(await current.arrayBuffer());
-        if(current.size!==source.size||current.lastModified!==source.lastModified||await sha256(currentBytes)!==previewProof)
+        if(current.size!==previewSize||current.lastModified!==previewModified||await sha256(currentBytes)!==previewProof)
           throw new Error("The source changed after preview. It remains in Files To Learn; preview it again.");
         const relativePath=`Files To Learn/${source.name}`;
         const candidate={name:source.name,location:"learn",relativePath,handle:source.handle,file:current,
@@ -6042,9 +6047,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     host.hidden = true;
     host.setAttribute("role", "region");
     host.setAttribute("aria-label", "Failed learned report recovery");
-    host.innerHTML = '<div class="section-head"><div><p class="eyebrow">Import / Reports · local recovery</p><h2>Files To Learn and failed reports</h2><p id="failedLearnedReportSummary"></p></div><span class="badge muted">Manager only</span></div><section><h3>Teach a known report layout</h3><p>Mappings stay in this Workspace. Preview and validate before saving or retrying; unknown business meaning still needs a reviewed software adapter.</p><ul id="reportLayoutLearnList"></ul></section><div class="recovery-actions"><button id="viewFailedLearnedDetails" type="button">View Details</button><button id="saveFailedLearnedPackage" type="button" class="primary">Save Support Package</button></div><ul id="failedLearnedReportDetails" hidden></ul><p id="failedLearnedPackageStatus" class="settings-note" role="status"></p>';
+    host.innerHTML = '<div class="section-head"><div><p class="eyebrow">Import / Reports · local recovery</p><h2>Files To Learn and failed reports</h2><p id="failedLearnedReportSummary"></p></div><span class="badge muted">Manager only</span></div><section><h3>Teach a known report layout</h3><p>Mappings stay in this Workspace. Preview and validate before saving or retrying; unknown business meaning still needs a reviewed software adapter.</p><button id="scanReportLayouts" type="button">Scan Files To Learn</button><p id="reportLayoutLearnStatus" role="status"></p><ul id="reportLayoutLearnList"></ul></section><div class="recovery-actions"><button id="viewFailedLearnedDetails" type="button">View Details</button><button id="saveFailedLearnedPackage" type="button" class="primary">Save Support Package</button></div><ul id="failedLearnedReportDetails" hidden></ul><p id="failedLearnedPackageStatus" class="settings-note" role="status"></p>';
     ui["view-imports"].prepend(host);
-    for (const id of ["failedLearnedReportNotice", "failedLearnedReportSummary", "reportLayoutLearnList", "viewFailedLearnedDetails", "saveFailedLearnedPackage", "failedLearnedReportDetails", "failedLearnedPackageStatus"]) ui[id] = document.getElementById(id);
+    for (const id of ["failedLearnedReportNotice", "failedLearnedReportSummary", "scanReportLayouts", "reportLayoutLearnStatus", "reportLayoutLearnList", "viewFailedLearnedDetails", "saveFailedLearnedPackage", "failedLearnedReportDetails", "failedLearnedPackageStatus"]) ui[id] = document.getElementById(id);
+    ui.scanReportLayouts.addEventListener("click",()=>run(scanFilesToTeachReportLayouts));
     ui.viewFailedLearnedDetails.addEventListener("click", () => {
       ui.failedLearnedReportDetails.hidden = !ui.failedLearnedReportDetails.hidden;
       ui.viewFailedLearnedDetails.textContent = ui.failedLearnedReportDetails.hidden ? "View Details" : "Hide Details";
