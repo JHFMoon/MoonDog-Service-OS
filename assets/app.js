@@ -314,7 +314,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-27-trade-ar-v2";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-28-local-layouts-v3";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -2212,7 +2212,7 @@
     if (workbookIsHandoff(book, name)) throw new Error("Needs Review: advisor handoff snapshots are outbound only."); if (workbookHasReturnSchema(book)) return "ro-update"; if (workbookHasReturnIdentity(book)) throw new Error("Needs Review: damaged Supervisor Workbook cannot be imported as a generic Open RO report.");
     // Recognize this named accounting export before generic workbook detection.
     // A malformed or unconfigured store scope must fail visibly at import.
-    if (book.SheetNames.includes("Trade AR Error Report")||matchingTradeArReportLayout(book)) return "supplemental-workbook";
+    if (book.SheetNames.includes("Trade AR Error Report")||(typeof matchingTradeArReportLayout==="function"&&matchingTradeArReportLayout(book))) return "supplemental-workbook";
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", cellDates: true }); parseCsiWorkbook(bytes, name); return "csi"; } catch (_) {}
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true }); parseMenuSalesWorkbook(bytes, name); return "menu-sales"; } catch (_) {}
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true }); parsePerformanceWorkbook(bytes, name); return "performance"; } catch (_) {}
@@ -5823,7 +5823,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   }
   async function scanFilesToTeachReportLayouts(){
     if(!model.root)throw new Error("Connect the working folder before scanning Files To Learn.");
-    const folder=await directory(["Files To Learn"],false),files=[];
+    let folder;const files=[];
+    try{folder=await directory(["Files To Learn"],false);}
+    catch(error){if(error.name!=="NotFoundError")throw error;ui.reportLayoutLearnList.replaceChildren();ui.reportLayoutLearnStatus.textContent="Files To Learn does not exist yet. Unsupported reports will appear here after the next scan.";return;}
     for await(const [name,handle] of folder.entries())
       if(handle.kind==="file"&&/\.xlsx$/i.test(name)&&!/^~\$/.test(name))files.push({name,handle,location:"learn"});
     files.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
@@ -5970,7 +5972,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         sourceLocations.set(source.name,"learn");dailyImportBusy=true;
         try{
           await processClassifiedCandidate(candidate,"supplemental-workbook",currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),true);
-          dialog.close();await refreshFailedLearnedReportNotice();
+          dialog.close();await refreshFailedLearnedReportNotice();await scanFilesToTeachReportLayouts();
           status("Trade AR report saved and verified; source cleanup followed the successful read-back policy.","success");
         }finally{dailyImportBusy=false;}
       }));
