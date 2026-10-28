@@ -772,10 +772,14 @@
       ui.permissionBadge.textContent = `${writable ? "Connected" : "Read-only"}: ${model.root?.name || "working folder"}`;
       ui.permissionBadge.className = writable ? "badge" : "badge muted";
       const guidance = writeAuthorityGuidance(reason);
-      ui.permissionBadge.title = writable ? "Read/write permission and durable Workspace validation succeeded." : guidance.message;
-      ui.connectButton.textContent = writable ? "Change folder" : guidance.action;
-      ui.connectButton.disabled = !writable && reason === "WORKSPACE_BUSY";
-      if (!writable && !message) status(guidance.message, guidance.type);
+      const displayedGuidance = !writable && reason === "WORKSPACE_BUSY" && authorityRevalidationExhausted
+        ? { action: "Retry Workspace", message: `Automatic Workspace recovery checks ended. The saved handle and data remain intact; click Retry Workspace to check again. ${writeAuthority.failureName ? `Last error: ${writeAuthority.failureName}.` : ""}`, type: "error" }
+        : guidance;
+      ui.permissionBadge.title = writable ? "Read/write permission and durable Workspace validation succeeded." : displayedGuidance.message;
+      ui.permissionBadge.setAttribute?.("aria-label", writable ? "Connected and writable Workspace" : `Read-only Workspace. ${displayedGuidance.message} Recovery action: ${displayedGuidance.action}.`);
+      ui.connectButton.textContent = writable ? "Change folder" : displayedGuidance.action;
+      ui.connectButton.disabled = !writable && reason === "WORKSPACE_BUSY" && !authorityRevalidationExhausted;
+      if (!writable && !message) status(displayedGuidance.message, displayedGuidance.type);
       if (writable) ui.permissionBadge.removeAttribute?.("title");
     }
     else { ui.permissionBadge.className = "badge muted"; if (state !== "CONNECTED") ui.permissionBadge.removeAttribute?.("title"); }
@@ -1250,6 +1254,7 @@
       // Only a fully loaded Workspace may drive Daily history and task selection.
       model.workspaceConnectionCommittedRoot=model.root;
       setConnectionState("CONNECTED");
+      if(["WORKSPACE_BUSY","PERMISSION_REQUIRED"].includes(writeAuthority.reason))scheduleAuthorityRevalidation(handle);
       if(interruptedRestoreReview)status("INTERRUPTED RESTORE: EDITING IS BLOCKED. Review the protected safety backup and live files before any recovery; do not delete the restore marker.","error");
       renderSetup();
       document.dispatchEvent(new Event("moondog-data"));
@@ -1449,6 +1454,48 @@
       throw error;
     }
   }
+  let savedConnectionRetryTimer=null,savedConnectionRetryAttempts=0;
+  const SAVED_CONNECTION_RETRY_DELAYS=[1200,3000,8000,15000,30000];
+  function scheduleSavedConnectionRetry(handle){
+    if(!handle||model.pendingRoot!==handle||savedConnectionRetryTimer)return;
+    const delay=SAVED_CONNECTION_RETRY_DELAYS[savedConnectionRetryAttempts];
+    if(delay===undefined){
+      setConnectionState("CONNECTION ERROR","Automatic reconnect checks ended after repeated temporary Workspace failures. The saved folder and files remain intact; click Retry saved folder to try again.");
+      return;
+    }
+    savedConnectionRetryAttempts+=1;
+    savedConnectionRetryTimer=setTimeout(async()=>{
+      savedConnectionRetryTimer=null;
+      if(model.pendingRoot!==handle)return;
+      try{
+        await finishConnection(handle,false);
+        savedConnectionRetryAttempts=0;
+      }catch(error){
+        if(error?.code==="WORKSPACE_CONNECTION_BUSY"){scheduleSavedConnectionRetry(handle);return;}
+        if(error?.name==="NotAllowedError"||error?.name==="SecurityError"){
+          writeAuthority.disable();
+          setConnectionState("PERMISSION REQUIRED","Edge needs read/write access to the saved folder. Click Restore folder access; all files remain in place.");
+          return;
+        }
+        if(transientWorkspaceState(error)){
+          writeAuthority.disable();
+          if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;}
+          setConnectionState("CONNECTION ERROR",`Workspace I/O remains temporarily busy${error?.name?` (${error.name})`:""}; the saved handle is retained and MoonDog will retry automatically.`);
+          scheduleSavedConnectionRetry(handle);
+          return;
+        }
+        setConnectionState("CONNECTION ERROR",`Saved folder reconnect stopped: ${error?.message||String(error)}. The handle and files are retained.`);
+      }
+    },delay);
+  }
+  function handleWorkspaceRecoveryAction(){
+    if(["PENDING_TRANSACTION","INTERRUPTED_RESTORE"].includes(writeAuthority.reason)){
+      navigateTo("settings");
+      setTimeout(()=>ui.backupRecoverySection?.scrollIntoView?.({behavior:"smooth",block:"start"}),0);
+      return;
+    }
+    return run(connect);
+  }
   async function restoreConnection() {
     setConnectionState("RESTORING SAVED CONNECTION", "RECONNECTING TO SERVICE OPERATIONS DASHBOARD DATA");
     if (!window.showDirectoryPicker || !window.indexedDB) { setConnectionState("SAVED HANDLE UNAVAILABLE", "Choose the Service Operations Dashboard working folder to begin."); return; }
@@ -1465,9 +1512,21 @@
     } catch (error) {
       // An overlapping restore must not revoke authority for the active connection.
       if(error?.code==="WORKSPACE_CONNECTION_BUSY")return;
-      writeAuthority.disable();
-      model.root = null; model.pendingRoot = handle;
-      setConnectionState("CONNECTION ERROR", "Service Operations Dashboard could not restore the saved folder handle. Choose the working folder to reconnect.");
+      model.pendingRoot=handle;
+      if(transientWorkspaceState(error)){
+        writeAuthority.disable();
+        if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;}
+        const reason=`Workspace I/O is temporarily busy${error?.name?` (${error.name})`:""}, possibly while OneDrive syncs. The saved folder handle and Workspace files are retained; MoonDog will retry automatically.`;
+        setConnectionState("CONNECTION ERROR",reason);
+        scheduleSavedConnectionRetry(handle);
+      }else if(error?.name==="NotAllowedError"||error?.name==="SecurityError"){
+        writeAuthority.disable();
+        setConnectionState("PERMISSION REQUIRED","Edge needs read/write access to the saved folder. Click Restore folder access; no Workspace data was cleared.");
+      }else{
+        writeAuthority.disable();
+        if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;}
+        setConnectionState("CONNECTION ERROR",`Saved folder validation stopped: ${error?.message||String(error)}. The saved handle and files are retained.`);
+      }
       console.error(error);
     }
   }
@@ -6372,11 +6431,45 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   const readSettingsInputsPhase1=readSettingsInputs;readSettingsInputs=function(){readSettingsInputsPhase1();const filename=ui.exportName.value.trim();if(!filename||/[\\/:*?"<>|]/.test(filename))throw new Error("Choose a valid supervisor workbook filename.");const completeName=/\.xlsx$/i.test(filename)?filename:`${filename}.xlsx`;const count=Number(ui.dailyWalkCount.value);if(!Number.isInteger(count)||count<1||count>10)throw new Error("Daily Walk ROs per advisor must be a whole number from 1 to 10.");model.settings.dailyWalk={rosPerAdvisor:count};model.settings.supervisorWorkbook.filename=completeName;model.settings.exportName=completeName;model.settings.supervisorWorkbook.worksheetOrder=supervisorAdvisorCodes();};
   async function renameManagementStatus(id,name){const definition=statusById(id),trimmed=name.trim();if(!definition||trimmed===definition.name)return;if(!trimmed)throw new Error("Management status names cannot be blank.");if(managementStatusDefinitions().some((item)=>item.id!==id&&norm(item.name)===norm(trimmed)))throw new Error("Management status names must be unique.");const beforeState=JSON.parse(JSON.stringify(model.state)),priorName=definition.name;definition.name=trimmed;let stateChanged=false;for(const record of model.state.records||[])if(resolveStatusId(record.management?.status,record.management?.statusId,true)===id&&record.management.status!==trimmed){record.management.status=trimmed;record.management.statusId=id;stateChanged=true;}if(stateChanged){await backupState("before-management-status-rename",beforeState);model.state.updatedAt=now();await writeJson(STATE_PATH,model.state);}queueSettingsAutosave();}
   async function addManagementStatus(){const definitions=managementStatusDefinitions(),base="New status";let name=base,suffix=2;while(definitions.some((item)=>norm(item.name)===norm(name)))name=`${base} ${suffix++}`;model.settings.openRo.managementStatuses.push({id:`status-custom-${Date.now().toString(36)}`,name,enabled:true,order:definitions.length});await saveSettingsAutosave();}
-  async function run(action) { try { await action(); } catch (error) { console.error(error); if(transientWorkspaceState(error)){recordDiagnostic("WORKSPACE BUSY",`Temporary workspace state (${error.name||"Error"}); automatic revalidation scheduled`);status("Updating workspace files… Service Operations Dashboard will retry editing automatically.","info");if(connectedNativeRoot)scheduleAuthorityRevalidation(connectedNativeRoot);return;} recordDiagnostic("APPLICATION ERROR", `An operation failed (${error.name || "Error"})`); status(error.message || String(error), "error"); } }
+  async function run(action) { try { await action(); } catch (error) { console.error(error); if(transientWorkspaceState(error)){const suspended=writeAuthority.suspendForTransient?.(error);recordDiagnostic("WORKSPACE BUSY",`Temporary workspace state (${error.name||"Error"}); write authority ${suspended?"suspended pending verification":"remains governed by the current validator"}`);if(suspended&&model.connectionState==="CONNECTED")setConnectionState("CONNECTED");status(suspended?"Workspace I/O is temporarily busy. Editing is paused; the saved folder and drafts are retained while MoonDog rechecks automatically.":"A temporary Workspace read failed. MoonDog is rechecking the saved folder.", "info");if(connectedNativeRoot)scheduleAuthorityRevalidation(connectedNativeRoot);return;} recordDiagnostic("APPLICATION ERROR", `An operation failed (${error.name || "Error"})`); status(error.message || String(error), "error"); } }
 
   ensurePhase2SettingsUi();ensurePhase3Ui();ensureRecoveryUi();ensureFolderWatchUi();ensureManagerEntryCues();ensureFailedLearnedReportUi();ensureNewStoreUi();ui.setupSettingsSummary=document.getElementById("setupSettingsSummary");
-  let authorityRevalidationTimer=null;
-  function scheduleAuthorityRevalidation(root){if(authorityRevalidationTimer||!root)return;authorityRevalidationTimer=setTimeout(async()=>{authorityRevalidationTimer=null;if(root!==connectedNativeRoot||writeAuthority.canWrite)return;const ok=await writeAuthority.validate(root,false).catch(()=>false);if(root!==connectedNativeRoot)return;renderSetup();if(ok)status("Workspace files finished updating. Editing restored.","success");},1200);}
+  let authorityRevalidationTimer=null,authorityRevalidationAttempts=0,authorityRevalidationExhausted=false;
+  const AUTHORITY_REVALIDATION_DELAYS=[1200,2500,5000,10000,20000];
+  function clearAuthorityRevalidation(){
+    if(authorityRevalidationTimer)clearTimeout(authorityRevalidationTimer);
+    authorityRevalidationTimer=null;authorityRevalidationAttempts=0;authorityRevalidationExhausted=false;
+  }
+  function scheduleAuthorityRevalidation(root,immediate=false){
+    if(!root||root!==connectedNativeRoot||writeAuthority.canWrite||authorityRevalidationTimer)return;
+    if(immediate){authorityRevalidationAttempts=0;authorityRevalidationExhausted=false;}
+    const delay=immediate?0:AUTHORITY_REVALIDATION_DELAYS[authorityRevalidationAttempts];
+    if(delay===undefined){
+      authorityRevalidationExhausted=true;
+      setConnectionState("CONNECTED");
+      status("Automatic Workspace recovery checks ended. Nothing was discarded. Click Retry Workspace to recheck the saved folder.","error");
+      return;
+    }
+    authorityRevalidationTimer=setTimeout(async()=>{
+      authorityRevalidationTimer=null;
+      if(root!==connectedNativeRoot||writeAuthority.canWrite)return;
+      authorityRevalidationAttempts+=1;
+      const ok=await writeAuthority.validate(root,false).catch(()=>false);
+      if(root!==connectedNativeRoot)return;
+      renderSetup();
+      if(ok){
+        clearAuthorityRevalidation();
+        setConnectionState("CONNECTED");
+        status("Workspace verification succeeded. Editing is restored; saved files and drafts were retained.","success");
+        return;
+      }
+      setConnectionState("CONNECTED");
+      if(["WORKSPACE_BUSY","PERMISSION_REQUIRED"].includes(writeAuthority.reason))
+        scheduleAuthorityRevalidation(root,false);
+    },delay);
+  }
+  window.addEventListener("focus",()=>{if(connectedNativeRoot&&!writeAuthority.canWrite)scheduleAuthorityRevalidation(connectedNativeRoot,true);});
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&connectedNativeRoot&&!writeAuthority.canWrite)scheduleAuthorityRevalidation(connectedNativeRoot,true);});
   ui.worksheetOrderSettings.addEventListener("click",(event)=>{const button=event.target.closest("button[data-worksheet-move]");if(!button)return;const codes=supervisorAdvisorCodes(),index=codes.indexOf(button.dataset.worksheetMove),moved=moveArrayItem(codes,index,Number(button.dataset.direction));model.settings.supervisorWorkbook.worksheetOrder=moved;queueSettingsAutosave();renderPhase2Settings();});
   ui.dailyWalkCount.addEventListener("change",()=>{const value=Number(ui.dailyWalkCount.value);if(Number.isInteger(value)&&value>=1&&value<=10)model.settings.dailyWalk.rosPerAdvisor=value;queueSettingsAutosave();setTimeout(()=>run(ensureDailyFocus),260);});
   document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => navigateTo(button.dataset.view)));
@@ -6436,7 +6529,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.attentionFilter.value="";clearSavedOpenRoFilters();
     applyRoDensity();saveRoDeviceView();renderTable();
   });
-  ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", () => run(connect)); ui.homeConnect.addEventListener("click", () => run(connect)); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input",renderTable); [["advisor",ui.advisorFilter],["sourceStatus",ui.sourceStatusFilter],["managementStatus",ui.managementStatusFilter]].forEach(([field,select])=>select.addEventListener("change",()=>{saveOpenRoFilter(field,select);renderTable();})); ui.attentionFilter.addEventListener("change",renderTable); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; clearSavedOpenRoFilters(); saveRoDeviceView(); renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",markEditDraftDirty); ui.editForm.addEventListener("change",markEditDraftDirty); ui.editOwner.addEventListener("input",()=>{ui.editOwner.dataset.ownerAssignmentExplicit="true";}); window.addEventListener("beforeunload",guardUnsavedEditUnload); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(importAppointmentFile)); ui.appointmentDate.addEventListener("change", renderArrivals); ui.arrivalSearch.addEventListener("input", renderArrivals); ui.printArrivals.addEventListener("click", () => run(printPorterList)); ui.arrivalTimeline.addEventListener("change", (event) => { const select = event.target.closest("select[data-appointment-id]"); if (select) run(() => updateArrivalStatus(select.dataset.appointmentId, select.value)); }); ui.saveSettings.addEventListener("click", () => run(saveSettings)); const saveMeetingVoiceDraft=()=>{syncMeetingVoiceDraftSettings();queueSettingsAutosave();renderVoiceControlVisibility();};ui.meetingVoiceSurvey.addEventListener("change",()=>{previewMeetingVoiceSelection();saveMeetingVoiceDraft();});ui.meetingVoiceMode.addEventListener("change",saveMeetingVoiceDraft);ui.meetingVoiceSourceMethod.addEventListener("change",()=>{if(ui.meetingVoiceSourceMethod.value==="saved")previewMeetingVoiceSelection();else ui.meetingVoiceExcerpt.value=ui.meetingVoicePastedSource.value;saveMeetingVoiceDraft();});[ui.meetingVoicePastedSource,ui.meetingVoiceExcerpt,ui.meetingTeamMessage].forEach((field)=>field.addEventListener("input",saveMeetingVoiceDraft));ui.meetingVoiceUseFull.addEventListener("click",()=>{useFullMeetingVoice();saveMeetingVoiceDraft();}); ui.pinMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(true))); ui.clearMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(false)));
+  ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", handleWorkspaceRecoveryAction); ui.homeConnect.addEventListener("click", () => run(connect)); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input",renderTable); [["advisor",ui.advisorFilter],["sourceStatus",ui.sourceStatusFilter],["managementStatus",ui.managementStatusFilter]].forEach(([field,select])=>select.addEventListener("change",()=>{saveOpenRoFilter(field,select);renderTable();})); ui.attentionFilter.addEventListener("change",renderTable); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; clearSavedOpenRoFilters(); saveRoDeviceView(); renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",markEditDraftDirty); ui.editForm.addEventListener("change",markEditDraftDirty); ui.editOwner.addEventListener("input",()=>{ui.editOwner.dataset.ownerAssignmentExplicit="true";}); window.addEventListener("beforeunload",guardUnsavedEditUnload); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(importAppointmentFile)); ui.appointmentDate.addEventListener("change", renderArrivals); ui.arrivalSearch.addEventListener("input", renderArrivals); ui.printArrivals.addEventListener("click", () => run(printPorterList)); ui.arrivalTimeline.addEventListener("change", (event) => { const select = event.target.closest("select[data-appointment-id]"); if (select) run(() => updateArrivalStatus(select.dataset.appointmentId, select.value)); }); ui.saveSettings.addEventListener("click", () => run(saveSettings)); const saveMeetingVoiceDraft=()=>{syncMeetingVoiceDraftSettings();queueSettingsAutosave();renderVoiceControlVisibility();};ui.meetingVoiceSurvey.addEventListener("change",()=>{previewMeetingVoiceSelection();saveMeetingVoiceDraft();});ui.meetingVoiceMode.addEventListener("change",saveMeetingVoiceDraft);ui.meetingVoiceSourceMethod.addEventListener("change",()=>{if(ui.meetingVoiceSourceMethod.value==="saved")previewMeetingVoiceSelection();else ui.meetingVoiceExcerpt.value=ui.meetingVoicePastedSource.value;saveMeetingVoiceDraft();});[ui.meetingVoicePastedSource,ui.meetingVoiceExcerpt,ui.meetingTeamMessage].forEach((field)=>field.addEventListener("input",saveMeetingVoiceDraft));ui.meetingVoiceUseFull.addEventListener("click",()=>{useFullMeetingVoice();saveMeetingVoiceDraft();}); ui.pinMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(true))); ui.clearMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(false)));
   ui.editDialog.addEventListener("cancel",(event)=>{if(model.openRoSaveInFlight){event.preventDefault();status("An Open RO save is waiting for the shared Workspace lock. Wait for it to finish before closing this editor.","error");return;}});
   ui.recentlyReviewed.addEventListener("click",()=>{ui.recentlyReviewedPanel.hidden=!ui.recentlyReviewedPanel.hidden;ui.recentlyReviewed.setAttribute("aria-expanded",String(!ui.recentlyReviewedPanel.hidden));if(!ui.recentlyReviewedPanel.hidden)renderRecentlyReviewed();});ui.recentlyReviewedPanel.addEventListener("click",(event)=>{const button=event.target.closest("button[data-recently-reviewed-id]");if(!button)return;ui.recentlyReviewedPanel.hidden=true;ui.recentlyReviewed.setAttribute("aria-expanded","false");openEdit(button.dataset.recentlyReviewedId,"recent");});
   ui.openFirstRecord.addEventListener("click", () => { const id = visibleRecordIds()[0]; if (id) openEdit(id); });
