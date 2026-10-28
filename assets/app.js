@@ -2528,6 +2528,7 @@
       "actual days open","status","invoice amount (usd)","amount received (usd)","open amount (usd)"];
     const builtInLayoutValid=canonical.every(heading=>builtInHeaders.filter(value=>value===heading).length===1);
     const learnedLayout=layoutOverride?matchingTradeArReportLayout(book,layoutOverride):builtInLayoutValid?null:matchingTradeArReportLayout(book);
+    if(layoutOverride&&!learnedLayout)throw new Error("Needs Review: the saved Trade AR layout no longer matches this workbook.");
     const sheet=learnedLayout?.sheet||builtInSheet;
     if(!sheet)return null;
     const rows=learnedLayout?.rows||builtInRows||XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true});
@@ -2632,7 +2633,8 @@
         authoritativeRoster:false,completenessVerified:false,identitiesNotRetained:true,
         reportedAndVerifiedCountsMatch:reportedRows===verifiedRows}};
   }
-  function parseSupplementalWorkbook(bytes,fileName) {
+  function parseSupplementalWorkbook(bytes,fileName,layoutOverride=null) {
+    if(layoutOverride)return parseTradeArErrorWorkbook(bytes,fileName,layoutOverride);
     return parseOpenRoAgingByAsmWorkbook(bytes,fileName)
       ||parseTradeArErrorWorkbook(bytes,fileName)
       ||parseCashClearingWorkbook(bytes,fileName)
@@ -2837,11 +2839,11 @@
     await addHistory("non-service-source-retired","Recognized "+documentType+"; no Service Operations Dashboard data retained",{fileName:candidate.name,documentType,reason:"Administrative/claims/collision record is outside Service Operations Dashboard operational data"});if(deleteAfterSuccess)await removeSourceEntry(candidate.name);return{retired:true,documentType,deleted:deleteAfterSuccess};
   }
 
-  async function importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess=false) {
+  async function importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess=false,layoutOverride=null) {
     if(kind==="supplemental-workbook")if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true });
     let snapshot;if(kind==="supplemental-pdf"){const signature=await pdfSignatureText(bytes),family=supplementalPdfFamily(signature,candidate.name),pages=family==="controllable-ranking"?80:family==="service-consulting-audit"?20:4;snapshot=parseSupplementalPdfReport(await pdfReportText(bytes,pages),candidate.name,{storeCode:model.settings.store?.code||""});}
     else if(kind==="supplemental-csv")snapshot=parseAppointmentsCreatedSummaryCsv(new TextDecoder().decode(new Uint8Array(bytes)),candidate.name);
-    else if(kind==="supplemental-workbook")snapshot=parseSupplementalWorkbook(bytes,candidate.name);
+    else if(kind==="supplemental-workbook")snapshot=parseSupplementalWorkbook(bytes,candidate.name,layoutOverride);
     else if(kind==="supplemental-docx")snapshot=parseSupplementalDocxReport(await docxText(bytes),candidate.name);
     if(!snapshot)throw new Error("The supplemental report structure could not be verified.");sourceLocations.set(candidate.name,candidate.location);const sourceFile=await(await sourceFileHandle(candidate.name)).getFile();snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString();model.operationalMetrics.supplementalReports||={snapshots:{}};const key=supplementalSnapshotKey(snapshot),replacing=Boolean(model.operationalMetrics.supplementalReports.snapshots[key]),prior=structuredClone(model.operationalMetrics.supplementalReports);model.operationalMetrics.supplementalReports.snapshots[key]=snapshot;model.operationalMetrics.supplementalReports.snapshots=pruneSupplementalSnapshots(model.operationalMetrics.supplementalReports.snapshots);model.operationalMetrics.updatedAt=now();
     try{await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);const check=await readJson(OPERATIONAL_METRICS_PATH,null);if(JSON.stringify(check?.supplementalReports?.snapshots?.[key])!==JSON.stringify(snapshot))throw new Error("The supplemental report snapshot could not be verified after saving.");}catch(error){model.operationalMetrics.supplementalReports=prior;throw error;}
@@ -2849,7 +2851,7 @@
     await addHistory("supplemental-report-import",(replacing?"Replaced ":"Added ")+snapshot.family+" supplemental report",{fileName:candidate.name,family:snapshot.family,periodStart:snapshot.periodStart,periodEnd:snapshot.periodEnd,asOfDate:snapshot.asOfDate||"",supplementalOnly:true});if(deleteAfterSuccess)await removeSourceEntry(candidate.name);
   }
 
-  async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true) {
+  async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true, layoutOverride = null) {
     if (["open-ro", "open-ro-docx"].includes(kind) && candidate.location !== "picked") throw new Error("Needs Review: an unsigned complete RO report requires explicit source, date and completeness review. Use Import Report to select the original file; the automatic scan cannot replace Open ROs.");
     sourceLocations.set(candidate.name, candidate.location);let appointmentOutcome;
     if (/\.xlsx$/i.test(candidate.name) && candidate.location !== "picked" && bytes) {
@@ -2868,7 +2870,7 @@
       else if (["sor", "appointment-activity", "efficiency", "media-asr", "media-asr-tech", "open-ro-summary"].includes(kind)) await importManagerSource(candidate.name, kind, bytes, deleteAfterSuccess);
       else if (kind === "open-ro-docx") return await importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess);
       else if (kind === "known-non-service") return await retireKnownNonServiceSource(candidate,bytes,deleteAfterSuccess);
-      else if (["supplemental-pdf","supplemental-csv","supplemental-workbook","supplemental-docx"].includes(kind)) await importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess);
+      else if (["supplemental-pdf","supplemental-csv","supplemental-workbook","supplemental-docx"].includes(kind)) await importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess,layoutOverride);
       else if (kind === "appointments") appointmentOutcome=await importAppointmentFile(candidate.name, deleteAfterSuccess, bytes);
       else if (kind === "disposable-greeter") { if (deleteAfterSuccess) await removeSourceEntry(candidate.name); await addHistory("disposable-output-removed", "Removed generated Greeter appointment output", { outputType: "Greeter Appointment List" }); recordDiagnostic("REPORT INBOX", "MoonDog Greeter output deleted as disposable output"); }
       else if (kind === "ro-update") await importReturnedWorkbook(candidate.name, deleteAfterSuccess, bytes);
@@ -5992,7 +5994,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           signature:`${relativePath}|${current.size}|${current.lastModified}`};
         sourceLocations.set(source.name,"learn");dailyImportBusy=true;
         try{
-          await processClassifiedCandidate(candidate,"supplemental-workbook",currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),false);
+          await processClassifiedCandidate(candidate,"supplemental-workbook",currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),false,savedRule);
           await resolveLearnedFailureRecords(source.name,candidate.signature,"supplemental-workbook");
           await removeSourceEntryWithByteGuard(source.name,currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteLength));
           dialog.close();await refreshFailedLearnedReportNotice();await scanFilesToTeachReportLayouts();
