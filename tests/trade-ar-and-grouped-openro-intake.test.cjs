@@ -388,10 +388,15 @@ test("a layout save cannot authorize a different preview selected while persiste
   release();
   await assert.rejects(pending,error=>/layout changed while it was being saved/i.test(String(error)));
   assert.deepEqual(busy,[true,false],"controls unlock after stale approval is rejected");
+  let published=null,publishedBeforeUnlock=false;
   const saved=await context.persistPreviewBoundLayout({
-    readApproval:()=>current,persist:async rule=>({id:"saved-"+rule.id}),setBusy:()=>{}
+    readApproval:()=>current,persist:async rule=>({id:"saved-"+rule.id}),
+    publishSaved:rule=>{published=rule;},
+    setBusy:value=>{if(!value)publishedBeforeUnlock=Boolean(published);}
   });
   assert.equal(saved.id,"saved-layout-B","only the exact current preview can be published as saved approval");
+  assert.equal(published.id,saved.id);
+  assert.equal(publishedBeforeUnlock,true,"Retry approval is published before controls unlock");
 });
 
 test("layout preview is local, uses production Trade AR validation, saves mappings in Workspace settings and retries retained source",()=>{
