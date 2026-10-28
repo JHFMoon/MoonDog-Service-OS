@@ -1446,7 +1446,28 @@
       // the next temporary OneDrive failure from receiving normal retry attempts.
       if (savedConnectionRetryTimer) { clearTimeout(savedConnectionRetryTimer); savedConnectionRetryTimer = null; }
       savedConnectionRetryAttempts = 0;
-      const pendingRoot=model.pendingRoot; setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(pendingRoot, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){writeAuthority.disable();model.pendingRoot=pendingRoot;if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;}setConnectionState(error?.name==="NotAllowedError"||error?.name==="SecurityError"?"PERMISSION REQUIRED":"CONNECTION ERROR", error?.name==="NotAllowedError"||error?.name==="SecurityError"?"FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder.":"The saved folder could not be fully read. Retry the connection after checking folder availability.");} throw error; } }
+      const pendingRoot=model.pendingRoot;
+      setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…");
+      try { return await finishConnection(pendingRoot, true); }
+      catch (error) {
+        if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){
+          writeAuthority.disable();
+          model.pendingRoot=pendingRoot;
+          if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){
+            model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;
+          }
+          if(error?.name==="NotAllowedError"||error?.name==="SecurityError"||/folder access was not granted/i.test(String(error?.message||""))){
+            setConnectionState("PERMISSION REQUIRED","Edge needs read/write access to the saved folder. Click Restore folder access; Workspace data was not cleared.");
+          }else if(transientWorkspaceState(error)){
+            setConnectionState("CONNECTION ERROR",`Workspace I/O is temporarily busy${error?.name?` (${error.name})`:""}, possibly while OneDrive syncs. The saved folder handle and files are retained; MoonDog will retry automatically.`);
+            scheduleSavedConnectionRetry(pendingRoot);
+          }else{
+            setConnectionState("CONNECTION ERROR",`The saved folder could not be fully read: ${error?.message||String(error)}. Check the folder and click Retry saved folder; no Workspace data was cleared.`);
+          }
+        }
+        throw error;
+      }
+    }
     const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "readwrite" });
     try { return await finishConnection(handle, true); } catch (error) {
       if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){
