@@ -47,7 +47,9 @@ function arHarness(rows,storeCode="101",formats={},layoutRules=[],bookOverride=n
       "Trade AR Error Report":tradeSheet}};
   const XLSX={read:(_bytes,options)=>{readOptions=options;return book;},
     utils:{sheet_to_json:sheet=>sheet.rows,decode_range:()=>({s:{r:0,c:0}}),encode_cell:encodeCell}};
-  const ctx={XLSX,norm,text,now:()=>"2026-01-10T00:00:00Z",
+  const learnStart=app.indexOf("/* MoonDog Paste & Learn — inert"),learnEnd=app.indexOf("})(globalThis);",learnStart),learnContext={};
+  vm.runInNewContext(app.slice(learnStart,learnEnd+15),learnContext);
+  const ctx={XLSX,norm,text,now:()=>"2026-01-10T00:00:00Z",MoonDogPasteLearn:learnContext.MoonDogPasteLearn,
     reportStoreCode:()=>storeCode,model:{settings:{future:{reportLayoutRules:layoutRules}}},
     strictOpenRoDate:value=>validCoverageDate(text(value)),
     validCoverageDate};
