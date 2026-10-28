@@ -100,7 +100,7 @@ test("private Appointment Activity layout maps a renamed sheet, header row, alia
     "saved local mapping is used by the regular production import route");
   assert.doesNotMatch(JSON.stringify(f.durable()),/Synthetic customer|Synthetic context/);
 });
-test("multiple matching private Appointment Activity layouts fail closed",()=>{
+test("multiple matching private Appointment Activity layouts fail closed",async()=>{
   const rows=[["Store","Type","Contact Date","Created","Appointment","Time"],
     ["9001","SERVICE_REMINDER","2026-10-20",46310,46310,"9:00 AM"],
     ["1002","SERVICE_REMINDER","2026-10-20",46311,46311,"10:00 AM"]];
