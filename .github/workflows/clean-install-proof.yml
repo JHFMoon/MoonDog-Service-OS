@@ -16,27 +16,6 @@ jobs:
           persist-credentials: false
           fetch-depth: 2  # Keep PR merge parent for package-only source-parity proof
 
-      - name: Fetch immutable PR base for parser epoch checks
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          git cat-file -e "$BASE_SHA^{commit}"
-
-      - name: Run repository safety checks
-        env:
-          LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          python3 -m unittest discover -s tests -p 'test_*.py'
-          node --test tests/*.test.cjs
-          python3 scripts/build_operating_modules.py --check
-          python3 scripts/check_publication.py
-          python3 scripts/build_distribution.py --check-source
-
       - name: Recreate and verify pinned browser dependencies
         run: bash scripts/prepare_distribution_vendor.sh .distribution-vendor
 

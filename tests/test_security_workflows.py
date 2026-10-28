@@ -24,13 +24,36 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("name: Publication Check", text)
 
 
-    def test_clean_install_fetches_immutable_pr_base_before_safety_checks(self):
+    def test_clean_install_does_not_fetch_parser_test_base(self):
         workflow = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
-        fetch_step = "Fetch immutable PR base for parser epoch checks"
-        safety_step = "Run repository safety checks"
-        self.assertLess(workflow.index(fetch_step), workflow.index(safety_step))
-        self.assertIn('git fetch --no-tags --depth=1 origin "$BASE_SHA"', workflow)
-        self.assertIn('git cat-file -e "$BASE_SHA^{commit}"', workflow)
+        self.assertNotIn("Fetch immutable PR base for parser epoch checks", workflow)
+        self.assertNotIn("LEARNED_PARSER_BASE_SHA", workflow)
+
+
+    def test_clean_install_proof_does_not_repeat_publication_suites(self):
+        publication = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
+        clean_install = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
+        duplicated_commands = (
+            "python3 -m unittest discover -s tests -p 'test_*.py'",
+            "node --test tests/*.test.cjs",
+            "python3 scripts/build_operating_modules.py --check",
+            "python3 scripts/check_publication.py",
+            "python3 scripts/build_distribution.py --check-source",
+        )
+        for command in duplicated_commands:
+            with self.subTest(command=command):
+                self.assertIn(command, publication)
+                self.assertNotIn(command, clean_install)
+        self.assertNotIn("Run repository safety checks", clean_install)
+        for proof_step in (
+            "Recreate and verify pinned browser dependencies",
+            "Build twice and prove deterministic output",
+            "Smoke-test extracted file application",
+            "Prove 16:9 TV layouts and seven-slide rotation with synthetic data",
+            "Install the verified Beta package and launch its runtime",
+        ):
+            with self.subTest(proof_step=proof_step):
+                self.assertIn(proof_step, clean_install)
 
 
     def test_ci_attribution_guard_blocks_misleading_trailer_only_in_new_commits(self):
