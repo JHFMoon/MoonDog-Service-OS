@@ -140,6 +140,7 @@ jobs:
         shell: bash
         env:
           APP_TOKEN: ${{ steps.release-app.outputs.token }}
+          GH_TOKEN: ${{ steps.release-app.outputs.token }}
           APP_SLUG: ${{ steps.release-app.outputs.app-slug }}
           PACKAGE_BOT_LOGIN: ${{ vars.MOONDOG_RELEASE_APP_LOGIN }}
         run: |
