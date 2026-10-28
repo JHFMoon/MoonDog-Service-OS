@@ -1304,7 +1304,7 @@
       if (pendingAdapter && pendingAdapter.schemaVersion !== 1) throw new Error("The protected local source adapter is invalid.");
     } catch (error) { model.root = previousRoot; model.applicationRoot = previousNativeRoot; connectedNativeRoot = previousNativeRoot; throw error; }
     connectedNativeRoot = handle;
-    model.pendingRoot = null; try { await rememberRoot(handle); } catch (_) { /* Manual folder reconnection remains available without browser storage. */ } await initializeFolders(); await recordDiagnostic("APPLICATION", `Service Operations Dashboard ${VERSION} connected; recent diagnostics rotated`);
+    try { await rememberRoot(handle); } catch (_) { /* Manual folder reconnection remains available without browser storage. */ } await initializeFolders(); await recordDiagnostic("APPLICATION", `Service Operations Dashboard ${VERSION} connected; recent diagnostics rotated`);
     const connectionReadSpecs = [
       [STATE_PATH, model.state],
       [APPOINTMENTS_PATH, model.appointments],
@@ -1376,6 +1376,8 @@
     ui.homeConnect.hidden = true; openSetupIfRequired();
     ["scanFiles", "refreshAppointmentFiles", "refreshPerformanceFiles", "pinMeetingVoice", "clearMeetingVoice"].forEach((id) => { if (ui[id]) ui[id].disabled = false; });
     await postConnectReconciliation(permissionWasPending);
+    // Keep the saved handle available to bounded recovery until every authoritative connection read and reconciliation succeeds.
+    model.pendingRoot = null;
     // Show usable Home immediately. Report scans and archive maintenance do not
     // need to block the first frame; keep them ordered to avoid concurrent writes.
     renderAll(); renderRecovery(); openSetupIfRequired(); startFolderWatch();
