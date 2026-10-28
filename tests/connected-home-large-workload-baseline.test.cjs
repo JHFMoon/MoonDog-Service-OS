@@ -53,6 +53,8 @@ function makeHarness(count) {
     isClosedManagement: management => management?.status === "closed",
     renderOverviewIntelligence: () => { calls.overview += 1; },
     renderDailyFocus: () => { calls.daily += 1; },
+    renderOverviewPanelsIfNeeded: () => {},
+    renderDailyFocusIfNeeded: () => {},
     renderFilters: () => { calls.filters += 1; },
     renderTable: () => {},
     renderArrivals: () => {},
