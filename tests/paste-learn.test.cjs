@@ -36,6 +36,23 @@ test("Recognizes CDK via verified header and does not guess unrelated source",()
  assert.equal(e.detectFormat(rows(1)).sourceId,"cdk-repair-orders");
  assert.equal(e.detectFormat("Employee note about an RO").status,"unknown");
 });
+test("Private declarative Menu Sales layouts map required fields and keep grouping non-executable",()=>{
+ const e=engine(),columns={
+   account:"Dealer Account",advisorCode:"Advisor #",advisor:"Advisor Name",ros:"Repair Order Count",
+   presented:"Presentation Rate",sold:"Menu Sold",penetration:"Penetration Rate",menu:"Menu Revenue",
+   total:"Total Revenue",perMenu:"Revenue Per Menu",hours:"Hours Per Menu"
+ };
+ const first=e.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,columns});
+ assert.equal(first.grouping,"account-summary-advisor-rows");
+ assert.equal(first.writeEnabled,false);assert.equal(first.approved,true);assert.equal(first.version,1);
+ assert.throws(()=>e.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,columns:{...columns,hours:"Total Revenue"}}),/different source column/);
+ assert.throws(()=>e.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,columns:{...columns,hours:""}}),/Map every required/);
+ assert.throws(()=>e.safeReportLayout({family:"unsupported",sheetName:"Menu Results",headerRow:2,columns}),/supported report family/);
+ const next=e.safeReportLayout({...first,columns:{...columns,advisor:"Advisor Display"}},[first]);
+ assert.equal(next.version,2);assert.equal(next.previous.version,1);
+ assert.equal(next.grouping,"account-summary-advisor-rows");
+ assert.equal(next.writeEnabled,false);
+});
 test("Teaches table headers and field mappings as a versioned non-writing rule",()=>{
  const e=engine(),headers=["RO Number","Next Status","Technician"];
  const first=e.safeRule({name:"Fleet Status",headers,fields:{ro:"RO Number",status:"Next Status"}});
