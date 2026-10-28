@@ -135,7 +135,9 @@ jobs:
           private-key: ${{ secrets.MOONDOG_RELEASE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
-          permission-contents: write
+          permission-actions: read
+          permission-checks: read
+          permission-contents: read
           permission-issues: write
           permission-pull-requests: write
 
