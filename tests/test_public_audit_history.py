@@ -98,6 +98,11 @@ class RedactedHistoryAuditTests(unittest.TestCase):
         finally:
             td.cleanup()
 
+    def test_only_the_reviewed_paste_learn_history_blob_is_vetted(self):
+        source = HISTORY_AUDIT.read_text(encoding="utf-8")
+        self.assertIn('"2a648b89e1b93448ea9909593763f9874441ae0f"', source)
+        self.assertIn('approved_synthetic_vin_blob=oid in VETTED_SYNTHETIC_VIN_BLOB_SHA1', source)
+
     def test_new_synthetic_vin_blob_still_fails_closed(self):
         """A freshly created valid-looking VIN must not inherit historical exceptions."""
         from importlib.util import module_from_spec, spec_from_file_location

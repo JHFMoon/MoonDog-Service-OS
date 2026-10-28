@@ -57,6 +57,15 @@ function fixture(mode = "verified") {
   return { run: () => ctx.importMenuSalesFile("synthetic-menu-sales.xlsx", true), model, old, snapshot, events, saved: () => persisted };
 }
 
+test("Menu parser upgrades do not make an identical previously saved report conflict",async()=>{
+  const f=fixture();
+  f.model.operationalMetrics.menu.snapshots["2026-10-19"].validation.parser="menu-sales-v2-store-identity";
+  f.snapshot.validation.parser="menu-sales-v3-local-layout-store-identity";
+  await f.run();
+  assert.equal(f.saved().menu.snapshots["2026-10-19"].validation.parser,"menu-sales-v3-local-layout-store-identity");
+  assert.deepEqual(f.model.operationalMetrics.menu.snapshots["2026-10-19"],f.snapshot);
+  assert.deepEqual(f.events,["write","readback","history","delete-source","history","render"]);
+});
 test("actual Menu Sales importer deletes source only after exact durable read-back", async () => {
   const f = fixture();
   await f.run();

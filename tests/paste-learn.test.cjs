@@ -1,6 +1,19 @@
 "use strict";
 const test=require("node:test"),assert=require("node:assert/strict"),vm=require("node:vm"),fs=require("node:fs"),path=require("node:path");
 const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+const SYNTHETIC_VIN=(()=>{
+ const values={};"0123456789".split("").forEach((char,index)=>values[char]=index);
+ "ABCDEFGH".split("").forEach((char,index)=>values[char]=index+1);
+ ["JKLMNPR","STUVWXYZ"].forEach((letters,set)=>letters.split("").forEach((char,index)=>
+   values[char]=(set?[2,3,4,5,6,7,8,9]:[1,2,3,4,5,7,9])[index]));
+ const chars=Array.from({length:17},(_,index)=>"0123456789ABCDEFGHJKLMNPRSTUVWXYZ"[(index*11+7)%33]);
+ chars[8]="0";
+ const weights=[8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+ const total=chars.reduce((sum,char,index)=>sum+values[char]*weights[index],0);
+ chars[8]=total%11===10?"X":String(total%11);
+ return chars.join("");
+})();
+
 const moduleBegin=app.indexOf("/* MoonDog Paste & Learn — inert");
 const moduleEnd=app.indexOf("})(globalThis);",moduleBegin);
 assert.ok(moduleBegin>=0&&moduleEnd>moduleBegin,"embedded engine must remain in rollback-safe app.js");
@@ -22,7 +35,7 @@ function cdkHarness(){
 }
 function rows(count,headCount=count){
  const lines=["CDK","Repair Orders","RO #","All: "+headCount+" Open: "+headCount+" Working: 0 On Hold: 0 Closed: 0"];
- for(let i=0;i<count;i++)lines.push(String(900000+i),"Open","Synthetic Customer","1HGBH41JXMN109186",
+ for(let i=0;i<count;i++)lines.push(String(900000+i),"Open","Synthetic Customer",SYNTHETIC_VIN,
    "2022 Jeep Synthetic","TAG"+i,"110","225","10/12/2026","08:30 AM","10/13/2026","09:00 AM","[C] Synthetic Operation");
  return lines.join("\n");
 }
@@ -35,6 +48,23 @@ test("Recognizes CDK via verified header and does not guess unrelated source",()
  const e=engine();
  assert.equal(e.detectFormat(rows(1)).sourceId,"cdk-repair-orders");
  assert.equal(e.detectFormat("Employee note about an RO").status,"unknown");
+});
+test("Private declarative Menu Sales layouts map required fields and keep grouping non-executable",()=>{
+ const e=engine(),columns={
+   account:"Dealer Account",advisorCode:"Advisor #",advisor:"Advisor Name",ros:"Repair Order Count",
+   presented:"Presentation Rate",sold:"Menu Sold",penetration:"Penetration Rate",menu:"Menu Revenue",
+   total:"Total Revenue",perMenu:"Revenue Per Menu",hours:"Hours Per Menu"
+ };
+ const first=e.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,columns});
+ assert.equal(first.grouping,"account-summary-advisor-rows");
+ assert.equal(first.writeEnabled,false);assert.equal(first.approved,true);assert.equal(first.version,1);
+ assert.throws(()=>e.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,columns:{...columns,hours:"Total Revenue"}}),/different source column/);
+ assert.throws(()=>e.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,columns:{...columns,hours:""}}),/Map every required/);
+ assert.throws(()=>e.safeReportLayout({family:"unsupported",sheetName:"Menu Results",headerRow:2,columns}),/supported report family/);
+ const next=e.safeReportLayout({...first,columns:{...columns,advisor:"Advisor Display"}},[first]);
+ assert.equal(next.version,2);assert.equal(next.previous.version,1);
+ assert.equal(next.grouping,"account-summary-advisor-rows");
+ assert.equal(next.writeEnabled,false);
 });
 test("Teaches table headers and field mappings as a versioned non-writing rule",()=>{
  const e=engine(),headers=["RO Number","Next Status","Technician"];
@@ -64,7 +94,7 @@ test("Strict DOCX parser still reconciles all rows; partial clipboard copy remai
  assert.throws(()=>h.strict(rows(1,300),"synthetic.docx"),/reconciliation failed/);
 });
 test("Malformed pasted RO is flagged, not silently dropped and declared importable",async()=>{
- const h=cdkHarness(),text=rows(2).replace("1HGBH41JXMN109186","NOT-A-VIN");
+ const h=cdkHarness(),text=rows(2).replace(SYNTHETIC_VIN,"NOT-A-VIN");
  const parsed=await h.partial(text);
  assert.equal(parsed.records.length,1);assert.equal(parsed.issues.length,1);
 });
@@ -103,9 +133,9 @@ test("partial clipboard commit keeps missing active ROs and every manual managem
  const begin=app.indexOf("  async function commitPasteLearning("),end=app.indexOf("  async function savePasteLearningRule(",begin);
  const commit=app.slice(begin,end);
  const root={name:"Synthetic Workspace"},management={status:"Waiting Parts",owner:"Advisor",nextAction:"Order sensor",reviewDate:"2026-10-14",note:"Important management note"};
- const prior={id:"synthetic-one",ro:"123456",vin:"1HGBH41JXMN109186",customer:"Synthetic",
+ const prior={id:"synthetic-one",ro:"123456",vin:SYNTHETIC_VIN,customer:"Synthetic",
    sourceStatus:"Pending",advisorCode:"110",management};
- const missing={id:"synthetic-two",ro:"123457",vin:"1HGBH41JXMN109186",
+ const missing={id:"synthetic-two",ro:"123457",vin:SYNTHETIC_VIN,
    management:{status:"Waiting Approval",nextAction:"Follow up"}};
  const incoming={...prior,sourceStatus:"Working",customer:"Synthetic",management:undefined};
  const model={root,state:{updatedAt:"before",records:[prior,missing],closedRecords:[],source:{fileName:"Verified Complete Snapshot",importedAt:"verified"}}};
@@ -158,7 +188,7 @@ test("can teach field mappings from key/value text without enabling operational 
 
 test("CDK compact summary and secondary Waiting stay separate from customer",async()=>{
  const h=cdkHarness();
- const sample=rows(1).replace("All: 1 Open: 1 Working: 0 On Hold: 0 Closed: 0","All: 1Open: 1Working: 0On Hold: 0Closed: 0").replace("Synthetic Customer\n1HGBH41JXMN109186","Waiting\nSynthetic Customer\n1HGBH41JXMN109186");
+ const sample=rows(1).replace("All: 1 Open: 1 Working: 0 On Hold: 0 Closed: 0","All: 1Open: 1Working: 0On Hold: 0Closed: 0").replace(`Synthetic Customer\n${SYNTHETIC_VIN}`,`Waiting\nSynthetic Customer\n${SYNTHETIC_VIN}`);
  const parsed=await h.partial(sample);
  assert.equal(parsed.summary?.all,1);
  assert.equal(parsed.records.length,1);
@@ -168,8 +198,8 @@ test("CDK compact summary and secondary Waiting stay separate from customer",asy
 test("Five invalid VIN blocks are quarantined while one verified record stays eligible",async()=>{
  const h=cdkHarness();
  const source=rows(6).replace("All: 6 Open: 6 Working: 0 On Hold: 0 Closed: 0","All: 6Open: 6Working: 0On Hold: 0Closed: 0");
- const parts=source.split("1HGBH41JXMN109186");
- const mixed=parts.map((part,i)=>part+(i<5?"1HGBH41JXMN109":i===5?"1HGBH41JXMN109186":"")).join("");
+ const parts=source.split(SYNTHETIC_VIN);
+ const mixed=parts.map((part,i)=>part+(i<5?SYNTHETIC_VIN.slice(0,14):i===5?SYNTHETIC_VIN:"")).join("");
  const parsed=await h.partial(mixed);
  assert.equal(parsed.validation.recordStarts,6);
  assert.equal(parsed.records.length,1);
@@ -191,7 +221,7 @@ test("Clipboard commit classifies unchanged rows using the same verified diff as
 
 test("Invalid source records are not mislabeled as missing clipboard coverage",async()=>{
  const h=cdkHarness();
- const source=rows(2).replace("1HGBH41JXMN109186","INVALID-VIN");
+ const source=rows(2).replace(SYNTHETIC_VIN,"INVALID-VIN");
  const parsed=await h.partial(source);
  assert.equal(parsed.validation.recordStarts,2);
  assert.equal(parsed.records.length,1);
