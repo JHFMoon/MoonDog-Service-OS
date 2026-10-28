@@ -55,6 +55,7 @@ function fixture(rows) {
       closedCount: 0,
       reopenedCount: 0
     }),
+    markOpenRoManualReviewComplete: async () => false,
     markSupervisorWorkbookStale: async () => writes.push("stale"),
     backupState: async () => writes.push("backup"),
     writeBytes: async () => writes.push("raw-copy"),

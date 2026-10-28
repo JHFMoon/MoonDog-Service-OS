@@ -90,10 +90,22 @@
             "tests/source-lineage-ui-reporting.test.cjs"
           ]
         },
-        "60-11": null,
-        "60-12": null
+        "60-11": {
+          "kind": "runtime",
+          "pr": 564,
+          "tests": [
+            "tests/open-ro-reported-technician-context.test.cjs"
+          ]
+        },
+        "60-12": {
+          "kind": "test",
+          "pr": 566,
+          "tests": [
+            "tests/ux-reconnect-interrupted-save-task-evidence.test.cjs"
+          ]
+        }
       },
-      "package_pr": 563
+      "package_pr": 565
     },
     "61": {
       "criteria": {
