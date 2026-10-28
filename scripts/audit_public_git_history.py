@@ -71,6 +71,8 @@ VETTED_SYNTHETIC_VIN_BLOB_SHA1 = frozenset({
     "b1e6d7b6de41481160dfb54c8b4222c0476dc1a2",
     "bbb2b16de4b66c6efe0b5e9417a3ab96ca5962cd",
     "c725dce8e13b38a548594a1c5ce3b3ace379ee44",
+    # Exact historical test blob: added layout tests reused only the previously vetted synthetic fixture values from main blob 795d7744bfbd898b8a90bfb260d79f9475be0c6a.
+    "2a648b89e1b93448ea9909593763f9874441ae0f",
 })
 counts = collections.Counter()
 safe_counts = collections.Counter()
