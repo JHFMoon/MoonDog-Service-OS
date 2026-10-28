@@ -166,7 +166,7 @@ test("deferred production refresh wrapper follows owner-view navigation and resp
     renderOverviewPanelsIfNeeded(value){if(value)calls.overview++;},
     renderDailyFocusIfNeeded(value){if(value)calls.daily++;}
   };
-  const wrapper=vm.runInNewContext(app.slice(start,end)+"\\n({navigateTo})",context);
+  const wrapper=vm.runInNewContext(app.slice(start,end)+"\n({navigateTo})",context);
   assert.equal(wrapper.navigateTo("overview"),"navigated");
   assert.deepEqual(calls,{overview:1,daily:0});
   assert.equal(wrapper.navigateTo("open-ro"),"navigated");
