@@ -131,7 +131,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("pull_request_review:", merge)
         self.assertIn("push:", merge)
         self.assertIn("branches: [main]", merge)
-        self.assertIn("types: [opened, reopened, synchronize, ready_for_review, edited, closed]", merge)
+        self.assertIn("types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited, closed]", merge)
         self.assertIn("github.event.pull_request.merged == false", merge)
         self.assertIn("advance-beta-queue:", merge)
         self.assertIn("beta-release-queue-${{ github.repository }}", merge)
@@ -259,6 +259,17 @@ class SecurityWorkflowTests(unittest.TestCase):
         section = section.split("      - name: Build the Beta candidate with trusted code", 1)[0]
         self.assertIn("PYTHONPATH=trusted python3 - <<'PY'", section)
         self.assertIn('load_policy("trusted/.github/guarded-merge-policy.json")', section)
+
+
+    def test_draft_conversion_releases_beta_reservation_to_next_runtime_pr(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        trigger = merge.split("  pull_request_target:", 1)[1].split("  issue_comment:", 1)[0]
+        queue = merge.split("  advance-beta-queue:", 1)[1]
+        queue = queue.split("\n  jobs:", 1)[0] if "\n  jobs:" in queue else queue
+        self.assertIn("converted_to_draft", trigger)
+        self.assertIn("github.event.action == 'converted_to_draft'", queue)
+        self.assertIn("select_next_runtime_pr", queue)
+        self.assertIn("edited", trigger)
 
 if __name__ == "__main__":
     unittest.main()
