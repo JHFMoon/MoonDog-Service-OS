@@ -382,7 +382,12 @@ jobs:
           echo "Protected merge verified at $MERGED_SHA. App-authenticated merge will trigger main push verification."
 
   advance-beta-queue:
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request_target' && github.event.action == 'closed' && (github.event.pull_request.merged == false || github.event.action == 'converted_to_draft'))
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request_target' &&
+       ((github.event.action == 'closed' &&
+         github.event.pull_request.merged == false) ||
+        github.event.action == 'converted_to_draft'))
     runs-on: ubuntu-latest
     concurrency:
       group: beta-release-queue-${{ github.repository }}
