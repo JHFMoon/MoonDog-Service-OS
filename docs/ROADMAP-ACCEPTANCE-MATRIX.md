@@ -8,7 +8,7 @@ This section is the authoritative live snapshot; older dated snapshots below are
 - Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; unchanged.
 - Protect Main ruleset #24665513 is active, with required PRs, strict required Publication Check from Actions app 15368, and deletion/non-fast-forward restrictions. No bypass actors.
 - Closed merged work: #566 (merge `79593f9553f2ab85844e7429190cc6b5f82b12da`), #567 (`0ca73b3c75f60f052919a4972b77544ae83e2fb4`), #570 (`d3689941fc63ebdb1a2134f9e881ad3b9d501c70`), #589 (`3e598e62a1d2eaa38a19bc18eba0100e65535c6e`), and #591 (`45303afa248212b77f25c5ad024f8fb406e284c2`). Issue #60 was closed by verified closure run #40696274472.
-- Open parent issues: #58, #59, #61, #571. #212 remains deferred; #164 and #60 are closed. PR #590 is the only open PR.
+- Open parent issues: #58, #59, #61, #571. #212 remains deferred; #164 and #60 are closed. Open PRs are #590 (performance) and #592 (this documentation refresh); exact-head gates for #592 run after this documentation update.
 
 ### Current work and evidence
 - PR #590 advances #58-03 at exact head `30a1289f2a7e0566338a0432af64d5525d86d661`, based on current main. It defers Store Overview and Open RO Daily Focus rendering independently by their owning view and refreshes each on activation. The synthetic render and navigation tests now cover owner-view updates, hidden invalidation, same-day reuse, date rollover, cancellation, helper boundaries, and stubbed renderAll extraction harnesses.
