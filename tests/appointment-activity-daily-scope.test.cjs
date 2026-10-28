@@ -3,7 +3,14 @@ const test=require("node:test"),assert=require("node:assert/strict");
 const fs=require("node:fs"),vm=require("node:vm"),path=require("node:path");
 const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
 function source(start,end){const a=app.indexOf(start),b=app.indexOf(end,a+start.length);assert.ok(a>=0&&b>a,start);return app.slice(a,b);}
-const parser=source("  function parseAppointmentActivityWorkbook(","  function normalizedPerson(");
+const layoutStart=app.indexOf("  function matchingAppointmentActivityReportLayout(");
+const layoutEnd=app.indexOf("  function normalizedPerson(",layoutStart);
+assert.ok(layoutStart>=0&&layoutEnd>layoutStart,"production appointment layout code exists");
+const parser=app.slice(layoutStart,layoutEnd);
+const rulesStart=app.indexOf("  function localReportLayoutRules()");
+const rulesEnd=app.indexOf("  async function saveLocalReportLayout(",rulesStart);
+assert.ok(rulesStart>=0&&rulesEnd>rulesStart,"production private layout rules accessor exists");
+const layoutRules=app.slice(rulesStart,rulesEnd);
 const importer=source("  async function importManagerSource(","  async function classifyImportFile(");
 const comparator=source("  function comparableManagerSnapshot(","  async function importManagerSource(");
 const columns=["S. No.","Store Code","Store Name","ASD Market","ASD","Interaction","Customer No.",
@@ -29,7 +36,12 @@ function fixture(rows,opts={}){
     localDateKey:()=>opts.localDate||"2026-10-20",
     isoCell:v=>typeof v==="string"&&/^20\d{2}-\d{2}-\d{2}$/.test(v)?v:"",
     reportStoreCode:()=>"9001",
-    workbookGrid:()=>({rows:opts.workbookRows||sourceRows}),
+    XLSX:{utils:{sheet_to_json:sheet=>sheet.rows}},
+    workbookGrid:(_bytes,preferred)=>{
+      const book=opts.book||{SheetNames:["Merged"],Sheets:{Merged:{rows:opts.workbookRows||sourceRows}}};
+      const sheet=book.Sheets[preferred]||book.Sheets[book.SheetNames[0]];
+      return{book,rows:sheet.rows};
+    },
     model,
     structuredClone,
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
@@ -47,13 +59,55 @@ function fixture(rows,opts={}){
     addHistory:async()=>{},
     removeSourceEntry:async name=>removedSources.push(name)
   };
-  vm.runInNewContext(parser+comparator+importer,ctx);
+  const layoutBegin=app.indexOf("/* MoonDog Paste & Learn — inert");
+  const layoutFinish=app.indexOf("})(globalThis);",layoutBegin);
+  assert.ok(layoutBegin>=0&&layoutFinish>layoutBegin,"production declarative layout validator exists");
+  const layoutEngine=app.slice(layoutBegin,layoutFinish+"))(globalThis);".length);
+  vm.runInNewContext(layoutEngine+parser+layoutRules+comparator+importer,ctx);
   return{parse:()=>ctx.parseAppointmentActivityWorkbook([],"synthetic-appointments.xlsx"),
     import:(deleteAfterSuccess=false,name="synthetic-appointments.xlsx")=>ctx.importManagerSource(name,"appointment-activity",[],deleteAfterSuccess),
     importSor:(deleteAfterSuccess=false,name="synthetic-sor.xlsx")=>ctx.importManagerSource(name,"sor",[],deleteAfterSuccess),
     setSorSnapshot(value){opts.sorSnapshot=value;},setLastModified(value){opts.lastModified=value;},
     setRows(rows){sourceRows.splice(0,sourceRows.length,columns,...rows);},setDurable(value){durable=value;},removed:()=>removedSources.slice(),ctx,model,durable:()=>durable};
 }
+test("private Appointment Activity layout maps a renamed sheet, header row, aliases and reordered columns through the production parser",async()=>{
+  const headers=["Narrative","Activity Date","Store","Scheduled Time","Created","Interaction Type","Appointment Day","Private Customer"];
+  const rows=[
+    ["Synthetic context","2026-10-20","9001","9:00 AM",46310,"SERVICE_REMINDER",46312,"Synthetic customer must not persist"],
+    ["Synthetic context","2026-10-20","1002","10:00 AM",46311,"SERVICE_REMINDER",46311,"Synthetic other store"]
+  ];
+  const book={SheetNames:["Daily Activity Export"],Sheets:{"Daily Activity Export":{rows:[
+    ["Synthetic Appointment Activity export"],headers,...rows
+  ]}}};
+  const f=fixture([], {book}),engine=f.ctx.MoonDogPasteLearn;
+  const rule=engine.safeReportLayout({family:"appointment-activity",sheetName:"Daily Activity Export",headerRow:1,
+    columns:{storeCode:"Store",interaction:"Interaction Type",contactedDate:"Activity Date",
+      apptCreationDate:"Created",apptSetDate:"Appointment Day",apptTime:"Scheduled Time"}},[]);
+  f.model.settings.future={reportLayoutRules:[rule]};
+  const preview=f.parse();
+  assert.equal(preview.storeCode,"9001");
+  assert.equal(preview.rowCount,1);
+  assert.equal(preview.dailyCounts["2026-10-20"].rowCount,1);
+  assert.equal(preview.leadTimeBuckets.days1to7,1);
+  assert.doesNotMatch(JSON.stringify(preview),/Synthetic customer|Synthetic context/);
+  await f.import();
+  assert.equal(Object.values(f.durable().appointmentActivity.snapshots)[0].rowCount,1,
+    "saved local mapping is used by the regular production import route");
+  assert.doesNotMatch(JSON.stringify(f.durable()),/Synthetic customer|Synthetic context/);
+});
+test("multiple matching private Appointment Activity layouts fail closed",()=>{
+  const rows=[["Store","Type","Contact Date","Created","Appointment","Time"],
+    ["9001","SERVICE_REMINDER","2026-10-20",46310,46310,"9:00 AM"],
+    ["1002","SERVICE_REMINDER","2026-10-20",46311,46311,"10:00 AM"]];
+  const book={SheetNames:["First","Second"],Sheets:{First:{rows},Second:{rows}}};
+  const f=fixture([], {book}),engine=f.ctx.MoonDogPasteLearn;
+  const fields={storeCode:"Store",interaction:"Type",contactedDate:"Contact Date",
+    apptCreationDate:"Created",apptSetDate:"Appointment",apptTime:"Time"};
+  const one=engine.safeReportLayout({family:"appointment-activity",sheetName:"First",headerRow:0,columns:fields},[]);
+  const two=engine.safeReportLayout({family:"appointment-activity",sheetName:"Second",headerRow:0,columns:fields},[one]);
+  f.model.settings.future={reportLayoutRules:[one,two]};
+  assert.throws(()=>f.parse(),/more than one local Appointment Activity layout/);
+});
 test("vendor serial dates and ISO dates produce separate verified store days",()=>{
   const d1=serialDate(46310),d2=serialDate(46312);
   const f=fixture([
