@@ -119,6 +119,14 @@ These records may still need to be kept in the company's normal claims, risk, ac
 
 A known supported source must be ingested and removed after durable verification. A known non-service source must be identified and retired. Once this registry knows a file family, that family should not continue accumulating in Files To Learn.
 
+## Private local layout learning
+
+Files To Learn can teach a **known supplemental Trade AR layout** without adding an application release. The manager selects the worksheet, header row, and one-to-one mapping for the required Trade AR fields. The local production parser previews and validates the mapping before the declarative rule can be saved or the retained file retried.
+
+The saved rule contains only a supported family identifier, worksheet/header coordinates, and field-to-header names in the connected Workspace's local settings. It contains no workbook rows or customer/invoice values and cannot execute code. Trade AR validation remains strict: configured-store identity, unique invoice identity, valid dates, explicit money/aging formats, percentage-format rejection, aggregate-only output, durable read-back, and source retention on failure remain in force. This family remains supplemental and cannot authorize Open RO roster replacement.
+
+This is an initial supported-family implementation. Other known families and grouped variations continue to use their reviewed built-in parsers until their own declarative mapping and validation profiles exist. Unknown business meaning still requires a reviewed software adapter; local teaching changes layout only.
+
 ## Data boundary
 
 Source reports remain local. The public repository contains only generic parser / classifier logic, tests, schemas, and documentation. It must not contain dealership report files, customer records, employee records, repair orders, VINs, report snapshots, or local operational state.
