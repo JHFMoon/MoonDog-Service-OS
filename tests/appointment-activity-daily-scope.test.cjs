@@ -45,7 +45,9 @@ function fixture(rows,opts={}){
     model,
     structuredClone,
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
-    sourceFileHandle:async()=>({getFile:async()=>({lastModified:opts.lastModified??Date.UTC(2026,9,20)})}),
+    sourceFileHandle:async()=>({getFile:async()=>({lastModified:opts.lastModified??Date.UTC(2026,9,20),arrayBuffer:async()=>new Uint8Array([1]).buffer})}),
+    sameByteContent:(left,right)=>Array.from(new Uint8Array(left)).join(",")===Array.from(new Uint8Array(right)).join(","),
+    sourceLocations:new Map(),xlsxSourceDeleteGuards:new Map(),
     parseSorWorkbook:()=>opts.sorSnapshot?structuredClone(opts.sorSnapshot):null,parseEfficiencyWorkbook:()=>null,
     parseMediaAsrAdvisorWorkbook:()=>null,parseMediaAsrTechWorkbook:()=>null,
     parseOpenRoSummaryWorkbook:()=>null,
@@ -57,14 +59,17 @@ function fixture(rows,opts={}){
     writeJson:async(_path,value)=>{durable=structuredClone(value);},
     readJson:async()=>structuredClone(durable),
     addHistory:async()=>{},
-    removeSourceEntry:async name=>removedSources.push(name)
+    removeSourceEntry:async name=>removedSources.push(name),
+    ensurePreviousMonthSummary:async()=>{},renderAll:()=>{}
   };
   const layoutBegin=app.indexOf("/* MoonDog Paste & Learn — inert");
   const layoutFinish=app.indexOf("})(globalThis);",layoutBegin);
   assert.ok(layoutBegin>=0&&layoutFinish>layoutBegin,"production declarative layout validator exists");
   const layoutEngine=app.slice(layoutBegin,layoutFinish+"))(globalThis);".length);
-  vm.runInNewContext(layoutEngine+parser+layoutRules+comparator+importer,ctx);
+  const dispatcher=source("  async function processClassifiedCandidate(","\n  async function reconcileLearnedFiles(");
+  vm.runInNewContext(layoutEngine+parser+layoutRules+comparator+importer+dispatcher,ctx);
   return{parse:()=>ctx.parseAppointmentActivityWorkbook([],"synthetic-appointments.xlsx"),
+    retry:rule=>ctx.processClassifiedCandidate({name:"synthetic-appointments.xlsx",location:"learn"},"appointment-activity",new Uint8Array([1]).buffer,false,rule),
     import:(deleteAfterSuccess=false,name="synthetic-appointments.xlsx")=>ctx.importManagerSource(name,"appointment-activity",[],deleteAfterSuccess),
     importSor:(deleteAfterSuccess=false,name="synthetic-sor.xlsx")=>ctx.importManagerSource(name,"sor",[],deleteAfterSuccess),
     setSorSnapshot(value){opts.sorSnapshot=value;},setLastModified(value){opts.lastModified=value;},
@@ -107,6 +112,10 @@ test("multiple matching private Appointment Activity layouts fail closed",()=>{
   const two=engine.safeReportLayout({family:"appointment-activity",sheetName:"Second",headerRow:0,columns:fields},[one]);
   f.model.settings.future={reportLayoutRules:[one,two]};
   assert.throws(()=>f.parse(),/more than one local Appointment Activity layout/);
+  await f.retry(one);
+  const saved=Object.values(f.durable().appointmentActivity.snapshots)[0];
+  assert.equal(saved.rowCount,1,"explicit retry imports the selected approved layout");
+  assert.equal(saved.periodStart,serialDate(46310));
 });
 test("vendor serial dates and ISO dates produce separate verified store days",()=>{
   const d1=serialDate(46310),d2=serialDate(46312);
