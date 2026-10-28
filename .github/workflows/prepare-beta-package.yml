@@ -133,7 +133,6 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
           permission-issues: write
-          permission-pull-requests: write
 
       - name: Push package commit to the same reviewed PR
         if: steps.commit.outputs.generated == 'true'
