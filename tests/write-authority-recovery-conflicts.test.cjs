@@ -27,6 +27,7 @@ function fixture(current=after,options={}){
   const prefix=options.physicalWorkspace?"System Files/Workspace/":"";
   const statePath=prefix+"data/state.json",journalPath=prefix+"data/.moondog-txn-synthetic.json",revisionPath=prefix+"data/store-revision.json";
   const files=new Map(),dirs=new Set(options.physicalWorkspace?["System Files","System Files/Workspace",prefix+"data"]:["data"]),actions=[];
+  let permissionState=options.permissionState||"granted",permissionRequests=0,transientReads=Number(options.transientReadFailures||0),revisionReads=0;
   if(current!==null)files.set(statePath,asBytes(current));
   const journal=options.journalFormat==="moondog-delete-v1"?
     {format:"moondog-delete-v1",target:statePath,kind:"file",before:[...before],revisionBefore:4}:
@@ -45,7 +46,8 @@ function fixture(current=after,options={}){
   }
   const directory=(prefix="")=>({
     kind:"directory",
-    queryPermission:async()=>"granted",
+    queryPermission:async()=>(permissionState),
+    requestPermission:async()=>{permissionRequests++;permissionState=options.permissionAfterRequest||"granted";return permissionState;},
     async getDirectoryHandle(name,{create=false}={}){
       const k=prefix?prefix+"/"+name:name;
       if(!dirs.has(k)){if(!create)throw missing();dirs.add(k);}
@@ -63,7 +65,7 @@ function fixture(current=after,options={}){
       }
       return {
         kind:"file",
-        async getFile(){const b=files.get(k);if(!b)throw missing();return{
+        async getFile(){if(k===revisionPath){revisionReads++;if(transientReads>0){transientReads--;throw Object.assign(Error("synthetic OneDrive busy"),{name:options.transientErrorName||"NotReadableError"});}}const b=files.get(k);if(!b)throw missing();return{
           text:async()=>new TextDecoder().decode(b),
           arrayBuffer:async()=>b.slice().buffer
         };},
@@ -106,21 +108,27 @@ function fixture(current=after,options={}){
     console:{warn(){}},setTimeout});
   const setup="const encoder=new TextEncoder();const REVISION="+JSON.stringify(revisionPath.split("/"))+";"+
     "const originals=new WeakMap();let localRestoreOwner=null,nativeRoot=null,loadedRevision=null,interruptedRecovery=false;"+
+    "let validationReason=\"NO_WORKSPACE\",validationGeneration=0,validationInFlight=null;"+
     "const WORKSPACE=['System Files','Workspace'];const testEnabled=false;"+
     "let editable=true;const transientValidationDelays=[0];"+
     "const sleep=async()=>{};const denied=()=>new Error('read only');"+
-    "const transientInterfaceState=()=>false;"+
-    "function setEditable(value){editable=value;}function setTransientValidation(_){};"+
+    "const transientInterfaceState=error=>[\"AbortError\",\"InvalidStateError\",\"NotReadableError\",\"UnknownError\",\"TimeoutError\"].includes(error?.name);"+
+    "function setEditable(value){editable=value;}function setTransientValidation(_){};function setValidationReason(value){validationReason=value;}"+
     "function protectedPath(_){return false;}function requireWrite(restoreId){if(interruptedRecovery){if(!localRestoreOwner||restoreId!==localRestoreOwner)throw denied();return;}if(!editable||localRestoreOwner&&restoreId!==localRestoreOwner)throw denied();}";
+  const root=directory();
   vm.runInContext(setup+"\n"+production+"\n"+validation+"\n"+mutation+
     "\nglobalThis.recoverPending=recoverPending;globalThis.validate=validate;"+
-    "globalThis.isEditable=()=>editable;globalThis.deleteTarget=journaledDelete;"+
+    "globalThis.isEditable=()=>editable;globalThis.reason=()=>validationReason;globalThis.deleteTarget=journaledDelete;"+
     "globalThis.createTarget=journaledCreate;globalThis.setRestoreOwner=id=>{localRestoreOwner=id;};",context);
   return{
     files,dirs,actions,journal,
-    recover:revision=>context.recoverPending(directory(),{schemaVersion:1,revision}),
-    validate:()=>context.validate(directory(),false),
+    recover:revision=>context.recoverPending(root,{schemaVersion:1,revision}),
+    validate:(ask=false)=>context.validate(root,ask),
     editable:()=>context.isEditable(),
+    reason:()=>context.reason(),
+    setPermission:value=>{permissionState=value;},
+    permissionRequests:()=>permissionRequests,
+    revisionReads:()=>revisionReads,
     current:()=>files.get(statePath),
     pending:()=>[...files.keys()].some(p=>p.startsWith(prefix+"data/.moondog-txn-")),
     deleteTarget:()=>context.deleteTarget(statePath),
@@ -391,4 +399,57 @@ test("currently owning restore session retains its scoped validation behavior",a
   assert.equal(f.pending(),false,"verified original journal is recovered by its still-running owner");
   assert.equal(f.files.has("System Files/Workspace/data/restore-in-progress.json"),true,
     "validation itself must never dismiss an active restore hold");
+});
+
+
+test("transient OneDrive read failures retry with bounded attempts and restore verified write authority",async()=>{
+  const f=fixture(before,{noInitialJournal:true,transientReadFailures:2});
+  assert.equal(await f.validate(),true);
+  assert.equal(f.reason(),"READY");
+  assert.equal(f.editable(),true);
+  assert.ok(f.revisionReads()>=3,"validator should retry transient interface failures");
+  assert.equal(f.permissionRequests(),0,"background recovery must never prompt Edge");
+  assert.equal(f.pending(),false);
+});
+
+test("a saved folder handle after refresh or browser restart is revalidated without losing identity",async()=>{
+  const f=fixture(before,{noInitialJournal:true});
+  assert.equal(await f.validate(),true,"new page context may validate the persisted handle");
+  assert.equal(f.reason(),"READY");
+  assert.equal(f.permissionRequests(),0,"granted access does not require a user click");
+});
+
+test("lost browser permission remains a distinct hold and restoration reuses the same handle",async()=>{
+  const f=fixture(before,{noInitialJournal:true,permissionState:"prompt"});
+  assert.equal(await f.validate(),false);
+  assert.equal(f.reason(),"PERMISSION_REQUIRED");
+  assert.equal(f.permissionRequests(),0,"automatic validation must not call requestPermission");
+  f.setPermission("granted");
+  assert.equal(await f.validate(),true);
+  assert.equal(f.reason(),"READY");
+  assert.equal(f.permissionRequests(),0,"restored permission is detected without a prompt");
+});
+
+test("a real user-initiated permission recovery may ask Edge and then validate",async()=>{
+  const f=fixture(before,{noInitialJournal:true,permissionState:"prompt",permissionAfterRequest:"granted"});
+  assert.equal(await f.validate(true),true);
+  assert.equal(f.permissionRequests(),1);
+  assert.equal(f.reason(),"READY");
+});
+
+test("interrupted restore marker has its own read-only reason and is never cleared by validation",async()=>{
+  const f=fixture(before,{noInitialJournal:true,restoreMarker:true,physicalWorkspace:true});
+  assert.equal(await f.validate(),false);
+  assert.equal(f.reason(),"INTERRUPTED_RESTORE");
+  assert.equal(f.files.has("System Files/Workspace/data/restore-in-progress.json"),true);
+  assert.equal(f.editable(),false);
+});
+
+test("concurrent validation calls for one Workspace share the same bounded recovery operation",async()=>{
+  const f=fixture(before,{noInitialJournal:true,transientReadFailures:1});
+  const results=await Promise.all([f.validate(),f.validate(),f.validate()]);
+  assert.deepEqual(results,[true,true,true]);
+  assert.equal(f.reason(),"READY");
+  assert.equal(f.editable(),true);
+  assert.equal(f.permissionRequests(),0);
 });
