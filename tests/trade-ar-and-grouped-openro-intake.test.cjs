@@ -371,7 +371,7 @@ test("successful taught retry clears only the matching local failure record afte
 });
 
 test("layout validation locks controls and rejects a preview after its selection changes",async()=>{
-  const helper=section("  async function validatePreviewBoundLayout(","  async function persistPreviewBoundLayout(");
+  const helper=section("  async function validatePreviewBoundLayout(","  async function openTradeArLayoutTeaching(");
   let selection={sheetName:"Sheet A",headerRow:2,columns:{open:"Open A"}},release;
   const gate=new Promise(resolve=>{release=resolve;}),busy=[],published=[];
   const context={Error,JSON};
