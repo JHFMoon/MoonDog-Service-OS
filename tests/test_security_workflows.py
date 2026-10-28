@@ -272,5 +272,29 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("select_next_runtime_pr", queue)
         self.assertIn("edited", trigger)
 
+
+    def test_empty_beta_queue_skips_release_app_token(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        queue = merge.split("  advance-beta-queue:", 1)[1]
+        select = queue.split("      - name: Create scoped MoonDog release App token", 1)[0]
+        token = queue.split("      - name: Create scoped MoonDog release App token", 1)[1]
+        token = token.split("      - name: Advance selected runtime PR", 1)[0]
+        advance = queue.split("      - name: Advance selected runtime PR", 1)[1]
+        self.assertIn("permissions:", queue)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", select)
+        self.assertIn("has_candidate=false", select)
+        self.assertIn("id: candidate", select)
+        self.assertNotIn("create-github-app-token", select)
+        self.assertIn("if: steps.candidate.outputs.has_candidate == 'true'", token)
+        self.assertIn("if: steps.candidate.outputs.has_candidate == 'true'", advance)
+        self.assertIn("EXPECTED_HEAD:", advance)
+        self.assertIn("candidate changed after selection", advance)
+
+
+    def test_pr_file_list_jq_streams_each_array_object(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        self.assertEqual(merge.count(".[] | .filename, (.previous_filename // empty)"), 3)
+        self.assertNotIn("'.[].filename, (.previous_filename // empty)'", merge)
+
 if __name__ == "__main__":
     unittest.main()
