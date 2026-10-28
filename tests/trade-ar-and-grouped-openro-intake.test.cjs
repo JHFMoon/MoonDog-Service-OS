@@ -384,7 +384,7 @@ test("layout validation locks controls and rejects a preview after its selection
   assert.deepEqual(busy,[true],"mapping controls lock before file preparation yields");
   selection={sheetName:"Sheet B",headerRow:2,columns:{open:"Open B"}};
   release();
-  await assert.rejects(pending,error=>/selection changed while preview was running/i.test(String(error)));
+  await assert.rejects(pending,error=>/selected layout changed while preview was running/i.test(String(error)));
   assert.deepEqual(published,[],"obsolete preview cannot restore Save or Retry approval");
   assert.deepEqual(busy,[true,false],"controls unlock after stale preview is rejected");
   let publishedBeforeUnlock=false;
