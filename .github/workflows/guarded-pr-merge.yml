@@ -5,7 +5,7 @@ on:
     workflows: ["Publication check", "Clean Install Proof"]
     types: [completed]
   pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review, edited]
+    types: [opened, reopened, synchronize, ready_for_review, edited, closed]
   issue_comment:
     types: [created]
   pull_request_review:
@@ -382,7 +382,7 @@ jobs:
           echo "Protected merge verified at $MERGED_SHA. App-authenticated merge will trigger main push verification."
 
   advance-beta-queue:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request_target' && github.event.action == 'closed' && github.event.pull_request.merged == false)
     runs-on: ubuntu-latest
     concurrency:
       group: beta-release-queue-${{ github.repository }}
@@ -470,8 +470,8 @@ jobs:
               marker = f"<!-- moondog-beta-queue:{main} -->"
               if marker not in body:
                   import re
-                  body = re.sub(r"(?m)^<!-- moondog-beta-queue:[^>]+ -->\\s*\\n?", "", body).rstrip()
-                  body = (body + "\\n\\n" if body else "") + marker
+                  body = re.sub(r"(?m)^<!-- moondog-beta-queue:[^>]+ -->\s*\n?", "", body).rstrip()
+                  body = (body + "\n\n" if body else "") + marker
                   subprocess.run(
                       ["gh", "api", "-X", "PATCH", f"repos/{os.environ['REPO']}/pulls/{number}",
                        "-f", f"body={body}"],

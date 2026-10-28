@@ -17,7 +17,7 @@ class BetaPipelineTests(unittest.TestCase):
         self.assertIn("pull_request_target:", text)
         self.assertIn("group: prepare-beta-package-${{ github.repository }}", text)
         self.assertIn("cancel-in-progress: false", text)
-        self.assertIn("types: [opened, reopened, synchronize, ready_for_review]", text)
+        self.assertIn("types: [opened, reopened, synchronize, ready_for_review, edited]", text)
         self.assertIn("Check out trusted packaging logic from the reviewed base", text)
         self.assertIn("Check out candidate as untrusted data", text)
         self.assertIn("untrusted data", text)
@@ -109,10 +109,11 @@ class BetaPipelineTests(unittest.TestCase):
             )["number"],
             600,
         )
-        self.assertIsNone(
+        self.assertEqual(
             select_next_runtime_pr(
                 [newer], {601: newer_paths}, repository=REPO, package_bot_login="release[bot]", policy=policy
-            )
+            )["number"],
+            601,
         )
 
     def test_beta_reservation_ignores_docs_drafts_forks_and_protected_paths(self):
