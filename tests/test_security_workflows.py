@@ -265,11 +265,10 @@ class SecurityWorkflowTests(unittest.TestCase):
         merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
         trigger = merge.split("  pull_request_target:", 1)[1].split("  issue_comment:", 1)[0]
         queue = merge.split("  advance-beta-queue:", 1)[1]
-        queue = queue.split("\n  jobs:", 1)[0] if "\n  jobs:" in queue else queue
+        condition = queue.split("    runs-on:", 1)[0]
         self.assertIn("converted_to_draft", trigger)
-        self.assertIn("(github.event.pull_request.merged == false)", queue)
-        self.assertIn("github.event.action == 'converted_to_draft'", queue)
-        self.assertIn("||", queue)
+        self.assertIn("(github.event.pull_request.merged == false) ||", condition)
+        self.assertIn("github.event.action == 'converted_to_draft'))", condition)
         self.assertIn("select_next_runtime_pr", queue)
         self.assertIn("edited", trigger)
 
