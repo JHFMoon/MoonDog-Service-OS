@@ -20,6 +20,7 @@ class BetaPipelineTests(unittest.TestCase):
         self.assertIn("untrusted data", text)
         self.assertIn("scripts/build_beta_package.py", text)
         self.assertIn("Push package commit to the same reviewed PR", text)
+        self.assertIn("GH_TOKEN: ${{ steps.release-app.outputs.token }}", text)
         self.assertIn("actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42", text)
         self.assertIn('secrets.MOONDOG_RELEASE_APP_ID', text)
         self.assertIn('secrets.MOONDOG_RELEASE_APP_PRIVATE_KEY', text)
