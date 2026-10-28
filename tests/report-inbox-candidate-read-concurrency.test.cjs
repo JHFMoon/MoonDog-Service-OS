@@ -64,11 +64,12 @@ test("production inbox scan overlaps only two metadata reads and retains determi
   ];
 
   const { result } = await runWatch(inbox, root, metrics);
+  const candidates = Array.from(result);
   assert.equal(metrics.maxActive, 2, "the OneDrive read window stays bounded and removes serial-only waiting");
   assert.equal(metrics.active, 0);
-  assert.deepEqual(result.map(item => item.name), ["a.xlsx", "b.txt", "c.xlsx", "MoonDog advisor.xlsx"]);
-  assert.deepEqual(result.map(item => item.location), ["inbox", "inbox", "inbox", "root"]);
-  assert.deepEqual(result.map(item => item.signature), [
+  assert.deepEqual(candidates.map(item => item.name), ["a.xlsx", "b.txt", "c.xlsx", "MoonDog advisor.xlsx"]);
+  assert.deepEqual(candidates.map(item => item.location), ["inbox", "inbox", "inbox", "root"]);
+  assert.deepEqual(candidates.map(item => item.signature), [
     "01 - DROP REPORTS HERE/a.xlsx|10|1",
     "01 - DROP REPORTS HERE/b.txt|20|2",
     "01 - DROP REPORTS HERE/c.xlsx|30|3",
