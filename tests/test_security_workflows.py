@@ -222,5 +222,35 @@ class SecurityWorkflowTests(unittest.TestCase):
 
 
 
+
+    def test_stale_main_is_refreshed_before_package_parity_and_proof(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        app_token = merge.index("      - name: Create scoped MoonDog release App token")
+        refresh = merge.index("      - name: Additively refresh this PR if main advanced")
+        candidate = merge.index("      - name: Check out verified PR candidate as untrusted data")
+        stable = merge.index("      - name: Refuse Stable manifest changes")
+        parity = merge.index("      - name: Verify Beta package matches the exact PR runtime")
+        proof = merge.index("      - name: Evaluate exact-head Publication, Clean Install, and Codex proof")
+        self.assertLess(app_token, refresh)
+        self.assertLess(refresh, candidate)
+        self.assertLess(refresh, stable)
+        self.assertLess(refresh, parity)
+        self.assertLess(refresh, proof)
+
+        refresh_section = merge[refresh:merge.index("      - name:", refresh + 1)]
+        self.assertIn('repos/$REPO/pulls/$PR_NUMBER/update-branch', refresh_section)
+        self.assertIn('expected_head_sha="$HEAD_SHA"', refresh_section)
+        self.assertIn('echo "updated=true" >> "$GITHUB_OUTPUT"', refresh_section)
+
+        for step, next_step in (
+            ("      - name: Check out verified PR candidate as untrusted data", "      - name: Refuse Stable manifest changes"),
+            ("      - name: Refuse Stable manifest changes", "      - name: Verify Beta package matches the exact PR runtime"),
+            ("      - name: Verify Beta package matches the exact PR runtime", "      - name: Evaluate exact-head Publication, Clean Install, and Codex proof"),
+            ("      - name: Evaluate exact-head Publication, Clean Install, and Codex proof", "      - name: Squash merge verified current PR"),
+        ):
+            start = merge.index(step)
+            section = merge[start:merge.index(next_step, start + 1)]
+            self.assertIn("steps.current.outputs.updated != 'true'", section)
+
 if __name__ == "__main__":
     unittest.main()
