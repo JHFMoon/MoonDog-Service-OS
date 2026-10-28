@@ -86,7 +86,7 @@ test("UI surfaces have independent non-destructive visibility gates", () => {
   const homeUi={metricOpen:field(),metricDue:field(),metricMissing:field(),
     metricUpdated:field(),lastImport:field(),lastExport:field(),
     exportButton:{disabled:true}};
-  const homeHelpersStart=app.indexOf("  let overviewPanelsDirty = true;");
+  const homeHelpersStart=app.indexOf('  let overviewPanelsDirty = true, overviewPanelsRenderedDate = "";');
   assert.ok(homeHelpersStart>=0&&homeStart>homeHelpersStart,
     "production per-view dirty-state helpers are extracted from a verified boundary");
   const homeHelperSource=app.slice(homeHelpersStart,homeStart);
