@@ -385,4 +385,12 @@ test("layout preview is local, uses production Trade AR validation, saves mappin
   assert.match(app,/removeSourceEntryWithByteGuard\(source\.name,currentBytes/);
   assert.match(app,/assertTradeArLayoutSource\(previewBook,source\.name\)/);
   assert.match(app,/assertTradeArLayoutSource\(retryBook,source\.name\)/);
+  const retryHandlerAt=app.indexOf(`retry.addEventListener("click",()=>run(async()=>{`),
+    approvedAt=app.indexOf("const approvedRule=savedRule,approvedProof=previewProof",retryHandlerAt),
+    controlsLockedAt=app.indexOf("controls.forEach(control=>control.disabled=true)",retryHandlerAt),
+    firstAwaitAt=app.indexOf("await source.handle.getFile()",retryHandlerAt),
+    importedAt=app.indexOf("false,approvedRule)",retryHandlerAt);
+  assert.ok(retryHandlerAt>=0&&approvedAt>retryHandlerAt&&controlsLockedAt>approvedAt
+    &&firstAwaitAt>controlsLockedAt&&importedAt>firstAwaitAt,
+    "retry locks controls and carries the pre-await approved layout through persistence");
 });
