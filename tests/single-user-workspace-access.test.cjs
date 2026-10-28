@@ -126,7 +126,7 @@ test("automatic validation never runs through a pending transaction or interrupt
       window:{addEventListener(){}},document:{addEventListener(){},visibilityState:"visible"},
       setConnectionState(){},status(){},renderSetup(){},console
     };
-    vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.startRetry=scheduleAuthorityRevalidation;",context);
+    vm.runInNewContext(app.slice(start,end)+"\nglobalThis.startRetry=scheduleAuthorityRevalidation;",context);
     context.startRetry(context.connectedNativeRoot);
     assert.equal(timers.size,0,reason);
   }
@@ -147,7 +147,7 @@ test("page focus immediately revalidates a restored permission without requestin
     document:{addEventListener:(name,fn)=>listeners.document[name]=fn,visibilityState:"visible"},
     renderSetup(){},setConnectionState(){},status(){},console
   };
-  vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.startRetry=scheduleAuthorityRevalidation;",context);
+  vm.runInNewContext(app.slice(start,end)+"\nglobalThis.startRetry=scheduleAuthorityRevalidation;",context);
   context.startRetry(root);
   listeners.window.focus();
   assert.deepEqual(delays,[1200,0],"focus replaces the remaining backoff with an immediate query");
@@ -172,7 +172,7 @@ test("refresh and browser restart reuse the saved handle and query permission wi
     setConnectionState(){},recordDiagnostic:async()=>{},stopFolderWatch(){},
     writeAuthority:{disable(){}},transientWorkspaceState:()=>false,console
   };
-  vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.restore=restoreConnection;",context);
+  vm.runInNewContext(app.slice(start,end)+"\nglobalThis.restore=restoreConnection;",context);
   await context.restore();
   assert.equal(used,handle);
   assert.equal(ask,false);
@@ -201,7 +201,7 @@ test("saved-folder reconnection retries transient OneDrive failures with the sam
     setConnectionState:(state,message)=>connectionErrors.push({state,message}),
     navigateTo(){},run:async()=>{},connect:async()=>{permissionRequests++;},console
   };
-  vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.retry=scheduleSavedConnectionRetry;",context);
+  vm.runInNewContext(app.slice(start,end)+"\nglobalThis.retry=scheduleSavedConnectionRetry;",context);
   context.retry(handle);
   while(timers.size){const [id,fn]=timers.entries().next().value;timers.delete(id);await fn();}
   assert.equal(attempts,3);
@@ -228,7 +228,7 @@ test("saved-folder retries are bounded and preserve the handle after persistent 
     setConnectionState:(state,message)=>messages.push({state,message}),
     navigateTo(){},run:async()=>{},connect:async()=>{},console
   };
-  vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.retry=scheduleSavedConnectionRetry;",context);
+  vm.runInNewContext(app.slice(start,end)+"\nglobalThis.retry=scheduleSavedConnectionRetry;",context);
   context.retry(handle);
   while(timers.size){const [id,fn]=timers.entries().next().value;timers.delete(id);await fn();}
   assert.equal(attempts,5);
