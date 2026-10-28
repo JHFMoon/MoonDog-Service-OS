@@ -1440,7 +1440,13 @@
     if(!dailyUi?.confirmWorkspaceChange)throw new Error("Daily Operations is still initializing. Try changing folders again.");
     if(!dailyUi.confirmWorkspaceChange())return;
     if (!window.showDirectoryPicker) throw new Error("This Edge version does not support local folder access from this page.");
-    if (model.pendingRoot) { const pendingRoot=model.pendingRoot; setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(pendingRoot, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){writeAuthority.disable();model.pendingRoot=pendingRoot;if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;}setConnectionState(error?.name==="NotAllowedError"||error?.name==="SecurityError"?"PERMISSION REQUIRED":"CONNECTION ERROR", error?.name==="NotAllowedError"||error?.name==="SecurityError"?"FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder.":"The saved folder could not be fully read. Retry the connection after checking folder availability.");} throw error; } }
+    if (model.pendingRoot) { 
+      // An explicit Retry saved folder/Restore editing click starts a fresh bounded
+      // recovery window. A previously exhausted automatic budget must not prevent
+      // the next temporary OneDrive failure from receiving normal retry attempts.
+      if (savedConnectionRetryTimer) { clearTimeout(savedConnectionRetryTimer); savedConnectionRetryTimer = null; }
+      savedConnectionRetryAttempts = 0;
+      const pendingRoot=model.pendingRoot; setConnectionState("RESTORING SAVED CONNECTION", "Restoring access to the saved Service Operations Dashboard working folder…"); try { return await finishConnection(pendingRoot, true); } catch (error) { if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){writeAuthority.disable();model.pendingRoot=pendingRoot;if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;}setConnectionState(error?.name==="NotAllowedError"||error?.name==="SecurityError"?"PERMISSION REQUIRED":"CONNECTION ERROR", error?.name==="NotAllowedError"||error?.name==="SecurityError"?"FOLDER ACCESS REQUIRED · Your saved Service Operations Dashboard data remains in the working folder.":"The saved folder could not be fully read. Retry the connection after checking folder availability.");} throw error; } }
     const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "readwrite" });
     try { return await finishConnection(handle, true); } catch (error) {
       if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){
