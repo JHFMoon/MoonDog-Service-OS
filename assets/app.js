@@ -2527,7 +2527,7 @@
       "actual days open","status","invoice amount (usd)","amount received (usd)","open amount (usd)"];
     const builtInLayoutValid=canonical.every(heading=>builtInHeaders.filter(value=>value===heading).length===1);
     const learnedLayout=builtInLayoutValid?null:matchingTradeArReportLayout(book,layoutOverride);
-    const sheet=builtInSheet||learnedLayout?.sheet;
+    const sheet=learnedLayout?.sheet||builtInSheet;
     if(!sheet)return null;
     const rows=learnedLayout?.rows||builtInRows||XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true});
     const headerRow=learnedLayout?.headerRow||0;
@@ -5800,6 +5800,22 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     return [...grouped.entries()].map(([name, metadata]) => ({name, metadata})).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
   }
+  async function resolveLearnedFailureRecords(name,signature,kind){
+    const previous=structuredClone(model.autoImport),at=now();
+    model.autoImport.seen||={};
+    for(const entry of Object.values(model.autoImport.seen)){
+      if(entry?.importFailed&&entry.storedAs===name&&!entry.failureResolvedAt){
+        entry.failureResolvedAt=at;entry.importFailed=false;
+      }
+    }
+    model.autoImport.seen[signature]={fileName:name,relativePath:`Files To Learn/${name}`,storedAs:name,kind,importedAt:at};
+    try{
+      await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+      const verified=await readJson(AUTO_IMPORT_PATH,null);
+      if(JSON.stringify(verified)!==JSON.stringify(model.autoImport))
+        throw new Error("Learned report retry status could not be verified after saving.");
+    }catch(error){model.autoImport=previous;throw error;}
+  }
   async function scanFailedLearnedSources() {
     const records=pendingLearnedFailureRecords();
     if(!records.length||!model.root)return{rows:[],folder:null};
@@ -5910,6 +5926,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       for(const [field,label] of tradeArLayoutFields){
         const row=document.createElement("label");row.textContent=label+" ";
         const select=document.createElement("select");select.dataset.field=field;
+        select.addEventListener("change",()=>{candidateRule=null;previewProof=null;savedRule=null;save.disabled=true;retry.disabled=true;preview.textContent="Mapping changed. Preview and validate the layout again.";});
         const blank=document.createElement("option");blank.value="";blank.textContent="Choose a source column";select.append(blank);
         for(const header of headers){const option=document.createElement("option");option.value=header;option.textContent=header;select.append(option);}
         const expected=({store:"an store#",customer:"customer #",invoice:"invoice #",invoiceDate:"invoice date",
@@ -5940,17 +5957,20 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       };
       sheetSelect.addEventListener("change",setRows);headerSelect.addEventListener("change",refreshFields);setRows();
       validate.addEventListener("click",()=>run(async()=>{
+        candidateRule=null;previewProof=null;savedRule=null;save.disabled=true;retry.disabled=true;
+        preview.textContent="Validating this layout against the production parser.";
         const columns={};for(const select of fieldsHost.querySelectorAll("select[data-field]"))if(select.value)columns[select.dataset.field]=select.value;
         const engine=globalThis.MoonDogPasteLearn;
-        candidateRule=engine.safeReportLayout({family:"trade-ar-errors",sheetName:sheetSelect.value,headerRow:Number(headerSelect.value),columns},localReportLayoutRules());
+        const nextRule=engine.safeReportLayout({family:"trade-ar-errors",sheetName:sheetSelect.value,headerRow:Number(headerSelect.value),columns},localReportLayoutRules());
         const selectedFile=await source.handle.getFile();
         if(selectedFile.size!==source.size||selectedFile.lastModified!==source.lastModified)
           throw new Error("The source changed while the layout was being taught. It remains in Files To Learn.");
-        previewBytes=new Uint8Array(await selectedFile.arrayBuffer());
-        previewSize=selectedFile.size;previewModified=selectedFile.lastModified;previewProof=await sha256(previewBytes);
-        const result=parseTradeArErrorWorkbook(previewBytes,source.name,candidateRule);
+        const nextBytes=new Uint8Array(await selectedFile.arrayBuffer());
+        const nextProof=await sha256(nextBytes);
+        const result=parseTradeArErrorWorkbook(nextBytes,source.name,nextRule);
         if(!result?.validation?.storeScopeVerified||result.validation.kpiPromotion!==false)
           throw new Error("Trade AR preview did not prove configured-store scope.");
+        candidateRule=nextRule;previewBytes=nextBytes;previewSize=selectedFile.size;previewModified=selectedFile.lastModified;previewProof=nextProof;
         preview.textContent=`Validated ${result.metrics.invoiceCount} configured-store invoices; ${result.validation.otherStoreRowsExcluded} other-store rows excluded; open amount ${money(result.metrics.openAmount)}. This is a local preview only; no saved data changed.`;
         save.disabled=false;retry.disabled=true;savedRule=null;
       }));
@@ -5971,7 +5991,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           signature:`${relativePath}|${current.size}|${current.lastModified}`};
         sourceLocations.set(source.name,"learn");dailyImportBusy=true;
         try{
-          await processClassifiedCandidate(candidate,"supplemental-workbook",currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),true);
+          await processClassifiedCandidate(candidate,"supplemental-workbook",currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),false);
+          await resolveLearnedFailureRecords(source.name,candidate.signature,"supplemental-workbook");
+          await removeSourceEntryWithByteGuard(source.name,currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteLength));
           dialog.close();await refreshFailedLearnedReportNotice();await scanFilesToTeachReportLayouts();
           status("Trade AR report saved and verified; source cleanup followed the successful read-back policy.","success");
         }finally{dailyImportBusy=false;}
