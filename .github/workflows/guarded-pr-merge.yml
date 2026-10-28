@@ -126,6 +126,15 @@ jobs:
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename, (.previous_filename // empty)' > /tmp/pr-paths.txt
           python3 scripts/pipeline_guard.py check-paths /tmp/pr-paths.txt
 
+      - name: Check out verified PR candidate as untrusted data
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Create scoped MoonDog release App token
         id: release-app
         if: steps.guard.outputs.skip != 'true'
@@ -158,6 +167,25 @@ jobs:
           head=json.load(open('/tmp/head-manifest.json',encoding='utf-8'))
           if base.get('stable') != head.get('stable'):
               raise SystemExit('Stable manifest changes are out of scope for automated Beta merging.')
+          PY
+
+      - name: Verify Beta package matches the exact PR runtime
+        id: package-parity
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=. python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.build_beta_package import current_beta_runtime_mismatches
+
+          mismatches = current_beta_runtime_mismatches(Path("candidate"))
+          print(json.dumps({"runtimeMismatches": mismatches}, sort_keys=True))
+          if mismatches:
+              raise SystemExit(
+                  "Guarded merge refused: the exact PR runtime is not present in its integrity-checked Beta package."
+              )
           PY
 
       - name: Evaluate exact-head Publication, Clean Install, and Codex proof
