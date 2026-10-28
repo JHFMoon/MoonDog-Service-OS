@@ -2258,6 +2258,11 @@
   function comparableManagerSnapshot(value,family="") {
     const copy=structuredClone(value);
     for(const key of ["coverageDate","importedAt","sourceModifiedAt","sourceFile","generatedAt","updatedAt"])delete copy[key];
+    // Parser revisions describe implementation history, not report measurements.
+    // A parser upgrade must not make an identical Menu report conflict with its
+    // previously saved snapshot; all measured values and other validation evidence
+    // remain part of the comparison.
+    if(family==="menu"&&copy.validation&&typeof copy.validation==="object")delete copy.validation.parser;
     // Efficiency technician numbers and unresolved labels are learned from the
     // mutable directory, not from the source report's measured values.
     if(family==="efficiency"){
