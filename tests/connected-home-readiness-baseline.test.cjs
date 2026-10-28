@@ -89,7 +89,7 @@ const hydrateSnapshots=extract(app,
   "    model.state.closedRecords=pruneClosedRecords");
 async function syntheticSnapshotHydration(recordCount,options={}){
   const names=["state","appointments","performance","operationalMetrics",
-    "meetingCycle","assignNext","autoImport","recovery"];
+    "meetingCycle","assignNext","autoImport","recovery","settings"];
   const paths=names.map((name,index)=>["synthetic",String(index)+"-"+name+".json"]);
   const initial=Object.fromEntries(names.map(name=>[name,{unchanged:name}]));
   const model={...initial};
@@ -116,10 +116,11 @@ async function syntheticSnapshotHydration(recordCount,options={}){
     model,readJson,
     STATE_PATH:paths[0],APPOINTMENTS_PATH:paths[1],PERFORMANCE_PATH:paths[2],
     OPERATIONAL_METRICS_PATH:paths[3],MEETING_CYCLE_PATH:paths[4],
-    ASSIGN_NEXT_PATH:paths[5],AUTO_IMPORT_PATH:paths[6],RECOVERY_PATH:paths[7]
+    ASSIGN_NEXT_PATH:paths[5],AUTO_IMPORT_PATH:paths[6],RECOVERY_PATH:paths[7],
+    SETTINGS_PATH:paths[8]
   });
   const started=performance.now();
-  const hydration=vm.runInContext("(async()=>{\n"+hydrateSnapshots+"\n})()",context);
+  const hydration=vm.runInContext("(async()=>{\n"+hydrateSnapshots+"\nthis.hydratedSettings=rawSettings;\n})()",context);
   await Promise.resolve();
   for(const name of names)assert.equal(model[name],initial[name],
     "No partial snapshot may publish while reads are unfinished: "+name);
@@ -131,17 +132,19 @@ async function syntheticSnapshotHydration(recordCount,options={}){
     return {failed:true,maximumInflight,reads};
   }
   const elapsedMs=performance.now()-started;
-  for(const name of names)assert.deepEqual(model[name],payload[name],
-    "Commit the verified group once all eight reads succeed: "+name);
+  for(const name of names.filter(name=>name!=="settings"))assert.deepEqual(model[name],payload[name],
+    "Commit the verified model group once all nine reads succeed: "+name);
+  assert.deepEqual(context.hydratedSettings,payload.settings,
+    "The settings snapshot must be available from the same atomic hydration batch.");
   assert.equal(model.state.records.length,recordCount);
   return {failed:false,elapsedMs,maximumInflight,reads};
 }
-test("eight production snapshot reads are bounded and atomically published for empty/large synthetic Workspaces",async()=>{
+test("nine production snapshot reads, including settings, are bounded and atomically published for empty/large synthetic Workspaces",async()=>{
   for(const count of [0,2100]){
     const samples=[];
     for(let trial=0;trial<9;trial++){
       const result=await syntheticSnapshotHydration(count);
-      assert.equal(result.reads,8);
+      assert.equal(result.reads,9);
       assert.equal(result.maximumInflight,3,
         "The original connection path must limit independent reads to three");
       samples.push(result.elapsedMs);
@@ -154,8 +157,8 @@ test("eight production snapshot reads are bounded and atomically published for e
   }
 });
 test("late essential snapshot failure cannot commit a partial connection",async()=>{
-  const failed=await syntheticSnapshotHydration(2100,{failAt:7,latencyMs:2});
+  const failed=await syntheticSnapshotHydration(2100,{failAt:8,latencyMs:2});
   assert.equal(failed.failed,true);
-  assert.equal(failed.reads,8);
+  assert.equal(failed.reads,9);
   assert.ok(failed.maximumInflight<=3);
 });

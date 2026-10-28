@@ -79,6 +79,7 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   };
   const states = [];
   const completedReads = new Set();
+  const readCalls = new Map();
   const requiredReadPaths = [paths.settings, paths.state, paths.appointments, paths.performance, paths.metrics, paths.meeting, paths.assignNext, paths.autoImport, paths.recovery];
   const connectedSnapshots = [];
   let signalFirstReadStarted;
@@ -131,6 +132,7 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
     initializeFolders: async () => {},
     recordDiagnostic: () => {},
     readJson: async (key, fallback) => {
+      readCalls.set(key, (readCalls.get(key) || 0) + 1);
       activeReadCount += 1;
       maxConcurrentReadCount = Math.max(maxConcurrentReadCount, activeReadCount);
       try {
@@ -199,6 +201,8 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
     const reconnecting = context.restore();
     await firstReadStarted;
     await new Promise(resolve => setTimeout(resolve, readDelayMs * 6 + 2));
+    assert.equal(readCalls.get(paths.settings), 2,
+      "the protected settings snapshot must be read during the bounded hydration batch, not in a serial round after it");
     assert.equal(model.state.records.length, 0,
       "completed parallel reads must not expose partial snapshots while the state read is pending");
     assert.equal(model.root, handle, "The candidate root may be staged while its reads are pending");
