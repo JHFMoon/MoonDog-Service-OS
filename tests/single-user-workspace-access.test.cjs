@@ -212,6 +212,35 @@ test("production connection keeps the saved handle when a transient snapshot rea
     "the exact saved folder handle must remain available for the bounded automatic retry");
 });
 
+test("explicit Retry saved folder schedules bounded recovery after a transient OneDrive failure",async()=>{
+  const start=app.indexOf("  async function connect() {");
+  const end=app.indexOf("  let savedConnectionRetryTimer=null",start);
+  assert.ok(start>=0&&end>start,"extract production explicit saved-folder retry");
+  const handle={kind:"directory",name:"Synthetic Workspace"},stagedRoot={kind:"synthetic-staged-root"};
+  const model={pendingRoot:handle,root:stagedRoot,applicationRoot:handle,workspaceConnectionCommittedRoot:null};
+  let retries=0,scheduled=null,permissionPrompts=0,writeEnabled=true,cleared=[];
+  const context={
+    __moondogDailyUI:{confirmWorkspaceChange:()=>true},
+    model,connectedNativeRoot:handle,
+    window:{showDirectoryPicker(){permissionPrompts++;throw Error("saved-handle retry must not open a new folder picker");}},
+    writeAuthority:{disable(){writeEnabled=false;}},
+    finishConnection:async(received,ask)=>{assert.equal(received,handle);assert.equal(ask,true);throw Object.assign(Error("synthetic OneDrive busy"),{name:"NotReadableError"});},
+    transientWorkspaceState:error=>error?.name==="NotReadableError",
+    scheduleSavedConnectionRetry:received=>{retries++;scheduled=received;},
+    setConnectionState(){},clearTimeout:id=>cleared.push(id),
+    console
+  };
+  vm.runInNewContext("let savedConnectionRetryTimer=41,savedConnectionRetryAttempts=5;"+app.slice(start,end)+"\\nglobalThis.connectNow=connect;",context);
+  await assert.rejects(context.connectNow(),/synthetic OneDrive busy/);
+  assert.deepEqual(cleared,[41],"explicit retry cancels the prior timer before starting a fresh bounded window");
+  assert.equal(retries,1);
+  assert.equal(scheduled,handle);
+  assert.equal(permissionPrompts,0);
+  assert.equal(writeEnabled,false);
+  assert.equal(model.root,null,"the failed staged root is discarded from memory only");
+  assert.equal(model.pendingRoot,handle,"the selected Workspace handle remains available for automatic retry");
+});
+
 test("non-transient saved reconnect failure revokes staged write authority and retains the folder handle",async()=>{
   const start=app.indexOf("  let savedConnectionRetryTimer=null");
   const end=app.indexOf("  async function restoreConnection()",start);
