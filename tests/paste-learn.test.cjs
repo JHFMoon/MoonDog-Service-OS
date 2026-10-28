@@ -8,7 +8,8 @@ const SYNTHETIC_VIN=(()=>{
    values[char]=(set?[2,3,4,5,6,7,8,9]:[1,2,3,4,5,7,9])[index]));
  const chars=Array.from({length:17},(_,index)=>"0123456789ABCDEFGHJKLMNPRSTUVWXYZ"[(index*11+7)%33]);
  chars[8]="0";
- const total=chars.reduce((sum,char,index)=>sum+values[char]*[8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2],0);
+ const weights=[8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+ const total=chars.reduce((sum,char,index)=>sum+values[char]*weights[index],0);
  chars[8]=total%11===10?"X":String(total%11);
  return chars.join("");
 })();
