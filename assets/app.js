@@ -2496,6 +2496,14 @@
     const cell=sheet[address];
     return /%/.test(text(cell?.z||""))||/%/.test(text(cell?.w||""));
   }
+  function assertTradeArLayoutSource(book,fileName){
+    if(workbookIsHandoff(book,fileName))
+      throw new Error("Needs Review: advisor handoff snapshots are outbound only.");
+    if(workbookHasReturnSchema(book))
+      throw new Error("Needs Review: Supervisor Workbook returns must use the Update RO import.");
+    if(workbookHasReturnIdentity(book))
+      throw new Error("Needs Review: damaged Supervisor Workbook cannot be taught as a Trade AR report.");
+  }
   function matchingTradeArReportLayout(book,override=null){
     if(override&&override.family!=="trade-ar-errors")throw new Error("Unsupported local report layout family.");
     const configured=override?[override]:(typeof model!=="undefined"&&Array.isArray(model.settings?.future?.reportLayoutRules)?model.settings.future.reportLayoutRules:[]);
@@ -5944,7 +5952,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     try{
       const selectedFile=await source.handle.getFile(),bytes=new Uint8Array(await selectedFile.arrayBuffer());
       source.size=selectedFile.size;source.lastModified=selectedFile.lastModified;
-      activeBook=await prepareXlsxWorkbook(bytes,{type:"array",raw:true,cellDates:true,cellNF:true});
+      activeBook=await prepareXlsxWorkbook(bytes,{type:"array",raw:true,cellDates:true,cellNF:true,cellFormula:true});
+      assertTradeArLayoutSource(activeBook,source.name);
       for(const name of activeBook.SheetNames){const option=document.createElement("option");option.value=name;option.textContent=name;sheetSelect.append(option);}
       sheetSelect.value=activeBook.SheetNames.includes("Trade AR Error Report")?"Trade AR Error Report":activeBook.SheetNames[0]||"";
       const setRows=()=>{
@@ -5969,6 +5978,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         if(selectedFile.size!==source.size||selectedFile.lastModified!==source.lastModified)
           throw new Error("The source changed while the layout was being taught. It remains in Files To Learn.");
         const nextBytes=new Uint8Array(await selectedFile.arrayBuffer());
+        const previewBook=await prepareXlsxWorkbook(nextBytes,{type:"array",raw:true,cellDates:true,cellNF:true,cellFormula:true});
+        assertTradeArLayoutSource(previewBook,source.name);
         const nextProof=await sha256(nextBytes);
         const result=parseTradeArErrorWorkbook(nextBytes,source.name,nextRule);
         if(!result?.validation?.storeScopeVerified||result.validation.kpiPromotion!==false)
@@ -5989,6 +6000,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         const current=await source.handle.getFile(),currentBytes=new Uint8Array(await current.arrayBuffer());
         if(current.size!==previewSize||current.lastModified!==previewModified||await sha256(currentBytes)!==previewProof)
           throw new Error("The source changed after preview. It remains in Files To Learn; preview it again.");
+        const retryBook=await prepareXlsxWorkbook(currentBytes,{type:"array",raw:true,cellDates:true,cellNF:true,cellFormula:true});
+        assertTradeArLayoutSource(retryBook,source.name);
         const relativePath=`Files To Learn/${source.name}`;
         const candidate={name:source.name,location:"learn",relativePath,handle:source.handle,file:current,
           signature:`${relativePath}|${current.size}|${current.lastModified}`};
