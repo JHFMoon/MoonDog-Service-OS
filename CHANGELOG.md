@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.191 — current Beta
+
+- feat(#571): teach Menu Sales layouts locally. Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.190 — current Beta
 
 - perf(#58): parallelize verified settings hydration (#582). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
