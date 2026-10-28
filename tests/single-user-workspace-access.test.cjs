@@ -94,7 +94,7 @@ test("bounded authority retries recover transient failures without an implicit p
   const end=app.indexOf("  ui.worksheetOrderSettings.addEventListener",start);
   assert.ok(start>=0&&end>start,"extract production bounded retry scheduler");
   const timers=new Map(),delays=[],listeners={window:{},document:{}};
-  let next=1,calls=0,permissionRequests=0,reason="WORKSPACE_BUSY",writable=false;
+  let next=1,calls=0,permissionRequests=0,watchRestarts=0,reason="WORKSPACE_BUSY",writable=false;
   const root={id:"saved-workspace"};
   const context={
     connectedNativeRoot:root,authorityRevalidationExhausted:false,
@@ -103,7 +103,7 @@ test("bounded authority retries recover transient failures without an implicit p
     clearTimeout:id=>timers.delete(id),
     window:{addEventListener:(name,fn)=>listeners.window[name]=fn},
     document:{addEventListener:(name,fn)=>listeners.document[name]=fn,visibilityState:"visible"},
-    renderSetup(){},setConnectionState(){},status(){},console
+    renderSetup(){},startFolderWatch(){watchRestarts++;},setConnectionState(){},status(){},console
   };
   vm.runInNewContext(app.slice(start,end)+"\nglobalThis.startRetry=scheduleAuthorityRevalidation;",context);
   context.startRetry(root);
@@ -112,6 +112,7 @@ test("bounded authority retries recover transient failures without an implicit p
   assert.deepEqual(delays,[1200,2500,5000]);
   assert.equal(permissionRequests,0);
   assert.equal(context.authorityRevalidationExhausted,false);
+  assert.equal(watchRestarts,1,"successful write recovery restarts the enabled Report Inbox watch");
 });
 
 test("automatic validation never runs through a pending transaction or interrupted restore hold",()=>{
@@ -329,7 +330,7 @@ test("saved-folder retries are bounded and preserve the handle after persistent 
   assert.equal(attempts,5);
   assert.deepEqual(delays,[1200,3000,8000,15000,30000]);
   assert.equal(model.pendingRoot,handle,"saved folder handle stays available for explicit retry");
-  assert.match(messages.at(-1).message,/checks ended.*handle and files remain intact/i);
+  assert.match(messages.at(-1).message,/checks ended.*saved folder and files remain intact/i);
 });
 
 test("explicit Restore editing resets exhausted OneDrive retry budget and reuses the saved handle",async()=>{
