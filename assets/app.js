@@ -5911,7 +5911,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     });
     return saved;
   }
-  async function persistPreviewBoundLayout({readApproval,persist,setBusy}) {
+  async function persistPreviewBoundLayout({readApproval,persist,publishSaved,setBusy}) {
     const approved=readApproval();
     if(!approved?.rule||!approved.proof)throw new Error("Preview and validate this layout before saving.");
     setBusy(true);
@@ -5921,6 +5921,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       if(current?.rule!==approved.rule||current?.proof!==approved.proof
         ||current?.size!==approved.size||current?.modified!==approved.modified)
         throw new Error("The layout changed while it was being saved. Preview and save the current mapping again.");
+      publishSaved(saved);
       return saved;
     }finally{setBusy(false);}
   }
@@ -6014,7 +6015,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       save.addEventListener("click",()=>run(async()=>{
         savedRule=await persistPreviewBoundLayout({
           readApproval:()=>({rule:candidateRule,proof:previewProof,size:previewSize,modified:previewModified}),
-          persist:saveLocalReportLayout,setBusy:setTeachingBusy
+          persist:saveLocalReportLayout,publishSaved:rule=>{savedRule=rule;},setBusy:setTeachingBusy
         });
         preview.textContent=`Saved private layout v${savedRule.version}. The original report is still in Files To Learn.`;
       }));
