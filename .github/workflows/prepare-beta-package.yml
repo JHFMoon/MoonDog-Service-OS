@@ -136,7 +136,7 @@ jobs:
               result = subprocess.run(
                   ["gh", "api", "--paginate",
                    f"repos/{os.environ['REPO']}/pulls/{number}/files?per_page=100",
-                   "--jq", ".[].filename, (.previous_filename // empty)"],
+                   "--jq", ".[] | .filename, (.previous_filename // empty)"],
                   check=True, capture_output=True, text=True,
               )
               paths_by_pr[number] = [line for line in result.stdout.splitlines() if line]
