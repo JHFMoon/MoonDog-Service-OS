@@ -210,6 +210,10 @@ test("local report layout teaching stores only allowlisted declarative fields",(
     days:"Days",status:"Attempt",invoiceAmount:"Billed",received:"Paid",open:"Balance"};
   const rule=engine.safeReportLayout({family:"trade-ar-errors",sheetName:"Receivables",headerRow:2,columns},[]);
   assert.equal(rule.writeEnabled,false);assert.equal(rule.approved,true);assert.equal(rule.headerRow,2);
+  const exactName=engine.safeReportLayout({family:"trade-ar-errors",sheetName:"AR  Detail",headerRow:0,columns},[]);
+  const collapsedName=engine.safeReportLayout({family:"trade-ar-errors",sheetName:"AR Detail",headerRow:0,columns},[]);
+  assert.equal(exactName.sheetName,"AR  Detail");
+  assert.notEqual(exactName.id,collapsedName.id,"distinct exact worksheet names keep distinct local mappings");
   assert.deepEqual(Object.keys(rule.columns),["store","customer","invoice","invoiceDate","days","status","invoiceAmount","received","open"]);
   assert.equal(JSON.stringify(rule).includes("FAKE"),false);
   assert.throws(()=>engine.safeReportLayout({family:"open-ro",sheetName:"Unsafe",headerRow:0,columns},[]),/supported report family/);
@@ -224,7 +228,7 @@ test("taught Trade AR sheet, header row, aliases and reordered columns reuse str
   const mappings={store:"Location",customer:"Client Id",invoice:"Document Ref",invoiceDate:"Bill Date",
     days:"Age Days",status:"Follow-up Attempt",invoiceAmount:"Billed USD",received:"Paid USD",open:"Balance USD"};
   const rule=engineContext.MoonDogPasteLearn.safeReportLayout({family:"trade-ar-errors",
-    sheetName:"Receivables Detail",headerRow:2,columns:mappings},[]);
+    sheetName:"Receivables  Detail",headerRow:2,columns:mappings},[]);
   const fieldOrder=["invoice","store","days","customer","open","status","invoiceDate","received","invoiceAmount"];
   const values=source=>({
     store:source[arHeaders.indexOf("AN Store#")],customer:source[arHeaders.indexOf("Customer #")],
@@ -289,7 +293,7 @@ test("explicit layout preview validates the selected sheet even when a valid can
   });
   const mixed={SheetNames:["Trade AR Error Report","Receivables Detail"],Sheets:{
     "Trade AR Error Report":{rows:[arHeaders,arRow({invoice:"FAKE-CANONICAL"})]},
-    "Receivables Detail":{rows:[["Report"],[],fieldOrder.map(field=>mappings[field]),mapped],"!ref":"A1:I4"}
+    "Receivables  Detail":{rows:[["Report"],[],fieldOrder.map(field=>mappings[field]),mapped],"!ref":"A1:I4"}
   }};
   assert.throws(()=>arHarness([],"101",{},[rule],mixed).parse(rule),
     /Trade AR aging, date, or money is unreadable/);
