@@ -108,7 +108,7 @@ function fixture(current=after,options={}){
     console:{warn(){}},setTimeout});
   const setup="const encoder=new TextEncoder();const REVISION="+JSON.stringify(revisionPath.split("/"))+";"+
     "const originals=new WeakMap();let localRestoreOwner=null,nativeRoot=null,loadedRevision=null,interruptedRecovery=false;"+
-    "let validationReason=\"NO_WORKSPACE\",validationGeneration=0,validationInFlight=null;"+
+    "let validationReason=\"NO_WORKSPACE\",validationFailureName=\"\",validationGeneration=0,validationInFlight=null;"+
     "const WORKSPACE=['System Files','Workspace'];const testEnabled=false;"+
     "let editable=true;const transientValidationDelays=[0];"+
     "const sleep=async()=>{};const denied=()=>new Error('read only');"+
