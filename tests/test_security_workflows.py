@@ -252,5 +252,13 @@ class SecurityWorkflowTests(unittest.TestCase):
             section = merge[start:merge.index(next_step, start + 1)]
             self.assertIn("steps.current.outputs.updated != 'true'", section)
 
+
+    def test_beta_reservation_uses_trusted_checkout_paths(self):
+        workflow = (ROOT / ".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
+        section = workflow.split("      - name: Reserve the Beta version for the oldest authorized runtime PR", 1)[1]
+        section = section.split("      - name: Build the Beta candidate with trusted code", 1)[0]
+        self.assertIn("PYTHONPATH=trusted python3 - <<'PY'", section)
+        self.assertIn('load_policy("trusted/.github/guarded-merge-policy.json")', section)
+
 if __name__ == "__main__":
     unittest.main()

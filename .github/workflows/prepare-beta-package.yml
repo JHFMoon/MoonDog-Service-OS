@@ -118,7 +118,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]' | jq -s '.' > /tmp/open-prs.json
-          python3 - <<'PY'
+          PYTHONPATH=trusted python3 - <<'PY'
           import json
           import os
           import subprocess
@@ -146,7 +146,7 @@ jobs:
               paths_by_pr,
               repository=os.environ["REPO"],
               package_bot_login=os.environ.get("PACKAGE_BOT_LOGIN"),
-              policy=load_policy(".github/guarded-merge-policy.json"),
+              policy=load_policy("trusted/.github/guarded-merge-policy.json"),
           )
           current = int(os.environ["PR_NUMBER"])
           owner = candidate.get("number") if candidate else None
