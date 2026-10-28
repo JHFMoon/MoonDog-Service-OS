@@ -400,7 +400,7 @@ test("layout preview is local, uses production Trade AR validation, saves mappin
   assert.match(app,/saveLocalReportLayout/);
   assert.match(app,/persistPreviewBoundLayout\(\{/);
   assert.match(app,/const teachingControls=\(\)=>\[sheetSelect,headerSelect/);
-  assert.match(app,/dialog\.addEventListener\("cancel",event=>\{if\(teachingBusy\)event\.preventDefault\(\)\}/);
+  assert.match(app,/dialog\.addEventListener\("cancel",event=>\{if\(teachingBusy\)event\.preventDefault\(\);\}/);
   assert.match(app,/updateLocalFuture\(future=>/);
   assert.match(app,/Retry this report/);
   assert.match(app,/await sha256\(currentBytes\)!==approvedProof/);
