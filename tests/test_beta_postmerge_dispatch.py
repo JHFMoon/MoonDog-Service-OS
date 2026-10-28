@@ -1,67 +1,85 @@
-"""Regression guard for Beta packaging after trusted GitHub-token merges."""
+"""Regression tests for the trusted, App-authenticated Beta release path."""
 from pathlib import Path
 import unittest
+
+from scripts.guarded_merge_policy import has_accepted_pr_author
 
 ROOT = Path(__file__).resolve().parents[1]
 MERGE = ROOT / ".github/workflows/guarded-pr-merge.yml"
 PACKAGE = ROOT / ".github/workflows/prepare-beta-package.yml"
+REPO = "JHFMoon/MoonDog-Service-OS"
 
 
-class BetaDispatchTests(unittest.TestCase):
-    def test_verified_merge_dispatches_exact_commit(self):
-        text = MERGE.read_text(encoding="utf-8")
-        confirm = 'test "$MAIN_SHA" = "$MERGED_SHA"'
-        dispatch = 'gh workflow run prepare-beta-package.yml --repo "$REPO" --ref main -f reviewed_commit="$MERGED_SHA"'
-        self.assertIn(confirm, text)
-        self.assertIn(dispatch, text)
-        self.assertLess(text.index(confirm), text.index(dispatch))
-        self.assertIn('gh workflow run publication-check.yml --repo "$REPO" --ref main', text)
-
-    def test_existing_trusted_packager_accepts_reviewed_commit_and_guards_stable(self):
+class BetaPipelineTests(unittest.TestCase):
+    def test_runtime_candidate_is_built_inside_the_reviewed_source_pr(self):
         text = PACKAGE.read_text(encoding="utf-8")
-        self.assertIn('workflow_dispatch:', text)
-        self.assertIn('reviewed_commit:', text)
-        self.assertIn('TARGET_SHA="${REQUESTED_COMMIT:-$MAIN_SHA}"', text)
-        self.assertIn('git merge-base --is-ancestor "$TARGET_SHA" "$MAIN_SHA"', text)
-        self.assertIn("if main.get('stable') != package.get('stable'):", text)
-        self.assertIn('gh workflow run clean-install-proof.yml', text)
+        self.assertIn("pull_request_target:", text)
+        self.assertIn("types: [opened, reopened, synchronize, ready_for_review]", text)
+        self.assertIn("Check out trusted packaging logic from the reviewed base", text)
+        self.assertIn("Check out candidate as untrusted data", text)
+        self.assertIn("untrusted data", text)
+        self.assertIn("scripts/build_beta_package.py", text)
+        self.assertIn("Push package commit to the same reviewed PR", text)
+        self.assertIn("actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42", text)
+        self.assertIn('secrets.MOONDOG_RELEASE_APP_ID', text)
+        self.assertIn('secrets.MOONDOG_RELEASE_APP_PRIVATE_KEY', text)
+        self.assertIn('git -C candidate -c http.https://github.com/.extraheader=', text)
+        self.assertIn("push origin \"HEAD:$HEAD_BRANCH\"", text)
+        self.assertNotIn("workflow_dispatch:", text)
+        self.assertNotIn("gh workflow run", text)
+        self.assertNotIn("statuses:", text)
+        self.assertNotIn("api -X POST \"repos/$REPO/statuses/", text)
+        self.assertNotIn("for attempt in {1..", text)
 
+    def test_only_exact_configured_same_repo_package_app_is_accepted(self):
+        base = {
+            "user": {"login": "moondog-release[bot]"},
+            "author_association": "CONTRIBUTOR",
+            "head": {"repo": {"full_name": REPO}},
+            "body": "MoonDog-Automation-Package: yes",
+        }
+        self.assertTrue(has_accepted_pr_author(base, REPO, "moondog-release[bot]"))
+        self.assertFalse(has_accepted_pr_author(base, REPO, "other-release[bot]"))
+        self.assertFalse(has_accepted_pr_author(
+            {**base, "user": {"login": "untrusted[bot]"}}, REPO, "untrusted[bot]"
+        ))
+        self.assertFalse(has_accepted_pr_author(
+            {**base, "head": {"repo": {"full_name": "attacker/MoonDog-Service-OS"}}},
+            REPO,
+            "moondog-release[bot]",
+        ))
+        self.assertFalse(has_accepted_pr_author(
+            {**base, "body": "> MoonDog-Automation-Package: yes"},
+            REPO,
+            "moondog-release[bot]",
+        ))
 
-    def test_postmerge_beta_uses_reviewed_commit_subject_instead_of_generic_notes(self):
+    def test_guard_rechecks_exact_head_and_waits_for_real_events(self):
+        text = MERGE.read_text(encoding="utf-8")
+        self.assertIn('github.event.workflow_run.event == \'pull_request\'', text)
+        self.assertIn("commits/$HEAD_SHA/check-runs", text)
+        self.assertIn("github.event.workflow_run", text)
+        self.assertIn("app", text)
+        self.assertIn("15368", text)
+        self.assertIn("steps.proof.outputs.ready == 'true'", text)
+        self.assertIn("pulls/$PR_NUMBER/update-branch", text)
+        self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"', text)
+        self.assertIn("pipeline_guard.py check-paths", text)
+        self.assertIn("merge-review-state", text)
+        self.assertNotIn("workflow_dispatch", text)
+        self.assertNotIn("gh workflow run", text)
+        self.assertNotIn("statuses/$HEAD_SHA", text)
+        self.assertNotIn("sleep ", text)
+        self.assertNotIn("for attempt in {1..", text)
+
+    def test_beta_builder_keeps_reviewed_commit_notes_and_stable_isolation(self):
         workflow = PACKAGE.read_text(encoding="utf-8")
         builder = (ROOT / "scripts/build_beta_package.py").read_text(encoding="utf-8")
-        self.assertNotIn(
-            '--release-notes "Automatically packaged merged runtime from current main; Stable unchanged."',
-            workflow,
-            "post-merge release notes must describe the actual reviewed change",
-        )
-        self.assertIn('notes = args.release_notes.strip() or (', builder)
-        self.assertIn('subject = git_value(root, "%s")', builder)
-        self.assertIn('Verified automated Beta from reviewed source.', builder)
-        self.assertIn('echo "reviewed_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"', workflow)
-        self.assertIn('REVIEWED_SHA: ${{ steps.detect.outputs.reviewed_sha }}', workflow)
-        self.assertIn('git cat-file -e "$REVIEWED_SHA^{commit}"', workflow)
-        self.assertIn('git show -s --format=%s "$REVIEWED_SHA"', workflow)
-        self.assertIn('--release-notes "$REVIEWED_SUBJECT.', workflow)
-        self.assertIn('Stable remains $STABLE_VERSION.', workflow)
-        self.assertLess(workflow.index('git merge-base --is-ancestor "$TARGET_SHA" "$MAIN_SHA"'),
-                        workflow.index('echo "reviewed_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"'),
-                        "Only the validated reviewed commit may be used for release notes")
-
-
-    def test_trusted_beta_packager_reuses_identical_open_candidate_and_refreshes_additively(self):
-        workflow = PACKAGE.read_text(encoding="utf-8")
-        helper = ROOT / "scripts/beta_candidate_reuse.py"
-        self.assertTrue(helper.exists(), "candidate reuse must use a tested fail-closed selector")
-        self.assertIn("python3 scripts/beta_candidate_reuse.py candidates", workflow)
-        self.assertIn("python3 scripts/beta_candidate_reuse.py select", workflow)
-        self.assertIn("update-branch", workflow)
-        self.assertIn('expected_head_sha="$PACKAGE_HEAD"', workflow)
-        self.assertIn("existing_pr_number=$EXISTING_PR_NUMBER", workflow)
-        self.assertIn("existing_pr_number == ''", workflow)
-        self.assertIn("for attempt in {1..180}; do", workflow)
-        self.assertIn('gh api -X POST "repos/$REPO/statuses/$PACKAGE_HEAD"', workflow)
-        self.assertIn('if expected.get("stable") != candidate.get("stable"):', helper.read_text(encoding="utf-8"))
+        self.assertIn("Verified automated Beta from reviewed source.", builder)
+        self.assertIn("Stable manifest changed; Beta preparation refuses Stable promotion", builder)
+        self.assertIn("Automatic Beta preparation refuses migrations", builder)
+        self.assertIn("No Workspace migration; Stable remains unchanged.", workflow)
+        self.assertIn("Stable manifest changes are out of scope", MERGE.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
