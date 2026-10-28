@@ -114,7 +114,7 @@ jobs:
           fi
           python3 - <<'PY'
           import json, os, sys
-          from scripts.guarded_merge_policy import has_merge_authorization, load_policy
+          from scripts.guarded_merge_policy import has_accepted_pr_author, has_merge_authorization, load_policy
           pr=json.load(open('/tmp/pr.json',encoding='utf-8'))
           policy=load_policy('.github/guarded-merge-policy.json')
           expected=os.environ['HEAD_SHA']
@@ -127,7 +127,7 @@ jobs:
               'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
               'head': pr.get('head',{}).get('sha')==expected,
               'authorization': has_merge_authorization(pr.get('body'), policy),
-              'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
+              'association': has_accepted_pr_author(pr, os.environ['REPO']),
           }
           failed=[name for name,ok in checks.items() if not ok]
           if failed:
@@ -291,7 +291,7 @@ jobs:
 
             python3 - <<'PY'
           import json, os
-          from scripts.guarded_merge_policy import codex_review_state, has_merge_authorization, load_policy
+          from scripts.guarded_merge_policy import codex_review_state, has_accepted_pr_author, has_merge_authorization, load_policy
           pr=json.load(open('/tmp/final-pr.json',encoding='utf-8'))
           policy=load_policy('.github/guarded-merge-policy.json')
           comments=json.load(open('/tmp/pr-comments.json',encoding='utf-8'))
@@ -302,7 +302,7 @@ jobs:
               'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
               'head': pr.get('head',{}).get('sha')==os.environ['HEAD_SHA'],
               'authorization': has_merge_authorization(pr.get('body'), policy),
-              'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
+              'association': has_accepted_pr_author(pr, os.environ['REPO']),
           }
           failed=[name for name,ok in checks.items() if not ok]
           if failed:

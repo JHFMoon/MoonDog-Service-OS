@@ -38,6 +38,35 @@ def has_merge_authorization(body: str | None, policy: dict) -> bool:
     return has_standing_authorization(policy) or has_explicit_approval(body)
 
 
+HUMAN_PR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
+BETA_PACKAGE_MARKER = "MoonDog-Automation-Package: yes"
+
+
+def has_accepted_pr_author(pr: dict, repository: str) -> bool:
+    """Accept normal collaborators, or the exact same-repo trusted Beta package bot.
+
+    The bot exception requires its immutable GitHub login, the observed bot
+    association, a same-repository head, and a standalone package marker.
+    """
+    if not isinstance(pr, dict):
+        return False
+    if pr.get("author_association") in HUMAN_PR_ASSOCIATIONS:
+        return True
+    user = pr.get("user")
+    head = pr.get("head")
+    head_repo = head.get("repo") if isinstance(head, dict) else None
+    body = pr.get("body")
+    return (
+        isinstance(user, dict)
+        and user.get("login") == "github-actions[bot]"
+        and pr.get("author_association") == "CONTRIBUTOR"
+        and isinstance(head_repo, dict)
+        and head_repo.get("full_name") == repository
+        and isinstance(body, str)
+        and any(line.strip() == BETA_PACKAGE_MARKER for line in body.splitlines())
+    )
+
+
 def codex_review_state(comments: list, expected_head: str) -> str:
     """Return clean, pending, or findings for the newest Codex code review summary."""
     latest = None
@@ -147,6 +176,9 @@ def merge_review_state(comments: list, reviews: list, expected_head: str, policy
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
+    author = sub.add_parser("check-pr-author")
+    author.add_argument("pr_json", type=Path)
+    author.add_argument("--repository", required=True)
     auth = sub.add_parser("check-authorization")
     auth.add_argument("pr_json", type=Path)
     auth.add_argument("--policy", type=Path, required=True)
@@ -159,12 +191,17 @@ def main() -> int:
     combined.add_argument("head_sha")
     combined.add_argument("--policy", type=Path, required=True)
     args = parser.parse_args()
-    if args.command == "check-authorization":
+    if args.command in {"check-pr-author", "check-authorization"}:
         try:
             pr = json.loads(args.pr_json.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             print("Cannot verify pull request authorization", file=sys.stderr)
             return 2
+        if args.command == "check-pr-author":
+            if not has_accepted_pr_author(pr, args.repository):
+                print("Pull request author is not authorized for the guarded automation path")
+                return 1
+            return 0
         policy = load_policy(args.policy)
         if not has_merge_authorization(pr.get("body"), policy):
             print("No repository standing or explicit automatic-merge authorization")

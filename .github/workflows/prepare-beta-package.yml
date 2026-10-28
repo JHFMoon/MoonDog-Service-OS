@@ -33,9 +33,10 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (github.event.pull_request.author_association == 'OWNER' ||
-       github.event.pull_request.author_association == 'MEMBER' ||
-       github.event.pull_request.author_association == 'COLLABORATOR')
+      ((github.event.pull_request.author_association == 'OWNER' ||
+        github.event.pull_request.author_association == 'MEMBER' ||
+        github.event.pull_request.author_association == 'COLLABORATOR') ||
+       github.event.pull_request.user.login == 'github-actions[bot]')
     runs-on: ubuntu-latest
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -67,6 +68,7 @@ jobs:
           set -euo pipefail
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/authorized-pr.json
           python3 trusted/scripts/guarded_merge_policy.py check-authorization /tmp/authorized-pr.json --policy trusted/.github/guarded-merge-policy.json
+          python3 trusted/scripts/guarded_merge_policy.py check-pr-author /tmp/authorized-pr.json --repository "$REPO"
 
       - name: Refuse automatic changes to trusted proof/automation files
         shell: bash
@@ -174,6 +176,7 @@ jobs:
           import json, os, sys
           sys.path.insert(0, "trusted")
           from scripts.guarded_merge_authorization import has_explicit_approval
+          from scripts.guarded_merge_policy import has_accepted_pr_author
           pr=json.load(open('/tmp/generated-pr.json',encoding='utf-8'))
           checks={
               'open': pr.get('state')=='open',
@@ -182,7 +185,7 @@ jobs:
               'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
               'head': pr.get('head',{}).get('sha')==os.environ['CURRENT_HEAD'],
               'authorization': has_explicit_approval(pr.get('body')),
-              'association': pr.get('author_association') in {'OWNER','MEMBER','COLLABORATOR'},
+              'association': has_accepted_pr_author(pr, os.environ['REPO']),
           }
           failed=[name for name,ok in checks.items() if not ok]
           if failed:
