@@ -87,7 +87,7 @@ test("private Appointment Activity layout maps a renamed sheet, header row, alia
   const preview=f.parse();
   assert.equal(preview.storeCode,"9001");
   assert.equal(preview.rowCount,1);
-  assert.equal(preview.dailyCounts["2026-10-20"].rowCount,1);
+  assert.equal(preview.dailyCounts[serialDate(46310)].rowCount,1);
   assert.equal(preview.leadTimeBuckets.days1to7,1);
   assert.doesNotMatch(JSON.stringify(preview),/Synthetic customer|Synthetic context/);
   await f.import();
