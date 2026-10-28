@@ -17,8 +17,8 @@ env:
   PYTHONDONTWRITEBYTECODE: '1'
 
 concurrency:
-  group: prepare-beta-source-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: prepare-beta-package-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   prepare:
