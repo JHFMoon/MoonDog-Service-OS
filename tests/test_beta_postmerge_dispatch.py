@@ -14,6 +14,8 @@ class BetaPipelineTests(unittest.TestCase):
     def test_runtime_candidate_is_built_inside_the_reviewed_source_pr(self):
         text = PACKAGE.read_text(encoding="utf-8")
         self.assertIn("pull_request_target:", text)
+        self.assertIn("group: prepare-beta-package-${{ github.repository }}", text)
+        self.assertIn("cancel-in-progress: false", text)
         self.assertIn("types: [opened, reopened, synchronize, ready_for_review]", text)
         self.assertIn("Check out trusted packaging logic from the reviewed base", text)
         self.assertIn("Check out candidate as untrusted data", text)
