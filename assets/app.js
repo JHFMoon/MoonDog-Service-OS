@@ -2526,7 +2526,7 @@
     const builtInHeaders=(builtInRows?.[0]||[]).map(norm),canonical=["an store#","customer #","invoice #","invoice date",
       "actual days open","status","invoice amount (usd)","amount received (usd)","open amount (usd)"];
     const builtInLayoutValid=canonical.every(heading=>builtInHeaders.filter(value=>value===heading).length===1);
-    const learnedLayout=builtInLayoutValid?null:matchingTradeArReportLayout(book,layoutOverride);
+    const learnedLayout=layoutOverride?matchingTradeArReportLayout(book,layoutOverride):builtInLayoutValid?null:matchingTradeArReportLayout(book);
     const sheet=learnedLayout?.sheet||builtInSheet;
     if(!sheet)return null;
     const rows=learnedLayout?.rows||builtInRows||XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true});
