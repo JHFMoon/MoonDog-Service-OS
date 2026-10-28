@@ -295,6 +295,9 @@ class SecurityWorkflowTests(unittest.TestCase):
         merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
         self.assertEqual(merge.count(".[] | .filename, (.previous_filename // empty)"), 3)
         self.assertNotIn("'.[].filename, (.previous_filename // empty)'", merge)
+        prepare = (ROOT / ".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
+        self.assertIn('"--jq", ".[] | .filename, (.previous_filename // empty)"', prepare)
+        self.assertNotIn('"--jq", ".[].filename, (.previous_filename // empty)"', prepare)
 
 if __name__ == "__main__":
     unittest.main()
