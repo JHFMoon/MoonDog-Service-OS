@@ -144,3 +144,35 @@ test("UI surfaces have independent non-destructive visibility gates", () => {
     "presentation filters and Home counting must never mutate authoritative rows");
   new vm.Script(app);
 });
+
+test("deferred production refresh wrapper follows owner-view navigation and respects cancellation",()=>{
+  const start=app.indexOf("  const navigateBeforeDeferredPanelRefresh = navigateTo;");
+  const end=app.indexOf("  const navigateWithLearnedFailures = navigateTo;",start);
+  assert.ok(start>=0&&end>start,"production deferred navigation wrapper has explicit extraction bounds");
+  const active={overview:false,openRo:false};
+  let allowNavigation=true;
+  const calls={overview:0,daily:0};
+  const context={
+    ui:{
+      "view-overview":{classList:{contains:()=>active.overview}},
+      "view-open-ro":{classList:{contains:()=>active.openRo}}
+    },
+    navigateTo(view){
+      if(!allowNavigation)return false;
+      active.overview=view==="overview";
+      active.openRo=view==="open-ro";
+      return "navigated";
+    },
+    renderOverviewPanelsIfNeeded(value){if(value)calls.overview++;},
+    renderDailyFocusIfNeeded(value){if(value)calls.daily++;}
+  };
+  const wrapper=vm.runInNewContext(app.slice(start,end)+"\\n({navigateTo})",context);
+  assert.equal(wrapper.navigateTo("overview"),"navigated");
+  assert.deepEqual(calls,{overview:1,daily:0});
+  assert.equal(wrapper.navigateTo("open-ro"),"navigated");
+  assert.deepEqual(calls,{overview:1,daily:1});
+  allowNavigation=false;
+  assert.equal(wrapper.navigateTo("overview"),false);
+  assert.deepEqual(calls,{overview:1,daily:1},
+    "a cancelled navigation does not refresh a hidden destination");
+});
