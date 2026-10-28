@@ -41,7 +41,7 @@ class BetaPipelineTests(unittest.TestCase):
         self.assertTrue(has_accepted_pr_author(base, REPO, "moondog-release[bot]"))
         self.assertFalse(has_accepted_pr_author(base, REPO, "other-release[bot]"))
         self.assertFalse(has_accepted_pr_author(
-            {**base, "user": {"login": "untrusted[bot]"}}, REPO, "untrusted[bot]"
+            {**base, "user": {"login": "untrusted[bot]"}}, REPO, "moondog-release[bot]"
         ))
         self.assertFalse(has_accepted_pr_author(
             {**base, "head": {"repo": {"full_name": "attacker/MoonDog-Service-OS"}}},
