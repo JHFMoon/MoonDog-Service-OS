@@ -5213,7 +5213,6 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     button.classList.add("active");button.setAttribute("aria-current","page");
     (ui[`view-${view}`]||document.getElementById(`view-${view}`))?.classList.add("active");
     ui.pageTitle.textContent=button.textContent;
-    if(view==="overview")renderOverviewPanelsIfNeeded(true); if(view==="open-ro")renderDailyFocusIfNeeded(true);
     const ticket=++meetingNavigationTicket;
     if(view==="open-ro"&&(openRoRenderedRevision!==navigationDataRevision||openRoRenderedDate!==localDateKey())){
       // An unchanged RO table stays mounted. When stale, let the tab paint
@@ -6551,6 +6550,17 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   prepareForNewStore=async function(){await prepareBeforeDaily();dailyNotify('moondog-recovered');};
   const navigateBeforeDaily = navigateTo;
   navigateTo = function(view, anchor = '') { if(['performance','meeting','arrivals'].includes(view))reportReviewView=view;else if(!['tools','imports'].includes(view))reportReviewView=''; navigateBeforeDaily(view, anchor); dailyNotify('moondog-navigation', { view, anchor }); };
+  const navigateBeforeDeferredPanelRefresh = navigateTo;
+  navigateTo = function(view, ...args) {
+    const result = navigateBeforeDeferredPanelRefresh(view, ...args);
+    if (view === "overview" && ui["view-overview"]?.classList.contains("active")) {
+      renderOverviewPanelsIfNeeded(true);
+    }
+    if (view === "open-ro" && ui["view-open-ro"]?.classList.contains("active")) {
+      renderDailyFocusIfNeeded(true);
+    }
+    return result;
+  };
   const navigateWithLearnedFailures = navigateTo;
   navigateTo = function(view, anchor = '') {
     navigateWithLearnedFailures(view, anchor);
