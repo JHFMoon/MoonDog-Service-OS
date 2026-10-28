@@ -92,7 +92,7 @@ test("UI surfaces have independent non-destructive visibility gates", () => {
   const homeRenderCalls={overview:0,daily:0};
   homeUi["view-home"]={classList:{contains:()=>homeActive}};
   const home=vm.runInNewContext(homeHelperSource+app.slice(homeStart,homeEnd)+
-    "\\n({renderAll,renderHomePanelsIfNeeded})",{
+    "\n({renderAll,renderHomePanelsIfNeeded})",{
     model:homeModel,ui:homeUi,localDateKey:()=>todayKey,
     isClosedManagement:management=>norm(management?.status)==="closed",
     renderOverviewIntelligence:()=>{homeRenderCalls.overview++;},
