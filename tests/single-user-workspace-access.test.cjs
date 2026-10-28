@@ -212,6 +212,36 @@ test("production connection keeps the saved handle when a transient snapshot rea
     "the exact saved folder handle must remain available for the bounded automatic retry");
 });
 
+test("non-transient saved reconnect failure revokes staged write authority and retains the folder handle",async()=>{
+  const start=app.indexOf("  let savedConnectionRetryTimer=null");
+  const end=app.indexOf("  async function restoreConnection()",start);
+  assert.ok(start>=0&&end>start,"extract the production saved-folder retry loop");
+  const handle={kind:"directory",name:"Synthetic Workspace"},stagedRoot={kind:"synthetic-uncommitted-root"};
+  const model={pendingRoot:handle,root:stagedRoot,applicationRoot:handle,workspaceConnectionCommittedRoot:null};
+  let next=1,writeEnabled=true,disabled=0,stopped=0;
+  const timers=new Map(),messages=[];
+  const context={
+    model,connectedNativeRoot:handle,authorityRevalidationExhausted:false,
+    writeAuthority:{reason:"READY",disable(){writeEnabled=false;disabled++;}},
+    setTimeout:(fn,delay)=>{const id=next++;timers.set(id,fn);return id;},clearTimeout:id=>timers.delete(id),
+    finishConnection:async()=>{throw Error("synthetic malformed snapshot");},
+    transientWorkspaceState:()=>false,stopFolderWatch(){stopped++;},
+    setConnectionState:(state,message)=>messages.push({state,message}),
+    navigateTo(){},run:async()=>{},connect:async()=>{},console
+  };
+  vm.runInNewContext(app.slice(start,end)+"\nglobalThis.retry=scheduleSavedConnectionRetry;",context);
+  context.retry(handle);
+  const [id,fn]=timers.entries().next().value;timers.delete(id);await fn();
+  assert.equal(disabled,1);
+  assert.equal(writeEnabled,false);
+  assert.equal(stopped,1);
+  assert.equal(model.root,null,"uncommitted staged root is removed from the in-memory model");
+  assert.equal(model.applicationRoot,null);
+  assert.equal(context.connectedNativeRoot,null);
+  assert.equal(model.pendingRoot,handle,"the original handle remains available for a clean retry");
+  assert.equal(messages.at(-1).state,"CONNECTION ERROR");
+});
+
 test("saved-folder reconnection retries transient OneDrive failures with the same handle and no prompt",async()=>{
   const start=app.indexOf("  let savedConnectionRetryTimer=null");
   const end=app.indexOf("  async function restoreConnection()",start);
