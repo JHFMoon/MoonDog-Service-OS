@@ -52,6 +52,10 @@ class BetaVerificationDiagnosticsTests(unittest.TestCase):
         self.assertIn("Stable manifest changes are out of scope", workflow)
         self.assertIn("steps.proof.outputs.ready == 'true'", workflow)
         self.assertIn("Final guarded merge refused", workflow)
+        self.assertIn("Check out verified PR candidate as untrusted data", workflow)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("current_beta_runtime_mismatches", workflow)
+        self.assertIn("the exact PR runtime is not present", workflow)
         self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"', workflow)
 
 
