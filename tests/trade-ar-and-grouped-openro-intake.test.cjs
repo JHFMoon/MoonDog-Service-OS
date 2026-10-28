@@ -197,7 +197,7 @@ test("four synthetic grouped Open RO export shapes reconcile including WEB* and 
 test("application remains valid JavaScript and source boundaries remain supplemental for AR",()=>{
   new vm.Script(app);
   assert.match(app,/parseTradeArErrorWorkbook\(bytes,fileName\)/);
-  assert.match(app,/if \(book\.SheetNames\.includes\("Trade AR Error Report"\)\)/);
+  assert.match(app,/book\.SheetNames\.includes\("Trade AR Error Report"\).*matchingTradeArReportLayout\(book\)/);
 });
 
 
