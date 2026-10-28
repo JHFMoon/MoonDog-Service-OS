@@ -42,11 +42,14 @@ HUMAN_PR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 BETA_PACKAGE_MARKER = "MoonDog-Automation-Package: yes"
 
 
-def has_accepted_pr_author(pr: dict, repository: str) -> bool:
-    """Accept normal collaborators, or the exact same-repo trusted Beta package bot.
+def has_accepted_pr_author(
+    pr: dict, repository: str, package_bot_login: str | None = None
+) -> bool:
+    """Accept collaborators or a configured, same-repository release App.
 
-    The bot exception requires its immutable GitHub login, the observed bot
-    association, a same-repository head, and a standalone package marker.
+    The legacy Actions bot remains accepted only for already-existing package
+    PRs. New package candidates use the exact App login configured by the repo
+    owner; arbitrary bots, forks, and unmarked PRs remain rejected.
     """
     if not isinstance(pr, dict):
         return False
@@ -56,9 +59,12 @@ def has_accepted_pr_author(pr: dict, repository: str) -> bool:
     head = pr.get("head")
     head_repo = head.get("repo") if isinstance(head, dict) else None
     body = pr.get("body")
+    allowed_bots = {"github-actions[bot]"}
+    if isinstance(package_bot_login, str) and package_bot_login.strip():
+        allowed_bots.add(package_bot_login.strip())
     return (
         isinstance(user, dict)
-        and user.get("login") == "github-actions[bot]"
+        and user.get("login") in allowed_bots
         and pr.get("author_association") == "CONTRIBUTOR"
         and isinstance(head_repo, dict)
         and head_repo.get("full_name") == repository
@@ -179,6 +185,7 @@ def main() -> int:
     author = sub.add_parser("check-pr-author")
     author.add_argument("pr_json", type=Path)
     author.add_argument("--repository", required=True)
+    author.add_argument("--package-bot-login", default="")
     auth = sub.add_parser("check-authorization")
     auth.add_argument("pr_json", type=Path)
     auth.add_argument("--policy", type=Path, required=True)
@@ -198,7 +205,7 @@ def main() -> int:
             print("Cannot verify pull request authorization", file=sys.stderr)
             return 2
         if args.command == "check-pr-author":
-            if not has_accepted_pr_author(pr, args.repository):
+            if not has_accepted_pr_author(pr, args.repository, args.package_bot_login):
                 print("Pull request author is not authorized for the guarded automation path")
                 return 1
             return 0

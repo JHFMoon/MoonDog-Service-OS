@@ -1,48 +1,44 @@
 name: Prepare Beta Package
 
+# Build a candidate from trusted packaging logic and attach it to the reviewed
+# source PR. pull_request_target is used only with same-repository heads; the
+# candidate checkout is data and is never executed.
 on:
-  workflow_dispatch:
-    inputs:
-      reviewed_commit:
-        description: 'Merged runtime commit to backfill (full SHA)'
-        required: true
-        type: string
-  push:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
     branches: [main]
 
-# Generated package commits explicitly dispatch their own verification because
-# GitHub marks pull-request runs authored by github-actions[bot] as action_required.
 permissions:
-  actions: write
-  contents: write
-  pull-requests: write
-  issues: write
-  statuses: write
+  contents: read
+  issues: read
+  pull-requests: read
 
-# The trusted packaging import must not create untracked scripts/__pycache__ files.
-# Otherwise the guarded changed-file allowlist blocks valid Beta publication.
 env:
   PYTHONDONTWRITEBYTECODE: '1'
 
 concurrency:
-  group: prepare-beta-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: prepare-beta-package-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   prepare:
     if: >-
-      github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       ((github.event.pull_request.author_association == 'OWNER' ||
         github.event.pull_request.author_association == 'MEMBER' ||
         github.event.pull_request.author_association == 'COLLABORATOR') ||
-       github.event.pull_request.user.login == 'github-actions[bot]')
+       github.event.pull_request.user.login == vars.MOONDOG_RELEASE_APP_LOGIN)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
       PR_TITLE: ${{ github.event.pull_request.title }}
+      REPO: ${{ github.repository }}
 
     steps:
       - name: Check out trusted packaging logic from the reviewed base
@@ -51,543 +47,180 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
           fetch-depth: 1
+          persist-credentials: false
 
-      - name: Check out candidate without executing candidate code
+      - name: Check out candidate as untrusted data
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Verify explicit PR automation authorization
+      - name: Verify explicit authorization and protected path boundaries
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/authorized-pr.json
+          test "$(jq -r '.head.sha' /tmp/authorized-pr.json)" = "$HEAD_SHA"
+          test "$(jq -r '.head.repo.full_name' /tmp/authorized-pr.json)" = "$REPO"
           python3 trusted/scripts/guarded_merge_policy.py check-authorization /tmp/authorized-pr.json --policy trusted/.github/guarded-merge-policy.json
-          python3 trusted/scripts/guarded_merge_policy.py check-pr-author /tmp/authorized-pr.json --repository "$REPO"
+          python3 trusted/scripts/guarded_merge_policy.py check-pr-author /tmp/authorized-pr.json --repository "$REPO" --package-bot-login "${{ vars.MOONDOG_RELEASE_APP_LOGIN }}"
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename' > /tmp/pr-paths.txt
+          python3 trusted/scripts/pipeline_guard.py check-paths /tmp/pr-paths.txt
 
-      - name: Refuse automatic changes to trusted proof/automation files
+      - name: Defer package generation until PR is based on current main
+        id: base
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh api --paginate "repos/${{ github.repository }}/pulls/$PR_NUMBER/files?per_page=100"             --jq '.[].filename' > /tmp/pr-paths.txt
-          python3 trusted/scripts/pipeline_guard.py check-paths /tmp/pr-paths.txt
+          MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
+          COMPARE="$(gh api "repos/$REPO/compare/$MAIN_SHA...$HEAD_SHA")"
+          STATUS="$(jq -r .status <<<"$COMPARE")"
+          MERGE_BASE="$(jq -r '.merge_base_commit.sha // empty' <<<"$COMPARE")"
+          if [ "$STATUS" != "ahead" ] || [ "$MERGE_BASE" != "$MAIN_SHA" ]; then
+            echo "PR head does not descend from current main; the release queue must additively refresh it before package generation."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "current=true" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare next Beta only when reviewed runtime changed
+      - name: Check whether the candidate runtime needs a Beta package
+        id: parity
+        if: steps.base.outputs.current == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          python3 trusted/scripts/build_beta_package.py --root candidate --base-root trusted --base-manifest trusted/updates/manifest.json --release-notes "$PR_TITLE. Verified automated Beta; no Workspace migration."
+          PYTHONPATH=trusted python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from scripts.build_beta_package import current_beta_runtime_mismatches
 
-      - name: Commit generated Beta package back to the same PR branch
+          mismatches = current_beta_runtime_mismatches(Path("candidate"))
+          needs_package = bool(mismatches)
+          print(json.dumps({"needsPackage": needs_package, "runtimeMismatches": mismatches}, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("needs_package=" + ("true" if needs_package else "false") + chr(10))
+          PY
+
+      - name: Reserve the Beta version for the oldest authorized runtime PR
+        id: reservation
+        if: steps.base.outputs.current == 'true' && steps.parity.outputs.needs_package == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_BOT_LOGIN: ${{ vars.MOONDOG_RELEASE_APP_LOGIN }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" --jq '.[]' | jq -s '.' > /tmp/open-prs.json
+          PYTHONPATH=trusted python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from scripts.beta_release_queue import select_next_runtime_pr
+          from scripts.guarded_merge_policy import load_policy
+
+          prs = json.load(open("/tmp/open-prs.json", encoding="utf-8"))
+          paths_by_pr = {}
+          for pr in prs:
+              if pr.get("state") != "open" or pr.get("draft") is not False:
+                  continue
+              number = pr.get("number")
+              if not isinstance(number, int):
+                  continue
+              result = subprocess.run(
+                  ["gh", "api", "--paginate",
+                   f"repos/{os.environ['REPO']}/pulls/{number}/files?per_page=100",
+                   "--jq", ".[].filename, (.previous_filename // empty)"],
+                  check=True, capture_output=True, text=True,
+              )
+              paths_by_pr[number] = [line for line in result.stdout.splitlines() if line]
+
+          candidate = select_next_runtime_pr(
+              prs,
+              paths_by_pr,
+              repository=os.environ["REPO"],
+              package_bot_login=os.environ.get("PACKAGE_BOT_LOGIN"),
+              policy=load_policy("trusted/.github/guarded-merge-policy.json"),
+          )
+          current = int(os.environ["PR_NUMBER"])
+          owner = candidate.get("number") if candidate else None
+          allowed = owner is None or owner == current
+          print(json.dumps({"currentPR": current, "betaReservationPR": owner, "allowed": allowed}, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("allowed=" + ("true" if allowed else "false") + chr(10))
+          if not allowed:
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write(f"Beta package reservation belongs to PR #{owner}; this PR waits until it merges.\n")
+          PY
+
+      - name: Build the Beta candidate with trusted code
+        if: steps.base.outputs.current == 'true' && steps.parity.outputs.needs_package == 'true' && steps.reservation.outputs.allowed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 trusted/scripts/build_beta_package.py \
+            --root candidate \
+            --base-root trusted \
+            --base-manifest trusted/updates/manifest.json \
+            --release-notes "$PR_TITLE. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged."
+
+      - name: Commit generated package locally
         id: commit
+        if: steps.base.outputs.current == 'true' && steps.parity.outputs.needs_package == 'true' && steps.reservation.outputs.allowed == 'true'
         shell: bash
         run: |
           set -euo pipefail
           cd candidate
           if git diff --quiet -- CHANGELOG.md README.md updates/manifest.json updates/packages && [ -z "$(git ls-files --others --exclude-standard updates/packages)" ]; then
-            echo "Reviewed runtime already matches the advertised Beta package."
+            echo "Reviewed runtime already matches the trusted Beta package."
             echo "generated=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           CHANGED="$(git status --porcelain)"
           if echo "$CHANGED" | grep -Ev '^( M|M |A |\?\?) (CHANGELOG\.md|README\.md|updates/manifest\.json|updates/packages/moondog-[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+\.json)$' | grep -q .; then
-            echo "Beta preparation attempted an unexpected file change:" >&2
+            echo "Trusted Beta builder attempted an unexpected file change:" >&2
             echo "$CHANGED" >&2
             exit 1
           fi
           git config user.name "MoonDog Automation"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md README.md updates/manifest.json updates/packages
-          git commit -m "Package next verified Beta"
-          git push origin "HEAD:$HEAD_BRANCH"
+          git commit -m "Package verified runtime in source PR"
           echo "generated=true" >> "$GITHUB_OUTPUT"
 
-      - name: Dispatch required checks for automation-generated head
-        if: steps.commit.outputs.generated == 'true'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh workflow run publication-check.yml --repo "${{ github.repository }}" --ref "$HEAD_BRANCH"
-          gh workflow run clean-install-proof.yml --repo "${{ github.repository }}" --ref "$HEAD_BRANCH"
-
-      - name: Wait for generated-head proof and merge
-        if: steps.commit.outputs.generated == 'true'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          CURRENT_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          CURRENT_HEAD="$(git -C candidate rev-parse HEAD)"
-          export CURRENT_HEAD
-          for attempt in {1..180}; do
-            RUNS="$(gh api "repos/$REPO/actions/runs?head_sha=$CURRENT_HEAD&per_page=50")"
-            PUB_OK="$(jq '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")] | length' <<<"$RUNS")"
-            CLEAN_OK="$(jq '[.workflow_runs[] | select(.name=="Clean Install Proof" and .conclusion=="success")] | length' <<<"$RUNS")"
-            PENDING="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and .status!="completed")] | length' <<<"$RUNS")"
-            HARD_FAIL="$(jq '[.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out"))] | length' <<<"$RUNS")"
-            if [ "$HARD_FAIL" != "0" ]; then
-              echo "Generated-head verification failed; exact-head run IDs and failed job names:" >&2
-              FAILED_IDS="$(jq -r '.workflow_runs[] | select((.name=="Publication check" or .name=="Clean Install Proof") and (.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out")) | .id' <<<"$RUNS")"
-              while IFS= read -r FAILED_ID; do
-                [ -n "$FAILED_ID" ] || continue
-                echo "Failed verification: https://github.com/$REPO/actions/runs/$FAILED_ID" >&2
-                gh api "repos/$REPO/actions/runs/$FAILED_ID/jobs?per_page=100" \
-                  --jq '.jobs[] | select(.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out") | [.name, .conclusion, (.id|tostring)] | @tsv' >&2
-              done <<<"$FAILED_IDS"
-              exit 1
-            fi
-            gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/generated-pr-comments.json
-            gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/generated-pr-reviews.json
-            REVIEW_STATE="$(python3 trusted/scripts/guarded_merge_policy.py merge-review-state /tmp/generated-pr-comments.json /tmp/generated-pr-reviews.json "$CURRENT_HEAD" --policy trusted/.github/guarded-merge-policy.json)"
-            if [ "$REVIEW_STATE" = "findings" ]; then
-              echo "Generated-head review reported findings; refusing merge." >&2
-              exit 1
-            fi
-            if [ "$PENDING" = "0" ] && [ "$PUB_OK" != "0" ] && [ "$CLEAN_OK" != "0" ] && [ "$REVIEW_STATE" = "clean" ]; then
-              break
-            fi
-            if [ "$attempt" = "180" ]; then
-              echo "Timed out waiting for all generated-head checks to settle." >&2
-              exit 1
-            fi
-            sleep 10
-          done
-
-          PUB_RUN_ID="$(jq -r '[.workflow_runs[] | select(.name=="Publication check" and .conclusion=="success")][0].id // empty' <<<"$RUNS")"
-          test -n "$PUB_RUN_ID" || {
-            echo "Could not identify the successful Publication Check run." >&2
-            exit 1
-          }
-          gh api -X POST "repos/$REPO/statuses/$CURRENT_HEAD"             -f state=success             -f context="Publication Check"             -f description="Exact-head Publication Check and Clean Install Proof passed"             -f target_url="https://github.com/$REPO/actions/runs/$PUB_RUN_ID"
-
-          gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/generated-pr.json
-          python3 - <<'PY'
-          import json, os, sys
-          sys.path.insert(0, "trusted")
-          from scripts.guarded_merge_authorization import has_explicit_approval
-          from scripts.guarded_merge_policy import has_accepted_pr_author
-          pr=json.load(open('/tmp/generated-pr.json',encoding='utf-8'))
-          checks={
-              'open': pr.get('state')=='open',
-              'draft': pr.get('draft') is False,
-              'base': pr.get('base',{}).get('ref')=='main',
-              'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
-              'head': pr.get('head',{}).get('sha')==os.environ['CURRENT_HEAD'],
-              'authorization': has_explicit_approval(pr.get('body')),
-              'association': has_accepted_pr_author(pr, os.environ['REPO']),
-          }
-          failed=[name for name,ok in checks.items() if not ok]
-          if failed:
-              raise SystemExit('Generated-head merge refused: '+', '.join(failed))
-          PY
-
-          STATUS="$(gh api "repos/$REPO/compare/main...$CURRENT_HEAD" --jq .status)"
-          test "$STATUS" = "ahead" || {
-            echo "Main advanced while the Beta was verifying; refusing a stale merge." >&2
-            exit 1
-          }
-
-          MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
-          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$MAIN_SHA" > /tmp/main-manifest.json
-          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$CURRENT_HEAD" > /tmp/head-manifest.json
-          python3 - <<'PY'
-          import json
-          main=json.load(open('/tmp/main-manifest.json',encoding='utf-8'))
-          head=json.load(open('/tmp/head-manifest.json',encoding='utf-8'))
-          if main.get('stable') != head.get('stable'):
-              raise SystemExit('Generated-head merge refused: Stable changed.')
-          PY
-
-          for attempt in {1..12}; do
-            if RESULT="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$CURRENT_HEAD" 2>&1)"; then
-              jq '{merged:.merged,message:.message,sha:.sha}' <<<"$RESULT"
-              test "$(jq -r '.merged' <<<"$RESULT")" = "true"
-              MERGED_SHA="$(jq -r '.sha' <<<"$RESULT")"
-              for settle in {1..12}; do
-                MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
-                [ "$MAIN_SHA" = "$MERGED_SHA" ] && break
-                sleep 2
-              done
-              test "$MAIN_SHA" = "$MERGED_SHA" || {
-                echo "Merged commit did not become current main; refusing post-merge proof." >&2
-                exit 1
-              }
-              gh workflow run publication-check.yml --repo "$REPO" --ref main
-              exit 0
-            fi
-            if grep -Eq 'Required status check.*(in progress|expected)' <<<"$RESULT"; then
-              sleep 5
-              continue
-            fi
-            echo "$RESULT" >&2
-            exit 1
-          done
-          echo "GitHub did not settle the generated-head status context in time." >&2
-          exit 1
-
-  package-unadvertised-main-runtime:
-    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    env:
-      REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - name: Check out current main with enough history
-        uses: actions/checkout@v7
+      - name: Create scoped MoonDog release App token
+        id: release-app
+        if: steps.commit.outputs.generated == 'true' && steps.reservation.outputs.allowed == 'true'
+        uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42
         with:
-          ref: main
-          fetch-depth: 0
-          persist-credentials: true
+          app-id: ${{ secrets.MOONDOG_RELEASE_APP_ID }}
+          private-key: ${{ secrets.MOONDOG_RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-issues: write
 
-      - name: Detect merged runtime that is not already packaged
-        id: detect
+      - name: Push package commit to the same reviewed PR
+        if: steps.commit.outputs.generated == 'true'
         shell: bash
         env:
-          REQUESTED_COMMIT: ${{ inputs.reviewed_commit || '' }}
+          APP_TOKEN: ${{ steps.release-app.outputs.token }}
+          GH_TOKEN: ${{ steps.release-app.outputs.token }}
+          APP_SLUG: ${{ steps.release-app.outputs.app-slug }}
+          PACKAGE_BOT_LOGIN: ${{ vars.MOONDOG_RELEASE_APP_LOGIN }}
         run: |
           set -euo pipefail
-          git fetch origin main
-          MAIN_SHA="$(git rev-parse origin/main)"
-          test "$(git rev-parse HEAD)" = "$MAIN_SHA" || {
-            echo "Main moved before packaging; a later push will retry." >&2
-            exit 1
-          }
-          TARGET_SHA="${REQUESTED_COMMIT:-$MAIN_SHA}"
-          git cat-file -e "$TARGET_SHA^{commit}"
-          git merge-base --is-ancestor "$TARGET_SHA" "$MAIN_SHA" || {
-            echo "Requested commit is not contained in current main." >&2
-            exit 1
-          }
-          TARGET_PARENT="$(git rev-parse "$TARGET_SHA^")"
-          git diff --name-only "$TARGET_PARENT" "$TARGET_SHA" > /tmp/merged-paths.txt
-
-          python3 - <<'PY' > /tmp/runtime-detect.json
-          import json
-          from pathlib import Path
-          from scripts.build_beta_package import beta_runtime_paths, package_entries, source_runtime_mismatches, digest
-          changed={line.strip() for line in Path('/tmp/merged-paths.txt').read_text(encoding='utf-8').splitlines() if line.strip()}
-          paths=beta_runtime_paths(Path('assets/app.js').read_text(encoding='utf-8'))
-          runtime=sorted(changed & set(paths))
-          manifest=json.loads(Path('updates/manifest.json').read_text(encoding='utf-8'))
-          beta=manifest['beta']
-          package_path=Path('updates/packages') / ('moondog-'+beta['version']+'.json')
-          package_bytes=package_path.read_bytes()
-          if digest(package_bytes)!=beta['sha256']:
-              raise SystemExit('Current Beta package digest differs from manifest; refusing automatic publication.')
-          package=json.loads(package_bytes)
-          if package.get('version')!=beta['version']:
-              raise SystemExit('Current Beta package has mismatched version.')
-          drift=source_runtime_mismatches(Path('.'), package_entries(package), paths)
-          package_changed=(
-              'updates/manifest.json' in changed
-              and any(p.startswith('updates/packages/moondog-') and p.endswith('.json') for p in changed)
-          )
-          print(json.dumps({'runtime':runtime,'drift':drift,'packageChanged':package_changed}))
-          PY
-
-          RUNTIME_COUNT="$(python3 -c 'import json; print(len(json.load(open("/tmp/runtime-detect.json"))["runtime"]))')"
-          DRIFT_COUNT="$(python3 -c 'import json; print(len(json.load(open("/tmp/runtime-detect.json"))["drift"]))')"
-          PACKAGE_CHANGED="$(python3 -c 'import json; print(str(json.load(open("/tmp/runtime-detect.json"))["packageChanged"]).lower())')"
-          if [ "$RUNTIME_COUNT" = "0" ] && [ "$DRIFT_COUNT" = "0" ]; then
-            echo "Current Beta fully matches reviewed runtime; no publication needed."
-            echo "needed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "$PACKAGE_CHANGED" = "true" ] && [ "$DRIFT_COUNT" = "0" ]; then
-            echo "Merged runtime commit already carries a complete Beta package."
-            echo "needed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "needed=true" >> "$GITHUB_OUTPUT"
-          echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
-          echo "target_parent=$TARGET_PARENT" >> "$GITHUB_OUTPUT"
-          echo "reviewed_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Build next Beta from trusted current main
-        id: build
-        if: steps.detect.outputs.needed == 'true'
-        shell: bash
-        env:
-          BASE_SHA: ${{ steps.detect.outputs.target_parent }}
-          REVIEWED_SHA: ${{ steps.detect.outputs.reviewed_sha }}
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/moondog-beta-base
-          git archive "$BASE_SHA" | tar -x -C /tmp/moondog-beta-base
-          cp updates/manifest.json /tmp/moondog-beta-base-manifest.json
-          # Use the already-validated reviewed commit, not the latest main HEAD:
-          # a later unrelated push may have arrived before this packaging run.
-          git cat-file -e "$REVIEWED_SHA^{commit}"
-          REVIEWED_SUBJECT="$(git show -s --format=%s "$REVIEWED_SHA")"
-          test -n "$REVIEWED_SUBJECT"
-          STABLE_VERSION="$(python3 -c 'import json; print(json.load(open("updates/manifest.json"))["stable"]["version"])')"
-          python3 scripts/build_beta_package.py \
-            --root . \
-            --base-root /tmp/moondog-beta-base \
-            --base-manifest /tmp/moondog-beta-base-manifest.json \
-            --release-notes "$REVIEWED_SUBJECT. Verified automated Beta from reviewed source. No Workspace migration; Stable remains $STABLE_VERSION."
-
-          EXPECTED_BETA_VERSION="$(python3 -c 'import json; print(json.load(open("updates/manifest.json"))["beta"]["version"])')"
-          EXPECTED_BETA_SHA="$(python3 -c 'import json; print(json.load(open("updates/manifest.json"))["beta"]["sha256"])')"
-          test "$(sha256sum "updates/packages/moondog-$EXPECTED_BETA_VERSION.json" | cut -d ' ' -f 1)" = "$EXPECTED_BETA_SHA" || {
-            echo "Locally built Beta package does not match its manifest SHA-256." >&2
-            exit 1
-          }
-
-          CHANGED="$(git status --porcelain)"
-          if echo "$CHANGED" | grep -Ev '^( M|M |A |\?\?) (CHANGELOG\.md|README\.md|updates/manifest\.json|updates/packages/moondog-[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+\.json)$' | grep -q .; then
-            echo "Post-merge Beta preparation attempted an unexpected file change:" >&2
-            echo "$CHANGED" >&2
-            exit 1
-          fi
-          test -n "$(git status --porcelain -- CHANGELOG.md README.md updates/manifest.json updates/packages)" || {
-            echo "Runtime delta produced no Beta package; refusing silent success." >&2
-            exit 1
-          }
-
-          BRANCH="beta/post-merge-$GITHUB_RUN_ID"
-          OPEN_PRS="$(gh api "repos/$REPO/pulls?state=open&base=main&per_page=100")"
-          printf '%s' "$OPEN_PRS" > /tmp/open-package-prs.json
-          CANDIDATE_LIST="$(python3 scripts/beta_candidate_reuse.py candidates --pulls-file /tmp/open-package-prs.json --repository "$REPO")"
-          mkdir -p /tmp/beta-package-candidates
-          while IFS=$'\t' read -r CANDIDATE_NUMBER CANDIDATE_HEAD; do
-            [ -n "$CANDIDATE_NUMBER" ] || continue
-            gh api -H "Accept: application/vnd.github.raw+json" "repos/$REPO/contents/updates/manifest.json?ref=$CANDIDATE_HEAD" > "/tmp/beta-package-candidates/$CANDIDATE_NUMBER.manifest.json"
-            CANDIDATE_VERSION="$(jq -r '.beta.version // empty' "/tmp/beta-package-candidates/$CANDIDATE_NUMBER.manifest.json")"
-            [[ "$CANDIDATE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]] || continue
-            gh api -H "Accept: application/vnd.github.raw+json" "repos/$REPO/contents/updates/packages/moondog-$CANDIDATE_VERSION.json?ref=$CANDIDATE_HEAD" > "/tmp/beta-package-candidates/$CANDIDATE_NUMBER.package.json"
-          done <<< "$CANDIDATE_LIST"
-          EXISTING="$(python3 scripts/beta_candidate_reuse.py select --pulls-file /tmp/open-package-prs.json --expected-manifest updates/manifest.json --candidate-dir /tmp/beta-package-candidates --repository "$REPO")"
-          EXISTING_PR_NUMBER="$(jq -r '.number // empty' <<< "$EXISTING")"
-          if [ -n "$EXISTING_PR_NUMBER" ]; then
-            BRANCH="$(jq -r '.head.ref' <<< "$EXISTING")"
-            PACKAGE_HEAD="$(jq -r '.head.sha' <<< "$EXISTING")"
-            echo "Reusing verified open Beta candidate PR #$EXISTING_PR_NUMBER on $BRANCH."
-            gh api --paginate "repos/$REPO/pulls/$EXISTING_PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/reused-beta-paths.txt
-            python3 scripts/pipeline_guard.py check-paths /tmp/reused-beta-paths.txt
-            COMPARE_STATUS="$(gh api "repos/$REPO/compare/main...$PACKAGE_HEAD" --jq .status)"
-            if [ "$COMPARE_STATUS" != "ahead" ]; then
-              gh api -X PUT "repos/$REPO/pulls/$EXISTING_PR_NUMBER/update-branch" -f expected_head_sha="$PACKAGE_HEAD" >/dev/null
-              OLD_HEAD="$PACKAGE_HEAD"
-              UPDATED=false
-              for settle in {1..42}; do
-                CURRENT_PR="$(gh api "repos/$REPO/pulls/$EXISTING_PR_NUMBER")"
-                PACKAGE_HEAD="$(jq -r '.head.sha' <<< "$CURRENT_PR")"
-                COMPARE_STATUS="$(gh api "repos/$REPO/compare/main...$PACKAGE_HEAD" --jq .status)"
-                if [ "$PACKAGE_HEAD" != "$OLD_HEAD" ] && [ "$COMPARE_STATUS" = "ahead" ]; then
-                  UPDATED=true
-                  break
-                fi
-                sleep 5
-              done
-              test "$UPDATED" = "true" || { echo "Existing Beta PR did not refresh additively onto current main; refusing stale proof." >&2; exit 1; }
-              echo "Reused Beta PR refreshed additively; exact-head checks and review will be requested for $PACKAGE_HEAD."
-            fi
-            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-            echo "head_sha=$PACKAGE_HEAD" >> "$GITHUB_OUTPUT"
-            echo "existing_pr_number=$EXISTING_PR_NUMBER" >> "$GITHUB_OUTPUT"
-          else
-            if git ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
-              echo "Refusing to overwrite orphaned package branch $BRANCH; inspect its existing remote ref first." >&2
-              exit 1
-            fi
-            git switch -c "$BRANCH"
-            git config user.name "MoonDog Automation"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add CHANGELOG.md README.md updates/manifest.json updates/packages
-            git commit -m "Package merged runtime into next verified Beta"
-            git push origin "$BRANCH"
-            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-            echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-            echo "existing_pr_number=" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Open isolated package PR
-        id: pr
-        if: steps.detect.outputs.needed == 'true' && steps.build.outputs.existing_pr_number == ''
-        shell: bash
-        env:
-          BRANCH: ${{ steps.build.outputs.branch }}
-          PACKAGE_HEAD: ${{ steps.build.outputs.head_sha }}
-        run: |
-          set -euo pipefail
-          URL="$(gh pr create             --base main             --head "$BRANCH"             --title "Package merged runtime into next Beta"             --body "MoonDog-Automation-Package: yes
-          MoonDog-Auto-Merge: yes
-
-          Generated from already-merged runtime using the trusted Beta builder. Only Beta metadata/package files may change. Stable must remain unchanged. Required exact-head Publication Check, Clean Install Proof, and Codex review with no findings must pass before merge.")"
-          PR_NUMBER="$(gh pr view "$URL" --json number --jq .number)"
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "@codex review
-          Review generated Beta package head $PACKAGE_HEAD. Verify only Beta metadata/package files changed, Stable is byte-identical, and the trusted builder output is consistent with the manifest and SHA-256. Report actionable findings and the reviewed SHA."
-          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-
-      - name: Dispatch exact-head verification
-        id: verification
-        if: steps.detect.outputs.needed == 'true'
-        shell: bash
-        env:
-          BRANCH: ${{ steps.build.outputs.branch }}
-          PACKAGE_HEAD: ${{ steps.build.outputs.head_sha }}
-        run: |
-          set -euo pipefail
-          RUNS_BEFORE="$(gh api "repos/$REPO/actions/runs?head_sha=$PACKAGE_HEAD&per_page=100")"
-          BEFORE_RUN_IDS=" $(jq -r '.workflow_runs[].id' <<<"$RUNS_BEFORE" | tr '\n' ' ') "
-          gh workflow run publication-check.yml --repo "$REPO" --ref "$BRANCH"
-          gh workflow run clean-install-proof.yml --repo "$REPO" --ref "$BRANCH"
-          for attempt in {1..60}; do
-            RUNS_AFTER="$(gh api "repos/$REPO/actions/runs?head_sha=$PACKAGE_HEAD&per_page=100")"
-            PUB_RUN_ID="$(jq -r --arg before "$BEFORE_RUN_IDS" --arg head "$PACKAGE_HEAD" '[.workflow_runs[] | select(.name=="Publication check" and .event=="workflow_dispatch" and .head_sha==$head and ((" " + (.id|tostring) + " ") as $needle | ($before | contains($needle) | not)))] | sort_by(.created_at) | last | .id // empty' <<<"$RUNS_AFTER")"
-            CLEAN_RUN_ID="$(jq -r --arg before "$BEFORE_RUN_IDS" --arg head "$PACKAGE_HEAD" '[.workflow_runs[] | select(.name=="Clean Install Proof" and .event=="workflow_dispatch" and .head_sha==$head and ((" " + (.id|tostring) + " ") as $needle | ($before | contains($needle) | not)))] | sort_by(.created_at) | last | .id // empty' <<<"$RUNS_AFTER")"
-            if [ -n "$PUB_RUN_ID" ] && [ -n "$CLEAN_RUN_ID" ]; then
-              echo "publication_run_id=$PUB_RUN_ID" >> "$GITHUB_OUTPUT"
-              echo "clean_install_run_id=$CLEAN_RUN_ID" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Could not identify both newly dispatched exact-head verification runs." >&2
-          exit 1
-      - name: Verify package PR and merge exact head
-        if: steps.detect.outputs.needed == 'true'
-        shell: bash
-        env:
-          BRANCH: ${{ steps.build.outputs.branch }}
-          PACKAGE_HEAD: ${{ steps.build.outputs.head_sha }}
-          PUB_RUN_ID: ${{ steps.verification.outputs.publication_run_id }}
-          CLEAN_RUN_ID: ${{ steps.verification.outputs.clean_install_run_id }}
-          PR_NUMBER: ${{ steps.build.outputs.existing_pr_number || steps.pr.outputs.number }}
-          EXPECTED_MAIN: ${{ steps.detect.outputs.main_sha }}
-        run: |
-          set -euo pipefail
-          for attempt in {1..180}; do
-            PUB_RUN="$(gh api "repos/$REPO/actions/runs/$PUB_RUN_ID")"
-            CLEAN_RUN="$(gh api "repos/$REPO/actions/runs/$CLEAN_RUN_ID")"
-            test "$(jq -r '.name' <<<"$PUB_RUN")" = "Publication check" || { echo "Publication run identity mismatch." >&2; exit 1; }
-            test "$(jq -r '.name' <<<"$CLEAN_RUN")" = "Clean Install Proof" || { echo "Clean Install run identity mismatch." >&2; exit 1; }
-            for RUN in "$PUB_RUN" "$CLEAN_RUN"; do
-              test "$(jq -r '.head_sha' <<<"$RUN")" = "$PACKAGE_HEAD" || { echo "Verification run head mismatch." >&2; exit 1; }
-              test "$(jq -r '.event' <<<"$RUN")" = "workflow_dispatch" || { echo "Verification event mismatch." >&2; exit 1; }
-            done
-            PUB_OK="$(jq -r 'if .status=="completed" and .conclusion=="success" then 1 else 0 end' <<<"$PUB_RUN")"
-            CLEAN_OK="$(jq -r 'if .status=="completed" and .conclusion=="success" then 1 else 0 end' <<<"$CLEAN_RUN")"
-            PENDING="$(jq -s '[.[] | select(.status!="completed")] | length' <<<"$PUB_RUN"$'\n'"$CLEAN_RUN")"
-            HARD_FAIL="$(jq -s '[.[] | select(.status=="completed" and .conclusion!="success")] | length' <<<"$PUB_RUN"$'\n'"$CLEAN_RUN")"
-            gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/package-pr-comments.json
-            gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/package-pr-reviews.json
-            REVIEW_STATE="$(python3 scripts/guarded_merge_policy.py merge-review-state /tmp/package-pr-comments.json /tmp/package-pr-reviews.json "$PACKAGE_HEAD" --policy .github/guarded-merge-policy.json)"
-            if [ "$REVIEW_STATE" = "findings" ]; then
-              echo "Generated Beta exact-head Codex or owner review reported findings." >&2
-              exit 1
-            fi
-            if [ "$HARD_FAIL" != "0" ]; then
-              echo "Generated Beta verification failed on newly dispatched exact-head runs." >&2
-              echo "Publication run: https://github.com/$REPO/actions/runs/$PUB_RUN_ID" >&2
-              echo "Clean Install run: https://github.com/$REPO/actions/runs/$CLEAN_RUN_ID" >&2
-              exit 1
-            fi
-            if [ "$PENDING" = "0" ] && [ "$PUB_OK" = "1" ] && [ "$CLEAN_OK" = "1" ] && [ "$REVIEW_STATE" = "clean" ]; then
-              break
-            fi
-            if [ "$attempt" = "180" ]; then
-              echo "Timed out waiting for generated Beta Publication, Clean Install, and exact-head Codex proof." >&2
-              exit 1
-            fi
-            sleep 10
-          done
-          CURRENT_MAIN="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
-          test "$CURRENT_MAIN" = "$EXPECTED_MAIN" || {
-            echo "Main advanced while generated Beta was verifying; refusing stale merge." >&2
-            exit 1
-          }
-
-          gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/beta-pr.json
-          gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/final-package-pr-comments.json
-          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/final-package-pr-reviews.json
-          python3 - <<'PY'
-          import json, os
-          from scripts.guarded_merge_policy import merge_review_state, has_merge_authorization, load_policy
-          pr=json.load(open('/tmp/beta-pr.json',encoding='utf-8'))
-          comments=json.load(open('/tmp/final-package-pr-comments.json',encoding='utf-8'))
-          reviews=json.load(open('/tmp/final-package-pr-reviews.json',encoding='utf-8'))
-          policy=load_policy('.github/guarded-merge-policy.json')
-          checks={
-              'open': pr.get('state')=='open',
-              'draft': pr.get('draft') is False,
-              'base': pr.get('base',{}).get('ref')=='main',
-              'same_repo': pr.get('head',{}).get('repo',{}).get('full_name')==os.environ['REPO'],
-              'head': pr.get('head',{}).get('sha')==os.environ['PACKAGE_HEAD'],
-              'machine_marker': 'MoonDog-Automation-Package: yes' in (pr.get('body') or ''),
-              'standing_authorization': has_merge_authorization(pr.get('body'), policy),
-              'exact_review': merge_review_state(comments, reviews, os.environ['PACKAGE_HEAD'], policy) == 'clean',
-          }
-          failed=[name for name,ok in checks.items() if not ok]
-          if failed:
-              raise SystemExit('Generated Beta PR refused: '+', '.join(failed))
-          PY
-
-          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename' > /tmp/beta-paths.txt
-          python3 - <<'PY'
-          import re
-          from pathlib import Path
-          allowed={'CHANGELOG.md','README.md','updates/manifest.json'}
-          package=re.compile(r'^updates/packages/moondog-[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+\.json$')
-          paths=[p.strip() for p in Path('/tmp/beta-paths.txt').read_text().splitlines() if p.strip()]
-          bad=[p for p in paths if p not in allowed and not package.fullmatch(p)]
-          if bad:
-              raise SystemExit('Generated Beta PR contains unexpected paths: '+', '.join(bad))
-          PY
-
-          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$EXPECTED_MAIN" > /tmp/main-manifest.json
-          gh api -H "Accept: application/vnd.github.raw+json"             "repos/$REPO/contents/updates/manifest.json?ref=$PACKAGE_HEAD" > /tmp/package-manifest.json
-          python3 - <<'PY'
-          import json
-          main=json.load(open('/tmp/main-manifest.json',encoding='utf-8'))
-          package=json.load(open('/tmp/package-manifest.json',encoding='utf-8'))
-          if main.get('stable') != package.get('stable'):
-              raise SystemExit('Generated Beta merge refused: Stable changed.')
-          if main.get('beta') == package.get('beta'):
-              raise SystemExit('Generated Beta merge refused: Beta did not advance.')
-          PY
-
-          gh api -X POST "repos/$REPO/statuses/$PACKAGE_HEAD"             -f state=success             -f context="Publication Check"             -f description="Exact-head Publication Check and Clean Install Proof passed"             -f target_url="https://github.com/$REPO/actions/runs/$PUB_RUN_ID"
-
-          for attempt in {1..12}; do
-            if RESULT="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$PACKAGE_HEAD" 2>&1)"; then
-              test "$(jq -r '.merged' <<<"$RESULT")" = "true"
-              MERGED_SHA="$(jq -r '.sha' <<<"$RESULT")"
-              test -n "$MERGED_SHA" && test "$MERGED_SHA" != "null"
-              for settle in {1..12}; do
-                CURRENT_MAIN="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
-                [ "$CURRENT_MAIN" = "$MERGED_SHA" ] && break
-                sleep 2
-              done
-              test "$CURRENT_MAIN" = "$MERGED_SHA" || {
-                echo "Generated Beta merge is not verified as current main; refusing stale proof." >&2
-                exit 1
-              }
-              # GITHUB_TOKEN merges do not trigger new push workflows. Dispatch
-              # verification on the merged main SHA so the public badge and
-              # post-merge release checks reflect the actual current source.
-              gh workflow run publication-check.yml --repo "$REPO" --ref main
-              exit 0
-            fi
-            if grep -Eq 'Required status check.*(in progress|expected)' <<<"$RESULT"; then
-              sleep 5
-              continue
-            fi
-            echo "$RESULT" >&2
-            exit 1
-          done
-          echo "GitHub did not settle required status context for generated Beta." >&2
-          exit 1
+          test -n "$APP_TOKEN"
+          test -n "$APP_SLUG"
+          test "$PACKAGE_BOT_LOGIN" = "$APP_SLUG[bot]"
+          AUTH="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          git -C candidate -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH" push origin "HEAD:$HEAD_BRANCH"
+          gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
+            -f body="@codex review. The trusted Beta package was added to the same reviewed source PR. Review exact head $(git -C candidate rev-parse HEAD), including package provenance, manifest SHA-256, Stable isolation, and the complete runtime diff."
+          echo "Pushed the candidate with the installed MoonDog Release App; normal pull_request checks now verify the new exact head."

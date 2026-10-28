@@ -1,49 +1,70 @@
-"""Guard generated Beta retry workflow structure and exact-head evidence."""
+"""Guard the event-driven Beta release workflow and exact-head gates."""
 from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github/workflows/prepare-beta-package.yml"
+PREPARE = ROOT / ".github/workflows/prepare-beta-package.yml"
+GUARD = ROOT / ".github/workflows/guarded-pr-merge.yml"
 
 
 class BetaVerificationDiagnosticsTests(unittest.TestCase):
-    def test_candidate_reuse_loop_stays_inside_build_step(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-        open_step = workflow.index("- name: Open isolated package PR")
-        reuse_loop = workflow.index("while IFS=$'\\t' read -r CANDIDATE_NUMBER CANDIDATE_HEAD; do")
-        self.assertLess(reuse_loop, open_step)
-        self.assertIn('done <<< "$CANDIDATE_LIST"', workflow[:open_step])
-        self.assertEqual(workflow.count("- name: Open isolated package PR"), 1)
-        self.assertEqual(workflow.count("- name: Dispatch exact-head verification"), 1)
-        self.assertEqual(workflow.count("- name: Verify package PR and merge exact head"), 1)
+    def test_candidate_is_added_to_same_reviewed_pr_without_dispatch_or_polling(self):
+        workflow = PREPARE.read_text(encoding="utf-8")
+        self.assertIn("pull_request_target:", workflow)
+        self.assertIn("Check out candidate as untrusted data", workflow)
+        self.assertIn("Reserve the Beta version for the oldest authorized runtime PR", workflow)
+        self.assertIn("steps.reservation.outputs.allowed == 'true'", workflow)
+        self.assertIn("Build the Beta candidate with trusted code", workflow)
+        self.assertIn("Push package commit to the same reviewed PR", workflow)
+        self.assertIn("actions/create-github-app-token@", workflow)
+        self.assertNotIn("workflow_dispatch", workflow)
+        self.assertNotIn("gh workflow run", workflow)
+        self.assertNotIn("sleep ", workflow)
+        self.assertNotIn("for attempt in {1..", workflow)
+        self.assertNotIn("statuses:", workflow)
 
-    def test_retries_track_only_new_exact_head_run_ids(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("BEFORE_RUN_IDS=", workflow)
-        self.assertIn("as $needle | ($before | contains($needle) | not)", workflow)
-        self.assertIn("publication_run_id=$PUB_RUN_ID", workflow)
-        self.assertIn("clean_install_run_id=$CLEAN_RUN_ID", workflow)
-        self.assertIn("steps.verification.outputs.publication_run_id", workflow)
-        self.assertIn("steps.verification.outputs.clean_install_run_id", workflow)
-        self.assertIn('PUB_RUN="$(gh api "repos/$REPO/actions/runs/$PUB_RUN_ID")"', workflow)
-        self.assertIn('CLEAN_RUN="$(gh api "repos/$REPO/actions/runs/$CLEAN_RUN_ID")"', workflow)
-        self.assertIn("Verification run head mismatch.", workflow)
-        self.assertIn("newly dispatched exact-head runs", workflow)
-        verifier = workflow[workflow.index("- name: Verify package PR and merge exact head"):]
-        self.assertNotIn('PUB_RUN_ID="$(jq -r \'[.workflow_runs[]', verifier)
-        self.assertIn('target_url="https://github.com/$REPO/actions/runs/$PUB_RUN_ID"', verifier)
+    def test_merge_gate_uses_real_exact_head_checks_and_review_events(self):
+        workflow = GUARD.read_text(encoding="utf-8")
+        self.assertIn("pull_request_target:", workflow)
+        self.assertIn("workflow_run:", workflow)
+        self.assertIn("pull_request_review:", workflow)
+        self.assertIn("commits/$HEAD_SHA/check-runs", workflow)
+        self.assertIn("permission-actions: read", workflow)
+        self.assertIn("permission-checks: read", workflow)
+        self.assertIn("permission-contents: write", workflow)
+        self.assertIn("permission-issues: write", workflow)
+        self.assertIn("permission-pull-requests: write", workflow)
+        self.assertIn("check_name='Publication Check'", workflow)
+        self.assertIn("'Publication check': '.github/workflows/publication-check.yml'", workflow)
+        self.assertIn("check_name='Publication Check' if name=='Publication check'", workflow)
+        self.assertIn("specs={'Publication check':", workflow)
+        self.assertIn("else 'prove-clean-install'", workflow)
+        self.assertIn("15368", workflow)
+        self.assertIn("merge-review-state", workflow)
+        self.assertIn("ready=false", workflow)
+        self.assertIn("workflow_run will reevaluate", workflow)
+        self.assertNotIn("workflow_dispatch", workflow)
+        self.assertNotIn("gh workflow run", workflow)
+        self.assertNotIn("statuses/$HEAD_SHA", workflow)
+        self.assertNotIn("sleep ", workflow)
+        self.assertNotIn("for attempt in {1..", workflow)
 
-    def test_retry_wait_covers_exact_head_review(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("for attempt in {1..180}; do", workflow)
-        self.assertNotIn("\\${{", workflow)
-
-    def test_failure_path_stays_closed_and_stable_is_guarded(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("if main.get('stable') != package.get('stable'):", workflow)
+    def test_stable_manifest_is_refused_and_merge_requires_current_proof(self):
+        workflow = GUARD.read_text(encoding="utf-8")
+        self.assertIn("Stable manifest changes are out of scope", workflow)
+        self.assertIn("steps.proof.outputs.ready == 'true'", workflow)
+        self.assertIn("Final guarded merge refused", workflow)
+        self.assertIn("Check out verified PR candidate as untrusted data", workflow)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("current_beta_runtime_mismatches", workflow)
+        self.assertIn("advance-beta-queue", workflow)
+        self.assertIn("permission-contents: write", workflow)
+        self.assertIn("select_next_runtime_pr", workflow)
+        self.assertIn("types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited, closed]", workflow)
+        self.assertIn("github.event.pull_request.merged == false", workflow)
+        self.assertIn("GITHUB_RUN_ID", workflow)
+        self.assertIn("the exact PR runtime is not present", workflow)
         self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"', workflow)
-        self.assertIn("PYTHONDONTWRITEBYTECODE: '1'", workflow)
-        self.assertIn("exit 1", workflow)
 
 
 if __name__ == "__main__":

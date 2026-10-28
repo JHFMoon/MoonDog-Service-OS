@@ -4,39 +4,37 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def should_verify_runtime_parity(event_name, ref, package_change_in_pr):
-    if event_name == "pull_request":
-        return package_change_in_pr
+def should_verify_runtime_parity(event_name, ref):
     if event_name == "workflow_dispatch":
         return ref == "refs/heads/main" or ref.startswith("refs/heads/beta/post-merge-")
+    # Every PR head must contain the runtime already advertised by its Beta
+    # package. Runtime PRs remain unmergeable until the trusted same-PR
+    # packager has added a matching package and triggered fresh PR checks.
     return True
 
 
 class BetaRuntimeGateSelection(unittest.TestCase):
     def test_manual_feature_branch_does_not_require_post_merge_beta_parity(self):
         self.assertFalse(should_verify_runtime_parity(
-            "workflow_dispatch", "refs/heads/test/open-ro-edit", False))
+            "workflow_dispatch", "refs/heads/test/open-ro-edit"))
 
     def test_manual_generated_beta_package_requires_runtime_parity(self):
         self.assertTrue(should_verify_runtime_parity(
-            "workflow_dispatch", "refs/heads/beta/post-merge-123", False))
+            "workflow_dispatch", "refs/heads/beta/post-merge-123"))
 
     def test_manual_main_validation_requires_runtime_parity(self):
         self.assertTrue(should_verify_runtime_parity(
-            "workflow_dispatch", "refs/heads/main", False))
+            "workflow_dispatch", "refs/heads/main"))
 
-    def test_pull_request_requires_parity_only_for_package_changes(self):
-        self.assertFalse(should_verify_runtime_parity(
-            "pull_request", "refs/pull/508/merge", False))
-        self.assertTrue(should_verify_runtime_parity(
-            "pull_request", "refs/pull/507/merge", True))
+    def test_every_pull_request_head_requires_beta_runtime_parity(self):
+        self.assertTrue(should_verify_runtime_parity("pull_request", "refs/pull/508/merge"))
+        self.assertTrue(should_verify_runtime_parity("pull_request", "refs/pull/507/merge"))
 
 
 class BetaRuntimeContract(unittest.TestCase):
@@ -72,25 +70,12 @@ class BetaRuntimeContract(unittest.TestCase):
         self.assertIsNotNone(package_build)
         source = re.sub(r'const BUILD_DATE = "20\d{2}-\d{2}-\d{2}";',
                         f'const BUILD_DATE = "{package_build.group(1)}";', source)
-        # A normal feature PR may legitimately change runtime before post-merge
-        # packaging. But an actual package/manifest PR MUST already contain
-        # the complete reviewed runtime. Previously all PRs skipped this check.
+        # All PR heads must advertise exactly the runtime they contain.
+        # A runtime-only head intentionally fails until the trusted packager
+        # adds its candidate to the same PR and fresh checks run on that head.
         event_name = os.environ.get("GITHUB_EVENT_NAME")
-        package_change_in_pr = False
-        if event_name == "pull_request":
-            changed = subprocess.check_output(
-                ["git", "diff", "--name-only", "HEAD^", "HEAD"], cwd=ROOT, text=True
-            ).splitlines()
-            package_change_in_pr = (
-                "updates/manifest.json" in changed
-                and any(path.startswith("updates/packages/moondog-") and path.endswith(".json") for path in changed)
-            )
-        # Generated Beta branches use the explicit beta/post-merge-* prefix in
-        # prepare-beta-package.yml and receive workflow_dispatch validation.
-        # Preserve full parity for that publication gate while allowing manual
-        # validation of an ordinary source feature branch before Beta sync.
         verify_runtime = should_verify_runtime_parity(
-            event_name, os.environ.get("GITHUB_REF", ""), package_change_in_pr
+            event_name, os.environ.get("GITHUB_REF", "")
         )
         if verify_runtime:
             self.assertEqual(app, source, "Beta app.js differs from reviewed source beyond version/build date")
