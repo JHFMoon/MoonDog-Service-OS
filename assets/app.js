@@ -121,7 +121,8 @@
     return first.includes("\t")?first.split("\t").map(s=>s.trim()).filter(Boolean).slice(0,MAX_COLUMNS):[];
   }
   const REPORT_LAYOUT_FAMILIES=Object.freeze({
-    "trade-ar-errors":Object.freeze(["store","customer","invoice","invoiceDate","days","status","invoiceAmount","received","open"])
+    "trade-ar-errors":Object.freeze(["store","customer","invoice","invoiceDate","days","status","invoiceAmount","received","open"]),
+    "appointment-activity":Object.freeze(["storeCode","interaction","contactedDate","apptCreationDate","apptSetDate","apptTime"])
   });
   function safeReportLayout(data,previous=[]){
     const family=data?.family;
@@ -143,7 +144,8 @@
     const id="report-layout-"+family+"-"+Array.from(sheetName).map(char=>char.codePointAt(0).toString(16)).join("-");
     const old=previous.find(item=>item?.id===id);
     if(!old&&previous.length>=MAX_RULES)throw Error("Maximum number of local report layouts reached.");
-    return{id,family,name:"Local Trade AR layout",sheetName,headerRow,columns,
+    const familyName=family==="trade-ar-errors"?"Trade AR":"Appointment Activity";
+    return{id,family,name:"Local "+familyName+" layout",sheetName,headerRow,columns,
       version:(old?.version||0)+1,approved:true,enabled:true,writeEnabled:false,grouping:"flat-rows",
       updatedAt:new Date().toISOString(),previous:old?{sheetName:old.sheetName,headerRow:old.headerRow,columns:old.columns,version:old.version}:null};
   }
@@ -2026,11 +2028,42 @@
   const isoCell = (value) => value instanceof Date ? localDateKey(value) : workbookDate(value);
   function workbookGrid(bytes, preferred) { const book = XLSX.read(bytes, { type: "array", raw: true, cellDates: true }), sheet = book.Sheets[preferred] || book.Sheets[book.SheetNames[0]]; if (!sheet) throw new Error("The workbook has no readable worksheet."); return { book, rows: XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true }) }; }
   function parseSorWorkbook(bytes, fileName) { const { rows } = workbookGrid(bytes), title = text(rows[0]?.[1] || rows[0]?.[0]).trim(), match = title.match(/After-Sales SOR\s*-\s*([A-Za-z]+)\s+(20\d{2})\s*\/\s*(\d+)\s*-/i); if (!match || match[3] !== reportStoreCode("sor")) throw new Error("This is not the configured store After-Sales SOR."); const headers = rows[2] || [], actualColumns = headers.map((value, index) => norm(value) === "actual" ? index : -1).filter((index) => index >= 0); if (actualColumns.length < 2 || norm(headers[3]) !== "prior year") throw new Error("The SOR comparison columns changed."); const metrics = {}; rows.slice(3).forEach((row) => { const label = text(row[0]).trim(); if (!label) return; metrics[label] = { ytdActual: performanceNumber(row[2]), ytdPriorYear: performanceNumber(row[3]), currentActual: performanceNumber(row[5]), currentPriorYear: performanceNumber(row[6]), priorMonthActual: performanceNumber(row[9]) }; }); for (const key of ["CP Labor Rev", "CP Labor Gross", "CP GM %", "CP RO Count", "CP ELR", "CP Hours p/RO"]) if (!metrics[key]) throw new Error(`SOR is missing ${key}.`); const month = `${match[2]}-${String(new Date(`${match[1]} 1, ${match[2]}`).getMonth() + 1).padStart(2, "0")}`; return { period: month, sourceFile: fileName, importedAt: now(), storeCode: reportStoreCode("sor"), scope: "store", metrics, validation: { parser: "sor-v1", currentActualColumn: 5, priorMonthColumn: 9 } }; }
-  function parseAppointmentActivityWorkbook(bytes, fileName) {
+  function matchingAppointmentActivityReportLayout(book,configured=localReportLayoutRules()) {
+    const family="appointment-activity",fields=globalThis.MoonDogPasteLearn.REPORT_LAYOUT_FAMILIES[family];
+    const canonical={storeCode:"Store Code",interaction:"Interaction",contactedDate:"Contacted Date",
+      apptCreationDate:"Appt Creation Date",apptSetDate:"Appt Set Date",apptTime:"Appt Time"};
+    const matches=[];
+    for(const rule of configured){
+      if(rule?.family!==family||rule.approved!==true||rule.enabled!==true||rule.writeEnabled!==false)continue;
+      let checked;
+      try{checked=globalThis.MoonDogPasteLearn.safeReportLayout(rule,[]);}catch(_){continue;}
+      if(checked.id!==rule.id||!Number.isInteger(Number(rule.version))||Number(rule.version)<1)continue;
+      checked.version=Number(rule.version);
+      const sheet=book?.Sheets?.[checked.sheetName];if(!sheet)continue;
+      const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true}),headerRow=checked.headerRow;
+      const headers=(rows[headerRow]||[]).map(value=>norm(value).replace(/\s+/g," ")),columns={};let valid=true;
+      for(const field of fields){
+        const source=norm(checked.columns[field]).replace(/\s+/g," ");
+        const indexes=headers.map((value,index)=>value===source?index:-1).filter(index=>index>=0);
+        if(indexes.length!==1){valid=false;break;}columns[field]=indexes[0];
+      }
+      if(!valid)continue;
+      const mappedRows=[fields.map(field=>canonical[field])];
+      for(const row of rows.slice(headerRow+1))
+        mappedRows.push(fields.map(field=>row?.[columns[field]]??null));
+      matches.push({rule:checked,rows:mappedRows,columns});
+    }
+    if(matches.length>1)throw new Error("Needs Review: more than one local Appointment Activity layout matches this workbook.");
+    return matches[0]||null;
+  }
+  function parseAppointmentActivityWorkbook(bytes, fileName, layoutOverride=null) {
     // Multi-store exports may cover multiple creation days. Only verified rows
     // for the configured store can create a day's activity observation.
     // Source customer/VIN/notes and row-level identities are never retained.
-    const { rows } = workbookGrid(bytes, "Merged");
+    const grid=workbookGrid(bytes,"Merged"),rules=layoutOverride?[layoutOverride]:localReportLayoutRules();
+    const learned=matchingAppointmentActivityReportLayout(grid.book,rules);
+    if(layoutOverride&&!learned)throw new Error("Needs Review: the saved Appointment Activity layout no longer matches this workbook.");
+    const rows=learned?.rows||grid.rows;
     const header = (rows[0] || []).map(value => norm(value).replace(/\s+/g, " "));
     const required = ["store code", "interaction", "contacted date", "appt creation date", "appt set date", "appt time"];
     if (!required.every(key => header.filter(item => item === key).length === 1))
@@ -5891,12 +5924,15 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     for(const row of files){
       const item=document.createElement("li"),label=document.createElement("span");
       label.textContent=row.name;item.append(label);
-      const teach=document.createElement("button");teach.type="button";teach.textContent="Teach Trade AR layout";
-      teach.addEventListener("click",()=>run(()=>openTradeArLayoutTeaching(row)));
-      item.append(teach);ui.reportLayoutLearnList.append(item);
+      for(const [family,labelText] of [["trade-ar-errors","Teach Trade AR layout"],["appointment-activity","Teach Appointment Activity layout"]]){
+        const teach=document.createElement("button");teach.type="button";teach.textContent=labelText;
+        teach.addEventListener("click",()=>run(()=>openKnownReportLayoutTeaching(row,family)));
+        item.append(teach);
+      }
+      ui.reportLayoutLearnList.append(item);
     }
     ui.reportLayoutLearnStatus.textContent=files.length
-      ?files.length+" XLSX source(s) found. Only known Trade AR reports can be taught; originals remain in place until a verified retry."
+      ?files.length+" XLSX source(s) found. Only known Trade AR and Appointment Activity layouts can be taught; originals remain in place until a verified retry."
       :"No XLSX sources were found in Files To Learn.";
   }
   async function refreshFailedLearnedReportNotice() {
@@ -5925,6 +5961,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ["store","AN Store#"],["customer","Customer #"],["invoice","Invoice #"],["invoiceDate","Invoice Date"],
     ["days","Actual Days Open"],["status","Status"],["invoiceAmount","Invoice Amount (USD)"],
     ["received","Amount Received (USD)"],["open","Open Amount (USD)"]
+  ];
+  const appointmentActivityLayoutFields=[
+    ["storeCode","Store Code"],["interaction","Interaction"],["contactedDate","Contacted Date"],
+    ["apptCreationDate","Appointment Creation Date"],["apptSetDate","Appointment Set Date"],["apptTime","Appointment Time"]
   ];
   function localReportLayoutRules(){
     return Array.isArray(model.settings?.future?.reportLayoutRules)?model.settings.future.reportLayoutRules:[];
@@ -5967,7 +6007,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       return result;
     }finally{setBusy(false);}
   }
-  async function openTradeArLayoutTeaching(source){
+  async function openKnownReportLayoutTeaching(source,family="trade-ar-errors"){
     if(!source?.handle)throw new Error("The original report cannot be read. No changes were made.");
     const dialog=document.createElement("dialog"),title=document.createElement("h2"),help=document.createElement("p"),
       sheetLabel=document.createElement("label"),sheetSelect=document.createElement("select"),
@@ -5975,9 +6015,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       fieldsHost=document.createElement("div"),preview=document.createElement("p"),actions=document.createElement("div"),
       validate=document.createElement("button"),save=document.createElement("button"),retry=document.createElement("button"),
       cancel=document.createElement("button");
-    dialog.setAttribute("aria-label","Teach local Trade AR report layout");
-    title.textContent="Teach a Trade AR report layout";
-    help.textContent="This stores only worksheet/header mappings in this private Workspace. Preview uses the production parser; it does not import or change saved totals. Trade AR remains a supplemental aggregate.";
+    const isTradeAr=family==="trade-ar-errors",familyName=isTradeAr?"Trade AR":"Appointment Activity";
+    const familyFields=isTradeAr?tradeArLayoutFields:appointmentActivityLayoutFields;
+    dialog.setAttribute("aria-label","Teach local "+familyName+" report layout");
+    title.textContent="Teach a "+familyName+" report layout";
+    help.textContent="This stores only worksheet/header mappings in this private Workspace. Preview uses the production parser; it does not import or change saved totals. Known report meaning, configured-store scope, and data-retention rules remain enforced.";
     sheetLabel.textContent="Worksheet ";sheetLabel.append(sheetSelect);
     headerLabel.textContent="Header row ";headerLabel.append(headerSelect);
     validate.type="button";validate.textContent="Preview and validate";
@@ -6000,14 +6042,17 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       fieldsHost.replaceChildren();const name=sheetSelect.value,grid=activeBook&&name
         ?XLSX.utils.sheet_to_json(activeBook.Sheets[name],{header:1,defval:"",raw:true}):[];
       const rowIndex=Number(headerSelect.value),headers=(grid[rowIndex]||[]).map(value=>String(value??"").trim()).filter(Boolean).slice(0,80);
-      for(const [field,label] of tradeArLayoutFields){
+      for(const [field,label] of familyFields){
         const row=document.createElement("label");row.textContent=label+" ";
         const select=document.createElement("select");select.dataset.field=field;
         select.addEventListener("change",()=>{candidateRule=null;previewProof=null;savedRule=null;save.disabled=true;retry.disabled=true;preview.textContent="Mapping changed. Preview and validate the layout again.";});
         const blank=document.createElement("option");blank.value="";blank.textContent="Choose a source column";select.append(blank);
         for(const header of headers){const option=document.createElement("option");option.value=header;option.textContent=header;select.append(option);}
-        const expected=({store:"an store#",customer:"customer #",invoice:"invoice #",invoiceDate:"invoice date",
-          days:"actual days open",status:"status",invoiceAmount:"invoice amount (usd)",received:"amount received (usd)",open:"open amount (usd)"})[field];
+        const expected=(isTradeAr
+          ?{store:"an store#",customer:"customer #",invoice:"invoice #",invoiceDate:"invoice date",
+            days:"actual days open",status:"status",invoiceAmount:"invoice amount (usd)",received:"amount received (usd)",open:"open amount (usd)"}
+          :{storeCode:"store code",interaction:"interaction",contactedDate:"contacted date",
+            apptCreationDate:"appt creation date",apptSetDate:"appt set date",apptTime:"appt time"})[field];
         const found=headers.find(header=>header.toLowerCase().replace(/\s+/g," ").trim()===expected);
         if(found)select.value=found;
         row.append(select);fieldsHost.append(row);
@@ -6019,9 +6064,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       const selectedFile=await source.handle.getFile(),bytes=new Uint8Array(await selectedFile.arrayBuffer());
       source.size=selectedFile.size;source.lastModified=selectedFile.lastModified;
       activeBook=await prepareXlsxWorkbook(bytes,{type:"array",raw:true,cellDates:true,cellNF:true,cellFormula:true});
-      assertTradeArLayoutSource(activeBook,source.name);
+      if(isTradeAr)assertTradeArLayoutSource(activeBook,source.name);
       for(const name of activeBook.SheetNames){const option=document.createElement("option");option.value=name;option.textContent=name;sheetSelect.append(option);}
-      sheetSelect.value=activeBook.SheetNames.includes("Trade AR Error Report")?"Trade AR Error Report":activeBook.SheetNames[0]||"";
+      const preferredSheet=isTradeAr?"Trade AR Error Report":"Merged";
+      sheetSelect.value=activeBook.SheetNames.includes(preferredSheet)?preferredSheet:activeBook.SheetNames[0]||"";
       const setRows=()=>{
         headerSelect.replaceChildren();
         const grid=XLSX.utils.sheet_to_json(activeBook.Sheets[sheetSelect.value],{header:1,defval:"",raw:true});
@@ -6045,24 +6091,30 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           readSelection,setBusy:setTeachingBusy,
           validate:async selection=>{
             const engine=globalThis.MoonDogPasteLearn;
-            const nextRule=engine.safeReportLayout({family:"trade-ar-errors",...selection},localReportLayoutRules());
+            const nextRule=engine.safeReportLayout({family,...selection},localReportLayoutRules());
             const selectedFile=await source.handle.getFile();
             if(selectedFile.size!==source.size||selectedFile.lastModified!==source.lastModified)
               throw new Error("The source changed while the layout was being taught. It remains in Files To Learn.");
             const nextBytes=new Uint8Array(await selectedFile.arrayBuffer());
             const previewBook=await prepareXlsxWorkbook(nextBytes,{type:"array",raw:true,cellDates:true,cellNF:true,cellFormula:true});
-            assertTradeArLayoutSource(previewBook,source.name);
+            if(isTradeAr)assertTradeArLayoutSource(previewBook,source.name);
             const nextProof=await sha256(nextBytes);
-            const result=parseTradeArErrorWorkbook(nextBytes,source.name,nextRule);
-            if(!result?.validation?.storeScopeVerified||result.validation.kpiPromotion!==false)
+            const result=isTradeAr?parseTradeArErrorWorkbook(nextBytes,source.name,nextRule)
+              :parseAppointmentActivityWorkbook(nextBytes,source.name,nextRule);
+            if(isTradeAr&&(!result?.validation?.storeScopeVerified||result.validation.kpiPromotion!==false))
               throw new Error("Trade AR preview did not prove configured-store scope.");
+            if(!isTradeAr&&(!result?.scopeVerified||result.validation?.supplementalOnly!==true
+              ||result.validation.kpiPromotion!==false||result.validation?.sourceStores<2))
+              throw new Error("Appointment Activity preview did not prove configured-store scope.");
             return{nextRule,nextBytes,nextSize:selectedFile.size,nextModified:selectedFile.lastModified,nextProof,result};
           },
           publish:validated=>{
             candidateRule=validated.nextRule;previewBytes=validated.nextBytes;previewSize=validated.nextSize;
             previewModified=validated.nextModified;previewProof=validated.nextProof;savedRule=null;
             const result=validated.result;
-            preview.textContent=`Validated ${result.metrics.invoiceCount} configured-store invoices; ${result.validation.otherStoreRowsExcluded} other-store rows excluded; open amount ${money(result.metrics.openAmount)}. This is a local preview only; no saved data changed.`;
+            preview.textContent=isTradeAr
+              ?`Validated ${result.metrics.invoiceCount} configured-store invoices; ${result.validation.otherStoreRowsExcluded} other-store rows excluded; open amount ${money(result.metrics.openAmount)}. This is a local preview only; no saved data changed.`
+              :`Validated ${result.rowCount} configured-store activity rows across ${result.validation.sourceStores} stores. Only aggregate data is retained; no saved data changed.`;
           }
         });
       }));
@@ -6071,7 +6123,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           readApproval:()=>({rule:candidateRule,proof:previewProof,size:previewSize,modified:previewModified}),
           persist:saveLocalReportLayout,publishSaved:rule=>{savedRule=rule;},setBusy:setTeachingBusy
         });
-        preview.textContent=`Saved private layout v${savedRule.version}. The original report is still in Files To Learn.`;
+        preview.textContent=`Saved private ${familyName} layout v${savedRule.version}. The original report is still in Files To Learn.`;
       }));
       retry.addEventListener("click",()=>run(async()=>{
         const approvedRule=savedRule,approvedProof=previewProof,approvedSize=previewSize,approvedModified=previewModified;
@@ -6088,16 +6140,17 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           const retryBook=await prepareXlsxWorkbook(currentBytes,{type:"array",raw:true,cellDates:true,cellNF:true,cellFormula:true});
           if(savedRule!==approvedRule||previewProof!==approvedProof)
             throw new Error("The approved layout changed while retry preparation was running. Preview again before importing.");
-          assertTradeArLayoutSource(retryBook,source.name);
+          if(isTradeAr)assertTradeArLayoutSource(retryBook,source.name);
           const relativePath=`Files To Learn/${source.name}`;
           const candidate={name:source.name,location:"learn",relativePath,handle:source.handle,file:current,
             signature:`${relativePath}|${current.size}|${current.lastModified}`};
           sourceLocations.set(source.name,"learn");
-          await processClassifiedCandidate(candidate,"supplemental-workbook",currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),false,approvedRule);
-          await resolveLearnedFailureRecords(source.name,candidate.signature,"supplemental-workbook");
+          const retryKind=isTradeAr?"supplemental-workbook":"appointment-activity";
+          await processClassifiedCandidate(candidate,retryKind,currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),false,approvedRule);
+          await resolveLearnedFailureRecords(source.name,candidate.signature,retryKind);
           await removeSourceEntryWithByteGuard(source.name,currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteLength));
           dialog.close();await refreshFailedLearnedReportNotice();await scanFilesToTeachReportLayouts();
-          status("Trade AR report saved and verified; source cleanup followed the successful read-back policy.","success");
+          status(familyName+" report saved and verified; source cleanup followed the successful read-back policy.","success");
         }finally{
           dailyImportBusy=false;
           if(dialog.open){
