@@ -223,9 +223,10 @@ test("saved-folder reconnection retries transient OneDrive failures with the sam
   const context={
     model,ui:{backupRecoverySection:{scrollIntoView(){}}},
     writeAuthority:{reason:"WORKSPACE_BUSY",disable(){}},
+    stopFolderWatch(){},
     setTimeout:(fn,delay)=>{const id=next++;timers.set(id,fn);delays.push(delay);return id;},
     clearTimeout:id=>timers.delete(id),
-    finishConnection:async(received,ask)=>{assert.equal(received,handle);assert.equal(ask,false);if(++attempts<3)throw Object.assign(Error("synthetic OneDrive lock"),{name:"NotReadableError"});model.pendingRoot=null;},
+    finishConnection:async(received,ask)=>{assert.equal(received,handle);assert.equal(ask,false);if(++attempts<3){model.pendingRoot=null;throw Object.assign(Error("synthetic OneDrive lock"),{name:"NotReadableError"});}model.pendingRoot=null;},
     transientWorkspaceState:error=>error?.name==="NotReadableError",
     setConnectionState:(state,message)=>connectionErrors.push({state,message}),
     navigateTo(){},run:async()=>{},connect:async()=>{permissionRequests++;},console
@@ -241,6 +242,70 @@ test("saved-folder reconnection retries transient OneDrive failures with the sam
   assert.equal(model.pendingRoot,null);
 });
 
+test("failed non-transient reconnect revokes write access, stops Report Inbox Watch, and retains the saved handle",async()=>{
+  const start=app.indexOf("  let savedConnectionRetryTimer=null");
+  const end=app.indexOf("  async function restoreConnection()",start);
+  const handle={kind:"directory",name:"Synthetic Workspace"};
+  const stagedRoot={name:"Uncommitted Workspace"},actions=[],timers=new Map();
+  let authorityWritable=true;
+  const model={pendingRoot:handle,root:stagedRoot,applicationRoot:handle,workspaceConnectionCommittedRoot:null};
+  const context={
+    model,ui:{backupRecoverySection:{scrollIntoView(){}}},
+    writeAuthority:{reason:"READY",get canWrite(){return authorityWritable;},disable(){authorityWritable=false;actions.push("disabled");}},
+    stopFolderWatch:reason=>actions.push("watch stopped: "+reason),
+    setTimeout:(fn,delay)=>{timers.set(delay,fn);return delay;},
+    clearTimeout:id=>timers.delete(id),
+    finishConnection:async(received,ask)=>{
+      assert.equal(received,handle);
+      assert.equal(ask,false);
+      // A successful initial permission check can clear the pending handle
+      // and enable editing before the authoritative snapshot read fails.
+      model.pendingRoot=null;
+      throw Error("Synthetic malformed settings JSON");
+    },
+    transientWorkspaceState:()=>false,
+    setConnectionState:(state,message)=>actions.push(state+": "+message),
+    navigateTo(){},run:async()=>{},connect:async()=>{},console
+  };
+  vm.runInNewContext(app.slice(start,end)+"\nglobalThis.retry=scheduleSavedConnectionRetry;",context);
+  context.retry(handle);
+  await timers.get(1200)();
+  assert.equal(authorityWritable,false,"a failed reconnect cannot leave editing enabled");
+  assert.equal(model.pendingRoot,handle,"the saved handle remains available for explicit recovery");
+  assert.equal(model.root,null,"staged, uncommitted Workspace must not stay active");
+  assert.equal(model.applicationRoot,null);
+  assert.ok(actions.some(item=>item.startsWith("watch stopped:")),"Report Inbox Watch must not write");
+  assert.match(actions.at(-1),/Saved folder reconnect stopped/);
+  assert.equal(timers.size,1,"a permanent error must not schedule another retry");
+});
+
+test("a recovered read-only Workspace restarts Report Inbox Watch after durable validation",async()=>{
+  const start=app.indexOf("  let authorityRevalidationTimer=null");
+  const end=app.indexOf('  window.addEventListener("focus"',start);
+  assert.ok(start>0&&end>start,"production read-only revalidation scheduler must be present");
+  const root={name:"Synthetic Workspace"},timers=new Map(),events=[];
+  let next=0,canWrite=false;
+  const context={
+    connectedNativeRoot:root,
+    writeAuthority:{get canWrite(){return canWrite;},reason:"WORKSPACE_BUSY",
+      validate:async(received,ask)=>{assert.equal(received,root);assert.equal(ask,false);canWrite=true;return true;}},
+    setTimeout:(fn,delay)=>{const id=++next;timers.set(id,{fn,delay});return id;},
+    clearTimeout:id=>timers.delete(id),
+    renderSetup(){},startFolderWatch(){events.push("watch started");},
+    setConnectionState:state=>events.push("state: "+state),
+    status:message=>events.push("status: "+message)
+  };
+  vm.runInNewContext(app.slice(start,end)+"\nglobalThis.retry=scheduleAuthorityRevalidation;",context);
+  context.retry(root);
+  assert.equal(timers.size,1);
+  const [id,timer]=timers.entries().next().value;timers.delete(id);
+  await timer.fn();
+  assert.ok(events.includes("watch started"),"read-only startup must resume Report Inbox Watch after recovery");
+  assert.ok(events.includes("state: CONNECTED"));
+  assert.equal(canWrite,true);
+  assert.equal(timers.size,0);
+});
+
 test("saved-folder retries are bounded and preserve the handle after persistent transient errors",async()=>{
   const start=app.indexOf("  let savedConnectionRetryTimer=null");
   const end=app.indexOf("  async function restoreConnection()",start);
@@ -250,6 +315,7 @@ test("saved-folder retries are bounded and preserve the handle after persistent 
   const context={
     model,ui:{backupRecoverySection:{scrollIntoView(){}}},
     writeAuthority:{reason:"WORKSPACE_BUSY",disable(){}},
+    stopFolderWatch(){} ,
     setTimeout:(fn,delay)=>{const id=next++;timers.set(id,fn);delays.push(delay);return id;},
     clearTimeout:id=>timers.delete(id),
     finishConnection:async(received,ask)=>{assert.equal(received,handle);assert.equal(ask,false);attempts++;throw Object.assign(Error("synthetic OneDrive lock"),{name:"NotReadableError"});},
