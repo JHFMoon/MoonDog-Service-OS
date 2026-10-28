@@ -230,7 +230,7 @@ test("explicit Retry saved folder schedules bounded recovery after a transient O
     setConnectionState(){},clearTimeout:id=>cleared.push(id),
     console
   };
-  vm.runInNewContext("let savedConnectionRetryTimer=41,savedConnectionRetryAttempts=5;"+app.slice(start,end)+"\\nglobalThis.connectNow=connect;",context);
+  vm.runInNewContext("let savedConnectionRetryTimer=41,savedConnectionRetryAttempts=5;"+app.slice(start,end)+"\nglobalThis.connectNow=connect;",context);
   await assert.rejects(context.connectNow(),/synthetic OneDrive busy/);
   assert.deepEqual(cleared,[41],"explicit retry cancels the prior timer before starting a fresh bounded window");
   assert.equal(retries,1);
