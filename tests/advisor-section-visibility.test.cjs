@@ -86,10 +86,17 @@ test("UI surfaces have independent non-destructive visibility gates", () => {
   const homeUi={metricOpen:field(),metricDue:field(),metricMissing:field(),
     metricUpdated:field(),lastImport:field(),lastExport:field(),
     exportButton:{disabled:true}};
-  const home=vm.runInNewContext(app.slice(homeStart,homeEnd)+"\n({renderAll})",{
-    model:homeModel,ui:homeUi,localDateKey:()=>"2026-10-26",
+  const homeHelpersStart=app.indexOf("  let homePanelsDirty = true;");
+  const homeHelperSource=app.slice(homeHelpersStart,homeStart);
+  let homeActive=true,todayKey="2026-10-26";
+  const homeRenderCalls={overview:0,daily:0};
+  homeUi["view-home"]={classList:{contains:()=>homeActive}};
+  const home=vm.runInNewContext(homeHelperSource+app.slice(homeStart,homeEnd)+
+    "\\n({renderAll,renderHomePanelsIfNeeded})",{
+    model:homeModel,ui:homeUi,localDateKey:()=>todayKey,
     isClosedManagement:management=>norm(management?.status)==="closed",
-    renderOverviewIntelligence:()=>{},renderDailyFocus:()=>{},renderFilters:()=>{},
+    renderOverviewIntelligence:()=>{homeRenderCalls.overview++;},
+    renderDailyFocus:()=>{homeRenderCalls.daily++;},renderFilters:()=>{},
     renderTable:()=>{},renderArrivals:()=>{},renderPerformance:()=>{},
     renderMeeting:()=>{},renderAssignNext:()=>{},renderSetup:()=>{}
   });
@@ -100,6 +107,16 @@ test("UI surfaces have independent non-destructive visibility gates", () => {
     homeUi.metricMissing.textContent],[4,3,2],
     "Home totals retain hidden advisor source rows while excluding only closed work");
   assert.equal(homeUi.exportButton.disabled,false);
+  assert.deepEqual(homeRenderCalls,{overview:1,daily:1},"connected Home builds both panels once");
+  homeActive=false;home.renderAll();
+  assert.deepEqual(homeRenderCalls,{overview:1,daily:1},"hidden Home updates skip expensive overview and daily-focus DOM rebuilds");
+  assert.equal(home.renderHomePanelsIfNeeded(true),true,"returning to Home refreshes deferred panels");
+  assert.deepEqual(homeRenderCalls,{overview:2,daily:2});
+  assert.equal(home.renderHomePanelsIfNeeded(true),false,"unchanged same-day Home panels are reused");
+  todayKey="2026-10-27";
+  assert.equal(home.renderHomePanelsIfNeeded(true),true,"date rollover invalidates Home panels on activation");
+  assert.deepEqual(homeRenderCalls,{overview:3,daily:3});
+  assert.match(app,/if\(view==="home"\)renderHomePanelsIfNeeded\(true\);/,"Home navigation refreshes invalidated hidden panels");
   assert.equal(JSON.stringify(fullRecords),allRecordsBefore,
     "presentation filters and Home counting must never mutate authoritative rows");
   new vm.Script(app);
