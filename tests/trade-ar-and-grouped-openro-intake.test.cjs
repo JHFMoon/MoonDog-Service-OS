@@ -282,7 +282,7 @@ test("explicit layout preview validates the selected sheet even when a valid can
   const fields={store:"AN Store#",customer:"Customer #",invoice:"Invoice #",invoiceDate:"Invoice Date",
     days:"Actual Days Open",status:"Status",invoiceAmount:"Invoice Amount (USD)",
     received:"Amount Received (USD)",open:"Open Amount (USD)"};
-  const raw=arRow({invoice:"FAKE-BUILTIN",invoiceDate:"invalid synthetic date"});
+  const raw=arRow({invoice:"FAKE-BUILTIN"});raw[arHeaders.indexOf("Invoice Date")]="invalid synthetic date";
   const mapped=fieldOrder.map(field=>{
     const builtInField=Object.keys(fields).find(key=>key===field);
     return raw[arHeaders.indexOf(fields[builtInField])];
