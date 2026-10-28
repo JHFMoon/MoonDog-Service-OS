@@ -250,6 +250,51 @@ test("taught Trade AR sheet, header row, aliases and reordered columns reuse str
   assert.equal(JSON.stringify(result).includes("FAKE-LAYOUT-1"),false);
 });
 
+test("learned worksheet percent formats are checked on that worksheet when a named Trade AR sheet is also present",()=>{
+  const begin=app.indexOf("/* MoonDog Paste & Learn — inert"),end=app.indexOf("})(globalThis);",begin);
+  const engineContext={};vm.runInNewContext(app.slice(begin,end+14),engineContext);
+  const mappings={store:"Location",customer:"Client Id",invoice:"Document Ref",invoiceDate:"Bill Date",
+    days:"Age Days",status:"Follow-up Attempt",invoiceAmount:"Billed USD",received:"Paid USD",open:"Balance USD"};
+  const rule=engineContext.MoonDogPasteLearn.safeReportLayout({family:"trade-ar-errors",
+    sheetName:"Receivables Detail",headerRow:2,columns:mappings},[]);
+  const fieldOrder=["invoice","store","days","customer","open","status","invoiceDate","received","invoiceAmount"];
+  const values=source=>Object.fromEntries(Object.entries({store:"AN Store#",customer:"Customer #",invoice:"Invoice #",
+    invoiceDate:"Invoice Date",days:"Actual Days Open",status:"Status",invoiceAmount:"Invoice Amount (USD)",
+    received:"Amount Received (USD)",open:"Open Amount (USD)"}).map(([key,heading])=>[key,source[arHeaders.indexOf(heading)]]));
+  const source=arRow({invoice:"FAKE-MIXED-SHEET",open:5});
+  const mapped=values(source),rows=[["Report"],[],fieldOrder.map(field=>mappings[field]),fieldOrder.map(field=>mapped[field])];
+  const learned={rows,"!ref":"A1:I4",E4:{v:5,z:"0%",w:"10%"}};
+  const mixed={SheetNames:["Trade AR Error Report","Receivables Detail"],Sheets:{
+    "Trade AR Error Report":{rows:[["This named sheet is not a valid detail table"]]},
+    "Receivables Detail":learned
+  }};
+  assert.throws(()=>arHarness([],"101",{},[rule],mixed).parse(),/percentage-formatted/);
+});
+
+test("successful taught retry clears only the matching local failure record after verified persistence",async()=>{
+  const helper=section("  async function resolveLearnedFailureRecords(","  async function scanFailedLearnedSources(");
+  let durable=null,failWrite=false;
+  const context={AUTO_IMPORT_PATH:["data","auto-import.json"],structuredClone,
+    now:()=>"2026-10-28T00:00:00Z",
+    model:{autoImport:{seen:{
+      failed:{fileName:"known.xlsx",storedAs:"known.xlsx",importFailed:true,failedAt:"2026-10-27"},
+      unrelated:{fileName:"other.xlsx",storedAs:"other.xlsx",importFailed:true}
+    }}},
+    writeJson:async(_path,value)=>{if(failWrite)throw Error("synthetic metadata write failure");durable=JSON.parse(JSON.stringify(value));},
+    readJson:async()=>durable};
+  vm.runInNewContext(helper,context);
+  await context.resolveLearnedFailureRecords("known.xlsx","Files To Learn/known.xlsx|20|123","supplemental-workbook");
+  assert.equal(context.model.autoImport.seen.failed.importFailed,false);
+  assert.equal(context.model.autoImport.seen.failed.failureResolvedAt,"2026-10-28T00:00:00Z");
+  assert.equal(context.model.autoImport.seen.unrelated.importFailed,true);
+  assert.equal(context.model.autoImport.seen["Files To Learn/known.xlsx|20|123"].kind,"supplemental-workbook");
+  assert.deepEqual(JSON.parse(JSON.stringify(durable)),JSON.parse(JSON.stringify(context.model.autoImport)));
+  failWrite=true;
+  const before=JSON.stringify(context.model.autoImport);
+  await assert.rejects(context.resolveLearnedFailureRecords("known.xlsx","retry|21|124","supplemental-workbook"),/synthetic metadata write failure/);
+  assert.equal(JSON.stringify(context.model.autoImport),before,"failed read/write metadata proof rolls back approval state");
+});
+
 test("layout preview is local, uses production Trade AR validation, saves mappings in Workspace settings and retries retained source",()=>{
   assert.match(app,/Teach a known report layout/);
   assert.match(app,/Preview and validate/);
@@ -258,4 +303,8 @@ test("layout preview is local, uses production Trade AR validation, saves mappin
   assert.match(app,/Retry this report/);
   assert.match(app,/await sha256\(currentBytes\)!==previewProof/);
   assert.match(app,/processClassifiedCandidate\(candidate,"supplemental-workbook"/);
+  assert.match(app,/select\.addEventListener\("change",\(\)=>\{candidateRule=null;previewProof=null;savedRule=null;save\.disabled=true;retry\.disabled=true/);
+  assert.match(app,/candidateRule=null;previewProof=null;savedRule=null;save\.disabled=true;retry\.disabled=true;[\\s\\S]*const nextRule=engine\.safeReportLayout/);
+  assert.match(app,/resolveLearnedFailureRecords\(source\.name,candidate\.signature,"supplemental-workbook"\)/);
+  assert.match(app,/removeSourceEntryWithByteGuard\(source\.name,currentBytes/);
 });
