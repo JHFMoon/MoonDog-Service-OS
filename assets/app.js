@@ -741,6 +741,17 @@
   let connectedNativeRoot = null;
   new MutationObserver(() => { const node = ui.clarificationBanner?.querySelector("span"); if (node?.textContent.includes("and Activity history")) node.textContent = node.textContent.replace(" and Activity history", ""); }).observe(ui.clarificationBanner, { childList: true, subtree: true });
   const status = (message, type = "info") => { ui.status.textContent = message; ui.status.className = `status ${type}`; };
+  function writeAuthorityGuidance(reason) {
+    const guidance = {
+      PERMISSION_REQUIRED: { action: "Restore folder access", message: "Edge needs read/write permission for the saved Workspace. Click Restore folder access to let Edge ask; the saved handle and Workspace files are retained.", type: "error" },
+      WORKSPACE_BUSY: { action: "Retrying Workspace…", message: "Workspace I/O is temporarily busy, often while OneDrive is syncing. MoonDog is rechecking the saved folder automatically. Keep this page open; editing and saves remain blocked until verification succeeds.", type: "info" },
+      PENDING_TRANSACTION: { action: "Review recovery", message: "A pending transaction could not be proven committed or rolled back. Its journal and Workspace files are preserved. Open Settings → Backup & Recovery for controlled review.", type: "error" },
+      INTERRUPTED_RESTORE: { action: "Review recovery", message: "An interrupted restore still holds editing. The restore marker is preserved. Open Settings → Backup & Recovery to review the verified safety backup and live files.", type: "error" },
+      VALIDATION_FAILED: { action: "Recheck Workspace", message: `Workspace verification failed (${writeAuthority.failureName || "unknown error"}). Editing remains disabled; the saved folder handle is retained.`, type: "error" },
+      NO_WORKSPACE: { action: "Choose working folder", message: "Workspace write authority is unavailable. Choose or restore the saved working folder.", type: "error" }
+    };
+    return guidance[reason] || guidance.VALIDATION_FAILED;
+  }
   function setConnectionState(state, message = "") {
     model.connectionState = state;
     const resolving = ["STARTING", "RESTORING SAVED CONNECTION", "PERMISSION REQUIRED", "CONNECTION ERROR"].includes(state);
@@ -748,30 +759,39 @@
     ui.connectButton.disabled = state === "STARTING" || state === "RESTORING SAVED CONNECTION";
     if (state === "STARTING") { ui.permissionBadge.textContent = "Starting"; ui.connectButton.textContent = "Starting Service Operations Dashboard"; }
     if (state === "RESTORING SAVED CONNECTION") { ui.permissionBadge.textContent = "Restoring saved folder"; ui.connectButton.textContent = "Restoring"; }
-    if (state === "PERMISSION REQUIRED") { ui.permissionBadge.textContent = "Folder access required"; ui.connectButton.textContent = "RESTORE FOLDER ACCESS"; ui.connectButton.disabled = false; }
+    if (state === "PERMISSION REQUIRED") { ui.permissionBadge.textContent = "Folder access required"; ui.connectButton.textContent = "Restore folder access"; ui.connectButton.disabled = false; }
     if (state === "SAVED HANDLE UNAVAILABLE") { ui.permissionBadge.textContent = "Folder not connected"; ui.connectButton.textContent = "Choose working folder"; ui.connectButton.disabled = false; }
-    if (state === "CONNECTION ERROR") { ui.permissionBadge.textContent = "Connection error"; ui.connectButton.textContent = model.pendingRoot ? "RESTORE FOLDER ACCESS" : "Choose working folder"; ui.connectButton.disabled = false; }
-    if (state === "CONNECTED") {
-      // A readable folder is not automatically writable. No extra MoonDog
-      // owner confirmation: rely on Edge's actual folder permission and the
-      // existing durable write protection.
-      const writable = writeAuthority.canWrite;
-      ui.permissionBadge.textContent = `${writable ? "Connected" : "Read-only"}: ${model.root?.name || "working folder"}`;
-      ui.permissionBadge.className = writable ? "badge" : "badge muted";
-      ui.connectButton.textContent = writable ? "Change folder" : "Restore editing";
+    if (state === "CONNECTION ERROR") {
+      ui.permissionBadge.textContent = "Connection error";
+      ui.connectButton.textContent = model.pendingRoot ? "Retry saved folder" : "Choose working folder";
       ui.connectButton.disabled = false;
     }
-    else ui.permissionBadge.className = "badge muted";
+    if (state === "CONNECTED") {
+      const writable = writeAuthority.canWrite;
+      const reason = writeAuthority.reason || (writable ? "READY" : "PERMISSION_REQUIRED");
+      ui.permissionBadge.textContent = `${writable ? "Connected" : "Read-only"}: ${model.root?.name || "working folder"}`;
+      ui.permissionBadge.className = writable ? "badge" : "badge muted";
+      const guidance = writeAuthorityGuidance(reason);
+      ui.permissionBadge.title = writable ? "Read/write permission and durable Workspace validation succeeded." : guidance.message;
+      ui.connectButton.textContent = writable ? "Change folder" : guidance.action;
+      ui.connectButton.disabled = !writable && reason === "WORKSPACE_BUSY";
+      if (!writable && !message) status(guidance.message, guidance.type);
+      if (writable) ui.permissionBadge.removeAttribute?.("title");
+    }
+    else { ui.permissionBadge.className = "badge muted"; if (state !== "CONNECTED") ui.permissionBadge.removeAttribute?.("title"); }
     if (message) status(message, state === "CONNECTION ERROR" ? "error" : "info");
-    else if (state === "CONNECTED" && /RECONNECTING|RESTORING|FOLDER ACCESS REQUIRED/i.test(ui.status.textContent || "")) status("SERVICE OPERATIONS DASHBOARD CONNECTED", "success");
+    else if (state === "CONNECTED" && writeAuthority.canWrite && /RECONNECTING|RESTORING|FOLDER ACCESS REQUIRED/i.test(ui.status.textContent || "")) status("SERVICE OPERATIONS DASHBOARD CONNECTED", "success");
   }
-  // Only update the connection cue when write capability actually changes.
-  // Once Edge has granted access, normal operations require no second approval.
   globalThis.addEventListener("moondog-write-authority", () => {
     if (model.connectionState !== "CONNECTED" || !model.root) return;
     if (!writeAuthority.canWrite && connectedNativeRoot) model.pendingRoot = connectedNativeRoot;
-    if (writeAuthority.canWrite && model.pendingRoot === connectedNativeRoot) model.pendingRoot = null;
+    if (writeAuthority.canWrite && model.pendingRoot === connectedNativeRoot) {
+      model.pendingRoot = null;
+      clearAuthorityRevalidation();
+    }
     setConnectionState("CONNECTED");
+    if (!writeAuthority.canWrite && connectedNativeRoot)
+      scheduleAuthorityRevalidation(connectedNativeRoot);
   });
   const norm = (v) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   function semanticFieldIssue(record) { const management = record?.management || {}; if (management.updatedAt&&!canonicalReviewStatus(statusById(management.statusId)?.name||management.status)) return `Previous review status “${management.status}” is retired. Choose the current CDK workflow status at this review.`; if (!management.updatedAt&&!currentCdkReviewStatus(record)&&!canonicalReviewStatus(statusById(management.statusId)?.name||management.status)) return "Choose a current CDK workflow status at this review."; if (management.communication && !COMMUNICATION_STATUSES.includes(normalizeCommunication(management.communication))) return `Customer communication “${management.communication}” is not a communication state. Choose a listed communication state.`; return ""; }
