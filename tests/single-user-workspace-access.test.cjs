@@ -182,6 +182,35 @@ test("refresh and browser restart reuse the saved handle and query permission wi
 });
 
 
+test("production connection keeps the saved handle when a transient snapshot read interrupts reconnect",async()=>{
+  const start=app.indexOf("  async function completeWorkspaceConnection(handle, ask) {");
+  const end=app.indexOf("  async function postConnectReconciliation(",start);
+  assert.ok(start>=0&&end>start,"extract the production Workspace connection path");
+  const handle={kind:"directory",name:"Synthetic Workspace"};
+  let reads=0;
+  const context={
+    model:{pendingRoot:handle,root:null,applicationRoot:null,state:{},appointments:{},performance:{},operationalMetrics:{},meetingCycle:{},assignNext:{},autoImport:{},recovery:{}},
+    workspaceConnectionBlockReason:()=>"",
+    permission:async(received,ask)=>{assert.equal(received,handle);assert.equal(ask,false);return "granted";},
+    writeAuthority:{canWrite:true,validate:async()=>{}},
+    wrapOperationalRoot:value=>value,operationalRoot:async value=>value,
+    document:{dispatchEvent(){}},Event,
+    readJson:async(_path,fallback)=>{reads++;if(reads===1)return {};if(reads===2)return null;throw Object.assign(Error("synthetic OneDrive lock"),{name:"NotReadableError"});},
+    SETTINGS_PATH:"data/settings.json",SOURCE_ADAPTER_BOOTSTRAP_PATH:"data/source-adapter.json",
+    STATE_PATH:"data/state.json",APPOINTMENTS_PATH:"data/appointments.json",
+    PERFORMANCE_PATH:"data/performance.json",OPERATIONAL_METRICS_PATH:"data/metrics.json",
+    MEETING_CYCLE_PATH:"data/meeting.json",ASSIGN_NEXT_PATH:"data/assign-next.json",
+    AUTO_IMPORT_PATH:"data/auto-import.json",RECOVERY_PATH:"data/recovery.json",
+    rememberRoot:async()=>{},initializeFolders:async()=>{},recordDiagnostic:async()=>{},
+    VERSION:"synthetic",console
+  };
+  vm.runInNewContext("let connectedNativeRoot=null;"+app.slice(start,end)+"\nglobalThis.connect=completeWorkspaceConnection;",context);
+  await assert.rejects(context.connect(handle,false),/synthetic OneDrive lock/);
+  assert.equal(reads>=3,true,"the interruption occurs while reading authoritative connection snapshots");
+  assert.equal(context.model.pendingRoot,handle,
+    "the exact saved folder handle must remain available for the bounded automatic retry");
+});
+
 test("saved-folder reconnection retries transient OneDrive failures with the same handle and no prompt",async()=>{
   const start=app.indexOf("  let savedConnectionRetryTimer=null");
   const end=app.indexOf("  async function restoreConnection()",start);
