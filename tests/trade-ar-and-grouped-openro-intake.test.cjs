@@ -201,6 +201,21 @@ test("application remains valid JavaScript and source boundaries remain suppleme
 });
 
 
+test("layout teaching reuses production handoff and Supervisor Workbook identity guards",()=>{
+  const workbookGuards=section("  function workbookIsHandoff(","  function workbookDate(");
+  const layoutGuard=section("  function assertTradeArLayoutSource(","  function matchingTradeArReportLayout(");
+  const context={text:value=>String(value??""),RETURN_ID_HEADER:"__MoonDog RO ID",RETURN_ISSUANCE_CELL:"Q1",
+    XLSX:{utils:{sheet_to_json:sheet=>sheet.rows||[]}}};
+  vm.runInNewContext(workbookGuards+layoutGuard,context);
+  const ordinary={SheetNames:["Detail"],Sheets:{Detail:{rows:[["Trade AR"]]}},Props:{Keywords:""},Custprops:{}};
+  assert.doesNotThrow(()=>context.assertTradeArLayoutSource(ordinary,"synthetic.xlsx"));
+  assert.throws(()=>context.assertTradeArLayoutSource({...ordinary,Props:{Keywords:"MoonDog Advisor Handoff Snapshot"}},"synthetic.xlsx"),/outbound only/);
+  const schema={SheetNames:["Detail"],Sheets:{Detail:{rows:[["__MoonDog RO ID","Next action","Commitment date"]]}},Props:{Keywords:""},Custprops:{}};
+  assert.throws(()=>context.assertTradeArLayoutSource(schema,"synthetic.xlsx"),/Update RO import/);
+  const identity={SheetNames:["Detail"],Sheets:{Detail:{rows:[["Trade AR"]],Q1:{v:"123e4567-e89b-42d3-a456-426614174000"}}},Props:{Keywords:""},Custprops:{}};
+  assert.throws(()=>context.assertTradeArLayoutSource(identity,"synthetic.xlsx"),/damaged Supervisor Workbook/);
+});
+
 test("local report layout teaching stores only allowlisted declarative fields",()=>{
   const begin=app.indexOf("/* MoonDog Paste & Learn — inert"),end=app.indexOf("})(globalThis);",begin);
   assert.ok(begin>=0&&end>begin);
@@ -368,4 +383,6 @@ test("layout preview is local, uses production Trade AR validation, saves mappin
   assert.ok(validateAt>=0&&resetAt>validateAt&&candidateAt>resetAt,"failed revalidation must clear old approval before parsing");
   assert.match(app,/resolveLearnedFailureRecords\(source\.name,candidate\.signature,"supplemental-workbook"\)/);
   assert.match(app,/removeSourceEntryWithByteGuard\(source\.name,currentBytes/);
+  assert.match(app,/assertTradeArLayoutSource\(previewBook,source\.name\)/);
+  assert.match(app,/assertTradeArLayoutSource\(retryBook,source\.name\)/);
 });
