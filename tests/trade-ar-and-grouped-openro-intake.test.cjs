@@ -370,10 +370,37 @@ test("successful taught retry clears only the matching local failure record afte
   assert.equal(JSON.stringify(context.model.autoImport),before,"failed read/write metadata proof rolls back approval state");
 });
 
+test("a layout save cannot authorize a different preview selected while persistence is pending",async()=>{
+  const helper=section("  async function persistPreviewBoundLayout(","  async function openTradeArLayoutTeaching(");
+  const first={rule:{id:"layout-A"},proof:"synthetic-proof-A",size:100,modified:10};
+  let current=first,release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const busy=[];
+  const context={Error};
+  vm.runInNewContext(helper,context);
+  const pending=context.persistPreviewBoundLayout({
+    readApproval:()=>current,
+    persist:async rule=>{assert.equal(rule,first.rule);await gate;return{id:"saved-layout-A"};},
+    setBusy:value=>busy.push(value)
+  });
+  assert.deepEqual(busy,[true],"mapping controls are locked before persistence yields");
+  current={rule:{id:"layout-B"},proof:"synthetic-proof-B",size:100,modified:10};
+  release();
+  await assert.rejects(pending,error=>/layout changed while it was being saved/i.test(String(error)));
+  assert.deepEqual(busy,[true,false],"controls unlock after stale approval is rejected");
+  const saved=await context.persistPreviewBoundLayout({
+    readApproval:()=>current,persist:async rule=>({id:"saved-"+rule.id}),setBusy:()=>{}
+  });
+  assert.equal(saved.id,"saved-layout-B","only the exact current preview can be published as saved approval");
+});
+
 test("layout preview is local, uses production Trade AR validation, saves mappings in Workspace settings and retries retained source",()=>{
   assert.match(app,/Teach a known report layout/);
   assert.match(app,/Preview and validate/);
   assert.match(app,/saveLocalReportLayout/);
+  assert.match(app,/persistPreviewBoundLayout\(\{/);
+  assert.match(app,/const teachingControls=\(\)=>\[sheetSelect,headerSelect/);
+  assert.match(app,/dialog\.addEventListener\("cancel",event=>\{if\(teachingBusy\)event\.preventDefault\(\)\}/);
   assert.match(app,/updateLocalFuture\(future=>/);
   assert.match(app,/Retry this report/);
   assert.match(app,/await sha256\(currentBytes\)!==approvedProof/);
