@@ -325,7 +325,8 @@ test("explicit taught retry imports the approved aggregate from the selected she
   const standard=importContext.parseSupplementalWorkbook([],"synthetic-report.xlsx");
   assert.equal(selected.metrics.openAmount,999);
   assert.equal(standard.metrics.openAmount,10,"ordinary import retains built-in canonical-sheet precedence");
-  assert.match(app,/processClassifiedCandidate\(candidate,"supplemental-workbook",[\\s\\S]*false,savedRule\)/);
+  const retryAt=app.indexOf(`await processClassifiedCandidate(candidate,"supplemental-workbook"`),savedRuleAt=app.indexOf(",false,savedRule);",retryAt);
+  assert.ok(retryAt>=0&&savedRuleAt>retryAt,"explicit retry passes the approved layout into production intake");
   assert.match(app,/importSupplementalSource\(candidate,kind,bytes,deleteAfterSuccess,layoutOverride\)/);
   assert.match(app,/parseSupplementalWorkbook\(bytes,candidate\.name,layoutOverride\)/);
 });
