@@ -13,6 +13,6 @@
     "sha256": "69c9a6fc5781b41cc6a9acbb16e39886e4fd8fcd549548a23805cdd96a6e58fb",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "feat(#571): teach private Trade AR report layouts locally (#574). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17."
+    "releaseNotes": "Teach local supplemental Trade AR worksheet/header mappings. Strict preview; unchanged source retained until verified durable import. Open RO replacement still needs explicit approval. No migration; Stable 0.10.17 unchanged."
   }
 }
