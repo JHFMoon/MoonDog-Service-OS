@@ -149,7 +149,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42", prepare)
         self.assertIn("scripts/guarded_merge_policy.py check-authorization", prepare)
         self.assertIn("scripts/pipeline_guard.py check-paths", prepare)
-        self.assertIn("untrusted data", prepare
+        self.assertIn("untrusted data", prepare)
         self.assertIn("scripts/build_beta_package.py", prepare)
         self.assertIn("No Workspace migration; Stable remains unchanged.", prepare)
         self.assertIn('push origin "HEAD:$HEAD_BRANCH"', prepare)
