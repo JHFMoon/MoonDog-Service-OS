@@ -3087,7 +3087,38 @@
   function startFolderWatch(){if(!model.root||!folderWatchEnabled()){stopFolderWatch("WATCH OFF");return;}if(folderWatch.timer)clearInterval(folderWatch.timer);folderWatch.timer=setInterval(()=>{if(!document.hidden)void folderWatchScan("poll");},15000);watchStatus("REPORT INBOX WATCHING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox watch started at a 15-second interval");}
   function watchedInboxFile(name) { return Boolean(String(name || "").trim()); }
   function returnedWorkbookCandidate(name){return /\.xlsx$/i.test(name)&&!/^~\$/.test(name)&&/^(?:MoonDog|Service Operations) /i.test(name)&&!/-revision\.xlsx$/i.test(name);}
-  async function watchCandidates(){const candidates=[],append=async(name,handle,location)=>{const relativePath=location==="inbox"?`${REPORT_INBOX}/${name}`:name;try{const file=await handle.getFile();candidates.push({name,location,relativePath,file,signature:`${relativePath}|${file.size}|${file.lastModified}`});}catch(error){candidates.push({name,location,relativePath,readError:error});}};const inbox=await reportInbox(false);for await(const[name,handle]of inbox.entries())if(handle.kind==="file"&&watchedInboxFile(name))await append(name,handle,"inbox");for await(const[name,handle]of model.root.entries())if(handle.kind==="file"&&returnedWorkbookCandidate(name)&&!candidates.some((candidate)=>candidate.name===name))await append(name,handle,"root");return candidates;}
+  async function watchCandidates(){
+    const pending=[];
+    const inbox=await reportInbox(false);
+    for await(const[name,handle]of inbox.entries()){
+      if(handle.kind==="file"&&watchedInboxFile(name))pending.push({name,handle,location:"inbox"});
+    }
+    const knownNames=new Set(pending.map(item=>item.name));
+    for await(const[name,handle]of model.root.entries()){
+      if(handle.kind==="file"&&returnedWorkbookCandidate(name)&&!knownNames.has(name)){
+        knownNames.add(name);
+        pending.push({name,handle,location:"root"});
+      }
+    }
+    const candidates=new Array(pending.length);
+    let next=0;
+    const readNext=async()=>{
+      while(next<pending.length){
+        const index=next++,item=pending[index];
+        const relativePath=item.location==="inbox"?`${REPORT_INBOX}/${item.name}`:item.name;
+        try{
+          const file=await item.handle.getFile();
+          candidates[index]={name:item.name,location:item.location,relativePath,file,signature:`${relativePath}|${file.size}|${file.lastModified}`};
+        }catch(error){
+          candidates[index]={name:item.name,location:item.location,relativePath,readError:error};
+        }
+      }
+    };
+    // Two concurrent metadata reads shorten large scans while limiting pressure on
+    // OneDrive. Result positions preserve the original Inbox-then-root order.
+    await Promise.all(Array.from({length:Math.min(2,pending.length)},()=>readNext()));
+    return candidates;
+  }
   function candidateNeedsImport(candidate) {
     if(candidate.readError)return false;
     const seen=model.autoImport.seen?.[candidate.signature];
