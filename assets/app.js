@@ -1473,7 +1473,7 @@
     if(!handle||model.pendingRoot!==handle||savedConnectionRetryTimer)return;
     const delay=SAVED_CONNECTION_RETRY_DELAYS[savedConnectionRetryAttempts];
     if(delay===undefined){
-      setConnectionState("CONNECTION ERROR","Automatic reconnect checks ended after repeated temporary Workspace failures. The saved folder and files remain intact; click Retry saved folder to try again.");
+      setConnectionState("CONNECTION ERROR","Automatic reconnect checks ended after repeated temporary Workspace failures. The saved handle and files remain intact; click Retry saved folder to try again.");
       return;
     }
     savedConnectionRetryAttempts+=1;
@@ -1485,19 +1485,25 @@
         savedConnectionRetryAttempts=0;
       }catch(error){
         if(error?.code==="WORKSPACE_CONNECTION_BUSY"){scheduleSavedConnectionRetry(handle);return;}
+        // Validation can temporarily publish canWrite before the Workspace snapshots
+        // finish loading. A failed reconnect must always revoke that authority,
+        // preserve the original folder handle for retry, and halt background writes.
+        model.pendingRoot=handle;
+        writeAuthority.disable();
+        stopFolderWatch("Unverified Workspace reconnect");
+        if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){
+          model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;
+        }
         if(error?.name==="NotAllowedError"||error?.name==="SecurityError"||/folder access was not granted/i.test(String(error?.message||""))){
-          writeAuthority.disable();
           setConnectionState("PERMISSION REQUIRED","Edge needs read/write access to the saved folder. Click Restore folder access; all files remain in place.");
           return;
         }
         if(transientWorkspaceState(error)){
-          writeAuthority.disable();
-          if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;}
           setConnectionState("CONNECTION ERROR",`Workspace I/O remains temporarily busy${error?.name?` (${error.name})`:""}; the saved handle is retained and MoonDog will retry automatically.`);
           scheduleSavedConnectionRetry(handle);
           return;
         }
-        setConnectionState("CONNECTION ERROR",`Saved folder reconnect stopped: ${error?.message||String(error)}. The handle and files are retained.`);
+        setConnectionState("CONNECTION ERROR",`Saved folder reconnect stopped: ${error?.message||String(error)}. The handle and files are retained; editing stays blocked until verification succeeds.`);
       }
     },delay);
   }
