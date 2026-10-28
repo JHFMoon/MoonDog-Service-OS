@@ -28,7 +28,7 @@ class BetaVerificationDiagnosticsTests(unittest.TestCase):
         self.assertIn("pull_request_review:", workflow)
         self.assertIn("commits/$HEAD_SHA/check-runs", workflow)
         self.assertIn("check_name='Publication Check'", workflow)
-        self.assertIn("check_name='prove-clean-install'", workflow)
+        self.assertIn("else 'prove-clean-install'", workflow)
         self.assertIn("15368", workflow)
         self.assertIn("merge-review-state", workflow)
         self.assertIn("ready=false", workflow)
