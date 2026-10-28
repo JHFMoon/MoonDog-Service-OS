@@ -23,6 +23,7 @@ function page(writable,reason=writable?"READY":"PERMISSION_REQUIRED"){
   const folder={name:"Workspace"},ctx={
     model,ui,writeAuthority:authority,connectedNativeRoot:folder,authorityRevalidationExhausted:false,
     document:{body:{classList:{toggle:()=>{}}}},
+    clearAuthorityRevalidation(){},scheduleAuthorityRevalidation(){},
     status:(message,type)=>messages.push({message,type}),
     globalThis:{addEventListener:(name,fn)=>events.set(name,fn)}
   };
