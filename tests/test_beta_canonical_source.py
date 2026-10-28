@@ -48,17 +48,17 @@ class CanonicalBetaSourceTests(unittest.TestCase):
             source_files = {
                 "index.html": b"reviewed launcher",
                 "assets/app.js": (
-                    b'const VERSION = "0.10.17";\\n'
-                    b'const BUILD_DATE = "2026-10-11";\\n'
-                    b'const HANDOFF_RUNTIME_PATHS=["index.html","assets/app.js"];\\n'
+                    b'const VERSION = "0.10.17";\n'
+                    b'const BUILD_DATE = "2026-10-11";\n'
+                    b'const HANDOFF_RUNTIME_PATHS=["index.html","assets/app.js"];\n'
                 ),
             }
             package_files = {
                 "index.html": source_files["index.html"],
                 "assets/app.js": (
-                    b'const VERSION = "0.10.18-beta.191";\\n'
-                    b'const BUILD_DATE = "2026-10-11";\\n'
-                    b'const HANDOFF_RUNTIME_PATHS=["index.html","assets/app.js"];\\n'
+                    b'const VERSION = "0.10.18-beta.191";\n'
+                    b'const BUILD_DATE = "2026-10-11";\n'
+                    b'const HANDOFF_RUNTIME_PATHS=["index.html","assets/app.js"];\n'
                 ),
             }
             for path, data in source_files.items():
@@ -81,7 +81,7 @@ class CanonicalBetaSourceTests(unittest.TestCase):
                 "approvedFiles": list(package_files),
                 "files": files,
             }
-            package_bytes = (json.dumps(package, indent=2) + "\\n").encode("utf-8")
+            package_bytes = (json.dumps(package, indent=2) + "\n").encode("utf-8")
             package_path = root / f"updates/packages/moondog-{version}.json"
             package_path.write_bytes(package_bytes)
             manifest = {
