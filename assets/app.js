@@ -120,7 +120,34 @@
     const first=lines(text)[0]||"";
     return first.includes("\t")?first.split("\t").map(s=>s.trim()).filter(Boolean).slice(0,MAX_COLUMNS):[];
   }
-  root.MoonDogPasteLearn=Object.freeze({normalize,capture,detectFormat,registerAdapter,safeRule,tablePreview,tableHeaders,suggestedStructure,MAX_TEXT,MAX_ROWS,FIELDS});
+  const REPORT_LAYOUT_FAMILIES=Object.freeze({
+    "trade-ar-errors":Object.freeze(["store","customer","invoice","invoiceDate","days","status","invoiceAmount","received","open"])
+  });
+  function safeReportLayout(data,previous=[]){
+    const family=data?.family;
+    if(!Object.prototype.hasOwnProperty.call(REPORT_LAYOUT_FAMILIES,family))throw Error("Choose a supported report family.");
+    const clean=value=>String(value??"").replace(/[\x00-\x1f\x7f]/g," ").trim().replace(/\s+/g," ").slice(0,100);
+    const sheetName=clean(data.sheetName),headerRow=Number(data.headerRow);
+    if(!sheetName||sheetName.length>80||!Number.isInteger(headerRow)||headerRow<0||headerRow>30)
+      throw Error("Choose a worksheet and a header row within the first 31 rows.");
+    const columns={};
+    for(const field of REPORT_LAYOUT_FAMILIES[family]){
+      const header=clean(data.columns?.[field]);
+      if(!header)throw Error("Map every required "+family+" column before previewing.");
+      columns[field]=header;
+    }
+    const normalized=value=>clean(value).normalize("NFKC").toLowerCase();
+    if(new Set(Object.values(columns).map(normalized)).size!==Object.keys(columns).length)
+      throw Error("Each required field must map to a different source column.");
+    const id="report-layout-"+family+"-"+sheetName.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
+    const old=previous.find(item=>item?.id===id);
+    if(!old&&previous.length>=MAX_RULES)throw Error("Maximum number of local report layouts reached.");
+    return{id,family,name:"Local Trade AR layout",sheetName,headerRow,columns,
+      version:(old?.version||0)+1,approved:true,enabled:true,writeEnabled:false,grouping:"flat-rows",
+      updatedAt:new Date().toISOString(),previous:old?{sheetName:old.sheetName,headerRow:old.headerRow,columns:old.columns,version:old.version}:null};
+  }
+  root.MoonDogPasteLearn=Object.freeze({normalize,capture,detectFormat,registerAdapter,safeRule,
+    safeReportLayout,REPORT_LAYOUT_FAMILIES,tablePreview,tableHeaders,suggestedStructure,MAX_TEXT,MAX_ROWS,FIELDS});
 })(globalThis);
 
 (function () {
@@ -2185,7 +2212,7 @@
     if (workbookIsHandoff(book, name)) throw new Error("Needs Review: advisor handoff snapshots are outbound only."); if (workbookHasReturnSchema(book)) return "ro-update"; if (workbookHasReturnIdentity(book)) throw new Error("Needs Review: damaged Supervisor Workbook cannot be imported as a generic Open RO report.");
     // Recognize this named accounting export before generic workbook detection.
     // A malformed or unconfigured store scope must fail visibly at import.
-    if (book.SheetNames.includes("Trade AR Error Report")) return "supplemental-workbook";
+    if (book.SheetNames.includes("Trade AR Error Report")||matchingTradeArReportLayout(book)) return "supplemental-workbook";
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", cellDates: true }); parseCsiWorkbook(bytes, name); return "csi"; } catch (_) {}
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true }); parseMenuSalesWorkbook(bytes, name); return "menu-sales"; } catch (_) {}
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true }); parsePerformanceWorkbook(bytes, name); return "performance"; } catch (_) {}
@@ -2468,23 +2495,50 @@
     const cell=sheet[address];
     return /%/.test(text(cell?.z||""))||/%/.test(text(cell?.w||""));
   }
-  function parseTradeArErrorWorkbook(bytes,fileName) {
+  function matchingTradeArReportLayout(book,override=null){
+    if(override&&override.family!=="trade-ar-errors")throw new Error("Unsupported local report layout family.");
+    const configured=override?[override]:(typeof model!=="undefined"&&Array.isArray(model.settings?.future?.reportLayoutRules)?model.settings.future.reportLayoutRules:[]);
+    const matches=[];
+    for(const rule of configured){
+      if(rule?.family!=="trade-ar-errors"||rule.approved!==true||rule.enabled!==true||rule.writeEnabled!==false)continue;
+      const sheet=book?.Sheets?.[rule.sheetName];if(!sheet)continue;
+      const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true}),headerRow=Number(rule.headerRow);
+      if(!Number.isInteger(headerRow)||headerRow<0||headerRow>30)continue;
+      const headerValues=rows[headerRow]||[],normalized=headerValues.map(value=>norm(value)),columns={};let valid=true;
+      for(const field of Object.keys(rule.columns||{})){
+        const source=norm(rule.columns[field]),indexes=normalized.map((value,index)=>value===source?index:-1).filter(index=>index>=0);
+        if(indexes.length!==1){valid=false;break;}columns[field]=indexes[0];
+      }
+      const required=["store","customer","invoice","invoiceDate","days","status","invoiceAmount","received","open"];
+      if(valid&&required.every(field=>Number.isInteger(columns[field])))matches.push({rule,sheet,rows,headerRow,columns});
+    }
+    if(matches.length>1)throw new Error("Needs Review: more than one local report layout matches this workbook.");
+    return matches[0]||null;
+  }
+  function parseTradeArErrorWorkbook(bytes,fileName,layoutOverride=null) {
     // Multi-store accounts receivable is never an Open RO, SAPR, or sales KPI.
     // Retain only a compact aggregate for the locally configured AN store.
     const book=XLSX.read(bytes,{type:"array",raw:true,cellDates:true,cellNF:true});
-    const sheet=book.Sheets["Trade AR Error Report"];
+    const learnedLayout=matchingTradeArReportLayout(book,layoutOverride);
+    const sheet=book.Sheets["Trade AR Error Report"]||learnedLayout?.sheet;
     if(!sheet)return null;
-    const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true});
-    const headers=(rows[0]||[]).map(norm),required={
+    const rows=learnedLayout?.rows||XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true});
+    const headerRow=learnedLayout?.headerRow||0;
+    const headers=(rows[headerRow]||[]).map(norm),required={
       store:"an store#",customer:"customer #",invoice:"invoice #",
       invoiceDate:"invoice date",days:"actual days open",status:"status",
       invoiceAmount:"invoice amount (usd)",received:"amount received (usd)",
       open:"open amount (usd)"
     },columns={};
     for(const [field,heading] of Object.entries(required)){
-      if(headers.filter(value=>value===heading).length!==1)
-        throw new Error("Needs Review: Trade AR detail columns are missing or duplicated.");
-      columns[field]=headers.indexOf(heading);
+      if(learnedLayout){
+        columns[field]=learnedLayout.columns[field];
+        if(!Number.isInteger(columns[field]))throw new Error("Needs Review: learned Trade AR field mapping is incomplete.");
+      }else{
+        if(headers.filter(value=>value===heading).length!==1)
+          throw new Error("Needs Review: Trade AR detail columns are missing or duplicated.");
+        columns[field]=headers.indexOf(heading);
+      }
     }
     const configuredStore=reportStoreCode("tradeAr").replace(/^0+(?=\d)/,"");
     if(!/^\d{1,6}$/.test(configuredStore))
@@ -2493,7 +2547,7 @@
     const attempts={"Attempt 1":0,"Attempt 2":0,"Attempt 3":0,Other:0};
     const money={invoiceCents:0,receivedCents:0,openCents:0};
     const seen=new Set();let sourceRows=0,matchedRows=0,oldestDays=0,earliestInvoiceDate="";
-    for(let rowIndex=1;rowIndex<rows.length;rowIndex++){
+    for(let rowIndex=headerRow+1;rowIndex<rows.length;rowIndex++){
       const row=rows[rowIndex];
       if(!row.some(value=>value!==null&&text(value).trim()))continue;
       const store=text(row[columns.store]).trim().replace(/^0+(?=\d)/,"");
@@ -2534,7 +2588,8 @@
       validation:{parser:"trade-ar-error-v1",supplementalOnly:true,kpiPromotion:false,
         sourceRows,matchedStoreRows:matchedRows,otherStoreRowsExcluded:sourceRows-matchedRows,
         storeScopeVerified:true,customerAndInvoiceDetailsNotRetained:true,
-        asOfDateFromFilenameOnly:Boolean(asOfDate),summaryPivotNotUsed:true}};
+        asOfDateFromFilenameOnly:Boolean(asOfDate),summaryPivotNotUsed:true,
+        learnedLayoutVersion:learnedLayout?.rule?.version||null}};
   }
   function parseOpenRoAgingByAsmWorkbook(bytes,fileName) {
     // The advisor-grouped AN671 export is NOT an authoritative complete Open RO roster.
@@ -5740,43 +5795,181 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   }
   async function scanFailedLearnedSources() {
     const records = pendingLearnedFailureRecords();
-    if (!records.length || !model.root) return {rows: [], folder: null};
+    if (!model.root) return {rows: [], layoutFiles: [], folder: null};
     let folder;
     try { folder = await directory(["Files To Learn"], false); }
-    catch (error) { if (error.name === "NotFoundError") return {rows: records.map((item) => ({...item, diagnostic: "Original missing from Files To Learn."})), folder: null}; throw error; }
-    const handles = new Map();
-    for await (const [name, handle] of folder.entries()) if (handle.kind === "file") handles.set(name, handle);
-    const rows = [];
-    for (const item of records) {
-      const handle = handles.get(item.name);
-      if (!handle) { rows.push({...item, diagnostic: `${item.metadata.diagnostic || "Import failed."} Original missing from Files To Learn.`}); continue; }
-      try {
-        const file = await handle.getFile();
-        rows.push({...item, handle, file, size: file.size, lastModified: file.lastModified, diagnostic: item.metadata.diagnostic || "Import failed; source retained for review."});
-      } catch (error) {
-        rows.push({...item, handle, diagnostic: `${item.metadata.diagnostic || "Import failed."} Original cannot be read (${error.name || "Error"}).`});
-      }
+    catch (error) {
+      if (error.name === "NotFoundError")
+        return {rows: records.map(item=>({...item,diagnostic:"Original missing from Files To Learn."})),layoutFiles:[],folder:null};
+      throw error;
     }
-    return {rows, folder};
+    const handles=new Map(),files=new Map();
+    for await(const [name,handle] of folder.entries()){
+      if(handle.kind!=="file")continue;
+      handles.set(name,handle);
+      try{files.set(name,await handle.getFile());}catch(_){}
+    }
+    const rows=[];
+    for(const item of records){
+      const handle=handles.get(item.name),file=files.get(item.name);
+      if(!handle||!file){rows.push({...item,handle,diagnostic:`${item.metadata.diagnostic||"Import failed."} Original is unavailable in Files To Learn.`});continue;}
+      rows.push({...item,handle,file,size:file.size,lastModified:file.lastModified,
+        diagnostic:item.metadata.diagnostic||"Import failed; source retained for review."});
+    }
+    const layoutFiles=[];
+    for(const [name,handle] of handles){
+      if(!/\.xlsx$/i.test(name)||/^~\$/.test(name))continue;
+      const file=files.get(name);
+      layoutFiles.push(file?{name,handle,file,size:file.size,lastModified:file.lastModified,location:"learn"}:
+        {name,handle,location:"learn",diagnostic:"Original cannot be read yet."});
+    }
+    layoutFiles.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+    return {rows,layoutFiles,folder};
   }
   async function refreshFailedLearnedReportNotice() {
-    const host = ui.failedLearnedReportNotice;
-    if (!host || !ui["view-imports"].classList.contains("active")) return;
-    const result = await scanFailedLearnedSources(), rows = result.rows;
-    host.hidden = rows.length === 0;
-    ui.failedLearnedReportSummary.textContent = `${rows.length} failed learned report${rows.length === 1 ? "" : "s"} need review. Originals stay local.`;
+    const host=ui.failedLearnedReportNotice;
+    if(!host||!ui["view-imports"].classList.contains("active"))return;
+    const result=await scanFailedLearnedSources(),rows=result.rows,layoutFiles=result.layoutFiles||[];
+    host.hidden=rows.length===0&&layoutFiles.length===0;
+    ui.failedLearnedReportSummary.textContent=rows.length
+      ? `${rows.length} failed learned report${rows.length===1?"":"s"} need review. Originals stay local.`
+      : layoutFiles.length?"Files To Learn sources remain local. Teach only supported, known report families.":"No failed or learnable XLSX reports are waiting.";
     ui.failedLearnedReportDetails.replaceChildren();
-    let ready = rows.length > 0 && Boolean(result.folder);
-    for (const row of rows) {
-      const item = document.createElement("li");
-      item.textContent = `${row.name} · ${row.diagnostic}`;
+    let ready=rows.length>0&&Boolean(result.folder);
+    for(const row of rows){
+      const item=document.createElement("li");
+      item.textContent=`${row.name} · ${row.diagnostic}`;
       ui.failedLearnedReportDetails.append(item);
-      if (!row.file) ready = false;
+      if(!row.file)ready=false;
     }
-    ui.saveFailedLearnedPackage.disabled = !ready;
-    ui.failedLearnedPackageStatus.textContent = ready
-      ? "The package includes original report bytes and per-file failure diagnostics; it does not upload anything."
-      : "One or more originals are unavailable. No source will be deleted.";
+    ui.saveFailedLearnedPackage.disabled=!ready;
+    ui.failedLearnedPackageStatus.textContent=ready
+      ?"The package includes original report bytes and per-file failure diagnostics; it does not upload anything."
+      :"One or more originals are unavailable. No source will be deleted.";
+    ui.reportLayoutLearnList.replaceChildren();
+    for(const row of layoutFiles){
+      const item=document.createElement("li"),label=document.createElement("span");
+      label.textContent=row.name+(row.diagnostic?" · "+row.diagnostic:"");
+      item.append(label);
+      const teach=document.createElement("button");teach.type="button";teach.textContent="Teach Trade AR layout";
+      teach.disabled=!row.file||!row.handle;
+      teach.addEventListener("click",()=>run(()=>openTradeArLayoutTeaching(row)));
+      item.append(teach);ui.reportLayoutLearnList.append(item);
+    }
+  }
+  const tradeArLayoutFields=[
+    ["store","AN Store#"],["customer","Customer #"],["invoice","Invoice #"],["invoiceDate","Invoice Date"],
+    ["days","Actual Days Open"],["status","Status"],["invoiceAmount","Invoice Amount (USD)"],
+    ["received","Amount Received (USD)"],["open","Open Amount (USD)"]
+  ];
+  function localReportLayoutRules(){
+    return Array.isArray(model.settings?.future?.reportLayoutRules)?model.settings.future.reportLayoutRules:[];
+  }
+  async function saveLocalReportLayout(candidate){
+    const engine=globalThis.MoonDogPasteLearn;
+    if(!engine)throw new Error("Local layout learning is unavailable.");
+    let saved;
+    await updateLocalFuture(future=>{
+      const prior=Array.isArray(future.reportLayoutRules)?future.reportLayoutRules:[];
+      saved=engine.safeReportLayout(candidate,prior);
+      const at=prior.findIndex(rule=>rule.id===saved.id),next=[...prior];
+      if(at>=0)next[at]=saved;else next.push(saved);
+      future.reportLayoutRules=next;
+    });
+    return saved;
+  }
+  async function openTradeArLayoutTeaching(source){
+    if(!source?.file||!source?.handle)throw new Error("The original report cannot be read. No changes were made.");
+    const dialog=document.createElement("dialog"),title=document.createElement("h2"),help=document.createElement("p"),
+      sheetLabel=document.createElement("label"),sheetSelect=document.createElement("select"),
+      headerLabel=document.createElement("label"),headerSelect=document.createElement("select"),
+      fieldsHost=document.createElement("div"),preview=document.createElement("p"),actions=document.createElement("div"),
+      validate=document.createElement("button"),save=document.createElement("button"),retry=document.createElement("button"),
+      cancel=document.createElement("button");
+    dialog.setAttribute("aria-label","Teach local Trade AR report layout");
+    title.textContent="Teach a Trade AR report layout";
+    help.textContent="This stores only worksheet/header mappings in this private Workspace. Preview uses the production parser; it does not import or change saved totals. Trade AR remains a supplemental aggregate.";
+    sheetLabel.textContent="Worksheet ";sheetLabel.append(sheetSelect);
+    headerLabel.textContent="Header row ";headerLabel.append(headerSelect);
+    validate.type="button";validate.textContent="Preview and validate";
+    save.type="button";save.textContent="Save layout";save.disabled=true;
+    retry.type="button";retry.textContent="Retry this report";retry.disabled=true;
+    cancel.type="button";cancel.textContent="Cancel";cancel.addEventListener("click",()=>dialog.close());
+    actions.append(validate,save,retry,cancel);dialog.append(title,help,sheetLabel,headerLabel,fieldsHost,preview,actions);
+    document.body.append(dialog);
+    let activeBook=null,candidateRule=null,previewProof=null,savedRule=null,previewBytes=null;
+    const refreshFields=()=>{
+      fieldsHost.replaceChildren();const name=sheetSelect.value,grid=activeBook&&name
+        ?XLSX.utils.sheet_to_json(activeBook.Sheets[name],{header:1,defval:"",raw:true}):[];
+      const rowIndex=Number(headerSelect.value),headers=(grid[rowIndex]||[]).map(value=>String(value??"").trim()).filter(Boolean).slice(0,80);
+      for(const [field,label] of tradeArLayoutFields){
+        const row=document.createElement("label");row.textContent=label+" ";
+        const select=document.createElement("select");select.dataset.field=field;
+        const blank=document.createElement("option");blank.value="";blank.textContent="Choose a source column";select.append(blank);
+        for(const header of headers){const option=document.createElement("option");option.value=header;option.textContent=header;select.append(option);}
+        const expected=({store:"an store#",customer:"customer #",invoice:"invoice #",invoiceDate:"invoice date",
+          days:"actual days open",status:"status",invoiceAmount:"invoice amount (usd)",received:"amount received (usd)",open:"open amount (usd)"})[field];
+        const found=headers.find(header=>header.toLowerCase().replace(/\s+/g," ").trim()===expected);
+        if(found)select.value=found;
+        row.append(select);fieldsHost.append(row);
+      }
+      save.disabled=true;retry.disabled=true;previewProof=null;savedRule=null;
+      preview.textContent="Map all required columns, then preview and validate.";
+    };
+    try{
+      const bytes=new Uint8Array(await source.file.arrayBuffer());
+      activeBook=await prepareXlsxWorkbook(bytes,{type:"array",raw:true,cellDates:true,cellNF:true});
+      for(const name of activeBook.SheetNames){const option=document.createElement("option");option.value=name;option.textContent=name;sheetSelect.append(option);}
+      sheetSelect.value=activeBook.SheetNames.includes("Trade AR Error Report")?"Trade AR Error Report":activeBook.SheetNames[0]||"";
+      const setRows=()=>{
+        headerSelect.replaceChildren();
+        const grid=XLSX.utils.sheet_to_json(activeBook.Sheets[sheetSelect.value],{header:1,defval:"",raw:true});
+        for(let index=0;index<Math.min(grid.length,31);index++){
+          const headers=(grid[index]||[]).map(value=>String(value??"").trim()).filter(Boolean);
+          const option=document.createElement("option");option.value=String(index);
+          option.textContent="Row "+(index+1)+(headers.length?" · "+headers.slice(0,5).join(" / "):"");
+          headerSelect.append(option);
+        }
+        refreshFields();
+      };
+      sheetSelect.addEventListener("change",setRows);headerSelect.addEventListener("change",refreshFields);setRows();
+      validate.addEventListener("click",()=>run(async()=>{
+        const columns={};for(const select of fieldsHost.querySelectorAll("select[data-field]"))if(select.value)columns[select.dataset.field]=select.value;
+        const engine=globalThis.MoonDogPasteLearn;
+        candidateRule=engine.safeReportLayout({family:"trade-ar-errors",sheetName:sheetSelect.value,headerRow:Number(headerSelect.value),columns},localReportLayoutRules());
+        previewBytes=new Uint8Array(await source.file.arrayBuffer());
+        previewProof=await sha256(previewBytes);
+        const result=parseTradeArErrorWorkbook(previewBytes,source.name,candidateRule);
+        if(!result?.validation?.storeScopeVerified||result.validation.kpiPromotion!==false)
+          throw new Error("Trade AR preview did not prove configured-store scope.");
+        preview.textContent=`Validated ${result.metrics.invoiceCount} configured-store invoices; ${result.validation.otherStoreRowsExcluded} other-store rows excluded; open amount ${money(result.metrics.openAmount)}. This is a local preview only; no saved data changed.`;
+        save.disabled=false;retry.disabled=true;savedRule=null;
+      }));
+      save.addEventListener("click",()=>run(async()=>{
+        if(!candidateRule||!previewProof)throw new Error("Preview and validate this layout before saving.");
+        savedRule=await saveLocalReportLayout(candidateRule);
+        preview.textContent=`Saved private layout v${savedRule.version}. The original report is still in Files To Learn.`;
+        retry.disabled=false;save.disabled=true;
+      }));
+      retry.addEventListener("click",()=>run(async()=>{
+        if(!savedRule||!previewProof)throw new Error("Save a validated layout before retrying.");
+        if(dailyImportBusy||folderWatch.busy)throw new Error("Another report scan or import is active. Retry when it finishes.");
+        const current=await source.handle.getFile(),currentBytes=new Uint8Array(await current.arrayBuffer());
+        if(current.size!==source.size||current.lastModified!==source.lastModified||await sha256(currentBytes)!==previewProof)
+          throw new Error("The source changed after preview. It remains in Files To Learn; preview it again.");
+        const relativePath=`Files To Learn/${source.name}`;
+        const candidate={name:source.name,location:"learn",relativePath,handle:source.handle,file:current,
+          signature:`${relativePath}|${current.size}|${current.lastModified}`};
+        sourceLocations.set(source.name,"learn");dailyImportBusy=true;
+        try{
+          await processClassifiedCandidate(candidate,"supplemental-workbook",currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),true);
+          dialog.close();await refreshFailedLearnedReportNotice();
+          status("Trade AR report saved and verified; source cleanup followed the successful read-back policy.","success");
+        }finally{dailyImportBusy=false;}
+      }));
+      document.body.append(dialog);dialog.showModal();
+    }catch(error){dialog.remove();throw error;}
+    dialog.addEventListener("close",()=>dialog.remove(),{once:true});
   }
   async function createFailedLearnedSupportPackage() {
     if (typeof window.showSaveFilePicker !== "function") throw new Error("This browser cannot verify a locally chosen ZIP destination. No learned originals were changed.");
@@ -5847,9 +6040,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     host.hidden = true;
     host.setAttribute("role", "region");
     host.setAttribute("aria-label", "Failed learned report recovery");
-    host.innerHTML = '<div class="section-head"><div><p class="eyebrow">Import / Reports · local recovery</p><h2>Failed reports need review</h2><p id="failedLearnedReportSummary"></p></div><span class="badge muted">Manager only</span></div><div class="recovery-actions"><button id="viewFailedLearnedDetails" type="button">View Details</button><button id="saveFailedLearnedPackage" type="button" class="primary">Save Support Package</button></div><ul id="failedLearnedReportDetails" hidden></ul><p id="failedLearnedPackageStatus" class="settings-note" role="status"></p>';
+    host.innerHTML = '<div class="section-head"><div><p class="eyebrow">Import / Reports · local recovery</p><h2>Files To Learn and failed reports</h2><p id="failedLearnedReportSummary"></p></div><span class="badge muted">Manager only</span></div><section><h3>Teach a known report layout</h3><p>Mappings stay in this Workspace. Preview and validate before saving or retrying; unknown business meaning still needs a reviewed software adapter.</p><ul id="reportLayoutLearnList"></ul></section><div class="recovery-actions"><button id="viewFailedLearnedDetails" type="button">View Details</button><button id="saveFailedLearnedPackage" type="button" class="primary">Save Support Package</button></div><ul id="failedLearnedReportDetails" hidden></ul><p id="failedLearnedPackageStatus" class="settings-note" role="status"></p>';
     ui["view-imports"].prepend(host);
-    for (const id of ["failedLearnedReportNotice", "failedLearnedReportSummary", "viewFailedLearnedDetails", "saveFailedLearnedPackage", "failedLearnedReportDetails", "failedLearnedPackageStatus"]) ui[id] = document.getElementById(id);
+    for (const id of ["failedLearnedReportNotice", "failedLearnedReportSummary", "reportLayoutLearnList", "viewFailedLearnedDetails", "saveFailedLearnedPackage", "failedLearnedReportDetails", "failedLearnedPackageStatus"]) ui[id] = document.getElementById(id);
     ui.viewFailedLearnedDetails.addEventListener("click", () => {
       ui.failedLearnedReportDetails.hidden = !ui.failedLearnedReportDetails.hidden;
       ui.viewFailedLearnedDetails.textContent = ui.failedLearnedReportDetails.hidden ? "View Details" : "Hide Details";
