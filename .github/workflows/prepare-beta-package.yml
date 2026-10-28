@@ -36,8 +36,7 @@ jobs:
       ((github.event.pull_request.author_association == 'OWNER' ||
         github.event.pull_request.author_association == 'MEMBER' ||
         github.event.pull_request.author_association == 'COLLABORATOR') ||
-       (github.event.pull_request.user.login == 'github-actions[bot]' &&
-        contains(github.event.pull_request.body, 'MoonDog-Automation-Package: yes')))
+       github.event.pull_request.user.login == 'github-actions[bot]')
     runs-on: ubuntu-latest
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}

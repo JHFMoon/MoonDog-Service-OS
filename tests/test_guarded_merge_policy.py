@@ -42,7 +42,7 @@ class PackageBotAuthorTests(unittest.TestCase):
             "user": {"login": "github-actions[bot]"},
             "author_association": "CONTRIBUTOR",
             "head": {"repo": {"full_name": "JHFMoon/MoonDog-Service-OS"}},
-            "body": "MoonDog-Automation-Package: yes\\nMoonDog-Auto-Merge: yes",
+            "body": "\n".join(("MoonDog-Automation-Package: yes", "MoonDog-Auto-Merge: yes")),
         }
         self.assertTrue(has_accepted_pr_author(pr, "JHFMoon/MoonDog-Service-OS"))
 
