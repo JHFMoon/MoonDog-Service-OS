@@ -33,7 +33,7 @@ function arRow({store=101,customer="SYNTHETIC-CUSTOMER",invoice="FAKE-INVOICE",
   }))row[arHeaders.indexOf(heading)]=value;
   return row;
 }
-function arHarness(rows,storeCode="101",formats={}){
+function arHarness(rows,storeCode="101",formats={},layoutRules=[],bookOverride=null){
   const tradeSheet={rows,"!ref":"A1:W"+rows.length};
   const columnName=index=>{let name="";for(let n=index+1;n;n=Math.floor((n-1)/26))name=String.fromCharCode(65+(n-1)%26)+name;return name;};
   const encodeCell=({r,c})=>columnName(c)+(r+1);
@@ -42,18 +42,18 @@ function arHarness(rows,storeCode="101",formats={}){
     tradeSheet[encodeCell({r:row,c:column})]={v:rows[row]?.[column],z:format,w:format.includes("%")?"10%":""};
   }
   let readOptions=null;
-  const book={SheetNames:["Summary","Trade AR Error Report"],
+  const book=bookOverride||{SheetNames:["Summary","Trade AR Error Report"],
     Sheets:{Summary:{rows:[["Row Labels","Attempt 1","Attempt 2","Attempt 3","Grand Total"]]},
       "Trade AR Error Report":tradeSheet}};
   const XLSX={read:(_bytes,options)=>{readOptions=options;return book;},
     utils:{sheet_to_json:sheet=>sheet.rows,decode_range:()=>({s:{r:0,c:0}}),encode_cell:encodeCell}};
   const ctx={XLSX,norm,text,now:()=>"2026-01-10T00:00:00Z",
-    reportStoreCode:()=>storeCode,
+    reportStoreCode:()=>storeCode,model:{settings:{future:{reportLayoutRules:layoutRules}}},
     strictOpenRoDate:value=>validCoverageDate(text(value)),
     validCoverageDate};
   vm.runInNewContext(section("  function tradeArMoneyCents(","  function parseTradeArErrorWorkbook("),ctx);
-  vm.runInNewContext(section("  function parseTradeArErrorWorkbook(","  function parseOpenRoAgingByAsmWorkbook("),ctx);
-  return{parse:()=>ctx.parseTradeArErrorWorkbook([], "Trade AR Error Report 01.09.2026.xlsx"),
+  vm.runInNewContext(section("  function matchingTradeArReportLayout(","  function parseOpenRoAgingByAsmWorkbook("),ctx);
+  return{parse:(override=null)=>ctx.parseTradeArErrorWorkbook([], "Trade AR Error Report 01.09.2026.xlsx",override),
     parseMoney:ctx.tradeArMoneyCents,parseDays:ctx.tradeArAgingDays,book,XLSX,ctx,
     getReadOptions:()=>readOptions};
 }
@@ -147,7 +147,7 @@ test("Trade AR rejects absent store, bad schema and duplicate scoped identity",(
 
 test("Trade AR classifier recognizes the exact sheet and leaves malformed imports to review",async()=>{
   const {book,XLSX}=arHarness([arHeaders,arRow()]);
-  const ctx={XLSX,prepareXlsxWorkbook:async()=>book,
+  const ctx={XLSX,prepareXlsxWorkbook:async()=>book,matchingTradeArReportLayout:()=>null,
     workbookIsHandoff:()=>false,workbookHasReturnSchema:()=>false,
     workbookHasReturnIdentity:()=>false};
   vm.runInNewContext(section("  async function classifyImportFile(","  async function moveToLearn("),ctx);
@@ -196,4 +196,64 @@ test("application remains valid JavaScript and source boundaries remain suppleme
   new vm.Script(app);
   assert.match(app,/parseTradeArErrorWorkbook\(bytes,fileName\)/);
   assert.match(app,/if \(book\.SheetNames\.includes\("Trade AR Error Report"\)\)/);
+});
+
+
+test("local report layout teaching stores only allowlisted declarative fields",()=>{
+  const begin=app.indexOf("/* MoonDog Paste & Learn — inert"),end=app.indexOf("})(globalThis);",begin);
+  assert.ok(begin>=0&&end>begin);
+  const source=app.slice(begin,end+14),cx={};vm.runInNewContext(source,cx);
+  const engine=cx.MoonDogPasteLearn;
+  const columns={store:"Store",customer:"Client",invoice:"Reference",invoiceDate:"Bill date",
+    days:"Days",status:"Attempt",invoiceAmount:"Billed",received:"Paid",open:"Balance"};
+  const rule=engine.safeReportLayout({family:"trade-ar-errors",sheetName:"Receivables",headerRow:2,columns},[]);
+  assert.equal(rule.writeEnabled,false);assert.equal(rule.approved,true);assert.equal(rule.headerRow,2);
+  assert.deepEqual(Object.keys(rule.columns),["store","customer","invoice","invoiceDate","days","status","invoiceAmount","received","open"]);
+  assert.equal(JSON.stringify(rule).includes("FAKE"),false);
+  assert.throws(()=>engine.safeReportLayout({family:"open-ro",sheetName:"Unsafe",headerRow:0,columns},[]),/supported report family/);
+  assert.throws(()=>engine.safeReportLayout({family:"trade-ar-errors",sheetName:"Receivables",headerRow:31,columns},[]),/header row/);
+  assert.throws(()=>engine.safeReportLayout({family:"trade-ar-errors",sheetName:"Receivables",headerRow:0,
+    columns:{...columns,open:"Paid"}},[]),/different source column/);
+});
+
+test("taught Trade AR sheet, header row, aliases and reordered columns reuse strict production validation",()=>{
+  const begin=app.indexOf("/* MoonDog Paste & Learn — inert"),end=app.indexOf("})(globalThis);",begin);
+  const engineContext={};vm.runInNewContext(app.slice(begin,end+14),engineContext);
+  const mappings={store:"Location",customer:"Client Id",invoice:"Document Ref",invoiceDate:"Bill Date",
+    days:"Age Days",status:"Follow-up Attempt",invoiceAmount:"Billed USD",received:"Paid USD",open:"Balance USD"};
+  const rule=engineContext.MoonDogPasteLearn.safeReportLayout({family:"trade-ar-errors",
+    sheetName:"Receivables Detail",headerRow:2,columns:mappings},[]);
+  const fieldOrder=["invoice","store","days","customer","open","status","invoiceDate","received","invoiceAmount"];
+  const values=source=>({
+    store:source[arHeaders.indexOf("AN Store#")],customer:source[arHeaders.indexOf("Customer #")],
+    invoice:source[arHeaders.indexOf("Invoice #")],invoiceDate:source[arHeaders.indexOf("Invoice Date")],
+    days:source[arHeaders.indexOf("Actual Days Open")],status:source[arHeaders.indexOf("Status")],
+    invoiceAmount:source[arHeaders.indexOf("Invoice Amount (USD)")],received:source[arHeaders.indexOf("Amount Received (USD)")],
+    open:source[arHeaders.indexOf("Open Amount (USD)")]
+  });
+  const headers=fieldOrder.map(field=>mappings[field]);
+  const reordered=source=>{const row=values(source);return fieldOrder.map(field=>row[field]);};
+  const layoutRows=[["Synthetic report title"],[],headers,reordered(arRow({invoice:"FAKE-LAYOUT-1"})),
+    reordered(arRow({invoice:"FAKE-LAYOUT-2",days:100,open:5}))];
+  const book={SheetNames:["Cover","Receivables Detail"],Sheets:{
+    Cover:{rows:[["Synthetic Cover"]]},
+    "Receivables Detail":{rows:layoutRows,"!ref":"A1:I5"}
+  }};
+  const result=arHarness([], "101", {}, [rule], book).parse();
+  assert.equal(result.metrics.invoiceCount,2);
+  assert.equal(result.metrics.aging.under30,1);
+  assert.equal(result.metrics.aging.days90plus,1);
+  assert.equal(result.validation.otherStoreRowsExcluded,0);
+  assert.equal(result.validation.learnedLayoutVersion,1);
+  assert.equal(JSON.stringify(result).includes("FAKE-LAYOUT-1"),false);
+});
+
+test("layout preview is local, uses production Trade AR validation, saves mappings in Workspace settings and retries retained source",()=>{
+  assert.match(app,/Teach a known report layout/);
+  assert.match(app,/Preview and validate/);
+  assert.match(app,/saveLocalReportLayout/);
+  assert.match(app,/updateLocalFuture\(future=>/);
+  assert.match(app,/Retry this report/);
+  assert.match(app,/await sha256\(currentBytes\)!==previewProof/);
+  assert.match(app,/processClassifiedCandidate\(candidate,"supplemental-workbook"/);
 });
