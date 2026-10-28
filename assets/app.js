@@ -6450,7 +6450,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     authorityRevalidationTimer=null;authorityRevalidationAttempts=0;authorityRevalidationExhausted=false;
   }
   function scheduleAuthorityRevalidation(root,immediate=false){
-    if(!root||root!==connectedNativeRoot||writeAuthority.canWrite||authorityRevalidationTimer)return;
+    if(!root||root!==connectedNativeRoot||writeAuthority.canWrite)return;
+    if(immediate&&authorityRevalidationTimer){clearTimeout(authorityRevalidationTimer);authorityRevalidationTimer=null;}
+    if(authorityRevalidationTimer)return;
     if(!["WORKSPACE_BUSY","PERMISSION_REQUIRED"].includes(writeAuthority.reason))return;
     if(immediate){authorityRevalidationAttempts=0;authorityRevalidationExhausted=false;}
     const delay=immediate?0:AUTHORITY_REVALIDATION_DELAYS[authorityRevalidationAttempts];
