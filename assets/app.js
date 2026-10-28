@@ -1450,14 +1450,16 @@
           model.workspaceConnectionCommittedRoot=null;
         }
         model.pendingRoot=handle;
-        try{await rememberRoot(handle);}catch(_){/* in-memory retry remains available */}
+        let handleStored=true;
+        try{await rememberRoot(handle);}catch(_){handleStored=false;/* in-memory retry remains available */}
+        const storageNote=handleStored?"The selected handle and files are retained.":"The handle remains available in this tab, but browser storage could not persist it; after a browser restart you may need to choose this folder again.";
         if(error?.name==="NotAllowedError"||error?.name==="SecurityError"||/folder access was not granted/i.test(String(error?.message||""))){
-          setConnectionState("PERMISSION REQUIRED","Edge needs read/write access to the selected folder. Click Restore folder access; its handle and contents are retained.");
+          setConnectionState("PERMISSION REQUIRED",`Edge needs read/write access to the selected folder. Click Restore folder access. ${storageNote}`);
         }else if(transientWorkspaceState(error)){
-          setConnectionState("CONNECTION ERROR",`Workspace I/O is temporarily busy${error?.name?` (${error.name})`:""}, possibly while OneDrive syncs. The selected handle is retained; MoonDog will retry automatically.`);
+          setConnectionState("CONNECTION ERROR",`Workspace I/O is temporarily busy${error?.name?` (${error.name})`:""}, possibly while OneDrive syncs. ${storageNote} MoonDog will retry automatically.`);
           scheduleSavedConnectionRetry(handle);
         }else{
-          setConnectionState("CONNECTION ERROR",`The selected folder could not be verified: ${error?.message||String(error)}. Its handle and all files are retained.`);
+          setConnectionState("CONNECTION ERROR",`The selected folder could not be verified: ${error?.message||String(error)}. ${storageNote}`);
         }
       }
       throw error;
