@@ -132,6 +132,34 @@ def source_runtime_mismatches(root: Path, current_files: dict[str, bytes], paths
     return mismatches
 
 
+def current_beta_runtime_mismatches(root: Path) -> list[str]:
+    """Compare a candidate's runtime with its verified current Beta package.
+
+    An empty result means a synchronize event has already packaged this exact
+    runtime and must not allocate another Beta version.
+    """
+    manifest = load_json(root / "updates" / "manifest.json")
+    beta = manifest.get("beta")
+    if not isinstance(beta, dict):
+        raise SystemExit("Current Beta manifest entry is malformed")
+    version = beta.get("version")
+    if not isinstance(version, str) or not BETA_RE.fullmatch(version):
+        raise SystemExit("Current Beta version is invalid")
+    package_path = root / "updates" / "packages" / f"moondog-{version}.json"
+    if not package_path.is_file():
+        raise SystemExit(f"Current Beta package is missing: {package_path.name}")
+    package_bytes = package_path.read_bytes()
+    if digest(package_bytes) != beta.get("sha256"):
+        raise SystemExit("Current Beta package does not match its manifest digest")
+    package = json.loads(package_bytes)
+    if package.get("version") != version:
+        raise SystemExit("Current Beta package version does not match the manifest")
+    entries = package_entries(package)
+    app_text = (root / "assets" / "app.js").read_text(encoding="utf-8")
+    paths = beta_runtime_paths(app_text)
+    return source_runtime_mismatches(root, entries, paths)
+
+
 def changed_runtime_paths(base_root: Path, candidate_root: Path, paths: list[str]) -> list[str]:
     changed = []
     for path in paths:
