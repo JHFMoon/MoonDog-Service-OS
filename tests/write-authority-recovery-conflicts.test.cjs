@@ -128,6 +128,7 @@ function fixture(current=after,options={}){
     reason:()=>context.reason(),
     setPermission:value=>{permissionState=value;},
     permissionRequests:()=>permissionRequests,
+    clearTransientReads:()=>{transientReads=0;},
     revisionReads:()=>revisionReads,
     current:()=>files.get(statePath),
     pending:()=>[...files.keys()].some(p=>p.startsWith(prefix+"data/.moondog-txn-")),
@@ -420,15 +421,18 @@ test("a saved folder handle after refresh or browser restart is revalidated with
   assert.equal(f.permissionRequests(),0,"granted access does not require a user click");
 });
 
-test("lost browser permission remains a distinct hold and restoration reuses the same handle",async()=>{
-  const f=fixture(before,{noInitialJournal:true,permissionState:"prompt"});
-  assert.equal(await f.validate(),false);
+test("lost browser permission after a successful connection remains a distinct hold and restoration reuses the same handle",async()=>{
+  const f=fixture(before,{noInitialJournal:true});
+  assert.equal(await f.validate(),true,"initial read/write authority is valid");
+  f.setPermission("denied");
+  assert.equal(await f.validate(),false,"Edge permission loss revokes writes");
   assert.equal(f.reason(),"PERMISSION_REQUIRED");
+  assert.equal(f.editable(),false);
   assert.equal(f.permissionRequests(),0,"automatic validation must not call requestPermission");
   f.setPermission("granted");
-  assert.equal(await f.validate(),true);
+  assert.equal(await f.validate(),true,"restored permission is detected on the retained handle");
   assert.equal(f.reason(),"READY");
-  assert.equal(f.permissionRequests(),0,"restored permission is detected without a prompt");
+  assert.equal(f.permissionRequests(),0,"background recovery never prompts Edge");
 });
 
 test("a real user-initiated permission recovery may ask Edge and then validate",async()=>{
@@ -477,4 +481,20 @@ test("production transient suspension revokes writes immediately and retains the
     validationReason:"WORKSPACE_BUSY",transientValidation:true,editable:false
   });
   assert.equal(context.suspend(Object.assign(Error("unrelated"),{name:"TypeError"})),false);
+});
+
+
+test("exhausted transient validation fails closed and later retries the retained handle",async()=>{
+  const original=before;
+  const f=fixture(original,{noInitialJournal:true,transientReadFailures:20});
+  assert.equal(await f.validate(),false,"bounded probe sequence cannot enable writes while OneDrive remains busy");
+  assert.equal(f.reason(),"WORKSPACE_BUSY");
+  assert.equal(f.editable(),false);
+  assert.deepEqual(f.current(),original,"temporary reads do not alter operational bytes");
+  assert.equal(f.pending(),false);
+  f.clearTransientReads();
+  assert.equal(await f.validate(),true,"a later retry can restore verified authority on the same handle");
+  assert.equal(f.reason(),"READY");
+  assert.equal(f.editable(),true);
+  assert.deepEqual(f.current(),original);
 });
