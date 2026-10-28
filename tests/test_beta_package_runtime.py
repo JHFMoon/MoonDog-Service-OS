@@ -22,15 +22,15 @@ def should_verify_runtime_parity(event_name, ref):
 class BetaRuntimeGateSelection(unittest.TestCase):
     def test_manual_feature_branch_does_not_require_post_merge_beta_parity(self):
         self.assertFalse(should_verify_runtime_parity(
-            "workflow_dispatch", "refs/heads/test/open-ro-edit", False))
+            "workflow_dispatch", "refs/heads/test/open-ro-edit"))
 
     def test_manual_generated_beta_package_requires_runtime_parity(self):
         self.assertTrue(should_verify_runtime_parity(
-            "workflow_dispatch", "refs/heads/beta/post-merge-123", False))
+            "workflow_dispatch", "refs/heads/beta/post-merge-123"))
 
     def test_manual_main_validation_requires_runtime_parity(self):
         self.assertTrue(should_verify_runtime_parity(
-            "workflow_dispatch", "refs/heads/main", False))
+            "workflow_dispatch", "refs/heads/main"))
 
     def test_every_pull_request_head_requires_beta_runtime_parity(self):
         self.assertTrue(should_verify_runtime_parity("pull_request", "refs/pull/508/merge"))
