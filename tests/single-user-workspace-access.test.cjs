@@ -168,7 +168,7 @@ test("refresh and browser restart reuse the saved handle and query permission wi
     indexedDB:{},model:{pendingRoot:null},ui:{homeConnect:{textContent:""}},
     recallRoot:async()=>handle,
     permission:async(received,request)=>{assert.equal(received,handle);queries++;if(request)requestCalls++;return "granted";},
-    finishConnection:async(received,request)=>{used=received;ask=request;},
+    finishConnection:async(received,request)=>{used=received;ask=request;context.model.pendingRoot=null;},
     setConnectionState(){},recordDiagnostic:async()=>{},stopFolderWatch(){},
     writeAuthority:{disable(){}},transientWorkspaceState:()=>false,console
   };
