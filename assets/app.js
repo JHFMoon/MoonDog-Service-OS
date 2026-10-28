@@ -5925,6 +5925,17 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       return saved;
     }finally{setBusy(false);}
   }
+  async function validatePreviewBoundLayout({readSelection,validate,publish,setBusy}) {
+    const approved=readSelection();
+    setBusy(true);
+    try{
+      const result=await validate(approved);
+      if(JSON.stringify(readSelection())!==JSON.stringify(approved))
+        throw new Error("The selected layout changed while preview was running. Validate the current mapping again.");
+      publish(result,approved);
+      return result;
+    }finally{setBusy(false);}
+  }
   async function openTradeArLayoutTeaching(source){
     if(!source?.handle)throw new Error("The original report cannot be read. No changes were made.");
     const dialog=document.createElement("dialog"),title=document.createElement("h2"),help=document.createElement("p"),
@@ -5995,22 +6006,34 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       validate.addEventListener("click",()=>run(async()=>{
         candidateRule=null;previewProof=null;savedRule=null;save.disabled=true;retry.disabled=true;
         preview.textContent="Validating this layout against the production parser.";
-        const columns={};for(const select of fieldsHost.querySelectorAll("select[data-field]"))if(select.value)columns[select.dataset.field]=select.value;
-        const engine=globalThis.MoonDogPasteLearn;
-        const nextRule=engine.safeReportLayout({family:"trade-ar-errors",sheetName:sheetSelect.value,headerRow:Number(headerSelect.value),columns},localReportLayoutRules());
-        const selectedFile=await source.handle.getFile();
-        if(selectedFile.size!==source.size||selectedFile.lastModified!==source.lastModified)
-          throw new Error("The source changed while the layout was being taught. It remains in Files To Learn.");
-        const nextBytes=new Uint8Array(await selectedFile.arrayBuffer());
-        const previewBook=await prepareXlsxWorkbook(nextBytes,{type:"array",raw:true,cellDates:true,cellNF:true,cellFormula:true});
-        assertTradeArLayoutSource(previewBook,source.name);
-        const nextProof=await sha256(nextBytes);
-        const result=parseTradeArErrorWorkbook(nextBytes,source.name,nextRule);
-        if(!result?.validation?.storeScopeVerified||result.validation.kpiPromotion!==false)
-          throw new Error("Trade AR preview did not prove configured-store scope.");
-        candidateRule=nextRule;previewBytes=nextBytes;previewSize=selectedFile.size;previewModified=selectedFile.lastModified;previewProof=nextProof;
-        preview.textContent=`Validated ${result.metrics.invoiceCount} configured-store invoices; ${result.validation.otherStoreRowsExcluded} other-store rows excluded; open amount ${money(result.metrics.openAmount)}. This is a local preview only; no saved data changed.`;
-        save.disabled=false;retry.disabled=true;savedRule=null;
+        const readSelection=()=>{
+          const columns={};for(const select of fieldsHost.querySelectorAll("select[data-field]"))if(select.value)columns[select.dataset.field]=select.value;
+          return{sheetName:sheetSelect.value,headerRow:Number(headerSelect.value),columns};
+        };
+        await validatePreviewBoundLayout({
+          readSelection,setBusy:setTeachingBusy,
+          validate:async selection=>{
+            const engine=globalThis.MoonDogPasteLearn;
+            const nextRule=engine.safeReportLayout({family:"trade-ar-errors",...selection},localReportLayoutRules());
+            const selectedFile=await source.handle.getFile();
+            if(selectedFile.size!==source.size||selectedFile.lastModified!==source.lastModified)
+              throw new Error("The source changed while the layout was being taught. It remains in Files To Learn.");
+            const nextBytes=new Uint8Array(await selectedFile.arrayBuffer());
+            const previewBook=await prepareXlsxWorkbook(nextBytes,{type:"array",raw:true,cellDates:true,cellNF:true,cellFormula:true});
+            assertTradeArLayoutSource(previewBook,source.name);
+            const nextProof=await sha256(nextBytes);
+            const result=parseTradeArErrorWorkbook(nextBytes,source.name,nextRule);
+            if(!result?.validation?.storeScopeVerified||result.validation.kpiPromotion!==false)
+              throw new Error("Trade AR preview did not prove configured-store scope.");
+            return{nextRule,nextBytes,nextSize:selectedFile.size,nextModified:selectedFile.lastModified,nextProof,result};
+          },
+          publish:validated=>{
+            candidateRule=validated.nextRule;previewBytes=validated.nextBytes;previewSize=validated.nextSize;
+            previewModified=validated.nextModified;previewProof=validated.nextProof;savedRule=null;
+            const result=validated.result;
+            preview.textContent=`Validated ${result.metrics.invoiceCount} configured-store invoices; ${result.validation.otherStoreRowsExcluded} other-store rows excluded; open amount ${money(result.metrics.openAmount)}. This is a local preview only; no saved data changed.`;
+          }
+        });
       }));
       save.addEventListener("click",()=>run(async()=>{
         savedRule=await persistPreviewBoundLayout({
