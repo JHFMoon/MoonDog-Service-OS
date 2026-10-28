@@ -39,11 +39,14 @@ class CanonicalBetaSourceTests(unittest.TestCase):
         self.assertIn("content = (root / path).read_bytes()",builder)
         self.assertNotIn("content = merge_text(",builder)
 
-    def test_post_merge_detector_repairs_drift_and_pr_package_must_pass_parity(self):
+    def test_reviewed_source_pr_contains_a_verified_beta_candidate(self):
         workflow=(ROOT/".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
-        self.assertIn("DRIFT_COUNT",workflow)
-        self.assertIn("source_runtime_mismatches(Path('.'), package_entries(package), paths)",workflow)
-        self.assertIn('if [ "$RUNTIME_COUNT" = "0" ] && [ "$DRIFT_COUNT" = "0" ]; then',workflow)
+        self.assertIn("pull_request_target:",workflow)
+        self.assertIn("scripts/build_beta_package.py",workflow)
+        self.assertIn("Push package commit to the same reviewed PR",workflow)
+        self.assertIn("normal pull_request checks",workflow)
+        self.assertNotIn("package-unadvertised-main-runtime:",workflow)
+        self.assertNotIn("workflow_dispatch:",workflow)
         contract=(ROOT/"tests/test_beta_package_runtime.py").read_text(encoding="utf-8")
         self.assertIn("package_change_in_pr = (",contract)
         self.assertIn("verify_runtime =",contract)
