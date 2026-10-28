@@ -18,6 +18,8 @@ class BetaPipelineTests(unittest.TestCase):
         self.assertIn("group: prepare-beta-package-${{ github.repository }}", text)
         self.assertIn("cancel-in-progress: false", text)
         self.assertIn("types: [opened, reopened, synchronize, ready_for_review, edited]", text)
+        self.assertIn('compare/$MAIN_SHA...$HEAD_SHA', text)
+        self.assertIn('$MERGE_BASE\" != \"$MAIN_SHA', text)
         self.assertIn("Check out trusted packaging logic from the reviewed base", text)
         self.assertIn("Check out candidate as untrusted data", text)
         self.assertIn("untrusted data", text)

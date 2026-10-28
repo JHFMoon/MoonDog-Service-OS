@@ -79,9 +79,11 @@ jobs:
         run: |
           set -euo pipefail
           MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
-          PR_BASE="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.sha)"
-          if [ "$PR_BASE" != "$MAIN_SHA" ]; then
-            echo "PR base is stale; the guarded merge flow must additively update it before package generation."
+          COMPARE="$(gh api "repos/$REPO/compare/$MAIN_SHA...$HEAD_SHA")"
+          STATUS="$(jq -r .status <<<"$COMPARE")"
+          MERGE_BASE="$(jq -r '.merge_base_commit.sha // empty' <<<"$COMPARE")"
+          if [ "$STATUS" != "ahead" ] || [ "$MERGE_BASE" != "$MAIN_SHA" ]; then
+            echo "PR head does not descend from current main; the release queue must additively refresh it before package generation."
             echo "current=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
