@@ -86,37 +86,58 @@ test("UI surfaces have independent non-destructive visibility gates", () => {
   const homeUi={metricOpen:field(),metricDue:field(),metricMissing:field(),
     metricUpdated:field(),lastImport:field(),lastExport:field(),
     exportButton:{disabled:true}};
-  const homeHelpersStart=app.indexOf("  let homePanelsDirty = true;");
+  const homeHelpersStart=app.indexOf("  let overviewPanelsDirty = true;");
   const homeHelperSource=app.slice(homeHelpersStart,homeStart);
-  let homeActive=true,todayKey="2026-10-26";
-  const homeRenderCalls={overview:0,daily:0};
-  homeUi["view-home"]={classList:{contains:()=>homeActive}};
-  const home=vm.runInNewContext(homeHelperSource+app.slice(homeStart,homeEnd)+
-    "\n({renderAll,renderHomePanelsIfNeeded})",{
+  let overviewActive=false,openRoActive=false,todayKey="2026-10-26";
+  const panelRenderCalls={overview:0,daily:0};
+  homeUi["view-overview"]={classList:{contains:()=>overviewActive}};
+  homeUi["view-open-ro"]={classList:{contains:()=>openRoActive}};
+  const panels=vm.runInNewContext(homeHelperSource+app.slice(homeStart,homeEnd)+
+    "\\n({renderAll,renderOverviewPanelsIfNeeded,renderDailyFocusIfNeeded})",{
     model:homeModel,ui:homeUi,localDateKey:()=>todayKey,
     isClosedManagement:management=>norm(management?.status)==="closed",
-    renderOverviewIntelligence:()=>{homeRenderCalls.overview++;},
-    renderDailyFocus:()=>{homeRenderCalls.daily++;},renderFilters:()=>{},
+    renderOverviewIntelligence:()=>{panelRenderCalls.overview++;},
+    renderDailyFocus:()=>{panelRenderCalls.daily++;},renderFilters:()=>{},
     renderTable:()=>{},renderArrivals:()=>{},renderPerformance:()=>{},
     renderMeeting:()=>{},renderAssignNext:()=>{},renderSetup:()=>{}
   });
-  home.renderAll();
+  panels.renderAll();
   assert.equal(visibility.openRoVisibleRecords().length,2,
     "advisor-scoped Open RO list hides an opted-out advisor");
   assert.deepEqual([homeUi.metricOpen.textContent,homeUi.metricDue.textContent,
     homeUi.metricMissing.textContent],[4,3,2],
     "Home totals retain hidden advisor source rows while excluding only closed work");
   assert.equal(homeUi.exportButton.disabled,false);
-  assert.deepEqual(homeRenderCalls,{overview:1,daily:1},"connected Home builds both panels once");
-  homeActive=false;home.renderAll();
-  assert.deepEqual(homeRenderCalls,{overview:1,daily:1},"hidden Home updates skip expensive overview and daily-focus DOM rebuilds");
-  assert.equal(home.renderHomePanelsIfNeeded(true),true,"returning to Home refreshes deferred panels");
-  assert.deepEqual(homeRenderCalls,{overview:2,daily:2});
-  assert.equal(home.renderHomePanelsIfNeeded(true),false,"unchanged same-day Home panels are reused");
+  assert.deepEqual(panelRenderCalls,{overview:0,daily:0},
+    "inactive overview and Open RO panels perform no hidden DOM rebuilds");
+  overviewActive=true;panels.renderAll();
+  assert.deepEqual(panelRenderCalls,{overview:1,daily:0},
+    "Store Overview refreshes while its containing view is visible");
+  overviewActive=false;openRoActive=true;panels.renderAll();
+  assert.deepEqual(panelRenderCalls,{overview:1,daily:1},
+    "Open RO daily walk refreshes while its containing view is visible");
+  openRoActive=false;panels.renderAll();
+  assert.deepEqual(panelRenderCalls,{overview:1,daily:1},
+    "hidden panels stay deferred after they have been rendered once");
   todayKey="2026-10-27";
-  assert.equal(home.renderHomePanelsIfNeeded(true),true,"date rollover invalidates Home panels on activation");
-  assert.deepEqual(homeRenderCalls,{overview:3,daily:3});
-  assert.match(app,/if\(view==="home"\)renderHomePanelsIfNeeded\(true\);/,"Home navigation refreshes invalidated hidden panels");
+  overviewActive=true;
+  assert.equal(panels.renderOverviewPanelsIfNeeded(true),true,
+    "returning to Store Overview refreshes hidden and date-stale content");
+  openRoActive=true;
+  assert.equal(panels.renderDailyFocusIfNeeded(true),true,
+    "returning to Open RO refreshes hidden and date-stale daily walk");
+  assert.deepEqual(panelRenderCalls,{overview:2,daily:2});
+  assert.equal(panels.renderOverviewPanelsIfNeeded(true),false,
+    "unchanged same-day Store Overview panels are reused");
+  assert.equal(panels.renderDailyFocusIfNeeded(true),false,
+    "unchanged same-day Open RO walk is reused");
+  panels.renderAll();
+  assert.deepEqual(panelRenderCalls,{overview:3,daily:3},
+    "visible owner views refresh on data updates");
+  assert.match(app,/if\(view==="overview"\)renderOverviewPanelsIfNeeded\(true\);/,
+    "Store Overview navigation refreshes its deferred panel");
+  assert.match(app,/if\(view==="open-ro"\)renderDailyFocusIfNeeded\(true\);/,
+    "Open RO navigation refreshes its deferred daily walk");
   assert.equal(JSON.stringify(fullRecords),allRecordsBefore,
     "presentation filters and Home counting must never mutate authoritative rows");
   new vm.Script(app);
