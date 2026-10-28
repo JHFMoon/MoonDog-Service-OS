@@ -5911,6 +5911,19 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     });
     return saved;
   }
+  async function persistPreviewBoundLayout({readApproval,persist,setBusy}) {
+    const approved=readApproval();
+    if(!approved?.rule||!approved.proof)throw new Error("Preview and validate this layout before saving.");
+    setBusy(true);
+    try{
+      const saved=await persist(approved.rule);
+      const current=readApproval();
+      if(current?.rule!==approved.rule||current?.proof!==approved.proof
+        ||current?.size!==approved.size||current?.modified!==approved.modified)
+        throw new Error("The layout changed while it was being saved. Preview and save the current mapping again.");
+      return saved;
+    }finally{setBusy(false);}
+  }
   async function openTradeArLayoutTeaching(source){
     if(!source?.handle)throw new Error("The original report cannot be read. No changes were made.");
     const dialog=document.createElement("dialog"),title=document.createElement("h2"),help=document.createElement("p"),
@@ -5929,7 +5942,17 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     retry.type="button";retry.textContent="Retry this report";retry.disabled=true;
     cancel.type="button";cancel.textContent="Cancel";cancel.addEventListener("click",()=>dialog.close());
     actions.append(validate,save,retry,cancel);dialog.append(title,help,sheetLabel,headerLabel,fieldsHost,preview,actions);
-    let activeBook=null,candidateRule=null,previewProof=null,savedRule=null,previewBytes=null,previewSize=0,previewModified=0;
+    let activeBook=null,candidateRule=null,previewProof=null,savedRule=null,previewBytes=null,previewSize=0,previewModified=0,teachingBusy=false;
+    const teachingControls=()=>[sheetSelect,headerSelect,...fieldsHost.querySelectorAll("select[data-field]"),validate,save,retry,cancel];
+    const setTeachingBusy=busy=>{
+      teachingBusy=Boolean(busy);
+      teachingControls().forEach(control=>control.disabled=teachingBusy);
+      if(!teachingBusy){
+        validate.disabled=false;save.disabled=!candidateRule||!previewProof||Boolean(savedRule);
+        retry.disabled=!savedRule||!previewProof;cancel.disabled=false;
+      }
+    };
+    dialog.addEventListener("cancel",event=>{if(teachingBusy)event.preventDefault();});
     const refreshFields=()=>{
       fieldsHost.replaceChildren();const name=sheetSelect.value,grid=activeBook&&name
         ?XLSX.utils.sheet_to_json(activeBook.Sheets[name],{header:1,defval:"",raw:true}):[];
@@ -5989,10 +6012,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         save.disabled=false;retry.disabled=true;savedRule=null;
       }));
       save.addEventListener("click",()=>run(async()=>{
-        if(!candidateRule||!previewProof)throw new Error("Preview and validate this layout before saving.");
-        savedRule=await saveLocalReportLayout(candidateRule);
+        savedRule=await persistPreviewBoundLayout({
+          readApproval:()=>({rule:candidateRule,proof:previewProof,size:previewSize,modified:previewModified}),
+          persist:saveLocalReportLayout,setBusy:setTeachingBusy
+        });
         preview.textContent=`Saved private layout v${savedRule.version}. The original report is still in Files To Learn.`;
-        retry.disabled=false;save.disabled=true;
       }));
       retry.addEventListener("click",()=>run(async()=>{
         const approvedRule=savedRule,approvedProof=previewProof,approvedSize=previewSize,approvedModified=previewModified;
