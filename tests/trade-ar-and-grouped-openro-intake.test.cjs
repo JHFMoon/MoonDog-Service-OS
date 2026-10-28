@@ -304,7 +304,8 @@ test("layout preview is local, uses production Trade AR validation, saves mappin
   assert.match(app,/await sha256\(currentBytes\)!==previewProof/);
   assert.match(app,/processClassifiedCandidate\(candidate,"supplemental-workbook"/);
   assert.match(app,/select\.addEventListener\("change",\(\)=>\{candidateRule=null;previewProof=null;savedRule=null;save\.disabled=true;retry\.disabled=true/);
-  assert.match(app,/candidateRule=null;previewProof=null;savedRule=null;save\.disabled=true;retry\.disabled=true;[\\s\\S]*const nextRule=engine\.safeReportLayout/);
+  const validateAt=app.indexOf(`validate.addEventListener("click",()=>run(async()=>{`),resetAt=app.indexOf("candidateRule=null;previewProof=null;savedRule=null;save.disabled=true;retry.disabled=true;",validateAt),candidateAt=app.indexOf("const nextRule=engine.safeReportLayout",resetAt);
+  assert.ok(validateAt>=0&&resetAt>validateAt&&candidateAt>resetAt,"failed revalidation must clear old approval before parsing");
   assert.match(app,/resolveLearnedFailureRecords\(source\.name,candidate\.signature,"supplemental-workbook"\)/);
   assert.match(app,/removeSourceEntryWithByteGuard\(source\.name,currentBytes/);
 });
