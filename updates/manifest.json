@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.187",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.187.json",
-    "sha256": "69c9a6fc5781b41cc6a9acbb16e39886e4fd8fcd549548a23805cdd96a6e58fb",
+    "version": "0.10.18-beta.188",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.188.json",
+    "sha256": "0cd47f8461eedf9ec3d1fa9def24f8632546241a3fc98b6c86aab11be4709c10",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Teach local supplemental Trade AR worksheet/header mappings. Strict preview; unchanged source retained until verified durable import. Open RO replacement still needs explicit approval. No migration; Stable 0.10.17 unchanged."
+    "releaseNotes": "perf(#58): bound report inbox metadata reads (#577). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17."
   }
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.188 — current Beta
+
+- perf(#58): bound report inbox metadata reads (#577). Verified automated Beta from reviewed source. No Workspace migration; Stable remains 0.10.17.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.187 — current Beta
 
 - feat(#571): teach private Trade AR report layouts locally (#574). Map a supported worksheet and headers, preview with the strict parser, then retry the unchanged source; the original stays in Files To Learn until the saved import is verified. Complete Open RO replacement still needs explicit approval. No Workspace migration; Stable remains 0.10.17.
