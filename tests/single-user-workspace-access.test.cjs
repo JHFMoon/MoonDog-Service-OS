@@ -331,3 +331,31 @@ test("saved-folder retries are bounded and preserve the handle after persistent 
   assert.equal(model.pendingRoot,handle,"saved folder handle stays available for explicit retry");
   assert.match(messages.at(-1).message,/checks ended.*handle and files remain intact/i);
 });
+
+test("explicit Restore editing resets exhausted OneDrive retry budget and reuses the saved handle",async()=>{
+  const start=app.indexOf("  async function connect() {");
+  const end=app.indexOf("  let savedConnectionRetryTimer=null",start);
+  assert.ok(start>=0&&end>start,"extract production explicit saved-handle connection");
+  const handle={kind:"directory",name:"Synthetic Workspace"};
+  const cancelled=[];
+  let connected=0,pickers=0;
+  const context={
+    model:{pendingRoot:handle},
+    __moondogDailyUI:{confirmWorkspaceChange:()=>true},
+    window:{showDirectoryPicker:()=>{pickers++;throw Error("Must reuse the retained handle");}},
+    clearTimeout:id=>cancelled.push(id),
+    setConnectionState:()=>{},
+    finishConnection:async(root,ask)=>{assert.equal(root,handle);assert.equal(ask,true);connected++;},
+    writeAuthority:{disable:()=>{throw Error("No write revocation on successful retry");}},
+    console
+  };
+  vm.runInNewContext("let savedConnectionRetryTimer=17,savedConnectionRetryAttempts=5;"+
+    app.slice(start,end)+
+    "\nglobalThis.retrySaved=connect;globalThis.retryState=()=>({timer:savedConnectionRetryTimer,attempts:savedConnectionRetryAttempts});",context);
+  await context.retrySaved();
+  assert.equal(connected,1);
+  assert.equal(pickers,0,"restoration must not select another folder");
+  assert.deepEqual(cancelled,[17],"stale automatic reconnect is cancelled");
+  assert.deepEqual({...context.retryState()},{timer:null,attempts:0},
+    "manual recovery opens a fresh bounded retry budget");
+});
