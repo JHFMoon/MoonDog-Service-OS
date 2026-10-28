@@ -127,9 +127,10 @@
     const family=data?.family;
     if(!Object.prototype.hasOwnProperty.call(REPORT_LAYOUT_FAMILIES,family))throw Error("Choose a supported report family.");
     const clean=value=>String(value??"").replace(/[\x00-\x1f\x7f]/g," ").trim().replace(/\s+/g," ").slice(0,100);
-    const sheetName=clean(data.sheetName),headerRow=Number(data.headerRow);
-    if(!sheetName||sheetName.length>80||!Number.isInteger(headerRow)||headerRow<0||headerRow>30)
-      throw Error("Choose a worksheet and a header row within the first 31 rows.");
+    // Worksheet names are exact identifiers, not header labels; preserve legal spaces for workbook lookup.
+    const sheetName=String(data.sheetName??""),headerRow=Number(data.headerRow);
+    if(!sheetName.trim()||sheetName.length>31||/[\x00-\x1f\x7f]/.test(sheetName)||!Number.isInteger(headerRow)||headerRow<0||headerRow>30)
+      throw Error("Choose an existing worksheet and a header row within the first 31 rows.");
     const columns={};
     for(const field of REPORT_LAYOUT_FAMILIES[family]){
       const header=clean(data.columns?.[field]);
@@ -139,7 +140,7 @@
     const normalized=value=>clean(value).normalize("NFKC").toLowerCase();
     if(new Set(Object.values(columns).map(normalized)).size!==Object.keys(columns).length)
       throw Error("Each required field must map to a different source column.");
-    const id="report-layout-"+family+"-"+sheetName.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,50);
+    const id="report-layout-"+family+"-"+Array.from(sheetName).map(char=>char.codePointAt(0).toString(16)).join("-");
     const old=previous.find(item=>item?.id===id);
     if(!old&&previous.length>=MAX_RULES)throw Error("Maximum number of local report layouts reached.");
     return{id,family,name:"Local Trade AR layout",sheetName,headerRow,columns,
