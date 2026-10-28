@@ -123,6 +123,15 @@ def merge_review_state(comments: list, reviews: list, expected_head: str, policy
     # every historical summary to be finding-free made resolution impossible.
     if codex == "findings":
         return "findings"
+    # A stale, missing or incomplete newer summary does not clear an earlier
+    # verified unresolved finding for the exact commit. Only a newer
+    # authenticated completed exact-head summary explicitly reporting no
+    # unresolved findings can supersede a historical finding.
+    if codex == "pending" and any(
+        codex_review_state([comment], expected_head) == "findings"
+        for comment in comments if isinstance(comment, dict)
+    ):
+        return "findings"
     owner = "pending"
     if (
         has_standing_authorization(policy)
