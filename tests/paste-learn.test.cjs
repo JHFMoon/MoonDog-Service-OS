@@ -188,7 +188,7 @@ test("can teach field mappings from key/value text without enabling operational 
 
 test("CDK compact summary and secondary Waiting stay separate from customer",async()=>{
  const h=cdkHarness();
- const sample=rows(1).replace("All: 1 Open: 1 Working: 0 On Hold: 0 Closed: 0","All: 1Open: 1Working: 0On Hold: 0Closed: 0").replace("Synthetic Customer\n1HGBH41JXMN109186","Waiting\nSynthetic Customer\n1HGBH41JXMN109186");
+ const sample=rows(1).replace("All: 1 Open: 1 Working: 0 On Hold: 0 Closed: 0","All: 1Open: 1Working: 0On Hold: 0Closed: 0").replace(`Synthetic Customer\n${SYNTHETIC_VIN}`,`Waiting\nSynthetic Customer\n${SYNTHETIC_VIN}`);
  const parsed=await h.partial(sample);
  assert.equal(parsed.summary?.all,1);
  assert.equal(parsed.records.length,1);
