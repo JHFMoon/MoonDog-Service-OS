@@ -24,6 +24,8 @@ function runSyntheticFirstRender(schedule){
     localDateKey:()=> "2026-10-20",isClosedManagement:()=>false,
     renderOverviewIntelligence:()=>{counts.overview++;},
     renderDailyFocus:()=>{counts.daily++;},
+    renderOverviewPanelsIfNeeded:()=>{},
+    renderDailyFocusIfNeeded:()=>{},
     renderFilters:()=>{counts.filters++;},
     renderTable:()=>{counts.activeReports++;},
     renderArrivals:()=>{counts.activeReports++;},
