@@ -299,6 +299,37 @@ test("explicit layout preview validates the selected sheet even when a valid can
     /Trade AR aging, date, or money is unreadable/);
 });
 
+test("explicit taught retry imports the approved aggregate from the selected sheet, not built-in fallback data",()=>{
+  const begin=app.indexOf("/* MoonDog Paste & Learn — inert"),end=app.indexOf("})(globalThis);",begin);
+  const engineContext={};vm.runInNewContext(app.slice(begin,end+14),engineContext);
+  const mappings={store:"Location",customer:"Client Id",invoice:"Document Ref",invoiceDate:"Bill Date",
+    days:"Age Days",status:"Follow-up Attempt",invoiceAmount:"Billed USD",received:"Paid USD",open:"Balance USD"};
+  const rule=engineContext.MoonDogPasteLearn.safeReportLayout({family:"trade-ar-errors",
+    sheetName:"Receivables Detail",headerRow:2,columns:mappings},[]);
+  const fieldOrder=["invoice","store","days","customer","open","status","invoiceDate","received","invoiceAmount"];
+  const fields={store:"AN Store#",customer:"Customer #",invoice:"Invoice #",invoiceDate:"Invoice Date",
+    days:"Actual Days Open",status:"Status",invoiceAmount:"Invoice Amount (USD)",
+    received:"Amount Received (USD)",open:"Open Amount (USD)"};
+  const toMapped=source=>{const row=Object.fromEntries(Object.entries(fields).map(([key,heading])=>[key,source[arHeaders.indexOf(heading)]]));return fieldOrder.map(field=>row[field]);};
+  const mixed={SheetNames:["Trade AR Error Report","Receivables Detail"],Sheets:{
+    "Trade AR Error Report":{rows:[arHeaders,arRow({invoice:"FAKE-CANONICAL",open:10})]},
+    "Receivables Detail":{rows:[["Report"],[],fieldOrder.map(field=>mappings[field]),toMapped(arRow({invoice:"FAKE-SELECTED",open:999}))],"!ref":"A1:I4"}
+  }};
+  const harness=arHarness([],"101",{},[rule],mixed);
+  const supplemental=section("  function parseSupplementalWorkbook(","  async function docxText(");
+  const importContext={parseTradeArErrorWorkbook:harness.ctx.parseTradeArErrorWorkbook,
+    parseOpenRoAgingByAsmWorkbook:()=>null,parseCashClearingWorkbook:()=>null,parseCreditHoldsWorkbook:()=>null,
+    parseEmptyKnownWorkbook:()=>null};
+  vm.runInNewContext(supplemental,importContext);
+  const selected=importContext.parseSupplementalWorkbook([],"synthetic-report.xlsx",rule);
+  const standard=importContext.parseSupplementalWorkbook([],"synthetic-report.xlsx");
+  assert.equal(selected.metrics.openAmount,999);
+  assert.equal(standard.metrics.openAmount,10,"ordinary import retains built-in canonical-sheet precedence");
+  assert.match(app,/processClassifiedCandidate\(candidate,"supplemental-workbook",[\\s\\S]*false,savedRule\)/);
+  assert.match(app,/importSupplementalSource\(candidate,kind,bytes,deleteAfterSuccess,layoutOverride\)/);
+  assert.match(app,/parseSupplementalWorkbook\(bytes,candidate\.name,layoutOverride\)/);
+});
+
 test("successful taught retry clears only the matching local failure record after verified persistence",async()=>{
   const helper=section("  async function resolveLearnedFailureRecords(","  async function scanFailedLearnedSources(");
   let durable=null,failWrite=false;
