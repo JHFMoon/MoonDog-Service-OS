@@ -7,7 +7,7 @@ const path=require("node:path");
 
 const read=p=>fs.readFileSync(path.join(__dirname,"..",p),"utf8");
 const app=read("assets/app.js"),html=read("index.html"),guard=read("assets/moondog-write-authority.js");
-const start=app.indexOf("  function setConnectionState(");
+const start=app.indexOf("  function writeAuthorityGuidance(");
 const end=app.indexOf("  const norm = (v)",start);
 assert.ok(start>0&&end>start,"Missing production connection rendering boundaries");
 
@@ -27,7 +27,7 @@ function page(writable,reason=writable?"READY":"PERMISSION_REQUIRED"){
     globalThis:{addEventListener:(name,fn)=>events.set(name,fn)}
   };
   vm.runInNewContext(app.slice(start,end),ctx);
-  return {ui,model,authority,events,messages,connect:()=>ctx.setConnectionState("CONNECTED")};
+  return {ui,model,authority,events,messages,ctx,connect:()=>ctx.setConnectionState("CONNECTED")};
 }
 
 test("writable Workspace shows a normal connected state with no owner ceremony",()=>{
