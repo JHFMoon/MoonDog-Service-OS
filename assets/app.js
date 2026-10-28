@@ -317,7 +317,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-28-local-layouts-v3";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-28-local-layouts-v4";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -2060,8 +2060,9 @@
     // Multi-store exports may cover multiple creation days. Only verified rows
     // for the configured store can create a day's activity observation.
     // Source customer/VIN/notes and row-level identities are never retained.
-    const grid=workbookGrid(bytes,"Merged"),rules=layoutOverride?[layoutOverride]:localReportLayoutRules();
-    const learned=matchingAppointmentActivityReportLayout(grid.book,rules);
+    const grid=workbookGrid(bytes,"Merged");
+    const rules=layoutOverride?[layoutOverride]:(typeof localReportLayoutRules==="function"?localReportLayoutRules():[]);
+    const learned=rules.length?matchingAppointmentActivityReportLayout(grid.book,rules):null;
     if(layoutOverride&&!learned)throw new Error("Needs Review: the saved Appointment Activity layout no longer matches this workbook.");
     const rows=learned?.rows||grid.rows;
     const header = (rows[0] || []).map(value => norm(value).replace(/\s+/g, " "));
@@ -5926,7 +5927,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       label.textContent=row.name;item.append(label);
       for(const [family,labelText] of [["trade-ar-errors","Teach Trade AR layout"],["appointment-activity","Teach Appointment Activity layout"]]){
         const teach=document.createElement("button");teach.type="button";teach.textContent=labelText;
-        teach.addEventListener("click",()=>run(()=>openKnownReportLayoutTeaching(row,family)));
+        teach.addEventListener("click",()=>run(()=>openTradeArLayoutTeaching(row,family)));
         item.append(teach);
       }
       ui.reportLayoutLearnList.append(item);
@@ -6007,7 +6008,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       return result;
     }finally{setBusy(false);}
   }
-  async function openKnownReportLayoutTeaching(source,family="trade-ar-errors"){
+  async function openTradeArLayoutTeaching(source,family="trade-ar-errors"){
     if(!source?.handle)throw new Error("The original report cannot be read. No changes were made.");
     const dialog=document.createElement("dialog"),title=document.createElement("h2"),help=document.createElement("p"),
       sheetLabel=document.createElement("label"),sheetSelect=document.createElement("select"),
@@ -6145,9 +6146,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           const candidate={name:source.name,location:"learn",relativePath,handle:source.handle,file:current,
             signature:`${relativePath}|${current.size}|${current.lastModified}`};
           sourceLocations.set(source.name,"learn");
-          const retryKind=isTradeAr?"supplemental-workbook":"appointment-activity";
-          await processClassifiedCandidate(candidate,retryKind,currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),false,approvedRule);
-          await resolveLearnedFailureRecords(source.name,candidate.signature,retryKind);
+          if(isTradeAr){
+            await processClassifiedCandidate(candidate,"supplemental-workbook",currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),false,approvedRule);
+            await resolveLearnedFailureRecords(source.name,candidate.signature,"supplemental-workbook");
+          }else{
+            await processClassifiedCandidate(candidate,"appointment-activity",currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteOffset+currentBytes.byteLength),false,approvedRule);
+            await resolveLearnedFailureRecords(source.name,candidate.signature,"appointment-activity");
+          }
           await removeSourceEntryWithByteGuard(source.name,currentBytes.buffer.slice(currentBytes.byteOffset,currentBytes.byteLength));
           dialog.close();await refreshFailedLearnedReportNotice();await scanFilesToTeachReportLayouts();
           status(familyName+" report saved and verified; source cleanup followed the successful read-back policy.","success");
