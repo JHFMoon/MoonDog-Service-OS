@@ -267,7 +267,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         queue = merge.split("  advance-beta-queue:", 1)[1]
         condition = queue.split("    runs-on:", 1)[0]
         self.assertIn("converted_to_draft", trigger)
-        self.assertIn("(github.event.pull_request.merged == false) ||", condition)
+        self.assertIn("github.event.pull_request.merged == false) ||", condition)
         self.assertIn("github.event.action == 'converted_to_draft'))", condition)
         self.assertIn("select_next_runtime_pr", queue)
         self.assertIn("edited", trigger)
