@@ -180,3 +180,59 @@ test("refresh and browser restart reuse the saved handle and query permission wi
   assert.equal(requestCalls,0);
   assert.equal(context.model.pendingRoot,null);
 });
+
+
+test("saved-folder reconnection retries transient OneDrive failures with the same handle and no prompt",async()=>{
+  const start=app.indexOf("  let savedConnectionRetryTimer=null");
+  const end=app.indexOf("  async function restoreConnection()",start);
+  assert.ok(start>=0&&end>start,"extract production saved-folder retry loop");
+  const handle={kind:"directory",name:"Synthetic Workspace"},workspaceBytes=new Uint8Array([3,1,4,1,5]),markerBytes=new Uint8Array([9,2,6]);
+  const originalWorkspace=workspaceBytes.slice(),originalMarker=markerBytes.slice();
+  const timers=new Map(),delays=[],connectionErrors=[];
+  let next=1,attempts=0,permissionRequests=0;
+  const model={pendingRoot:handle,root:null,workspaceConnectionCommittedRoot:null};
+  const context={
+    model,ui:{backupRecoverySection:{scrollIntoView(){}}},
+    writeAuthority:{reason:"WORKSPACE_BUSY",disable(){}},
+    setTimeout:(fn,delay)=>{const id=next++;timers.set(id,fn);delays.push(delay);return id;},
+    clearTimeout:id=>timers.delete(id),
+    finishConnection:async(received,ask)=>{assert.equal(received,handle);assert.equal(ask,false);if(++attempts<3)throw Object.assign(Error("synthetic OneDrive lock"),{name:"NotReadableError"});model.pendingRoot=null;},
+    transientWorkspaceState:error=>error?.name==="NotReadableError",
+    setConnectionState:(state,message)=>connectionErrors.push({state,message}),
+    navigateTo(){},run:async()=>{},connect:async()=>{permissionRequests++;},console
+  };
+  vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.retry=scheduleSavedConnectionRetry;",context);
+  context.retry(handle);
+  while(timers.size){const [id,fn]=timers.entries().next().value;timers.delete(id);await fn();}
+  assert.equal(attempts,3);
+  assert.deepEqual(delays,[1200,3000,8000]);
+  assert.equal(permissionRequests,0);
+  assert.deepEqual([...workspaceBytes],[...originalWorkspace]);
+  assert.deepEqual([...markerBytes],[...originalMarker]);
+  assert.equal(model.pendingRoot,null);
+});
+
+test("saved-folder retries are bounded and preserve the handle after persistent transient errors",async()=>{
+  const start=app.indexOf("  let savedConnectionRetryTimer=null");
+  const end=app.indexOf("  async function restoreConnection()",start);
+  const handle={kind:"directory",name:"Synthetic Workspace"},timers=new Map(),delays=[],messages=[];
+  let next=1,attempts=0;
+  const model={pendingRoot:handle,root:null,workspaceConnectionCommittedRoot:null};
+  const context={
+    model,ui:{backupRecoverySection:{scrollIntoView(){}}},
+    writeAuthority:{reason:"WORKSPACE_BUSY",disable(){}},
+    setTimeout:(fn,delay)=>{const id=next++;timers.set(id,fn);delays.push(delay);return id;},
+    clearTimeout:id=>timers.delete(id),
+    finishConnection:async(received,ask)=>{assert.equal(received,handle);assert.equal(ask,false);attempts++;throw Object.assign(Error("synthetic OneDrive lock"),{name:"NotReadableError"});},
+    transientWorkspaceState:error=>error?.name==="NotReadableError",
+    setConnectionState:(state,message)=>messages.push({state,message}),
+    navigateTo(){},run:async()=>{},connect:async()=>{},console
+  };
+  vm.runInNewContext(app.slice(start,end)+"\\nglobalThis.retry=scheduleSavedConnectionRetry;",context);
+  context.retry(handle);
+  while(timers.size){const [id,fn]=timers.entries().next().value;timers.delete(id);await fn();}
+  assert.equal(attempts,5);
+  assert.deepEqual(delays,[1200,3000,8000,15000,30000]);
+  assert.equal(model.pendingRoot,handle,"saved folder handle stays available for explicit retry");
+  assert.match(messages.at(-1).message,/checks ended.*handle and files remain intact/i);
+});
