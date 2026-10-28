@@ -110,7 +110,7 @@ function fixture(current=after,options={}){
     "const originals=new WeakMap();let localRestoreOwner=null,nativeRoot=null,loadedRevision=null,interruptedRecovery=false;"+
     "let validationReason=\"NO_WORKSPACE\",validationFailureName=\"\",validationGeneration=0,validationInFlight=null;"+
     "const WORKSPACE=['System Files','Workspace'];const testEnabled=false;"+
-    "let editable=true;const transientValidationDelays=[0];"+
+    "let editable=true;const transientValidationDelays=[0,150,400,900,1800];"+
     "const sleep=async()=>{};const denied=()=>new Error('read only');"+
     "const transientInterfaceState=error=>[\"AbortError\",\"InvalidStateError\",\"NotReadableError\",\"UnknownError\",\"TimeoutError\"].includes(error?.name);"+
     "function setEditable(value){editable=value;}function setTransientValidation(_){};function setValidationReason(value){validationReason=value;}"+
