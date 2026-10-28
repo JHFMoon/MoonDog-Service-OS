@@ -251,6 +251,7 @@ test("actual write-authority validation disables editing when pending write need
   const f=fixture(after);
   assert.equal(f.editable(),true);
   assert.equal(await f.validate(),false);
+  assert.equal(f.reason(),"PENDING_TRANSACTION","an unresolved journal has a distinct recovery reason");
   assert.equal(f.editable(),false,"unverified transaction leaves write authority read-only");
   assert.deepEqual(f.current(),after,"unverified bytes cannot be automatically rolled back");
   assert.equal(f.pending(),true,"journal must be retained for deliberate verified recovery");
