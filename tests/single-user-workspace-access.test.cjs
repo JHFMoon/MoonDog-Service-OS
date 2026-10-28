@@ -146,7 +146,7 @@ test("page focus immediately revalidates a restored permission without requestin
     clearTimeout:id=>timers.delete(id),
     window:{addEventListener:(name,fn)=>listeners.window[name]=fn},
     document:{addEventListener:(name,fn)=>listeners.document[name]=fn,visibilityState:"visible"},
-    renderSetup(){},setConnectionState(){},status(){},console
+    renderSetup(){},startFolderWatch(){},setConnectionState(){},status(){},console
   };
   vm.runInNewContext(app.slice(start,end)+"\nglobalThis.startRetry=scheduleAuthorityRevalidation;",context);
   context.startRetry(root);
