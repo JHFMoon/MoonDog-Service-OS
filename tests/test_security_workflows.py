@@ -290,5 +290,11 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("EXPECTED_HEAD:", advance)
         self.assertIn("candidate changed after selection", advance)
 
+
+    def test_pr_file_list_jq_streams_each_array_object(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        self.assertEqual(merge.count(".[] | .filename, (.previous_filename // empty)"), 3)
+        self.assertNotIn("'.[].filename, (.previous_filename // empty)'", merge)
+
 if __name__ == "__main__":
     unittest.main()

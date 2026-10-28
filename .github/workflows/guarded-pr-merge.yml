@@ -125,7 +125,7 @@ jobs:
           if failed:
               raise SystemExit('Guarded merge refused: '+', '.join(failed))
           PY
-          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename, (.previous_filename // empty)' > /tmp/pr-paths.txt
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/pr-paths.txt
           python3 scripts/pipeline_guard.py check-paths /tmp/pr-paths.txt
 
       - name: Create scoped MoonDog release App token
@@ -297,7 +297,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/final-pr.json
-          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename, (.previous_filename // empty)' > /tmp/final-pr-paths.txt
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/final-pr-paths.txt
           python3 scripts/pipeline_guard.py check-paths /tmp/final-pr-paths.txt
           CURRENT_HEAD="$(jq -r '.head.sha // empty' /tmp/final-pr.json)"
           test "$CURRENT_HEAD" = "$HEAD_SHA" || {
@@ -432,7 +432,7 @@ jobs:
               result = subprocess.run(
                   ["gh", "api", "--paginate",
                    f"repos/{os.environ['REPO']}/pulls/{number}/files?per_page=100",
-                   "--jq", ".[].filename, (.previous_filename // empty)"],
+                   "--jq", ".[] | .filename, (.previous_filename // empty)"],
                   check=True, capture_output=True, text=True,
               )
               paths_by_pr[number] = [line for line in result.stdout.splitlines() if line]
