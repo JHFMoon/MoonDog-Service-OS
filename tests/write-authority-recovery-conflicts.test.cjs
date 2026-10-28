@@ -454,3 +454,27 @@ test("concurrent validation calls for one Workspace share the same bounded recov
   assert.equal(f.editable(),true);
   assert.equal(f.permissionRequests(),0);
 });
+
+test("production transient suspension revokes writes immediately and retains the saved root",()=>{
+  const start=source.indexOf("  function suspendForTransient("),end=source.indexOf("  const authority =",start);
+  assert.ok(start>=0&&end>start,"extract production transient suspension");
+  const root={name:"Synthetic Workspace"};
+  const context=vm.createContext({root});
+  vm.runInContext(`
+    let nativeRoot=root,validationGeneration=4,validationFailureName="",loadedRevision=12;
+    let validationReason="READY",transientValidation=false,editable=true;
+    const transientInterfaceState=error=>["AbortError","InvalidStateError","NotReadableError","UnknownError","TimeoutError"].includes(error?.name);
+    function setTransientValidation(value){transientValidation=Boolean(value);}
+    function setEditable(value){editable=Boolean(value);}
+    function setValidationReason(value){validationReason=value;}
+    ${source.slice(start,end)}
+    globalThis.suspend=suspendForTransient;
+    globalThis.state=()=>({nativeRoot,validationGeneration,validationFailureName,loadedRevision,validationReason,transientValidation,editable});
+  `,context);
+  assert.equal(context.suspend(Object.assign(Error("OneDrive sync lock"),{name:"NotReadableError"})),true);
+  assert.deepEqual(context.state(),{
+    nativeRoot:root,validationGeneration:5,validationFailureName:"NotReadableError",loadedRevision:null,
+    validationReason:"WORKSPACE_BUSY",transientValidation:true,editable:false
+  });
+  assert.equal(context.suspend(Object.assign(Error("unrelated"),{name:"TypeError"})),false);
+});
