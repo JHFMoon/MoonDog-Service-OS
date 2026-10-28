@@ -121,6 +121,18 @@ class OwnerReviewFallbackTests(unittest.TestCase):
         self.assertEqual(merge_review_state([summary(findings=True, unresolved=True), summary("b" * 40)], [owner_review()], HEAD, POLICY), "findings")
         self.assertEqual(merge_review_state([summary(findings=True, unresolved=False)], [owner_review()], HEAD, POLICY), "clean")
 
+    def test_stale_or_incomplete_summary_never_clears_exact_head_finding(self):
+        active = summary(findings=True, unresolved=True)
+        stale = summary("b" * 40, findings=False, unresolved=False)
+        pending = summary(status="running", findings=False, unresolved=False)
+        unverified = summary(findings=False, unresolved=None)
+        for newer in (stale, pending, unverified):
+            self.assertEqual(merge_review_state([active, newer], [owner_review()], HEAD, POLICY), "findings")
+        # Once Codex independently verifies all findings resolved at the
+        # requested SHA, the older findings must no longer veto the release.
+        resolved = summary(findings=True, unresolved=False)
+        self.assertEqual(merge_review_state([active, stale, resolved], [], HEAD, POLICY), "clean")
+
     def test_disabled_or_untrusted_policy_does_not_enable_owner_attestation(self):
         self.assertEqual(merge_review_state([], [owner_review()], HEAD, {}), "pending")
         self.assertEqual(merge_review_state([], [owner_review()], HEAD, {**POLICY, "owner_review_login": "other"}), "pending")
