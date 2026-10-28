@@ -120,5 +120,5 @@ test("Service Daily Log appointment source is not misrouted as an Open RO roster
 
 test("parser epoch advanced and app remains syntax valid",()=>{
   new vm.Script(app);
-  assert.match(app,/LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-28-local-layouts-v3"/);
+  assert.match(app,/LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-28-local-layouts-v4"/);
 });
