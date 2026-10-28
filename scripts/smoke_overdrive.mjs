@@ -733,6 +733,8 @@ try{
               if(ArrayBuffer.isView(value))return new Uint8Array(value.buffer,value.byteOffset,value.byteLength);
               throw Error("Unexpected synthetic file write payload");
             };
+            const injectedWorkflowFaults={failNextRoBackup:false,backupFailures:0};
+            globalThis.__moondogSyntheticWorkflowFaults=injectedWorkflowFaults;
             const makeFile=name=>{
               let bytes=new Uint8Array();
               const handle={kind:"file",name,
@@ -790,6 +792,15 @@ try{
                   return child;
                 },
                 async getFileHandle(key,{create=false}={}){
+                  // A recoverable read failure must occur BEFORE safeWrite's
+                  // transaction journal or target has been touched. Faults
+                  // after touch are intentionally recovery-required and must
+                  // never be presented as safe immediate retries.
+                  if(!create&&injectedWorkflowFaults.failNextRoBackup&&/updated-ro-/i.test(key)){
+                    injectedWorkflowFaults.failNextRoBackup=false;
+                    injectedWorkflowFaults.backupFailures++;
+                    throw Object.assign(Error("Synthetic backup preflight read is unavailable"),{name:"NotReadableError"});
+                  }
                   let child=children.get(key);
                   if(!child&&create){child=makeFile(key);children.set(key,child);}
                   if(!child)throw notFound();
@@ -859,7 +870,12 @@ try{
             ];
             await set(["System Files","Workspace","data","store-revision.json"],{schemaVersion:1,revision:4});
             for(const [filename,data] of snapshots)await set(["System Files","Workspace","data",filename],data);
-            Object.defineProperty(window,"showDirectoryPicker",{configurable:true,value:async()=>root});
+            // The user's real folder picker may return the SAME handle on
+            // reconnect. Count independently completed picker requests rather
+            // than treating a different object identity as connection proof.
+            globalThis.__moondogSyntheticPickerCalls=0;
+            Object.defineProperty(window,"showDirectoryPicker",{configurable:true,
+              value:async()=>{globalThis.__moondogSyntheticPickerCalls++;return root;}});
             const started=performance.now();
             await api.connect();
             const daily=globalThis.__moondogDailyUI;
@@ -1070,6 +1086,117 @@ try{
               return {elapsedMs:performance.now()-probe.startedAt,clickCount:probe.clicks,
                 fieldEntryCount:probe.fieldEntries,scrollDistancePx:probe.scrollDistancePx};
             });
+            // #60-11/12: measure real packaged operator recovery on a memory-only
+            // synthetic Workspace. A one-shot failed RO backup cannot be treated
+            // as a successful state write or permit navigation; the same form
+            // must retry and read back before a real folder reconnection.
+            if(scenario==="large"){
+              const probeSnapshot=()=>connectedPage.evaluate(()=>{
+                const probe=globalThis.__moondogUxTaskProbe;
+                if(!probe)throw Error("Synthetic workflow instrumentation was lost");
+                return {at:performance.now(),clicks:probe.clicks,
+                  entries:probe.fieldEntries,scroll:probe.scrollDistancePx};
+              });
+              const taskDelta=(before,after)=>({
+                elapsedMs:after.at-before.at,clickCount:after.clicks-before.clicks,
+                fieldEntryCount:after.entries-before.entries,
+                scrollDistancePx:after.scroll-before.scroll
+              });
+              const priorAction=await connectedPage.evaluate(async()=>{
+                const data=await globalThis.__moondogDaily.readJson("data/current-state.json");
+                return data.records.find(record=>record.id==="synthetic-browser-ro-312")?.management?.nextAction;
+              });
+              if(priorAction!=="Synthetic roundtrip action")
+                throw Error("Interrupted-save fixture has no verified prior Open RO state");
+              const interruptedStart=await probeSnapshot();
+              await connectedPage.locator('.nav-item[data-view="open-ro"]').click({timeout:5000});
+              await connectedPage.locator("#searchInput").fill("900312");
+              const retryRow=connectedPage.locator('#roTable tr[data-id="synthetic-browser-ro-312"]');
+              await retryRow.locator("button[data-id]").click({timeout:5000});
+              await connectedPage.locator("#editNextAction").fill("Synthetic verified retry after temporary backup failure");
+              await connectedPage.evaluate(()=>{globalThis.__moondogSyntheticWorkflowFaults.failNextRoBackup=true;});
+              await connectedPage.locator("#saveRecordClose").click({timeout:5000});
+              await connectedPage.waitForFunction(()=>{
+                const dialog=document.getElementById("editDialog"),error=document.getElementById("editValidation");
+                return dialog?.open&&error&&!error.hidden&&/could not save/i.test(error.textContent);
+              },null,{timeout:20000});
+              const failure=await connectedPage.evaluate(async()=>{
+                const state=await globalThis.__moondogDaily.readJson("data/current-state.json");
+                return {durableAction:state.records.find(record=>record.id==="synthetic-browser-ro-312")?.management?.nextAction,
+                  draft:document.getElementById("editNextAction")?.value,
+                  injectedFailures:globalThis.__moondogSyntheticWorkflowFaults.backupFailures};
+              });
+              if(failure.injectedFailures!==1||failure.durableAction!==priorAction||
+                failure.draft!=="Synthetic verified retry after temporary backup failure")
+                throw Error("Failed synthetic backup altered durable RO or lost unsaved form: "+JSON.stringify(failure));
+              await connectedPage.locator("#saveRecordClose").click({timeout:5000});
+              try{
+                await connectedPage.waitForFunction(()=>!document.getElementById("editDialog")?.open,
+                  null,{timeout:8000});
+              }catch(error){
+                const diagnosis=await connectedPage.evaluate(async()=>{
+                  const app=globalThis.__moondogDaily,model=app.model;
+                  const state=await app.readJson("data/current-state.json");
+                  return {dialogOpen:!!document.getElementById("editDialog")?.open,
+                    validationHidden:document.getElementById("editValidation")?.hidden,
+                    validation:document.getElementById("editValidation")?.textContent?.trim().slice(0,350),
+                    connectionState:model.connectionState,saveInFlight:model.openRoSaveInFlight,
+                    persistedAction:state.records.find(r=>r.id==="synthetic-browser-ro-312")?.management?.nextAction,
+                    draft:document.getElementById("editNextAction")?.value,
+                    injectedFailures:globalThis.__moondogSyntheticWorkflowFaults.backupFailures};
+                });
+                throw Error("Synthetic retry did not complete after expected backup failure: "+
+                  JSON.stringify({waitError:String(error),diagnosis,browserErrors:browserErrors.slice(-5)}));
+              }
+              const afterRetry=await connectedPage.evaluate(async()=>{
+                const state=await globalThis.__moondogDaily.readJson("data/current-state.json");
+                return state.records.find(record=>record.id==="synthetic-browser-ro-312");
+              });
+              if(afterRetry?.management?.nextAction!=="Synthetic verified retry after temporary backup failure"||
+                afterRetry?.management?.owner!=="Synthetic Roundtrip Owner"||
+                afterRetry?.sourceFields?.["Synthetic Marker"]!=="source-312")
+                throw Error("Recovered Open RO retry did not preserve manager/source authority");
+              const interruptedEnd=await probeSnapshot();
+              uxMetrics.interruptedSaveTask={
+                ...taskDelta(interruptedStart,interruptedEnd),expectedWriteFailures:1,
+                verifiedReadback:true,unsavedDraftPreserved:true
+              };
+
+              const reconnectStart=await probeSnapshot();
+              await connectedPage.evaluate(()=>{
+                const model=globalThis.__moondogDaily.model;
+                globalThis.__moondogBeforeSyntheticPickerCalls=globalThis.__moondogSyntheticPickerCalls;
+                globalThis.__moondogBeforeSyntheticReconnectAt=model.recovery?.lastSuccessfulConnectionAt||"";
+              });
+              await connectedPage.locator("#connectButton").click({timeout:5000});
+              await connectedPage.waitForFunction(()=>{
+                const model=globalThis.__moondogDaily?.model;
+                return model?.root&&
+                  globalThis.__moondogSyntheticPickerCalls>globalThis.__moondogBeforeSyntheticPickerCalls&&
+                  model.workspaceConnectionCommittedRoot===model.root&&model.connectionState==="CONNECTED"&&
+                  Boolean(model.recovery?.lastSuccessfulConnectionAt)&&
+                  model.recovery.lastSuccessfulConnectionAt!==globalThis.__moondogBeforeSyntheticReconnectAt;
+              },null,{timeout:25000});
+              const afterConnect=await connectedPage.evaluate(async()=>{
+                const api=globalThis.__moondogDaily;
+                const data=await api.readJson("data/current-state.json");
+                return {persistedAction:data.records.find(record=>record.id==="synthetic-browser-ro-312")?.management?.nextAction,
+                  owner:data.records.find(record=>record.id==="synthetic-browser-ro-312")?.management?.owner,
+                  connected:api.model.connectionState==="CONNECTED"};
+              });
+              if(!afterConnect.connected||
+                afterConnect.persistedAction!=="Synthetic verified retry after temporary backup failure"||
+                afterConnect.owner!=="Synthetic Roundtrip Owner")
+                throw Error("Synthetic folder reconnect failed to restore verified manager state: "+JSON.stringify(afterConnect));
+              const reconnectEnd=await probeSnapshot();
+              uxMetrics.reconnectTask={...taskDelta(reconnectStart,reconnectEnd),
+                verifiedReadback:true,restoredManagerState:true};
+              if(uxMetrics.interruptedSaveTask.clickCount<4||uxMetrics.interruptedSaveTask.fieldEntryCount<2||
+                uxMetrics.reconnectTask.clickCount<1||
+                !Number.isFinite(uxMetrics.reconnectTask.elapsedMs)||
+                !Number.isFinite(uxMetrics.interruptedSaveTask.scrollDistancePx))
+                throw Error("Incomplete measured synthetic interrupted-save/reconnect task effort: "+JSON.stringify(uxMetrics));
+            }
             const taskNavigate=async view=>{
               if(view==="imports"){
                 await connectedPage.locator('.nav-item[data-view="tools"]').click({timeout:5000});
@@ -1484,6 +1611,12 @@ try{
           catch(error){sampleFailure??=error;}
         }
         uxBrowserErrorCount+=browserErrors.length;
+        // A failed 9/9 production browser journey must report its actual
+        // failure immediately, not wait for all nine long timeout samples and
+        // then throw a misleading "nonnegative milliseconds" summary error.
+        if(scenario==="large"&&sampleFailure)
+          throw Error("Synthetic interrupted-save/reconnect browser sample "+(sample+1)+
+            " failed: "+String(sampleFailure?.stack||sampleFailure));
         if(sampleFailure){
           uxTaskSamples.push({sample:sample+1,success:false,errorName:sampleFailure?.name||"Error",
             error:String(sampleFailure?.message||sampleFailure).slice(0,240),browserErrorCount:browserErrors.length});
@@ -1503,6 +1636,15 @@ try{
         const failedUxTasks=uxTaskSamples.filter(sample=>!sample.success);
         const summarizeUxMetric=key=>completedUxTasks.length
           ?summarizeNavigationMs(completedUxTasks.map(sample=>sample[key])):null;
+        const summarizeRecoveryTask=key=>({
+          scenario:key==="interruptedSaveTask"?"failed durable Open RO backup, preserved draft, retry and verified save":"connected working-folder reconnect after a verified RO update",
+          samples:completedUxTasks.length,
+          elapsedMs:summarizeNavigationMs(completedUxTasks.map(sample=>sample[key]?.elapsedMs)),
+          clickCount:summarizeNavigationMs(completedUxTasks.map(sample=>sample[key]?.clickCount)),
+          fieldEntryCount:summarizeNavigationMs(completedUxTasks.map(sample=>sample[key]?.fieldEntryCount)),
+          scrollDistancePx:summarizeNavigationMs(completedUxTasks.map(sample=>sample[key]?.scrollDistancePx)),
+          verifiedReadbacks:completedUxTasks.filter(sample=>sample[key]?.verifiedReadback).length
+        });
         const uxWorkflow={schemaVersion:1,dataset:"synthetic-clean-install",
           scenario:"Open RO search, edit, add note, save, and verify durable read-back",records:2100,
           attemptedSamples:uxTaskSamples.length,completedSamples:completedUxTasks.length,
@@ -1512,11 +1654,17 @@ try{
           clickCount:summarizeUxMetric("clickCount"),
           fieldEntryCount:summarizeUxMetric("fieldEntryCount"),
           scrollDistancePx:summarizeUxMetric("scrollDistancePx"),
-          browserErrorCount:uxBrowserErrorCount,sampleResults:uxTaskSamples};
+          browserErrorCount:uxBrowserErrorCount,
+          interruptedSaveTask:summarizeRecoveryTask("interruptedSaveTask"),
+          reconnectTask:summarizeRecoveryTask("reconnectTask"),
+          sampleResults:uxTaskSamples};
         fs.writeFileSync(path.join(out,"open-ro-workflow-metrics.json"),JSON.stringify(uxWorkflow,null,2)+"\n");
         if(uxTaskSamples.length!==9||failedUxTasks.length!==0||uxBrowserErrorCount!==0||
           completedUxTasks.some(sample=>sample.clickCount!==4||sample.fieldEntryCount<5||
-            !Number.isFinite(sample.scrollDistancePx)||sample.scrollDistancePx<0))
+            !Number.isFinite(sample.scrollDistancePx)||sample.scrollDistancePx<0||
+            !sample.interruptedSaveTask?.verifiedReadback||!sample.reconnectTask?.verifiedReadback||
+            sample.interruptedSaveTask.expectedWriteFailures!==1||
+            sample.interruptedSaveTask.clickCount<4||sample.reconnectTask.clickCount<1))
           throw Error("Open RO UX task evidence incomplete: "+JSON.stringify(uxWorkflow));
         console.log("60-10 synthetic Open RO task metrics",JSON.stringify(uxWorkflow));
         const summarizeTabs=samples=>Object.fromEntries(
