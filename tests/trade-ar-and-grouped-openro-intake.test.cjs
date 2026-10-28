@@ -225,6 +225,14 @@ test("local report layout teaching stores only allowlisted declarative fields",(
     days:"Days",status:"Attempt",invoiceAmount:"Billed",received:"Paid",open:"Balance"};
   const rule=engine.safeReportLayout({family:"trade-ar-errors",sheetName:"Receivables",headerRow:2,columns},[]);
   assert.equal(rule.writeEnabled,false);assert.equal(rule.approved,true);assert.equal(rule.headerRow,2);
+  const menuColumns={account:"Dealer Account",advisorCode:"Advisor #",advisor:"Advisor Name",ros:"RO count",
+    presented:"Presentation rate",sold:"Sold",penetration:"Penetration rate",menu:"Menu dollars",
+    total:"Total dollars",perMenu:"Dollars per menu",hours:"Hours per menu"};
+  const menuRule=engine.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,columns:menuColumns,
+    rows:[["private synthetic source data"]],mappingCode:"ignored"});
+  assert.equal(menuRule.grouping,"account-summary-advisor-rows");
+  assert.equal(menuRule.writeEnabled,false);
+  assert.equal(menuRule.rows,undefined);assert.equal(menuRule.mappingCode,undefined);
   const exactName=engine.safeReportLayout({family:"trade-ar-errors",sheetName:"AR  Detail",headerRow:0,columns},[]);
   const collapsedName=engine.safeReportLayout({family:"trade-ar-errors",sheetName:"AR Detail",headerRow:0,columns},[]);
   assert.equal(exactName.sheetName,"AR  Detail");
@@ -447,6 +455,10 @@ test("layout preview is local, uses production Trade AR validation, saves mappin
   assert.match(app,/removeSourceEntryWithByteGuard\(source\.name,currentBytes/);
   assert.match(app,/assertTradeArLayoutSource\(previewBook,source\.name\)/);
   assert.match(app,/assertTradeArLayoutSource\(retryBook,source\.name\)/);
+  assert.match(app,/\["menu-sales","Teach Menu Sales layout"\]/);
+  assert.match(app,/parseMenuSalesWorkbook\(nextBytes,source\.name,nextRule\)/);
+  assert.match(app,/processClassifiedCandidate\(candidate,"menu-sales",currentBytes\.buffer\.slice/);
+  assert.match(app,/importMenuSalesFile\(candidate\.name, deleteAfterSuccess, bytes, layoutOverride\)/);
   const retryHandlerAt=app.indexOf(`retry.addEventListener("click",()=>run(async()=>{`),
     approvedAt=app.indexOf("const approvedRule=savedRule,approvedProof=previewProof",retryHandlerAt),
     controlsLockedAt=app.indexOf("controls.forEach(control=>control.disabled=true)",retryHandlerAt),
