@@ -1443,12 +1443,21 @@
     try { return await finishConnection(handle, true); } catch (error) {
       if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){
         writeAuthority.disable();
-        // Essential reads can fail after a candidate root was staged. Do not
-        // expose that uncommitted root; keep its handle available for retry.
+        // Keep the user's selected handle available even when failure occurs
+        // before model staging. Do not discard Workspace files or drafts.
         if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){
           model.root=null; model.applicationRoot=null; connectedNativeRoot=null;
-          model.workspaceConnectionCommittedRoot=null; model.pendingRoot=handle;
-          setConnectionState("CONNECTION ERROR", "The selected working folder could not be fully read. Retry the connection after checking folder availability.");
+          model.workspaceConnectionCommittedRoot=null;
+        }
+        model.pendingRoot=handle;
+        try{await rememberRoot(handle);}catch(_){/* in-memory retry remains available */}
+        if(error?.name==="NotAllowedError"||error?.name==="SecurityError"||/folder access was not granted/i.test(String(error?.message||""))){
+          setConnectionState("PERMISSION REQUIRED","Edge needs read/write access to the selected folder. Click Restore folder access; its handle and contents are retained.");
+        }else if(transientWorkspaceState(error)){
+          setConnectionState("CONNECTION ERROR",`Workspace I/O is temporarily busy${error?.name?` (${error.name})`:""}, possibly while OneDrive syncs. The selected handle is retained; MoonDog will retry automatically.`);
+          scheduleSavedConnectionRetry(handle);
+        }else{
+          setConnectionState("CONNECTION ERROR",`The selected folder could not be verified: ${error?.message||String(error)}. Its handle and all files are retained.`);
         }
       }
       throw error;
@@ -1472,7 +1481,7 @@
         savedConnectionRetryAttempts=0;
       }catch(error){
         if(error?.code==="WORKSPACE_CONNECTION_BUSY"){scheduleSavedConnectionRetry(handle);return;}
-        if(error?.name==="NotAllowedError"||error?.name==="SecurityError"){
+        if(error?.name==="NotAllowedError"||error?.name==="SecurityError"||/folder access was not granted/i.test(String(error?.message||""))){
           writeAuthority.disable();
           setConnectionState("PERMISSION REQUIRED","Edge needs read/write access to the saved folder. Click Restore folder access; all files remain in place.");
           return;
@@ -1519,7 +1528,7 @@
         const reason=`Workspace I/O is temporarily busy${error?.name?` (${error.name})`:""}, possibly while OneDrive syncs. The saved folder handle and Workspace files are retained; MoonDog will retry automatically.`;
         setConnectionState("CONNECTION ERROR",reason);
         scheduleSavedConnectionRetry(handle);
-      }else if(error?.name==="NotAllowedError"||error?.name==="SecurityError"){
+      }else if(error?.name==="NotAllowedError"||error?.name==="SecurityError"||/folder access was not granted/i.test(String(error?.message||""))){
         writeAuthority.disable();
         setConnectionState("PERMISSION REQUIRED","Edge needs read/write access to the saved folder. Click Restore folder access; no Workspace data was cleared.");
       }else{
