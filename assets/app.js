@@ -6451,6 +6451,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   }
   function scheduleAuthorityRevalidation(root,immediate=false){
     if(!root||root!==connectedNativeRoot||writeAuthority.canWrite||authorityRevalidationTimer)return;
+    if(!["WORKSPACE_BUSY","PERMISSION_REQUIRED"].includes(writeAuthority.reason))return;
     if(immediate){authorityRevalidationAttempts=0;authorityRevalidationExhausted=false;}
     const delay=immediate?0:AUTHORITY_REVALIDATION_DELAYS[authorityRevalidationAttempts];
     if(delay===undefined){
