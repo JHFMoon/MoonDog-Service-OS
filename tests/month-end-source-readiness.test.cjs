@@ -220,3 +220,37 @@ test("equivalent duplicate monthly snapshots remain idempotent across source fam
     assert.equal(readiness[source].state,"ready");
   }
 });
+
+
+test("conflicting CSI imports for the same verified scope and refresh date keep month-end readiness pending",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  const original=metrics.csi.imports[0];
+  Object.assign(original,{coverageStart:month+"-01",coverageEnd:month+"-30",dailySummary:{storeNps:42,responses:4},rows:4,unresolvedAdvisorCount:0});
+  metrics.csi.imports.push({...original,sourceFile:"CSI-synthetic-conflict.csv",importedAt:"2026-10-02T12:00:00.000Z",dailySummary:{storeNps:75,responses:4}});
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"pending-finalization");
+  assert.equal(result.readiness.sources.csi.state,"pending");
+  assert.equal(result.readiness.sources.csi.status,"conflict");
+  assert.ok(Array.from(result.needed).includes("csi"));
+  assert.equal("store" in result,false,"conflicting CSI evidence cannot produce final totals");
+});
+
+test("equivalent CSI duplicate imports on the same refresh date remain idempotent",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  const original=metrics.csi.imports[0];
+  Object.assign(original,{coverageStart:month+"-01",coverageEnd:month+"-30",dailySummary:{storeNps:42,responses:4},rows:4,unresolvedAdvisorCount:0});
+  metrics.csi.imports.push({...original,sourceFile:"CSI-synthetic-equivalent.xlsx",format:"xlsx",importedAt:"2026-10-02T12:00:00.000Z"});
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"locked","same-content reimports stay idempotent");
+  assert.equal(result.readiness.csi.state,"ready");
+});
+
+test("later CSI refreshes for the same scope remain eligible as current evidence",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  const original=metrics.csi.imports[0];
+  Object.assign(original,{coverageStart:month+"-01",coverageEnd:month+"-30",dailySummary:{storeNps:42,responses:4},rows:4,unresolvedAdvisorCount:0});
+  metrics.csi.imports.push({...original,sourceFile:"CSI-synthetic-later-refresh.csv",refreshDate:"2026-10-02",importedAt:"2026-10-02T12:00:00.000Z",dailySummary:{storeNps:75,responses:5},rows:5});
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"locked","a later refresh is a new observation, not a duplicate conflict");
+  assert.equal(result.readiness.csi.state,"ready");
+});

@@ -1098,8 +1098,25 @@
     const mediaSnapshots=metrics?.mediaAsr?.snapshots||{},mediaCurrent=item=>item.periodEnd>=operatingEnd;
     const mediaConflict=samePeriodConflict(mediaSnapshots,mediaCurrent);
     const media=mediaConflict?null:latestMonthlySnapshot(mediaSnapshots,month,mediaCurrent);
-    const csiImports=(metrics?.csi?.imports||[]).filter((item)=>{const scopeStart=String(item?.scopeStart||""),scopeEnd=String(item?.scopeEnd||""),observationDate=String(item?.refreshDate||(item?.importedAt?localDateKey(item.importedAt):""));return item?.scopeVerified===true&&freshness.validDateKey(observationDate)&&observationDate>=operatingEnd&&Boolean(scopeStart)&&Boolean(scopeEnd)&&scopeStart<=`${month}-01`&&scopeEnd>=operatingEnd;}).sort((a,b)=>String(a.refreshDate||localDateKey(a.importedAt)||"").localeCompare(String(b.refreshDate||localDateKey(b.importedAt)||"")));
-    const csiImport=csiImports.at(-1)||null;
+    const csiImports=(metrics?.csi?.imports||[]).filter((item)=>{const scopeStart=String(item?.scopeStart||""),scopeEnd=String(item?.scopeEnd||""),observationDate=String(item?.refreshDate||(item?.importedAt?localDateKey(item.importedAt):""));return item?.scopeVerified===true&&freshness.validDateKey(observationDate)&&observationDate>=operatingEnd&&Boolean(scopeStart)&&Boolean(scopeEnd)&&scopeStart<=month+"-01"&&scopeEnd>=operatingEnd;}).sort((a,b)=>String(a.refreshDate||localDateKey(a.importedAt)||"").localeCompare(String(b.refreshDate||localDateKey(b.importedAt)||"")));
+    const csiContent=item=>JSON.stringify(stable({
+      coverageStart:String(item?.coverageStart||""),coverageEnd:String(item?.coverageEnd||""),
+      scopeVerified:item?.scopeVerified===true,dailySummary:item?.dailySummary||null,
+      rows:Number.isFinite(item?.rows)?item.rows:null,
+      unresolvedAdvisorCount:Number.isFinite(item?.unresolvedAdvisorCount)?item.unresolvedAdvisorCount:null
+    }));
+    const csiConflict=(()=>{
+      const seen=new Map();
+      for(const item of csiImports){
+        const refreshDate=String(item.refreshDate||localDateKey(item.importedAt));
+        const period=JSON.stringify([String(item.scopeStart||""),String(item.scopeEnd||""),refreshDate]);
+        const content=csiContent(item);
+        if(seen.has(period)&&seen.get(period)!==content)return true;
+        seen.set(period,content);
+      }
+      return false;
+    })();
+    const csiImport=csiConflict?null:csiImports.at(-1)||null;
     const csiExpectation=sourceExpectation("csi");
     const sources={
       sapr:state("sapr",sapr,sapr?.periodEnd,saprConflict),
@@ -1107,11 +1124,13 @@
       menu:state("menu",menu,menu?.periodEnd,menuConflict),
       mediaAsr:state("mediaAsr",media,media?.periodEnd,mediaConflict),
       // Freshness timestamps do not prove that the imported CSI report covers the month.
-      csi: csiImport
-        ?state("csi",{...csiImport,periodStart:csiImport.scopeStart},csiImport.scopeEnd)
-        :["not-used","temporarily-unavailable"].includes(csiExpectation)
-          ?state("csi",null,null)
-          :{state:"pending",status:"unverified-scope",detail:"Verified CSI report scope does not cover the complete month-end operating period"}
+      csi: csiConflict
+        ?state("csi",null,null,true)
+        :csiImport
+          ?state("csi",{...csiImport,periodStart:csiImport.scopeStart},csiImport.scopeEnd)
+          :["not-used","temporarily-unavailable"].includes(csiExpectation)
+            ?state("csi",null,null)
+            :{state:"pending",status:"unverified-scope",detail:"Verified CSI report scope does not cover the complete month-end operating period"}
     };
     return{month,monthEnd,operatingEnd,sources,ready:Object.values(sources).every((item)=>["ready","not-used"].includes(item.state)),snapshots:{sapr,vir,menu,media}};
   }
