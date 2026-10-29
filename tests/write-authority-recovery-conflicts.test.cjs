@@ -258,6 +258,46 @@ test("actual write-authority validation disables editing when pending write need
   assert.equal(f.pending(),true,"journal must be retained for deliberate verified recovery");
 });
 
+test("older journal cannot hide a current uncommitted write during validation",async()=>{
+  const f=fixture(after,{physicalWorkspace:true,noInitialJournal:true});
+  const legacyPath="System Files/Workspace/.moondog-txn-synthetic-old.json";
+  const currentPath="System Files/Workspace/data/.moondog-txn-synthetic.json";
+  const previous=[...f.files.entries()];
+  f.files.clear();
+  // Put an unrelated historical journal FIRST in directory iteration order.
+  f.files.set(legacyPath,encode({format:"moondog-write-v1",target:"System Files/Workspace/old.json",
+    before:null,after:[...after],revisionBefore:1}));
+  for(const [path,bytes] of previous)f.files.set(path,bytes);
+  f.files.set(currentPath,encode(f.journal));
+  assert.equal(await f.validate(),false,"the current journal still blocks writes after a legacy hold");
+  assert.equal(f.reason(),"PENDING_TRANSACTION");
+  assert.equal(f.editable(),false);
+  assert.equal(f.files.has(legacyPath),true,"historical evidence stays untouched");
+  assert.equal(f.files.has(currentPath),true,"ambiguous current journal stays untouched");
+  assert.deepEqual(f.current(),after);
+});
+
+test("unrelated historical journal is retained without blocking verified current state",async()=>{
+  const f=fixture(after,{physicalWorkspace:true,noInitialJournal:true});
+  const legacyPath="System Files/Workspace/.moondog-txn-synthetic-old.json";
+  f.files.set(legacyPath,encode({format:"moondog-write-v1",target:"System Files/Workspace/old.json",
+    before:null,after:[...after],revisionBefore:1}));
+  assert.equal(await f.validate(),true);
+  assert.equal(f.reason(),"READY");
+  assert.equal(f.files.has(legacyPath),true);
+  assert.equal(f.editable(),true);
+});
+
+test("malformed current journal cannot be suppressed as an unrelated legacy error",async()=>{
+  const f=fixture(after,{physicalWorkspace:true});
+  f.journal.format="unsupported-journal";
+  f.files.set("System Files/Workspace/data/.moondog-txn-synthetic.json",encode(f.journal));
+  assert.equal(await f.validate(),false);
+  assert.equal(f.reason(),"PENDING_TRANSACTION");
+  assert.equal(f.editable(),false);
+  assert.deepEqual(f.current(),after);
+});
+
 test("actual write-authority validation permits intact original and journal cleanup",async()=>{
   const f=fixture(before);
   assert.equal(await f.validate(),true);
