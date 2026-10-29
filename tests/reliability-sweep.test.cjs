@@ -118,21 +118,18 @@ test("watcher and mobile maintenance avoid redundant idle writes",()=>{
  assert.doesNotMatch(daily,/setInterval\(\(\)=>queueMobilePublish\(1000\),300000\)/);
  assert.match(daily,/queueMobilePublish\(1000\);\s*if\(state\.editing\)/);
 });
-test("diagnostics batch events and never move queued entries to another workspace",async()=>{
- const code=extract(app,"  let diagnosticsQueue = Promise.resolve(),diagnosticTimer=null;","  async function writeJson(");
- let body="",writes=0;const root={name:"Synthetic"},model={root};
- const context=vm.createContext({model,writeAuthority:{canWrite:true},now:()=>new Date().toISOString(),
-  Date,Promise,setTimeout,clearTimeout,TextEncoder,
-  document:{addEventListener:()=>{}},
-  fileAt:async()=>({getFile:async()=>({text:async()=>body})}),
-  writeBytes:async(_path,bytes)=>{writes++;body=new TextDecoder().decode(bytes);}
- });
- vm.runInContext(code+"\nthis.recordDiagnostic=recordDiagnostic;this.flushDiagnostics=flushDiagnostics",context);
- for(let i=0;i<50;i++)context.recordDiagnostic("EVENT","Detail "+i);
- await context.flushDiagnostics();
- assert.ok(writes<=3);assert.ok(body.includes("Detail 0")&&body.includes("Detail 49"));
- const before=writes;context.recordDiagnostic("EVENT","Prior workspace");
+test("automatic diagnostics logging never schedules a file write or leaks across Workspace reconnects",async()=>{
+ const code=extract(app,"  // Automatic diagnostics logging is intentionally disabled.","  async function writeJson(");
+ const writes=[],scheduled=[],listeners=[];
+ const root={name:"Synthetic"},model={root};
+ const context=vm.createContext({model,writeAuthority:{canWrite:true},
+  setTimeout:()=>scheduled.push("timer"),document:{addEventListener:name=>listeners.push(name)},
+  writeBytes:async(...args)=>writes.push(args)});
+ vm.runInContext(code+"\nthis.recordDiagnostic=recordDiagnostic",context);
+ for(let i=0;i<50;i++)await context.recordDiagnostic("EVENT","Detail "+i);
  model.root={name:"Other workspace"};
- await context.flushDiagnostics();
- assert.equal(writes,before);
+ await context.recordDiagnostic("EVENT","After reconnect");
+ assert.deepEqual(writes,[],"no background diagnostics file updates");
+ assert.deepEqual(scheduled,[],"no timer-driven diagnostics writes");
+ assert.deepEqual(listeners,[],"no page-hide diagnostics flush");
 });

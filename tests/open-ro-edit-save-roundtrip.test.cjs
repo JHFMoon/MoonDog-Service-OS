@@ -13,7 +13,7 @@ function extract(startText, endText) {
   return app.slice(start, end);
 }
 const storageSource = [
-  extract("  async function directory(", "  let diagnosticsQueue = "),
+  extract("  async function directory(", "  // Automatic diagnostics logging is intentionally disabled."),
   extract("  function ownerAssignmentSourceForManagerSave(", "  function pruneClosedRecords("),
   extract("  async function writeJson(", "  async function addHistory("),
   extract("  async function saveState(", "\n\n  function syncFilter("),

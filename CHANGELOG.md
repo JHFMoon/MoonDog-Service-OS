@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.18-beta.202 — current Beta
+
+- fix: stop optional diagnostics logging from blocking Workspace writes. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.201 — current Beta
+
+- fix: stop optional diagnostics logging from blocking Workspace writes. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.200 — current Beta
 
 - fix: keep Workspace journal recovery fail-closed after historical holds. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
