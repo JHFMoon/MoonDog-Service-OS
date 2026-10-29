@@ -9,7 +9,7 @@ export function sanitizeUxFailureReason(error){
   return message
     .replace(/(["'])(?:file:\/\/|(?:[a-z]:[\\/]|\/(?!\/))[^"'\r\n]*)\1/gi,"[redacted-path]")
     .replace(/(?:file|https?):\/\/[^\r\n]*/gi,"[redacted-url]")
-    .replace(/\b(authorization|proxy-authorization)\s*[:=]\s*(?:(?:bearer|basic)\s+)?(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^,\s;}]+)(?:\s+[^,;}]+)?/gi,"$1=[redacted]")
+    .replace(/\b(authorization|proxy-authorization)\s*[:=]\s*(?:(?:bearer|basic)\s+)?(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^,\s;}]+)(?!\s*[,;])/gi,"$1=[redacted]")
     .replace(/(["']?)(api[_-]?key|token|password|secret|private[_ -]?key|authorization|credential|cookie)(["']?)\s*[:=]\s*(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s,;}\]]+)/gi,"$1$2$3=[redacted]")
     .replace(/(?:[a-z]:[\\/])[^\s"'<>]+/gi,"[redacted-path]")
     .replace(/(?<![\w:/])\/(?!\/)[^\s"'<>]+/g,"[redacted-path]")
