@@ -39,14 +39,23 @@ WIN_PATH = re.compile(r"""(?i)(?<![A-Za-z0-9])(?:[A-Z]:[\\/])[^\r\n]*""")
 POSIX_SUFFIX = re.compile(r"""(?<![A-Za-z0-9_:/])/(?!/)[^\r\n]*""")
 
 def _clean_string(value: str) -> str:
-    value = QUOTED_PATH.sub("[redacted-path]", value)
-    value = FILE_URL.sub("[redacted-file-url]", value)
-    value = WEB_URL.sub("[redacted-url]", value)
-    value = AUTH_VALUE.sub(r"\1=[redacted]", value)
-    value = CREDENTIAL_ASSIGNMENT.sub(r"\1\2\3=[redacted]", value)
-    value = WIN_PATH.sub("[redacted-path]", value)
-    value = POSIX_SUFFIX.sub("[redacted-path]", value)
-    return value[:4096]
+    # Redactions can expose another sensitive pattern in the same diagnostic
+    # (for example, a quoted header value containing a path). Iterate to a
+    # fixed point with a hard bound, then let validation fail closed if needed.
+    value = value[:8192]
+    for _ in range(8):
+        cleaned = QUOTED_PATH.sub("[redacted-path]", value)
+        cleaned = FILE_URL.sub("[redacted-file-url]", cleaned)
+        cleaned = WEB_URL.sub("[redacted-url]", cleaned)
+        cleaned = AUTH_VALUE.sub(r"\1=[redacted]", cleaned)
+        cleaned = CREDENTIAL_ASSIGNMENT.sub(r"\1\2\3=[redacted]", cleaned)
+        cleaned = WIN_PATH.sub("[redacted-path]", cleaned)
+        cleaned = POSIX_SUFFIX.sub("[redacted-path]", cleaned)
+        cleaned = cleaned[:4096]
+        if cleaned == value:
+            return cleaned
+        value = cleaned
+    return value
 
 def _clean(value):
     if isinstance(value, dict):
