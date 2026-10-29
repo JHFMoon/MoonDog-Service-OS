@@ -116,6 +116,15 @@
   async function recoverPending(root, revision) {
     for (const journalPath of await journalsIn(root)) {
       const journal = await read(root, journalPath.split("/"));
+      // A historical journal can predate many separately verified store
+      // revisions. Retain it for review, but keep scanning: otherwise an old
+      // unrelated journal can hide a CURRENT uncommitted write and falsely
+      // restore edit authority. No historical target bytes are touched.
+      if (Number.isSafeInteger(journal?.revisionBefore) && journal.revisionBefore >= 0 &&
+          journal.revisionBefore + 1 < revision.revision) {
+        console.warn("MoonDog: historical transaction journal retained for review.");
+        continue;
+      }
       const target = String(journal?.target || "").split("/");
       const parent = journalPath.split("/").slice(0, -1).join("/");
       if (!target.length || target.some(part => !part || part === "." || part === "..") || target.slice(0, -1).join("/") !== parent ||
@@ -250,19 +259,10 @@
           await write(root, REVISION, revision);
         }
         if (!activeToken) {
-          try { await recoverPending(root, revision); }
-          catch (error) {
-            // A pending current transaction cannot be resolved with an atomic
-            // file compare-and-swap across Edge tabs or OneDrive devices.
-            // Fail closed for those cases; leave the journal and target intact.
-            if (/Uncommitted (?:write|delete|create) journal .*controlled recovery\./.test(String(error?.message || ""))) {
-              console.warn("MoonDog: uncommitted journal requires controlled recovery; editing disabled.", error);
-              throw error;
-            }
-            // An unrelated legacy journal can remain for later review, but its
-            // existence alone does not establish a recoverable current write.
-            console.warn("MoonDog: unrelated legacy transaction journal left in place.", error);
-          }
+          // Historical journals are retained inside recoverPending, not used
+          // to suppress later current-revision errors. An unreadable, invalid,
+          // or uncertain current journal must always keep editing disabled.
+          await recoverPending(root, revision);
           revision = await read(root, REVISION);
           if (!validRevision(revision)) {
             revision = { schemaVersion: 1, revision: 0 };
