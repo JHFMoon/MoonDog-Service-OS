@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const crypto = require('node:crypto').webcrypto;
 const freshness = require('../assets/freshness.js');
 
 // Exercise the actual production parser and importer together. In-memory stubs
@@ -12,6 +13,10 @@ const start = app.indexOf('  const CSI_ADVISOR_CODES = {};');
 const end = app.indexOf('  const isoCell =', start);
 assert.ok(start >= 0 && end > start, 'production CSI ingestion functions must be located');
 const ingestionSource = app.slice(start, end);
+const digestStart = app.indexOf('  async function sha256(');
+const digestEnd = app.indexOf('  async function readFileBytes(', digestStart);
+assert.ok(digestStart >= 0 && digestEnd > digestStart, 'production SHA-256 helper must exist');
+const digestHelper = app.slice(digestStart, digestEnd);
 
 const headers = [
   'Invite_ID', '_recordId', 'SURVEY_STATUS', 'INCLUDE_IN_SCORING',
@@ -30,7 +35,7 @@ function harness({ scopeEnd = '2026-10-06', includeScope = true, initialSurveys 
   const model = { operationalMetrics: { csi } };
   let durable = null;
   const context = {
-    model, structuredClone, OPERATIONAL_METRICS_PATH: ['data', 'operational-metrics.json'],
+    model, structuredClone, crypto, TextEncoder, OPERATIONAL_METRICS_PATH: ['data', 'operational-metrics.json'],
     now: () => '2026-10-07T15:00:00Z',
     localDateKey: () => '2026-10-07',
     text: (value) => value == null ? '' : String(value),
@@ -48,7 +53,7 @@ function harness({ scopeEnd = '2026-10-06', includeScope = true, initialSurveys 
     renderOverviewIntelligence: () => {},
     renderMeeting: () => {}
   };
-  vm.runInNewContext(ingestionSource + '\nthis.importCsiFile = importCsiFile;', context, {
+  vm.runInNewContext(digestHelper + '\n' + ingestionSource + '\nthis.importCsiFile = importCsiFile;', context, {
     filename: 'assets/app.js CSI ingestion'
   });
   return { importCsiFile: context.importCsiFile, csi, durable: () => durable };

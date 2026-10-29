@@ -220,3 +220,63 @@ test("equivalent duplicate monthly snapshots remain idempotent across source fam
     assert.equal(readiness[source].state,"ready");
   }
 });
+
+
+test("conflicting CSI imports for the same verified scope and refresh date keep month-end readiness pending",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  const original=metrics.csi.imports[0];
+  Object.assign(original,{coverageStart:month+"-01",coverageEnd:month+"-30",dailySummary:{storeNps:42,responses:4},rows:4,unresolvedAdvisorCount:0,metricSnapshotSha256:"a".repeat(64)});
+  metrics.csi.imports.push({...original,sourceFile:"CSI-synthetic-conflict.csv",importedAt:"2026-10-02T12:00:00.000Z",metricSnapshotSha256:"b".repeat(64)});
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"pending-finalization");
+  assert.equal(result.readiness.sources.csi.state,"pending");
+  assert.equal(result.readiness.sources.csi.status,"conflict");
+  assert.ok(Array.from(result.needed).includes("csi"));
+  assert.equal("store" in result,false,"conflicting CSI evidence cannot produce final totals");
+});
+
+test("equivalent CSI duplicate imports on the same refresh date remain idempotent",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  const original=metrics.csi.imports[0];
+  Object.assign(original,{coverageStart:month+"-01",coverageEnd:month+"-30",dailySummary:{storeNps:42,responses:4},rows:4,unresolvedAdvisorCount:0,metricSnapshotSha256:"a".repeat(64)});
+  metrics.csi.imports.push({...original,sourceFile:"CSI-synthetic-equivalent.xlsx",format:"xlsx",importedAt:"2026-10-02T12:00:00.000Z"});
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"locked","same-content reimports stay idempotent");
+  assert.equal(result.readiness.csi.state,"ready");
+});
+
+test("later CSI refreshes for the same scope remain eligible as current evidence",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  const original=metrics.csi.imports[0];
+  Object.assign(original,{coverageStart:month+"-01",coverageEnd:month+"-30",dailySummary:{storeNps:42,responses:4},rows:4,unresolvedAdvisorCount:0,metricSnapshotSha256:"a".repeat(64)});
+  metrics.csi.imports.push({...original,sourceFile:"CSI-synthetic-later-refresh.csv",refreshDate:"2026-10-02",importedAt:"2026-10-02T12:00:00.000Z",dailySummary:{storeNps:75,responses:5},rows:5,metricSnapshotSha256:"b".repeat(64)});
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"locked","a later refresh is a new observation, not a duplicate conflict");
+  assert.equal(result.readiness.csi.state,"ready");
+});
+
+test("CSI metric snapshot fingerprint includes stable survey metrics but excludes comments",()=>{
+  const repo="JHFMoon/MoonDog-Service-OS";
+  const start=app.indexOf("  function csiMetricSnapshotPayload("),end=app.indexOf("\n  function parseCsiRows(",start);
+  assert.ok(start>=0&&end>start);
+  const context={};vm.runInNewContext(app.slice(start,end),context);
+  const surveys={
+    id_b:{id:"id_b",surveyDate:"2026-09-20",score:2,classification:"Detractor",advisorCode:"202",managerComment:"Synthetic private comment"},
+    id_a:{id:"id_a",surveyDate:"2026-09-10",score:10,classification:"Promoter",advisorCode:"101",managerComment:"Another synthetic comment"}
+  };
+  const baseline=context.csiMetricSnapshotPayload(surveys);
+  assert.equal(context.csiMetricSnapshotPayload({id_a:surveys.id_a,id_b:surveys.id_b}),baseline,"fingerprint ordering is stable");
+  assert.notEqual(context.csiMetricSnapshotPayload({...surveys,id_b:{...surveys.id_b,advisorCode:"101"}}),baseline,"advisor assignment affects month-end advisor totals");
+  assert.notEqual(context.csiMetricSnapshotPayload({...surveys,id_b:{...surveys.id_b,classification:"Passive"}}),baseline,"classification affects NPS metrics");
+  assert.notEqual(context.csiMetricSnapshotPayload({...surveys,id_b:{...surveys.id_b,score:7}}),baseline,"score affects NPS metrics");
+  assert.notEqual(context.csiMetricSnapshotPayload({...surveys,id_b:{...surveys.id_b,surveyDate:"2026-09-21"}}),baseline,"survey date affects reporting scope");
+  assert.equal(context.csiMetricSnapshotPayload({...surveys,id_b:{...surveys.id_b,managerComment:"Changed synthetic note"}}),baseline,"non-metric comments are excluded");
+});
+
+test("legacy CSI duplicates without a metric fingerprint remain a visible conflict",()=>{
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  metrics.csi.imports.push({...metrics.csi.imports[0],sourceFile:"legacy-synthetic-copy.csv",importedAt:"2026-10-02T12:00:00.000Z"});
+  const result=ctx.buildSummary(month,performance,metrics);
+  assert.equal(result.status,"pending-finalization");
+  assert.equal(result.readiness.sources.csi.status,"conflict");
+});

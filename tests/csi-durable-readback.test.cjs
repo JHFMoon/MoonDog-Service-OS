@@ -4,12 +4,21 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const crypto = require("node:crypto").webcrypto;
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
 const first = app.indexOf("  async function importCsiFile(");
 const last = app.indexOf("  const isoCell =", first);
 assert.ok(first >= 0 && last > first, "Production CSI importer must exist");
 const importer = app.slice(first, last);
+const digestStart = app.indexOf("  async function sha256(");
+const digestEnd = app.indexOf("  async function readFileBytes(", digestStart);
+assert.ok(digestStart >= 0 && digestEnd > digestStart, "Production SHA-256 helper must exist");
+const digestHelper = app.slice(digestStart, digestEnd);
+const fingerprintStart = app.indexOf("  function csiMetricSnapshotPayload(");
+const fingerprintEnd = app.indexOf("\n  function parseCsiRows(", fingerprintStart);
+assert.ok(fingerprintStart >= 0 && fingerprintEnd > fingerprintStart, "Production CSI metric fingerprint helper must exist");
+const fingerprintHelper = app.slice(fingerprintStart, fingerprintEnd);
 
 function fixture(mode = "verified") {
   let currentMode = mode;
@@ -37,7 +46,7 @@ function fixture(mode = "verified") {
   const history = [];
   let persisted = structuredClone(previous);
   const ctx = {
-    model, structuredClone, now: () => "2026-10-21T15:00:00Z",
+    model, structuredClone, crypto, TextEncoder, now: () => "2026-10-21T15:00:00Z",
     localDateKey: () => "2026-10-21",
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
     sourceFileHandle: async () => ({getFile: async () => ({text: async () => "synthetic CSV"})}),
@@ -70,7 +79,7 @@ function fixture(mode = "verified") {
     renderAll: () => events.push("render-all"),
     renderMeeting: () => events.push("render-meeting")
   };
-  vm.runInNewContext(importer + "\nthis.importCsiForTest = importCsiFile;", ctx);
+  vm.runInNewContext(digestHelper + "\n" + fingerprintHelper + "\n" + importer + "\nthis.importCsiForTest = importCsiFile;", ctx);
   return {run: deleteSource => ctx.importCsiForTest("synthetic-csi.csv", deleteSource),
     events, history, model, previous, parsed, persisted: () => persisted, setMode: next => { currentMode = next; }};
 }

@@ -1098,8 +1098,28 @@
     const mediaSnapshots=metrics?.mediaAsr?.snapshots||{},mediaCurrent=item=>item.periodEnd>=operatingEnd;
     const mediaConflict=samePeriodConflict(mediaSnapshots,mediaCurrent);
     const media=mediaConflict?null:latestMonthlySnapshot(mediaSnapshots,month,mediaCurrent);
-    const csiImports=(metrics?.csi?.imports||[]).filter((item)=>{const scopeStart=String(item?.scopeStart||""),scopeEnd=String(item?.scopeEnd||""),observationDate=String(item?.refreshDate||(item?.importedAt?localDateKey(item.importedAt):""));return item?.scopeVerified===true&&freshness.validDateKey(observationDate)&&observationDate>=operatingEnd&&Boolean(scopeStart)&&Boolean(scopeEnd)&&scopeStart<=`${month}-01`&&scopeEnd>=operatingEnd;}).sort((a,b)=>String(a.refreshDate||localDateKey(a.importedAt)||"").localeCompare(String(b.refreshDate||localDateKey(b.importedAt)||"")));
-    const csiImport=csiImports.at(-1)||null;
+    const csiImports=(metrics?.csi?.imports||[]).filter((item)=>{const scopeStart=String(item?.scopeStart||""),scopeEnd=String(item?.scopeEnd||""),observationDate=String(item?.refreshDate||(item?.importedAt?localDateKey(item.importedAt):""));return item?.scopeVerified===true&&freshness.validDateKey(observationDate)&&observationDate>=operatingEnd&&Boolean(scopeStart)&&Boolean(scopeEnd)&&scopeStart<=month+"-01"&&scopeEnd>=operatingEnd;}).sort((a,b)=>String(a.refreshDate||localDateKey(a.importedAt)||"").localeCompare(String(b.refreshDate||localDateKey(b.importedAt)||"")));
+    const csiContent=item=>JSON.stringify(stable({
+      coverageStart:String(item?.coverageStart||""),coverageEnd:String(item?.coverageEnd||""),
+      scopeVerified:item?.scopeVerified===true,dailySummary:item?.dailySummary||null,
+      rows:Number.isFinite(item?.rows)?item.rows:null,
+      unresolvedAdvisorCount:Number.isFinite(item?.unresolvedAdvisorCount)?item.unresolvedAdvisorCount:null
+    }));
+    const csiConflict=(()=>{
+      const seen=new Map(),validFingerprint=value=>/^[a-f0-9]{64}$/.test(String(value||""));
+      for(const item of csiImports){
+        const refreshDate=String(item.refreshDate||localDateKey(item.importedAt));
+        const period=JSON.stringify([String(item.scopeStart||""),String(item.scopeEnd||""),refreshDate]);
+        const content=csiContent(item),fingerprint=String(item.metricSnapshotSha256||"").toLowerCase();
+        if(seen.has(period)){
+          const prior=seen.get(period);
+          if(!validFingerprint(fingerprint)||!validFingerprint(prior.fingerprint)||fingerprint!==prior.fingerprint||content!==prior.content)return true;
+        }
+        seen.set(period,{content,fingerprint});
+      }
+      return false;
+    })();
+    const csiImport=csiConflict?null:csiImports.at(-1)||null;
     const csiExpectation=sourceExpectation("csi");
     const sources={
       sapr:state("sapr",sapr,sapr?.periodEnd,saprConflict),
@@ -1107,11 +1127,13 @@
       menu:state("menu",menu,menu?.periodEnd,menuConflict),
       mediaAsr:state("mediaAsr",media,media?.periodEnd,mediaConflict),
       // Freshness timestamps do not prove that the imported CSI report covers the month.
-      csi: csiImport
-        ?state("csi",{...csiImport,periodStart:csiImport.scopeStart},csiImport.scopeEnd)
-        :["not-used","temporarily-unavailable"].includes(csiExpectation)
-          ?state("csi",null,null)
-          :{state:"pending",status:"unverified-scope",detail:"Verified CSI report scope does not cover the complete month-end operating period"}
+      csi: csiConflict
+        ?state("csi",null,null,true)
+        :csiImport
+          ?state("csi",{...csiImport,periodStart:csiImport.scopeStart},csiImport.scopeEnd)
+          :["not-used","temporarily-unavailable"].includes(csiExpectation)
+            ?state("csi",null,null)
+            :{state:"pending",status:"unverified-scope",detail:"Verified CSI report scope does not cover the complete month-end operating period"}
     };
     return{month,monthEnd,operatingEnd,sources,ready:Object.values(sources).every((item)=>["ready","not-used"].includes(item.state)),snapshots:{sapr,vir,menu,media}};
   }
@@ -2158,6 +2180,16 @@
     return null;
   }
   const CSI_REQUIRED_HEADERS = ["Invite_ID", "_recordId", "SURVEY_STATUS", "INCLUDE_IN_SCORING", "Date of Survey (-04:00 GMT)", "Service Advisor", "Dealer NPS (Service)", "Sales NPS Group (Service)", "NPS: ServPulse", "NPS Filter Group"];
+  function csiMetricSnapshotPayload(surveys) {
+    const values=Object.values(surveys||{}).map((survey)=>({
+      id:String(survey?.id||""),surveyDate:String(survey?.surveyDate||""),
+      score:Number.isFinite(survey?.score)?survey.score:null,
+      classification:String(survey?.classification||""),
+      advisorCode:survey?.advisorCode==null?null:String(survey.advisorCode)
+    }));
+    values.sort((left,right)=>left.id.localeCompare(right.id)||left.surveyDate.localeCompare(right.surveyDate));
+    return JSON.stringify(values);
+  }
   function parseCsiRows(rows, fileName, format) {
     const headerIndex=rows.findIndex(row=>row.includes('Invite_ID')&&row.includes('INCLUDE_IN_SCORING')), metadata=headerIndex>0?rows.slice(0,headerIndex):[];
     const scopeValue=label=>{const row=metadata.find(row=>norm(row[0]).replace(/:$/,'')===label);const value=text(row?.[1]).trim();return validCoverageDate(value)||strictReportDate(value);};
@@ -2205,7 +2237,7 @@
   }
   function npsSummary(surveys) { const rows = Object.values(surveys), promoters = rows.filter((row) => row.classification === "Promoter").length, passives = rows.filter((row) => row.classification === "Passive").length, detractors = rows.filter((row) => row.classification === "Detractor").length; return { responses: rows.length, promoters, passives, detractors, nps: rows.length ? (promoters - detractors) / rows.length * 100 : null }; }
   async function importCsiFile(name, deleteAfterSuccess = false, providedBytes = null) {
-    const file = await (await sourceFileHandle(name)).getFile(), sourceBytes = providedBytes || (/\.xlsx$/i.test(name) ? await file.arrayBuffer() : null); if (/\.xlsx$/i.test(name)) if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(sourceBytes, { type: "array", cellDates: true }); const parsed = /\.xlsx$/i.test(name) ? parseCsiWorkbook(sourceBytes, name) : parseCsiCsv(await file.text(), name), priorMetrics = structuredClone(model.operationalMetrics), existing = model.operationalMetrics.csi.surveys || {}, refreshAt = now(), refreshDate = localDateKey();
+    const file = await (await sourceFileHandle(name)).getFile(), sourceBytes = providedBytes || (/\.xlsx$/i.test(name) ? await file.arrayBuffer() : null); if (/\.xlsx$/i.test(name)) if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(sourceBytes, { type: "array", cellDates: true }); const parsed = /\.xlsx$/i.test(name) ? parseCsiWorkbook(sourceBytes, name) : parseCsiCsv(await file.text(), name), priorMetrics = structuredClone(model.operationalMetrics), existing = model.operationalMetrics.csi.surveys || {}, refreshAt = now(), refreshDate = localDateKey(); const metricSnapshotSha256 = await sha256(new TextEncoder().encode(csiMetricSnapshotPayload(parsed.surveys)));
     // Cumulative CSI exports may legitimately correct a previously imported
     // response. Count metric-bearing revisions before merging so the durable
     // source history identifies a correction without copying response values
@@ -2217,7 +2249,7 @@
     }, 0);
     Object.values(parsed.surveys).forEach((survey) => { const prior = existing[survey.id]; existing[survey.id] = prior && prior.surveyDate > survey.surveyDate ? prior : { ...prior, ...survey, extensionRecordIds: [...new Set([...(prior?.extensionRecordIds || []), ...survey.extensionRecordIds])], lastSeenAt: now() }; });
     const newest = Object.values(existing).map((survey) => survey.surveyDate).sort().at(-1); if (newest) { const cutoff = freshness.addDays(newest,-730); Object.keys(existing).forEach((id) => { if (existing[id].surveyDate < cutoff) delete existing[id]; }); }
-    model.operationalMetrics.csi.surveys = existing; model.operationalMetrics.csi.imports ||= []; model.operationalMetrics.csi.imports.push({ sourceFile: name, importedAt: refreshAt, refreshDate, coverageStart: parsed.coverageStart, coverageEnd: parsed.coverageEnd, scopeStart:parsed.scopeStart,scopeEnd:parsed.scopeEnd,scopeVerified:parsed.scopeVerified, dailySummary:npsSummary(parsed.surveys), rows: Object.keys(parsed.surveys).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount, format: /\.xlsx$/i.test(name) ? "xlsx" : "csv" }); model.operationalMetrics.csi.imports = model.operationalMetrics.csi.imports.slice(-250); model.operationalMetrics.csi.lastSuccessfulRefreshAt = refreshAt; model.operationalMetrics.csi.lastSuccessfulRefreshDate = refreshDate; model.operationalMetrics.updatedAt = refreshAt; try {
+    model.operationalMetrics.csi.surveys = existing; model.operationalMetrics.csi.imports ||= []; model.operationalMetrics.csi.imports.push({ sourceFile: name, importedAt: refreshAt, refreshDate, coverageStart: parsed.coverageStart, coverageEnd: parsed.coverageEnd, scopeStart:parsed.scopeStart,scopeEnd:parsed.scopeEnd,scopeVerified:parsed.scopeVerified, metricSnapshotSha256, dailySummary:npsSummary(parsed.surveys), rows: Object.keys(parsed.surveys).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount, format: /\.xlsx$/i.test(name) ? "xlsx" : "csv" }); model.operationalMetrics.csi.imports = model.operationalMetrics.csi.imports.slice(-250); model.operationalMetrics.csi.lastSuccessfulRefreshAt = refreshAt; model.operationalMetrics.csi.lastSuccessfulRefreshDate = refreshDate; model.operationalMetrics.updatedAt = refreshAt; try {
       await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics);
       const check = await readJson(OPERATIONAL_METRICS_PATH, null);
       // Verify complete persisted survey details, prior history, import lineage
