@@ -129,11 +129,16 @@ class CloseoutTransportTests(TestCase):
     @patch.dict(closer.os.environ, {"GITHUB_SHA": "", "GH_TOKEN": "synthetic", "GITHUB_REPOSITORY": closer.SAFE_REPO})
     def test_one_unavailable_issue_does_not_skip_others_and_fails_workflow(self, close, github):
         github.return_value.request.return_value = {"commit": {"sha": "f" * 40}}
-        close.side_effect = [URLError("synthetic outage")] + [
-            {"issue": n, "status": "open/not-eligible"} for n in range(5)]
+        def close_result(api, issue, *args):
+            if issue == 58:
+                raise URLError("synthetic outage")
+            return {"issue": issue, "status": "open/not-eligible"}
+
+        close.side_effect = close_result
+        expected_issues = len(json.loads(closer.EVIDENCE.read_text(encoding="utf-8"))["issues"])
         with patch("builtins.print") as output:
             self.assertEqual(closer.main(), 1)
-        self.assertEqual(close.call_count, 6)
+        self.assertEqual(close.call_count, expected_issues)
         report = json.loads(output.call_args.args[0])
         self.assertEqual(report["issues"][0]["status"], "open/verification-blocked")
         self.assertIn("hourly", report["issues"][0]["next_action"])
