@@ -75,6 +75,10 @@ test("Private report layouts fingerprint sanitized mappings and preserve same-sh
  assert.equal(caseEquivalent.id,first.id,"case-only header changes must reuse the existing mapping identity");
  assert.equal(caseEquivalent.layoutFingerprint,first.layoutFingerprint,"fingerprints follow case-insensitive runtime header matching");
  assert.equal(caseEquivalent.version,2);
+ const uppercaseColumns=Object.fromEntries(Object.entries(columns).map(([field,label])=>[field,label.toUpperCase()]));
+ const allHeadersCaseVariant=e.safeReportLayout({...first,columns:uppercaseColumns},[first,caseEquivalent]);
+ assert.equal(allHeadersCaseVariant.id,first.id,"all case-equivalent source headers reuse one mapping identity");
+ assert.equal(allHeadersCaseVariant.layoutFingerprint,first.layoutFingerprint);
  const revalidated=e.safeReportLayout({...first},[first]);
  assert.equal(revalidated.id,first.id);assert.equal(revalidated.version,2);
  assert.equal(revalidated.previous.layoutFingerprint,first.layoutFingerprint);
