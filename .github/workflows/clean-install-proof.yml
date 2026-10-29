@@ -110,6 +110,25 @@ jobs:
           assert p.stat().st_size<4096
           print("PASS: synthetic-only navigation timing artifact validated")
 
+          retry_path=Path(".clean-install-smoke/overdrive-proof/ux-retry-diagnostics.json")
+          retry=json.loads(retry_path.read_text(encoding="utf-8"))
+          assert set(retry)=={"schemaVersion","dataset","maxAttempts","retries"}
+          assert retry["schemaVersion"]==1 and retry["dataset"]=="synthetic-clean-install"
+          assert retry["maxAttempts"]==2 and isinstance(retry["retries"],list)
+          for item in retry["retries"]:
+              assert item["scenario"] in {"empty","large","large-slow-read"}
+              assert 1<=item["sample"]<=9 and item["finalOutcome"]=="passed"
+              assert len(item["attempts"])==2
+              assert [attempt["attempt"] for attempt in item["attempts"]]==[1,2]
+              assert item["attempts"][0]["outcome"]=="failed"
+              assert item["attempts"][1]["outcome"]=="passed"
+              trace=item["attempts"][0]["tracePath"]
+              assert isinstance(trace,str) and trace.startswith("ux-retry-traces/")
+              assert ".." not in Path(trace).parts and not Path(trace).is_absolute()
+              assert retry_path.parent.joinpath(trace).is_file()
+              assert isinstance(item["attempts"][0]["reason"],str) and item["attempts"][0]["reason"]
+          print("PASS: bounded synthetic UX retries retain sanitized reasons and Playwright traces")
+
           ux_path=Path(".clean-install-smoke/overdrive-proof/open-ro-workflow-metrics.json")
           ux=json.loads(ux_path.read_text(encoding="utf-8"))
           assert set(ux)=={"schemaVersion","dataset","scenario","records","attemptedSamples","completedSamples","failedSamples","errorRate","taskDurationMs","clickCount","fieldEntryCount","scrollDistancePx","browserErrorCount","interruptedSaveTask","reconnectTask","sampleResults"}
@@ -119,6 +138,7 @@ jobs:
           assert len(ux["sampleResults"])==9
           assert [sample["sample"] for sample in ux["sampleResults"]]==list(range(1,10))
           assert all(sample["success"] is True for sample in ux["sampleResults"])
+          assert all(1<=sample.get("attemptCount",1)<=2 for sample in ux["sampleResults"])
           for key in ("taskDurationMs","clickCount","fieldEntryCount","scrollDistancePx"):
               metric=ux[key]
               assert set(metric)=={"count","p50","p95","max"} and metric["count"]==9
@@ -196,6 +216,21 @@ jobs:
           print("PASS: 100 screen/viewport routes, 12 zoom-equivalent routes, route keyboard focus, contrast, long text, nine Open RO tasks, and 54 measured screen tasks validated")
           PY
 
+      - name: Test and validate sanitized retry traces
+        if: steps.scope.outputs.metadata_only != 'true'
+        run: |
+          python3 tests/test_ux_trace_sanitizer.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          traces=Path(".clean-install-smoke/overdrive-proof/ux-retry-traces")
+          archives=sorted(traces.glob("*.zip")) if traces.is_dir() else []
+          for archive in archives:
+              subprocess.run(["python3","scripts/sanitize_ux_trace.py","validate",str(archive)],
+                             check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+          print(f"PASS: validated {len(archives)} sanitized synthetic retry trace archive(s)")
+          PY
+
       - name: Upload proof artifact
         if: always()
         uses: actions/upload-artifact@v6
@@ -208,5 +243,7 @@ jobs:
             .clean-install-smoke/overdrive-proof/navigation-baseline.json
             .clean-install-smoke/overdrive-proof/open-ro-workflow-metrics.json
             .clean-install-smoke/overdrive-proof/responsive-ux-matrix.json
+            .clean-install-smoke/overdrive-proof/ux-retry-diagnostics.json
+            .clean-install-smoke/overdrive-proof/ux-retry-traces/*.zip
           if-no-files-found: error
           retention-days: 7
