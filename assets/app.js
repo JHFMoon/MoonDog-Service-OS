@@ -1923,7 +1923,8 @@
         if (Array.isArray(item)) return item.map(value => normalize(value));
         if (item && typeof item === "object") {
           const verifiedPeriod = root && Boolean(item.periodStart && item.periodEnd);
-          return Object.fromEntries(Object.keys(item).filter(key => !(root && volatile.has(key)) && !(verifiedPeriod && key === "observationDate")).sort().map(key => [key, normalize(item[key])]));
+          const coverageMatchesPeriod = root && Boolean(item.coverageDate && item.periodEnd && item.coverageDate === item.periodEnd);
+          return Object.fromEntries(Object.keys(item).filter(key => !(root && volatile.has(key)) && !(verifiedPeriod && key === "observationDate") && !(coverageMatchesPeriod && key === "coverageDate")).sort().map(key => [key, normalize(item[key])]));
         }
         return item;
       };
