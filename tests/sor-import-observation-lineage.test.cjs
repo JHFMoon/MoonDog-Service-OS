@@ -30,7 +30,7 @@ function fixture(snapshot, { sourceModifiedAt, rows }) {
     text: value => String(value ?? ""),
     performanceFormat: (value, style) => style === "money" ? "$" + Number(value).toFixed(0) : String(value ?? ""),
     ui: { managerSourceGrid: managerGrid },
-    document: { createElement: () => ({ className: "", innerHTML: "" }) },
+    document: { createElement: () => ({ className: "", textContent: "", children: [], append(...items) { this.children.push(...items); } }) },
     model,
     structuredClone,
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
@@ -50,7 +50,11 @@ function fixture(snapshot, { sourceModifiedAt, rows }) {
     writeJson: async (_path, value) => { durable = structuredClone(value); },
     readJson: async () => structuredClone(durable),
     addHistory: async (type, message, details) => { history.push({ type, message, details }); },
-    removeSourceEntry: async () => { throw new Error("This regression never deletes its synthetic source."); }
+    removeSourceEntry: async () => { throw new Error("This regression never deletes its synthetic source."); },
+    sourceFreshness: () => ({ status: "historical-valid", loaded: true,
+      reportPeriodVerified: true, periodStart: "2026-10-01", periodEnd: "2026-10-31",
+      importTimestamp: "2026-10-24T18:00:00.000Z" }),
+    sourceLineageLabel: () => "Historical · valid for stated period · Report period: 2026-10-01 through 2026-10-31 · Last imported: 2026-10-24 18:00 UTC"
   });
   vm.runInContext(
     dateHelpers + "\n" + dailyEvidence + "\n" + comparison + "\n" + importer + "\n" + homeRenderer +
@@ -58,6 +62,10 @@ function fixture(snapshot, { sourceModifiedAt, rows }) {
     context
   );
   return { context, model, durable: () => durable, history, managerGrid };
+}
+
+function renderedText(node) {
+  return [node.textContent, ...(node.children || []).map(renderedText)].filter(Boolean).join(" ");
 }
 
 test("SOR report observation date survives production import, durable readback, and daily coverage selection", async () => {
@@ -88,9 +96,9 @@ test("SOR report observation date survives production import, durable readback, 
   assert.deepEqual(f.history.map(item => item.type), ["sor-import"]);
   f.context.renderManagerIntelligence();
   assert.equal(f.managerGrid.children.length, 5, "Home renders its source summaries from durable operational metrics");
-  assert.match(f.managerGrid.children[0].innerHTML, /2026-10/,
+  assert.match(renderedText(f.managerGrid.children[0]), /2026-10/,
     "Home reports the imported financial period from the retained source snapshot");
-  assert.match(f.managerGrid.children[0].innerHTML, /1200 CP labor gross/,
+  assert.match(renderedText(f.managerGrid.children[0]), /1200 CP labor gross/,
     "Home derives SOR financial output from the same imported source values");
 });
 
