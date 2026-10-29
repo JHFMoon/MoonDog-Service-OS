@@ -16,6 +16,12 @@ jobs:
           persist-credentials: false
           fetch-depth: 2  # Keep PR merge parent for package-only source-parity proof
 
+      - name: Fail fast until trusted Beta package matches runtime
+        if: github.event_name == 'pull_request'
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/preflight_beta_runtime.py
+
       - name: Classify exact pull request change scope
         id: scope
         shell: bash

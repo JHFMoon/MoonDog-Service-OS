@@ -25,6 +25,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Fail fast until trusted Beta package matches runtime
+        if: github.event_name == 'pull_request'
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/preflight_beta_runtime.py
       - name: Fetch all public refs for history audit
         run: |
           git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
