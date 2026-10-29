@@ -10,7 +10,9 @@ from typing import TextIO
 from scripts.build_beta_package import current_beta_runtime_mismatches
 
 
-def verify_candidate(root: Path, candidate_sha: str, output: TextIO = sys.stdout) -> int:
+def verify_candidate(root: Path, candidate_sha: str, output: TextIO | None = None) -> int:
+    if output is None:
+        output = sys.stdout
     try:
         mismatches = current_beta_runtime_mismatches(root)
     except SystemExit as error:
