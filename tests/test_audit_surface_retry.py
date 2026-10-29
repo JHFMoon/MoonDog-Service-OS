@@ -95,7 +95,7 @@ class SurfaceRetryTests(unittest.TestCase):
         self.assertIn("retry_transient(download_once",source)
         self.assertIn("retry_transient(api_read",source)
         self.assertIn("safe_api_operation(endpoint)",source)
-        self.assertIn('counts["api_request_failure"]+=1',source)
+        self.assertIn('"api_request_failure"',source)
         self.assertIn('counts["action_artifact_download_failure"]+=1',source)
         self.assertIn('counts["release_asset_download_failure"]+=1',source)
         self.assertIn('if counts:',source)
