@@ -44,7 +44,7 @@ class SanitizedUxTraceTests(unittest.TestCase):
                 trace = archive.read("trace.trace").decode("utf-8")
                 for marker in ("Synthetic Workspace", "Private Customer", "/srv/private",
                                "SYNTHETIC_BEARER_VALUE", "Synthetic Customer Password",
-                               "SYNTHETIC_JSON_TOKEN", "Synthetic Customer private payload",
+                               "SYNTHETIC_JSON_TOKEN", "Synthetic Customer private payload", "Reports/report.xlsx",
                                "file://"):
                     self.assertNotIn(marker, trace)
                 self.assertIn("[redacted-path]", trace)

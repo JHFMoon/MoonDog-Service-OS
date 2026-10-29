@@ -26,8 +26,8 @@ CREDENTIAL_KEY = re.compile(
     re.IGNORECASE,
 )
 QUOTED_PATH = re.compile(r"""(?P<q>["'])(?:file://|[A-Za-z]:[\\/]|/(?!/))[^"'\r\n]*(?P=q)""", re.IGNORECASE)
-FILE_URL = re.compile(r"""file://[^\s"'<>]+""", re.IGNORECASE)
-WEB_URL = re.compile(r"""https?://[^\s"'<>]+""", re.IGNORECASE)
+FILE_URL = re.compile(r"""file://[^\r\n]*""", re.IGNORECASE)
+WEB_URL = re.compile(r"""https?://[^\r\n]*""", re.IGNORECASE)
 AUTH_VALUE = re.compile(
     r"""(?i)\b(authorization|proxy-authorization)\s*[:=]\s*(?:(?:bearer|basic)\s+)?"""
     r"""(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^,\s;}]+)(?:\s+[^,;}]+)?"""
@@ -35,7 +35,7 @@ AUTH_VALUE = re.compile(
 CREDENTIAL_ASSIGNMENT = re.compile(
     r"""(?i)(["']?)(password|passwd|token|secret|credential|private.?key|api.?key|authorization|cookie)(["']?)\s*[:=]\s*(?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s,;}\]]+)"""
 )
-WIN_PATH = re.compile(r"""(?i)(?<![A-Za-z0-9])(?:[A-Z]:[\\/])[^\s"'<>]+""")
+WIN_PATH = re.compile(r"""(?i)(?<![A-Za-z0-9])(?:[A-Z]:[\\/])[^\r\n]*""")
 POSIX_SUFFIX = re.compile(r"""(?<![A-Za-z0-9_:/])/(?!/)[^\r\n]*""")
 
 def _clean_string(value: str) -> str:
