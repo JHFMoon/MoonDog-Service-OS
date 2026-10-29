@@ -7,7 +7,8 @@ import hashlib
 
 from build_distribution import WORKSPACE_README
 from audit_surface_retry import (DownloadFailure, classify_api_failure,
-                                 retry_transient, safe_api_operation)
+                                 is_gone_action_artifact_download, retry_transient,
+                                 safe_api_operation)
 
 REPO=os.environ["GITHUB_REPOSITORY"]
 counts=collections.Counter()
@@ -270,6 +271,14 @@ for artifact in artifacts:
         try:
             gh_download(f"repos/{REPO}/actions/artifacts/{artifact['id']}/zip",path)
         except DownloadFailure as error:
+            # The Actions artifact endpoint returns 410 when the listed artifact
+            # is no longer downloadable (expired or removed between listing and
+            # download). Its name was scanned above and no archive bytes exist
+            # to inspect, so record this unavailable item separately. All other
+            # download failures remain blocking.
+            if is_gone_action_artifact_download(error.status):
+                safe["unavailable_action_artifact_410"]+=1
+                continue
             counts["action_artifact_download_failure"]+=1
             counts["action_artifact_http_"+error.status]+=1
             continue
@@ -333,7 +342,7 @@ summary=["## Public GitHub surface audit","",f"Releases scanned: {len(releases)}
 summary += [f"| {k} | {counts[k]} |" for k in sorted(counts)]
 summary += ["", "**Review required** — candidates are redacted and are not proof of exposure." if counts else "No blocking candidates detected on scanned public surfaces."]
 if safe:
-    summary += ["","Known public/synthetic or expired items were counted separately."]
+    summary += ["","Known public/synthetic items and artifacts unavailable with HTTP 410 were counted separately; unavailable artifact contents were not retrievable."]
 if os.environ.get("GITHUB_STEP_SUMMARY"):
     with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
         f.write("\n".join(summary)+"\n")
