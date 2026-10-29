@@ -448,7 +448,7 @@ test("delayed essential hydration fails closed and keeps its saved folder retrya
   assert.equal(model.pendingRoot,pending,"Saved handle remains available to retry after recovery; states="+JSON.stringify(states));
   assert.equal(authority.disableCalls,1,"A failed hydration cannot retain write authority");
   assert.equal(states.at(-1).state,"CONNECTION ERROR");
-  assert.match(states.at(-1).message,/temporarily busy.*saved folder handle and files are retained/i);
+  assert.match(states.at(-1).message,/temporarily busy.*saved folder handle and Workspace files are retained/i);
   assert.deepEqual(context.__scheduledRetries,[pending],"Transient saved-folder read failures retain and schedule the same handle.");
 });
 
