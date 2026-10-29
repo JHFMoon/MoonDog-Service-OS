@@ -248,4 +248,66 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
   assert.deepEqual(result.sourceFields,incoming.sourceFields,
     "the fresh source replaces source-owned fields after recovery");
   assert.equal(result.cdkOperational.status,"Ready for Review");
+
+  // Exercise the production edit dialog after verified restore and source reimport.
+  // The report identity remains visible beside manager-owned workflow fields.
+  const identityStart=app.indexOf("  function sourceFieldValue(");
+  const identityEnd=app.indexOf("\n  function sourceAdvisorIdentity(",identityStart);
+  const managerStatusStart=app.indexOf("  function statusForRecord(record){");
+  const managerStatusEnd=app.indexOf("\n  function resolveStatusId(",managerStatusStart);
+  const editStart=app.indexOf("  function openEdit(");
+  const editEnd=app.indexOf("\n  const openEditWithoutCloseoutEvidence",editStart);
+  assert.ok(identityStart>=0&&identityEnd>identityStart&&managerStatusStart>=0&&managerStatusEnd>managerStatusStart&&editStart>=0&&editEnd>editStart,
+    "production source identity, management status, and RO edit dialog exist");
+
+  const uiField=()=>({value:"",textContent:"",hidden:false,dataset:{},options:[],focus(){},append(){},replaceChildren(){},});
+  const recordSummary={children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}};
+  const editUi={
+    dialogTitle:uiField(),editPosition:uiField(),editClarification:uiField(),editValidation:uiField(),
+    recordSummary,editStatus:uiField(),editOwner:uiField(),editNextAction:uiField(),editReviewDate:uiField(),
+    editAdminBlocker:uiField(),editAdminTaskDate:uiField(),editAdminCloseDate:uiField(),
+    editAdminChangeReason:uiField(),editCommunication:uiField(),editNote:uiField(),
+    editDialog:{open:false,showModal(){this.open=true;}}
+  };
+  const editContext=vm.createContext({
+    model:{state:{records:[result]},openRoSaveInFlight:false},
+    ui:editUi,
+    document:{createElement:()=>uiField()},
+    visibleFocusIds:()=>[],
+    visibleRecordIds:()=>[result.id],
+    clarificationFor:()=>"",
+    statusById:()=>null,
+    currentCdkReviewStatus:record=>record.cdkOperational?.status||"",
+    selectableStatusesFor:()=>["Waiting Parts"],
+    populateSelect:(select,values)=>{select.options=values.map(value=>({value,dataset:{},remove(){}}));},
+    renderCdkStatusIndicator:record=>{editUi.cdkStatus=record.cdkOperational?.status||"";},
+    updateStatusDetailEditor:()=>{},
+    restoreSelectValue:(select,value)=>{select.value=value;},
+    normalizeCommunication:value=>value,
+    COMMUNICATION_STATUSES:[],
+    technicianDirectory:()=>({}),
+    normalizedPerson:value=>String(value??"").trim().toLowerCase(),
+    sourceFieldValue:(fields,aliases)=>Object.entries(fields||{}).find(([key,value])=>aliases.map(v=>String(v).toLowerCase()).includes(key.toLowerCase())&&String(value??"").trim())?.[1]||"",
+    ALIASES:{technician:["technician"],technicianCode:["technician code"]},
+    resolveTechnicianName:()=>null,
+    text:value=>String(value??""),
+    requestAnimationFrame:callback=>callback()
+  });
+  vm.runInNewContext([
+    app.slice(identityStart,identityEnd),
+    app.slice(managerStatusStart,managerStatusEnd),
+    app.slice(editStart,editEnd),
+    "this.openRecoveredRecord=openEdit;"
+  ].join("\n"),editContext);
+  assert.equal(editContext.openRecoveredRecord(result.id),true);
+  assert.equal(editUi.editStatus.value,"Waiting Parts",
+    "the edit screen displays the recovered manager-authoritative status");
+  assert.equal(editUi.editOwner.value,"Synthetic Parts Owner");
+  assert.equal(editUi.editNextAction.value,"Recheck synthetic delivery");
+  assert.equal(editUi.editReviewDate.value,"2026-10-27");
+  assert.equal(editUi.editNote.value,"Synthetic backed-up plan");
+  assert.equal(editUi.cdkStatus,"Ready for Review",
+    "the current report's operational status remains separately visible");
+  assert.ok(editUi.recordSummary.children.some(item=>item.textContent==="Technician (reported source): Synthetic Technician Current"),
+    "the edit screen retains the latest source-reported technician after recovery");
 });
