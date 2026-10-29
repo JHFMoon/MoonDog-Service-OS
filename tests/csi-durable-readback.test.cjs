@@ -15,6 +15,10 @@ const digestStart = app.indexOf("  async function sha256(");
 const digestEnd = app.indexOf("  async function readFileBytes(", digestStart);
 assert.ok(digestStart >= 0 && digestEnd > digestStart, "Production SHA-256 helper must exist");
 const digestHelper = app.slice(digestStart, digestEnd);
+const fingerprintStart = app.indexOf("  function csiMetricSnapshotPayload(");
+const fingerprintEnd = app.indexOf("\n  function parseCsiRows(", fingerprintStart);
+assert.ok(fingerprintStart >= 0 && fingerprintEnd > fingerprintStart, "Production CSI metric fingerprint helper must exist");
+const fingerprintHelper = app.slice(fingerprintStart, fingerprintEnd);
 
 function fixture(mode = "verified") {
   let currentMode = mode;
@@ -75,7 +79,7 @@ function fixture(mode = "verified") {
     renderAll: () => events.push("render-all"),
     renderMeeting: () => events.push("render-meeting")
   };
-  vm.runInNewContext(digestHelper + "\n" + importer + "\nthis.importCsiForTest = importCsiFile;", ctx);
+  vm.runInNewContext(digestHelper + "\n" + fingerprintHelper + "\n" + importer + "\nthis.importCsiForTest = importCsiFile;", ctx);
   return {run: deleteSource => ctx.importCsiForTest("synthetic-csi.csv", deleteSource),
     events, history, model, previous, parsed, persisted: () => persisted, setMode: next => { currentMode = next; }};
 }
