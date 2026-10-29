@@ -3582,13 +3582,16 @@
     model.autoImport.seen ||= {};
     const imported = [], learned = [], retired = [], retained = [], reviewRequired = [], cleaned = [], cleanupPending = [], cleanupReviewRequired = [];
     let ledgerChanged = false, pdfFailureMessage="";
+    // Cleanup and identity-review holds are safety state, not disposable history.
+    // Keep them discoverable by path even after old resolved ledger entries age out.
+    const hasUnresolvedCleanupHold = entry => Boolean(entry?.cleanupPending || entry?.cleanupNeedsReview || entry?.cleanupReviewRequired);
     for (const candidate of candidates.filter((item)=>item.signature).filter(candidateNeedsImport).filter((item) => !eligibleSignatures || eligibleSignatures.has(item.signature))) {
       let kind = null, bytes = null;
       try {
         // A changed timestamp/size yields a new watch signature. Match cleanup
         // by original path too, so edited content is held instead of re-imported.
         const priorPendingCleanup = Object.entries(model.autoImport.seen).find(([priorSignature, entry]) =>
-          priorSignature !== candidate.signature && entry?.cleanupPending && entry.relativePath === candidate.relativePath);
+          priorSignature !== candidate.signature && hasUnresolvedCleanupHold(entry) && entry.relativePath === candidate.relativePath);
         if (priorPendingCleanup) {
           const [priorSignature, prior] = priorPendingCleanup;
           prior.cleanupNeedsReview = true;
@@ -3699,7 +3702,19 @@
         catch (moveError) { retained.push(candidate.name); try { await addHistory("auto-import-retained", `Automatic import retained ${candidate.name}`, { fileName: candidate.name, reason: moveError.message || String(moveError) }); } catch (_) {} }
       }
     }
-    if (ledgerChanged) { const entries = Object.entries(model.autoImport.seen); if (entries.length > 1000) model.autoImport.seen = Object.fromEntries(entries.slice(-1000)); model.autoImport.updatedAt = now(); await writeJson(AUTO_IMPORT_PATH, model.autoImport); }
+    if (ledgerChanged) {
+      const entries = Object.entries(model.autoImport.seen);
+      if (entries.length > 1000) {
+        // Bound resolved history while retaining every unresolved source hold.
+        const retained = new Map(entries.slice(-1000));
+        for (const [signature, entry] of entries) {
+          if (hasUnresolvedCleanupHold(entry)) retained.set(signature, entry);
+        }
+        model.autoImport.seen = Object.fromEntries(retained);
+      }
+      model.autoImport.updatedAt = now();
+      await writeJson(AUTO_IMPORT_PATH, model.autoImport);
+    }
     if(reviewRequired.length)await scanFiles();
     const reviewNote=reviewRequired.length?` ${reviewRequired.length} recognized Open RO source(s) remain in Report Inbox for Import Report verification.`:"";
     const learnNote = learned.length ? ` ${learned.length} file${learned.length === 1 ? " was" : "s were"} moved safely to Files To Learn.` : "", retiredNote = retired.length ? ` ${retired.length} known non-service file${retired.length === 1 ? " was" : "s were"} retired from Service OS intake.` : "", retainedNote = retained.length ? ` ${retained.length} file${retained.length === 1 ? " remains" : "s remain"} in place because it could not be moved safely.` : "";
