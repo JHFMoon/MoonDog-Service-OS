@@ -45,7 +45,7 @@ class BetaChangeScopeTests(unittest.TestCase):
 
     def test_workflow_checks_stable_manifest_and_keeps_install_integrity(self):
         workflow = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
-        self.assertIn("git diff --name-only -z", workflow)
+        self.assertIn("git diff --no-renames --name-only -z", workflow)
         self.assertIn('git show "$' + '{GITHUB_SHA}^1:updates/manifest.json"', workflow)
         self.assertIn('git show "$' + '{GITHUB_SHA}^2:updates/manifest.json"', workflow)
         self.assertIn("python3 scripts/beta_change_scope.py", workflow)
