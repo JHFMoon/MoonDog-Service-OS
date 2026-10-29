@@ -28,7 +28,11 @@ jobs:
             mapfile -d '' changed_paths < "$diff_file"
             rm -f "$diff_file"
             if ((${#changed_paths[@]})); then
-              change_scope="$(python3 scripts/beta_change_scope.py "${changed_paths[@]}")"
+              manifest_dir="$(mktemp -d)"
+              trap 'rm -rf "$manifest_dir"' EXIT
+              git show "${GITHUB_SHA}^1:updates/manifest.json" > "$manifest_dir/base.json"
+              git show "${GITHUB_SHA}^2:updates/manifest.json" > "$manifest_dir/head.json"
+              change_scope="$(python3 scripts/beta_change_scope.py --base-manifest "$manifest_dir/base.json" --head-manifest "$manifest_dir/head.json" "${changed_paths[@]}")"
               [[ "$change_scope" == "metadata-only" ]] && metadata_only=true
             fi
           fi
