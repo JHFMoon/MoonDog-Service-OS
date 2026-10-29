@@ -31,7 +31,7 @@ function fixture({failWrite=false,mismatchReadback=false,confirmReplacement=true
     model,structuredClone,window:{confirm:()=>confirmReplacement},slug:value=>String(value).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""),
     sourceFileHandle:async()=>({getFile:async()=>({text:async()=>"synthetic report",lastModified:0})}),
     parseNextAppointmentsCsv:()=>structuredClone(incoming),
-    parseAppointmentsCreatedSummaryCsv:()=>{if(!supplementalMode)throw Error("not a supplemental source");return{family:"appointments-created-summary",sourceFile:"synthetic-summary.csv",importedAt:"2026-10-24T00:00:00.000Z",periodStart:"2026-10-01",periodEnd:"2026-10-31",variant:"service-department",metrics:{appointmentCount:2},validation:{parser:"synthetic"}};},
+    parseAppointmentsCreatedSummaryCsv:()=>{if(!supplementalMode)throw Error("not a supplemental source");return{family:"appointments-created-summary",sourceFile:"synthetic-summary.csv",importedAt:"2026-10-24T00:00:00.000Z",periodStart:"2026-10-01",periodEnd:"2026-10-31",variant:"service-department",metrics:{appointmentCount:equivalent?1:2},validation:{parser:"synthetic"}};},
     supplementalSnapshotKey:undefined,
     pruneDatedSnapshots:snapshots=>snapshots,
     pruneSupplementalSnapshots:snapshots=>snapshots,
