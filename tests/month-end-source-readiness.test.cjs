@@ -181,3 +181,42 @@ test("temporarily unavailable historical sources remain pending, while explicit 
   assert.equal(ready.sources.mediaAsr.state,"not-used");
   assert.equal(ready.ready,true);
 });
+
+
+test("conflicting duplicate monthly snapshots across source families cannot silently select a final value",()=>{
+  const cases=[
+    ["sapr","totalGross",(data)=>data.performance,(data)=>data.performance.synthetic],
+    ["vir","utilization",(data)=>data.metrics.vir.snapshots,(data)=>data.metrics.vir.snapshots.synthetic],
+    ["menu","presentation",(data)=>data.metrics.menu.snapshots,(data)=>data.metrics.menu.snapshots.synthetic],
+    ["mediaAsr","mediaViewedRate",(data)=>data.metrics.mediaAsr.snapshots,(data)=>data.metrics.mediaAsr.snapshots.synthetic]
+  ];
+  for(const [source,field,snapshotsFor,originalFor] of cases){
+    const data=completeSources(),ctx=harness();
+    const snapshots=snapshotsFor(data),original=originalFor(data);
+    original.store={[field]:0.6};
+    snapshots.syntheticDuplicate={...original,store:{...original.store,[field]:0.75}};
+    const result=ctx.buildSummary(data.month,data.performance,data.metrics);
+    assert.equal(result.status,"pending-finalization",source+" conflict cannot lock the month");
+    assert.equal(result.readiness.sources[source].state,"pending",source+" source remains pending");
+    assert.equal(result.readiness.sources[source].status,"conflict",source+" conflict stays explicit");
+    assert.ok(Array.from(result.needed).includes(source),source+" conflict remains actionable");
+    assert.equal("store" in result,false,source+" conflicting data cannot produce final totals");
+  }
+});
+
+test("equivalent duplicate monthly snapshots remain idempotent across source families",()=>{
+  const cases=[
+    ["sapr",(data)=>data.performance,(data)=>data.performance.synthetic],
+    ["vir",(data)=>data.metrics.vir.snapshots,(data)=>data.metrics.vir.snapshots.synthetic],
+    ["menu",(data)=>data.metrics.menu.snapshots,(data)=>data.metrics.menu.snapshots.synthetic],
+    ["mediaAsr",(data)=>data.metrics.mediaAsr.snapshots,(data)=>data.metrics.mediaAsr.snapshots.synthetic]
+  ];
+  for(const [source,snapshotsFor,originalFor] of cases){
+    const data=completeSources(),ctx=harness(),snapshots=snapshotsFor(data),original=originalFor(data);
+    snapshots.syntheticEquivalent={...original};
+    const result=ctx.buildSummary(data.month,data.performance,data.metrics);
+    assert.equal(result.status,"locked",source+" equivalent snapshot remains valid");
+    const readiness=result.readiness.sources||result.readiness;
+    assert.equal(readiness[source].state,"ready");
+  }
+});
