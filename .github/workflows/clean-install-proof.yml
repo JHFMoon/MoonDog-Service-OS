@@ -124,7 +124,8 @@ jobs:
               assert item["attempts"][1]["outcome"]=="passed"
               trace=item["attempts"][0]["tracePath"]
               assert isinstance(trace,str) and trace.startswith("ux-retry-traces/")
-              assert retry_path.parent.joinpath(trace.removeprefix("")).is_file()
+              assert ".." not in Path(trace).parts and not Path(trace).is_absolute()
+              assert retry_path.parent.joinpath(trace).is_file()
               assert isinstance(item["attempts"][0]["reason"],str) and item["attempts"][0]["reason"]
           print("PASS: bounded synthetic UX retries retain sanitized reasons and Playwright traces")
 
