@@ -172,8 +172,22 @@ def main(argv):
             validate_archive(Path(argv[3]))
             print("PASS: sanitized synthetic browser trace validated")
             return 0
-        except Exception:
-            print("FAIL: synthetic browser trace could not be sanitized safely", file=sys.stderr)
+        except Exception as error:
+            safe_reasons = {
+                "source archive is unavailable or exceeds the safety limit",
+                "source archive exceeds the member limit",
+                "source archive has no bounded Playwright event trace",
+                "trace has too many event records",
+                "trace event exceeds the size limit",
+                "trace event is not an object",
+                "trace archive is unavailable or oversized",
+                "trace archive contains unexpected members",
+                "sanitized trace manifest is invalid",
+                "trace archive contains unsanitized event data",
+                "sanitized trace event count does not match",
+            }
+            detail = str(error) if isinstance(error, ValueError) and str(error) in safe_reasons else type(error).__name__
+            print("FAIL: synthetic browser trace could not be sanitized safely (" + detail + ")", file=sys.stderr)
             return 1
     if len(argv) == 3 and argv[1] == "validate":
         try:
