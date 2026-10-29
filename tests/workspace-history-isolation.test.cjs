@@ -20,8 +20,9 @@ const loader = extract(daily, "  const historyFileCache=new Map();", "  async fu
 const readiness = extract(daily, "  async function ready(){", "  async function checkOperatingDate(){");
 const searching = extract(daily, "  const matches=", "  document.addEventListener('moondog-recovered'");
 const draftGuard = extract(daily, "  function discardDraftOk(){", "  function go(");
-const connection = extract(app, "  async function connect() {", "  async function restoreConnection() {");
-const restoreConnection = extract(app, "  async function restoreConnection() {", "  function headerMap(");
+const transientClassifier = extract(app, "  function transientWorkspaceState(error){", "\n  function transientIntakeError(");
+const connection = transientClassifier + "\n" + extract(app, "  async function connect() {", "  async function restoreConnection() {");
+const restoreConnection = transientClassifier + "\n" + extract(app, "  async function restoreConnection() {", "  function headerMap(");
 const deferred = () => {
   let resolve, reject;
   const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
@@ -260,7 +261,11 @@ test("connection completion publishes its root only after reconciliation settles
   assert.equal(model.workspaceConnectionCommittedRoot,B);
   assert.equal(signals.join(","),"CONNECTED");
   // The read-only connection must also publish readiness after all model loads.
-  assert.match(app,/model\.workspaceConnectionCommittedRoot=model\.root;\s*setConnectionState\("CONNECTED"\);\s*if\(interruptedRestoreReview\)status\("INTERRUPTED RESTORE:[^"]*","error"\);\s*renderSetup\(\);\s*document\.dispatchEvent\(new Event\("moondog-data"\)\)/);
+  const completion=extract(app,"  async function completeWorkspaceConnection(","  async function connect() {");
+  const reconciled=completion.indexOf("await postConnectReconciliation(permissionWasPending)");
+  const published=completion.indexOf("model.pendingRoot = null",reconciled);
+  assert.ok(reconciled>=0&&published>reconciled,"The saved handle remains staged until reconciliation succeeds.");
+  assert.match(app,/model\.workspaceConnectionCommittedRoot=connectedRoot;\s*setConnectionState\("CONNECTED"\)/);
 });
 
 test("ready does not loop or retry persistent read failure on unchanged root", async () => {

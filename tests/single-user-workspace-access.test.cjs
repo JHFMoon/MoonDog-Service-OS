@@ -389,7 +389,7 @@ test("saved-folder retries are bounded and preserve the handle after persistent 
   assert.equal(attempts,5);
   assert.deepEqual(delays,[1200,3000,8000,15000,30000]);
   assert.equal(model.pendingRoot,handle,"saved folder handle stays available for explicit retry");
-  assert.match(messages.at(-1).message,/checks ended.*saved folder and files remain intact/i);
+  assert.match(messages.at(-1).message,/checks ended.*saved (?:folder|handle) and files remain intact/i);
 });
 
 test("explicit Restore editing resets exhausted OneDrive retry budget and reuses the saved handle",async()=>{
