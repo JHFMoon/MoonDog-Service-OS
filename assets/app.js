@@ -1943,18 +1943,67 @@
     return effective >= filterStart ? effective : null;
   }
   function pruneDatedSnapshots(snapshots, limit = 730) { const dates = Object.keys(snapshots).sort(); return Object.fromEntries(dates.slice(-limit).map((date) => [date, snapshots[date]])); }
-  async function importNextAppointmentsFile(name, deleteAfterSuccess = false) {
-    const file = await (await sourceFileHandle(name)).getFile(), source = await file.text(), snapshot = parseNextAppointmentsCsv(source, name), key=snapshot.periodEnd||`observation-${snapshot.observationDate}`,replacing = Boolean(model.operationalMetrics.nextAppointments.snapshots[key]),prior=structuredClone(model.operationalMetrics);
+  async function importNextAppointmentsFile(name, deleteAfterSuccess = false, allowInteractiveReplacement = false) {
+    const file = await (await sourceFileHandle(name)).getFile(), source = await file.text(), snapshot = parseNextAppointmentsCsv(source, name), key=snapshot.periodEnd||`observation-${snapshot.observationDate}`,existingSnapshot=model.operationalMetrics.nextAppointments.snapshots[key],replacing=Boolean(existingSnapshot),prior=structuredClone(model.operationalMetrics);
+    const comparable = value => {
+      const volatile = new Set(["sourceFile", "importedAt", "sourceModifiedAt", "validation"]);
+      const normalize = (item, root = false) => {
+        if (Array.isArray(item)) return item.map(value => normalize(value));
+        if (item && typeof item === "object") {
+          const verifiedPeriod = root && Boolean(item.periodStart && item.periodEnd);
+          const coverageMatchesPeriod = root && Boolean(item.coverageDate && item.periodEnd && item.coverageDate === item.periodEnd);
+          return Object.fromEntries(Object.keys(item).filter(key => !(root && volatile.has(key)) && !(verifiedPeriod && key === "observationDate") && !(coverageMatchesPeriod && key === "coverageDate")).sort().map(key => [key, normalize(item[key])]));
+        }
+        return item;
+      };
+      return JSON.stringify(normalize(value, true));
+    };
+    const snapshotDuplicate = replacing && comparable(existingSnapshot) === comparable(snapshot);
     let supplemental = null;
-    try { supplemental = parseAppointmentsCreatedSummaryCsv(source, name); supplemental.sourceModifiedAt = new Date(file.lastModified).toISOString(); }
-    catch (_) { /* The NSA report may not contain the supplemental service section. */ }
-    model.operationalMetrics.nextAppointments.snapshots[key] = snapshot; model.operationalMetrics.nextAppointments.snapshots = pruneDatedSnapshots(model.operationalMetrics.nextAppointments.snapshots); model.operationalMetrics.updatedAt = now();
+    try {
+      supplemental = parseAppointmentsCreatedSummaryCsv(source, name);
+      supplemental.sourceModifiedAt = new Date(file.lastModified).toISOString();
+      // The paired summary's filter end may remain month-wide while NSA coverage advances daily.
+      supplemental.coverageDate = snapshot.periodEnd || supplemental.periodEnd || supplemental.asOfDate || "";
+    } catch (_) { /* The NSA report may not contain the supplemental service section. */ }
     const supplementalKey = supplemental ? supplementalSnapshotKey(supplemental) : null;
+    const existingSupplemental = supplementalKey ? model.operationalMetrics.supplementalReports?.snapshots?.[supplementalKey] : null;
+    const supplementalConflict = Boolean(supplemental && existingSupplemental && comparable(existingSupplemental) !== comparable(supplemental));
+    const conflictingSnapshot = replacing && !snapshotDuplicate;
+    if (conflictingSnapshot || supplementalConflict) {
+      const period = snapshot.periodEnd || snapshot.observationDate || "unverified period";
+      const reason = conflictingSnapshot ? `A different Next Appointments report for ${period} already exists.` : `A different Appointments Created summary for ${period} already exists.`;
+      if (!allowInteractiveReplacement) throw new Error(`${reason} The source was retained; select it manually and confirm an intentional replacement.`);
+      if (!window.confirm(`${reason}\n\nReplace the saved report after validating the new source? Cancel keeps the saved data and original report unchanged.`))
+        throw new Error("Replacement canceled. The saved report and original source were retained.");
+    }
+    const exactDuplicate = snapshotDuplicate && (!supplemental || Boolean(existingSupplemental && !supplementalConflict));
+    if (exactDuplicate) {
+      const check = await readJson(OPERATIONAL_METRICS_PATH, null);
+      if (comparable(check?.nextAppointments?.snapshots?.[key]) !== comparable(existingSnapshot) || supplemental && comparable(check?.supplementalReports?.snapshots?.[supplementalKey]) !== comparable(existingSupplemental))
+        throw new Error("The existing Appointments snapshots could not be verified from durable storage; the source was retained.");
+      await addHistory("next-appointments-duplicate", `Verified duplicate Next Appointments source for ${snapshot.periodEnd || "unverified period"}; saved snapshot was unchanged`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd });
+      if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted verified duplicate Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
+      renderOverviewIntelligence();
+      return;
+    }
+    const priorSnapshot = existingSnapshot;
+    if (!snapshotDuplicate) {
+      model.operationalMetrics.nextAppointments.snapshots[key] = snapshot;
+      model.operationalMetrics.nextAppointments.snapshots = pruneDatedSnapshots(model.operationalMetrics.nextAppointments.snapshots);
+    }
+    model.operationalMetrics.updatedAt = now();
     if (supplemental) { model.operationalMetrics.supplementalReports ||= { snapshots: {} }; model.operationalMetrics.supplementalReports.snapshots[supplementalKey] = supplemental; model.operationalMetrics.supplementalReports.snapshots = pruneSupplementalSnapshots(model.operationalMetrics.supplementalReports.snapshots); }
-    try { await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics); const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (JSON.stringify(check?.nextAppointments?.snapshots?.[key])!==JSON.stringify(snapshot) || supplemental && JSON.stringify(check?.supplementalReports?.snapshots?.[supplementalKey])!==JSON.stringify(supplemental)) throw new Error("The Appointments Created snapshots could not be verified after saving."); }
-    catch(error){model.operationalMetrics=prior;throw error;}
-    await addHistory("next-appointments-import", `${replacing ? "Replaced" : "Added"} Next Appointments ${snapshot.periodEnd?`snapshot through ${snapshot.periodEnd}`:'import observation; period unverified'}`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, identityConflicts: snapshot.identityConflicts.length });
-    if (supplemental) await addHistory("supplemental-report-import", "Retained Appointments Created service summary from the same report", { fileName: name, family: supplemental.family, supplementalOnly: true });
+    try {
+      await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics);
+      const check = await readJson(OPERATIONAL_METRICS_PATH, null);
+      const expectedSnapshot = snapshotDuplicate ? priorSnapshot : snapshot;
+      if (comparable(check?.nextAppointments?.snapshots?.[key]) !== comparable(expectedSnapshot) || supplemental && comparable(check?.supplementalReports?.snapshots?.[supplementalKey]) !== comparable(supplemental))
+        throw new Error("The Appointments Created snapshots could not be verified after saving.");
+    } catch(error) { model.operationalMetrics = prior; throw error; }
+    if (!snapshotDuplicate)
+      await addHistory("next-appointments-import", `${replacing ? "Replaced" : "Added"} Next Appointments ${snapshot.periodEnd ? `snapshot through ${snapshot.periodEnd}` : "import observation; period unverified"}`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, identityConflicts: snapshot.identityConflicts.length });
+    if (supplemental) await addHistory("supplemental-report-import", `${existingSupplemental ? "Replaced" : "Retained"} Appointments Created service summary from the same report`, { fileName: name, family: supplemental.family, supplementalOnly: true });
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
     renderOverviewIntelligence();
   }
@@ -3196,7 +3245,7 @@
     const s=String(source||"").replace(/\s+/g," ");if(!/\bCDK\b/i.test(s)||!/\bRepair Orders\b/i.test(s)||!/\bRO\s*#\s*:?/i.test(s))return null;const match=s.match(/All:\s*(\d+)\s+Open:\s*(\d+)\s+Working:\s*(\d+)\s+On Hold:\s*(\d+)\s+Closed:\s*(\d+)/i);if(!match)throw new Error("The CDK Repair Orders summary counts could not be verified.");return{family:"open-ro-browser-summary",sourceFile:fileName,sourceFormat:"docx",importedAt:now(),periodStart:"",periodEnd:"",variant:"browser-export",metrics:{all:Number(match[1]),open:Number(match[2]),working:Number(match[3]),onHold:Number(match[4]),closed:Number(match[5])},validation:{parser:"open-ro-browser-summary-v1",supplementalOnly:true,kpiPromotion:false,detailRowsNotRetained:true}};
   }
   async function pdfReportText(bytes,pageLimit=4) { return withLocalPdf(bytes,async pdf=>{const pages=[];for(let pageNumber=1;pageNumber<=Math.min(pdf.numPages,pageLimit);pageNumber++)pages.push(pdfTextLines(await(await pdf.getPage(pageNumber)).getTextContent()).join("\n"));return pages.join("\n__PAGE_BREAK__\n");}); }
-  function supplementalSnapshotKey(snapshot) { const date=snapshot.periodEnd||snapshot.asOfDate||snapshot.periodStart||"observation",variant=slug(snapshot.variant||"default").slice(0,90)||"default";return [snapshot.family,date,variant].join("|"); }
+  function supplementalSnapshotKey(snapshot) { const date=snapshot.coverageDate||snapshot.periodEnd||snapshot.asOfDate||snapshot.periodStart||"observation",variant=slug(snapshot.variant||"default").slice(0,90)||"default";return [snapshot.family,date,variant].join("|"); }
   function pruneSupplementalSnapshots(snapshots,limit=500) { const rows=Object.entries(snapshots||{}).sort((a,b)=>text(a[1]?.importedAt).localeCompare(text(b[1]?.importedAt)));return Object.fromEntries(rows.slice(-limit)); }
 
   async function retireKnownNonServiceSource(candidate,bytes,deleteAfterSuccess=false) {
@@ -3232,7 +3281,7 @@
       autoSourceDeleteContext.set(candidate.name, {signature:candidate.signature,relativePath:candidate.relativePath,kind,bytes});
     try {
       if (kind === "performance") await importPerformanceFile(candidate.name, deleteAfterSuccess, bytes);
-      else if (kind === "next-appointments") await importNextAppointmentsFile(candidate.name, deleteAfterSuccess);
+      else if (kind === "next-appointments") await importNextAppointmentsFile(candidate.name, deleteAfterSuccess, candidate.location === "picked");
       else if (kind === "vir") await importVirFile(candidate.name, deleteAfterSuccess);
       else if (kind === "menu-sales") await importMenuSalesFile(candidate.name, deleteAfterSuccess, bytes, layoutOverride);
       else if (kind === "csi") await importCsiFile(candidate.name, deleteAfterSuccess, bytes);
