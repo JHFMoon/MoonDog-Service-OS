@@ -1301,6 +1301,12 @@
         };
         model.autoImport.updatedAt=now();
         await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+        // OneDrive or another writer may replace the report while the ledger
+        // save awaits filesystem transactions. Verify the bytes AGAIN after
+        // that save, immediately before attempting the journaled removal.
+        const latest = await (await sourceFileHandle(name)).getFile();
+        if (!sameByteContent(await latest.arrayBuffer(), autoCleanup.bytes))
+          throw new Error(`${name} changed while cleanup intent was saved and was left in place.`);
       }
       if (location === "root") return await model.root.removeEntry(name);
       if (location === "learn") return await (await directory(["Files To Learn"], false)).removeEntry(name);
@@ -3589,6 +3595,10 @@
           if (await sha256(new Uint8Array(bytes)) !== pendingCleanup.cleanupSha256)
             throw new Error("Report changed since successful ingestion; original retained for review.");
           sourceLocations.set(candidate.name,candidate.location);
+          // A prior marker may exist only in memory if permission failed during
+          // its initial write. Re-persist it before any cleanup-only deletion.
+          // If this write is denied, the source stays and the next scan retries.
+          await writeJson(AUTO_IMPORT_PATH,model.autoImport);
           await removeSourceEntryWithByteGuard(candidate.name, bytes);
           pendingCleanup.cleanupPending = false;
           pendingCleanup.cleanupCompletedAt = now();
