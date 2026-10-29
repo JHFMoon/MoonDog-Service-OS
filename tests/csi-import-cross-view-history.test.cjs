@@ -4,6 +4,7 @@ const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
 const vm=require("node:vm");
+const crypto=require("node:crypto").webcrypto;
 const freshness=require("../assets/freshness.js");
 
 const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
@@ -13,6 +14,7 @@ function extract(first,last,label){
   return app.slice(start,end);
 }
 const ingestion=extract("  const CSI_ADVISOR_CODES = {};","  const isoCell =","CSI ingestion");
+const digestHelper=extract("  async function sha256(","  async function readFileBytes(","production SHA-256 helper");
 const evidence=extract("  function csiMetricEvidence(","  const rawVirMeetingEvidence=virMeetingEvidence","CSI evidence");
 const lineageHelper=extract("  function sourceLineageLabel(evidence) {","  function advisorNextWin(","Source lineage helper");
 const home=extract("  function renderOverviewIntelligence() {","  const renderOverviewIntelligenceBase=renderOverviewIntelligence","Home renderer");
@@ -43,7 +45,7 @@ test("synthetic CSI import keeps period and lineage aligned through durable stor
   let durable=null;
   const history=[];
   const context=vm.createContext({
-    model,ui,document:{createElement:()=>node()},structuredClone,
+    model,ui,document:{createElement:()=>node()},structuredClone,crypto,TextEncoder,
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
     now:()=>"2026-10-07T15:00:00Z",localDateKey:()=>"2026-10-07",
     text:value=>value==null?"":String(value),norm:value=>String(value??"").trim().toLowerCase(),
@@ -76,7 +78,7 @@ test("synthetic CSI import keeps period and lineage aligned through durable stor
     compactMoney:value=>"$"+String(Math.round(value/1000))+"K",
     meetingEscape:value=>String(value),console
   });
-  vm.runInContext(ingestion+"\n"+evidence+"\n"+lineageHelper+"\n"+home+"\n"+meeting+
+  vm.runInContext(digestHelper+"\n"+ingestion+"\n"+evidence+"\n"+lineageHelper+"\n"+home+"\n"+meeting+
     "\nthis.importCsiFile=importCsiFile;this.npsSummary=npsSummary;this.csiMetricEvidence=csiMetricEvidence;"+
     "this.renderHome=renderOverviewIntelligence;this.renderMeetingView=meetingAdvisorTv;",context);
 
@@ -145,7 +147,7 @@ test("repeated synthetic CSI refreshes retain one survey identity and bound the 
   let durable=null;
   const history=[];
   const context=vm.createContext({
-    model,structuredClone,
+    model,structuredClone,crypto,TextEncoder,
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
     now:()=>"2026-10-07T15:00:00Z",localDateKey:()=>"2026-10-07",
     text:value=>value==null?"":String(value),norm:value=>String(value??"").trim().toLowerCase(),
@@ -158,7 +160,7 @@ test("repeated synthetic CSI refreshes retain one survey identity and bound the 
     addHistory:async(type,message,details)=>{history.push({type,message,details});},
     removeSourceEntry:async()=>{},renderAll:()=>{},renderMeeting:()=>{},console
   });
-  vm.runInContext(ingestion+"\n"+evidence+"\nthis.importCsiFile=importCsiFile;",context);
+  vm.runInContext(digestHelper+"\n"+ingestion+"\n"+evidence+"\nthis.importCsiFile=importCsiFile;",context);
   for(let index=0;index<260;index++)
     await context.importCsiFile("synthetic-refresh-"+index+".csv");
   const csi=model.operationalMetrics.csi;
