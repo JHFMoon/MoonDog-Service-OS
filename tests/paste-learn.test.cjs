@@ -49,7 +49,7 @@ test("Recognizes CDK via verified header and does not guess unrelated source",()
  assert.equal(e.detectFormat(rows(1)).sourceId,"cdk-repair-orders");
  assert.equal(e.detectFormat("Employee note about an RO").status,"unknown");
 });
-test("Private declarative Menu Sales layouts map required fields and keep grouping non-executable",()=>{
+test("Private report layouts fingerprint sanitized mappings and preserve same-sheet variants",()=>{
  const e=engine(),columns={
    account:"Dealer Account",advisorCode:"Advisor #",advisor:"Advisor Name",ros:"Repair Order Count",
    presented:"Presentation Rate",sold:"Menu Sold",penetration:"Penetration Rate",menu:"Menu Revenue",
@@ -58,13 +58,59 @@ test("Private declarative Menu Sales layouts map required fields and keep groupi
  const first=e.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,columns});
  assert.equal(first.grouping,"account-summary-advisor-rows");
  assert.equal(first.writeEnabled,false);assert.equal(first.approved,true);assert.equal(first.version,1);
+ assert.equal(first.layoutSchemaVersion,2);assert.match(first.layoutFingerprint,/^layout-v2-[a-f0-9]{16}$/);
+ assert.equal(first.minimumConfidence,1);
+ assert.equal(first.reportDateSemantics,"Parameters-sheet-report-date-range");
+ assert.equal(first.validationProfile,"menu-sales-account-and-advisor-reconciliation-v1");
+ assert.deepEqual(JSON.parse(JSON.stringify(first.sectionRules)),{
+   summary:"numeric-ros-without-advisor-code",advisor:"valid-advisor-code-and-identity",
+   total:"ignore-normalized-account-total"
+ });
+ assert.equal(JSON.stringify(first).includes("Synthetic Customer"),false);
  assert.throws(()=>e.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,columns:{...columns,hours:"Total Revenue"}}),/different source column/);
  assert.throws(()=>e.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,columns:{...columns,hours:""}}),/Map every required/);
  assert.throws(()=>e.safeReportLayout({family:"unsupported",sheetName:"Menu Results",headerRow:2,columns}),/supported report family/);
- const next=e.safeReportLayout({...first,columns:{...columns,advisor:"Advisor Display"}},[first]);
- assert.equal(next.version,2);assert.equal(next.previous.version,1);
- assert.equal(next.grouping,"account-summary-advisor-rows");
- assert.equal(next.writeEnabled,false);
+
+ const caseEquivalent=e.safeReportLayout({...first,columns:{...columns,advisor:"ADVISOR NAME"}},[first]);
+ assert.equal(caseEquivalent.id,first.id,"case-only header changes must reuse the existing mapping identity");
+ assert.equal(caseEquivalent.layoutFingerprint,first.layoutFingerprint,"fingerprints follow case-insensitive runtime header matching");
+ assert.equal(caseEquivalent.version,2);
+ const uppercaseColumns=Object.fromEntries(Object.entries(columns).map(([field,label])=>[field,label.toUpperCase()]));
+ const allHeadersCaseVariant=e.safeReportLayout({...first,columns:uppercaseColumns},[first,caseEquivalent]);
+ assert.equal(allHeadersCaseVariant.id,first.id,"all case-equivalent source headers reuse one mapping identity");
+ assert.equal(allHeadersCaseVariant.layoutFingerprint,first.layoutFingerprint);
+ const revalidated=e.safeReportLayout({...first},[first]);
+ assert.equal(revalidated.id,first.id);assert.equal(revalidated.version,2);
+ assert.equal(revalidated.previous.layoutFingerprint,first.layoutFingerprint);
+ const variant=e.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,
+   columns:{...columns,advisor:"Advisor Display"}},[revalidated]);
+ assert.notEqual(variant.id,revalidated.id);
+ assert.notEqual(variant.layoutFingerprint,revalidated.layoutFingerprint);
+ assert.equal(variant.version,1);
+ assert.equal(revalidated.columns.advisor,"Advisor Name");
+ assert.equal(variant.columns.advisor,"Advisor Display");
+ assert.equal(variant.writeEnabled,false);
+ assert.throws(()=>e.safeReportLayout({...first,columns:{...columns,advisor:"Tampered Header"}},[first]),/fingerprint/);
+ assert.throws(()=>e.safeReportLayout({...first,validationProfile:"untrusted"},[first]),/fingerprint|profile/);
+});
+
+test("Legacy report layout identifiers remain readable and migrate without losing their mapped variant",()=>{
+ const e=engine(),columns={
+   account:"Dealer Account",advisorCode:"Advisor #",advisor:"Advisor Name",ros:"Repair Order Count",
+   presented:"Presentation Rate",sold:"Menu Sold",penetration:"Penetration Rate",menu:"Menu Revenue",
+   total:"Total Revenue",perMenu:"Revenue Per Menu",hours:"Hours Per Menu"
+ };
+ const sheetName="Menu Results",legacyId="report-layout-menu-sales-"+Array.from(sheetName)
+   .map(char=>char.codePointAt(0).toString(16)).join("-");
+ const legacy={id:legacyId,family:"menu-sales",sheetName,headerRow:2,columns,
+   version:1,approved:true,enabled:true,writeEnabled:false,grouping:"account-summary-advisor-rows"};
+ const compatible=e.safeReportLayout(legacy,[]);
+ assert.equal(compatible.id,legacyId);assert.match(compatible.layoutFingerprint,/^layout-v2-[a-f0-9]{16}$/);
+ const reparsed=e.safeReportLayout(compatible,[]);
+ assert.equal(reparsed.id,legacyId);
+ const updated=e.safeReportLayout({family:"menu-sales",sheetName,headerRow:2,columns},[legacy]);
+ assert.equal(updated.id,legacyId);assert.equal(updated.version,2);
+ assert.equal(updated.previous.layoutSchemaVersion,1);
 });
 test("Teaches table headers and field mappings as a versioned non-writing rule",()=>{
  const e=engine(),headers=["RO Number","Next Status","Technician"];
