@@ -245,7 +245,9 @@ test("failed delayed manual hydration clears the uncommitted root and keeps the 
       model.workspaceConnectionCommittedRoot = model.root;
       return "connected";
     },
-    setImmediate
+    setImmediate,
+    setTimeout:()=>0,
+    clearTimeout:()=>{}
   });
   const connectionLock = transientClassifier + "\nfunction scheduleSavedConnectionRetry(){}\n" + extract(app, "  let workspaceConnectionBusy=false;", "  async function completeWorkspaceConnection(");
   const connectFunction = extract(app, "  async function connect() {", "  async function restoreConnection()");
