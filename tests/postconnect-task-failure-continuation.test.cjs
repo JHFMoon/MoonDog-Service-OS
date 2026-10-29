@@ -32,8 +32,7 @@ test("a failed post-connect task releases the scan slot and does not starve late
     },
     ensurePreviousMonthSummary:async()=>{calls.push("Month-end summary");busyAtEntry.push(context.postConnectionScanBusy);},
     ensureDailyFocus:async()=>{calls.push("Daily focus");busyAtEntry.push(context.postConnectionScanBusy);},
-    scanAppointmentFiles:async()=>{calls.push("Appointment sources");busyAtEntry.push(context.postConnectionScanBusy);},
-    scanPerformanceFiles:async()=>{calls.push("Performance sources");busyAtEntry.push(context.postConnectionScanBusy);},
+    scanAppointmentAndPerformanceFiles:async()=>{calls.push("Appointment and performance sources");busyAtEntry.push(context.postConnectionScanBusy);},
     ensureMeetingCycleBaseline:async()=>{calls.push("Meeting baseline");busyAtEntry.push(context.postConnectionScanBusy);},
     scanRecoveryBackups:async()=>{calls.push("Recovery backups");busyAtEntry.push(context.postConnectionScanBusy);},
     runVerifiedUpdateFollowup:async()=>{calls.push("Verified update follow-up");busyAtEntry.push(context.postConnectionScanBusy);},
@@ -52,11 +51,11 @@ test("a failed post-connect task releases the scan slot and does not starve late
   await delayedStart();
 
   assert.deepEqual(calls,[
-    "Report inbox","Month-end summary","Daily focus","Appointment sources",
-    "Performance sources","Meeting baseline","Recovery backups",
+    "Report inbox","Month-end summary","Daily focus","Appointment and performance sources",
+    "Meeting baseline","Recovery backups",
     "Verified update follow-up","Recovery rendered"
   ],"one retryable source failure must not starve independent queued maintenance");
-  assert.deepEqual(busyAtEntry,Array(8).fill(true),
+  assert.deepEqual(busyAtEntry,Array(7).fill(true),
     "each awaited task runs within the serialized post-connection slot");
   assert.equal(context.postConnectionScanBusy,false,
     "the scheduler releases the exclusion after the queue settles");

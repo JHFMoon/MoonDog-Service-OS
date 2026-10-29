@@ -144,8 +144,7 @@ test("post-connection maintenance yields between serialized jobs and continues a
     folderWatchScan: run("Report inbox"),
     ensurePreviousMonthSummary: run("Month-end summary"),
     ensureDailyFocus: run("Daily focus"),
-    scanAppointmentFiles: run("Appointment sources"),
-    scanPerformanceFiles: run("Performance sources"),
+    scanAppointmentAndPerformanceFiles: run("Appointment and performance sources"),
     ensureMeetingCycleBaseline: run("Meeting baseline"),
     scanRecoveryBackups: run("Recovery backups"),
     runVerifiedUpdateFollowup: run("Verified update follow-up"),
@@ -169,8 +168,8 @@ test("post-connection maintenance yields between serialized jobs and continues a
   await scheduledStart();
 
   assert.deepEqual(order, [
-    "Report inbox", "Month-end summary", "Daily focus", "Appointment sources",
-    "Performance sources", "Meeting baseline", "Recovery backups", "Verified update follow-up"
+    "Report inbox", "Month-end summary", "Daily focus", "Appointment and performance sources",
+    "Meeting baseline", "Recovery backups", "Verified update follow-up"
   ]);
   assert.equal(maxActive, 1, "Background jobs must stay serialized.");
   assert.equal(heartbeatTicks, order.length, "The event loop gets a yield before each background job.");
