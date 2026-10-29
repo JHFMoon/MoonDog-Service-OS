@@ -72,19 +72,40 @@ def _clean(value):
         return value
     return "[redacted-value]"
 
-def _is_safe(value) -> bool:
+def _unsafe_category(value):
     if isinstance(value, dict):
         for key, child in value.items():
             if CREDENTIAL_KEY.search(str(key)) and child != "[redacted]":
-                return False
-            if not _is_safe(child):
-                return False
-        return True
+                return "credential-field"
+            category = _unsafe_category(child)
+            if category:
+                return category
+        return None
     if isinstance(value, list):
-        return all(_is_safe(item) for item in value)
+        for item in value:
+            category = _unsafe_category(item)
+            if category:
+                return category
+        return None
     if isinstance(value, str):
-        return _clean_string(value) == value
-    return True
+        if _clean_string(value) == value:
+            return None
+        for category, pattern in (
+            ("quoted-path", QUOTED_PATH),
+            ("file-url", FILE_URL),
+            ("web-url", WEB_URL),
+            ("auth-value", AUTH_VALUE),
+            ("credential-text", CREDENTIAL_ASSIGNMENT),
+            ("windows-path", WIN_PATH),
+            ("posix-path", POSIX_SUFFIX),
+        ):
+            if pattern.search(value):
+                return category
+        return "unclassified-residue"
+    return None
+
+def _is_safe(value) -> bool:
+    return _unsafe_category(value) is None
 
 def _read_events(source: Path):
     if not source.is_file() or source.stat().st_size > MAX_ARCHIVE_BYTES:
@@ -163,8 +184,11 @@ def validate_archive(archive_path: Path):
         if not line:
             continue
         event = json.loads(line.decode("utf-8"))
-        if not isinstance(event, dict) or not _is_safe(event):
-            raise ValueError("trace archive contains unsanitized event data")
+        if not isinstance(event, dict):
+            raise ValueError("trace archive contains a non-object event")
+        category = _unsafe_category(event)
+        if category:
+            raise ValueError("trace archive has unsafe " + category)
         count += 1
     if count != manifest["eventCount"]:
         raise ValueError("sanitized trace event count does not match")
@@ -193,9 +217,18 @@ def main(argv):
                 "trace archive contains unexpected members",
                 "sanitized trace manifest is invalid",
                 "trace archive contains unsanitized event data",
+                "trace archive contains a non-object event",
                 "sanitized trace event count does not match",
             }
-            detail = str(error) if isinstance(error, ValueError) and str(error) in safe_reasons else type(error).__name__
+            detail = str(error) if isinstance(error, ValueError) and (
+                str(error) in safe_reasons or str(error) in {
+                    "trace archive has unsafe " + category for category in (
+                        "credential-field", "quoted-path", "file-url", "web-url",
+                        "auth-value", "credential-text", "windows-path",
+                        "posix-path", "unclassified-residue",
+                    )
+                }
+            ) else type(error).__name__
             print("FAIL: synthetic browser trace could not be sanitized safely (" + detail + ")", file=sys.stderr)
             return 1
     if len(argv) == 3 and argv[1] == "validate":
