@@ -22,7 +22,7 @@ const searching = extract(daily, "  const matches=", "  document.addEventListene
 const draftGuard = extract(daily, "  function discardDraftOk(){", "  function go(");
 const transientClassifier = extract(app, "  function transientWorkspaceState(error){", "\n  function transientIntakeError(");
 const connection = transientClassifier + "\n" + extract(app, "  async function connect() {", "  async function restoreConnection() {");
-const restoreConnection = transientClassifier + "\n" + extract(app, "  async function restoreConnection() {", "  function headerMap(");
+const restoreConnection = "function scheduleSavedConnectionRetry(){}\n" + transientClassifier + "\n" + extract(app, "  async function restoreConnection() {", "  function headerMap(");
 const deferred = () => {
   let resolve, reject;
   const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
@@ -417,6 +417,7 @@ test("saved-folder read failure retains the handle and reports connection failur
     __moondogDailyUI:{confirmWorkspaceChange:()=>true},
     window:{showDirectoryPicker:async()=>pending},
     finishConnection:async()=>{throw Object.assign(new Error("Synthetic delayed read failure"),{name:"NotReadableError"});},
+    setTimeout:()=>0,clearTimeout:()=>{},
     writeAuthority,setConnectionState:(state,message)=>{states.push(state);messages.push(message);}
   });
   vm.runInContext(connection+"\nthis.connect=connect;",context);

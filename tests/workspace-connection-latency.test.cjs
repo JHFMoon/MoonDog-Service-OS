@@ -13,8 +13,9 @@ function extract(text, first, last) {
   assert.ok(end > start, "Missing production boundary: " + last);
   return text.slice(start, end);
 }
-const transientClassifier = extract(app, "  function transientWorkspaceState(error){", "\n  function transientIntakeError(");\nconst connectionCore = transientClassifier + "\n" + extract(app, "  let workspaceConnectionBusy=false;", "  async function connect() {");
-const restoreConnection = extract(app, "  async function restoreConnection() {", "  function headerMap(");
+const transientClassifier = extract(app, "  function transientWorkspaceState(error){", "\n  function transientIntakeError(");
+const connectionCore = transientClassifier + "\nfunction scheduleSavedConnectionRetry(){}\n" + extract(app, "  let workspaceConnectionBusy=false;", "  async function connect() {");
+const restoreConnection = "function scheduleSavedConnectionRetry(){}\n" + extract(app, "  async function restoreConnection() {", "  function headerMap(");
 const connectionStart = app.indexOf("    const connectedRoot=model.root;");
 const connectionEnd = app.indexOf("\n  }\n  async function postConnectReconciliation(", connectionStart);
 assert.ok(connectionStart >= 0 && connectionEnd > connectionStart);
