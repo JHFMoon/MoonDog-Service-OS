@@ -67,7 +67,7 @@ function setup({ mode = "appointment-removal-failed" } = {}) {
     referenceOnlyDocumentType: () => null
   });
   vm.runInContext(candidateNeedsImport + autoSurveyFolder + "\nthis.scan = autoSurveyFolder;", context);
-  return {state, model, name, signature, context, scan: () => context.scan()};
+  return {state, model, name, signature, item, context, scan: () => context.scan()};
 }
 
 test("verified auto-import removes a report and records it as imported", async () => {
@@ -102,17 +102,20 @@ for (const mode of ["appointment-removal-failed", "cleanup-throws"]) {
   });
 }
 
-test("a changed report is never removed by a cleanup retry", async () => {
+test("changed bytes with a new same-path signature are held for review", async () => {
   const h = setup();
   await h.scan();
   h.state.bytes = new Uint8Array([1, 2, 4]);
+  h.item.signature = h.signature + "|changed-size-or-modified-time";
   const second = await h.scan();
   assert.equal(h.state.imports, 1);
   assert.equal(h.state.removals, 0);
   assert.equal(h.state.present, true);
   assert.equal(h.state.moved, 0);
-  assert.equal(second.cleanupPending.length, 1);
+  assert.deepEqual(second.cleanupReviewRequired, [h.name]);
   assert.equal(h.model.autoImport.seen[h.signature].cleanupPending, true);
+  assert.equal(h.model.autoImport.seen[h.item.signature].cleanupReviewRequired, true);
+  assert.match(h.state.status.at(-1), /remain in Report Inbox for review/);
 });
 
 test("a transient import failure does not schedule deletion", async () => {
