@@ -3552,7 +3552,7 @@
     if(candidate.readError)return false;
     const seen=model.autoImport.seen?.[candidate.signature];
     if(candidate.location==="inbox")
-      return Boolean(seen?.cleanupPending) || !(seen?.kind==="appointments"&&seen.importedAt)
+      return Boolean(seen?.cleanupPending || seen?.cleanupReviewRequired || seen?.cleanupNeedsReview) || !(seen?.kind==="appointments"&&seen.importedAt)
         &&!((seen?.kind==="open-ro"||seen?.kind==="open-ro-docx")
           &&(seen.manualImportRequired||seen.importedAt));
     return !seen||Boolean(seen.movedAt);
@@ -3571,7 +3571,7 @@
       const present=new Set(candidates.map(item=>item.relativePath)),stable=new Set();
       for(const candidate of candidates){const prior=folderWatch.pending.get(candidate.relativePath);if(candidate.readError){if(!prior?.readPending)recordDiagnostic("REPORT INBOX PENDING","Temporary file read failure; retry scheduled");folderWatch.pending.set(candidate.relativePath,{readPending:true,firstSeenAt:prior?.firstSeenAt||now()});continue;}if(/^~\$/.test(candidate.name)){folderWatch.pending.set(candidate.relativePath,{temporary:true,firstSeenAt:prior?.firstSeenAt||now()});continue;}if(!candidateNeedsImport(candidate)){folderWatch.pending.delete(candidate.relativePath);continue;}if(prior?.signature===candidate.signature){prior.confirmations+=1;if(prior.confirmations>=2)stable.add(candidate.signature);}else{folderWatch.pending.set(candidate.relativePath,{signature:candidate.signature,confirmations:1,firstSeenAt:now()});recordDiagnostic("REPORT INBOX PENDING","File is still awaiting stability confirmation");}}
       for(const name of [...folderWatch.pending.keys()])if(!present.has(name))folderWatch.pending.delete(name);
-      if(stable.size){watchStatus("IMPORTING");const scrollX=window.scrollX,scrollY=window.scrollY,result=await autoSurveyFolder(stable);for(const candidate of candidates.filter(item=>stable.has(item.signature)))folderWatch.pending.delete(candidate.relativePath);renderAll();renderSetup();renderRecovery();window.scrollTo(scrollX,scrollY);folderWatch.lastChecked=now();if(result.reviewRequired?.length){watchStatus("OPEN RO REVIEW REQUIRED",`${result.reviewRequired.length} recognized Open RO report(s) remain in Report Inbox. Choose Import Report to verify the source and roster.`);}else if(result.cleanupPending?.length){watchStatus("REPORT CLEANUP RETRY PENDING",`${result.cleanupPending.length} report(s) were saved, but original source deletion did not finish. Cleanup will retry without importing again.`);}else if(result.imported.length){watchStatus("REPORT INBOX WATCHING",`${result.imported.length} supported report${result.imported.length===1?"":"s"} updated automatically`);recordDiagnostic("REPORT INBOX WATCH",`${result.imported.length} supported source file(s) imported automatically from the Report Inbox`);}else if(result.cleaned?.length){watchStatus("REPORT INBOX WATCHING",`${result.cleaned.length} previously ingested file(s) were deleted after verified retry.`);}else watchStatus(result.retained.length?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",result.learned.length?`${result.learned.length} unsupported or failed file(s) moved safely to Files To Learn.`:"");}
+      if(stable.size){watchStatus("IMPORTING");const scrollX=window.scrollX,scrollY=window.scrollY,result=await autoSurveyFolder(stable);for(const candidate of candidates.filter(item=>stable.has(item.signature)))folderWatch.pending.delete(candidate.relativePath);renderAll();renderSetup();renderRecovery();window.scrollTo(scrollX,scrollY);folderWatch.lastChecked=now();if(result.cleanupReviewRequired?.length){watchStatus("REPORT CLEANUP REVIEW REQUIRED",`${result.cleanupReviewRequired.length} source file(s) changed identity after verified ingestion. They remain in Report Inbox; review before re-import or deletion.`);}else if(result.reviewRequired?.length){watchStatus("OPEN RO REVIEW REQUIRED",`${result.reviewRequired.length} recognized Open RO report(s) remain in Report Inbox. Choose Import Report to verify the source and roster.`);}else if(result.cleanupPending?.length){watchStatus("REPORT CLEANUP RETRY PENDING",`${result.cleanupPending.length} report(s) were saved, but original source deletion did not finish. Cleanup will retry without importing again.`);}else if(result.imported.length){watchStatus("REPORT INBOX WATCHING",`${result.imported.length} supported report${result.imported.length===1?"":"s"} updated automatically`);recordDiagnostic("REPORT INBOX WATCH",`${result.imported.length} supported source file(s) imported automatically from the Report Inbox`);}else if(result.cleaned?.length){watchStatus("REPORT INBOX WATCHING",`${result.cleaned.length} previously ingested file(s) were deleted after verified retry.`);}else watchStatus(result.retained.length?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",result.learned.length?`${result.learned.length} unsupported or failed file(s) moved safely to Files To Learn.`:"");}
       else{folderWatch.lastChecked=now();const pendingManual=candidates.filter(item=>item.location==="inbox"&&model.autoImport.seen?.[item.signature]?.manualImportRequired).length;if(pendingManual)watchStatus("OPEN RO REVIEW REQUIRED",`${pendingManual} recognized Open RO report(s) are ready in Import Report for explicit roster verification.`);else if(legacyCleanupReview.length)watchStatus("CLEANUP REVIEW REQUIRED",`${legacyCleanupReview.length} previously imported appointment source(s) are still present without verified cleanup provenance. Review the original files before manual removal; the Dashboard will not auto-delete legacy files.`);else watchStatus(folderWatch.pending.size?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",folderWatch.pending.size?`${folderWatch.pending.size} file(s) remain pending stability or temporary read recovery.`:"");}
     }catch(error){if(error.name==="NotFoundError"){stopFolderWatch("REPORT INBOX MISSING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox is missing");}else if(error.name==="NotAllowedError"||error.name==="SecurityError"){stopFolderWatch("FOLDER PERMISSION REQUIRED");recordDiagnostic("REPORT INBOX WATCH","Folder permission error paused watching");}else{watchStatus("REPORT INBOX ERROR","The last scan failed; Service Operations Dashboard will retry automatically.");recordDiagnostic("REPORT INBOX WATCH",`Report Inbox scan failed (${error.name||"Error"})`);}}finally{folderWatch.busy=false;}
   }
@@ -3580,20 +3580,51 @@
     for (const candidate of candidates) { candidate.modified=candidate.file.lastModified; candidate.structurePriority=10; if (/\.csv$/i.test(candidate.name)) { const start=(await candidate.file.slice(0,160).text()).trim().toLowerCase(); candidate.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     candidates.sort((a, b) => a.structurePriority - b.structurePriority || a.modified - b.modified || a.name.localeCompare(b.name, undefined, { numeric: true }));
     model.autoImport.seen ||= {};
-    const imported = [], learned = [], retired = [], retained = [], reviewRequired = [], cleaned = [], cleanupPending = [];
+    const imported = [], learned = [], retired = [], retained = [], reviewRequired = [], cleaned = [], cleanupPending = [], cleanupReviewRequired = [];
     let ledgerChanged = false, pdfFailureMessage="";
     for (const candidate of candidates.filter((item)=>item.signature).filter(candidateNeedsImport).filter((item) => !eligibleSignatures || eligibleSignatures.has(item.signature))) {
       let kind = null, bytes = null;
       try {
+        // A changed timestamp/size yields a new watch signature. Match cleanup
+        // by original path too, so edited content is held instead of re-imported.
+        const priorPendingCleanup = Object.entries(model.autoImport.seen).find(([priorSignature, entry]) =>
+          priorSignature !== candidate.signature && entry?.cleanupPending && entry.relativePath === candidate.relativePath);
+        if (priorPendingCleanup) {
+          const [priorSignature, prior] = priorPendingCleanup;
+          prior.cleanupNeedsReview = true;
+          prior.cleanupReason = "The source identity changed after its report was saved; review the retained file before cleanup or re-import.";
+          model.autoImport.seen[candidate.signature] = {
+            fileName:candidate.name,relativePath:candidate.relativePath,cleanupReviewRequired:true,
+            priorCleanupSignature:priorSignature,cleanupReason:prior.cleanupReason,detectedAt:now()
+          };
+          ledgerChanged=true;retained.push(candidate.name);cleanupReviewRequired.push(candidate.name);
+          recordDiagnostic("REPORT INBOX CLEANUP","Source identity changed after verified ingestion; retained for review without re-import");
+          continue;
+        }
         const pendingCleanup = model.autoImport.seen[candidate.signature];
+        if (pendingCleanup?.cleanupNeedsReview || pendingCleanup?.cleanupReviewRequired) {
+          retained.push(candidate.name);cleanupReviewRequired.push(candidate.name);
+          recordDiagnostic("REPORT INBOX CLEANUP","Changed or ambiguous source retained for review; automatic deletion and re-import are blocked");
+          continue;
+        }
         if (pendingCleanup?.cleanupPending) {
           // Reconnect/retry is cleanup-only. Check BOTH the original Inbox path
           // and the saved exact-byte digest before deleting anything.
-          if (candidate.location !== "inbox" || pendingCleanup.relativePath !== candidate.relativePath || !pendingCleanup.cleanupSha256)
-            throw new Error("Verified cleanup requires the original Report Inbox path and digest.");
+          if (candidate.location !== "inbox" || pendingCleanup.relativePath !== candidate.relativePath || !pendingCleanup.cleanupSha256) {
+            pendingCleanup.cleanupNeedsReview=true;
+            pendingCleanup.cleanupReason="Verified cleanup requires the original Report Inbox path and digest.";
+            ledgerChanged=true;retained.push(candidate.name);cleanupReviewRequired.push(candidate.name);
+            recordDiagnostic("REPORT INBOX CLEANUP","Original source identity could not be verified; file retained for review");
+            continue;
+          }
           bytes = await candidate.file.arrayBuffer();
-          if (await sha256(new Uint8Array(bytes)) !== pendingCleanup.cleanupSha256)
-            throw new Error("Report changed since successful ingestion; original retained for review.");
+          if (await sha256(new Uint8Array(bytes)) !== pendingCleanup.cleanupSha256) {
+            pendingCleanup.cleanupNeedsReview=true;
+            pendingCleanup.cleanupReason="Report bytes changed after successful ingestion; review the retained file before cleanup or re-import.";
+            ledgerChanged=true;retained.push(candidate.name);cleanupReviewRequired.push(candidate.name);
+            recordDiagnostic("REPORT INBOX CLEANUP","Source bytes changed after verified ingestion; file retained for review without re-import");
+            continue;
+          }
           sourceLocations.set(candidate.name,candidate.location);
           // A prior marker may exist only in memory if permission failed during
           // its initial write. Re-persist it before any cleanup-only deletion.
@@ -3674,10 +3705,11 @@
     const learnNote = learned.length ? ` ${learned.length} file${learned.length === 1 ? " was" : "s were"} moved safely to Files To Learn.` : "", retiredNote = retired.length ? ` ${retired.length} known non-service file${retired.length === 1 ? " was" : "s were"} retired from Service OS intake.` : "", retainedNote = retained.length ? ` ${retained.length} file${retained.length === 1 ? " remains" : "s remain"} in place because it could not be moved safely.` : "";
     const cleanupNote = cleanupPending.length ? ` ${cleanupPending.length} ingested file${cleanupPending.length===1?"":"s"} still need${cleanupPending.length===1?"s":""} source deletion; the Dashboard will retry without re-importing.` : "";
     const cleanedNote = cleaned.length ? ` Deleted ${cleaned.length} previously ingested source file${cleaned.length===1?"":"s"} after verified retry.` : "";
-    if (imported.length) status(`Folder checked automatically. Imported and removed ${imported.length} verified source file${imported.length === 1 ? "" : "s"}.${cleanedNote}${cleanupNote}${retiredNote}${learnNote}${retainedNote}${reviewNote}`, retained.length||reviewRequired.length ? "info" : "success");
-    else if (retired.length || learned.length || retained.length || reviewRequired.length || cleaned.length) status(`Folder checked automatically.${cleanedNote}${cleanupNote}${retiredNote}${learnNote}${retainedNote}${reviewNote}`, retained.length||reviewRequired.length ? "info" : "success");
+    const cleanupReviewNote = cleanupReviewRequired.length ? ` ${cleanupReviewRequired.length} ingested source file${cleanupReviewRequired.length===1?"":"s"} changed identity and remain in Report Inbox for review; no re-import or deletion was attempted.` : "";
+    if (imported.length) status(`Folder checked automatically. Imported and removed ${imported.length} verified source file${imported.length === 1 ? "" : "s"}.${cleanedNote}${cleanupNote}${cleanupReviewNote}${retiredNote}${learnNote}${retainedNote}${reviewNote}`, retained.length||reviewRequired.length ? "info" : "success");
+    else if (retired.length || learned.length || retained.length || reviewRequired.length || cleaned.length) status(`Folder checked automatically.${cleanedNote}${cleanupNote}${cleanupReviewNote}${retiredNote}${learnNote}${retainedNote}${reviewNote}`, retained.length||reviewRequired.length ? "info" : "success");
     if(pdfFailureMessage)status(pdfFailureMessage,"error");
-    return { imported, retired, learned, retained, reviewRequired, cleaned, cleanupPending, initialized: false };
+    return { imported, retired, learned, retained, reviewRequired, cleaned, cleanupPending, cleanupReviewRequired, initialized: false };
   }
 
   async function importReturnedWorkbook(selectedName, deleteAfterSuccess = false, providedBytes = null) {
