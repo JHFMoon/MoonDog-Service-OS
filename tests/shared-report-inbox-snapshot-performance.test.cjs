@@ -71,7 +71,7 @@ test("Report Inbox entry collection reads the directory once and preserves handl
 test("read-only report selectors consume one shared inbox snapshot without relisting the folder", async () => {
   const inboxListing = [
     makeFile("appointments.xlsx"),
-    makeFile("Open RO current.xlsx"),
+    makeFile("MoonDog Open RO current.xlsx"),
     makeFile("pre-ros.pdf"),
     makeFile("~$sync.xlsx"),
     makeFile("folder", "directory")
@@ -90,12 +90,12 @@ test("read-only report selectors consume one shared inbox snapshot without relis
   await context.scanAppointments(inboxListing);
 
   assert.deepEqual(context.ui.sourceSelect.children.map(item => item.value).filter(Boolean),
-    ["appointments.xlsx", "Open RO current.xlsx"]);
+    ["appointments.xlsx", "MoonDog Open RO current.xlsx"]);
   assert.deepEqual(context.ui.performanceSourceSelect.children.map(item => item.value).filter(Boolean),
     ["appointments.xlsx"]);
   assert.deepEqual(context.ui.appointmentSource.children.map(item => item.value).filter(Boolean),
-    ["appointments.xlsx", "Open RO current.xlsx", "pre-ros.pdf"]);
-  assert.equal(context.sourceLocations.get("Open RO current.xlsx"), "inbox");
+    ["appointments.xlsx", "MoonDog Open RO current.xlsx", "pre-ros.pdf"]);
+  assert.equal(context.sourceLocations.get("MoonDog Open RO current.xlsx"), "inbox");
 });
 
 test("the post-connect appointment and performance scans share one enumerated snapshot", async () => {
