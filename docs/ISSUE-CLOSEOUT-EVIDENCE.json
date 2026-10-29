@@ -163,6 +163,62 @@
     "212": {
       "criteria": {},
       "package_pr": null
+    },
+    "571": {
+      "package_pr": 604,
+      "criteria": {
+        "571-01": {
+          "kind": "test",
+          "pr": 591,
+          "tests": [
+            "tests/test_security_workflows.py"
+          ]
+        },
+        "571-02": {
+          "kind": "test",
+          "pr": 594,
+          "tests": [
+            "tests/test_beta_change_scope.py"
+          ]
+        },
+        "571-03": {
+          "kind": "test",
+          "pr": 570,
+          "tests": [
+            "tests/test_guarded_merge_policy.py"
+          ]
+        },
+        "571-04": {
+          "kind": "runtime",
+          "pr": 568,
+          "tests": [
+            "tests/openro-inbox-manual-review-routing.test.cjs"
+          ]
+        },
+        "571-05": {
+          "kind": "runtime",
+          "pr": 605,
+          "tests": [
+            "tests/paste-learn.test.cjs"
+          ]
+        },
+        "571-06": {
+          "kind": "runtime",
+          "pr": 604,
+          "tests": [
+            "tests/bounded-ux-retry.test.cjs",
+            "tests/test_ux_trace_sanitizer.py"
+          ]
+        },
+        "571-07": {
+          "kind": "runtime",
+          "pr": 208,
+          "tests": [
+            "tests/test_unreadable_learned_retry.py",
+            "tests/verified-update-journal.test.cjs"
+          ]
+        }
+      }
     }
   }
 }
