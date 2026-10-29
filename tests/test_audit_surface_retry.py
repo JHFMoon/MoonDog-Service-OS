@@ -2,7 +2,8 @@
 import unittest
 from pathlib import Path
 
-from scripts.audit_surface_retry import DownloadFailure, retry_transient
+from scripts.audit_surface_retry import (DownloadFailure, classify_api_failure,
+                                         retry_transient, safe_api_operation)
 
 
 class SurfaceRetryTests(unittest.TestCase):
@@ -55,6 +56,36 @@ class SurfaceRetryTests(unittest.TestCase):
                                         sleep=sleeps.append,jitter=lambda:100),"complete")
         self.assertEqual(sleeps,[1.25,2.25])
 
+    def test_github_api_failure_classification_is_fixed_and_redacted(self):
+        cases = [
+            (b"gh: API rate limit exceeded for synthetic request", "429"),
+            (b"gh: secondary rate limit (HTTP 403)", "429"),
+            (b"gh: Resource not accessible by integration (HTTP 403)", "403"),
+            (b"gh: temporary server response HTTP 503", "503"),
+            (b"gh: connection timed out", "transport_failure"),
+            (b"gh: unexpected response with private message", "api_failure"),
+        ]
+        for stderr, expected in cases:
+            with self.subTest(expected=expected):
+                result = classify_api_failure(stderr)
+                self.assertEqual(result, expected)
+                self.assertNotIn(stderr.decode(), result)
+
+    def test_github_api_operation_labels_never_include_endpoint_values(self):
+        cases = [
+            ("repos/JHFMoon/MoonDog-Service-OS/pulls/593/reviews?per_page=100", "pr_reviews"),
+            ("repos/JHFMoon/MoonDog-Service-OS/issues/comments?per_page=100", "issue_comments"),
+            ("repos/JHFMoon/MoonDog-Service-OS/releases?per_page=100", "release_list"),
+            ("repos/JHFMoon/MoonDog-Service-OS/actions/artifacts?per_page=100", "artifact_list"),
+            ("unrecognized/private/path?token=synthetic", "other_api"),
+        ]
+        for endpoint, expected in cases:
+            with self.subTest(expected=expected):
+                result = safe_api_operation(endpoint)
+                self.assertEqual(result, expected)
+                self.assertNotIn("593", result)
+                self.assertNotIn("token", result)
+
     def test_retry_limit_rejects_unbounded_attempts(self):
         with self.assertRaises(ValueError):
             retry_transient(lambda:None,reset=lambda:None,max_attempts=100)
@@ -62,6 +93,9 @@ class SurfaceRetryTests(unittest.TestCase):
     def test_integration_keeps_failed_artifacts_blocking(self):
         source=(Path(__file__).resolve().parents[1]/"scripts/audit_public_surfaces.py").read_text()
         self.assertIn("retry_transient(download_once",source)
+        self.assertIn("retry_transient(api_read",source)
+        self.assertIn("safe_api_operation(endpoint)",source)
+        self.assertIn('"api_request_failure"',source)
         self.assertIn('counts["action_artifact_download_failure"]+=1',source)
         self.assertIn('counts["release_asset_download_failure"]+=1',source)
         self.assertIn('if counts:',source)

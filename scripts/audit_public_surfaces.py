@@ -6,7 +6,8 @@ from pathlib import Path
 import hashlib
 
 from build_distribution import WORKSPACE_README
-from audit_surface_retry import DownloadFailure, retry_transient
+from audit_surface_retry import (DownloadFailure, classify_api_failure,
+                                 retry_transient, safe_api_operation)
 
 REPO=os.environ["GITHUB_REPOSITORY"]
 counts=collections.Counter()
@@ -129,20 +130,59 @@ def scan_zip_bytes(data: bytes, source: str, depth: int=0):
         else:
             scan_bytes(body,f"{source}!{name}",approved_vendor_attribution=is_vetted_pdf_vendor_attribution(name,body))
 
+def redacted_api_failure(endpoint: str, category: str, *, parse_failure: bool=False):
+    operation=safe_api_operation(endpoint)
+    counts["api_response_parse_failure" if parse_failure else "api_request_failure"]+=1
+    diagnostics["api_failure_"+category]+=1
+    diagnostics["api_operation_"+operation]+=1
+    status_path=os.environ.get("PUBLIC_SURFACE_AUDIT_STATUS")
+    if status_path:
+        report={
+            "counts":dict(counts),
+            "safe_counts":dict(safe),
+            "diagnostics":dict(diagnostics),
+            "redacted":True,
+            "partial":True,
+            "failedOperation":operation,
+            "failureCategory":category,
+        }
+        Path(status_path).write_text(json.dumps(report,sort_keys=True),encoding="utf-8")
+    print(f"Public-surface audit failed closed: operation={operation}, category={category}; response details suppressed.")
+    raise SystemExit(1)
+
+
 def gh_json(endpoint: str):
-    proc=subprocess.run(["gh","api","--paginate",endpoint],stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True)
-    raw=proc.stdout.decode("utf-8","replace").strip()
+    def api_read():
+        try:
+            proc=subprocess.run(
+                ["gh","api","--paginate",endpoint],
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False,
+            )
+        except OSError:
+            raise DownloadFailure("transport_failure") from None
+        if proc.returncode!=0:
+            raise DownloadFailure(classify_api_failure(proc.stderr))
+        return proc.stdout.decode("utf-8","replace")
+
+    try:
+        raw=retry_transient(api_read,reset=lambda:None).strip()
+    except DownloadFailure as error:
+        redacted_api_failure(endpoint,error.status)
+
     if not raw:
         return []
     # --paginate can concatenate JSON arrays. jq is avoided so values never print.
     decoder=json.JSONDecoder()
     pos=0; items=[]
-    while pos<len(raw):
-        while pos<len(raw) and raw[pos].isspace(): pos+=1
-        if pos>=len(raw): break
-        value,end=decoder.raw_decode(raw,pos)
-        pos=end
-        items.extend(value if isinstance(value,list) else [value])
+    try:
+        while pos<len(raw):
+            while pos<len(raw) and raw[pos].isspace(): pos+=1
+            if pos>=len(raw): break
+            value,end=decoder.raw_decode(raw,pos)
+            pos=end
+            items.extend(value if isinstance(value,list) else [value])
+    except (json.JSONDecodeError, ValueError):
+        redacted_api_failure(endpoint,"invalid_json",parse_failure=True)
     return items
 
 def gh_download(endpoint: str, target: Path):
