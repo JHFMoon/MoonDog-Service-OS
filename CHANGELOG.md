@@ -6,12 +6,6 @@
 - Snapshot verified canonical runtime; previously missing reviewed changes are restored.
 
 
-## 0.10.18-beta.200 — current Beta
-
-- fix(#59): surface source lineage on manager cards. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
-- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
-
-
 ## 0.10.18-beta.199 — current Beta
 
 - feat(#571): preserve versioned local report layout variants. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
