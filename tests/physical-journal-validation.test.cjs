@@ -20,6 +20,10 @@ const begin=authority.indexOf("  async function at(");
 const end=authority.indexOf("  async function provision(",begin);
 assert.ok(begin>=0&&end>begin,"execute actual production recovery and validate functions");
 const production=authority.slice(begin,end);
+const reasonBegin=authority.indexOf("  function setValidationReason(value) {");
+const reasonEnd=authority.indexOf("\n",reasonBegin);
+assert.ok(reasonBegin>=0&&reasonEnd>reasonBegin,"extract the production validation-reason state helper");
+const actualSetValidationReason=authority.slice(reasonBegin,reasonEnd);
 const restoreBegin=authority.indexOf("    async beginRestore(restoreId) {");
 const restoreEnd=authority.indexOf("    endRestore()",restoreBegin);
 assert.ok(restoreBegin>=0&&restoreEnd>restoreBegin,"extract production restore ownership method");
@@ -94,12 +98,12 @@ function fixture({foreign=false,interrupted=false}={}){
   const setup="const encoder=new TextEncoder();"+
     "const REVISION=['System Files','Workspace','data','store-revision.json'];"+
     "const originals=new WeakMap();let localRestoreOwner=null,nativeRoot=null,loadedRevision=null,activeToken=null,validationGeneration=0,validationInFlight=null;"+
-    "let validationReason='NO_WORKSPACE';function setValidationReason(value){validationReason=value;}let editable=true;let tail=Promise.resolve();const transientValidationDelays=[0];"+
+    "let validationReason='NO_WORKSPACE';const notify=()=>{};let editable=true;let tail=Promise.resolve();const transientValidationDelays=[0];"+
     "const sleep=async()=>{};const denied=()=>new Error('read only');"+
     "const transientInterfaceState=()=>false;"+
     "function setEditable(v){editable=v;}function setTransientValidation(_){};"+
     "function requireWrite(){if(!editable)throw denied();}";
-  vm.runInContext(setup+"\n"+production+
+  vm.runInContext(setup+"\n"+actualSetValidationReason+"\n"+production+
     "\nglobalThis.beginRestore=({"+actualBeginRestore+"}).beginRestore;"+
     "\nglobalThis.validate=validate;globalThis.isEditable=()=>editable;globalThis.setRestoreSession=v=>{localRestoreOwner=v};",ctx);
   function physicalPath(p){return "System Files/Workspace/"+p;}

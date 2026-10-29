@@ -22,7 +22,7 @@ const searching = extract(daily, "  const matches=", "  document.addEventListene
 const draftGuard = extract(daily, "  function discardDraftOk(){", "  function go(");
 const transientClassifier = extract(app, "  function transientWorkspaceState(error){", "\n  function transientIntakeError(");
 const connection = transientClassifier + "\n" + extract(app, "  async function connect() {", "  async function restoreConnection() {");
-const restoreConnection = "function scheduleSavedConnectionRetry(){}\n" + transientClassifier + "\n" + extract(app, "  async function restoreConnection() {", "  function headerMap(");
+const restoreConnection = "function scheduleSavedConnectionRetry(handle){globalThis.__scheduledRetries?.push(handle);}\n" + transientClassifier + "\n" + extract(app, "  async function restoreConnection() {", "  function headerMap(");
 const deferred = () => {
   let resolve, reject;
   const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
@@ -425,7 +425,8 @@ test("saved-folder read failure retains the handle and reports connection failur
   assert.equal(writeAuthority.disableCalls,1);
   assert.equal(context.model.pendingRoot,pending,"Saved handle remains available for explicit retry");
   assert.equal(states.at(-1),"CONNECTION ERROR");
-  assert.match(messages.at(-1),/could not be fully read/);
+  assert.match(messages.at(-1),/temporarily busy/i);
+  assert.match(messages.at(-1),/will retry automatically/i);
   assert.equal(states.includes("PERMISSION REQUIRED"),false);
 });
 
@@ -434,7 +435,7 @@ test("delayed essential hydration fails closed and keeps its saved folder retrya
   const model={root:null,pendingRoot:null};
   const authority={canWrite:true,disableCalls:0,disable(){this.disableCalls++;this.canWrite=false;}};
   const context=vm.createContext({
-    model,window:{showDirectoryPicker:()=>{},indexedDB:{}},
+    model,__scheduledRetries:[],window:{showDirectoryPicker:()=>{},indexedDB:{}},
     recallRoot:async()=>pending,permission:async()=>"granted",
     finishConnection:async()=>{await Promise.resolve();throw Object.assign(new Error("Synthetic delayed durable read"),{name:"NotReadableError"});},
     recordDiagnostic:async()=>{},writeAuthority:authority,
@@ -447,7 +448,8 @@ test("delayed essential hydration fails closed and keeps its saved folder retrya
   assert.equal(model.pendingRoot,pending,"Saved handle remains available to retry after recovery; states="+JSON.stringify(states));
   assert.equal(authority.disableCalls,1,"A failed hydration cannot retain write authority");
   assert.equal(states.at(-1).state,"CONNECTION ERROR");
-  assert.match(states.at(-1).message,/could not restore/);
+  assert.match(states.at(-1).message,/temporarily busy.*saved folder handle and files are retained/i);
+  assert.deepEqual(context.__scheduledRetries,[pending],"Transient saved-folder read failures retain and schedule the same handle.");
 });
 
 test("a later saved-folder retry can recover after delayed essential-file hydration fails",async()=>{
@@ -456,7 +458,7 @@ test("a later saved-folder retry can recover after delayed essential-file hydrat
   const model={root:null,pendingRoot:null};
   const authority={canWrite:true,disableCalls:0,disable(){this.disableCalls++;this.canWrite=false;}};
   const context=vm.createContext({
-    model,window:{showDirectoryPicker:()=>{},indexedDB:{}},
+    model,__scheduledRetries:[],window:{showDirectoryPicker:()=>{},indexedDB:{}},
     recallRoot:async()=>saved,permission:async handle=>handle===saved?"granted":"denied",
     recordDiagnostic:async()=>{},writeAuthority:authority,
     setConnectionState:(state,message)=>states.push({state,message}),
@@ -477,6 +479,7 @@ test("a later saved-folder retry can recover after delayed essential-file hydrat
   assert.equal(authority.canWrite,false,"A failed hydration revokes write authority");
   assert.equal(authority.disableCalls,1);
   assert.equal(states.at(-1).state,"CONNECTION ERROR");
+  assert.deepEqual(context.__scheduledRetries,[saved],"The same saved handle is scheduled for bounded recovery.");
 
   // Retry from the same saved browser handle after the transient read error.
   await context.restoreConnection();
