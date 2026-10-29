@@ -235,6 +235,10 @@
   const XLSX_WORKER_THRESHOLD_BYTES = 512 * 1024;
   const preparedXlsxWorkbooks = new WeakMap();
   const xlsxSourceDeleteGuards = new Map();
+  // Scoped to active automatic imports: persist the cleanup intent before
+  // deleting a durably ingested source, so permission loss cannot erase the
+  // only record that the source needs cleanup on reconnect.
+  const autoSourceDeleteContext = new Map();
   const nativeXlsxRead = XLSX.read.bind(XLSX);
   const xlsxWorkerState = { worker: null, workerUrl: null, initializing: null, disabled: false, lastError: "", nextId: 1, pending: new Map(), successfulParses: 0, vendorSource: "" };
   let xlsxWorkerSmokeVendorBytes = null;
@@ -1284,6 +1288,20 @@
           throw new Error(`${name} changed while it was being checked and was left in place.`);
       }
       const location = sourceLocations.get(name);
+      const autoCleanup = typeof autoSourceDeleteContext !== "undefined" ? autoSourceDeleteContext.get(name) : null;
+      if (autoCleanup && location === "inbox") {
+        // removeSourceEntry is reached only AFTER the importer's verified
+        // durable save. Recording the pending marker now avoids a second
+        // import if source deletion subsequently loses write permission.
+        model.autoImport.seen ||= {};
+        model.autoImport.seen[autoCleanup.signature] = {
+          fileName:name,relativePath:autoCleanup.relativePath,importedAt:now(),
+          kind:autoCleanup.kind,cleanupPending:true,
+          cleanupSha256:await sha256(new Uint8Array(autoCleanup.bytes))
+        };
+        model.autoImport.updatedAt=now();
+        await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+      }
       if (location === "root") return await model.root.removeEntry(name);
       if (location === "learn") return await (await directory(["Files To Learn"], false)).removeEntry(name);
       // A missing Inbox entry must never cause deletion of a same-named root workbook.
@@ -3209,6 +3227,9 @@
     // The deletion guard protects every automatic report type, not only XLSX.
     const guardXlsxDelete = candidate.location !== "picked" && Boolean(bytes);
     if (guardXlsxDelete) xlsxSourceDeleteGuards.set(candidate.name, bytes);
+    const priorAutoDelete = autoSourceDeleteContext.get(candidate.name);
+    if (guardXlsxDelete && deleteAfterSuccess && candidate.location === "inbox" && kind !== "disposable-greeter")
+      autoSourceDeleteContext.set(candidate.name, {signature:candidate.signature,relativePath:candidate.relativePath,kind,bytes});
     try {
       if (kind === "performance") await importPerformanceFile(candidate.name, deleteAfterSuccess, bytes);
       else if (kind === "next-appointments") await importNextAppointmentsFile(candidate.name, deleteAfterSuccess);
@@ -3227,6 +3248,8 @@
       await ensurePreviousMonthSummary(); renderAll();return appointmentOutcome;
     } finally {
       if (guardXlsxDelete) xlsxSourceDeleteGuards.delete(candidate.name);
+      if (priorAutoDelete) autoSourceDeleteContext.set(candidate.name,priorAutoDelete);
+      else autoSourceDeleteContext.delete(candidate.name);
     }
   }
   async function reconcileLearnedFiles(parserRevision=LEARNED_PARSER_REVISION) {
