@@ -16,7 +16,7 @@ const connection=app.slice(connectionBegin,connectionEnd);
 const firstRenderLine=connection.split("\n").find(line=>/^\s*renderAll\(\); renderRecovery\(\); openSetupIfRequired\(\); startFolderWatch\(\);\s*$/.test(line));
 assert.ok(firstRenderLine,"First-frame work must run recovery and folder watch after one full draw");
 function runSyntheticFirstRender(schedule){
-  const counts={setup:0,overview:0,daily:0,filters:0,recovery:0,setupGate:0,watch:0,activeReports:0};
+  const counts={setup:0,overview:0,daily:0,overviewDispatch:0,dailyDispatch:0,filters:0,recovery:0,setupGate:0,watch:0,activeReports:0};
   const field=()=>({textContent:""});
   const ui={metricOpen:field(),metricDue:field(),metricMissing:field(),
     metricUpdated:field(),lastImport:field(),lastExport:field(),exportButton:{disabled:false}};
@@ -24,6 +24,8 @@ function runSyntheticFirstRender(schedule){
     localDateKey:()=> "2026-10-20",isClosedManagement:()=>false,
     renderOverviewIntelligence:()=>{counts.overview++;},
     renderDailyFocus:()=>{counts.daily++;},
+    renderOverviewPanelsIfNeeded:active=>{counts.overviewDispatch++;if(active)counts.overview++;},
+    renderDailyFocusIfNeeded:active=>{counts.dailyDispatch++;if(active)counts.daily++;},
     renderFilters:()=>{counts.filters++;},
     renderTable:()=>{counts.activeReports++;},
     renderArrivals:()=>{counts.activeReports++;},
@@ -40,8 +42,9 @@ function runSyntheticFirstRender(schedule){
 }
 test("connected Home first frame rebuilds Setup once and preserves recovery/watch ordering",()=>{
   const counts=runSyntheticFirstRender(firstRenderLine);
-  assert.deepEqual(counts,{setup:1,overview:1,daily:1,filters:1,
-    recovery:1,setupGate:1,watch:1,activeReports:0});
+  assert.deepEqual(counts,{setup:1,overview:0,daily:0,overviewDispatch:1,dailyDispatch:1,filters:1,
+    recovery:1,setupGate:1,watch:1,activeReports:0},
+    "the first frame dispatches both deferred panels but does not render hidden panel contents");
 });
 test("eliminating redundant render avoids one of two Setup DOM builds in synthetic call-count baseline",()=>{
   const baseline=runSyntheticFirstRender("renderAll(); renderSetup(); renderRecovery(); openSetupIfRequired(); startFolderWatch();");
@@ -51,5 +54,9 @@ test("eliminating redundant render avoids one of two Setup DOM builds in synthet
   assert.equal(baseline.recovery,optimized.recovery);
   assert.equal(baseline.watch,optimized.watch);
   assert.equal(baseline.setupGate,optimized.setupGate);
+  assert.equal(optimized.overviewDispatch,1);
+  assert.equal(optimized.dailyDispatch,1);
+  assert.equal(optimized.overview,0);
+  assert.equal(optimized.daily,0);
   // This proves an invocation reduction, not a real-world millisecond saving.
 });

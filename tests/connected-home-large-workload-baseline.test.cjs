@@ -36,7 +36,7 @@ function makeWorkspace(count) {
 function makeHarness(count) {
   const field = () => ({ textContent: "", disabled: false });
   const model = makeWorkspace(count);
-  const calls = { overview: 0, daily: 0, filters: 0, setup: 0 };
+  const calls = { overview: 0, daily: 0, overviewDispatch: 0, dailyDispatch: 0, filters: 0, setup: 0 };
   const ui = {
     metricOpen: field(),
     metricDue: field(),
@@ -46,13 +46,16 @@ function makeHarness(count) {
     lastExport: field(),
     exportButton: field()
   };
-  const context = vm.createContext({
+  let context;
+  context = vm.createContext({
     model,
     ui,
     localDateKey: () => "2026-10-25",
     isClosedManagement: management => management?.status === "closed",
     renderOverviewIntelligence: () => { calls.overview += 1; },
     renderDailyFocus: () => { calls.daily += 1; },
+    renderOverviewPanelsIfNeeded: active => { calls.overviewDispatch += 1; if (active) context.renderOverviewIntelligence(); },
+    renderDailyFocusIfNeeded: active => { calls.dailyDispatch += 1; if (active) context.renderDailyFocus(); },
     renderFilters: () => { calls.filters += 1; },
     renderTable: () => {},
     renderArrivals: () => {},
@@ -84,8 +87,10 @@ test("connected Home summary counts remain correct for 2,100 synthetic records w
   assert.equal(Number(ui.metricDue.textContent), due.length);
   assert.equal(Number(ui.metricMissing.textContent), missing.length);
   assert.equal(ui.exportButton.disabled, false);
-  assert.equal(calls.overview, 3);
-  assert.equal(calls.daily, 3);
+  assert.equal(calls.overviewDispatch, 3);
+  assert.equal(calls.dailyDispatch, 3);
+  assert.equal(calls.overview, 0, "inactive Overview panels stay deferred");
+  assert.equal(calls.daily, 0, "inactive Open RO Daily Focus stays deferred");
   assert.equal(calls.filters, 3);
   assert.equal(calls.setup, 3);
   assert.equal(JSON.stringify(model.state.records), original,
