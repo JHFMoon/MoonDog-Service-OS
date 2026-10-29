@@ -13,12 +13,15 @@ test("synthetic UX retry is bounded to one retry and never retries success",asyn
   assert.equal(shouldRetryUxSample(true,1.5),false);
 });
 
-test("UX retry diagnostics redact paths and credential-shaped values",async()=>{
+test("UX retry diagnostics redact paths, auth schemes, JSON secrets, and quoted values",async()=>{
   const {sanitizeUxFailureReason}=await import("../scripts/bounded-ux-retry.mjs");
-  const reason=sanitizeUxFailureReason(new Error("failed at /home/runner/private.xlsx token=synthetic-secret"));
-  assert.equal(reason.includes("/home/runner/private.xlsx"),false);
-  assert.equal(reason.includes("synthetic-secret"),false);
+  const reason=sanitizeUxFailureReason(new Error(
+    'failed at /home/runner/private.xlsx Authorization: Bearer bearer-secret {"token":"json-secret","password":"two word secret"}'));
+  for(const secret of ["/home/runner/private.xlsx","bearer-secret","json-secret","two word secret"])
+    assert.equal(reason.includes(secret),false);
   assert.match(reason,/\[path\]/);
-  assert.match(reason,/token=\[redacted\]/i);
+  assert.match(reason,/authorization=\[redacted\]/i);
+  assert.match(reason,/"token"=\[redacted\]/);
+  assert.match(reason,/"password"=\[redacted\]/);
   assert.ok(reason.length<=240);
 });

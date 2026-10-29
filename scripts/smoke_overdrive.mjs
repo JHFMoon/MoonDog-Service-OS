@@ -715,6 +715,7 @@ try{
       const connectedEditSamples={search:[],editor:[],noteReveal:[],durableSave:[]};
       const uxTaskSamples=[],screenTaskSamples=[];
       let uxBrowserErrorCount=0;
+      const uxBrowserErrorMessages=[];
       for(let sample=0;sample<9;sample++){
         let attemptNumber=1,retryRecord=null;
         while(true){
@@ -1620,6 +1621,8 @@ try{
             connectedEditSamples.noteReveal.push(noteRevealMs);
             connectedEditSamples.durableSave.push(saved.elapsedMs);
           }
+          if(browserErrors.length)
+            throw Error("Synthetic browser page errors: "+browserErrors.slice(0,5).map(sanitizeUxFailureReason).join("; "));
         }catch(error){
           sampleFailure=error;
         }finally{
@@ -1645,6 +1648,7 @@ try{
           catch(error){sampleFailure??=error;}
         }
         uxBrowserErrorCount+=browserErrors.length;
+        for(const message of browserErrors)if(uxBrowserErrorMessages.length<10)uxBrowserErrorMessages.push(sanitizeUxFailureReason(message));
         const traceRelativePath=tracePath&&traceSaved?path.relative(out,tracePath).split(path.sep).join("/"):null;
         if(shouldRetryUxSample(Boolean(sampleFailure),attemptNumber)){
           retryRecord={
@@ -1677,6 +1681,10 @@ try{
           retryRecord.finalOutcome=sampleFailure?"failed":"passed";
           fs.writeFileSync(retryDiagnosticsPath,JSON.stringify(uxRetryDiagnostics,null,2)+"\n");
         }
+        if(uxBrowserErrorCount)
+          throw Error("Synthetic browser page errors were observed across bounded attempts: "+JSON.stringify({
+            scenario,count:uxBrowserErrorCount,messages:uxBrowserErrorMessages
+          }));
         // A second failed 9/9 production browser journey reports both bounded
         // attempts immediately; retries never turn a repeated defect into a pass.
         if(scenario==="large"&&sampleFailure)
