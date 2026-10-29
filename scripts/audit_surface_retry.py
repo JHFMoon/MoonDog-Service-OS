@@ -65,6 +65,16 @@ class DownloadFailure(Exception):
         super().__init__("public-surface download failed: " + status)
 
 
+def is_gone_action_artifact_download(status: str) -> bool:
+    """Whether an Actions artifact archive is definitively no longer available.
+
+    GitHub's artifact archive endpoint uses HTTP 410 for an expired or removed
+    artifact. This classification is only for that endpoint's download result;
+    404, authorization, transport, and all release-asset failures still block.
+    """
+    return status == "410"
+
+
 def retry_transient(
     attempt: Callable[[], T],
     *,

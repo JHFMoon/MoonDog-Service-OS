@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from scripts.audit_surface_retry import (DownloadFailure, classify_api_failure,
+                                         is_gone_action_artifact_download,
                                          retry_transient, safe_api_operation)
 
 
@@ -90,14 +91,28 @@ class SurfaceRetryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             retry_transient(lambda:None,reset=lambda:None,max_attempts=100)
 
+    def test_only_gone_action_artifact_download_is_nonblocking(self):
+        self.assertTrue(is_gone_action_artifact_download("410"))
+        for status in ("401", "403", "404", "500", "503", "transport_failure"):
+            with self.subTest(status=status):
+                self.assertFalse(is_gone_action_artifact_download(status))
+
     def test_integration_keeps_failed_artifacts_blocking(self):
         source=(Path(__file__).resolve().parents[1]/"scripts/audit_public_surfaces.py").read_text()
         self.assertIn("retry_transient(download_once",source)
         self.assertIn("retry_transient(api_read",source)
         self.assertIn("safe_api_operation(endpoint)",source)
         self.assertIn('"api_request_failure"',source)
+        self.assertIn("is_gone_action_artifact_download(error.status)",source)
+        self.assertIn('safe["unavailable_action_artifact_410"]+=1',source)
         self.assertIn('counts["action_artifact_download_failure"]+=1',source)
         self.assertIn('counts["release_asset_download_failure"]+=1',source)
+        # Release assets keep fail-closed handling; 410 is special only for
+        # Actions artifact archives because that endpoint means the archive is gone.
+        release_start=source.index("# Release metadata and assets.")
+        artifact_start=source.index("# Current non-expired Actions artifacts.")
+        self.assertIn('counts["release_asset_download_failure"]+=1',
+                      source[release_start:artifact_start])
         self.assertIn('if counts:',source)
 
 
