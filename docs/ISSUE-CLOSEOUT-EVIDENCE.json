@@ -3,8 +3,16 @@
   "description": "Engineering closure requires every authoritative software criterion VERIFIED COMPLETE with independently validated protected PR, synthetic test and trusted Beta evidence. Owner browser/Windows/OneDrive field testing is optional and never a closure prerequisite.",
   "issues": {
     "58": {
-      "criteria": {},
-      "package_pr": null
+      "criteria": {
+        "58-03": {
+          "kind": "runtime",
+          "pr": 590,
+          "tests": [
+            "tests/advisor-section-visibility.test.cjs"
+          ]
+        }
+      },
+      "package_pr": 590
     },
     "59": {
       "criteria": {
