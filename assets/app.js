@@ -176,7 +176,7 @@
     const legacyId="report-layout-"+family+"-"+Array.from(sheetName).map(char=>char.codePointAt(0).toString(16)).join("-");
     const fingerprint=reportLayoutFingerprint({
       schemaVersion:2,family,sheetName,headerRow,
-      columns:REPORT_LAYOUT_FAMILIES[family].map(field=>[field,columns[field]]),
+      columns:REPORT_LAYOUT_FAMILIES[family].map(field=>[field,normalized(columns[field])]),
       fieldTypes:profile.fieldTypes,grouping:profile.grouping,sectionRules:profile.sectionRules,
       reportDateSemantics:profile.reportDateSemantics,validationProfile:profile.validationProfile,
       minimumConfidence:1

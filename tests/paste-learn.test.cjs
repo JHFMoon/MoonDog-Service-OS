@@ -71,6 +71,10 @@ test("Private report layouts fingerprint sanitized mappings and preserve same-sh
  assert.throws(()=>e.safeReportLayout({family:"menu-sales",sheetName:"Menu Results",headerRow:2,columns:{...columns,hours:""}}),/Map every required/);
  assert.throws(()=>e.safeReportLayout({family:"unsupported",sheetName:"Menu Results",headerRow:2,columns}),/supported report family/);
 
+ const caseEquivalent=e.safeReportLayout({...first,columns:{...columns,advisor:"ADVISOR NAME"}},[first]);
+ assert.equal(caseEquivalent.id,first.id,"case-only header changes must reuse the existing mapping identity");
+ assert.equal(caseEquivalent.layoutFingerprint,first.layoutFingerprint,"fingerprints follow case-insensitive runtime header matching");
+ assert.equal(caseEquivalent.version,2);
  const revalidated=e.safeReportLayout({...first},[first]);
  assert.equal(revalidated.id,first.id);assert.equal(revalidated.version,2);
  assert.equal(revalidated.previous.layoutFingerprint,first.layoutFingerprint);
