@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.198 — current Beta
+
+- feat(#571): preserve versioned local report layout variants. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.197 — current Beta
 
 - fix(#59-04): fail closed on conflicting CSI month-end imports. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
