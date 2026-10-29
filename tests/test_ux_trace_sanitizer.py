@@ -15,7 +15,7 @@ class SanitizedUxTraceTests(unittest.TestCase):
             [sys.executable, str(SANITIZER), *map(str, args)],
             cwd=ROOT, capture_output=True, text=True, check=False
         )
-        self.assertEqual(result.returncode, expected)
+        self.assertEqual(result.returncode, expected, result.stderr.strip())
         self.assertNotIn("Synthetic Customer", result.stdout + result.stderr)
         return result
 
