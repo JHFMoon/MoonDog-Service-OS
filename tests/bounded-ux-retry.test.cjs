@@ -35,4 +35,14 @@ test("UX retry diagnostics redact paths, auth schemes, JSON secrets, and quoted 
     assert.equal(sanitized.includes("Synthetic Workspace"),false);
     assert.equal(/file:\/\//i.test(sanitized),false);
   }
+
+  for(const [sample,secret] of [
+    ['Authorization: "Bearer quoted-secret", next', "quoted-secret"],
+    ["Authorization: Bearer comma-secret, next", "comma-secret"],
+    ["Authorization: Bearer semicolon-secret; next", "semicolon-secret"]
+  ]){
+    const sanitized=sanitizeUxFailureReason(sample);
+    assert.equal(sanitized.includes(secret),false);
+    assert.match(sanitized,/authorization=\[redacted\]/i);
+  }
 });
