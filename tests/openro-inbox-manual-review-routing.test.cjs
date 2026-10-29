@@ -74,7 +74,7 @@ test("manual report picker recovers previously misrouted Open RO without surfaci
     disabled:true
   },importButton:{disabled:true}};
   const locations=new Map();
-  const ctx=source("  async function scanFiles()","  async function scanPerformanceFiles()",{
+  const ctx=source("  async function reportInboxEntries() {","  async function scanPerformanceFiles()",{
     reportInbox:async()=>fakeEntries(["new-open-ro.xlsx"]),
     directory:async()=>fakeEntries(["synthetic-learned.xlsx","unrecognized-financial.xlsx"]),
     model:{autoImport:{seen},root:fakeEntries(["Service Operations Returned.xlsx"])},
