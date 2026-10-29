@@ -65,7 +65,7 @@ test("Report Inbox entry collection reads the directory once and preserves handl
 
   assert.equal(directoryReads, 1);
   assert.strictEqual(result[0][1], original[0][1], "the snapshot retains the original file handle");
-  assert.deepEqual(result.map(([name]) => name), ["synthetic.xlsx"]);
+  assert.deepEqual(Array.from(result, ([name]) => name), ["synthetic.xlsx"]);
 });
 
 test("read-only report selectors consume one shared inbox snapshot without relisting the folder", async () => {
