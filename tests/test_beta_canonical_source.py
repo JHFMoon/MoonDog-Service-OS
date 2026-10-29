@@ -4,7 +4,10 @@ import contextlib
 import io
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -19,6 +22,20 @@ from scripts.preflight_beta_runtime import verify_candidate
 ROOT=Path(__file__).resolve().parents[1]
 
 class CanonicalBetaSourceTests(unittest.TestCase):
+    def test_cli_entrypoint_resolves_repository_package_without_pythonpath(self):
+        environment = dict(os.environ)
+        environment.pop("PYTHONPATH", None)
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/preflight_beta_runtime.py")],
+            cwd=ROOT,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("matches the digest-verified current Beta runtime", result.stdout)
+
     def test_beta_app_identity_does_not_create_spurious_runtime_drift(self):
         old=b'const VERSION = "0.10.18-beta.25";\nconst BUILD_DATE = "2026-10-09";\nfunction current() {return 1;}\n'
         now=b'const VERSION = "0.10.17";\nconst BUILD_DATE = "2026-10-11";\nfunction current() {return 1;}\n'
