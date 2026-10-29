@@ -102,8 +102,7 @@ test("post-connection scans and Workspace switches exclude each other without re
     setConnectionState:(state,message)=>connectionStates.push({state,message}),
     folderWatchScan:async()=>{calls.push("Report inbox");},
     ensurePreviousMonthSummary:async()=>{calls.push("Month-end summary");summaryStarted();await pendingSummary;},
-    ensureDailyFocus:async()=>calls.push("Daily focus"),scanAppointmentFiles:async()=>calls.push("Appointment sources"),
-    scanPerformanceFiles:async()=>calls.push("Performance sources"),ensureMeetingCycleBaseline:async()=>calls.push("Meeting baseline"),
+    ensureDailyFocus:async()=>calls.push("Daily focus"),scanAppointmentAndPerformanceFiles:async()=>calls.push("Appointment and performance sources"),ensureMeetingCycleBaseline:async()=>calls.push("Meeting baseline"),
     scanRecoveryBackups:async()=>calls.push("Recovery backups"),runVerifiedUpdateFollowup:async()=>calls.push("Verified update follow-up"),
     recordDiagnostic:()=>{},renderRecovery:()=>{},
     setTimeout:(callback,delay)=>{
