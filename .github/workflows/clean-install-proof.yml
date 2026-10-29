@@ -24,7 +24,7 @@ jobs:
           metadata_only=false
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] && git rev-parse --verify "${GITHUB_SHA}^2" >/dev/null 2>&1; then
             diff_file="$(mktemp)"
-            git diff --name-only -z "${GITHUB_SHA}^1" "${GITHUB_SHA}^2" > "$diff_file"
+            git diff --no-renames --name-only -z "${GITHUB_SHA}^1" "${GITHUB_SHA}^2" > "$diff_file"
             mapfile -d '' changed_paths < "$diff_file"
             rm -f "$diff_file"
             if ((${#changed_paths[@]})); then
