@@ -1248,7 +1248,13 @@
       stopFolderWatch("Folder write permission unavailable");
       ui.homeConnect.hidden = true;
       renderSettings(); renderAll(); renderRecovery();
-      await Promise.allSettled([scanFiles(), scanAppointmentFiles(), scanPerformanceFiles(), scanRecoveryBackups()]);
+      const reportInboxSnapshot = reportInboxEntries();
+      await Promise.allSettled([
+        reportInboxSnapshot.then(entries => scanFiles(entries)),
+        reportInboxSnapshot.then(entries => scanAppointmentFiles(entries)),
+        reportInboxSnapshot.then(entries => scanPerformanceFiles(entries)),
+        scanRecoveryBackups()
+      ]);
       connectedNativeRoot = handle;
       try { await rememberRoot(handle); } catch (_) { /* Manual folder reconnection remains available without browser storage. */ }
       // Only a fully loaded Workspace may drive Daily history and task selection.
@@ -1397,8 +1403,7 @@
         ['Report inbox',()=>folderWatchScan('connection')],
         ['Month-end summary',()=>ensurePreviousMonthSummary()],
         ['Daily focus',()=>ensureDailyFocus()],
-        ['Appointment sources',()=>scanAppointmentFiles()],
-        ['Performance sources',()=>scanPerformanceFiles()],
+        ['Appointment and performance sources',()=>scanAppointmentAndPerformanceFiles()],
         ['Meeting baseline',()=>ensureMeetingCycleBaseline()],
         ['Recovery backups',()=>scanRecoveryBackups()],
         ['Verified update follow-up',()=>runVerifiedUpdateFollowup()]
@@ -1668,10 +1673,16 @@
     }
     return null;
   }
-  async function scanFiles() {
+  async function reportInboxEntries() {
+    const entries = [];
+    for await (const entry of (await reportInbox(false)).entries()) entries.push(entry);
+    return entries;
+  }
+  async function scanFiles(inboxSnapshot=null) {
     const files=[],seen=new Set(),learned=new Set();
     const add=(name,location)=>{if(seen.has(name))return;seen.add(name);files.push(name);sourceLocations.set(name,location);if(location==="learn")learned.add(name);};
-    for await(const [name,handle] of (await reportInbox(false)).entries())
+    const inboxEntries=Array.isArray(inboxSnapshot)?inboxSnapshot:await reportInboxEntries();
+    for(const [name,handle] of inboxEntries)
       if(handle.kind==="file"&&/\.xlsx$/i.test(name)&&!/^~\$/.test(name))add(name,"inbox");
     // Files already misrouted by an older watcher must remain selectable for
     // explicit Open RO review. Never promote arbitrary unrecognized learn files.
@@ -1691,7 +1702,28 @@
     files.forEach(name=>ui.sourceSelect.add(new Option(name+(learned.has(name)?" (Files To Learn)":""),name)));
     ui.sourceSelect.disabled=!files.length;ui.importButton.disabled=true;
   }
-  async function scanPerformanceFiles() { const files = []; for await (const [name, handle] of (await reportInbox(false)).entries()) if (handle.kind === "file" && /\.xlsx$/i.test(name) && !/^~\$/.test(name) && !/^(?:MoonDog|Service Operations) Open RO/i.test(name)) files.push(name); files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); ui.performanceSourceSelect.replaceChildren(new Option(files.length ? "Select performance XLSX from Report Inbox" : "No performance XLSX in Report Inbox", "")); files.forEach((name) => ui.performanceSourceSelect.add(new Option(name, name))); ui.performanceSourceSelect.disabled = !files.length; ui.importPerformance.disabled = true; }
+  async function scanPerformanceFiles(inboxSnapshot=null) {
+    const files = [];
+    const inboxEntries=Array.isArray(inboxSnapshot)?inboxSnapshot:await reportInboxEntries();
+    for (const [name, handle] of inboxEntries)
+      if (handle.kind === "file" && /\.xlsx$/i.test(name) && !/^~\$/.test(name) && !/^(?:MoonDog|Service Operations) Open RO/i.test(name)) files.push(name);
+    files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    ui.performanceSourceSelect.replaceChildren(new Option(files.length ? "Select performance XLSX from Report Inbox" : "No performance XLSX in Report Inbox", ""));
+    files.forEach((name) => ui.performanceSourceSelect.add(new Option(name, name)));
+    ui.performanceSourceSelect.disabled = !files.length;
+    ui.importPerformance.disabled = true;
+  }
+  async function scanAppointmentAndPerformanceFiles() {
+    const inboxEntries = await reportInboxEntries();
+    const [appointments, performance] = await Promise.allSettled([
+      scanAppointmentFiles(inboxEntries),
+      scanPerformanceFiles(inboxEntries)
+    ]);
+    if (appointments.status === "rejected")
+      recordDiagnostic("POST-CONNECTION SCAN", "Appointment sources: " + String(appointments.reason?.message || appointments.reason));
+    if (performance.status === "rejected")
+      recordDiagnostic("POST-CONNECTION SCAN", "Performance sources: " + String(performance.reason?.message || performance.reason));
+  }
 
   function parseCsv(source) {
     const rows = []; let row = [], value = "", quoted = false;
@@ -3483,7 +3515,17 @@
   function preRoRequest(lines) { const start = lines.findIndex((line) => /^LINE\s+OP\s+CODE\s+DESCRIPTION/i.test(line)); if (start < 0) return "Pre-workorder appointment"; const blocks = []; let current = ""; for (const line of lines.slice(start + 1)) { if (/^(NOTE: BY LAW|CALL\/TEXT AUTHORIZATION|AND YOU MAY OPT OUT)/i.test(line)) break; if (/^#\s*[A-Z]\s+/i.test(line)) { if (current) blocks.push(current); current = line.replace(/^#\s*[A-Z]\s+\S+\s*/i, "").replace(/\s+0\.00$/, "").trim(); } else if (current && !/^(service appointment for|\(?time\)?\.|If you choose to reschedule|call prior to|You will receive)/i.test(line)) current += ` ${line}`; } if (current) blocks.push(current); const useful = blocks.filter((block) => !/Your Service Advisor has set your vehicle's next/i.test(block)); return useful.join(" · ").trim() || "Pre-workorder appointment"; }
   async function parsePreRos(bytes, selectedDate) { return withLocalPdf(bytes,async pdf=>{ const prior = new Map((model.appointments.days[selectedDate]?.appointments || []).map((item) => [item.id, item])), appointments = []; for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) { const page = await pdf.getPage(pageNumber), lines = pdfTextLines(await page.getTextContent()), joined = lines.join("\n"), opened = joined.match(/\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM)/i); if (!opened || isoDateFromUs(opened[0]) !== selectedDate) continue; const advisorFull = text(joined.match(/SERVICE ADVISOR:\s*([^\n]+)/i)?.[1]).trim(), advisorMatch = PRERO_ADVISORS[norm(advisorFull)]; if (!advisorMatch) continue; const customerNumber = text(joined.match(/CUSTOMER\s*#:\s*([^\n]+)/i)?.[1]).trim(), titleIndex = lines.findIndex((line) => /PRE-WORKORDER/i.test(line)), guest = lines.slice(titleIndex + 1, titleIndex + 7).find((line) => !(/^(Page \d|\d+\s|.*@|.*\bCA\b)/i.test(line) || (sourceAdapter.preRoHeaderPrefixes || []).some(prefix => line.toLowerCase().startsWith(String(prefix).toLowerCase())))) || `Customer ${customerNumber}`; const vehicleHeader = lines.findIndex((line) => /COLOR\s+YEAR\s+MAKE\/MODEL\s+VIN/i.test(line)), vehicleLine = lines[vehicleHeader + 1] || "", year = vehicleLine.match(/\b(?:19|20)\d{2}\b/)?.[0] || "", vin = vehicleLine.match(/\b[A-HJ-NPR-Z0-9]{17}\b/i)?.[0] || "", between = year && vin ? vehicleLine.slice(vehicleLine.indexOf(year) + 4, vehicleLine.indexOf(vin)).trim() : "", vehicle = `${year} ${between}`.trim(), time = to24HourTime(opened[0]), request = preRoRequest(lines), advisorCode = advisorMatch[0], advisor = advisorMatch[1], id = `appt-${slug(selectedDate)}-${slug(time)}-${slug(customerNumber || guest)}-${slug(advisorCode)}`; appointments.push({ id, time, customerNumber, guest, advisorCode, advisor, vehicle, vin, created: "", request, summary: visitSummary(request), arrivalStatus: prior.get(id)?.arrivalStatus || "Scheduled", statusUpdatedAt: prior.get(id)?.statusUpdatedAt || null, sourcePage: pageNumber }); } if (!appointments.length) throw new Error(`No configured-advisor appointments dated ${selectedDate} were found in this PreRO PDF.`); return appointments.sort((a, b) => timeMinutes(a.time) - timeMinutes(b.time)); }); }
   async function parseAppointmentSource(bytes, date) { return String.fromCharCode(...new Uint8Array(bytes).slice(0, 4)) === "%PDF" ? parsePreRos(bytes, date) : parseAppointments(bytes, date); }
-  async function scanAppointmentFiles() { const files = []; for await (const [name, handle] of (await reportInbox(false)).entries()) if (handle.kind === "file" && /\.(xlsx|pdf)$/i.test(name) && !/^~\$/.test(name)) files.push(name); files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); ui.appointmentSource.replaceChildren(new Option(files.length ? "Select Service Daily Log XLSX or PreROs PDF" : "No appointment file in Report Inbox", "")); files.forEach((name) => ui.appointmentSource.add(new Option(name, name))); ui.appointmentSource.disabled = !files.length; ui.importAppointments.disabled = true; }
+  async function scanAppointmentFiles(inboxSnapshot=null) {
+    const files = [];
+    const inboxEntries=Array.isArray(inboxSnapshot)?inboxSnapshot:await reportInboxEntries();
+    for (const [name, handle] of inboxEntries)
+      if (handle.kind === "file" && /\.(xlsx|pdf)$/i.test(name) && !/^~\$/.test(name)) files.push(name);
+    files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    ui.appointmentSource.replaceChildren(new Option(files.length ? "Select Service Daily Log XLSX or PreROs PDF" : "No appointment file in Report Inbox", ""));
+    files.forEach((name) => ui.appointmentSource.add(new Option(name, name)));
+    ui.appointmentSource.disabled = !files.length;
+    ui.importAppointments.disabled = true;
+  }
 
   function parseAppointments(bytes, date) { const book = XLSX.read(bytes, { type: "array", cellDates: true }); const sheet = book.Sheets["Service Daily Log"] || book.Sheets[book.SheetNames[0]]; if (!sheet) throw new Error("No Service Daily Log worksheet was found."); const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false }); const headerIndex = rows.findIndex((row) => row.some((value) => text(value).trim() === "Time") && row.some((value) => text(value).trim() === "Customer") && row.some((value) => text(value).trim() === "SA")); if (headerIndex < 0) throw new Error("Could not find Time, Customer, and SA columns in this workbook."); const headers = rows[headerIndex].map((value) => text(value).trim()); const column = (name) => headers.indexOf(name); const prior = new Map((model.appointments.days[date]?.appointments || []).map((item) => [item.id, item])); const appointments = rows.slice(headerIndex + 1).map((row) => { const time = text(row[column("Time")]).trim(), advisorCode = text(row[column("SA")]).trim(), guest = text(row[column("Customer")]).trim(), customerNumber = text(row[column("Customer #")]).trim(), vehicle = `${text(row[column("Year")]).trim()} ${text(row[column("Model")]).trim()}`.trim(), request = text(row[column("Service Request")]).trim(); const id = `appt-${slug(date)}-${slug(time)}-${slug(customerNumber || guest)}-${slug(advisorCode || "unassigned")}`; return { id, time, customerNumber, guest, advisorCode, advisor: ARRIVAL_ADVISOR_NAMES[advisorCode] || "", vehicle, created: text(row[column("Create Date/Time")]).trim(), request, summary: visitSummary(request), arrivalStatus: prior.get(id)?.arrivalStatus || "Scheduled", statusUpdatedAt: prior.get(id)?.statusUpdatedAt || null }; }).filter((item) => /^\d{1,2}:\d{2}/.test(item.time) && item.guest && item.advisor).sort((a, b) => timeMinutes(a.time) - timeMinutes(b.time)); if (!appointments.length) throw new Error("No appointments for the configured advisors were found in this Service Daily Log."); return appointments; }
 
