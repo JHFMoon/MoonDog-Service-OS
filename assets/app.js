@@ -201,9 +201,9 @@
     const old=previous.find(item=>item?.family===family&&item?.layoutFingerprint===fingerprint)
       ||previous.find(item=>!item?.layoutFingerprint&&sameMapping(item));
     if(!old&&previous.length>=MAX_RULES)throw Error("Maximum number of local report layouts reached.");
-    const legacyInput=!data.layoutFingerprint&&data.id===legacyId;
-    const id=old?.id||(legacyInput?legacyId:fingerprintId);
-    if(data.id&&data.id!==id&&!(data.id===legacyId&&!data.layoutFingerprint))
+    const legacyIdInput=data.id===legacyId;
+    const id=old?.id||(legacyIdInput?legacyId:fingerprintId);
+    if(data.id&&data.id!==id)
       throw Error("This local report layout identity cannot be replaced.");
     const familyName=family==="trade-ar-errors"?"Trade AR":family==="appointment-activity"?"Appointment Activity":"Menu Sales";
     return{id,family,name:"Local "+familyName+" layout",sheetName,headerRow,columns,

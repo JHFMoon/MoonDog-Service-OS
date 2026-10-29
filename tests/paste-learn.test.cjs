@@ -98,6 +98,8 @@ test("Legacy report layout identifiers remain readable and migrate without losin
    version:1,approved:true,enabled:true,writeEnabled:false,grouping:"account-summary-advisor-rows"};
  const compatible=e.safeReportLayout(legacy,[]);
  assert.equal(compatible.id,legacyId);assert.match(compatible.layoutFingerprint,/^layout-v2-[a-f0-9]{16}$/);
+ const reparsed=e.safeReportLayout(compatible,[]);
+ assert.equal(reparsed.id,legacyId);
  const updated=e.safeReportLayout({family:"menu-sales",sheetName,headerRow:2,columns},[legacy]);
  assert.equal(updated.id,legacyId);assert.equal(updated.version,2);
  assert.equal(updated.previous.layoutSchemaVersion,1);
