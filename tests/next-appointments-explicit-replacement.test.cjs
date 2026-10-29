@@ -15,15 +15,15 @@ assert.ok(helperStart>=0&&helperEnd>helperStart,"production supplemental snapsho
 assert.ok(start>=0&&end>start,"production Next Appointments importer must exist");
 const importer=app.slice(start,end);
 
-function fixture({failWrite=false,mismatchReadback=false,confirmReplacement=true,equivalent=false,unreadableDuplicate=false,incomingPeriodEnd="2026-10-20",previousPeriodEnd=incomingPeriodEnd,supplementalMode=false}={}){
+function fixture({failWrite=false,mismatchReadback=false,confirmReplacement=true,equivalent=false,unreadableDuplicate=false,incomingPeriodEnd="2026-10-20",previousPeriodEnd=incomingPeriodEnd,supplementalMode=false,legacySupplemental=false}={}){
   const key=incomingPeriodEnd,previousKey=previousPeriodEnd;
   const previous={sourceFile:"older.csv",importedAt:"2026-10-21T00:00:00.000Z",periodStart:"2026-10-20",periodEnd:previousKey,observationDate:"2026-10-21",appointmentCount:1,appointments:[{id:"synthetic-old"}],validation:{parser:"v1"}};
   const incoming=equivalent
     ?{sourceFile:"new-name.csv",importedAt:"2026-10-24T00:00:00.000Z",periodStart:"2026-10-20",periodEnd:key,observationDate:"2026-10-24",appointmentCount:1,appointments:[{id:"synthetic-old"}],validation:{parser:"v2"}}
     :{sourceFile:"synthetic-next-appointments.csv",importedAt:"2026-10-24T00:00:00.000Z",periodStart:"2026-10-20",periodEnd:key,observationDate:"2026-10-24",appointmentCount:2,appointments:[{id:"synthetic-a"},{id:"synthetic-b"}],identityConflicts:[],validation:{parser:"v2"}};
   const supplementalSnapshots={};
-  const previousSupplementalKey=`appointments-created-summary|${previousKey}|service-department`;
-  if(supplementalMode)supplementalSnapshots[previousSupplementalKey]={family:"appointments-created-summary",sourceFile:"older-summary.csv",importedAt:"2026-10-22T00:00:00.000Z",periodStart:"2026-10-01",periodEnd:"2026-10-31",coverageDate:previousKey,variant:"service-department",metrics:{appointmentCount:1}};
+  const previousSupplementalKey=`appointments-created-summary|${legacySupplemental?"2026-10-31":previousKey}|service-department`;
+  if(supplementalMode){const saved={family:"appointments-created-summary",sourceFile:"older-summary.csv",importedAt:"2026-10-22T00:00:00.000Z",periodStart:"2026-10-01",periodEnd:"2026-10-31",variant:"service-department",metrics:{appointmentCount:1}};if(!legacySupplemental)saved.coverageDate=previousKey;supplementalSnapshots[previousSupplementalKey]=saved;}
   const model={operationalMetrics:{nextAppointments:{snapshots:{[previousKey]:previous}},supplementalReports:{snapshots:supplementalSnapshots},updatedAt:"prior-update"}};
   const before=structuredClone(model.operationalMetrics),events=[];
   let durable=unreadableDuplicate?null:structuredClone(model.operationalMetrics);
@@ -110,14 +110,24 @@ test("equivalent reimport is retained when durable saved data cannot be verified
 });
 
 test("paired daily summaries use advancing verified coverage instead of colliding month filter ends",async()=>{
-  const f=fixture({incomingPeriodEnd:"2026-10-23",previousPeriodEnd:"2026-10-22",supplementalMode:true});
+  const f=fixture({incomingPeriodEnd:"2026-10-23",previousPeriodEnd:"2026-10-22",supplementalMode:true,legacySupplemental:true});
   await f.run(false);
   const saved=f.durable();
-  const oldKey="appointments-created-summary|2026-10-22|service-department";
+  const oldKey="appointments-created-summary|2026-10-31|service-department";
   const newKey="appointments-created-summary|2026-10-23|service-department";
   assert.ok(saved.supplementalReports.snapshots[oldKey],"prior verified daily summary remains preserved");
   assert.ok(saved.supplementalReports.snapshots[newKey],"new daily coverage is stored under its effective date");
   assert.equal(saved.supplementalReports.snapshots[newKey].periodEnd,"2026-10-31","source report filter end remains unchanged");
   assert.equal(saved.supplementalReports.snapshots[newKey].coverageDate,"2026-10-23","effective paired coverage is explicit");
   assert.deepEqual(f.events.slice(0,2),["write","read"]);
+});
+
+test("legacy paired summary without coverageDate remains an idempotent duplicate at period end",async()=>{
+  const f=fixture({equivalent:true,incomingPeriodEnd:"2026-10-31",previousPeriodEnd:"2026-10-31",supplementalMode:true,legacySupplemental:true});
+  await f.run(true);
+  assert.equal(f.events[0],"read");
+  assert.equal(f.events[1].type,"next-appointments-duplicate");
+  assert.equal(f.events.some(item=>item==="write"),false,"legacy equivalent reimport must not rewrite saved metrics");
+  assert.equal(f.durable().supplementalReports.snapshots["appointments-created-summary|2026-10-31|service-department"].coverageDate,undefined);
+  assert.equal(f.events[2].type,"remove","cleanup follows durable verification");
 });
