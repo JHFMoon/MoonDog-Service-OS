@@ -1,5 +1,7 @@
 """Prevent stale Beta snapshots from silently omitting already merged changes."""
 import base64
+import contextlib
+import io
 import hashlib
 import json
 from pathlib import Path
@@ -11,6 +13,7 @@ from scripts.build_beta_package import (
     normalized_runtime_content,
     source_runtime_mismatches,
 )
+from scripts.preflight_beta_runtime import verify_candidate
 
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -95,8 +98,18 @@ class CanonicalBetaSourceTests(unittest.TestCase):
             (root / "updates/manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
             self.assertEqual(current_beta_runtime_mismatches(root), [])
+            pass_output = io.StringIO()
+            with contextlib.redirect_stdout(pass_output):
+                self.assertEqual(verify_candidate(root, "synthetic-head"), 0)
+            self.assertIn("matches the digest-verified current Beta runtime", pass_output.getvalue())
             (root / "index.html").write_bytes(b"new reviewed launcher")
             self.assertEqual(current_beta_runtime_mismatches(root), ["index.html"])
+            wait_output = io.StringIO()
+            with contextlib.redirect_stdout(wait_output):
+                self.assertEqual(verify_candidate(root, "synthetic-head"), 1)
+            self.assertIn("Candidate PR head: synthetic-head", wait_output.getvalue())
+            self.assertIn("same-PR trusted Prepare Beta Package workflow", wait_output.getvalue())
+            self.assertIn("Expensive tests were not run", wait_output.getvalue())
 
     def test_builder_snapshots_every_catalogued_runtime_file_from_source(self):
         builder=(ROOT/"scripts/build_beta_package.py").read_text(encoding="utf-8")
@@ -104,6 +117,19 @@ class CanonicalBetaSourceTests(unittest.TestCase):
         self.assertIn("if not changed and not added and not mismatches:",builder)
         self.assertIn("content = (root / path).read_bytes()",builder)
         self.assertNotIn("content = merge_text(",builder)
+
+    def test_stale_package_parity_fails_before_expensive_pr_checks(self):
+        publication = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
+        clean_install = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
+        for workflow, expensive_step in (
+            (publication, "Run focused tests"),
+            (clean_install, "Classify exact pull request change scope"),
+        ):
+            with self.subTest(expensive_step=expensive_step):
+                self.assertIn("if: github.event_name == 'pull_request'", workflow)
+                preflight = workflow.index("scripts/preflight_beta_runtime.py")
+                self.assertLess(preflight, workflow.index(expensive_step))
+        self.assertIn("same-PR trusted Prepare Beta Package workflow", (ROOT / "scripts/preflight_beta_runtime.py").read_text(encoding="utf-8"))
 
     def test_reviewed_source_pr_contains_a_verified_beta_candidate(self):
         workflow=(ROOT/".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
