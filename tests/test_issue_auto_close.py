@@ -127,6 +127,14 @@ class SamePRPackageAPI(FakeAPI):
         return super().pages(endpoint)
 
 
+class MissingRuntimeInPackageBaseAPI(FakeAPI):
+    def request(self, method, endpoint, data=None):
+        if "/compare/" + SOURCE_MERGE + "..." + PACKAGE_BASE in endpoint:
+            self.actions.append((method, endpoint))
+            return {"status": "diverged", "merge_base_commit": {"sha": "0" * 40}}
+        return super().request(method, endpoint, data)
+
+
 class AutoCloseTests(unittest.TestCase):
     def test_same_pr_runtime_and_beta_package_are_validated_as_one_pass(self):
         fake = SamePRPackageAPI()
@@ -158,6 +166,13 @@ class AutoCloseTests(unittest.TestCase):
         }}}
         with self.assertRaisesRegex(ValueError, "does not advertise live Beta"):
             verify_live_evidence(fake, ISSUE, record, MANIFEST, MAIN)
+
+    def test_separate_runtime_pr_must_still_be_ancestor_of_package_base(self):
+        fake = MissingRuntimeInPackageBaseAPI()
+        with self.assertRaisesRegex(ValueError, "runtime source is newer"):
+            verify_live_evidence(fake, ISSUE, RECORD, MANIFEST, MAIN)
+        self.assertIn(("GET", "repos/" + fake.repo + "/compare/" +
+                      SOURCE_MERGE + "..." + PACKAGE_BASE), fake.actions)
 
     def test_matrix_only_last_cell_can_establish_verified_complete(self):
         source = (
