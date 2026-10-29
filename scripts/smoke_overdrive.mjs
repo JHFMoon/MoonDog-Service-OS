@@ -4,6 +4,7 @@ import {createRequire} from "node:module";
 const {chromium}=createRequire(import.meta.url)("playwright");
 import fs from "node:fs";import path from "node:path";import {pathToFileURL} from "node:url";
 import {summarizeNavigationMs} from "./navigation-metrics.mjs";
+import {MAX_UX_SAMPLE_ATTEMPTS,shouldRetryUxSample,sanitizeUxFailureReason} from "./bounded-ux-retry.mjs";
 const launcher=process.argv[2],out=process.argv[3]||".clean-install-smoke/arena-proof";
 if(!launcher)throw Error("usage: smoke_overdrive.mjs <launcher> [output]");
 fs.mkdirSync(out,{recursive:true});
@@ -704,6 +705,9 @@ try{
   // connector with a memory-only File System Access-compatible folder.
   // This is never the owner's native folder/OneDrive, and cannot measure it.
   if(width===1366){
+    const retryDiagnosticsPath=path.join(out,"ux-retry-diagnostics.json");
+    const uxRetryDiagnostics={schemaVersion:1,dataset:"synthetic-clean-install",maxAttempts:MAX_UX_SAMPLE_ATTEMPTS,retries:[]};
+    fs.writeFileSync(retryDiagnosticsPath,JSON.stringify(uxRetryDiagnostics,null,2)+"\n");
     const scenarios=[["empty",0,0],["large",2100,0],["large-slow-read",2100,25]];
     for(const [scenario,recordCount,readDelayMs] of scenarios){
       const connectionSamples=[],launcherSamples=[];
@@ -711,11 +715,24 @@ try{
       const connectedEditSamples={search:[],editor:[],noteReveal:[],durableSave:[]};
       const uxTaskSamples=[],screenTaskSamples=[];
       let uxBrowserErrorCount=0;
+      const uxBrowserErrorMessages=[];
       for(let sample=0;sample<9;sample++){
+        let attemptNumber=1,retryRecord=null;
+        while(true){
+        const metricSnapshot={
+          connectionSamples:connectionSamples.length,launcherSamples:launcherSamples.length,
+          firstTabSamples:structuredClone(firstTabSamples),repeatTabSamples:structuredClone(repeatTabSamples),
+          connectedEditSamples:Object.fromEntries(Object.entries(connectedEditSamples).map(([key,values])=>[key,values.length])),
+          screenTaskSamples:screenTaskSamples.length
+        };
         let connectedPage=null,uxMetrics=null,sampleFailure=null,screenTaskEffort=null;
+        let traceContext=null,traceStarted=false,tracePath=null,traceSaved=false;
         const browserErrors=[];
         try{
           connectedPage=await browser.newPage({viewport:{width:1366,height:768}});
+          traceContext=connectedPage.context();
+          await traceContext.tracing.start({screenshots:false,snapshots:true,sources:false});
+          traceStarted=true;
           connectedPage.on("pageerror",error=>browserErrors.push(error.message));
           const launcherStarted=performance.now();
           await connectedPage.goto(pathToFileURL(path.resolve(launcher)).href,{waitUntil:"load",timeout:30000});
@@ -1604,24 +1621,85 @@ try{
             connectedEditSamples.noteReveal.push(noteRevealMs);
             connectedEditSamples.durableSave.push(saved.elapsedMs);
           }
+          if(browserErrors.length)
+            throw Error("Synthetic browser page errors: "+browserErrors.slice(0,5).map(sanitizeUxFailureReason).join("; "));
         }catch(error){
           sampleFailure=error;
         }finally{
+          if(traceStarted){
+            try{
+              if(sampleFailure){
+                const traceDir=path.join(out,"ux-retry-traces");
+                fs.mkdirSync(traceDir,{recursive:true});
+                tracePath=path.join(traceDir,scenario+"-sample-"+(sample+1)+"-attempt-"+attemptNumber+".zip");
+                await traceContext.tracing.stop({path:tracePath});
+                traceSaved=true;
+              }else{
+                await traceContext.tracing.stop();
+              }
+            }catch(error){
+              const traceMessage=sanitizeUxFailureReason(error);
+              sampleFailure=sampleFailure
+                ?new Error(sanitizeUxFailureReason(sampleFailure)+"; trace capture failed: "+traceMessage)
+                :new Error("Synthetic trace cleanup failed: "+traceMessage);
+            }
+          }
           try{await connectedPage?.close();}
           catch(error){sampleFailure??=error;}
         }
         uxBrowserErrorCount+=browserErrors.length;
-        // A failed 9/9 production browser journey must report its actual
-        // failure immediately, not wait for all nine long timeout samples and
-        // then throw a misleading "nonnegative milliseconds" summary error.
+        for(const message of browserErrors)if(uxBrowserErrorMessages.length<10)uxBrowserErrorMessages.push(sanitizeUxFailureReason(message));
+        const traceRelativePath=tracePath&&traceSaved?path.relative(out,tracePath).split(path.sep).join("/"):null;
+        if(shouldRetryUxSample(Boolean(sampleFailure),attemptNumber)){
+          retryRecord={
+            scenario,sample:sample+1,
+            attempts:[{attempt:attemptNumber,outcome:"failed",
+              reason:sanitizeUxFailureReason(sampleFailure),tracePath:traceRelativePath}]
+          };
+          uxRetryDiagnostics.retries.push(retryRecord);
+          fs.writeFileSync(retryDiagnosticsPath,JSON.stringify(uxRetryDiagnostics,null,2)+"\n");
+          connectionSamples.length=metricSnapshot.connectionSamples;
+          launcherSamples.length=metricSnapshot.launcherSamples;
+          const restoreMap=(target,snapshot)=>{
+            for(const key of Object.keys(target))delete target[key];
+            for(const [key,values] of Object.entries(snapshot))target[key]=[...values];
+          };
+          restoreMap(firstTabSamples,metricSnapshot.firstTabSamples);
+          restoreMap(repeatTabSamples,metricSnapshot.repeatTabSamples);
+          for(const [key,length] of Object.entries(metricSnapshot.connectedEditSamples))
+            connectedEditSamples[key].length=length;
+          screenTaskSamples.length=metricSnapshot.screenTaskSamples;
+          attemptNumber++;
+          continue;
+        }
+        if(retryRecord){
+          retryRecord.attempts.push({
+            attempt:attemptNumber,outcome:sampleFailure?"failed":"passed",
+            ...(sampleFailure?{reason:sanitizeUxFailureReason(sampleFailure)}:{}),
+            tracePath:traceRelativePath
+          });
+          retryRecord.finalOutcome=sampleFailure?"failed":"passed";
+          fs.writeFileSync(retryDiagnosticsPath,JSON.stringify(uxRetryDiagnostics,null,2)+"\n");
+        }
+        if(uxBrowserErrorCount)
+          throw Error("Synthetic browser page errors were observed across bounded attempts: "+JSON.stringify({
+            scenario,count:uxBrowserErrorCount,messages:uxBrowserErrorMessages
+          }));
+        // A second failed 9/9 production browser journey reports both bounded
+        // attempts immediately; retries never turn a repeated defect into a pass.
         if(scenario==="large"&&sampleFailure)
           throw Error("Synthetic interrupted-save/reconnect browser sample "+(sample+1)+
-            " failed: "+String(sampleFailure?.stack||sampleFailure));
+            " failed after "+attemptNumber+" bounded attempts: "+JSON.stringify(retryRecord?.attempts||
+              [{attempt:attemptNumber,reason:sanitizeUxFailureReason(sampleFailure)}]));
         if(sampleFailure){
-          uxTaskSamples.push({sample:sample+1,success:false,errorName:sampleFailure?.name||"Error",
-            error:String(sampleFailure?.message||sampleFailure).slice(0,240),browserErrorCount:browserErrors.length});
+          uxTaskSamples.push({sample:sample+1,attemptCount:attemptNumber,success:false,errorName:sampleFailure?.name||"Error",
+            error:sanitizeUxFailureReason(sampleFailure),browserErrorCount:browserErrors.length});
         }else{
-          uxTaskSamples.push({sample:sample+1,success:true,...uxMetrics,browserErrorCount:browserErrors.length});
+          uxTaskSamples.push({sample:sample+1,attemptCount:attemptNumber,
+            ...(retryRecord?{recoveredAfter:retryRecord.attempts[0].reason}:{}),
+            success:true,...uxMetrics,browserErrorCount:browserErrors.length});
+        }
+        break;
         }
       }
       if(scenario!=="large"){
