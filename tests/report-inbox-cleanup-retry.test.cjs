@@ -118,6 +118,44 @@ test("changed bytes with a new same-path signature are held for review", async (
   assert.match(h.state.status.at(-1), /remain in Report Inbox for review/);
 });
 
+test("unresolved cleanup holds survive ledger pruning and later same-path changes", async () => {
+  const h = setup();
+  await h.scan();
+  assert.equal(h.model.autoImport.seen[h.signature].cleanupPending, true);
+
+  h.state.bytes = new Uint8Array([1, 2, 4]);
+  const changedSignature = h.signature + "|changed-once";
+  h.item.signature = changedSignature;
+  for (let i = 0; i < 1001; i++) {
+    h.model.autoImport.seen[`resolved-synthetic-${i}`] = {
+      fileName: `resolved-${i}.xlsx`,
+      importedAt: "2026-10-29T15:01:00Z",
+      kind: "appointments"
+    };
+  }
+
+  const second = await h.scan();
+  assert.equal(h.state.imports, 1);
+  assert.equal(h.state.removals, 0);
+  assert.equal(h.state.present, true);
+  assert.equal(second.cleanupReviewRequired.length, 1);
+  assert.equal(h.model.autoImport.seen[h.signature].cleanupNeedsReview, true);
+  assert.equal(h.model.autoImport.seen[changedSignature].cleanupReviewRequired, true);
+  assert.ok(Object.keys(h.model.autoImport.seen).length > 1000,
+    "unresolved source holds remain in addition to bounded resolved history");
+
+  h.state.bytes = new Uint8Array([1, 2, 5]);
+  const changedAgainSignature = h.signature + "|changed-twice";
+  h.item.signature = changedAgainSignature;
+  const third = await h.scan();
+  assert.equal(h.state.imports, 1, "a later signature cannot reimport a held source");
+  assert.equal(h.state.removals, 0, "a later signature cannot delete a held source");
+  assert.equal(h.state.present, true);
+  assert.equal(h.state.moved, 0);
+  assert.equal(third.cleanupReviewRequired.length, 1);
+  assert.equal(h.model.autoImport.seen[changedAgainSignature].cleanupReviewRequired, true);
+});
+
 test("a transient import failure does not schedule deletion", async () => {
   const h = setup({mode:"import-fails"});
   const result = await h.scan();
