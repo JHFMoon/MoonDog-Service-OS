@@ -29,7 +29,7 @@ class BetaPipelineTests(unittest.TestCase):
         package_token = text.split("id: release-app", 1)[1].split("Push package commit", 1)[0]
         self.assertIn("permission-contents: write", package_token)
         self.assertIn("permission-issues: write", package_token)
-        self.assertNotIn("permission-pull-requests: write", package_token)
+        self.assertIn("permission-pull-requests: write", package_token)
         self.assertIn("actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42", text)
         self.assertIn('secrets.MOONDOG_RELEASE_APP_ID', text)
         self.assertIn('secrets.MOONDOG_RELEASE_APP_PRIVATE_KEY', text)

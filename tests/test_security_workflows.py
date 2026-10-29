@@ -160,6 +160,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("scripts/build_beta_package.py", prepare)
         self.assertIn("No Workspace migration; Stable remains unchanged.", prepare)
         self.assertIn('push origin "HEAD:$HEAD_BRANCH"', prepare)
+        self.assertIn("permission-pull-requests: write", prepare)
         self.assertNotIn("workflow_dispatch:", prepare)
         self.assertNotIn("gh workflow run", prepare)
         self.assertNotIn("statuses:", prepare)
