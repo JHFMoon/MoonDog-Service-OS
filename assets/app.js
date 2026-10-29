@@ -235,6 +235,10 @@
   const XLSX_WORKER_THRESHOLD_BYTES = 512 * 1024;
   const preparedXlsxWorkbooks = new WeakMap();
   const xlsxSourceDeleteGuards = new Map();
+  // Scoped to active automatic imports: persist the cleanup intent before
+  // deleting a durably ingested source, so permission loss cannot erase the
+  // only record that the source needs cleanup on reconnect.
+  const autoSourceDeleteContext = new Map();
   const nativeXlsxRead = XLSX.read.bind(XLSX);
   const xlsxWorkerState = { worker: null, workerUrl: null, initializing: null, disabled: false, lastError: "", nextId: 1, pending: new Map(), successfulParses: 0, vendorSource: "" };
   let xlsxWorkerSmokeVendorBytes = null;
@@ -1267,7 +1271,7 @@
   let supervisorWorkbookOperationTail = Promise.resolve();
   async function withSupervisorWorkbookLock(operation) { const locks = globalThis.navigator?.locks; if (!locks?.request) throw new Error("This browser cannot safely serialize Supervisor Workbook operations. Use an up-to-date browser and retry."); const run = async () => { const previous = supervisorWorkbookOperationTail; let release; supervisorWorkbookOperationTail = new Promise((resolve) => { release = resolve; }); await previous; try { if (model.root) { const durable = await readJson(STATE_PATH, null); if (!durable || durable.updatedAt !== model.state.updatedAt || JSON.stringify(durable.records) !== JSON.stringify(model.state.records)) throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing."); const recovery = await readJson(RECOVERY_PATH, null); if (recovery) model.recovery = recovery; } return await operation(); } finally { release(); } }; return locks.request("moondog-supervisor-workbook", { mode: "exclusive" }, run); }
   const dailyPickedSources = new Map(); let dailyImportBusy = false, appointmentImportBusy = false;
-  async function sourceFileHandle(name) { if(dailyPickedSources.has(name))return dailyPickedSources.get(name); const location = sourceLocations.get(name); if (location === "root") return model.root.getFileHandle(name); if (location === "learn") return (await directory(["Files To Learn"], false)).getFileHandle(name); try { return await (await reportInbox(false)).getFileHandle(name); } catch (error) { if (error.name !== "NotFoundError") throw error; return model.root.getFileHandle(name); } }
+  async function sourceFileHandle(name) { if(dailyPickedSources.has(name))return dailyPickedSources.get(name); const location = sourceLocations.get(name); if (location === "root") return model.root.getFileHandle(name); if (location === "learn") return (await directory(["Files To Learn"], false)).getFileHandle(name); if (location === "inbox") return (await reportInbox(false)).getFileHandle(name); try { return await (await reportInbox(false)).getFileHandle(name); } catch (error) { if (error.name !== "NotFoundError") throw error; return model.root.getFileHandle(name); } }
   async function removeSourceEntryWithByteGuard(name, bytes) {
     if (!bytes) return removeSourceEntry(name);
     xlsxSourceDeleteGuards.set(name, bytes);
@@ -1275,18 +1279,48 @@
     finally { xlsxSourceDeleteGuards.delete(name); }
   }
   async function removeSourceEntry(name) {
-    if(dailyPickedSources.has(name))return;
-    const expectedXlsx = xlsxSourceDeleteGuards.get(name);
-    if (expectedXlsx) {
-      const current = await (await sourceFileHandle(name)).getFile();
-      if (!sameByteContent(await current.arrayBuffer(), expectedXlsx))
-        throw new Error(`${name} changed while it was being checked and was left in place.`);
+    if (dailyPickedSources.has(name)) return;
+    try {
+      const expectedXlsx = xlsxSourceDeleteGuards.get(name);
+      if (expectedXlsx) {
+        const current = await (await sourceFileHandle(name)).getFile();
+        if (!sameByteContent(await current.arrayBuffer(), expectedXlsx))
+          throw new Error(`${name} changed while it was being checked and was left in place.`);
+      }
+      const location = sourceLocations.get(name);
+      const autoCleanup = typeof autoSourceDeleteContext !== "undefined" ? autoSourceDeleteContext.get(name) : null;
+      if (autoCleanup && location === "inbox") {
+        // removeSourceEntry is reached only AFTER the importer's verified
+        // durable save. Recording the pending marker now avoids a second
+        // import if source deletion subsequently loses write permission.
+        model.autoImport.seen ||= {};
+        model.autoImport.seen[autoCleanup.signature] = {
+          fileName:name,relativePath:autoCleanup.relativePath,importedAt:now(),
+          kind:autoCleanup.kind,cleanupPending:true,
+          cleanupSha256:await sha256(new Uint8Array(autoCleanup.bytes))
+        };
+        model.autoImport.updatedAt=now();
+        await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+        // OneDrive or another writer may replace the report while the ledger
+        // save awaits filesystem transactions. Verify the bytes AGAIN after
+        // that save, immediately before attempting the journaled removal.
+        const latest = await (await sourceFileHandle(name)).getFile();
+        if (!sameByteContent(await latest.arrayBuffer(), autoCleanup.bytes))
+          throw new Error(`${name} changed while cleanup intent was saved and was left in place.`);
+      }
+      if (location === "root") return await model.root.removeEntry(name);
+      if (location === "learn") return await (await directory(["Files To Learn"], false)).removeEntry(name);
+      // A missing Inbox entry must never cause deletion of a same-named root workbook.
+      if (location === "inbox") return await (await reportInbox(false)).removeEntry(name);
+      try { return await (await reportInbox(false)).removeEntry(name); }
+      catch (error) { if (error.name !== "NotFoundError") throw error; return await model.root.removeEntry(name); }
+    } catch (error) {
+      // Distinguish a post-commit cleanup failure from a failed parser/import.
+      // Automatic intake retains and retries the verified source; never moves it
+      // to Files To Learn or imports the same successful snapshot again.
+      if (error && typeof error === "object") error.sourceCleanupFailure = true;
+      throw error;
     }
-    const location = sourceLocations.get(name);
-    if (location === "root") return model.root.removeEntry(name);
-    if (location === "learn") return (await directory(["Files To Learn"], false)).removeEntry(name);
-    try { return await (await reportInbox(false)).removeEntry(name); }
-    catch (error) { if (error.name !== "NotFoundError") throw error; return model.root.removeEntry(name); }
   }
 
   async function finishReadOnlyConnection(handle) {
@@ -3245,8 +3279,12 @@
       if (!sameByteContent(await currentFile.arrayBuffer(), bytes))
         throw new Error(`${candidate.name} changed while it was being checked and was left in place.`);
     }
-    const guardXlsxDelete = /\.xlsx$/i.test(candidate.name) && candidate.location !== "picked" && Boolean(bytes);
+    // The deletion guard protects every automatic report type, not only XLSX.
+    const guardXlsxDelete = candidate.location !== "picked" && Boolean(bytes);
     if (guardXlsxDelete) xlsxSourceDeleteGuards.set(candidate.name, bytes);
+    const priorAutoDelete = typeof autoSourceDeleteContext !== "undefined" ? autoSourceDeleteContext.get(candidate.name) : null;
+    if (typeof autoSourceDeleteContext !== "undefined" && guardXlsxDelete && deleteAfterSuccess && candidate.location === "inbox" && kind !== "disposable-greeter")
+      autoSourceDeleteContext.set(candidate.name, {signature:candidate.signature,relativePath:candidate.relativePath,kind,bytes});
     try {
       if (kind === "performance") await importPerformanceFile(candidate.name, deleteAfterSuccess, bytes);
       else if (kind === "next-appointments") await importNextAppointmentsFile(candidate.name, deleteAfterSuccess, candidate.location === "picked");
@@ -3265,6 +3303,10 @@
       await ensurePreviousMonthSummary(); renderAll();return appointmentOutcome;
     } finally {
       if (guardXlsxDelete) xlsxSourceDeleteGuards.delete(candidate.name);
+      if (typeof autoSourceDeleteContext !== "undefined") {
+        if (priorAutoDelete) autoSourceDeleteContext.set(candidate.name,priorAutoDelete);
+        else autoSourceDeleteContext.delete(candidate.name);
+      }
     }
   }
   async function reconcileLearnedFiles(parserRevision=LEARNED_PARSER_REVISION) {
@@ -3472,7 +3514,7 @@
   function watchStatus(state,message=""){folderWatch.state=state;folderWatch.message=message;folderWatch.lastChecked=state==="CHECKING REPORT INBOX"?folderWatch.lastChecked:now();if(ui.folderWatchStatus){ui.folderWatchStatus.textContent=`${state}${folderWatch.lastChecked?` · Last checked ${new Date(folderWatch.lastChecked).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`:""}`;ui.folderWatchStatus.className=`badge ${/MISSING|REQUIRED|ERROR/.test(state)?"watch-error":/WAITING|IMPORTING|CHECKING/.test(state)?"watch-working":""}`;}if(ui.folderWatchDetail)ui.folderWatchDetail.textContent=message||`Watches ${REPORT_INBOX} every 15 seconds while Service Operations Dashboard is open.`;}
   function stopFolderWatch(reason="WATCH OFF"){if(folderWatch.timer)clearInterval(folderWatch.timer);folderWatch.timer=null;watchStatus(reason,reason==="FOLDER PERMISSION REQUIRED"?"Reconnect the working folder to resume Report Inbox intake.":"Automatic intake remains available when Report Inbox Watch is turned on.");}
   function startFolderWatch(){if(!model.root||!folderWatchEnabled()){stopFolderWatch("WATCH OFF");return;}if(folderWatch.timer)clearInterval(folderWatch.timer);folderWatch.timer=setInterval(()=>{if(!document.hidden)void folderWatchScan("poll");},15000);watchStatus("REPORT INBOX WATCHING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox watch started at a 15-second interval");}
-  function watchedInboxFile(name) { return Boolean(String(name || "").trim()); }
+  function watchedInboxFile(name) { const value=String(name||"").trim();return Boolean(value&&!/^\.moondog-txn-/.test(value)); }
   function returnedWorkbookCandidate(name){return /\.xlsx$/i.test(name)&&!/^~\$/.test(name)&&/^(?:MoonDog|Service Operations) /i.test(name)&&!/-revision\.xlsx$/i.test(name);}
   async function watchCandidates(){
     const pending=[];
@@ -3510,7 +3552,7 @@
     if(candidate.readError)return false;
     const seen=model.autoImport.seen?.[candidate.signature];
     if(candidate.location==="inbox")
-      return !(seen?.kind==="appointments"&&seen.importedAt)
+      return Boolean(seen?.cleanupPending || seen?.cleanupReviewRequired || seen?.cleanupNeedsReview) || !(seen?.kind==="appointments"&&seen.importedAt)
         &&!((seen?.kind==="open-ro"||seen?.kind==="open-ro-docx")
           &&(seen.manualImportRequired||seen.importedAt));
     return !seen||Boolean(seen.movedAt);
@@ -3524,13 +3566,13 @@
     folderWatch.busy=true;watchStatus("CHECKING REPORT INBOX");
     try{
       if(await permission(model.root,false)!=="granted"){stopFolderWatch("FOLDER PERMISSION REQUIRED");model.pendingRoot=connectedNativeRoot;ui.permissionBadge.textContent=`Reconnect: ${model.root.name}`;ui.connectButton.textContent="Reconnect folder";recordDiagnostic("REPORT INBOX WATCH","Folder permission was lost; watching paused");return;}
-      const candidates=await watchCandidates(); if(model.autoImport.inboxVersion!==1){model.autoImport.seen||={};for(const candidate of candidates.filter(item=>item.location==="root"&&item.signature))model.autoImport.seen[candidate.signature]={fileName:candidate.name,relativePath:candidate.relativePath,firstSeenAt:now(),baseline:true,specializedRoot:true};model.autoImport.inboxVersion=1;model.autoImport.updatedAt=now();await writeJson(AUTO_IMPORT_PATH,model.autoImport);recordDiagnostic("REPORT INBOX WATCH","Dedicated Report Inbox scope initialized; existing root workbooks were left untouched");}
+      const candidates=await watchCandidates(); const legacyCleanupReview=candidates.filter(item=>item.location==="inbox"&&!item.readError&&model.autoImport.seen?.[item.signature]?.kind==="appointments"&&model.autoImport.seen[item.signature].importedAt&&!model.autoImport.seen[item.signature].cleanupPending); if(model.autoImport.inboxVersion!==1){model.autoImport.seen||={};for(const candidate of candidates.filter(item=>item.location==="root"&&item.signature))model.autoImport.seen[candidate.signature]={fileName:candidate.name,relativePath:candidate.relativePath,firstSeenAt:now(),baseline:true,specializedRoot:true};model.autoImport.inboxVersion=1;model.autoImport.updatedAt=now();await writeJson(AUTO_IMPORT_PATH,model.autoImport);recordDiagnostic("REPORT INBOX WATCH","Dedicated Report Inbox scope initialized; existing root workbooks were left untouched");}
       if(!model.autoImport.initializedAt){model.autoImport.initializedAt=now();model.autoImport.updatedAt=model.autoImport.initializedAt;await writeJson(AUTO_IMPORT_PATH,model.autoImport);recordDiagnostic("REPORT INBOX WATCH","Report Inbox intake initialized without a file baseline");}
       const present=new Set(candidates.map(item=>item.relativePath)),stable=new Set();
       for(const candidate of candidates){const prior=folderWatch.pending.get(candidate.relativePath);if(candidate.readError){if(!prior?.readPending)recordDiagnostic("REPORT INBOX PENDING","Temporary file read failure; retry scheduled");folderWatch.pending.set(candidate.relativePath,{readPending:true,firstSeenAt:prior?.firstSeenAt||now()});continue;}if(/^~\$/.test(candidate.name)){folderWatch.pending.set(candidate.relativePath,{temporary:true,firstSeenAt:prior?.firstSeenAt||now()});continue;}if(!candidateNeedsImport(candidate)){folderWatch.pending.delete(candidate.relativePath);continue;}if(prior?.signature===candidate.signature){prior.confirmations+=1;if(prior.confirmations>=2)stable.add(candidate.signature);}else{folderWatch.pending.set(candidate.relativePath,{signature:candidate.signature,confirmations:1,firstSeenAt:now()});recordDiagnostic("REPORT INBOX PENDING","File is still awaiting stability confirmation");}}
       for(const name of [...folderWatch.pending.keys()])if(!present.has(name))folderWatch.pending.delete(name);
-      if(stable.size){watchStatus("IMPORTING");const scrollX=window.scrollX,scrollY=window.scrollY,result=await autoSurveyFolder(stable);for(const candidate of candidates.filter(item=>stable.has(item.signature)))folderWatch.pending.delete(candidate.relativePath);renderAll();renderSetup();renderRecovery();window.scrollTo(scrollX,scrollY);folderWatch.lastChecked=now();if(result.reviewRequired?.length){watchStatus("OPEN RO REVIEW REQUIRED",`${result.reviewRequired.length} recognized Open RO report(s) remain in Report Inbox. Choose Import Report to verify the source and roster.`);}else if(result.imported.length){watchStatus("REPORT INBOX WATCHING",`${result.imported.length} supported report${result.imported.length===1?"":"s"} updated automatically`);recordDiagnostic("REPORT INBOX WATCH",`${result.imported.length} supported source file(s) imported automatically from the Report Inbox`);}else watchStatus(result.retained.length?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",result.learned.length?`${result.learned.length} unsupported or failed file(s) moved safely to Files To Learn.`:"");}
-      else{folderWatch.lastChecked=now();const pendingManual=candidates.filter(item=>item.location==="inbox"&&model.autoImport.seen?.[item.signature]?.manualImportRequired).length;if(pendingManual)watchStatus("OPEN RO REVIEW REQUIRED",`${pendingManual} recognized Open RO report(s) are ready in Import Report for explicit roster verification.`);else watchStatus(folderWatch.pending.size?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",folderWatch.pending.size?`${folderWatch.pending.size} file(s) remain pending stability or temporary read recovery.`:"");}
+      if(stable.size){watchStatus("IMPORTING");const scrollX=window.scrollX,scrollY=window.scrollY,result=await autoSurveyFolder(stable);for(const candidate of candidates.filter(item=>stable.has(item.signature)))folderWatch.pending.delete(candidate.relativePath);renderAll();renderSetup();renderRecovery();window.scrollTo(scrollX,scrollY);folderWatch.lastChecked=now();if(result.cleanupReviewRequired?.length){watchStatus("REPORT CLEANUP REVIEW REQUIRED",`${result.cleanupReviewRequired.length} source file(s) changed identity after verified ingestion. They remain in Report Inbox; review before re-import or deletion.`);}else if(result.reviewRequired?.length){watchStatus("OPEN RO REVIEW REQUIRED",`${result.reviewRequired.length} recognized Open RO report(s) remain in Report Inbox. Choose Import Report to verify the source and roster.`);}else if(result.cleanupPending?.length){watchStatus("REPORT CLEANUP RETRY PENDING",`${result.cleanupPending.length} report(s) were saved, but original source deletion did not finish. Cleanup will retry without importing again.`);}else if(result.imported.length){watchStatus("REPORT INBOX WATCHING",`${result.imported.length} supported report${result.imported.length===1?"":"s"} updated automatically`);recordDiagnostic("REPORT INBOX WATCH",`${result.imported.length} supported source file(s) imported automatically from the Report Inbox`);}else if(result.cleaned?.length){watchStatus("REPORT INBOX WATCHING",`${result.cleaned.length} previously ingested file(s) were deleted after verified retry.`);}else watchStatus(result.retained.length?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",result.learned.length?`${result.learned.length} unsupported or failed file(s) moved safely to Files To Learn.`:"");}
+      else{folderWatch.lastChecked=now();const pendingManual=candidates.filter(item=>item.location==="inbox"&&model.autoImport.seen?.[item.signature]?.manualImportRequired).length;if(pendingManual)watchStatus("OPEN RO REVIEW REQUIRED",`${pendingManual} recognized Open RO report(s) are ready in Import Report for explicit roster verification.`);else if(legacyCleanupReview.length)watchStatus("CLEANUP REVIEW REQUIRED",`${legacyCleanupReview.length} previously imported appointment source(s) are still present without verified cleanup provenance. Review the original files before manual removal; the Dashboard will not auto-delete legacy files.`);else watchStatus(folderWatch.pending.size?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",folderWatch.pending.size?`${folderWatch.pending.size} file(s) remain pending stability or temporary read recovery.`:"");}
     }catch(error){if(error.name==="NotFoundError"){stopFolderWatch("REPORT INBOX MISSING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox is missing");}else if(error.name==="NotAllowedError"||error.name==="SecurityError"){stopFolderWatch("FOLDER PERMISSION REQUIRED");recordDiagnostic("REPORT INBOX WATCH","Folder permission error paused watching");}else{watchStatus("REPORT INBOX ERROR","The last scan failed; Service Operations Dashboard will retry automatically.");recordDiagnostic("REPORT INBOX WATCH",`Report Inbox scan failed (${error.name||"Error"})`);}}finally{folderWatch.busy=false;}
   }
   async function autoSurveyFolder(eligibleSignatures = null) {
@@ -3538,11 +3580,68 @@
     for (const candidate of candidates) { candidate.modified=candidate.file.lastModified; candidate.structurePriority=10; if (/\.csv$/i.test(candidate.name)) { const start=(await candidate.file.slice(0,160).text()).trim().toLowerCase(); candidate.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     candidates.sort((a, b) => a.structurePriority - b.structurePriority || a.modified - b.modified || a.name.localeCompare(b.name, undefined, { numeric: true }));
     model.autoImport.seen ||= {};
-    const imported = [], learned = [], retired = [], retained = [], reviewRequired = [];
+    const imported = [], learned = [], retired = [], retained = [], reviewRequired = [], cleaned = [], cleanupPending = [], cleanupReviewRequired = [];
     let ledgerChanged = false, pdfFailureMessage="";
+    // Cleanup and identity-review holds are safety state, not disposable history.
+    // Keep them discoverable by path even after old resolved ledger entries age out.
+    const hasUnresolvedCleanupHold = entry => Boolean(entry?.cleanupPending || entry?.cleanupNeedsReview || entry?.cleanupReviewRequired);
     for (const candidate of candidates.filter((item)=>item.signature).filter(candidateNeedsImport).filter((item) => !eligibleSignatures || eligibleSignatures.has(item.signature))) {
       let kind = null, bytes = null;
       try {
+        // A changed timestamp/size yields a new watch signature. Match cleanup
+        // by original path too, so edited content is held instead of re-imported.
+        const priorPendingCleanup = Object.entries(model.autoImport.seen).find(([priorSignature, entry]) =>
+          priorSignature !== candidate.signature && hasUnresolvedCleanupHold(entry) && entry.relativePath === candidate.relativePath);
+        if (priorPendingCleanup) {
+          const [priorSignature, prior] = priorPendingCleanup;
+          prior.cleanupNeedsReview = true;
+          prior.cleanupReason = "The source identity changed after its report was saved; review the retained file before cleanup or re-import.";
+          model.autoImport.seen[candidate.signature] = {
+            fileName:candidate.name,relativePath:candidate.relativePath,cleanupReviewRequired:true,
+            priorCleanupSignature:priorSignature,cleanupReason:prior.cleanupReason,detectedAt:now()
+          };
+          ledgerChanged=true;retained.push(candidate.name);cleanupReviewRequired.push(candidate.name);
+          recordDiagnostic("REPORT INBOX CLEANUP","Source identity changed after verified ingestion; retained for review without re-import");
+          continue;
+        }
+        const pendingCleanup = model.autoImport.seen[candidate.signature];
+        if (pendingCleanup?.cleanupNeedsReview || pendingCleanup?.cleanupReviewRequired) {
+          retained.push(candidate.name);cleanupReviewRequired.push(candidate.name);
+          recordDiagnostic("REPORT INBOX CLEANUP","Changed or ambiguous source retained for review; automatic deletion and re-import are blocked");
+          continue;
+        }
+        if (pendingCleanup?.cleanupPending) {
+          // Reconnect/retry is cleanup-only. Check BOTH the original Inbox path
+          // and the saved exact-byte digest before deleting anything.
+          if (candidate.location !== "inbox" || pendingCleanup.relativePath !== candidate.relativePath || !pendingCleanup.cleanupSha256) {
+            pendingCleanup.cleanupNeedsReview=true;
+            pendingCleanup.cleanupReason="Verified cleanup requires the original Report Inbox path and digest.";
+            ledgerChanged=true;retained.push(candidate.name);cleanupReviewRequired.push(candidate.name);
+            recordDiagnostic("REPORT INBOX CLEANUP","Original source identity could not be verified; file retained for review");
+            continue;
+          }
+          bytes = await candidate.file.arrayBuffer();
+          if (await sha256(new Uint8Array(bytes)) !== pendingCleanup.cleanupSha256) {
+            pendingCleanup.cleanupNeedsReview=true;
+            pendingCleanup.cleanupReason="Report bytes changed after successful ingestion; review the retained file before cleanup or re-import.";
+            ledgerChanged=true;retained.push(candidate.name);cleanupReviewRequired.push(candidate.name);
+            recordDiagnostic("REPORT INBOX CLEANUP","Source bytes changed after verified ingestion; file retained for review without re-import");
+            continue;
+          }
+          sourceLocations.set(candidate.name,candidate.location);
+          // A prior marker may exist only in memory if permission failed during
+          // its initial write. Re-persist it before any cleanup-only deletion.
+          // If this write is denied, the source stays and the next scan retries.
+          await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+          await removeSourceEntryWithByteGuard(candidate.name, bytes);
+          pendingCleanup.cleanupPending = false;
+          pendingCleanup.cleanupCompletedAt = now();
+          delete pendingCleanup.cleanupSha256;
+          delete pendingCleanup.cleanupReason;
+          cleaned.push(candidate.name); ledgerChanged = true;
+          recordDiagnostic("REPORT INBOX", "Previously ingested report source deleted after verified cleanup retry");
+          continue;
+        }
         sourceLocations.set(candidate.name,candidate.location); bytes = await candidate.file.arrayBuffer(); kind = await classifyImportFile(candidate.name, candidate.file, bytes); if(candidate.location==="root"&&kind!=="ro-update")throw new Error("Only returned supervisor workbooks use the specialized root intake path.");
         if (!kind) {
           const referenceOnly=referenceOnlyHint(candidate.name),recognized=referenceOnly||recognizedFamilyHint(candidate.name,bytes),reason=referenceOnly?"Recognized non-KPI reference document; excluded from KPI ingestion":recognized?"Recognized report family but invalid or unsupported structure":"Unsupported or unrecognized file structure",storedAs=await moveToLearn(candidate,reason);
@@ -3565,9 +3664,32 @@
             {fileName:candidate.name,sourceFamily:kind,sourcePreserved:true});
           continue;
         }
-        const outcome=await processClassifiedCandidate(candidate, kind, bytes, true);if(kind==="appointments"&&outcome?.deleted===false)pdfFailureMessage="Verified appointments saved. Source retained: "+outcome.retainedReason+". Stable source will not be reread.";
+        const outcome=await processClassifiedCandidate(candidate, kind, bytes, true);
+        if (kind==="appointments" && outcome?.saved && outcome.deleted===false) {
+          // Import is already verified and durable; do not re-import, do not
+          // claim removal, and do not discard the cleanup retry on next poll.
+          model.autoImport.seen[candidate.signature]={fileName:candidate.name,relativePath:candidate.relativePath,
+            importedAt:now(),kind,cleanupPending:true,cleanupSha256:await sha256(new Uint8Array(bytes)),
+            cleanupReason:outcome.retainedReason||"Deletion not verified"};
+          ledgerChanged=true;retained.push(candidate.name);cleanupPending.push(candidate.name);
+          recordDiagnostic("REPORT INBOX CLEANUP","Appointment snapshot saved; source removal pending retry");
+          continue;
+        }
         if(outcome?.retired)retired.push(candidate.name);else imported.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, relativePath:candidate.relativePath, importedAt: now(), kind, retired:Boolean(outcome?.retired) }; ledgerChanged = true;recordDiagnostic("REPORT INBOX",outcome?.retired?`${kind} recognized and retired outside Service OS`:`${kind} recognized and imported or safely deduplicated`);
       } catch (error) {
+        if (candidate.location==="inbox" && model.autoImport.seen[candidate.signature]?.cleanupPending) {
+          retained.push(candidate.name);cleanupPending.push(candidate.name);
+          recordDiagnostic("REPORT INBOX CLEANUP", "Previously imported report retained; verified cleanup retry deferred");
+          continue;
+        }
+        if (candidate.location==="inbox" && error?.sourceCleanupFailure && kind && kind!=="disposable-greeter" && bytes) {
+          model.autoImport.seen[candidate.signature]={fileName:candidate.name,relativePath:candidate.relativePath,
+            importedAt:now(),kind,cleanupPending:true,cleanupSha256:await sha256(new Uint8Array(bytes)),
+            cleanupReason:error.message||String(error)};
+          ledgerChanged=true;retained.push(candidate.name);cleanupPending.push(candidate.name);
+          recordDiagnostic("REPORT INBOX CLEANUP", "Verified ingestion completed; source removal failed and will be retried");
+          continue;
+        }
         console.warn(`Automatic import retained ${candidate.name}:`, error);if(/\.pdf$/i.test(candidate.name)){pdfFailureMessage=`PDF intake failed: ${error.message||error}. Source kept for retry/review.`;recordDiagnostic("PDF INTAKE",error.name+": "+(error.message||error));}
         if(transientIntakeError(error)){retained.push(candidate.name);recordDiagnostic("REPORT INBOX PENDING","Temporary read, permission, or durable-write failure; retry scheduled");continue;}
         try {
@@ -3580,14 +3702,29 @@
         catch (moveError) { retained.push(candidate.name); try { await addHistory("auto-import-retained", `Automatic import retained ${candidate.name}`, { fileName: candidate.name, reason: moveError.message || String(moveError) }); } catch (_) {} }
       }
     }
-    if (ledgerChanged) { const entries = Object.entries(model.autoImport.seen); if (entries.length > 1000) model.autoImport.seen = Object.fromEntries(entries.slice(-1000)); model.autoImport.updatedAt = now(); await writeJson(AUTO_IMPORT_PATH, model.autoImport); }
+    if (ledgerChanged) {
+      const entries = Object.entries(model.autoImport.seen);
+      if (entries.length > 1000) {
+        // Bound resolved history while retaining every unresolved source hold.
+        const retained = new Map(entries.slice(-1000));
+        for (const [signature, entry] of entries) {
+          if (hasUnresolvedCleanupHold(entry)) retained.set(signature, entry);
+        }
+        model.autoImport.seen = Object.fromEntries(retained);
+      }
+      model.autoImport.updatedAt = now();
+      await writeJson(AUTO_IMPORT_PATH, model.autoImport);
+    }
     if(reviewRequired.length)await scanFiles();
     const reviewNote=reviewRequired.length?` ${reviewRequired.length} recognized Open RO source(s) remain in Report Inbox for Import Report verification.`:"";
     const learnNote = learned.length ? ` ${learned.length} file${learned.length === 1 ? " was" : "s were"} moved safely to Files To Learn.` : "", retiredNote = retired.length ? ` ${retired.length} known non-service file${retired.length === 1 ? " was" : "s were"} retired from Service OS intake.` : "", retainedNote = retained.length ? ` ${retained.length} file${retained.length === 1 ? " remains" : "s remain"} in place because it could not be moved safely.` : "";
-    if (imported.length) status(`Folder checked automatically. Imported and removed ${imported.length} verified source file${imported.length === 1 ? "" : "s"}.${retiredNote}${learnNote}${retainedNote}${reviewNote}`, retained.length||reviewRequired.length ? "info" : "success");
-    else if (retired.length || learned.length || retained.length || reviewRequired.length) status(`Folder checked automatically.${retiredNote}${learnNote}${retainedNote}${reviewNote}`, retained.length||reviewRequired.length ? "info" : "success");
+    const cleanupNote = cleanupPending.length ? ` ${cleanupPending.length} ingested file${cleanupPending.length===1?"":"s"} still need${cleanupPending.length===1?"s":""} source deletion; the Dashboard will retry without re-importing.` : "";
+    const cleanedNote = cleaned.length ? ` Deleted ${cleaned.length} previously ingested source file${cleaned.length===1?"":"s"} after verified retry.` : "";
+    const cleanupReviewNote = cleanupReviewRequired.length ? ` ${cleanupReviewRequired.length} ingested source file${cleanupReviewRequired.length===1?"":"s"} changed identity and remain in Report Inbox for review; no re-import or deletion was attempted.` : "";
+    if (imported.length) status(`Folder checked automatically. Imported and removed ${imported.length} verified source file${imported.length === 1 ? "" : "s"}.${cleanedNote}${cleanupNote}${cleanupReviewNote}${retiredNote}${learnNote}${retainedNote}${reviewNote}`, retained.length||reviewRequired.length ? "info" : "success");
+    else if (retired.length || learned.length || retained.length || reviewRequired.length || cleaned.length) status(`Folder checked automatically.${cleanedNote}${cleanupNote}${cleanupReviewNote}${retiredNote}${learnNote}${retainedNote}${reviewNote}`, retained.length||reviewRequired.length ? "info" : "success");
     if(pdfFailureMessage)status(pdfFailureMessage,"error");
-    return { imported, retired, learned, retained, reviewRequired, initialized: false };
+    return { imported, retired, learned, retained, reviewRequired, cleaned, cleanupPending, cleanupReviewRequired, initialized: false };
   }
 
   async function importReturnedWorkbook(selectedName, deleteAfterSuccess = false, providedBytes = null) {

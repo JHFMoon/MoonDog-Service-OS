@@ -1,0 +1,280 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const crypto = require("node:crypto");
+
+const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+function section(start, end) {
+  const a = app.indexOf(start), b = app.indexOf(end, a + start.length);
+  assert.ok(a >= 0 && b > a, "production function boundaries exist: " + start);
+  return app.slice(a, b);
+}
+const candidateNeedsImport = section("  function candidateNeedsImport(", "  function transientWorkspaceState(");
+const autoSurveyFolder = section("  async function autoSurveyFolder(", "  async function importReturnedWorkbook(");
+const digest = async bytes => crypto.createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+
+function setup({ mode = "appointment-removal-failed" } = {}) {
+  const state = { present: true, bytes: new Uint8Array([1, 2, 3]), imports: 0, removals: 0, moved: 0, history: [], status: [], ledger: [] };
+  const name = "synthetic-appointments.xlsx";
+  const relativePath = "01 - DROP REPORTS HERE/" + name;
+  const signature = relativePath + "|3|12345";
+  const model = { autoImport: { seen: {} } };
+  const item = {
+    name, location: "inbox", relativePath, signature,
+    file: { lastModified: 12345, arrayBuffer: async () => state.bytes.slice().buffer }
+  };
+  const context = vm.createContext({
+    model,
+    now: () => "2026-10-29T15:00:00Z",
+    watchCandidates: async () => state.present ? [item] : [],
+    sha256: digest,
+    classifyImportFile: async () => "appointments",
+    processClassifiedCandidate: async (_candidate, _kind, bytes, deletion) => {
+      assert.equal(deletion, true);
+      assert.equal((await digest(bytes)), (await digest(state.bytes)));
+      state.imports++;
+      if (mode === "import-fails") throw Object.assign(new Error("Source not readable"), { name: "NotReadableError" });
+      if (mode === "cleanup-throws" && state.imports === 1)
+        throw Object.assign(new Error("Synthetic delete permission lost"), { name: "NotAllowedError", sourceCleanupFailure: true });
+      if (mode === "appointment-removal-failed" && state.imports === 1)
+        return { saved: true, deleted: false, retainedReason: "Synthetic permission loss" };
+      state.removals++; state.present = false;
+      return { saved: true, deleted: true };
+    },
+    removeSourceEntryWithByteGuard: async (_name, expected) => {
+      state.removals++;
+      assert.equal(await digest(expected), await digest(state.bytes), "cleanup checks current bytes");
+      state.present = false;
+    },
+    sourceLocations: new Map(),
+    model, Map, Set, Uint8Array, JSON, Promise, Date,
+    moveToLearn: async () => { state.moved++; throw Error("Should not move a successfully imported file to learning"); },
+    transientIntakeError: error => error.name === "NotReadableError" || error.name === "NotAllowedError",
+    recordDiagnostic() {},
+    status: message => state.status.push(message),
+    writeJson: async (_path, value) => state.ledger.push(JSON.parse(JSON.stringify(value))),
+    AUTO_IMPORT_PATH: ["data", "auto-import.json"],
+    scanFiles: async () => {},
+    addHistory: async (...args) => state.history.push(args),
+    sha256: digest,
+    referenceOnlyHint: () => false, recognizedFamilyHint: () => false,
+    console,
+    // These are deliberately unreachable for a recognized synthetic report.
+    referenceOnlyDocumentType: () => null
+  });
+  vm.runInContext(candidateNeedsImport + autoSurveyFolder + "\nthis.scan = autoSurveyFolder;", context);
+  return {state, model, name, signature, item, context, scan: () => context.scan()};
+}
+
+test("verified auto-import removes a report and records it as imported", async () => {
+  const h = setup({mode:"success"});
+  const result = await h.scan();
+  assert.equal(h.state.imports, 1);
+  assert.equal(h.state.removals, 1);
+  assert.equal(h.state.present, false);
+  assert.equal(h.model.autoImport.seen[h.signature].cleanupPending, undefined);
+  assert.equal(result.imported.length, 1);
+  assert.match(h.state.status.at(-1), /Imported and removed 1 verified source file/);
+});
+
+for (const mode of ["appointment-removal-failed", "cleanup-throws"]) {
+  test(`durable ${mode} is retained and retried without reimporting`, async () => {
+    const h = setup({mode});
+    const first = await h.scan();
+    assert.equal(h.state.imports, 1);
+    assert.equal(h.state.present, true);
+    assert.equal(h.state.moved, 0);
+    assert.equal(first.imported.length, 0, "must not claim deletion");
+    assert.equal(first.cleanupPending.length, 1);
+    assert.equal(h.model.autoImport.seen[h.signature].cleanupPending, true);
+    assert.match(h.state.status.at(-1), /will retry without re-importing/);
+    const second = await h.scan();
+    assert.equal(h.state.imports, 1, "retry never reimports a durable report");
+    assert.equal(h.state.removals, 1);
+    assert.equal(h.state.present, false);
+    assert.equal(h.model.autoImport.seen[h.signature].cleanupPending, false);
+    assert.equal(second.cleaned.length, 1);
+    assert.equal(h.state.moved, 0);
+  });
+}
+
+test("changed bytes with a new same-path signature are held for review", async () => {
+  const h = setup();
+  await h.scan();
+  h.state.bytes = new Uint8Array([1, 2, 4]);
+  h.item.signature = h.signature + "|changed-size-or-modified-time";
+  const second = await h.scan();
+  assert.equal(h.state.imports, 1);
+  assert.equal(h.state.removals, 0);
+  assert.equal(h.state.present, true);
+  assert.equal(h.state.moved, 0);
+  assert.deepEqual(Array.from(second.cleanupReviewRequired), [h.name]);
+  assert.equal(h.model.autoImport.seen[h.signature].cleanupPending, true);
+  assert.equal(h.model.autoImport.seen[h.item.signature].cleanupReviewRequired, true);
+  assert.match(h.state.status.at(-1), /remain in Report Inbox for review/);
+});
+
+test("unresolved cleanup holds survive ledger pruning and later same-path changes", async () => {
+  const h = setup();
+  await h.scan();
+  assert.equal(h.model.autoImport.seen[h.signature].cleanupPending, true);
+
+  h.state.bytes = new Uint8Array([1, 2, 4]);
+  const changedSignature = h.signature + "|changed-once";
+  h.item.signature = changedSignature;
+  for (let i = 0; i < 1001; i++) {
+    h.model.autoImport.seen[`resolved-synthetic-${i}`] = {
+      fileName: `resolved-${i}.xlsx`,
+      importedAt: "2026-10-29T15:01:00Z",
+      kind: "appointments"
+    };
+  }
+
+  const second = await h.scan();
+  assert.equal(h.state.imports, 1);
+  assert.equal(h.state.removals, 0);
+  assert.equal(h.state.present, true);
+  assert.equal(second.cleanupReviewRequired.length, 1);
+  assert.equal(h.model.autoImport.seen[h.signature].cleanupNeedsReview, true);
+  assert.equal(h.model.autoImport.seen[changedSignature].cleanupReviewRequired, true);
+  assert.ok(Object.keys(h.model.autoImport.seen).length > 1000,
+    "unresolved source holds remain in addition to bounded resolved history");
+
+  h.state.bytes = new Uint8Array([1, 2, 5]);
+  const changedAgainSignature = h.signature + "|changed-twice";
+  h.item.signature = changedAgainSignature;
+  const third = await h.scan();
+  assert.equal(h.state.imports, 1, "a later signature cannot reimport a held source");
+  assert.equal(h.state.removals, 0, "a later signature cannot delete a held source");
+  assert.equal(h.state.present, true);
+  assert.equal(h.state.moved, 0);
+  assert.equal(third.cleanupReviewRequired.length, 1);
+  assert.equal(h.model.autoImport.seen[changedAgainSignature].cleanupReviewRequired, true);
+});
+
+test("a transient import failure does not schedule deletion", async () => {
+  const h = setup({mode:"import-fails"});
+  const result = await h.scan();
+  assert.equal(h.state.removals, 0);
+  assert.equal(h.state.present, true);
+  assert.equal(h.state.moved, 0);
+  assert.equal(result.retained.length, 1);
+  assert.equal(h.model.autoImport.seen[h.signature], undefined);
+});
+
+test("explicit Inbox source deletion cannot fall back to the root folder", async () => {
+  const source = section("  async function removeSourceEntry(name) {", "  async function finishReadOnlyConnection(");
+  let rootDeleted = false;
+  const context = vm.createContext({
+    dailyPickedSources: new Map(),
+    xlsxSourceDeleteGuards: new Map(),
+    sourceLocations: new Map([["synthetic.xlsx", "inbox"]]),
+    model: { root: { removeEntry: async () => { rootDeleted = true; } } },
+    reportInbox: async () => ({ removeEntry: async () => { throw Object.assign(new Error("Missing"), {name:"NotFoundError"}); } }),
+    Map, Error
+  });
+  vm.runInContext(source + "\nthis.remove = removeSourceEntry;", context);
+  await assert.rejects(context.remove("synthetic.xlsx"), {name:"NotFoundError"});
+  assert.equal(rootDeleted, false);
+});
+
+test("automatic source byte guard also covers non-XLSX report types", () => {
+  const process = section("  async function processClassifiedCandidate(", "  async function reconcileLearnedFiles(");
+  assert.match(process, /const guardXlsxDelete = candidate.location !== "picked" && Boolean\(bytes\)/);
+  assert.match(process, /xlsxSourceDeleteGuards.set\(candidate.name, bytes\)/);
+});
+
+test("cleanup intent is persisted before attempting source removal", async () => {
+  const source = section("  async function removeSourceEntry(name) {", "  async function finishReadOnlyConnection(");
+  const name = "synthetic.xlsx", signature = "01 - DROP REPORTS HERE/synthetic.xlsx|3|12345";
+  const calls = [], model = {autoImport:{seen:{}},root:{removeEntry:async()=>{throw Error("Root must not be touched");}}};
+  const context = vm.createContext({
+    dailyPickedSources: new Map(), xlsxSourceDeleteGuards: new Map(),
+    sourceLocations: new Map([[name, "inbox"]]),
+    autoSourceDeleteContext: new Map([[name,{signature,relativePath:"01 - DROP REPORTS HERE/"+name,
+      kind:"performance",bytes:new Uint8Array([1,2,3]).buffer}]]),
+    model, now:()=> "2026-10-29T15:00:00Z", sha256:digest,
+    AUTO_IMPORT_PATH:["data","auto-import.json"],
+    writeJson:async()=>{calls.push("ledger");},
+    sourceFileHandle:async()=>({getFile:async()=>({arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer})}),
+    sameByteContent:(a,b)=>Buffer.from(a).equals(Buffer.from(b)),
+    reportInbox:async()=>({removeEntry:async()=>{calls.push("delete");throw Object.assign(Error("denied"),{name:"NotAllowedError"});}}),
+    Map,Uint8Array,Error
+  });
+  vm.runInContext(source + "\nthis.remove = removeSourceEntry;", context);
+  await assert.rejects(context.remove(name),{name:"NotAllowedError"});
+  assert.deepEqual(calls,["ledger","delete"]);
+  assert.equal(model.autoImport.seen[signature].cleanupPending,true);
+  assert.equal(model.autoImport.seen[signature].cleanupSha256,await digest(new Uint8Array([1,2,3])));
+});
+
+test("source is never deleted if pending-cleanup ledger cannot be saved", async () => {
+  const source = section("  async function removeSourceEntry(name) {", "  async function finishReadOnlyConnection(");
+  const name = "synthetic.xlsx";
+  let attempted = 0;
+  const context = vm.createContext({
+    dailyPickedSources:new Map(),xlsxSourceDeleteGuards:new Map(),
+    sourceLocations:new Map([[name,"inbox"]]),
+    autoSourceDeleteContext:new Map([[name,{signature:"synthetic",relativePath:"01 - DROP REPORTS HERE/"+name,kind:"csi",bytes:new Uint8Array([7]).buffer}]]),
+    model:{autoImport:{seen:{}},root:{removeEntry:async()=>{attempted++;}}},
+    now:()=> "2026-10-29T15:00:00Z",sha256:digest,
+    AUTO_IMPORT_PATH:["data","auto-import.json"],
+    writeJson:async()=>{throw Error("Ledger write denied");},
+    reportInbox:async()=>({removeEntry:async()=>{attempted++;}}),
+    Map,Uint8Array,Error
+  });
+  vm.runInContext(source + "\nthis.remove = removeSourceEntry;", context);
+  await assert.rejects(context.remove(name),/Ledger write denied/);
+  assert.equal(attempted,0);
+});
+
+test("a replacement written during cleanup marker persistence is never deleted", async () => {
+  const source = section("  async function removeSourceEntry(name) {", "  async function finishReadOnlyConnection(");
+  const name = "synthetic.xlsx", original = new Uint8Array([1,2,3]).buffer;
+  let current = original, deleted = 0, markerSaved = false;
+  const context = vm.createContext({
+    dailyPickedSources:new Map(),
+    xlsxSourceDeleteGuards:new Map([[name,original]]),
+    sourceLocations:new Map([[name,"inbox"]]),
+    autoSourceDeleteContext:new Map([[name,{signature:"inbox|3|123",relativePath:"01 - DROP REPORTS HERE/"+name,kind:"performance",bytes:original}]]),
+    model:{autoImport:{seen:{}},root:{removeEntry:async()=>{deleted++;}}},
+    now:()=> "2026-10-29T15:00:00Z",sha256:digest,
+    AUTO_IMPORT_PATH:["data","auto-import.json"],
+    sourceFileHandle:async()=>({getFile:async()=>({arrayBuffer:async()=>current})}),
+    sameByteContent:(a,b)=>Buffer.from(a).equals(Buffer.from(b)),
+    writeJson:async()=>{markerSaved=true;current=new Uint8Array([9,9,9]).buffer;},
+    reportInbox:async()=>({removeEntry:async()=>{deleted++;}}),
+    Map,Uint8Array,Error
+  });
+  vm.runInContext(source + "\nthis.remove = removeSourceEntry;", context);
+  await assert.rejects(context.remove(name),/changed while cleanup intent was saved/);
+  assert.equal(markerSaved,true);
+  assert.equal(deleted,0);
+});
+
+test("cleanup-only retry persists pending ledger before deleting and survives a denied write", async () => {
+  const h = setup();
+  await h.scan(); // durable appointment save, source retained
+  const marker = h.model.autoImport.seen[h.signature];
+  assert.equal(marker.cleanupPending,true);
+  let writes=0,removals=0;
+  // Model a reconnect where the first cleanup-intent write is denied.
+  h.context.writeJson = async () => {
+    writes++;
+    if(writes===1) throw Object.assign(new Error("Write permission lost"),{name:"NotAllowedError"});
+  };
+  h.context.removeSourceEntryWithByteGuard = async () => { removals++;h.state.present=false; };
+  const denied = await h.scan();
+  assert.equal(denied.cleanupPending.length,1);
+  assert.equal(removals,0,"cleanup must not remove the source before the ledger write succeeds");
+  assert.equal(marker.cleanupPending,true);
+  const recovered = await h.scan();
+  assert.equal(recovered.cleaned.length,1);
+  assert.equal(removals,1);
+  assert.equal(writes,3,"denied write, recovered pending intent, and final cleanup ledger persistence");
+  assert.equal(h.state.imports,1);
+});
