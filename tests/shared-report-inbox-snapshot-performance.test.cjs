@@ -59,7 +59,7 @@ test("Report Inbox entry collection reads the directory once and preserves handl
       return { async *entries() { directoryReads += 1; yield* original; } };
     }
   }));
-  vm.runInContext(inboxSnapshot + "\\nthis.readInbox=reportInboxEntries;", context);
+  vm.runInContext(inboxSnapshot + "\nthis.readInbox=reportInboxEntries;", context);
 
   const result = await context.readInbox();
 
@@ -119,4 +119,5 @@ test("the post-connect appointment and performance scans share one enumerated sn
 
 test("read-only connection shares its inbox enumeration across selector scans", () => {
   assert.match(app, /const reportInboxSnapshot = reportInboxEntries\(\);[\s\S]*reportInboxSnapshot\.then\(entries => scanFiles\(entries\)\)[\s\S]*reportInboxSnapshot\.then\(entries => scanAppointmentFiles\(entries\)\)[\s\S]*reportInboxSnapshot\.then\(entries => scanPerformanceFiles\(entries\)/);
+  assert.match(app, /Appointment and performance sources.*scanAppointmentAndPerformanceFiles/);
 });
