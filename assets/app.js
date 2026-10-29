@@ -125,9 +125,40 @@
     "appointment-activity":Object.freeze(["storeCode","interaction","contactedDate","apptCreationDate","apptSetDate","apptTime"]),
     "menu-sales":Object.freeze(["account","advisorCode","advisor","ros","presented","sold","penetration","menu","total","perMenu","hours"])
   });
+  const REPORT_LAYOUT_PROFILES=Object.freeze({
+    "trade-ar-errors":Object.freeze({
+      fieldTypes:Object.freeze({store:"store-code",customer:"text",invoice:"invoice-id",invoiceDate:"date",days:"nonnegative-integer",status:"status-text",invoiceAmount:"money",received:"money",open:"money"}),
+      grouping:"flat-rows",sectionRules:Object.freeze({rows:"records",ignore:"empty-rows"}),
+      reportDateSemantics:"invoice-date-local-calendar-day",validationProfile:"trade-ar-strict-financial-v1"
+    }),
+    "appointment-activity":Object.freeze({
+      fieldTypes:Object.freeze({storeCode:"store-code",interaction:"text",contactedDate:"date",apptCreationDate:"date",apptSetDate:"date",apptTime:"time"}),
+      grouping:"flat-rows",sectionRules:Object.freeze({rows:"store-verified-activity"}),
+      reportDateSemantics:"contacted-date-per-verified-store-row",validationProfile:"appointment-activity-store-and-date-v1"
+    }),
+    "menu-sales":Object.freeze({
+      fieldTypes:Object.freeze({account:"account-label",advisorCode:"advisor-code",advisor:"name-text",ros:"nonnegative-number",presented:"percentage",sold:"nonnegative-number",penetration:"percentage",menu:"money",total:"money",perMenu:"money",hours:"nonnegative-number"}),
+      grouping:"account-summary-advisor-rows",sectionRules:Object.freeze({
+        summary:"numeric-ros-without-advisor-code",advisor:"valid-advisor-code-and-identity",
+        total:"ignore-normalized-account-total"
+      }),
+      reportDateSemantics:"Parameters-sheet-report-date-range",validationProfile:"menu-sales-account-and-advisor-reconciliation-v1"
+    })
+  });
+  function reportLayoutFingerprint(value){
+    const canonical=JSON.stringify(value);
+    let first=0x811c9dc5,second=0x9e3779b9;
+    for(let index=0;index<canonical.length;index++){
+      const code=canonical.charCodeAt(index);
+      first=Math.imul(first^code,0x01000193)>>>0;
+      second=Math.imul(second^(code+index),0x85ebca6b)>>>0;
+    }
+    return "layout-v2-"+first.toString(16).padStart(8,"0")+second.toString(16).padStart(8,"0");
+  }
   function safeReportLayout(data,previous=[]){
     const family=data?.family;
     if(!Object.prototype.hasOwnProperty.call(REPORT_LAYOUT_FAMILIES,family))throw Error("Choose a supported report family.");
+    const profile=REPORT_LAYOUT_PROFILES[family];
     const clean=value=>String(value??"").replace(/[\x00-\x1f\x7f]/g," ").trim().replace(/\s+/g," ").slice(0,100);
     // Worksheet names are exact identifiers, not header labels; preserve legal spaces for workbook lookup.
     const sheetName=String(data.sheetName??""),headerRow=Number(data.headerRow);
@@ -142,14 +173,48 @@
     const normalized=value=>clean(value).normalize("NFKC").toLowerCase();
     if(new Set(Object.values(columns).map(normalized)).size!==Object.keys(columns).length)
       throw Error("Each required field must map to a different source column.");
-    const id="report-layout-"+family+"-"+Array.from(sheetName).map(char=>char.codePointAt(0).toString(16)).join("-");
-    const old=previous.find(item=>item?.id===id);
+    const legacyId="report-layout-"+family+"-"+Array.from(sheetName).map(char=>char.codePointAt(0).toString(16)).join("-");
+    const fingerprint=reportLayoutFingerprint({
+      schemaVersion:2,family,sheetName,headerRow,
+      columns:REPORT_LAYOUT_FAMILIES[family].map(field=>[field,columns[field]]),
+      fieldTypes:profile.fieldTypes,grouping:profile.grouping,sectionRules:profile.sectionRules,
+      reportDateSemantics:profile.reportDateSemantics,validationProfile:profile.validationProfile,
+      minimumConfidence:1
+    });
+    const fingerprintId="report-layout-"+family+"-"+fingerprint.slice(-16);
+    if(data.layoutSchemaVersion!=null&&Number(data.layoutSchemaVersion)!==2)
+      throw Error("This local report layout version is not supported.");
+    if(data.layoutFingerprint!=null&&data.layoutFingerprint!==fingerprint)
+      throw Error("The saved report layout fingerprint does not match its field mapping.");
+    if(data.layoutFingerprint){
+      if(JSON.stringify(data.fieldTypes)!==JSON.stringify(profile.fieldTypes)
+        ||data.grouping!==profile.grouping
+        ||JSON.stringify(data.sectionRules)!==JSON.stringify(profile.sectionRules)
+        ||data.reportDateSemantics!==profile.reportDateSemantics
+        ||data.validationProfile!==profile.validationProfile
+        ||Number(data.minimumConfidence)!==1)
+        throw Error("The saved report layout validation profile was changed.");
+    }
+    const sameMapping=item=>item?.family===family&&item?.sheetName===sheetName
+      &&Number(item?.headerRow)===headerRow
+      &&REPORT_LAYOUT_FAMILIES[family].every(field=>normalized(item?.columns?.[field])===normalized(columns[field]));
+    const old=previous.find(item=>item?.family===family&&item?.layoutFingerprint===fingerprint)
+      ||previous.find(item=>!item?.layoutFingerprint&&sameMapping(item));
     if(!old&&previous.length>=MAX_RULES)throw Error("Maximum number of local report layouts reached.");
+    const legacyInput=!data.layoutFingerprint&&data.id===legacyId;
+    const id=old?.id||(legacyInput?legacyId:fingerprintId);
+    if(data.id&&data.id!==id&&!(data.id===legacyId&&!data.layoutFingerprint))
+      throw Error("This local report layout identity cannot be replaced.");
     const familyName=family==="trade-ar-errors"?"Trade AR":family==="appointment-activity"?"Appointment Activity":"Menu Sales";
-    const grouping=family==="menu-sales"?"account-summary-advisor-rows":"flat-rows";
     return{id,family,name:"Local "+familyName+" layout",sheetName,headerRow,columns,
-      version:(old?.version||0)+1,approved:true,enabled:true,writeEnabled:false,grouping,
-      updatedAt:new Date().toISOString(),previous:old?{sheetName:old.sheetName,headerRow:old.headerRow,columns:old.columns,grouping:old.grouping,version:old.version}:null};
+      layoutSchemaVersion:2,layoutFingerprint:fingerprint,fieldTypes:profile.fieldTypes,
+      grouping:profile.grouping,sectionRules:profile.sectionRules,
+      reportDateSemantics:profile.reportDateSemantics,validationProfile:profile.validationProfile,
+      minimumConfidence:1,version:(Number(old?.version)||0)+1,
+      approved:true,enabled:true,writeEnabled:false,
+      previous:old?{id:old.id,sheetName:old.sheetName,headerRow:old.headerRow,columns:old.columns,
+        grouping:old.grouping,version:old.version,layoutSchemaVersion:old.layoutSchemaVersion||1,
+        layoutFingerprint:old.layoutFingerprint||null}:null};
   }
   root.MoonDogPasteLearn=Object.freeze({normalize,capture,detectFormat,registerAdapter,safeRule,
     safeReportLayout,REPORT_LAYOUT_FAMILIES,tablePreview,tableHeaders,suggestedStructure,MAX_TEXT,MAX_ROWS,FIELDS});
