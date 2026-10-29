@@ -24,4 +24,15 @@ test("UX retry diagnostics redact paths, auth schemes, JSON secrets, and quoted 
   assert.match(reason,/"token"=\[redacted\]/);
   assert.match(reason,/"password"=\[redacted\]/);
   assert.ok(reason.length<=240);
+  for(const sample of [
+    'error: "/home/runner/Private Customer/report.xlsx"',
+    "failed to read /srv/private/customer.xlsx",
+    'opened "file:///C:/Synthetic Workspace/Report.xlsx"'
+  ]){
+    const sanitized=sanitizeUxFailureReason(sample);
+    assert.equal(sanitized.includes("Private Customer"),false);
+    assert.equal(sanitized.includes("/srv/private"),false);
+    assert.equal(sanitized.includes("Synthetic Workspace"),false);
+    assert.equal(/file:\/\//i.test(sanitized),false);
+  }
 });

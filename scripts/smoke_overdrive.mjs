@@ -2,7 +2,7 @@
 // Arena TV browser geometry proof, all synthetic, without operational Workspace access.
 import {createRequire} from "node:module";
 const {chromium}=createRequire(import.meta.url)("playwright");
-import fs from "node:fs";import path from "node:path";import {pathToFileURL} from "node:url";
+import fs from "node:fs";import os from "node:os";import path from "node:path";import {execFileSync} from "node:child_process";import {pathToFileURL} from "node:url";
 import {summarizeNavigationMs} from "./navigation-metrics.mjs";
 import {MAX_UX_SAMPLE_ATTEMPTS,shouldRetryUxSample,sanitizeUxFailureReason} from "./bounded-ux-retry.mjs";
 const launcher=process.argv[2],out=process.argv[3]||".clean-install-smoke/arena-proof";
@@ -1632,8 +1632,21 @@ try{
                 const traceDir=path.join(out,"ux-retry-traces");
                 fs.mkdirSync(traceDir,{recursive:true});
                 tracePath=path.join(traceDir,scenario+"-sample-"+(sample+1)+"-attempt-"+attemptNumber+".zip");
-                await traceContext.tracing.stop({path:tracePath});
-                traceSaved=true;
+                const rawTraceDir=fs.mkdtempSync(path.join(os.tmpdir(),"moondog-ux-trace-"));
+                const rawTracePath=path.join(rawTraceDir,"raw-playwright-trace.zip");
+                try{
+                  await traceContext.tracing.stop({path:rawTracePath});
+                  traceStarted=false;
+                  execFileSync("python3",["scripts/sanitize_ux_trace.py","sanitize",rawTracePath,tracePath],{
+                    stdio:["ignore","pipe","pipe"],timeout:30000
+                  });
+                  execFileSync("python3",["scripts/sanitize_ux_trace.py","validate",tracePath],{
+                    stdio:["ignore","pipe","pipe"],timeout:30000
+                  });
+                  traceSaved=true;
+                }finally{
+                  fs.rmSync(rawTraceDir,{recursive:true,force:true});
+                }
               }else{
                 await traceContext.tracing.stop();
               }
