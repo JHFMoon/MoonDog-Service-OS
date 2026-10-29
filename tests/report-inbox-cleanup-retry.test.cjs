@@ -234,6 +234,6 @@ test("cleanup-only retry persists pending ledger before deleting and survives a 
   const recovered = await h.scan();
   assert.equal(recovered.cleaned.length,1);
   assert.equal(removals,1);
-  assert.equal(writes,2);
+  assert.equal(writes,3,"denied write, recovered pending intent, and final cleanup ledger persistence");
   assert.equal(h.state.imports,1);
 });
