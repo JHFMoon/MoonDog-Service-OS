@@ -13,8 +13,9 @@ function extract(text, first, last) {
   assert.ok(end > start, "Missing production boundary: " + last);
   return text.slice(start, end);
 }
-const connectionCore = extract(app, "  let workspaceConnectionBusy=false;", "  async function connect() {");
-const restoreConnection = extract(app, "  async function restoreConnection() {", "  function headerMap(");
+const transientClassifier = extract(app, "  function transientWorkspaceState(error){", "\n  function transientIntakeError(");
+const connectionCore = transientClassifier + "\nfunction scheduleSavedConnectionRetry(){}\n" + extract(app, "  let workspaceConnectionBusy=false;", "  async function connect() {");
+const restoreConnection = "function scheduleSavedConnectionRetry(){}\n" + extract(app, "  async function restoreConnection() {", "  function headerMap(");
 const connectionStart = app.indexOf("    const connectedRoot=model.root;");
 const connectionEnd = app.indexOf("\n  }\n  async function postConnectReconciliation(", connectionStart);
 assert.ok(connectionStart >= 0 && connectionEnd > connectionStart);
@@ -109,7 +110,7 @@ test("delayed essential hydration keeps startup uncommitted, responsive, and ret
   assert.equal(authority.canWrite, false, "A failed essential read must revoke write authority.");
   assert.equal(authority.disableCount, 1);
   assert.equal(states.at(-1).state, "CONNECTION ERROR");
-  assert.match(states.at(-1).message, /could not restore/i);
+  assert.match(states.at(-1).message, /temporarily busy.*saved folder handle and Workspace files are retained/i);
   assert.equal(states.some(item => item.state === "CONNECTED"), false);
   assert.ok(events.includes("moondog-workspace-changing"));
 });
@@ -244,9 +245,11 @@ test("failed delayed manual hydration clears the uncommitted root and keeps the 
       model.workspaceConnectionCommittedRoot = model.root;
       return "connected";
     },
-    setImmediate
+    setImmediate,
+    setTimeout:()=>0,
+    clearTimeout:()=>{}
   });
-  const connectionLock = extract(app, "  let workspaceConnectionBusy=false;", "  async function completeWorkspaceConnection(");
+  const connectionLock = transientClassifier + "\nfunction scheduleSavedConnectionRetry(){}\n" + extract(app, "  let workspaceConnectionBusy=false;", "  async function completeWorkspaceConnection(");
   const connectFunction = extract(app, "  async function connect() {", "  async function restoreConnection()");
   vm.runInContext(connectionLock + "\n" + connectFunction + "\nthis.connectWorkspace = connect;", context);
 
