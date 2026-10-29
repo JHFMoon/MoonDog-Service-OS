@@ -375,15 +375,19 @@ test("verified Appointment Activity period and aggregate remain aligned in the H
   const grid={children:[],replaceChildren(...items){this.children=[...items];},append(item){this.children.push(item);}};
   f.ctx.model.operationalMetrics=durable;
   f.ctx.ui={managerSourceGrid:grid};
-  f.ctx.document={createElement:()=>({className:"",innerHTML:""})};
+  f.ctx.document={createElement:()=>({className:"",textContent:"",children:[],append(...items){this.children.push(...items);}})};
+  f.ctx.sourceFreshness=()=>({status:"historical-valid",loaded:true,reportPeriodVerified:true,
+    periodStart:"2026-10-19",periodEnd:"2026-10-20",importTimestamp:"2026-10-20T12:00:00.000Z"});
+  f.ctx.sourceLineageLabel=()=>"Historical · valid for stated period · Report period: 2026-10-19 through 2026-10-20 · Last imported: 2026-10-20 12:00 UTC";
   const managerRenderer=source("  function latestFamily(family) {","  function renderAll() {");
   vm.runInContext(managerRenderer,f.ctx);
   f.ctx.renderManagerIntelligence();
 
-  const card=grid.children.find(item=>item.innerHTML.includes("APPOINTMENT ACTIVITY"));
+  const text=node=>[node.textContent,...(node.children||[]).map(text)].filter(Boolean).join(" ");
+  const card=grid.children.find(item=>text(item).includes("APPOINTMENT ACTIVITY"));
   assert.ok(card,"Home must render the Appointment Activity source card from reloaded operational metrics");
-  assert.match(card.innerHTML,/2 configured-store records/);
-  assert.match(card.innerHTML,/2026-10-19 through 2026-10-20 · aggregate only/);
-  assert.doesNotMatch(card.innerHTML,/Synthetic Private|SYNTHETIC-ONLY-NOT-VIN|Synthetic note/,
+  assert.match(text(card),/2 configured-store records/);
+  assert.match(text(card),/2026-10-19 through 2026-10-20 · aggregate only/);
+  assert.doesNotMatch(text(card),/Synthetic Private|SYNTHETIC-ONLY-NOT-VIN|Synthetic note/,
     "the Home source lineage remains aggregate-only and excludes customer-like report cells");
 });
