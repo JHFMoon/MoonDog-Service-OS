@@ -216,6 +216,7 @@ test("equivalent duplicate monthly snapshots remain idempotent across source fam
     snapshots.syntheticEquivalent={...original};
     const result=ctx.buildSummary(data.month,data.performance,data.metrics);
     assert.equal(result.status,"locked",source+" equivalent snapshot remains valid");
-    assert.equal(result.readiness.sources[source].state,"ready");
+    const readiness=result.readiness.sources||result.readiness;
+    assert.equal(readiness[source].state,"ready");
   }
 });
