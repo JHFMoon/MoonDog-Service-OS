@@ -3227,8 +3227,8 @@
     // The deletion guard protects every automatic report type, not only XLSX.
     const guardXlsxDelete = candidate.location !== "picked" && Boolean(bytes);
     if (guardXlsxDelete) xlsxSourceDeleteGuards.set(candidate.name, bytes);
-    const priorAutoDelete = autoSourceDeleteContext.get(candidate.name);
-    if (guardXlsxDelete && deleteAfterSuccess && candidate.location === "inbox" && kind !== "disposable-greeter")
+    const priorAutoDelete = typeof autoSourceDeleteContext !== "undefined" ? autoSourceDeleteContext.get(candidate.name) : null;
+    if (typeof autoSourceDeleteContext !== "undefined" && guardXlsxDelete && deleteAfterSuccess && candidate.location === "inbox" && kind !== "disposable-greeter")
       autoSourceDeleteContext.set(candidate.name, {signature:candidate.signature,relativePath:candidate.relativePath,kind,bytes});
     try {
       if (kind === "performance") await importPerformanceFile(candidate.name, deleteAfterSuccess, bytes);
@@ -3248,8 +3248,10 @@
       await ensurePreviousMonthSummary(); renderAll();return appointmentOutcome;
     } finally {
       if (guardXlsxDelete) xlsxSourceDeleteGuards.delete(candidate.name);
-      if (priorAutoDelete) autoSourceDeleteContext.set(candidate.name,priorAutoDelete);
-      else autoSourceDeleteContext.delete(candidate.name);
+      if (typeof autoSourceDeleteContext !== "undefined") {
+        if (priorAutoDelete) autoSourceDeleteContext.set(candidate.name,priorAutoDelete);
+        else autoSourceDeleteContext.delete(candidate.name);
+      }
     }
   }
   async function reconcileLearnedFiles(parserRevision=LEARNED_PARSER_REVISION) {
