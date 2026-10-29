@@ -16,7 +16,7 @@ This checkpoint supersedes the stale 2026-10-29 632e8735 snapshot below. Issue #
 - The previous Public Surface failure #40809504457 was an audit API read execution failure, not a finding category. The exact historical HTTP status was not retained. Current endpoint reads and the preceding-main audit succeeded.
 
 ### Single prioritized backlog
-1. **#571 — evidence reconciliation and closeout.** The seven rows below map the issue’s measurable release, report-learning, safety, and retry requirements to merged changes and synthetic tests. This evidence-only registry update is being submitted through review; #571 remains open until the protected closure workflow accepts all live gates.
+1. **#571 — evidence reconciliation and closeout.** The eight rows below map the issue’s measurable release, report-learning, safety, and retry requirements to merged changes and synthetic tests. This evidence-only registry update is being submitted through review; #571 remains open until the protected closure workflow accepts all live gates.
 2. **P0 #59 — source authority/lineage and durable recovery.** #59-06 is verified; #59-01, #59-02, #59-03, #59-04, #59-05, #59-07, and #59-08 remain partial. Next: advance one concrete cross-view source-lineage gap from the authority inventory without claiming distributed atomicity unavailable in the File System Access API.
 3. **P1 #58 — measured startup/connect/search/edit performance.** #58-03 is verified; #58-01, #58-02, and #58-04 through #58-06 remain partial.
 4. Keep #212 deferred.
