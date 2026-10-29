@@ -85,7 +85,8 @@ test("mismatched durable read-back rolls back replacement and retains the source
 test("equivalent reimport ignores derived provenance, verifies durable state, and avoids rewriting the snapshot",async()=>{
   const f=fixture({equivalent:true});
   await f.run(true);
-  assert.deepEqual(f.events.slice(0,2),["read",{type:"next-appointments-duplicate"}].map(x=>typeof x==="string"?x:x.type));
+  assert.equal(f.events[0],"read");
+  assert.equal(f.events[1].type,"next-appointments-duplicate");
   assert.equal(f.events.some(item=>item==="write"),false,"equivalent report must not rewrite saved metrics");
   assert.equal(f.events[1].type,"next-appointments-duplicate");
   assert.equal(f.events[2].type,"remove","source cleanup follows durable duplicate verification");
