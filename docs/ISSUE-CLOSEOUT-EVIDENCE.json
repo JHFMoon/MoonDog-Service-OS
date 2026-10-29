@@ -165,7 +165,7 @@
       "package_pr": null
     },
     "571": {
-      "package_pr": 604,
+      "package_pr": 605,
       "criteria": {
         "571-01": {
           "kind": "test",
@@ -210,7 +210,7 @@
           ]
         },
         "571-07": {
-          "kind": "runtime",
+          "kind": "test",
           "pr": 604,
           "tests": [
             "tests/bounded-ux-retry.test.cjs",
