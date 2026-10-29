@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.205 — current Beta
+
+- fix: reject silent Next Appointments snapshot conflicts. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.204 — current Beta
 
 - fix(#571): recover updater parser follow-up from durable state. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
