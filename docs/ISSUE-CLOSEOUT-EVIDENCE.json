@@ -197,12 +197,19 @@
         },
         "571-05": {
           "kind": "runtime",
+          "pr": 574,
+          "tests": [
+            "tests/openro-group-reconciliation.test.cjs"
+          ]
+        },
+        "571-06": {
+          "kind": "runtime",
           "pr": 605,
           "tests": [
             "tests/paste-learn.test.cjs"
           ]
         },
-        "571-06": {
+        "571-07": {
           "kind": "runtime",
           "pr": 604,
           "tests": [
@@ -210,7 +217,7 @@
             "tests/test_ux_trace_sanitizer.py"
           ]
         },
-        "571-07": {
+        "571-08": {
           "kind": "runtime",
           "pr": 208,
           "tests": [
