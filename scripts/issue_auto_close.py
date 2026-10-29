@@ -268,6 +268,13 @@ def verify_live_evidence(api: GitHub, issue: int, record: dict, manifest: dict,
                 p.startswith("assets/") or p == "index.html" for p in paths):
             raise ValueError(key + " has no production runtime diff")
         if proof["kind"] == "runtime":
+            # A same-PR runtime/package candidate is verified by that PR's
+            # exact-head Publication Check (including package/runtime parity)
+            # and Clean Install Proof. Its merge commit necessarily comes
+            # after its base, so comparing the merge commit to the package
+            # PR's base would incorrectly reject this supported one-pass flow.
+            if proof["pr"] == package_number:
+                continue
             if not source_in_beta(api, source_pr["merge_commit_sha"],
                                   package_pr["base"]["sha"]):
                 raise ValueError(key + " runtime source is newer than the trusted published Beta")

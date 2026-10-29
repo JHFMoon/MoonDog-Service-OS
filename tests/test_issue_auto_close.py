@@ -3,7 +3,7 @@ import unittest
 
 from scripts.issue_auto_close import (
     APP_ID, CLOSE_MARKER, close_if_ready, eligible_snapshot, evidence_shape,
-    parse_matrix, verified_checks,
+    parse_matrix, verified_checks, verify_live_evidence,
 )
 
 SOURCE_HEAD = "a" * 40
@@ -106,7 +106,74 @@ class FakeAPI:
         }}}}
 
 
+class SamePRPackageAPI(FakeAPI):
+    """A runtime PR packages its own verified candidate before merging."""
+
+    def request(self, method, endpoint, data=None):
+        if endpoint.endswith("/pulls/41"):
+            self.actions.append((method, endpoint))
+            return {"merged": True, "merged_at": "2026-10-19T02:00:00Z",
+                    "base": {"ref": "main", "sha": PACKAGE_BASE},
+                    "merge_commit_sha": PACKAGE_MERGE,
+                    "head": {"sha": PACKAGE_HEAD, "repo": {"full_name": self.repo}}}
+        return super().request(method, endpoint, data)
+
+    def pages(self, endpoint):
+        if endpoint.endswith("/pulls/41/files"):
+            return [{"filename": "assets/app.js"},
+                    {"filename": "tests/verified.test.cjs"},
+                    {"filename": "updates/manifest.json"},
+                    {"filename": "updates/packages/moondog-0.10.18-beta.114.json"}]
+        return super().pages(endpoint)
+
+
+class MissingRuntimeInPackageBaseAPI(FakeAPI):
+    def request(self, method, endpoint, data=None):
+        if "/compare/" + SOURCE_MERGE + "..." + PACKAGE_BASE in endpoint:
+            self.actions.append((method, endpoint))
+            return {"status": "diverged", "merge_base_commit": {"sha": "0" * 40}}
+        return super().request(method, endpoint, data)
+
+
 class AutoCloseTests(unittest.TestCase):
+    def test_same_pr_runtime_and_beta_package_are_validated_as_one_pass(self):
+        fake = SamePRPackageAPI()
+        record = {"package_pr": 41, "criteria": {CRITERION: {
+            "kind": "runtime", "pr": 41,
+            "tests": ["tests/verified.test.cjs"]
+        }}}
+        verify_live_evidence(fake, ISSUE, record, MANIFEST, MAIN)
+        # The runtime PR is the package PR: no impossible merge-commit-to-base
+        # ancestry query is made. The package merge is still checked against
+        # current main and the exact-head checks/files are still validated.
+        self.assertIn(("GET", "repos/" + fake.repo + "/compare/" +
+                      PACKAGE_MERGE + "..." + MAIN), fake.actions)
+        self.assertNotIn(("GET", "repos/" + fake.repo + "/compare/" +
+                         PACKAGE_MERGE + "..." + PACKAGE_BASE), fake.actions)
+
+    def test_same_pr_runtime_package_still_requires_manifest_and_package_files(self):
+        class MissingPackageFiles(SamePRPackageAPI):
+            def pages(self, endpoint):
+                if endpoint.endswith("/pulls/41/files"):
+                    return [{"filename": "assets/app.js"},
+                            {"filename": "tests/verified.test.cjs"}]
+                return super().pages(endpoint)
+
+        fake = MissingPackageFiles()
+        record = {"package_pr": 41, "criteria": {CRITERION: {
+            "kind": "runtime", "pr": 41,
+            "tests": ["tests/verified.test.cjs"]
+        }}}
+        with self.assertRaisesRegex(ValueError, "does not advertise live Beta"):
+            verify_live_evidence(fake, ISSUE, record, MANIFEST, MAIN)
+
+    def test_separate_runtime_pr_must_still_be_ancestor_of_package_base(self):
+        fake = MissingRuntimeInPackageBaseAPI()
+        with self.assertRaisesRegex(ValueError, "runtime source is newer"):
+            verify_live_evidence(fake, ISSUE, RECORD, MANIFEST, MAIN)
+        self.assertIn(("GET", "repos/" + fake.repo + "/compare/" +
+                      SOURCE_MERGE + "..." + PACKAGE_BASE), fake.actions)
+
     def test_matrix_only_last_cell_can_establish_verified_complete(self):
         source = (
             "## #987 — Sample\n"
