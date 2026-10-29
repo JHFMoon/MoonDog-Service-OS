@@ -6,25 +6,33 @@ const path=require("node:path");
 const vm=require("node:vm");
 
 const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+const helperStart=app.indexOf("  function supplementalSnapshotKey(");
+const helperEnd=app.indexOf("\n  function pruneSupplementalSnapshots",helperStart);
+const helper=app.slice(helperStart,helperEnd);
 const start=app.indexOf("  async function importNextAppointmentsFile(");
 const end=app.indexOf("  const VIR_NAME_CODES =",start);
+assert.ok(helperStart>=0&&helperEnd>helperStart,"production supplemental snapshot key function must exist");
 assert.ok(start>=0&&end>start,"production Next Appointments importer must exist");
 const importer=app.slice(start,end);
 
-function fixture({failWrite=false,mismatchReadback=false,confirmReplacement=true,equivalent=false,unreadableDuplicate=false}={}){
-  const key="2026-10-20";
-  const previous={sourceFile:"older.csv",importedAt:"2026-10-21T00:00:00.000Z",periodStart:"2026-10-20",periodEnd:key,appointmentCount:1,appointments:[{id:"synthetic-old"}],validation:{parser:"v1"}};
+function fixture({failWrite=false,mismatchReadback=false,confirmReplacement=true,equivalent=false,unreadableDuplicate=false,incomingPeriodEnd="2026-10-20",previousPeriodEnd=incomingPeriodEnd,supplementalMode=false}={}){
+  const key=incomingPeriodEnd,previousKey=previousPeriodEnd;
+  const previous={sourceFile:"older.csv",importedAt:"2026-10-21T00:00:00.000Z",periodStart:"2026-10-20",periodEnd:previousKey,observationDate:"2026-10-21",appointmentCount:1,appointments:[{id:"synthetic-old"}],validation:{parser:"v1"}};
   const incoming=equivalent
-    ?{sourceFile:"new-name.csv",importedAt:"2026-10-24T00:00:00.000Z",periodStart:"2026-10-20",periodEnd:key,appointmentCount:1,appointments:[{id:"synthetic-old"}],validation:{parser:"v2"}}
-    :{sourceFile:"synthetic-next-appointments.csv",importedAt:"2026-10-24T00:00:00.000Z",periodStart:"2026-10-20",periodEnd:key,appointmentCount:2,appointments:[{id:"synthetic-a"},{id:"synthetic-b"}],identityConflicts:[],validation:{parser:"v2"}};
-  const model={operationalMetrics:{nextAppointments:{snapshots:{[key]:previous}},supplementalReports:{snapshots:{}},updatedAt:"prior-update"}};
+    ?{sourceFile:"new-name.csv",importedAt:"2026-10-24T00:00:00.000Z",periodStart:"2026-10-20",periodEnd:key,observationDate:"2026-10-24",appointmentCount:1,appointments:[{id:"synthetic-old"}],validation:{parser:"v2"}}
+    :{sourceFile:"synthetic-next-appointments.csv",importedAt:"2026-10-24T00:00:00.000Z",periodStart:"2026-10-20",periodEnd:key,observationDate:"2026-10-24",appointmentCount:2,appointments:[{id:"synthetic-a"},{id:"synthetic-b"}],identityConflicts:[],validation:{parser:"v2"}};
+  const supplementalSnapshots={};
+  const previousSupplementalKey=`appointments-created-summary|${previousKey}|service-department`;
+  if(supplementalMode)supplementalSnapshots[previousSupplementalKey]={family:"appointments-created-summary",sourceFile:"older-summary.csv",importedAt:"2026-10-22T00:00:00.000Z",periodStart:"2026-10-01",periodEnd:"2026-10-31",coverageDate:previousKey,variant:"service-department",metrics:{appointmentCount:1}};
+  const model={operationalMetrics:{nextAppointments:{snapshots:{[previousKey]:previous}},supplementalReports:{snapshots:supplementalSnapshots},updatedAt:"prior-update"}};
   const before=structuredClone(model.operationalMetrics),events=[];
   let durable=unreadableDuplicate?null:structuredClone(model.operationalMetrics);
   const context={
-    model,structuredClone,window:{confirm:()=>confirmReplacement},
+    model,structuredClone,window:{confirm:()=>confirmReplacement},slug:value=>String(value).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""),
     sourceFileHandle:async()=>({getFile:async()=>({text:async()=>"synthetic report",lastModified:0})}),
     parseNextAppointmentsCsv:()=>structuredClone(incoming),
-    parseAppointmentsCreatedSummaryCsv:()=>{throw Error("not a supplemental source");},
+    parseAppointmentsCreatedSummaryCsv:()=>{if(!supplementalMode)throw Error("not a supplemental source");return{family:"appointments-created-summary",sourceFile:"synthetic-summary.csv",importedAt:"2026-10-24T00:00:00.000Z",periodStart:"2026-10-01",periodEnd:"2026-10-31",variant:"service-department",metrics:{appointmentCount:2},validation:{parser:"synthetic"}};},
+    supplementalSnapshotKey:undefined,
     pruneDatedSnapshots:snapshots=>snapshots,
     pruneSupplementalSnapshots:snapshots=>snapshots,
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
@@ -35,8 +43,8 @@ function fixture({failWrite=false,mismatchReadback=false,confirmReplacement=true
     removeSourceEntry:async name=>events.push({type:"remove",name}),
     renderOverviewIntelligence:()=>events.push("render")
   };
-  vm.runInNewContext(importer+"\nglobalThis.runImport=importNextAppointmentsFile;",context);
-  return{run:(deleteAfterSuccess=false,allowInteractiveReplacement=false)=>context.runImport("synthetic-next-appointments.csv",deleteAfterSuccess,allowInteractiveReplacement),model,before,events,key,durable:()=>durable,incoming,previous};
+  vm.runInNewContext(helper+"\n"+importer+"\nglobalThis.runImport=importNextAppointmentsFile;",context);
+  return{run:(deleteAfterSuccess=false,allowInteractiveReplacement=false)=>context.runImport("synthetic-next-appointments.csv",deleteAfterSuccess,allowInteractiveReplacement),model,before,events,key,previousKey,durable:()=>durable,incoming,previous};
 }
 
 test("automatic same-period conflict fails closed before mutation or source cleanup",async()=>{
@@ -82,13 +90,12 @@ test("mismatched durable read-back rolls back replacement and retains the source
   assert.deepEqual(f.events,["write","read"]);
 });
 
-test("equivalent reimport ignores derived provenance, verifies durable state, and avoids rewriting the snapshot",async()=>{
+test("equivalent reimport ignores changing observation and provenance metadata after verified period",async()=>{
   const f=fixture({equivalent:true});
   await f.run(true);
   assert.equal(f.events[0],"read");
   assert.equal(f.events[1].type,"next-appointments-duplicate");
   assert.equal(f.events.some(item=>item==="write"),false,"equivalent report must not rewrite saved metrics");
-  assert.equal(f.events[1].type,"next-appointments-duplicate");
   assert.equal(f.events[2].type,"remove","source cleanup follows durable duplicate verification");
   assert.equal(f.events[3].type,"source-deleted");
   assert.equal(f.events[4],"render");
@@ -100,4 +107,17 @@ test("equivalent reimport is retained when durable saved data cannot be verified
   await assert.rejects(f.run(true),/could not be verified from durable storage.*source was retained/);
   assert.deepEqual(JSON.parse(JSON.stringify(f.model.operationalMetrics)),JSON.parse(JSON.stringify(f.before)));
   assert.deepEqual(f.events,["read"]);
+});
+
+test("paired daily summaries use advancing verified coverage instead of colliding month filter ends",async()=>{
+  const f=fixture({incomingPeriodEnd:"2026-10-23",previousPeriodEnd:"2026-10-22",supplementalMode:true});
+  await f.run(false);
+  const saved=f.durable();
+  const oldKey="appointments-created-summary|2026-10-22|service-department";
+  const newKey="appointments-created-summary|2026-10-23|service-department";
+  assert.ok(saved.supplementalReports.snapshots[oldKey],"prior verified daily summary remains preserved");
+  assert.ok(saved.supplementalReports.snapshots[newKey],"new daily coverage is stored under its effective date");
+  assert.equal(saved.supplementalReports.snapshots[newKey].periodEnd,"2026-10-31","source report filter end remains unchanged");
+  assert.equal(saved.supplementalReports.snapshots[newKey].coverageDate,"2026-10-23","effective paired coverage is explicit");
+  assert.deepEqual(f.events.slice(0,2),["write","read"]);
 });
