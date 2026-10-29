@@ -9,6 +9,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+function renderedText(node) { return [node.textContent, ...(node.children || []).map(renderedText)].filter(Boolean).join(" "); }
 const start = app.indexOf("  function comparableManagerSnapshot(");
 const end = app.indexOf("  async function classifyImportFile(", start);
 assert.ok(start >= 0 && end > start, "Production manager snapshot comparison and import path must be present");
@@ -256,12 +257,15 @@ test("Manager Home carries the verified Efficiency report period with its displa
       operationalMetrics: { efficiency: { snapshots: { "2026-10": snapshot } } }
     },
     ui: { managerSourceGrid },
-    document: { createElement: () => ({ className: "", innerHTML: "" }) },
+    document: { createElement: () => ({ className: "", textContent: "", children: [], append(...items) { this.children.push(...items); } }) },
+    sourceFreshness: () => ({ status: "historical-valid", loaded: true, reportPeriodVerified: true,
+      periodStart: "2026-10-01", periodEnd: "2026-10-21", importTimestamp: "2026-10-22T00:00:00.000Z" }),
+    sourceLineageLabel: () => "Historical · valid for stated period · Report period: 2026-10-01 through 2026-10-21 · Last imported: 2026-10-22 00:00 UTC",
     performanceFormat: (value, style) => style === "percent" ? Math.round(Number(value) * 100) + "%" : String(value ?? "—")
   });
   vm.runInContext(app.slice(start, end) + "\nthis.renderManagerIntelligence = renderManagerIntelligence;", context);
   context.renderManagerIntelligence();
-  const shopCard = managerSourceGrid.children[2].innerHTML;
+  const shopCard = renderedText(managerSourceGrid.children[2]);
   assert.match(shopCard, /2026-10-01 through 2026-10-21/);
   assert.match(shopCard, /90%/);
   assert.match(shopCard, /120 flag \/ 100 clock hours/);
@@ -279,11 +283,13 @@ test("Manager Home marks missing Efficiency period as unverified rather than inf
       } } } }
     },
     ui: { managerSourceGrid },
-    document: { createElement: () => ({ className: "", innerHTML: "" }) },
+    document: { createElement: () => ({ className: "", textContent: "", children: [], append(...items) { this.children.push(...items); } }) },
+    sourceFreshness: () => ({ status: "invalid", loaded: true, reportPeriodVerified: false, reason: "Unsupported synthetic report period" }),
+    sourceLineageLabel: () => "Loaded · validation needed · Report period: Not verified · Last imported: Not verified",
     performanceFormat: (value, style) => style === "percent" ? Math.round(Number(value) * 100) + "%" : String(value ?? "—")
   });
   vm.runInContext(app.slice(start, end) + "\nthis.renderManagerIntelligence = renderManagerIntelligence;", context);
   context.renderManagerIntelligence();
-  assert.match(managerSourceGrid.children[2].innerHTML, /Period unverified/);
-  assert.doesNotMatch(managerSourceGrid.children[2].innerHTML, /2026-10-26/);
+  assert.match(renderedText(managerSourceGrid.children[2]), /Period unverified/);
+  assert.doesNotMatch(renderedText(managerSourceGrid.children[2]), /2026-10-26/);
 });
