@@ -146,3 +146,45 @@ test("automatic source byte guard also covers non-XLSX report types", () => {
   assert.match(process, /const guardXlsxDelete = candidate.location !== "picked" && Boolean\(bytes\)/);
   assert.match(process, /xlsxSourceDeleteGuards.set\(candidate.name, bytes\)/);
 });
+
+test("cleanup intent is persisted before attempting source removal", async () => {
+  const source = section("  async function removeSourceEntry(name) {", "  async function finishReadOnlyConnection(");
+  const name = "synthetic.xlsx", signature = "01 - DROP REPORTS HERE/synthetic.xlsx|3|12345";
+  const calls = [], model = {autoImport:{seen:{}},root:{removeEntry:async()=>{throw Error("Root must not be touched");}}};
+  const context = vm.createContext({
+    dailyPickedSources: new Map(), xlsxSourceDeleteGuards: new Map(),
+    sourceLocations: new Map([[name, "inbox"]]),
+    autoSourceDeleteContext: new Map([[name,{signature,relativePath:"01 - DROP REPORTS HERE/"+name,
+      kind:"performance",bytes:new Uint8Array([1,2,3]).buffer}]]),
+    model, now:()=> "2026-10-29T15:00:00Z", sha256:digest,
+    AUTO_IMPORT_PATH:["data","auto-import.json"],
+    writeJson:async()=>{calls.push("ledger");},
+    reportInbox:async()=>({removeEntry:async()=>{calls.push("delete");throw Object.assign(Error("denied"),{name:"NotAllowedError"});}}),
+    Map,Uint8Array,Error
+  });
+  vm.runInContext(source + "\nthis.remove = removeSourceEntry;", context);
+  await assert.rejects(context.remove(name),{name:"NotAllowedError"});
+  assert.deepEqual(calls,["ledger","delete"]);
+  assert.equal(model.autoImport.seen[signature].cleanupPending,true);
+  assert.equal(model.autoImport.seen[signature].cleanupSha256,await digest(new Uint8Array([1,2,3])));
+});
+
+test("source is never deleted if pending-cleanup ledger cannot be saved", async () => {
+  const source = section("  async function removeSourceEntry(name) {", "  async function finishReadOnlyConnection(");
+  const name = "synthetic.xlsx";
+  let attempted = 0;
+  const context = vm.createContext({
+    dailyPickedSources:new Map(),xlsxSourceDeleteGuards:new Map(),
+    sourceLocations:new Map([[name,"inbox"]]),
+    autoSourceDeleteContext:new Map([[name,{signature:"synthetic",relativePath:"01 - DROP REPORTS HERE/"+name,kind:"csi",bytes:new Uint8Array([7]).buffer}]]),
+    model:{autoImport:{seen:{}},root:{removeEntry:async()=>{attempted++;}}},
+    now:()=> "2026-10-29T15:00:00Z",sha256:digest,
+    AUTO_IMPORT_PATH:["data","auto-import.json"],
+    writeJson:async()=>{throw Error("Ledger write denied");},
+    reportInbox:async()=>({removeEntry:async()=>{attempted++;}}),
+    Map,Uint8Array,Error
+  });
+  vm.runInContext(source + "\nthis.remove = removeSourceEntry;", context);
+  await assert.rejects(context.remove(name),/Ledger write denied/);
+  assert.equal(attempted,0);
+});
