@@ -1,27 +1,44 @@
-## Current live engineering checkpoint — 2026-10-29 UTC
+## Current live engineering checkpoint — 2026-10-29 13:35 UTC
 
-This section is the current reconciled state; older dated snapshots below are historical. Issue #164 remains closed.
+This checkpoint supersedes the stale 2026-10-29 632e8735 snapshot below. Issue #164 remains closed.
 
-### Verified repository and release state
-- Main: `632e8735cec25b249edb9f6bb34bd802e8235f9f` (PR #593 protected merge).
-- Trusted Beta: `0.10.18-beta.193`, SHA-256 `6fe10a4c7357970bdfeff86a1d5198d72b9b89827bbb51a7d2387f78c118cdd8`.
-- Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`; unchanged.
-- Protect Main ruleset #24665513 is active on the default branch: strict required Publication Check (Actions app 15368), PR requirement, no bypass actors, deletion and non-fast-forward restrictions.
-- The repository-scoped MoonDog Release App authenticated successfully for trusted same-PR packaging. Secrets were not read or exposed.
-- Open PRs: none at reconciliation. Open parent issues: #58, #59, #571. #60, #61, and #164 are closed. #212 remains explicitly deferred.
+### Live repository and release state
+- Main: `4a38ec0c022bfc3d3e3196d5c791fdabd7ff4dd2`, merged PR #604.
+- Trusted Beta: `0.10.18-beta.199`, SHA-256 `1106b7948a9ef5f44a1f839ee0da8623075e84fbda1fce679326e6d6d13897d4`.
+- Stable: `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`, unchanged.
+- Protect Main ruleset #24665513 is active; it requires a PR and strict `Publication Check` (Actions app 15368), blocks deletion/non-fast-forward, and has no bypass actors.
+- Open PRs: none. Open parent issues: #571, #59, #58. #212 remains deferred. #60, #61, and #164 remain closed.
 
-### Recently verified protected changes
-- PR #590 (#58-03) exact head `b6b7bdf68728423c630024234f4559fe7fdd7f88`: Publication Check #40797251853 and Clean Install Proof #40797251869 succeeded; exact-head Codex review found no major issues. Guarded merge produced `fb8ad1a7d725138ae715475f6a1b1110fd950183`; trusted Beta `.192` hash `6d58206460306cf18e855833848453715f6954e2e26842d83f1f4610b91fa9b9` contains the runtime.
-- PR #593 (#59 recovery) exact head `64a52380f4cfc27f25aeb3cf58594ccabfa01d9a`: Publication Check #40799596890 and Clean Install Proof #40799596861 succeeded; exact-head Codex review found no major issues and all 10 review threads are resolved. Guarded merge #40800546950 produced main commit `632e8735cec25b249edb9f6bb34bd802e8235f9f`. Post-merge Publication Check #40800545165 succeeded, including reachable-history and strict redacted VIN/credential scans. Beta `.193` is in the manifest.
-- PR #593 verifies saved Workspace recovery behavior and remains one slice of #59-05; cross-device validation-to-write atomicity and the broader recovery/source/scheduler criteria remain unverified.
+### Completed and verified
+- PR #604 exact source head `3700a537e851a0ca8976b02de1952945069d9218` passed Publication Check #40880706115 and Clean Install Proof #40880706104. Exact-head Codex review had no findings, and all six prior review threads are resolved. It merged at `4a38ec0c022bfc3d3e3196d5c791fdabd7ff4dd2`.
+- The PR adds bounded synthetic UX retries and sanitized trace evidence. Stable remains unchanged; the current manifest still advertises Beta .199 with the hash above.
+- Fresh audit on the preceding main `97607a444a6faede1afcc88da8fdb44465b253de` succeeded (Public Repository History Safety Audit #40876873453). The current-main Publication Check #40882278369 and public history/surface audit #40882278328 are still in progress on `4a38ec0`; neither is claimed successful here.
+- The previous Public Surface failure #40809504457 was an audit API read execution failure, not a finding category. The exact historical HTTP status was not retained. Current endpoint reads and the preceding-main audit succeeded.
 
-### Single prioritized queue
-1. **P0 #571 — metadata-only Beta verification cost.** The current Clean Install Proof always runs the 2,100-record, nine-sample UX browser matrix. This selected change adds a fail-closed manifest-backed metadata scope that reuses only that expensive UX proof while retaining deterministic distribution build, package launch, package/runtime integrity, required Publication Check, and full privacy/history audit. Any source, workflow, test, Stable-package, or unknown-path change takes the full browser path.
-2. **P0 #59 — source authority, scheduler, conflicts, and durable recovery.** Continue only after the #571 focused change is dispositioned; use merged #593 evidence without marking the parent complete.
-3. **P1 #58 — measured startup/connect/search/edit performance.** #58-03 is verified by #590; other criteria remain partial pending measurable evidence.
+### Single prioritized backlog
+1. **#571 — evidence reconciliation and closeout.** The eight rows below map the issue’s measurable release, report-learning, safety, and retry requirements to merged changes and synthetic tests. This evidence-only registry update is being submitted through review; #571 remains open until the protected closure workflow accepts all live gates.
+2. **P0 #59 — source authority/lineage and durable recovery.** #59-06 is verified; #59-01, #59-02, #59-03, #59-04, #59-05, #59-07, and #59-08 remain partial. Next: advance one concrete cross-view source-lineage gap from the authority inventory without claiming distributed atomicity unavailable in the File System Access API.
+3. **P1 #58 — measured startup/connect/search/edit performance.** #58-03 is verified; #58-01, #58-02, and #58-04 through #58-06 remain partial.
 4. Keep #212 deferred.
 
-Stable remains unchanged. Public fixtures are synthetic. No local installation, Windows/Edge/OneDrive field test, or continuous execution is claimed.
+No private Workspace or customer data was accessed. No local installation, field testing, or continuous execution is claimed.
+
+## #571 — One-pass Beta release and no-code report learning
+
+| Criterion | Acceptance | Verified implementation and evidence | Remaining gap | Priority | Status |
+|---|---|---|---|---|---|
+| 571-01 | One trusted release flow packages the reviewed runtime on its source PR, without a second package PR or routine owner action | Two consecutive runtime cycles #590 (.192) and #593 (.193) used same-PR packaging with exact-head Publication/Clean Install checks and protected merges; later runtime PRs continued this path. PR #591 fixes the reservation-path query and adds a workflow regression. Release App authentication succeeded without exposing credentials. | No unresolved defect in the exercised same-PR path; future changes remain subject to current checks. | P0 | **VERIFIED COMPLETE** |
+| 571-02 | Metadata-only Beta changes reuse only the expensive synthetic UX proof when manifest scope is safe; unknown, Stable, workflow, test, and runtime changes fail closed to the full path | PR #594 adds the manifest-backed classifier and tests for metadata-only, missing/malformed manifests, Stable changes, runtime paths, and package-only diffs. Closed fixture PR #596 exercised the workflow path; it is evidence only, not source integration. | None in the tested scope. | P0 | **VERIFIED COMPLETE** |
+| 571-03 | A completed exact-head review with resolved historical findings is accepted, while current unresolved findings still block | PR #570 changes the protected review policy with regression coverage for resolved versus unresolved exact-head findings. PR #604’s final exact-head review was clean after findings were fixed and six threads resolved. | None in the verified cases. | P0 | **VERIFIED COMPLETE** |
+| 571-04 | Recognized complete Open RO exports stay available for explicit import/replacement approval; unknown files remain in Files To Learn; originals are retained until verified persistence | PR #568 routes recognized reports to manual review instead of Files To Learn and guards source cleanup. Synthetic test: `tests/openro-inbox-manual-review-routing.test.cjs`. | None in the documented supported report-routing cases; newly unsupported business semantics still require reviewed parser code. | P0 | **VERIFIED COMPLETE** |
+| 571-05 | Grouped Open RO layouts reconcile section/global counts, identities, and completeness before a complete roster can affect active state | PR #574's production parser and `tests/openro-group-reconciliation.test.cjs` cover grouped section reconciliation, duplicates, completeness, and fail-closed routing while retaining explicit approval. | None in the documented grouped-layout set. | P0 | **VERIFIED COMPLETE** |
+| 571-06 | Teach and preserve versioned local layouts for supported report families without storing report rows or changing business meaning | PRs #574, #580, #585, and #605 deliver local Teach → Preview → Validate → Save → Retry profiles for Trade AR, Appointment Activity, and Menu Sales; #605 preserves multiple sanitized variants. `tests/paste-learn.test.cjs` covers versioning, privacy, tamper rejection, and legacy compatibility. Beta .199 contains the reviewed runtime. | None for the currently supported teachable families. New semantics remain reviewed-code work. | P0 | **VERIFIED COMPLETE** |
+| 571-07 | Keep synthetic failure retries bounded and publish only sanitized trace diagnostics | PR #604 exact head `3700a537e851a0ca8976b02de1952945069d9218`, Publication #40880706115 and Clean Install #40880706104 succeeded; exact-head Codex review found no findings; merge `4a38ec0`. Tests cover bounded attempts, sanitized traces, and unsafe archive rejection. | None identified. | P0 | **VERIFIED COMPLETE** |
+| 571-08 | After a verified update, retain unreadable learned sources for safe retry and never remove originals before durable verification | PR #208 adds the verified-update follow-up receipt and unreadable-learned retry behavior; `tests/test_unreadable_learned_retry.py` and `tests/verified-update-journal.test.cjs` cover retry, persistence, and failure retention. | Local installation is not independently verified and is not claimed; it is not a closure gate. | P0 | **VERIFIED COMPLETE** |
+
+## Historical live checkpoint — 2026-10-29 UTC
+
+The following snapshot is superseded by the live checkpoint above.
 
 ## Live continuation snapshot — 2026-10-26 11:12 UTC
 
