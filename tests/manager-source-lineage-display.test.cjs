@@ -45,16 +45,27 @@ test("manager source cards expose verified periods, import time, stale state, co
     sor: { period: "2026-10", metrics: { "CP Labor Gross": { currentActual: 1200 }, "CP ELR": { currentActual: 150 } } },
     appointmentActivity: { rowCount: 0, periodStart: "2026-10-22", periodEnd: "2026-10-22" },
     efficiency: { store: { efficiency: 0, flagHours: 0, clockHours: 0, efficiencyBic: 0 }, periodStart: "2026-10-01", periodEnd: "2026-10-15" },
-    mediaAsr: { store: { mediaCreatedRate: 0, mediaViewedRate: 0 }, technicians: [] },
+    // Legacy technician snapshots can be the exact snapshot selected for this card
+    // even when freshness's default advisor-only selector returns nothing.
+    mediaAsr: { periodStart: "2026-08-01", periodEnd: "2026-08-31", importedAt: "2026-09-01T04:05:00.000Z",
+      store: { mediaCreatedRate: 0, mediaViewedRate: 0 }, technicians: [] },
     openRoSummary: { store: { total: { open: 0, revenue: 0 } }, date: "2026-10-22" }
   };
   const grid = element();
+  const freshnessItems = {};
   const context = vm.createContext({
     ui: { managerSourceGrid: grid },
     model: { state: { records: [] } },
     document: { createElement: element },
     latestFamily: key => snapshots[key] || null,
-    sourceFreshness: key => evidence[key],
+    sourceFreshness: (key, options = {}) => {
+      freshnessItems[key] = options.item;
+      const selected = options.item;
+      if (selected && key === "mediaAsr") return { status: "historical-valid", loaded: true,
+        reportPeriodVerified: true, periodStart: selected.periodStart, periodEnd: selected.periodEnd,
+        importTimestamp: selected.importedAt };
+      return evidence[key];
+    },
     performanceFormat: value => Number.isFinite(value) ? String(value) : "—"
   });
   vm.runInContext(app.slice(lineageStart, lineageEnd) + app.slice(rendererStart, rendererEnd) +
@@ -63,11 +74,17 @@ test("manager source cards expose verified periods, import time, stale state, co
   context.renderManagerIntelligence();
   assert.equal(grid.children.length, 5);
   const cardText = grid.children.map(text);
+  assert.strictEqual(freshnessItems.sor, snapshots.sor);
+  assert.strictEqual(freshnessItems.appointmentActivity, snapshots.appointmentActivity);
+  assert.strictEqual(freshnessItems.efficiency, snapshots.efficiency);
+  assert.strictEqual(freshnessItems.mediaAsr, snapshots.mediaAsr,
+    "lineage must use the same legacy technician snapshot selected for displayed metrics");
+  assert.strictEqual(freshnessItems.openRoSummary, snapshots.openRoSummary);
   assert.match(cardText[0], /Historical · valid for stated period · Report period: 2026-10-01 through 2026-10-31 · Last imported: 2026-11-01 02:03 UTC/);
   assert.match(cardText[1], /Current · Report period: 2026-10-22 · Last imported: 2026-10-23 01:00 UTC/);
   assert.match(cardText[1], /0 configured-store records/, "a verified zero remains distinguishable from missing coverage");
   assert.match(cardText[2], /Loaded but stale · Needs updating/);
-  assert.match(cardText[3], /Conflict · Review required · Report period: Not verified/);
+  assert.match(cardText[3], /Historical · valid for stated period · Report period: 2026-08-01 through 2026-08-31 · Last imported: 2026-09-01 04:05 UTC/);
   assert.match(cardText[4], /Missing · Report period: Not verified · Last imported: Not verified/);
 });
 
