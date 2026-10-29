@@ -112,7 +112,7 @@ test("changed bytes with a new same-path signature are held for review", async (
   assert.equal(h.state.removals, 0);
   assert.equal(h.state.present, true);
   assert.equal(h.state.moved, 0);
-  assert.deepEqual(second.cleanupReviewRequired, [h.name]);
+  assert.deepEqual(Array.from(second.cleanupReviewRequired), [h.name]);
   assert.equal(h.model.autoImport.seen[h.signature].cleanupPending, true);
   assert.equal(h.model.autoImport.seen[h.item.signature].cleanupReviewRequired, true);
   assert.match(h.state.status.at(-1), /remain in Report Inbox for review/);
