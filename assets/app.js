@@ -1059,7 +1059,7 @@
       const expectation=sourceExpectation(key);
       if(expectation==="not-used")return{state:"not-used",status:"not-used"};
       if(expectation==="temporarily-unavailable")return{state:"pending",status:"temporarily-unavailable",detail:"Historical source still required before finalization"};
-      if(conflict)return{state:"pending",status:"conflict",detail:"Conflicting pending and durable source evidence for the same period"};
+      if(conflict)return{state:"pending",status:"conflict",detail:"Conflicting validated source snapshots for the same reporting period"};
       const evidence=freshness.evaluateSource({key,exists:Boolean(item),purpose:"historical",targetStart:`${month}-01`,targetEnd:operatingEnd,periodStart:item?.periodStart||periodEnd,periodEnd:periodEnd||item?.periodEnd,sourceTimestamp:item?.importedAt,expectation:"recommended"});
       return evidence.safeForPurpose?{state:"ready",status:evidence.status,detail:evidence.periodEnd}:{state:"pending",status:evidence.status,detail:evidence.reason};
     };
@@ -1068,24 +1068,44 @@
       if(value&&typeof value==="object"){const sorted={};for(const key of Object.keys(value).sort())sorted[key]=stable(value[key]);return sorted;}
       return value;
     };
+    const snapshotValue=item=>JSON.stringify(stable({
+      store:item?.store||null,advisors:item?.advisors||null,
+      saprDaysCompleted:item?.saprDaysCompleted??null,saprTotalDays:item?.saprTotalDays??null
+    }));
+    const samePeriodConflict=(snapshots,predicate)=>{
+      const seen=new Map();
+      const values=Array.isArray(snapshots)?snapshots:Object.values(snapshots||{});
+      for(const item of values){
+        const date=String(item?.periodEnd||item?.date||virObservationDate(item)||"");
+        if(date.slice(0,7)!==month||!predicate(item))continue;
+        const period=JSON.stringify([String(item?.periodStart||""),date]);
+        const content=snapshotValue(item);
+        if(seen.has(period)&&seen.get(period)!==content)return true;
+        seen.set(period,content);
+      }
+      return false;
+    };
+    const saprCurrent=item=>item.periodStart===`${month}-01`&&item.periodEnd>=operatingEnd&&Number.isFinite(item.saprDaysCompleted)&&Number.isFinite(item.saprTotalDays)&&item.saprDaysCompleted>=item.saprTotalDays;
+    const saprConflict=samePeriodConflict(performanceSnapshots,saprCurrent);
+    const sapr=saprConflict?null:latestMonthlySnapshot(performanceSnapshots,month,saprCurrent);
     const virSnapshots=metrics?.vir?.snapshots||{},virPending=metrics?.vir?.pending||{};
-    const virDurable=latestMonthlySnapshot(virSnapshots,month,(item)=>virObservationDate(item)>=operatingEnd);
-    const virUnverified=latestMonthlySnapshot(virPending,month,(item)=>virObservationDate(item)>=operatingEnd);
-    const sameVirPeriod=Boolean(virDurable&&virUnverified&&String(virDurable.periodEnd||"")===String(virUnverified.periodEnd||"")&&String(virDurable.periodStart||"")===String(virUnverified.periodStart||""));
-    const virContent=item=>JSON.stringify(stable({store:item?.store||null,advisors:item?.advisors||null}));
-    const virConflict=sameVirPeriod&&virContent(virDurable)!==virContent(virUnverified);
-    const sapr=latestMonthlySnapshot(performanceSnapshots,month,(item)=>item.periodStart===`${month}-01`&&item.periodEnd>=operatingEnd&&Number.isFinite(item.saprDaysCompleted)&&Number.isFinite(item.saprTotalDays)&&item.saprDaysCompleted>=item.saprTotalDays);
-    const vir=virConflict?null:latestMonthlySnapshot({...virSnapshots,...virPending},month,(item)=>virObservationDate(item)>=operatingEnd);
-    const menu=latestMonthlySnapshot(metrics?.menu?.snapshots,month,(item)=>item.periodEnd>=operatingEnd);
-    const media=latestMonthlySnapshot(metrics?.mediaAsr?.snapshots,month,(item)=>item.periodEnd>=operatingEnd);
+    const virCurrent=item=>virObservationDate(item)>=operatingEnd;
+    const virConflict=samePeriodConflict([...Object.values(virSnapshots),...Object.values(virPending)],virCurrent);
+    const vir=virConflict?null:latestMonthlySnapshot({...virSnapshots,...virPending},month,virCurrent);
+    const menuSnapshots=metrics?.menu?.snapshots||{},menuCurrent=item=>item.periodEnd>=operatingEnd;
+    const menuConflict=samePeriodConflict(menuSnapshots,menuCurrent);
+    const menu=menuConflict?null:latestMonthlySnapshot(menuSnapshots,month,menuCurrent);
+    const mediaSnapshots=metrics?.mediaAsr?.snapshots||{},mediaCurrent=item=>item.periodEnd>=operatingEnd;
+    const mediaConflict=samePeriodConflict(mediaSnapshots,mediaCurrent);
+    const media=mediaConflict?null:latestMonthlySnapshot(mediaSnapshots,month,mediaCurrent);
     const csiImports=(metrics?.csi?.imports||[]).filter((item)=>{const scopeStart=String(item?.scopeStart||""),scopeEnd=String(item?.scopeEnd||""),observationDate=String(item?.refreshDate||(item?.importedAt?localDateKey(item.importedAt):""));return item?.scopeVerified===true&&freshness.validDateKey(observationDate)&&observationDate>=operatingEnd&&Boolean(scopeStart)&&Boolean(scopeEnd)&&scopeStart<=`${month}-01`&&scopeEnd>=operatingEnd;}).sort((a,b)=>String(a.refreshDate||localDateKey(a.importedAt)||"").localeCompare(String(b.refreshDate||localDateKey(b.importedAt)||"")));
     const csiImport=csiImports.at(-1)||null;
     const csiExpectation=sourceExpectation("csi");
     const sources={
-      sapr:state("sapr",sapr,sapr?.periodEnd),
+      sapr:state("sapr",sapr,sapr?.periodEnd,saprConflict),
       vir:state("vir",vir,virObservationDate(vir),virConflict),
-      menu:state("menu",menu,menu?.periodEnd),
-      mediaAsr:state("mediaAsr",media,media?.periodEnd),
+      menu:state("menu",menu,menu?.periodEnd,menuConflict),
+      mediaAsr:state("mediaAsr",media,media?.periodEnd,mediaConflict),
       // Freshness timestamps do not prove that the imported CSI report covers the month.
       csi: csiImport
         ?state("csi",{...csiImport,periodStart:csiImport.scopeStart},csiImport.scopeEnd)
