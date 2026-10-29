@@ -159,6 +159,8 @@ test("cleanup intent is persisted before attempting source removal", async () =>
     model, now:()=> "2026-10-29T15:00:00Z", sha256:digest,
     AUTO_IMPORT_PATH:["data","auto-import.json"],
     writeJson:async()=>{calls.push("ledger");},
+    sourceFileHandle:async()=>({getFile:async()=>({arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer})}),
+    sameByteContent:(a,b)=>Buffer.from(a).equals(Buffer.from(b)),
     reportInbox:async()=>({removeEntry:async()=>{calls.push("delete");throw Object.assign(Error("denied"),{name:"NotAllowedError"});}}),
     Map,Uint8Array,Error
   });
@@ -187,4 +189,51 @@ test("source is never deleted if pending-cleanup ledger cannot be saved", async 
   vm.runInContext(source + "\nthis.remove = removeSourceEntry;", context);
   await assert.rejects(context.remove(name),/Ledger write denied/);
   assert.equal(attempted,0);
+});
+
+test("a replacement written during cleanup marker persistence is never deleted", async () => {
+  const source = section("  async function removeSourceEntry(name) {", "  async function finishReadOnlyConnection(");
+  const name = "synthetic.xlsx", original = new Uint8Array([1,2,3]).buffer;
+  let current = original, deleted = 0, markerSaved = false;
+  const context = vm.createContext({
+    dailyPickedSources:new Map(),
+    xlsxSourceDeleteGuards:new Map([[name,original]]),
+    sourceLocations:new Map([[name,"inbox"]]),
+    autoSourceDeleteContext:new Map([[name,{signature:"inbox|3|123",relativePath:"01 - DROP REPORTS HERE/"+name,kind:"performance",bytes:original}]]),
+    model:{autoImport:{seen:{}},root:{removeEntry:async()=>{deleted++;}}},
+    now:()=> "2026-10-29T15:00:00Z",sha256:digest,
+    AUTO_IMPORT_PATH:["data","auto-import.json"],
+    sourceFileHandle:async()=>({getFile:async()=>({arrayBuffer:async()=>current})}),
+    sameByteContent:(a,b)=>Buffer.from(a).equals(Buffer.from(b)),
+    writeJson:async()=>{markerSaved=true;current=new Uint8Array([9,9,9]).buffer;},
+    reportInbox:async()=>({removeEntry:async()=>{deleted++;}}),
+    Map,Uint8Array,Error
+  });
+  vm.runInContext(source + "\nthis.remove = removeSourceEntry;", context);
+  await assert.rejects(context.remove(name),/changed while cleanup intent was saved/);
+  assert.equal(markerSaved,true);
+  assert.equal(deleted,0);
+});
+
+test("cleanup-only retry persists pending ledger before deleting and survives a denied write", async () => {
+  const h = setup();
+  await h.scan(); // durable appointment save, source retained
+  const marker = h.model.autoImport.seen[h.signature];
+  assert.equal(marker.cleanupPending,true);
+  let writes=0,removals=0;
+  // Model a reconnect where the first cleanup-intent write is denied.
+  h.context.writeJson = async () => {
+    writes++;
+    if(writes===1) throw Object.assign(new Error("Write permission lost"),{name:"NotAllowedError"});
+  };
+  h.context.removeSourceEntryWithByteGuard = async () => { removals++;h.state.present=false; };
+  const denied = await h.scan();
+  assert.equal(denied.cleanupPending.length,1);
+  assert.equal(removals,0,"cleanup must not remove the source before the ledger write succeeds");
+  assert.equal(marker.cleanupPending,true);
+  const recovered = await h.scan();
+  assert.equal(recovered.cleaned.length,1);
+  assert.equal(removals,1);
+  assert.equal(writes,2);
+  assert.equal(h.state.imports,1);
 });
