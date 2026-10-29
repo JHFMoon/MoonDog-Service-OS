@@ -100,3 +100,30 @@ test("invalid duplicate period evidence blocks an otherwise current metric witho
   assert.deepEqual(metric.blocking,[duplicate],"the rejected duplicate remains the blocking evidence");
   assert.deepEqual(metric.dependencies,[current,duplicate],"both source records remain auditable dependencies");
 });
+
+test("conflicting source evidence blocks an otherwise current metric for every catalogued family",()=>{
+  const validInputFor=key=>{
+    const cadence=F.SOURCE_DEFINITIONS[key].cadence;
+    const base={key,exists:true,today};
+    if(cadence==="same-business-day")return {...base,sourceDate:today};
+    if(cadence==="same-business-day-period")return {...base,periodStart:today,periodEnd:today};
+    if(cadence==="prior-operating-day")return {...base,periodStart:"2026-10-01",periodEnd:"2026-10-06"};
+    if(cadence==="cumulative-observation")return {...base,observationVerified:true,sourceDate:"2026-10-06"};
+    if(cadence==="weekly-monday")return {...base,releaseWeek:"2026-10-05"};
+    if(cadence==="state-current")return {...base,stale:false};
+    return {...base,periodStart:"2026-10-01",periodEnd:"2026-10-06"};
+  };
+  const keys=Object.keys(F.SOURCE_DEFINITIONS);
+  for(const key of keys){
+    const valid=F.evaluateSource(validInputFor(key));
+    const conflicting=F.evaluateSource({...validInputFor(key),
+      invalid:"Conflicting duplicate synthetic source for the same reporting period."});
+    const metric=F.evaluateMetric([valid,conflicting]);
+    assert.ok(["current","historical-valid"].includes(valid.status),key+" positive control must be valid");
+    assert.equal(conflicting.status,"invalid",key+" conflicting source must remain explicitly invalid");
+    assert.equal(metric.verified,false,key+" conflict cannot produce a verified metric");
+    assert.equal(metric.status,"invalid",key+" aggregate must expose the conflict");
+    assert.deepEqual(metric.blocking,[conflicting],key+" conflicting evidence remains the blocker");
+    assert.deepEqual(metric.dependencies,[valid,conflicting],key+" retains both source dependencies");
+  }
+});
