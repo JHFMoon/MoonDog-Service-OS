@@ -16,6 +16,29 @@ jobs:
           persist-credentials: false
           fetch-depth: 2  # Keep PR merge parent for package-only source-parity proof
 
+      - name: Classify exact pull request change scope
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata_only=false
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] && git rev-parse --verify "${GITHUB_SHA}^2" >/dev/null 2>&1; then
+            diff_file="$(mktemp)"
+            git diff --no-renames --name-only -z "${GITHUB_SHA}^1" "${GITHUB_SHA}^2" > "$diff_file"
+            mapfile -d '' changed_paths < "$diff_file"
+            rm -f "$diff_file"
+            if ((${#changed_paths[@]})); then
+              manifest_dir="$(mktemp -d)"
+              trap 'rm -rf "$manifest_dir"' EXIT
+              git show "${GITHUB_SHA}^1:updates/manifest.json" > "$manifest_dir/base.json"
+              git show "${GITHUB_SHA}^2:updates/manifest.json" > "$manifest_dir/head.json"
+              change_scope="$(python3 scripts/beta_change_scope.py --base-manifest "$manifest_dir/base.json" --head-manifest "$manifest_dir/head.json" "${changed_paths[@]}")"
+              [[ "$change_scope" == "metadata-only" ]] && metadata_only=true
+            fi
+          fi
+          echo "metadata_only=$metadata_only" >> "$GITHUB_OUTPUT"
+          echo "Beta clean-install scope: $([[ "$metadata_only" == true ]] && echo metadata-only || echo full-runtime)"
+
       - name: Recreate and verify pinned browser dependencies
         run: bash scripts/prepare_distribution_vendor.sh .distribution-vendor
 
@@ -40,6 +63,7 @@ jobs:
         run: |
           node scripts/smoke_distribution.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
       - name: Prove 16:9 TV layouts and seven-slide rotation with synthetic data
+        if: steps.scope.outputs.metadata_only != 'true'
         run: |
           node scripts/smoke_overdrive.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html" ".clean-install-smoke/overdrive-proof"
 
@@ -47,7 +71,12 @@ jobs:
         run: |
           node scripts/smoke_beta_package.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
 
+      - name: Verify package/runtime integrity when reusing the UX proof
+        if: steps.scope.outputs.metadata_only == 'true'
+        run: python3 -m unittest discover -s tests -p 'test_beta_package_runtime.py'
+
       - name: Verify synthetic navigation benchmark structure
+        if: steps.scope.outputs.metadata_only != 'true'
         run: |
           python3 - <<'PY'
           import json
