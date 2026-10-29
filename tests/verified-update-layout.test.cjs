@@ -103,7 +103,7 @@ test("heavy audit is tied to a verified installed-version receipt, not every sta
   assert.match(followup,/receipt\?\.version!==VERSION/);
   assert.match(followup,/if\(layout\.needsReview\)/);
   assert.match(followup,/localStorage\.removeItem\(key\)/);
-  assert.match(followup,/previousParser&&previousParser!==LEARNED_PARSER_REVISION/);
+  assert.match(followup,/parserRevisionChanged=previousParser\?previousParser!==LEARNED_PARSER_REVISION:legacyImportState/);
   assert.match(followup,/reconcileLearnedFiles\(LEARNED_PARSER_REVISION\)/);
   assert.match(app,/return \{failures,attempts,recovered,unsupported,skipped\}/);
 });

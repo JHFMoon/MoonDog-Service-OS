@@ -19,7 +19,8 @@ class VerifiedUpdateFollowupTests(unittest.TestCase):
         section=APP[APP.index("async function runVerifiedUpdateFollowup()"):APP.index("const folderWatch=",APP.index("async function runVerifiedUpdateFollowup()"))]
         self.assertIn('receipt?.version!==VERSION',section)
         self.assertIn('!writeAuthority.canWrite',section)
-        self.assertIn('previousParser&&previousParser!==LEARNED_PARSER_REVISION',section)
+        self.assertIn('parserRevisionChanged=previousParser?previousParser!==LEARNED_PARSER_REVISION:legacyImportState',section)
+        self.assertIn('entry.kind||entry.importFailed||entry.recognized',section)
         self.assertIn('await reconcileLearnedFiles(LEARNED_PARSER_REVISION)',section)
         self.assertIn('model.autoImport.learnedParserRevision=LEARNED_PARSER_REVISION',section)
         self.assertIn('result?.deferred||result?.failures',section)

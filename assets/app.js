@@ -3300,25 +3300,25 @@
     for await(const [name,handle] of backups.entries()){
       if(handle.kind==="directory"&&/^MoonDog-Update-Backup-[A-Za-z0-9-]+$/.test(name))names.push(name);
     }
-    names.sort();
-    const name=names.at(-1);
-    if(!name)return null;
-    const directory=await backups.getDirectoryHandle(name,{create:false});
-    let journal;
-    try{
-      const file=await directory.getFileHandle("journal.json",{create:false});
-      journal=JSON.parse(await (await file.getFile()).text());
-    }catch(error){
-      if(notFound(error))return null;
-      if(error instanceof SyntaxError)return null;
-      throw error;
+    names.sort().reverse();
+    for(const name of names){
+      let directory,journal;
+      try{
+        directory=await backups.getDirectoryHandle(name,{create:false});
+        const file=await directory.getFileHandle("journal.json",{create:false});
+        journal=JSON.parse(await (await file.getFile()).text());
+      }catch(error){
+        if(notFound(error)||error?.name==="SyntaxError")continue;
+        throw error;
+      }
+      const proof=journal?.verifiedUpdate;
+      if(journal?.status!=="verified"||proof?.version!==version||
+         !["stable","beta"].includes(proof?.channel)||!/^[0-9a-f]{64}$/.test(proof?.sha256||"")||
+         !Number.isFinite(Date.parse(proof?.verifiedAt||"")))continue;
+      return {directory,journal,version,
+        completed:journal?.followup?.version===version&&journal.followup.status==="complete"};
     }
-    const proof=journal?.verifiedUpdate;
-    if(journal?.status!=="verified"||proof?.version!==version||
-       !["stable","beta"].includes(proof?.channel)||!/^[0-9a-f]{64}$/.test(proof?.sha256||"")||
-       !Number.isFinite(Date.parse(proof?.verifiedAt||"")))return null;
-    return {directory,journal,version,
-      completed:journal?.followup?.version===version&&journal.followup.status==="complete"};
+    return null;
   }
   async function markVerifiedUpdateFollowupComplete(receipt) {
     if(!receipt?.directory||!receipt?.journal||!receipt?.version)throw new Error("Verified update receipt is incomplete.");
@@ -3393,6 +3393,14 @@
     const key="moondog-verified-update-followup-v1";let receipt=null;
     try{receipt=JSON.parse(localStorage.getItem(key)||"null");}catch(_){}
     if(!model.root||!writeAuthority.canWrite)return;
+    const previousParser=model.autoImport.learnedParserRevision;
+    const legacyImportState=Object.values(model.autoImport.seen||{}).some(entry=>entry&&
+      (entry.kind||entry.importFailed||entry.recognized));
+    // Older installed builds can have a durable import ledger but no update
+    // receipt or parser-revision field. A changed parser revision (or that
+    // legacy ledger) is an independent, durable trigger for the same safe
+    // layout-audited retry; failures keep the revision unchanged for retry.
+    const parserRevisionChanged=previousParser?previousParser!==LEARNED_PARSER_REVISION:legacyImportState;
     let durableReceipt;
     try{durableReceipt=await findVerifiedUpdateFollowup(model.applicationRoot);}
     catch(error){
@@ -3401,13 +3409,13 @@
         return;
       }
     }
-    if(durableReceipt?.completed){
+    if(durableReceipt?.completed&&!parserRevisionChanged){
       try{localStorage.removeItem(key);}catch(error){
         recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Completed receipt cleanup deferred: "+String(error?.name||"Error")+".");
       }
       return;
     }
-    if(receipt?.version!==VERSION&&!durableReceipt)return;
+    if(receipt?.version!==VERSION&&!durableReceipt&&!parserRevisionChanged)return;
     const followupReceipt=durableReceipt?.version===VERSION&&!durableReceipt.completed?durableReceipt:null;
     try{
       const layout=await auditInstalledRuntimeLayout(model.applicationRoot);
@@ -3419,9 +3427,8 @@
       // Existing installations already scanned unchanged learned sources.
       // Baseline a parser revision on first use; only genuine recognition
       // upgrades reprocess them, independently from general UI releases.
-      const previousParser=model.autoImport.learnedParserRevision;
       let result={attempts:0,recovered:0,unsupported:0,skipped:0};
-      if(previousParser&&previousParser!==LEARNED_PARSER_REVISION){
+      if(parserRevisionChanged){
         result=await reconcileLearnedFiles(LEARNED_PARSER_REVISION);
       }
       if(result?.deferred||result?.failures){
@@ -3433,7 +3440,9 @@
         await writeJson(AUTO_IMPORT_PATH,model.autoImport);
       }
       if(followupReceipt)await markVerifiedUpdateFollowupComplete(followupReceipt);
-      localStorage.removeItem(key);
+      try{localStorage.removeItem(key);}catch(_){
+        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Browser receipt cleanup unavailable; durable parser revision and import results remain verified.");
+      }
       recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Verified "+VERSION+" · attempted "+(result?.attempts||0)+" learned files · skipped "+(result?.skipped||0)+" · recovered "+(result?.recovered||0)+" · still unsupported "+(result?.unsupported||0)+". Unchanged parser revisions do not trigger reclassification.");
     }catch(error){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.name||"Error")+"; receipt retained, originals unchanged.");}
   }
