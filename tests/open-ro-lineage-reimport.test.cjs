@@ -39,7 +39,7 @@ test("verified manager edit survives durable reload and complete-source reimport
         "Technician":"Synthetic Technician A"
       },
       management:{
-        status:"Waiting Parts",
+        status:"Being Repaired",
         owner:"Synthetic Manager Owner",
         nextAction:"Recheck synthetic part ETA",
         reviewDate:"2026-10-27",
@@ -92,7 +92,7 @@ test("verified manager edit survives durable reload and complete-source reimport
   assert.equal(result.technician,"Synthetic Technician B");
   assert.equal(result.cdkOperational.status,"Ready for Review",
     "current CDK status follows the new report while manager workflow status remains authoritative");
-  assert.equal(result.management.status,"Waiting Parts");
+  assert.equal(result.management.status,"Being Repaired");
   assert.equal(result.management.owner,"Synthetic Manager Owner");
   assert.equal(result.management.reviewDate,"2026-10-27");
 
@@ -135,7 +135,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
       id:"synthetic-ro-301",ro:"SYN-301",sourceStatus:"Working",
       advisor:"Synthetic Advisor Backup",technician:"Synthetic Technician Backup",
       sourceFields:{"RO Number":"SYN-301","Source Status":"Working","Advisor":"Synthetic Advisor Backup","Technician":"Synthetic Technician Backup"},
-      management:{status:"Waiting Parts",owner:"Synthetic Parts Owner",nextAction:"Recheck synthetic delivery",
+      management:{status:"Being Repaired",owner:"Synthetic Parts Owner",nextAction:"Recheck synthetic delivery",
         reviewDate:"2026-10-27",communication:"Updated",note:"Synthetic backed-up plan",
         manualAnnotation:"Synthetic manager recovery marker",updatedAt:"2026-10-26T08:55:00.000Z"}
     }],
@@ -144,7 +144,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
   const liveState={
     schemaVersion:1,updatedAt:"2026-10-26T10:00:00.000Z",
     records:[{id:"synthetic-ro-301",ro:"SYN-301",sourceStatus:"Working",sourceFields:{"RO Number":"SYN-301","Source Status":"Working"},
-      management:{status:"Waiting Parts",owner:"Synthetic Parts Owner",nextAction:"Recheck synthetic delivery",reviewDate:"2026-10-27",communication:"Updated",note:"Synthetic backed-up plan",manualAnnotation:"Synthetic manager recovery marker",updatedAt:"2026-10-26T08:55:00.000Z"}}],
+      management:{status:"Being Repaired",owner:"Synthetic Parts Owner",nextAction:"Recheck synthetic delivery",reviewDate:"2026-10-27",communication:"Updated",note:"Synthetic backed-up plan",manualAnnotation:"Synthetic manager recovery marker",updatedAt:"2026-10-26T08:55:00.000Z"}}],
     closedRecords:[],source:{fileName:"synthetic-open-ro-live.xlsx",importedAt:"2026-10-26T09:58:00.000Z"}
   };
   const valuesFor=state=>({
@@ -267,6 +267,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
     recordSummary,editStatus:uiField(),editOwner:uiField(),editNextAction:uiField(),editReviewDate:uiField(),
     editAdminBlocker:uiField(),editAdminTaskDate:uiField(),editAdminCloseDate:uiField(),
     editAdminChangeReason:uiField(),editCommunication:uiField(),editNote:uiField(),
+    editCdkStatusIndicator:uiField(),
     editDialog:{open:false,showModal(){this.open=true;}}
   };
   const editContext=vm.createContext({
@@ -278,9 +279,8 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
     clarificationFor:()=>"",
     statusById:()=>null,
     currentCdkReviewStatus:record=>record.cdkOperational?.status||"",
-    selectableStatusesFor:()=>["Waiting Parts"],
+    selectableStatusesFor:()=>["Being Repaired"],
     populateSelect:(select,values)=>{select.options=values.map(value=>({value,dataset:{},remove(){}}));},
-    renderCdkStatusIndicator:record=>{editUi.cdkStatus=record.cdkOperational?.status||"";},
     updateStatusDetailEditor:()=>{},
     restoreSelectValue:(select,value)=>{select.value=value;},
     normalizeCommunication:value=>value,
@@ -294,20 +294,28 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
     requestAnimationFrame:callback=>callback()
   });
   vm.runInNewContext([
+        const norm = (v) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    const FRESH_MANAGEMENT_STATUSES = ["Awaiting Assignment", "Work in Progress", "Parts Estimate", "Pending Authorization", "Awaiting Technician Attention", "Being Repaired", "Ready for Review"];
+    function canonicalReviewStatus(value){const key=norm(value);return FRESH_MANAGEMENT_STATUSES.find((item)=>norm(item)===key)||"";}
+    function reviewedCanonicalStatus(record){return record?.management?.updatedAt?canonicalReviewStatus(statusById(record.management.statusId)?.name||record.management.status):"";}
+    function cdkStatusIndicator(record){const current=canonicalReviewStatus(record?.cdkOperational?.status);if(record?.cdkOperational?.stale&&current)return{kind:"stale",text:"Last confirmed CDK: "+current+" · not confirmed by latest import"};const reviewed=reviewedCanonicalStatus(record);if(current&&reviewed&&current!==reviewed)return{kind:"delta",text:"CDK now: "+current};return null;}
+    function renderCdkStatusIndicator(record){const indicator=cdkStatusIndicator(record);ui.editCdkStatusIndicator.hidden=!indicator;ui.editCdkStatusIndicator.className="cdk-status-indicator "+(indicator?.kind||"");ui.editCdkStatusIndicator.textContent=indicator?.text||"";},
     app.slice(identityStart,identityEnd),
     app.slice(managerStatusStart,managerStatusEnd),
     app.slice(editStart,editEnd),
     "this.openRecoveredRecord=openEdit;"
   ].join("\n"),editContext);
   assert.equal(editContext.openRecoveredRecord(result.id),true);
-  assert.equal(editUi.editStatus.value,"Waiting Parts",
+  assert.equal(editUi.editStatus.value,"Being Repaired",
     "the edit screen displays the recovered manager-authoritative status");
   assert.equal(editUi.editOwner.value,"Synthetic Parts Owner");
   assert.equal(editUi.editNextAction.value,"Recheck synthetic delivery");
   assert.equal(editUi.editReviewDate.value,"2026-10-27");
   assert.equal(editUi.editNote.value,"Synthetic backed-up plan");
-  assert.equal(editUi.cdkStatus,"Ready for Review",
-    "the current report's operational status remains separately visible");
+  assert.equal(editUi.editCdkStatusIndicator.hidden,false,
+    "the production indicator remains visible when the current report differs from the saved manager status");
+  assert.equal(editUi.editCdkStatusIndicator.textContent,"CDK now: Ready for Review",
+    "the production indicator displays the current report status separately from the saved manager status");
   assert.ok(editUi.recordSummary.children.some(item=>item.textContent==="Technician (reported source): Synthetic Technician Current"),
     "the edit screen retains the latest source-reported technician after recovery");
 });
