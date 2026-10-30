@@ -97,6 +97,8 @@ test("source status distinguishes a period conflict from other validation failur
     reason: "Conflicting validated source snapshots for the same reporting period" }), "Conflict · Review required");
   assert.equal(context.sourceStatusLabel({ status: "invalid", loaded: true,
     reason: "Unsupported synthetic workbook structure" }), "Loaded · validation needed");
+  assert.equal(context.sourceStatusLabel({ status: "invalid", loaded: true,
+    reason: "The saved report period is invalid or internally inconsistent." }), "Invalid period · Review required");
 });
 
 test("production freshness selectors and Home renderer preserve lineage for every reference source family", () => {
@@ -217,4 +219,45 @@ test("production freshness selectors distinguish missing and stale coverage for 
     assert.equal(stale.importTimestamp, staleItem.importedAt);
     assert.match(stale.requiredAction, /requested historical period/);
   }
+});
+
+test("production lineage rejects malformed and reversed saved report periods before use", () => {
+  const freshnessSource = fs.readFileSync(path.join(__dirname, "..", "assets", "freshness.js"), "utf8");
+  const expectationStart = app.indexOf("  function sourceExpectation(key)");
+  const expectationEnd = app.indexOf("  function sourceAvailable(key)", expectationStart);
+  const freshnessStart = app.indexOf("  function sourceFreshness(key, options = {})");
+  const freshnessEnd = app.indexOf("  function metricDependencyEvidence(", freshnessStart);
+  const lastDayStart = app.indexOf("  function lastDayOfMonth(month)");
+  const lastDayEnd = app.indexOf("\\n  function ", lastDayStart + 3);
+  assert.ok(expectationStart >= 0 && expectationEnd > expectationStart);
+  assert.ok(freshnessStart >= 0 && freshnessEnd > freshnessStart);
+  assert.ok(lastDayStart >= 0 && lastDayEnd > lastDayStart);
+  const context = vm.createContext({
+    model: { settings: { setup: { sourceExpectations: {} } }, operationalMetrics: {}, state: { records: [] } },
+    localDateKey: () => "2026-10-30",
+    businessTimeZone: () => "UTC",
+    latestOperationalSnapshot: () => null
+  });
+  vm.runInContext(freshnessSource, context);
+  context.freshness = context.MoonDogFreshness;
+  vm.runInContext(app.slice(expectationStart, expectationEnd) +
+    app.slice(freshnessStart, freshnessEnd) +
+    app.slice(lastDayStart, lastDayEnd) +
+    "; this.sourceFreshness = sourceFreshness;", context);
+
+  const malformedMonth = context.sourceFreshness("sor", { item: {
+    period: "2026-13", importedAt: "2026-10-30T12:00:00.000Z"
+  } });
+  assert.equal(malformedMonth.status, "invalid");
+  assert.equal(malformedMonth.safeForCurrent, false);
+  assert.equal(malformedMonth.reportPeriodVerified, false);
+  assert.equal(malformedMonth.requiredAction, "Review the report period before using these values.");
+
+  const reversed = context.sourceFreshness("efficiency", { item: {
+    periodStart: "2026-10-31", periodEnd: "2026-10-01",
+    importedAt: "2026-10-30T12:00:00.000Z"
+  } });
+  assert.equal(reversed.status, "invalid");
+  assert.equal(reversed.safeForPurpose, false);
+  assert.equal(reversed.reportPeriodVerified, false);
 });

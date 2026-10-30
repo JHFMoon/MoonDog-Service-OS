@@ -4312,7 +4312,23 @@
     if (key === "vir") { const item = options.item || latestVirObservation(); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.sourceModifiedAt || item?.observationTimestamp, periodEnd: virObservationDate(item) }, item, Boolean(virObservationDate(item))); }
     if (key === "menu") { const item = options.item || latestOperationalSnapshot("menu"); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd, releaseWeek: item?.releaseWeek }, item, Boolean((item?.periodStart && item?.periodEnd) || item?.releaseWeek)); }
     if (key === "appointments") { const item = options.item || model.appointments.days?.[today]; return evaluate({ ...common, expectation: "recommended", exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.updatedAt, periodStart: item?.date || today, periodEnd: item?.date || (item ? today : "") }, item, Boolean(item?.date)); }
-    if (["sor", "appointmentActivity", "efficiency", "mediaAsr", "mediaAsrTech", "openRoSummary"].includes(key)) { const item = options.item || latestOperationalSnapshot(key), period = item?.period || item?.date || ""; return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt, periodStart: item?.periodStart || (period.length === 10 ? period : ""), periodEnd: item?.periodEnd || (period.length === 10 ? period : period.length === 7 ? lastDayOfMonth(period) : "") }, item, Boolean(item && (item?.periodStart || item?.periodEnd || item?.period || item?.date))); }
+    if (["sor", "appointmentActivity", "efficiency", "mediaAsr", "mediaAsrTech", "openRoSummary"].includes(key)) {
+      const item = options.item || latestOperationalSnapshot(key), rawPeriod = item?.period ?? item?.date ?? "",
+        period = String(rawPeriod).trim(), isMonth = /^\\d{4}-\\d{2}$/.test(period),
+        declaredPeriodValid = !period || freshness.validDateKey(period) ||
+          (isMonth && freshness.validDateKey(period + "-01")),
+        periodStart = item?.periodStart || (period.length === 10 ? period : ""),
+        periodEnd = item?.periodEnd || (period.length === 10 ? period : isMonth ? lastDayOfMonth(period) : ""),
+        validBounds = (!periodStart || freshness.validDateKey(periodStart)) &&
+          (!periodEnd || freshness.validDateKey(periodEnd)) &&
+          !(periodStart && periodEnd && periodStart > periodEnd);
+      if (!declaredPeriodValid || !validBounds) return evaluate({ ...common, exists: Boolean(item),
+        invalid: "The saved report period is invalid or internally inconsistent.",
+        requiredAction: "Review the report period before using these values."
+      }, item, false);
+      return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt,
+        periodStart, periodEnd }, item, Boolean(item && (periodStart || periodEnd || period)));
+    }
     if (key === "supervisorWorkbook") { const item = options.item || model.recovery?.supervisorWorkbook; return evaluate({ ...common, expectation: "recommended", exists: Boolean(item?.generatedAt), sourceTimestamp: item?.generatedAt, periodStart: item?.generatedAt ? localDateKey(new Date(item.generatedAt)) : "", periodEnd: item?.generatedAt ? localDateKey(new Date(item.generatedAt)) : "", stale: item?.stale === true }, item, false); }
     return evaluate({ ...common, exists: false }, null, false);
   }
@@ -4321,7 +4337,7 @@
     if (!blocked) return baseEvidence;
     return metricEvidence({ value: baseEvidence?.lastVerifiedValue ?? baseEvidence?.value, status: blocked.status === "missing" ? "missing-source" : blocked.status, source: blocked.label, period: [blocked.periodStart, blocked.periodEnd].filter(Boolean).join(" through "), importedDate: blocked.sourceTimestamp, freshness: blocked.expectedPeriod ? `Expected ${blocked.expectedPeriod}` : blocked.cadence, reason: blocked.reason, requiredAction: blocked.requiredAction, calculation: baseEvidence?.calculation || "", reconciliation: baseEvidence?.reconciliation || "" });
   }
-  function sourceStatusLabel(evidence) { if (evidence.status === "current") return "Current"; if (evidence.status === "historical-valid") return "Historical · valid for stated period"; if (evidence.status === "missing") return "Missing"; if (evidence.status === "stale" && evidence.loaded) return "Loaded but stale · Needs updating"; if (evidence.status === "temporarily-unavailable") return "Temporarily unavailable"; if (evidence.status === "not-used") return "Not used"; if (evidence.status === "invalid" && /conflict/i.test(String(evidence.reason || ""))) return "Conflict · Review required"; return evidence.loaded ? "Loaded · validation needed" : "Missing"; }
+  function sourceStatusLabel(evidence) { if (evidence.status === "current") return "Current"; if (evidence.status === "historical-valid") return "Historical · valid for stated period"; if (evidence.status === "missing") return "Missing"; if (evidence.status === "stale" && evidence.loaded) return "Loaded but stale · Needs updating"; if (evidence.status === "temporarily-unavailable") return "Temporarily unavailable"; if (evidence.status === "not-used") return "Not used"; if (evidence.status === "invalid" && /conflict/i.test(String(evidence.reason || ""))) return "Conflict · Review required"; if (evidence.status === "invalid" && /report period/i.test(String(evidence.reason || ""))) return "Invalid period · Review required"; return evidence.loaded ? "Loaded · validation needed" : "Missing"; }
   // Source coverage and local import time describe DIFFERENT facts. A fresh
   // import cannot manufacture a current reporting period or a verified zero.
   function sourceLineageLabel(evidence) {
