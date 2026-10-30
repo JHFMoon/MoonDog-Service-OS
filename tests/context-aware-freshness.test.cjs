@@ -266,3 +266,33 @@ test('legacy historical reports with no explicit start retain end-only coverage'
   assert.equal(evidence.status, 'historical-valid');
   assert.equal(evidence.safeForPurpose, true);
 });
+
+test('Open RO without source date never inherits the current computer date', () => {
+  // Derive today's actual business-date key so this regression cannot turn
+  // green merely because a hard-coded 2026 day has passed.
+  const now = new Date();
+  const businessToday = F.dateKey(now);
+  for (const sourceTimestamp of [undefined, null, '']) {
+    const evidence = F.evaluateSource({
+      key: 'openRo', exists: true, today: businessToday, sourceTimestamp
+    });
+    assert.equal(evidence.status, 'stale', 'undated Open RO must not be current');
+    assert.equal(evidence.safeForCurrent, false);
+    assert.match(evidence.reason, /unknown/);
+  }
+});
+
+test('Open RO with verified business-date source evidence retains normal freshness', () => {
+  const now = new Date();
+  const businessToday = F.dateKey(now);
+  assert.equal(F.evaluateSource({
+    key: 'openRo', exists: true, today: businessToday, sourceDate: businessToday
+  }).status, 'current');
+  assert.equal(F.evaluateSource({
+    key: 'openRo', exists: true, today: businessToday, sourceTimestamp: now.toISOString()
+  }).status, 'current');
+  assert.equal(F.evaluateSource({
+    key: 'openRo', exists: true, today: businessToday,
+    sourceDate: F.addDays(businessToday, -1)
+  }).status, 'stale');
+});
