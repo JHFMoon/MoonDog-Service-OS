@@ -105,7 +105,7 @@ test("production freshness selectors and Home renderer preserve lineage for ever
   const expectationEnd = app.indexOf("  function sourceAvailable(key)", expectationStart);
   const freshnessStart = app.indexOf("  function sourceFreshness(key, options = {})");
   const freshnessEnd = app.indexOf("  function metricDependencyEvidence(", freshnessStart);
-  const productionLastDay = app.indexOf("  function lastDayOfMonth(", freshnessEnd);
+  const productionLastDay = app.indexOf("  function lastDayOfMonth(");
   const productionLastDayEnd = app.indexOf("\n  function ", productionLastDay + 3);
   const lineageEnd = app.indexOf("  function advisorNextWin(", lineageStart);
   const managerStart = app.indexOf("  function latestFamily(family)", rendererStart);
