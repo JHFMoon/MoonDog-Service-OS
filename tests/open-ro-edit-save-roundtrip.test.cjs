@@ -195,6 +195,7 @@ test("Open RO production save verifies read-back, preserves source/manual fields
 test("manual Open RO edit history is durably persisted after read-back with source lineage intact", async () => {
   const h = harness(null, false, true, true);
   assert.equal(await h.context.saveForTest({ preventDefault() {} }), true);
+  const productionEvents = [...h.events];
 
   const durable = await h.context.readForTest(h.context.statePathForTest, null);
   const record = durable.records[0];
@@ -211,12 +212,12 @@ test("manual Open RO edit history is durably persisted after read-back with sour
   assert.deepStrictEqual(record.sourceFields, originalState.records[0].sourceFields,
     "manual management edits do not replace imported report fields");
 
-  const stateWrite = h.events.findLastIndex(event =>
+  const stateWrite = productionEvents.findLastIndex(event =>
     event.startsWith("write:") && event.includes("current-state.json"));
-  const stateReadback = h.events.findLastIndex(event =>
+  const stateReadback = productionEvents.findLastIndex(event =>
     event.startsWith("read:") && event.includes("current-state.json"));
-  const historyWrite = h.events.findLastIndex(event => event === "write:"+historyPaths[0]);
-  const historyReadback = h.events.findLastIndex(event => event === "read:"+historyPaths[0]);
+  const historyWrite = productionEvents.findLastIndex(event => event === "write:"+historyPaths[0]);
+  const historyReadback = productionEvents.findLastIndex(event => event === "read:"+historyPaths[0]);
   assert.ok(stateWrite >= 0 && stateReadback > stateWrite,
     "the production save writes and reads back the current-state file");
   assert.ok(historyWrite > stateReadback && historyReadback > historyWrite,
