@@ -385,3 +385,93 @@ test("advisor-grouped workbook missing global totals is rejected rather than sil
   assert.equal(parserCalled,1,"must invoke the strict grouped parser");
   assert.equal(supplementalCalled,0,"must not bypass failed authority checks");
 });
+
+test("automatic cleanup records its digest hold before discovering changed Inbox bytes",async()=>{
+  const source=section("  async function removeSourceEntry(name) {","  async function finishReadOnlyConnection(");
+  const name="synthetic.xlsx",original=new Uint8Array([1,2,3]).buffer,replaced=new Uint8Array([4,5,6]).buffer;
+  const signature="01 - DROP REPORTS HERE/synthetic.xlsx|3|100";
+  const model={autoImport:{seen:{}},root:{removeEntry:async()=>{throw Error("root must not be touched");}}};
+  let persisted=0,deleted=0;
+  const ctx={model,sourceLocations:new Map([[name,"inbox"]]),
+    dailyPickedSources:new Map(),xlsxSourceDeleteGuards:new Map([[name,original]]),
+    autoSourceDeleteContext:new Map([[name,{signature,relativePath:"01 - DROP REPORTS HERE/"+name,
+      bytes:original,kind:"open-ro"}]]),
+    now:()=> "2026-10-29T15:00:00Z",sha256,
+    writeJson:async()=>{persisted++;},AUTO_IMPORT_PATH:["data","auto-import.json"],
+    sameByteContent:equal,sourceFileHandle:async()=>({getFile:async()=>({arrayBuffer:async()=>replaced})}),
+    reportInbox:async()=>({removeEntry:async()=>{deleted++;}}),
+    Map,Uint8Array};
+  vm.runInNewContext(source,ctx);
+  await assert.rejects(ctx.removeSourceEntry(name),/changed while/);
+  assert.equal(persisted,1,"durable intent must precede checking for changes");
+  assert.equal(deleted,0,"never delete a replaced, unverified report");
+  assert.equal(model.autoImport.seen[signature].cleanupPending,true);
+  assert.equal(model.autoImport.seen[signature].cleanupSha256,await sha256(original));
+});
+
+test("post-import cleanup failure takes priority over generic saved-roster handling",async()=>{
+  const code=section("  async function autoSurveyFolder(","  async function importReturnedWorkbook(");
+  const digest=await sha256(bytes),name="synthetic-cleanup.xlsx";
+  const entry={name,location:"inbox",relativePath:"01 - DROP REPORTS HERE/"+name,
+    signature:"inbox|3|100",file:{lastModified:100,arrayBuffer:async()=>bytes}};
+  const model={state:{source:{sha256:digest},records:[]},autoImport:{seen:{}}};
+  let moved=0;
+  const ctx={model,sourceLocations:new Map(),watchCandidates:async()=>[entry],
+    candidateNeedsImport:()=>true,classifyImportFile:async()=> "open-ro",
+    readJson:async()=>({source:{sha256:"older"}}),STATE_PATH:["data","state.json"],
+    processClassifiedCandidate:async()=>{throw Object.assign(Error("source replaced"),{sourceCleanupFailure:true});},
+    moveToLearn:async()=>{moved++;},sha256,writeJson:async()=>{},
+    AUTO_IMPORT_PATH:["data","auto-import.json"],now:()=> "2026-10-29",
+    recordDiagnostic:()=>{},status:()=>{},scanFiles:async()=>{},
+    TextDecoder,Uint8Array,Map,Set,JSON};
+  vm.runInNewContext(code,ctx);
+  const result=await ctx.autoSurveyFolder();
+  assert.equal(result.cleanupPending.length,1);
+  assert.equal(moved,0);
+  assert.equal(model.autoImport.seen[entry.signature].cleanupSha256,digest);
+  assert.equal(model.autoImport.seen[entry.signature].cleanupPending,true);
+});
+
+test("a manager close during duplicate recovery prevents stale workload and source deletion",async()=>{
+  const code=section("  async function autoSurveyFolder(","  async function importReturnedWorkbook(");
+  const digest=await sha256(bytes),name="synthetic-concurrent-close.xlsx";
+  const entry={name,location:"inbox",relativePath:"01 - DROP REPORTS HERE/"+name,
+    signature:"inbox|3|100",file:{lastModified:100,arrayBuffer:async()=>bytes}};
+  const state={updatedAt:"initial",records:[
+    {id:"synthetic-active-1",ro:"900001",advisorCode:"101"},
+    {id:"synthetic-active-2",ro:"900002",advisorCode:"101"}],
+    closedRecords:[],source:{sha256:digest,importedAt:"2026-10-29T12:00:00Z"}};
+  const model={state,autoImport:{seen:{}}};
+  let imported=0,deletions=0,repairs=0,closed=false;
+  const ctx={model,sourceLocations:new Map(),watchCandidates:async()=>[entry],
+    candidateNeedsImport:()=>true,classifyImportFile:async()=> "open-ro",
+    processClassifiedCandidate:async()=>{imported++;},
+    readJson:async()=>JSON.parse(JSON.stringify(state)),STATE_PATH:["data","state.json"],
+    prepareXlsxWorkbook:async()=>({SheetNames:["Synthetic"],Sheets:{Synthetic:{}}}),
+    legacyReport:()=>({verification:"group totals and global rows returned reconciled",
+      workloadRecords:[{ro:"900001",advisorCode:"101"},{ro:"900002",advisorCode:"101"}]}),
+    retainDailyReport:async()=>{if(!closed){
+      state.records=state.records.filter(row=>row.ro!=="900002");
+      state.closedRecords=[{id:"synthetic-active-2",ro:"900002",
+        closedAt:"2026-10-29T12:30:00Z",closedReason:"manual-manager-close"}];
+      state.updatedAt="manual-close";closed=true;
+    }},
+    openRoWorkloadSnapshot:rows=>({sourceType:"open-ro",records:rows}),
+    saveOpenRoWorkload:async()=>{repairs++;},
+    ensureDailyFocus:async()=>{},removeSourceEntryWithByteGuard:async()=>{deletions++;},
+    transientIntakeError:e=>e.name==="InvalidStateError",
+    sha256,coverageTimestamp:()=> "2026-10-29",writeJson:async()=>{},
+    AUTO_IMPORT_PATH:["data","auto-import.json"],now:()=> "2026-10-29",
+    recordDiagnostic:()=>{},status:()=>{},scanFiles:async()=>{},
+    TextDecoder,Uint8Array,Map,Set,JSON,Date,DOMException};
+  vm.runInNewContext(code,ctx);
+  const first=await ctx.autoSurveyFolder();
+  assert.equal(first.retained.length,1,"concurrent manager close keeps original source for retry");
+  assert.equal(deletions,0);
+  assert.equal(imported,0);
+  const second=await ctx.autoSurveyFolder();
+  assert.equal(second.cleaned.length,1);
+  assert.equal(deletions,1);
+  assert.equal(imported,0);
+  assert.ok(repairs>=2);
+});
