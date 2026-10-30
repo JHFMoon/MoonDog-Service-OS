@@ -1269,7 +1269,7 @@
   async function reportInbox(create = false) { try { return await directory([REPORT_INBOX], create); } catch (error) { if (create) throw new Error(`Service Operations Dashboard could not create the Report Inbox: ${REPORT_INBOX}. Confirm folder write access and reconnect.`); throw error; } }
   const sourceLocations = new Map();
   let supervisorWorkbookOperationTail = Promise.resolve();
-  async function withSupervisorWorkbookLock(operation) { const locks = globalThis.navigator?.locks; if (!locks?.request) throw new Error("This browser cannot safely serialize Supervisor Workbook operations. Use an up-to-date browser and retry."); const run = async () => { const previous = supervisorWorkbookOperationTail; let release; supervisorWorkbookOperationTail = new Promise((resolve) => { release = resolve; }); await previous; try { if (model.root) { const durable = await readJson(STATE_PATH, null); if (!durable || durable.updatedAt !== model.state.updatedAt || JSON.stringify(durable.records) !== JSON.stringify(model.state.records)) throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing."); const recovery = await readJson(RECOVERY_PATH, null); if (recovery) model.recovery = recovery; } return await operation(); } finally { release(); } }; return locks.request("moondog-supervisor-workbook", { mode: "exclusive" }, run); }
+  async function withSupervisorWorkbookLock(operation,options={}) { const locks = globalThis.navigator?.locks; if (!locks?.request) throw new Error("This browser cannot safely serialize Supervisor Workbook operations. Use an up-to-date browser and retry."); const run = async () => { const previous = supervisorWorkbookOperationTail; let release; supervisorWorkbookOperationTail = new Promise((resolve) => { release = resolve; }); await previous; try { if (model.root) { const durable = await readJson(STATE_PATH, null); const initialEmpty = options.allowInitialEmptyState===true && !durable && !model.state.updatedAt && !model.state.source && !(model.state.records||[]).length && !(model.state.closedRecords||[]).length; if (!initialEmpty && (!durable || durable.updatedAt !== model.state.updatedAt || JSON.stringify(durable.records) !== JSON.stringify(model.state.records))) throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing."); const recovery = await readJson(RECOVERY_PATH, null); if (recovery) model.recovery = recovery; } return await operation(); } finally { release(); } }; return locks.request("moondog-supervisor-workbook", { mode: "exclusive" }, run); }
   const dailyPickedSources = new Map(); let dailyImportBusy = false, appointmentImportBusy = false;
   async function sourceFileHandle(name) { if(dailyPickedSources.has(name))return dailyPickedSources.get(name); const location = sourceLocations.get(name); if (location === "root") return model.root.getFileHandle(name); if (location === "learn") return (await directory(["Files To Learn"], false)).getFileHandle(name); if (location === "inbox") return (await reportInbox(false)).getFileHandle(name); try { return await (await reportInbox(false)).getFileHandle(name); } catch (error) { if (error.name !== "NotFoundError") throw error; return model.root.getFileHandle(name); } }
   async function removeSourceEntryWithByteGuard(name, bytes) {
@@ -7255,6 +7255,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   }
   async function commitPasteLearning(nonce){
     if(pasteCommitBusy)throw Error("A paste import is already being committed.");
+    // A clipboard commit is an operational import. It must not race the inbox
+    // watcher, another import, or a Workspace connection/post-connect scan.
+    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy||workspaceConnectionBusy||postConnectionScanBusy)
+      throw Error("Another Workspace operation is in progress. Finish it before importing pasted data.");
     const preview=pastePreview;
     if(!preview||preview.nonce!==nonce)throw Error("That preview expired. Analyze the current text again.");
     if(preview.root!==model.root||preview.updatedAt!==model.state.updatedAt||
@@ -7263,8 +7267,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if(preview.diff.errors.length||!preview.parsed.records.length)
       throw Error("Unresolved issues block operational import.");
     writeAuthority.requireWrite();
-    pasteCommitBusy=true;
+    // Share the same import exclusion used by report watching, picked imports,
+    // reconnection, and manual RO saves. No await separates the guard/set.
+    pasteCommitBusy=true;dailyImportBusy=true;
     try{
+      // Use the same browser-wide lock and durable-state comparison as RO
+      // edits and Supervisor Workbook operations, including across tabs.
+      return await withSupervisorWorkbookLock(async()=>{
       const rechecked=pasteDiff(preview.parsed);
       if(rechecked.errors.length)throw Error("Existing RO identities changed. Review again.");
       const active=new Map((model.state.records||[]).map(row=>[String(row.ro),row]));
@@ -7323,7 +7332,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       }
       renderAll();
       return{status:"saved",added:added.length,updated:changed.length,missingClosed:0,warning:followupWarning};
-    }finally{pasteCommitBusy=false;}
+      },{allowInitialEmptyState:true});
+    }finally{pasteCommitBusy=false;dailyImportBusy=false;}
   }
   async function savePasteLearningRule(candidate){
     const engine=globalThis.MoonDogPasteLearn;

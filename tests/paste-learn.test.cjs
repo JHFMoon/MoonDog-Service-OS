@@ -188,7 +188,9 @@ test("partial clipboard commit keeps missing active ROs and every manual managem
  let writes=0,backups=0,history=0,workloadWrites=0,rendered=0;
  const preview={nonce:"reviewed",root,updatedAt:"before",priorIds:model.state.records.map(x=>x.id).join("|"),
    parsed:{records:[incoming]},diff:{errors:[],counts:{new:0,updated:1,unchanged:0}}};
- const cx={model,pastePreview:preview,pasteCommitBusy:false,writeAuthority:{requireWrite:()=>{}},
+ const cx={model,pastePreview:preview,pasteCommitBusy:false,folderWatch:{busy:false},
+   dailyImportBusy:false,appointmentImportBusy:false,workspaceConnectionBusy:false,postConnectionScanBusy:false,
+   withSupervisorWorkbookLock:async operation=>operation(),writeAuthority:{requireWrite:()=>{}},
    pasteDiff:()=>({errors:[]}),now:()=>new Date().toISOString(),backupState:async()=>backups++,
    writeJson:async()=>writes++,addHistory:async()=>history++,markSupervisorWorkbookStale:async()=>{},
    renderAll:()=>rendered++,defaultManagementFor:()=>({}),operationalStatusFromImport:()=>null,
@@ -206,8 +208,9 @@ test("stale preview and failed durable writes cannot report success",async()=>{
  const begin=app.indexOf("  async function commitPasteLearning("),end=app.indexOf("  async function savePasteLearningRule(",begin);
  const source=app.slice(begin,end),root={name:"Synthetic"},model={root,state:{updatedAt:"old",records:[],closedRecords:[]}};
  const cx={model,pastePreview:{nonce:"nonce",root,updatedAt:"old",priorIds:"",parsed:{records:[{ro:"123456",id:"x"}]},diff:{errors:[]}},
- pasteCommitBusy:false,pasteDiff:()=>({errors:[]}),now:()=>new Date().toISOString(),
- writeAuthority:{requireWrite:()=>{}},backupState:async()=>{},
+ pasteCommitBusy:false,folderWatch:{busy:false},dailyImportBusy:false,appointmentImportBusy:false,
+ postConnectionScanBusy:false,workspaceConnectionBusy:false,pasteDiff:()=>({errors:[]}),now:()=>new Date().toISOString(),
+ withSupervisorWorkbookLock:async operation=>operation(),writeAuthority:{requireWrite:()=>{}},backupState:async()=>{},
  writeJson:async()=>{throw Error("Read-back failed");},defaultManagementFor:()=>({status:"",nextAction:""}),
  operationalStatusFromImport:()=>null,STATE_PATH:["data","current-state.json"]};
  vm.runInNewContext(source+"\nthis.commit=commitPasteLearning",cx);
@@ -280,4 +283,107 @@ test("Incomplete source boundaries remain explicitly distinct from invalid rows"
  const parsed=await h.partial(rows(1,300));
  assert.match(parsed.warnings.join(" "),/Detected 1 of 300 RO boundaries/);
  assert.equal(parsed.issues.length,0);
+});
+
+
+test("clipboard import excludes concurrent operational work and shares the busy flag through verified persistence",async()=>{
+ const start=app.indexOf("  async function commitPasteLearning("),end=app.indexOf("  async function savePasteLearningRule(",start);
+ assert.ok(start>0&&end>start);
+ const root={name:"Synthetic Workspace"},record={id:"synthetic-one",ro:"123456",sourceStatus:"Working"};
+ const model={root,state:{updatedAt:"before",records:[],closedRecords:[]}};
+ const preview={nonce:"approved",root,updatedAt:"before",priorIds:"",
+   parsed:{records:[record]},diff:{errors:[],counts:{new:1,updated:0,unchanged:0}}};
+ let writes=0,backups=0,releaseWrite,releaseLock,lockEntries=0;
+ const blockedWrite=new Promise(resolve=>{releaseWrite=resolve;});
+ const pendingSupervisorLock=new Promise(resolve=>{releaseLock=resolve;});
+ const cx={model,pastePreview:preview,pasteCommitBusy:false,folderWatch:{busy:false},
+   dailyImportBusy:false,appointmentImportBusy:false,workspaceConnectionBusy:false,postConnectionScanBusy:false,
+   withSupervisorWorkbookLock:async (operation,options)=>{assert.equal(options.allowInitialEmptyState,true);lockEntries++;await pendingSupervisorLock;return operation();},
+   writeAuthority:{requireWrite:()=>{}},pasteDiff:()=>({errors:[],changes:[{ro:"123456",kind:"new"}]}),
+   backupState:async()=>{backups++;},writeJson:async()=>{writes++;await blockedWrite;},
+   addHistory:async()=>{},markSupervisorWorkbookStale:async()=>{},renderAll:()=>{},
+   defaultManagementFor:()=>({owner:"Synthetic"}),operationalStatusFromImport:()=>null,
+   now:()=>"2026-10-30T12:00:00.000Z",recordDiagnostic:()=>{},
+   STATE_PATH:["data","current-state.json"]};
+ vm.runInNewContext(app.slice(start,end)+"\nthis.commit=commitPasteLearning",cx);
+ for(const flag of ["folderWatch","dailyImportBusy","appointmentImportBusy","workspaceConnectionBusy","postConnectionScanBusy"]){
+   if(flag==="folderWatch")cx.folderWatch.busy=true;
+   else cx[flag]=true;
+   await assert.rejects(()=>cx.commit("approved"),/another workspace operation/i,flag+" must exclude commit");
+   if(flag==="folderWatch")cx.folderWatch.busy=false;
+   else cx[flag]=false;
+   assert.equal(writes,0,"blocked operation cannot write state");
+ }
+ const committing=cx.commit("approved");
+ assert.equal(cx.dailyImportBusy,true,"shared import flag must be held before the first await");
+ assert.equal(cx.pasteCommitBusy,true);
+ await assert.rejects(()=>cx.commit("approved"),/already being committed/);
+ assert.equal(lockEntries,1,"clipboard import must acquire the same Supervisor Workbook lock as Open RO saves");
+ assert.equal(writes,0,"state writes must wait for the shared browser lock");
+ releaseLock();
+ await Promise.resolve();await Promise.resolve();
+ assert.equal(cx.dailyImportBusy,true,"shared flag remains held while durable write is pending");
+ releaseWrite();
+ const outcome=await committing;
+ assert.equal(outcome.status,"saved");
+ assert.equal(writes,1);assert.equal(backups,1);
+ assert.equal(cx.dailyImportBusy,false,"shared flag released after success");
+ assert.equal(cx.pasteCommitBusy,false);
+ assert.equal(model.state.records.length,1);
+});
+
+test("clipboard import releases shared lock after durable write/read-back failure",async()=>{
+ const start=app.indexOf("  async function commitPasteLearning("),end=app.indexOf("  async function savePasteLearningRule(",start);
+ const root={name:"Synthetic"},model={root,state:{updatedAt:"before",records:[],closedRecords:[]}};
+ const cx={model,pastePreview:{nonce:"approved",root,updatedAt:"before",priorIds:"",
+     parsed:{records:[{id:"synthetic-one",ro:"123456"}]},diff:{errors:[]}},
+   pasteCommitBusy:false,folderWatch:{busy:false},dailyImportBusy:false,
+   appointmentImportBusy:false,workspaceConnectionBusy:false,postConnectionScanBusy:false,
+   withSupervisorWorkbookLock:async operation=>operation(),writeAuthority:{requireWrite:()=>{}},pasteDiff:()=>({errors:[],changes:[{ro:"123456",kind:"new"}]}),
+   backupState:async()=>{},writeJson:async()=>{throw Error("Synthetic durable mismatch");},
+   defaultManagementFor:()=>({}),operationalStatusFromImport:()=>null,
+   now:()=>"2026-10-30T12:00:00.000Z",STATE_PATH:["data","current-state.json"]};
+ vm.runInNewContext(app.slice(start,end)+"\nthis.commit=commitPasteLearning",cx);
+ await assert.rejects(()=>cx.commit("approved"),/Synthetic durable mismatch/);
+ assert.equal(cx.pasteCommitBusy,false);
+ assert.equal(cx.dailyImportBusy,false);
+ assert.equal(model.state.updatedAt,"before","failed durable write must preserve previous authoritative state");
+ assert.equal(model.state.records.length,0);
+});
+
+
+test("shared durable lock permits only a genuinely empty first Workspace state",async()=>{
+ const start=app.indexOf("  async function withSupervisorWorkbookLock(");
+ assert.ok(start>0,"actual production lock must be available");
+ const line=app.slice(start,app.indexOf("\n",start));
+ const model={root:{name:"Synthetic"},state:{updatedAt:null,source:null,records:[],closedRecords:[]},recovery:{}};
+ let stateFile=null,executed=0,lockRequests=0;
+ const cx={model,supervisorWorkbookOperationTail:Promise.resolve(),
+   navigator:{locks:{request:async(name,options,work)=>{
+     assert.equal(name,"moondog-supervisor-workbook");
+     assert.equal(options.mode,"exclusive");
+     lockRequests++;return work();
+   }}},
+   STATE_PATH:["data","current-state.json"],RECOVERY_PATH:["data","recovery.json"],
+   readJson:async path=>path===cx.STATE_PATH?stateFile:null};
+ vm.runInNewContext(line+"\nthis.lock=withSupervisorWorkbookLock",cx);
+ const action=async()=>{executed++;return "saved";};
+ await assert.rejects(()=>cx.lock(action),/Workspace changed/,"the ordinary lock must still reject missing state");
+ assert.equal(await cx.lock(action,{allowInitialEmptyState:true}),"saved",
+   "a pristine first Workspace may initialize its durable state while holding the global lock");
+ assert.equal(executed,1);
+ model.state.records=[{id:"imported",ro:"123456"}];
+ await assert.rejects(()=>cx.lock(action,{allowInitialEmptyState:true}),/Workspace changed/,
+   "an absent durable file never authorizes overwriting populated memory");
+ model.state.records=[];model.state.updatedAt="saved-in-memory";
+ await assert.rejects(()=>cx.lock(action,{allowInitialEmptyState:true}),/Workspace changed/,
+   "an unpersisted timestamp must not be mistaken for an empty Workspace");
+ model.state.updatedAt=null;model.state.source={fileName:"verified-import"};
+ await assert.rejects(()=>cx.lock(action,{allowInitialEmptyState:true}),/Workspace changed/,
+   "an imported source prevents empty-state bypass");
+ model.state.source=null;stateFile={updatedAt:"foreign-change",records:[]};
+ await assert.rejects(()=>cx.lock(action,{allowInitialEmptyState:true}),/Workspace changed/,
+   "foreign durable state still fails closed");
+ assert.equal(executed,1,"only the genuinely blank state may execute");
+ assert.equal(lockRequests,6,"all attempts must use the browser-wide exclusive lock");
 });
