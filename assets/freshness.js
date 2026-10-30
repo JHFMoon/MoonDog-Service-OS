@@ -221,6 +221,10 @@
       expectedPeriod = today; current = input.stale !== true;
       reason = current ? "The durable artifact matches current state." : "The durable artifact predates current state changes.";
     } else {
+      // A loaded reference report with no validated period is not historical evidence.
+      // Import time is provenance, never a substitute for report coverage.
+      if (cadence === "period-bound" && !validDateKey(input.periodStart) && !validDateKey(input.periodEnd))
+        return result(input, "invalid", { reason: "The loaded source has no verified reporting period.", requiredAction: `Review ${definition.label} and load a report with validated coverage.` });
       return result(input, "historical-valid", { expectedPeriod: input.periodStart && input.periodEnd ? `${input.periodStart} through ${input.periodEnd}` : input.periodEnd || input.periodStart || "source-defined period", reason: "No current-day cadence is established; this source is valid only for its stated reporting period." });
     }
     if (!current) requiredAction = input.requiredAction || `Load ${definition.label} for ${expectedPeriod}.`;
