@@ -1660,7 +1660,7 @@ try{
               // the connected in-memory synthetic Workspace. One attempt adds
               // the 300 synthetic rows; eight subsequent attempts must be
               // idempotent and leave durable bytes/timestamps unchanged.
-              const importSamples=[];
+              const importSamples=[],previewSamples=[],commitSamples=[],phaseWindows=[];
               await connectedPage.locator('.nav-item[data-view="tools"]').click({timeout:5000});
               await connectedPage.waitForFunction(()=>document.getElementById("view-tools")?.classList.contains("active"),null,{timeout:5000});
               await connectedPage.getByRole("button",{name:"Paste & Learn",exact:true}).click({timeout:5000});
@@ -1682,7 +1682,7 @@ try{
                 if(!supported)throw Error("Chromium long-task measurement is unavailable for import smoke");
                 globalThis.__pasteImportLongTasks=[];
                 const observer=new PerformanceObserver(list=>{
-                  for(const entry of list.getEntries())globalThis.__pasteImportLongTasks.push(entry.duration);
+                  for(const entry of list.getEntries())globalThis.__pasteImportLongTasks.push({startTime:entry.startTime,duration:entry.duration});
                 });
                 globalThis.__pasteImportObserver=observer;
               },pastePayload);
@@ -1701,19 +1701,22 @@ try{
                 await connectedPage.getByRole("button",{name:"Understand Text",exact:true}).click({timeout:5000});
                 await connectedPage.waitForFunction(()=>document.querySelector(".daily-paste-status")?.textContent?.includes("Analysis complete")&&
                   document.querySelector(".daily-paste-preview")?.textContent?.includes("Records detected: 300"),null,{timeout:18000});
+                const previewFinished=await connectedPage.evaluate(()=>performance.now());
+                const commitStarted=await connectedPage.evaluate(()=>performance.now());
                 await connectedPage.getByRole("button",{name:"Import Verified Data",exact:true}).click({timeout:5000});
                 await connectedPage.waitForFunction(()=>Boolean(document.querySelector(".daily-paste-success")?.textContent?.trim()),null,{timeout:20000});
-                const result=await connectedPage.evaluate(started=>{
+                const result=await connectedPage.evaluate(({started,previewFinished,commitStarted})=>{
                   const observer=globalThis.__pasteImportObserver;
                   if(observer){
-                    for(const entry of observer.takeRecords())globalThis.__pasteImportLongTasks.push(entry.duration);
+                    for(const entry of observer.takeRecords())globalThis.__pasteImportLongTasks.push({startTime:entry.startTime,duration:entry.duration});
                     observer.disconnect();
                   }
                   const finished=performance.now();
-                  return {elapsedMs:finished-started,
+                  return {elapsedMs:finished-started,previewMs:previewFinished-started,
+                    commitMs:finished-commitStarted,finishedAt:finished,
                     status:document.querySelector(".daily-paste-success")?.textContent?.trim()||"",
                     updatedAt:globalThis.__moondogDaily?.model?.state?.updatedAt||""};
-                },started);
+                },{started,previewFinished,commitStarted});
                 const persisted=await connectedPage.evaluate(async()=>{
                   const state=await globalThis.__moondogDaily.readJson("data/current-state.json");
                   const imports=state.records.filter(record=>Number(record.ro)>=930000&&Number(record.ro)<930300);
@@ -1729,25 +1732,42 @@ try{
                     status:result.status,expectedUpdatedAt:firstCommitAt,persistedUpdatedAt:persisted.updatedAt
                   }));
                 }
-                importSamples.push(result.elapsedMs);
+                importSamples.push(result.elapsedMs);previewSamples.push(result.previewMs);commitSamples.push(result.commitMs);
+                phaseWindows.push({previewStart:started,previewEnd:previewFinished,commitStart:commitStarted,commitEnd:result.finishedAt});
               }
               await connectedPage.evaluate(()=>{
                 const observer=globalThis.__pasteImportObserver;
-                if(observer){for(const entry of observer.takeRecords())globalThis.__pasteImportLongTasks.push(entry.duration);observer.disconnect();}
+                if(observer){for(const entry of observer.takeRecords())globalThis.__pasteImportLongTasks.push({startTime:entry.startTime,duration:entry.duration});observer.disconnect();}
               });
               const importTiming=summarizeNavigationMs(importSamples);
-              const importLongTasks=await connectedPage.evaluate(()=>{
-                const values=globalThis.__pasteImportLongTasks||[];
-                return {count:values.length,maxMs:values.length?Math.max(...values):0,
-                  totalMs:values.reduce((sum,value)=>sum+value,0)};
-              });
+              const previewTiming=summarizeNavigationMs(previewSamples),commitTiming=summarizeNavigationMs(commitSamples);
+              const importLongTasks=await connectedPage.evaluate(()=>globalThis.__pasteImportLongTasks||[]);
+              const longTasksByPhase={preview:[],commit:[],unattributed:[]};
+              for(const entry of importLongTasks){
+                const window=phaseWindows.find(item=>entry.startTime>=item.previewStart&&entry.startTime<item.commitEnd);
+                if(!window){longTasksByPhase.unattributed.push(entry.duration);continue;}
+                if(entry.startTime<window.previewEnd)longTasksByPhase.preview.push(entry.duration);
+                else if(entry.startTime>=window.commitStart)longTasksByPhase.commit.push(entry.duration);
+                else longTasksByPhase.unattributed.push(entry.duration);
+              }
+              const summarizeTasks=values=>({count:values.length,maxMs:values.length?Math.max(...values):0,
+                totalMs:values.reduce((sum,value)=>sum+value,0)});
               const importReport={schemaVersion:1,dataset:"synthetic-clean-install",
                 operation:"packaged file:// Paste & Learn preview + explicit production import through visible verified-success message",
                 measurementBoundary:"From Understand Text action to verified-success message; independent test-only durable read-back occurs after the timer and long-task window",
                 attempts:importSamples.length,addedRows:300,idempotentReimports:8,
                 totalSyntheticOpenRos:initialPasteCount+300,
                 elapsedMs:{p50:importTiming.p50,p95:importTiming.p95,max:importTiming.max},
-                mainThreadLongTasks:importLongTasks,verifiedDurableReadback:true,
+                phaseElapsedMs:{
+                  preview:{p50:previewTiming.p50,p95:previewTiming.p95,max:previewTiming.max},
+                  commitThroughVerifiedSuccess:{p50:commitTiming.p50,p95:commitTiming.p95,max:commitTiming.max}
+                },
+                mainThreadLongTasks:{
+                  all:summarizeTasks(importLongTasks.map(entry=>entry.duration)),
+                  byPhase:{preview:summarizeTasks(longTasksByPhase.preview),
+                    commitThroughVerifiedSuccess:summarizeTasks(longTasksByPhase.commit),
+                    unattributed:summarizeTasks(longTasksByPhase.unattributed)}
+                },verifiedDurableReadback:true,
                 unchangedTimestampOnReimport:true,noCustomerOrWorkspaceData:true};
               fs.writeFileSync(path.join(out,"report-import-performance.json"),JSON.stringify(importReport,null,2)+"\n");
               console.log("58-05 repeated synthetic report-import performance",JSON.stringify(importReport));
