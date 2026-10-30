@@ -6,12 +6,16 @@ const path=require("node:path");
 const vm=require("node:vm");
 
 // Execute the real shipped Daily Engine, not a reimplementation of its calendar.
+const freshnessSource=fs.readFileSync(path.join(__dirname,"..","assets","freshness.js"),"utf8");
 const source=fs.readFileSync(path.join(__dirname,"..","assets","daily-engine.js"),"utf8");
 function engineWithDays(days) {
   const context=vm.createContext({
     Date, Intl,
     __moondogSettingsModel:{settings:{future:{managerSchedule:{days}}}}
   });
+  // The production engine uses the canonical freshness calendar for business-zone
+  // workday arithmetic. Keep this harness aligned with that shipped dependency.
+  vm.runInContext(freshnessSource,context);
   vm.runInContext(source,context);
   return context.MoonDogDailyEngine;
 }
