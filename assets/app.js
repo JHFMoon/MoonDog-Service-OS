@@ -5018,10 +5018,18 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     return withAssignNextWrite(async()=>{
     // Assemble a detached snapshot: unverified writes must never appear as
     // current live workload or as a confirmed Assign Next date.
+    // Older verified reports are not new Assign Next data. In particular,
+    // never advance updatedAt, create a new day or write an old-source no-op.
+    const prior=model.assignNext.currentOpenRo;
+    if(prior&&text(snapshot.asOf).localeCompare(text(prior.asOf))<0){
+      recordDiagnostic("ASSIGN NEXT STALE SOURCE",
+        "Older Open RO workload was ignored; verified current data was preserved.");
+      return false;
+    }
     const next=structuredClone(model.assignNext);
     next.schemaVersion=3;next.days||={};
-    const day=ensureAssignDay(storeDateKey(),next),prior=next.currentOpenRo;
-    if(!prior||text(snapshot.asOf).localeCompare(text(prior.asOf))>=0)next.currentOpenRo=snapshot;
+    const day=ensureAssignDay(storeDateKey(),next);
+    next.currentOpenRo=snapshot;
     day.updatedAt=now();next.updatedAt=day.updatedAt;
     const dates=Object.keys(next.days).sort();
     dates.slice(0,Math.max(0,dates.length-45)).forEach(date=>delete next.days[date]);
