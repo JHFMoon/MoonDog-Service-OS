@@ -53,10 +53,15 @@ test('automatic classification rejects damaged return and outbound identities be
     const {context}=fixture(b);vm.runInContext(classify,context);await assert.rejects(context.classifyImportFile('renamed.xlsx',{},new ArrayBuffer(1)),/Needs Review/);
   }
 });
-test('unsigned recurring complete RO reports are staged before any state or source access',async()=>{
+test('untrusted Open RO locations and automatic DOCX are rejected before state or source access',async()=>{
   const process=extract('  async function processClassifiedCandidate(', '  async function reconcileLearnedFiles(');
   const ctx=vm.createContext({});vm.runInContext(process,ctx);
-  for(const kind of ['open-ro','open-ro-docx'])for(const location of ['inbox','learn','root'])await assert.rejects(ctx.processClassifiedCandidate({location},kind,new ArrayBuffer(1)),/Needs Review.*unsigned/);
+  for(const location of ['learn','root'])
+    await assert.rejects(ctx.processClassifiedCandidate({location},'open-ro',new ArrayBuffer(1)),/only the dedicated Inbox/);
+  for(const location of ['inbox','learn','root'])
+    await assert.rejects(ctx.processClassifiedCandidate({location},'open-ro-docx',new ArrayBuffer(1)),/DOCX source is not yet authorized/);
+  // The reconciled grouped XLSX Inbox path has its own explicit synthetic
+  // verification in openro-auto-inbox.test.cjs and is no longer blocked here.
 });
 test('Excel sheet names preserve ordinary names and safely distinguish long or invalid labels',()=>{
   const naming=extract('  function workbookSheetName(', '  function handoffAdvisorName(');

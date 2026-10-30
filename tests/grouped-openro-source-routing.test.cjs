@@ -96,19 +96,19 @@ test("count-reconciled grouped report routes to primary Open RO, not supplementa
 test("mismatched advisor population cannot promote to active Open ROs",async()=>{
   const f=harness(report(rows=>{rows[0][0]="SVCADV : 101 (3 items)";}));
   assert.throws(()=>f.full(),/declared 3 rows but contained 2/);
-  assert.equal((await f.classify()),"supplemental-workbook");
+  await assert.rejects(f.classify(),/Needs Review:/);
 });
 
 test("duplicate RO identity cannot promote to active Open ROs",async()=>{
   const f=harness(report(rows=>{rows[8][1]="99001";}));
   assert.throws(()=>f.full(),/duplicate RO/);
-  assert.equal((await f.classify()),"supplemental-workbook");
+  await assert.rejects(f.classify(),/Needs Review:/);
 });
 
 test("invalid grouped Open RO date cannot become active RO evidence",async()=>{
   const f=harness(report(rows=>{rows[3][3]="not-a-date";}));
   assert.throws(()=>f.full(),/date or source status is unreadable/);
-  assert.equal((await f.classify()),"supplemental-workbook");
+  await assert.rejects(f.classify(),/Needs Review:/);
 });
 
 test("Service Daily Log appointment source is not misrouted as an Open RO roster",async()=>{
@@ -120,5 +120,5 @@ test("Service Daily Log appointment source is not misrouted as an Open RO roster
 
 test("parser epoch advanced and app remains syntax valid",()=>{
   new vm.Script(app);
-  assert.match(app,/LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-28-local-layouts-v5"/);
+  assert.match(app,/LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-29-auto-grouped-openro-v6"/);
 });

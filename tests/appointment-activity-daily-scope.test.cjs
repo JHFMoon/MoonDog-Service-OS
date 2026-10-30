@@ -232,7 +232,7 @@ test("ambiguous source population without verified configured store fails closed
 });
 test("source parser epoch is advanced only in verified app code",()=>{
   new vm.Script(app);
-  assert.match(app,/const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-28-local-layouts-v5"/);
+  assert.match(app,/const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-29-auto-grouped-openro-v6"/);
 });
 
 test("identical report reimport ignores derived metadata, filename, and map insertion order",async()=>{
