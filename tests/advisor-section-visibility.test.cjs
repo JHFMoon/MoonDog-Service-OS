@@ -96,7 +96,7 @@ test("UI surfaces have independent non-destructive visibility gates", () => {
   homeUi["view-open-ro"]={classList:{contains:()=>openRoActive}};
   const panels=vm.runInNewContext(homeHelperSource+app.slice(homeStart,homeEnd)+
     "\n({renderAll,renderOverviewPanelsIfNeeded,renderDailyFocusIfNeeded})",{
-    model:homeModel,ui:homeUi,localDateKey:()=>todayKey,
+    model:homeModel,ui:homeUi,localDateKey:()=>todayKey,navigationDataRevision:0,
     isClosedManagement:management=>norm(management?.status)==="closed",
     renderOverviewIntelligence:()=>{panelRenderCalls.overview++;},
     renderDailyFocus:()=>{panelRenderCalls.daily++;},renderFilters:()=>{},
@@ -162,7 +162,8 @@ test("deferred production refresh wrapper follows owner-view navigation and resp
       return "navigated";
     },
     renderOverviewPanelsIfNeeded(value){if(value)calls.overview++;},
-    renderDailyFocusIfNeeded(value){if(value)calls.daily++;}
+    renderDailyFocusIfNeeded(value){if(value)calls.daily++;},
+    renderOpenRoFiltersIfNeeded:()=>{}
   };
   const wrapper=vm.runInNewContext(app.slice(start,end)+"\n({navigateTo})",context);
   assert.equal(wrapper.navigateTo("overview"),"navigated");
