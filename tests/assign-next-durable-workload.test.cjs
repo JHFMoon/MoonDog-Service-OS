@@ -76,11 +76,21 @@ test("denied, failed, or unverifiable write never advances the in-memory workloa
   assert.equal(f.model.assignNext.days["2026-10-30"],undefined);
  }
 });
-test("older source cannot regress authoritative snapshot",async()=>{
+test("older source cannot regress authority, fabricate new freshness or write stale bytes",async()=>{
  const f=harness(),older=report("2026-10-28T11:00:00.000Z","123499");
- assert.equal(await f.ctx.save(older),true);
- assert.equal(f.model.assignNext.currentOpenRo.records[0].ro,"123455");
- assert.equal(f.durable.currentOpenRo.records[0].ro,"123455");
+ const before=copy(f.model.assignNext),disk=f.durable;
+ assert.equal(await f.ctx.save(older),false);
+ assert.deepEqual(f.model.assignNext,before,"stale input cannot advance visible date or workload");
+ assert.deepEqual(f.durable,disk,"stale input cannot fabricate durable recency");
+ assert.equal(f.writes,0);assert.equal(f.renders,0);
+ assert.ok(f.events.includes("ASSIGN NEXT STALE SOURCE"));
+});
+test("same-period correction remains valid and durable",async()=>{
+ const f=harness(),corrected=report("2026-10-29T12:10:00.000Z","123458");
+ assert.equal(await f.ctx.save(corrected),true);
+ assert.equal(f.model.assignNext.currentOpenRo.records[0].ro,"123458");
+ assert.equal(f.durable.currentOpenRo.records[0].ro,"123458");
+ assert.equal(f.writes,1);
 });
 test("invalid source is a no-op and does not write",async()=>{
  const f=harness();assert.equal(await f.ctx.save({sourceType:"appointments"}),false);
