@@ -155,6 +155,15 @@
     if (expectation === "temporarily-unavailable" && !input.exists) return result(input, "temporarily-unavailable", { reason: "This source is configured as temporarily unavailable." });
     if (!input.exists) return result(input, "missing", { reason: "No validated source is loaded.", requiredAction: `Load ${definition.label}.` });
     if (input.invalid) return result(input, "invalid", { reason: input.invalid, requiredAction: input.requiredAction || `Load a corrected ${definition.label} source.` });
+    const hasPeriodValue = value => value !== undefined && value !== null && value !== "";
+    const invalidPeriodBounds = [input.periodStart, input.periodEnd]
+      .some(value => hasPeriodValue(value) && !validDateKey(value));
+    const reversedPeriodBounds = hasPeriodValue(input.periodStart) && hasPeriodValue(input.periodEnd) &&
+      !invalidPeriodBounds && input.periodStart > input.periodEnd;
+    if (invalidPeriodBounds || reversedPeriodBounds) return result(input, "invalid", {
+      reason: "The report coverage period is invalid or internally inconsistent.",
+      requiredAction: input.requiredAction || `Review ${definition.label} report coverage before using its values.`
+    });
     if (input.purpose === "historical") {
       const targetStart = input.targetStart || input.targetEnd, targetEnd = input.targetEnd || input.targetStart;
       const sourceStartMissing = input.periodStart === undefined || input.periodStart === null || input.periodStart === "";

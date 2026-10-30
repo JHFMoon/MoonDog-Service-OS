@@ -65,7 +65,8 @@ test('prior-operating-day freshness requires the report period to include that d
 
     const invalidStart = F.evaluateSource({key, exists:true, today,
       periodStart:'2026-02-30', periodEnd:'2026-10-20'});
-    assert.equal(invalidStart.status, 'stale', key + ' invalid start date');
+    assert.equal(invalidStart.status, 'invalid', key + ' malformed coverage date must be explicitly invalid');
+    assert.equal(invalidStart.safeForCurrent, false);
 
     const unknownStart = F.evaluateSource({key, exists:true, today,
       periodEnd:'2026-10-19'});
@@ -244,7 +245,7 @@ test('historical source coverage rejects malformed explicit boundaries', () => {
     targetStart: '2026-09-01', targetEnd: '2026-09-30',
     periodStart: '2026-02-30', periodEnd: '2026-09-30'
   });
-  assert.equal(invalidSourceStart.status, 'stale');
+  assert.equal(invalidSourceStart.status, 'invalid');
   assert.equal(invalidSourceStart.safeForPurpose, false);
 
   const invalidTargetStart = F.evaluateSource({

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.223 — current Beta
+
+- fix(#59-04): reject invalid saved source periods. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.222 — current Beta
 
 - fix(#59-02): honor business timezone in coaching cooldowns. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
