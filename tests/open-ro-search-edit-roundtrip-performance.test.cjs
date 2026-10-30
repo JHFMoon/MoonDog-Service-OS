@@ -259,7 +259,12 @@ test("active Open RO search keeps one complete snapshot when a background refres
   // frame must use the complete replacement, never a mixed list.
   h.context.renderForTest();
   assert.equal(resultRows(h.table).length, 1);
-  assert.equal(resultRows(h.table)[0].dataset.id, "synthetic-record-0123");
+  const priorRow = resultRows(h.table)[0];
+  assert.equal(priorRow.dataset.id, "synthetic-record-0123");
+  assert.equal(priorRow.children[0].textContent, "SYN-0123",
+    "the selected prior-snapshot match renders its original RO");
+  assert.equal(priorRow.children[5].children[0].children[0].textContent, "Synthetic follow-up",
+    "the selected prior-snapshot match renders its original next action");
   assert.equal(h.model.state.records, refreshedSnapshot);
   assert.equal(priorSnapshot.length, 2100);
 
@@ -277,14 +282,19 @@ test("active Open RO search keeps one complete snapshot when a background refres
     assert.equal(resultRows(h.table).length, 1);
     assert.equal(resultRows(h.table)[0].dataset.id, "synthetic-record-0123");
   }
+  const refreshedRow = resultRows(h.table)[0];
+  assert.equal(refreshedRow.children[0].textContent, "SYN-REFRESHED-0123",
+    "the refreshed snapshot match renders its updated RO");
+  assert.equal(refreshedRow.children[5].children[0].children[0].textContent, "Synthetic refreshed follow-up",
+    "the refreshed snapshot match renders its updated next action");
   assert.equal(JSON.stringify(h.model.state.records), refreshedBytes,
     "rendering the refreshed list must preserve every synthetic source and manual field");
 
-  console.log("#58-06 synthetic refresh-boundary search p50/p95:", JSON.stringify({
+  console.log("#58-06 synthetic post-refresh exact-match search p50/p95:", JSON.stringify({
     dataset: "synthetic-2100-open-ros",
     samples: spans.length,
     p50Ms: +percentile(spans, 0.5).toFixed(3),
     p95Ms: +percentile(spans, 0.95).toFixed(3),
-    timingScope: "production renderTable across an atomic background-refresh snapshot boundary in a synthetic DOM; excludes browser layout and OneDrive I/O"
+    timingScope: "production renderTable post-refresh exact-match steady-state rendering in a synthetic DOM; excludes the refresh boundary, browser layout, and OneDrive I/O"
   }));
 });
