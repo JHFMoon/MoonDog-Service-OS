@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.228 — current Beta
+
+- fix(#59-05): preserve verified RO close through follow-up failure. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.227 — current Beta
 
 - fix(#59-05): preserve verified RO close through follow-up failure. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
