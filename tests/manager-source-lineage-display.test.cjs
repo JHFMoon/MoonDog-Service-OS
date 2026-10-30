@@ -168,3 +168,53 @@ test("production freshness selectors and Home renderer preserve lineage for ever
   assert.match(cards[4], /Historical · valid for stated period · Report period: 2026-10-22 · Last imported: 2026-10-23 02:00 UTC/);
   assert.match(cards[1], /0 configured-store records/, "a valid zero is not mistaken for missing lineage");
 });
+
+
+test("production freshness selectors distinguish missing and stale coverage for reference sources", () => {
+  const freshnessSource = fs.readFileSync(path.join(__dirname, "..", "assets", "freshness.js"), "utf8");
+  const expectationStart = app.indexOf("  function sourceExpectation(key)");
+  const expectationEnd = app.indexOf("  function sourceAvailable(key)", expectationStart);
+  const freshnessStart = app.indexOf("  function sourceFreshness(key, options = {})");
+  const freshnessEnd = app.indexOf("  function metricDependencyEvidence(", freshnessStart);
+  const lastDayStart = app.indexOf("  function lastDayOfMonth(month)");
+  const lastDayEnd = app.indexOf("\n  function ", lastDayStart + 3);
+  assert.ok(expectationStart >= 0 && expectationEnd > expectationStart, "production expectations selector exists");
+  assert.ok(freshnessStart >= 0 && freshnessEnd > freshnessStart, "production freshness selector exists");
+  assert.ok(lastDayStart >= 0 && lastDayEnd > lastDayStart, "production date helper exists");
+
+  const context = vm.createContext({
+    model: { settings: { setup: { sourceExpectations: {} } }, operationalMetrics: {}, state: { records: [] } },
+    localDateKey: () => "2026-10-30",
+    businessTimeZone: () => "UTC",
+    latestOperationalSnapshot: () => null
+  });
+  vm.runInContext(freshnessSource, context);
+  context.freshness = context.MoonDogFreshness;
+  vm.runInContext(app.slice(expectationStart, expectationEnd) +
+    app.slice(freshnessStart, freshnessEnd) +
+    app.slice(lastDayStart, lastDayEnd) +
+    "; this.sourceFreshness = sourceFreshness;", context);
+
+  const referenceSources = ["sor", "appointmentActivity", "efficiency", "mediaAsr", "openRoSummary"];
+  const target = { purpose: "historical", targetStart: "2026-10-01", targetEnd: "2026-10-31" };
+  for (const key of referenceSources) {
+    const missing = context.sourceFreshness(key, { ...target, item: null });
+    assert.equal(missing.status, "missing", key + " must not present absent source coverage as zero");
+    assert.equal(missing.safeForPurpose, false, key + " missing coverage cannot satisfy a historical request");
+    assert.equal(missing.reportPeriodVerified, false);
+
+    const staleItem = {
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-30",
+      importedAt: "2026-10-01T12:00:00.000Z"
+    };
+    const stale = context.sourceFreshness(key, { ...target, item: staleItem });
+    assert.equal(stale.status, "stale", key + " must reject a source that does not cover the requested period");
+    assert.equal(stale.safeForPurpose, false, key + " stale coverage cannot satisfy a historical request");
+    assert.equal(stale.reportPeriodVerified, true, key + " retains the fact that the saved period itself is verified");
+    assert.equal(stale.periodStart, staleItem.periodStart);
+    assert.equal(stale.periodEnd, staleItem.periodEnd);
+    assert.equal(stale.importTimestamp, staleItem.importedAt);
+    assert.match(stale.requiredAction, /requested historical period/);
+  }
+});
