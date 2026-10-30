@@ -190,7 +190,7 @@ test("partial clipboard commit keeps missing active ROs and every manual managem
    parsed:{records:[incoming]},diff:{errors:[],counts:{new:0,updated:1,unchanged:0}}};
  const cx={model,pastePreview:preview,pasteCommitBusy:false,folderWatch:{busy:false},
    dailyImportBusy:false,appointmentImportBusy:false,workspaceConnectionBusy:false,postConnectionScanBusy:false,
-   writeAuthority:{requireWrite:()=>{}},
+   withSupervisorWorkbookLock:async operation=>operation(),writeAuthority:{requireWrite:()=>{}},
    pasteDiff:()=>({errors:[]}),now:()=>new Date().toISOString(),backupState:async()=>backups++,
    writeJson:async()=>writes++,addHistory:async()=>history++,markSupervisorWorkbookStale:async()=>{},
    renderAll:()=>rendered++,defaultManagementFor:()=>({}),operationalStatusFromImport:()=>null,
@@ -210,7 +210,7 @@ test("stale preview and failed durable writes cannot report success",async()=>{
  const cx={model,pastePreview:{nonce:"nonce",root,updatedAt:"old",priorIds:"",parsed:{records:[{ro:"123456",id:"x"}]},diff:{errors:[]}},
  pasteCommitBusy:false,folderWatch:{busy:false},dailyImportBusy:false,appointmentImportBusy:false,
  postConnectionScanBusy:false,workspaceConnectionBusy:false,pasteDiff:()=>({errors:[]}),now:()=>new Date().toISOString(),
- writeAuthority:{requireWrite:()=>{}},backupState:async()=>{},
+ withSupervisorWorkbookLock:async operation=>operation(),writeAuthority:{requireWrite:()=>{}},backupState:async()=>{},
  writeJson:async()=>{throw Error("Read-back failed");},defaultManagementFor:()=>({status:"",nextAction:""}),
  operationalStatusFromImport:()=>null,STATE_PATH:["data","current-state.json"]};
  vm.runInNewContext(source+"\nthis.commit=commitPasteLearning",cx);
@@ -293,10 +293,12 @@ test("clipboard import excludes concurrent operational work and shares the busy 
  const model={root,state:{updatedAt:"before",records:[],closedRecords:[]}};
  const preview={nonce:"approved",root,updatedAt:"before",priorIds:"",
    parsed:{records:[record]},diff:{errors:[],counts:{new:1,updated:0,unchanged:0}}};
- let writes=0,backups=0,releaseWrite;
+ let writes=0,backups=0,releaseWrite,releaseLock,lockEntries=0;
  const blockedWrite=new Promise(resolve=>{releaseWrite=resolve;});
+ const pendingSupervisorLock=new Promise(resolve=>{releaseLock=resolve;});
  const cx={model,pastePreview:preview,pasteCommitBusy:false,folderWatch:{busy:false},
    dailyImportBusy:false,appointmentImportBusy:false,workspaceConnectionBusy:false,postConnectionScanBusy:false,
+   withSupervisorWorkbookLock:async operation=>{lockEntries++;await pendingSupervisorLock;return operation();},
    writeAuthority:{requireWrite:()=>{}},pasteDiff:()=>({errors:[],changes:[{ro:"123456",kind:"new"}]}),
    backupState:async()=>{backups++;},writeJson:async()=>{writes++;await blockedWrite;},
    addHistory:async()=>{},markSupervisorWorkbookStale:async()=>{},renderAll:()=>{},
@@ -316,8 +318,11 @@ test("clipboard import excludes concurrent operational work and shares the busy 
  assert.equal(cx.dailyImportBusy,true,"shared import flag must be held before the first await");
  assert.equal(cx.pasteCommitBusy,true);
  await assert.rejects(()=>cx.commit("approved"),/already being committed/);
+ assert.equal(lockEntries,1,"clipboard import must acquire the same Supervisor Workbook lock as Open RO saves");
+ assert.equal(writes,0,"state writes must wait for the shared browser lock");
+ releaseLock();
  await Promise.resolve();await Promise.resolve();
- assert.equal(cx.dailyImportBusy,true,"in-flight durable write retains shared import lock");
+ assert.equal(cx.dailyImportBusy,true,"shared flag remains held while durable write is pending");
  releaseWrite();
  const outcome=await committing;
  assert.equal(outcome.status,"saved");
@@ -334,7 +339,7 @@ test("clipboard import releases shared lock after durable write/read-back failur
      parsed:{records:[{id:"synthetic-one",ro:"123456"}]},diff:{errors:[]}},
    pasteCommitBusy:false,folderWatch:{busy:false},dailyImportBusy:false,
    appointmentImportBusy:false,workspaceConnectionBusy:false,postConnectionScanBusy:false,
-   writeAuthority:{requireWrite:()=>{}},pasteDiff:()=>({errors:[],changes:[{ro:"123456",kind:"new"}]}),
+   withSupervisorWorkbookLock:async operation=>operation(),writeAuthority:{requireWrite:()=>{}},pasteDiff:()=>({errors:[],changes:[{ro:"123456",kind:"new"}]}),
    backupState:async()=>{},writeJson:async()=>{throw Error("Synthetic durable mismatch");},
    defaultManagementFor:()=>({}),operationalStatusFromImport:()=>null,
    now:()=>"2026-10-30T12:00:00.000Z",STATE_PATH:["data","current-state.json"]};
