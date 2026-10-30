@@ -7255,6 +7255,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   }
   async function commitPasteLearning(nonce){
     if(pasteCommitBusy)throw Error("A paste import is already being committed.");
+    // A clipboard commit is an operational import. It must not race the inbox
+    // watcher, another import, or a Workspace connection/post-connect scan.
+    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy||workspaceConnectionBusy||postConnectionScanBusy)
+      throw Error("Another Workspace operation is in progress. Finish it before importing pasted data.");
     const preview=pastePreview;
     if(!preview||preview.nonce!==nonce)throw Error("That preview expired. Analyze the current text again.");
     if(preview.root!==model.root||preview.updatedAt!==model.state.updatedAt||
@@ -7263,7 +7267,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if(preview.diff.errors.length||!preview.parsed.records.length)
       throw Error("Unresolved issues block operational import.");
     writeAuthority.requireWrite();
-    pasteCommitBusy=true;
+    // Share the same import exclusion used by report watching, picked imports,
+    // reconnection, and manual RO saves. No await separates the guard/set.
+    pasteCommitBusy=true;dailyImportBusy=true;
     try{
       const rechecked=pasteDiff(preview.parsed);
       if(rechecked.errors.length)throw Error("Existing RO identities changed. Review again.");
@@ -7323,7 +7329,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       }
       renderAll();
       return{status:"saved",added:added.length,updated:changed.length,missingClosed:0,warning:followupWarning};
-    }finally{pasteCommitBusy=false;}
+    }finally{pasteCommitBusy=false;dailyImportBusy=false;}
   }
   async function savePasteLearningRule(candidate){
     const engine=globalThis.MoonDogPasteLearn;
