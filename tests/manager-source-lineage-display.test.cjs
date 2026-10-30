@@ -98,3 +98,73 @@ test("source status distinguishes a period conflict from other validation failur
   assert.equal(context.sourceStatusLabel({ status: "invalid", loaded: true,
     reason: "Unsupported synthetic workbook structure" }), "Loaded · validation needed");
 });
+
+test("production freshness selectors and Home renderer preserve lineage for every reference source family", () => {
+  const freshness = fs.readFileSync(path.join(__dirname, "..", "assets", "freshness.js"), "utf8");
+  const expectationStart = app.indexOf("  function sourceExpectation(key)");
+  const expectationEnd = app.indexOf("  function sourceAvailable(key)", expectationStart);
+  const freshnessStart = app.indexOf("  function sourceFreshness(key, options = {})");
+  const freshnessEnd = app.indexOf("  function metricDependencyEvidence(", freshnessStart);
+  const productionLastDay = app.indexOf("  function lastDayOfMonth(");
+  const productionLastDayEnd = app.indexOf("\n  function ", productionLastDay + 3);
+  const lineageEnd = app.indexOf("  function advisorNextWin(", lineageStart);
+  const managerStart = app.indexOf("  function latestFamily(family)");
+  assert.ok(expectationStart >= 0 && expectationEnd > expectationStart, "production source expectation selector exists");
+  assert.ok(freshnessStart >= 0 && freshnessEnd > freshnessStart, "production source freshness selector exists");
+  assert.ok(productionLastDay >= 0 && productionLastDayEnd > productionLastDay, "production month boundary helper exists");
+  assert.ok(lineageEnd > lineageStart && managerStart >= 0 && rendererEnd > managerStart,
+    "production source lineage labels and Home renderer exist");
+
+  const snapshots = {
+    sor: { period: "2026-10", importedAt: "2026-11-01T02:03:00.000Z",
+      metrics: { "CP Labor Gross": { currentActual: 1200 }, "CP ELR": { currentActual: 150 } } },
+    appointmentActivity: { rowCount: 0, periodStart: "2026-10-22", periodEnd: "2026-10-22",
+      importedAt: "2026-10-23T01:00:00.000Z" },
+    efficiency: { periodStart: "2026-10-01", periodEnd: "2026-10-15", importedAt: "2026-10-16T01:00:00.000Z",
+      store: { efficiency: 0, flagHours: 0, clockHours: 0, efficiencyBic: 0 } },
+    mediaAsr: { periodStart: "2026-08-01", periodEnd: "2026-08-31", importedAt: "2026-09-01T04:05:00.000Z",
+      store: { mediaCreatedRate: 0, mediaViewedRate: 0 }, technicians: [] },
+    openRoSummary: { date: "2026-10-22", importedAt: "2026-10-23T02:00:00.000Z",
+      store: { total: { open: 0, revenue: 0 } } }
+  };
+  const grid = element();
+  const model = {
+    settings: { setup: { sourceExpectations: {} }, store: { timeZone: "UTC" } },
+    state: { records: [] },
+    operationalMetrics: Object.fromEntries(Object.entries(snapshots)
+      .map(([key, item]) => [key, { snapshots: { synthetic: item } }]))
+  };
+  const context = vm.createContext({
+    ui: { managerSourceGrid: grid },
+    model,
+    document: { createElement: element },
+    localDateKey: () => "2026-10-30",
+    businessTimeZone: () => "UTC",
+    performanceFormat: value => Number.isFinite(value) ? String(value) : "—"
+  });
+  vm.runInContext(freshness, context);
+  context.freshness = context.MoonDogFreshness;
+  vm.runInContext(app.slice(expectationStart, expectationEnd) +
+    app.slice(freshnessStart, freshnessEnd) +
+    app.slice(productionLastDay, productionLastDayEnd) +
+    app.slice(lineageStart, lineageEnd) +
+    app.slice(managerStart, rendererEnd) +
+    "; this.sourceFreshness = sourceFreshness; this.renderManagerIntelligence = renderManagerIntelligence;",
+    context);
+
+  for (const [family, item] of Object.entries(snapshots)) {
+    const evidence = context.sourceFreshness(family, { item });
+    assert.equal(evidence.status, "historical-valid", family + " must remain valid for its stated period");
+    assert.equal(evidence.reportPeriodVerified, true, family + " must use its saved report period");
+    assert.equal(evidence.importTimestamp, item.importedAt, family + " must expose its durable import timestamp");
+  }
+  context.renderManagerIntelligence();
+  assert.equal(grid.children.length, 5);
+  const cards = grid.children.map(text);
+  assert.match(cards[0], /Historical · valid for stated period · Report period: 2026-10-31 · Last imported: 2026-11-01 02:03 UTC/);
+  assert.match(cards[1], /Historical · valid for stated period · Report period: 2026-10-22 · Last imported: 2026-10-23 01:00 UTC/);
+  assert.match(cards[2], /Historical · valid for stated period · Report period: 2026-10-01 through 2026-10-15 · Last imported: 2026-10-16 01:00 UTC/);
+  assert.match(cards[3], /Historical · valid for stated period · Report period: 2026-08-01 through 2026-08-31 · Last imported: 2026-09-01 04:05 UTC/);
+  assert.match(cards[4], /Historical · valid for stated period · Report period: 2026-10-22 · Last imported: 2026-10-23 02:00 UTC/);
+  assert.match(cards[1], /0 configured-store records/, "a valid zero is not mistaken for missing lineage");
+});
