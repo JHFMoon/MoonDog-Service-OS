@@ -136,7 +136,7 @@ function productionOpenRoFreshness(source) {
     localDateKey: value => value instanceof Date
       ? value.toISOString().slice(0, 10) : "2026-10-26"
   });
-  vm.runInContext(app.slice(start, end) + "\\nthis.sourceFreshness = sourceFreshness;", context);
+  vm.runInContext(app.slice(start, end) + ";this.sourceFreshness = sourceFreshness;", context);
   return context.sourceFreshness("openRo", { today: "2026-10-26" });
 }
 
