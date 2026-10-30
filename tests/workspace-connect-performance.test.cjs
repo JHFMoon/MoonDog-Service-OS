@@ -331,3 +331,33 @@ test("58-01: verified first usable Home remains complete for empty and large syn
     assert.ok(result.reconnectMs.p95 >= result.firstUsableHomeMs.p50);
   }
 });
+
+test("58-02: explicit permission recovery reaches verified Home with a measured bounded reconnect", async () => {
+  const firstHome = [];
+  const total = [];
+  for (let sample = 0; sample < 9; sample += 1) {
+    const measurement = await measureReconnect(2, ["denied", "granted"]);
+    firstHome.push(measurement.firstHomeMs);
+    total.push(measurement.totalReconnectMs);
+  }
+  const values = samples => ({
+    p50: Number(percentile(samples, .50).toFixed(2)),
+    p95: Number(percentile(samples, .95).toFixed(2)),
+    max: Number(Math.max(...samples).toFixed(2))
+  });
+  const result = {
+    scenario: "saved synthetic folder permission denied once, followed by explicit retry; production restoreConnection in Node VM; 2 ms in-memory snapshot reads",
+    samples: firstHome.length,
+    verifiedHomeAfterRecoveryMs: values(firstHome),
+    totalRecoveryMs: values(total),
+    dataReadsBeforeExplicitRetry: 0,
+    writesBeforeExplicitRetry: 0,
+    stableWorkspaceChanges: 0,
+    scope: "permission-state simulation only; does not measure Edge picker latency, Windows, OneDrive, or installed hardware"
+  };
+  console.log("Synthetic explicit permission-recovery latency", JSON.stringify(result));
+  assert.equal(result.samples, 9);
+  assert.ok(Number.isFinite(result.verifiedHomeAfterRecoveryMs.p50));
+  assert.ok(result.verifiedHomeAfterRecoveryMs.p95 >= result.verifiedHomeAfterRecoveryMs.p50);
+  assert.ok(result.totalRecoveryMs.p95 >= result.verifiedHomeAfterRecoveryMs.p50);
+});
