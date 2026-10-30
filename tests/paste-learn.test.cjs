@@ -298,7 +298,7 @@ test("clipboard import excludes concurrent operational work and shares the busy 
  const pendingSupervisorLock=new Promise(resolve=>{releaseLock=resolve;});
  const cx={model,pastePreview:preview,pasteCommitBusy:false,folderWatch:{busy:false},
    dailyImportBusy:false,appointmentImportBusy:false,workspaceConnectionBusy:false,postConnectionScanBusy:false,
-   withSupervisorWorkbookLock:async operation=>{lockEntries++;await pendingSupervisorLock;return operation();},
+   withSupervisorWorkbookLock:async (operation,options)=>{assert.equal(options.allowInitialEmptyState,true);lockEntries++;await pendingSupervisorLock;return operation();},
    writeAuthority:{requireWrite:()=>{}},pasteDiff:()=>({errors:[],changes:[{ro:"123456",kind:"new"}]}),
    backupState:async()=>{backups++;},writeJson:async()=>{writes++;await blockedWrite;},
    addHistory:async()=>{},markSupervisorWorkbookStale:async()=>{},renderAll:()=>{},
@@ -349,4 +349,41 @@ test("clipboard import releases shared lock after durable write/read-back failur
  assert.equal(cx.dailyImportBusy,false);
  assert.equal(model.state.updatedAt,"before","failed durable write must preserve previous authoritative state");
  assert.equal(model.state.records.length,0);
+});
+
+
+test("shared durable lock permits only a genuinely empty first Workspace state",async()=>{
+ const start=app.indexOf("  async function withSupervisorWorkbookLock(");
+ assert.ok(start>0,"actual production lock must be available");
+ const line=app.slice(start,app.indexOf("\n",start));
+ const model={root:{name:"Synthetic"},state:{updatedAt:null,source:null,records:[],closedRecords:[]},recovery:{}};
+ let stateFile=null,executed=0,lockRequests=0;
+ const cx={model,supervisorWorkbookOperationTail:Promise.resolve(),
+   navigator:{locks:{request:async(name,options,work)=>{
+     assert.equal(name,"moondog-supervisor-workbook");
+     assert.equal(options.mode,"exclusive");
+     lockRequests++;return work();
+   }}},
+   STATE_PATH:["data","current-state.json"],RECOVERY_PATH:["data","recovery.json"],
+   readJson:async path=>path===cx.STATE_PATH?stateFile:null};
+ vm.runInNewContext(line+"\nthis.lock=withSupervisorWorkbookLock",cx);
+ const action=async()=>{executed++;return "saved";};
+ await assert.rejects(()=>cx.lock(action),/Workspace changed/,"the ordinary lock must still reject missing state");
+ assert.equal(await cx.lock(action,{allowInitialEmptyState:true}),"saved",
+   "a pristine first Workspace may initialize its durable state while holding the global lock");
+ assert.equal(executed,1);
+ model.state.records=[{id:"imported",ro:"123456"}];
+ await assert.rejects(()=>cx.lock(action,{allowInitialEmptyState:true}),/Workspace changed/,
+   "an absent durable file never authorizes overwriting populated memory");
+ model.state.records=[];model.state.updatedAt="saved-in-memory";
+ await assert.rejects(()=>cx.lock(action,{allowInitialEmptyState:true}),/Workspace changed/,
+   "an unpersisted timestamp must not be mistaken for an empty Workspace");
+ model.state.updatedAt=null;model.state.source={fileName:"verified-import"};
+ await assert.rejects(()=>cx.lock(action,{allowInitialEmptyState:true}),/Workspace changed/,
+   "an imported source prevents empty-state bypass");
+ model.state.source=null;stateFile={updatedAt:"foreign-change",records:[]};
+ await assert.rejects(()=>cx.lock(action,{allowInitialEmptyState:true}),/Workspace changed/,
+   "foreign durable state still fails closed");
+ assert.equal(executed,1,"only the genuinely blank state may execute");
+ assert.equal(lockRequests,6,"all attempts must use the browser-wide exclusive lock");
 });
