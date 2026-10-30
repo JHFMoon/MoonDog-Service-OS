@@ -11,7 +11,8 @@ function section(start,end){
 const source=[
  section("  async function writeJson(","  async function backupState("),
  section("  function ensureAssignDay(","  function activeWorkloadSnapshot("),
- section("  async function saveOpenRoWorkload(","  function assignNextRows(")
+ section("  let assignNextWriteBusy=false;","  function assignNextRows("),
+ section("  async function toggleAssignAvailability(","  function dailyFocusPriority(")
 ].join("\n");
 const copy=x=>JSON.parse(JSON.stringify(x));
 const report=(iso="2026-10-30T12:10:00.000Z",ro="123456")=>({
@@ -28,6 +29,7 @@ function harness(opts={}){
  let durable=copy(state),attempts=0,renders=0,release;
  const pending=opts.holdWrite?new Promise(resolve=>{release=resolve;}):null;
  const ctx={model,TextEncoder,ASSIGN_NEXT_PATH:["data","assign.json"],
+ navigator:{locks:{request:async(name,options,run)=>{assert.equal(name,"moondog-assign-next");assert.equal(options.mode,"exclusive");return run();}}},
  ASSIGN_NEXT_ADVISORS:ADVISORS,structuredClone,storeDateKey:()=>"2026-10-30",
  now:()=>"2026-10-30T12:12:00.000Z",text:x=>String(x??""),
  writeAuthority:{requireWrite:()=>{
@@ -39,13 +41,15 @@ function harness(opts={}){
   if(pending)await pending;
   durable=JSON.parse(new TextDecoder().decode(bytes));
  },
- readJson:async()=>opts.badReadback?{schemaVersion:3,currentOpenRo:null}:copy(durable),
+ readJson:async()=>opts.badReadback&&attempts>0?{schemaVersion:3,currentOpenRo:null}:copy(durable),
  recordDiagnostic:(label)=>events.push(label),
+ addHistory:async()=>{events.push("history");if(opts.failHistory)throw Error("Synthetic history failure");},
+ status:(message,type)=>events.push(type+":"+message),
  renderAssignNext:()=>{renders++;events.push("render");}
  };
- vm.runInNewContext(source+"\nthis.save=saveOpenRoWorkload;this.day=ensureAssignDay",ctx);
+ vm.runInNewContext(source+"\nthis.save=saveOpenRoWorkload;this.day=ensureAssignDay;this.toggle=toggleAssignAvailability",ctx);
  return{ctx,model,events,prior:state,get durable(){return copy(durable);},
- get writes(){return attempts},get renders(){return renders},release:()=>release?.()};
+ get writes(){return attempts},get renders(){return renders},release:()=>release?.(),setDurable:next=>{durable=copy(next)} };
 }
 test("Assign Next snapshot publishes only after verified full-payload readback",async()=>{
  const f=harness({holdWrite:true}),next=report();
@@ -87,4 +91,39 @@ test("day preparation can modify a detached state without mutating the visible s
  f.ctx.day("2026-10-30",draft);
  assert.ok(draft.days["2026-10-30"]);
  assert.equal(f.model.assignNext.days["2026-10-30"],undefined);
+});
+
+test("Assign Next availability cannot overlap a pending source snapshot write",async()=>{
+ const f=harness({holdWrite:true});
+ const pending=f.ctx.save(report());
+ assert.equal(f.ctx.assignNextWriteBusy,true);
+ await assert.rejects(()=>f.ctx.toggle("110"),/already being saved/);
+ assert.equal(f.model.assignNext.days["2026-10-29"].advisors["110"].available,false);
+ f.release();assert.equal(await pending,true);
+ assert.equal(f.ctx.assignNextWriteBusy,false);
+ assert.equal(await f.ctx.toggle("110"),true);
+ assert.equal(f.model.assignNext.days["2026-10-30"].advisors["110"].available,false,
+  "new day defaults to true before manager toggles them off");
+ assert.equal(f.durable.days["2026-10-30"].advisors["110"].available,false);
+});
+test("advisor availability is not displayed as saved before readback",async()=>{
+ const f=harness({failWrite:true}),prior=copy(f.model.assignNext);
+ await assert.rejects(()=>f.ctx.toggle("110"),/Synthetic write failed/);
+ assert.deepEqual(f.model.assignNext,prior);
+ assert.equal(f.renders,0);
+});
+test("stale Assign Next state from another tab blocks overwriting manager availability",async()=>{
+ const f=harness(),foreign=f.durable;foreign.updatedAt="other-tab";foreign.days["2026-10-29"].advisors["110"].available=true;
+ f.setDurable(foreign);
+ await assert.rejects(()=>f.ctx.save(report()),/updated in another tab/);
+ await assert.rejects(()=>f.ctx.toggle("110"),/updated in another tab/);
+ assert.equal(f.writes,0);assert.equal(f.renders,0);
+});
+test("history followup failures preserve verified advisor availability",async()=>{
+ const f=harness({failHistory:true});
+ assert.equal(await f.ctx.toggle("110"),true);
+ assert.equal(f.model.assignNext.days["2026-10-30"].advisors["110"].available,false);
+ assert.equal(f.durable.days["2026-10-30"].advisors["110"].available,false);
+ assert.ok(f.events.includes("ASSIGN NEXT HISTORY FAILED"));
+ assert.ok(f.events.some(x=>x.startsWith("error:")));
 });
