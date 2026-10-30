@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.231 — current Beta
+
+- perf(#58): defer Open RO filter rebuilding while hidden. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.230 — current Beta
 
 - fix(#59-05): commit Assign Next workload only after verified persistence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
