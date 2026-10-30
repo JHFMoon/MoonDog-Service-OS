@@ -22,17 +22,48 @@
     return new Date(at+delay*minutes).toISOString();
   }
   function followUpAt(at,days=3,scheduledDays) {
-    // A corrupt or older saved schedule must never create an unbounded calendar loop.
-    // Only real JavaScript weekdays (Sun=0 through Sat=6) are eligible.
+    // Follow-up dates belong to the configured business calendar, not the
+    // browser host's timezone. A manager using a different timezone must not
+    // see acknowledged coaching resurface hours early or late.
     const configuredDays = Array.isArray(scheduledDays)
       ? scheduledDays.filter(day => Number.isInteger(day) && day >= 0 && day <= 6)
       : [];
     const working = configuredDays.length ? configuredDays : [2,3,4,5,6];
-    const date=new Date(at); if (!Number.isFinite(date.valueOf())) return at;
-    date.setHours(12,0,0,0);
-    let count=0;
-    while(count<days){date.setDate(date.getDate()+1);if(working.includes(date.getDay()))count++;}
-    return date.getTime();
+    const start = businessDate(at);
+    const targetDays = Number.isFinite(Number(days))
+      ? Math.max(0, Math.min(366, Math.floor(Number(days))))
+      : 3;
+    if (!start || !freshness?.addDays || !freshness?.dayOfWeek || !freshness?.timeParts) return at;
+    let date = start;
+    let count = 0;
+    let steps = 0;
+    const maxSteps = Math.max(1, targetDays * 7);
+    while (count < targetDays && steps < maxSteps) {
+      date = freshness.addDays(date, 1);
+      if (!date) return at;
+      if (working.includes(freshness.dayOfWeek(date))) count++;
+      steps++;
+    }
+    if (count < targetDays) return at;
+    const zone = businessTimeZone();
+    const [year, month, day] = date.split("-").map(Number);
+    const desired = Date.UTC(year, month - 1, day, 12, 0, 0);
+    let instant = desired;
+    // Resolve business-zone noon to an instant. Noon avoids DST gaps/folds;
+    // iterate the zone offset so the result remains correct across DST changes.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const parts = freshness.timeParts(new Date(instant), zone);
+      if (!parts?.date) return at;
+      const observed = Date.parse(parts.date + "T" +
+        String(parts.hour).padStart(2, "0") + ":" +
+        String(parts.minute).padStart(2, "0") + ":" +
+        String(parts.second).padStart(2, "0") + "Z");
+      if (!Number.isFinite(observed)) return at;
+      const correction = desired - observed;
+      instant += correction;
+      if (correction === 0) break;
+    }
+    return Number.isFinite(instant) ? instant : at;
   }
   function eligible(task,events,at,latestActionByTask=null) {
     // The Home selector supplies the last actionable event by ID once per ranking.
