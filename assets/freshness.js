@@ -394,7 +394,7 @@
     const candidates=(Array.isArray(history)?history:Object.values(history||{}))
       .filter(item=>item&&typeof item==="object"&&dateValid(item.periodEnd)&&
         item.periodEnd.startsWith(`${year}-${month}-`)&&finite(item.saprDaysCompleted)&&
-        finite(item.saprTotalDays)&&item.saprDaysCompleted<=item.saprTotalDays);
+        finite(item.saprTotalDays)&&item.saprTotalDays>0&&item.saprDaysCompleted<=item.saprTotalDays);
     const sorted=candidates.map(snapshot=>({snapshot,gap:Math.abs(snapshot.saprDaysCompleted-active.daysWorked)}))
       .sort((a,b)=>a.gap-b.gap||String(b.snapshot.periodEnd).localeCompare(String(a.snapshot.periodEnd)));
     if(sorted.length&&sorted[0].gap<=1) return {
