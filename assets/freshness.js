@@ -175,7 +175,7 @@
     }
     let current = false, expectedPeriod = "", reason = "", requiredAction = "";
     if (cadence === "same-business-day") {
-      const sourceDate = input.sourceDate || dateKey(input.sourceTimestamp, input.timeZone || DEFAULT_TIME_ZONE);
+      const sourceDate = input.sourceDate || (input.sourceTimestamp ? dateKey(input.sourceTimestamp, input.timeZone || DEFAULT_TIME_ZONE) : "");
       expectedPeriod = today; current = sourceDate === today;
       reason = current ? "Imported during the current store business date." : `Last source date is ${sourceDate || "unknown"}; expected ${today}.`;
     } else if (cadence === "cumulative-observation") {
