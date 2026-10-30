@@ -220,8 +220,10 @@ test("manual Open RO edit history is durably persisted after read-back with sour
   const historyReadback = productionEvents.findLastIndex(event => event === "read:"+historyPaths[0]);
   assert.ok(stateWrite >= 0 && stateReadback > stateWrite,
     "the production save writes and reads back the current-state file");
-  assert.ok(historyWrite > stateReadback && historyReadback > historyWrite,
-    "production history is written and read back only after verified state persistence");
+  assert.ok(historyWrite > stateReadback,
+    "production history write follows verified state persistence; events: " + JSON.stringify(productionEvents));
+  assert.ok(historyReadback > historyWrite,
+    "production history is read back after its write; events: " + JSON.stringify(productionEvents));
 });
 
 test("transient Open RO write failure preserves the draft for a verified retry", async () => {
