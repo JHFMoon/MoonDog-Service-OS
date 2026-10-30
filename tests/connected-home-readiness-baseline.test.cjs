@@ -135,8 +135,8 @@ async function syntheticSnapshotHydration(recordCount,options={}){
   const elapsedMs=performance.now()-started;
   for(const name of names.filter(name=>name!=="settings"))assert.deepEqual(model[name],payload[name],
     "Commit the verified model group once all nine reads succeed: "+name);
-  assert.deepEqual(context.hydratedSettings,payload.settings,
-    "The settings snapshot must be available from the same atomic hydration batch.");
+  assert.strictEqual(context.hydratedSettings,pendingSettings,
+    "Hydration must reuse the already validated settings snapshot instead of rereading it.");
   assert.equal(model.state.records.length,recordCount);
   return {failed:false,elapsedMs,maximumInflight,reads};
 }
