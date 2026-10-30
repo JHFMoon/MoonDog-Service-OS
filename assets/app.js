@@ -5460,10 +5460,95 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
   }
   async function closeRo(id=model.selectedId){
-    if(model.openRoSaveInFlight){status("An Open RO save is in progress. Wait for it to finish before closing a record.","error");return false;}
-    const record=model.state.records.find((item)=>item.id===id);if(!record)return false;const priorState=structuredClone(model.state),closedAt=now(),archive={...record,closedAt,closedReason:"manual-manager-close"};
-    model.state.records=model.state.records.filter((item)=>item.id!==id);model.state.closedRecords=pruneClosedRecords([...(model.state.closedRecords||[]).filter((item)=>item.id!==id),archive]);model.state.updatedAt=closedAt;
-    try{await saveState("Manually closed RO "+record.ro,priorState);await addHistory("ro-closed","Marked RO "+record.ro+" closed",{ro:record.ro,method:"manual",retentionDays:CLOSED_RO_RETENTION_DAYS});if(model.state.source)await saveOpenRoWorkload(openRoWorkloadSnapshot(model.state.records,model.state.source));await ensureDailyFocus();await markSupervisorWorkbookStale("An RO was manually marked closed");renderAll();editDraftDirty=false;if(ui.editDialog.open)ui.editDialog.close();status("RO "+record.ro+" was removed from active workflow. Its saved information is retained for "+CLOSED_RO_RETENTION_DAYS+" days and will be restored if a later Open RO import shows it open again.","success");return true;}catch(error){model.state=priorState;renderAll();throw error;}
+    // A manual close is a durable Open RO edit, not a fire-and-forget UI change.
+    if(model.openRoSaveInFlight||dailyImportBusy||appointmentImportBusy||folderWatch.busy||
+        workspaceConnectionBusy||postConnectionScanBusy){
+      status("Another Workspace save, import or connection is active. Retry closing this RO after it finishes.","error");
+      return false;
+    }
+    const requested=model.state.records.find(item=>item.id===id);
+    if(!requested)return false;
+    const root=model.root,identity=JSON.stringify(requested),ro=requested.ro;
+    const warnings=[];
+    let committed=false;
+    model.openRoSaveInFlight=true;dailyImportBusy=true;
+    const followup=async(label,operation,warning)=>{
+      try{await operation();}
+      catch(error){
+        recordDiagnostic(label,"RO closure was saved, but a follow-up failed ("+(error?.name||"Error")+")");
+        if(transientWorkspaceState(error)&&connectedNativeRoot)scheduleAuthorityRevalidation(connectedNativeRoot);
+        warnings.push(warning);
+      }
+    };
+    try{
+      // Cross-tab lock rechecks durable source state before any close write.
+      await withSupervisorWorkbookLock(async()=>{
+        if(root!==model.root||folderWatch.busy||appointmentImportBusy||
+            workspaceConnectionBusy||postConnectionScanBusy)
+          throw Error("The Workspace changed while this RO was waiting to close.");
+        writeAuthority.requireWrite();
+        const record=model.state.records.find(item=>item.id===id);
+        if(!record||JSON.stringify(record)!==identity)
+          throw Error("This RO changed while waiting to close. Refresh it before retrying.");
+        const previous=structuredClone(model.state),closedAt=now();
+        const archive={...record,closedAt,closedReason:"manual-manager-close"};
+        const next={...previous,appVersion:VERSION,updatedAt:closedAt,
+          records:previous.records.filter(item=>item.id!==id),
+          closedRecords:pruneClosedRecords([...(previous.closedRecords||[]).filter(item=>item.id!==id),archive])};
+        // Publish the new in-memory snapshot only AFTER durable write/readback.
+        // If write verification is uncertain, leave the old UI draft and require refresh.
+        await backupState("Manually closed RO "+ro,previous);
+        await writeJson(STATE_PATH,next);
+        model.state=next;committed=true;
+        await followup("RO CLOSE HISTORY",()=>addHistory("ro-closed","Marked RO "+ro+" closed",
+          {ro,method:"manual",retentionDays:CLOSED_RO_RETENTION_DAYS}),
+          "Closure history could not be verified.");
+        if(model.state.source)await followup("RO CLOSE WORKLOAD",
+          ()=>saveOpenRoWorkload(openRoWorkloadSnapshot(model.state.records,model.state.source)),
+          "Assign Next refresh could not be verified.");
+        await followup("RO CLOSE DAILY FOCUS",async()=>{
+          try{await ensureDailyFocus();}
+          catch(error){
+            // Daily Focus may have written a new snapshot before a history error.
+            // Reconcile verified durable state rather than undoing the RO closure.
+            try{
+              const durable=await readJson(STATE_PATH,null);
+              if(durable&&!(durable.records||[]).some(item=>item.id===id)&&
+                  (durable.closedRecords||[]).some(item=>item.id===id))model.state=durable;
+            }catch(_){/* The caller receives the original diagnostic/warning. */}
+            throw error;
+          }
+        },"Daily Focus refresh could not be verified.");
+        await followup("RO CLOSE WORKBOOK",()=>markSupervisorWorkbookStale(
+          "An RO was manually marked closed"),
+          "Supervisor Workbook invalidation could not be verified. Do not import the previous workbook; regenerate it after restoring access.");
+      });
+    }catch(error){
+      if(!committed){
+        recordDiagnostic("RO CLOSE UNVERIFIED","Manual RO close was not read-back verified ("+(error?.name||"Error")+")");
+        status("RO close could not be verified. Your existing view was retained; reconnect or refresh the Workspace before retrying.","error");
+        return false;
+      }
+      // The verified close cannot be rolled back because a later step failed.
+      recordDiagnostic("RO CLOSE FOLLOWUP","RO closed durably, but completion was interrupted ("+(error?.name||"Error")+")");
+      warnings.push("Some closure follow-ups were interrupted. Review diagnostics and refresh the Workspace.");
+    }finally{
+      model.openRoSaveInFlight=false;dailyImportBusy=false;
+    }
+    if(!committed)return false;
+    try{renderAll();}catch(error){
+      recordDiagnostic("RO CLOSE RENDER","Durable RO close completed; display refresh failed ("+(error?.name||"Error")+")");
+      warnings.push("Refresh the dashboard to update the visible RO list.");
+    }
+    if(model.selectedId===id){
+      editDraftDirty=false;
+      if(ui.editDialog?.open)ui.editDialog.close();
+    }
+    status("RO "+ro+" was closed and read-back verified. Retained for "+CLOSED_RO_RETENTION_DAYS+
+      " days; a verified future Open RO source may reopen it."+
+      (warnings.length?" "+warnings.join(" "):" Generate a new Supervisor Workbook before importing advisor changes."),
+      warnings.length?"error":"success");
+    return true;
   }
   async function showHistory() { const events = []; try { const folder = await directory(["data", "history"], false); for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && /\.json$/i.test(name)) try { events.push(JSON.parse(await (await handle.getFile()).text())); } catch (_) {} } catch (error) { if (error.name !== "NotFoundError") throw error; } events.sort((a, b) => String(b.at).localeCompare(String(a.at))); ui.historyList.replaceChildren(); if (!events.length) { ui.historyList.innerHTML = '<p class="empty">No activity recorded.</p>'; return; } events.slice(0, 250).forEach((event) => { const row = document.createElement("div"); row.className = "history-item"; const time = document.createElement("time"); time.textContent = new Date(event.at).toLocaleString(); const type = document.createElement("b"); type.textContent = event.type; const summary = document.createElement("span"); summary.textContent = event.summary; row.append(time, type, summary); ui.historyList.append(row); }); }
   function ensureCustomerVoiceSourceUi(){if(ui.meetingVoiceMode)return;const card=ui.meetingVoiceSurvey.closest(".customer-voice-manager"),surveyLabel=ui.meetingVoiceSurvey.closest("label"),excerptLabel=ui.meetingVoiceExcerpt.closest("label"),modeWrap=document.createElement("div"),sourceLabel=document.createElement("label"),pasteLabel=document.createElement("label"),teamLabel=document.createElement("label"),full=document.createElement("button");card.querySelector("h2").textContent="Advisor Meeting message";card.querySelector(".section-head p:not(.eyebrow)").textContent="Choose automatic Customer Voice, a verified manual customer quote, or a manager-authored Team Message.";modeWrap.className="voice-mode-grid";modeWrap.innerHTML='<label>TV content mode<select id="meetingVoiceMode"><option value="automatic">Automatic Customer Voice</option><option value="customer-quote">Manual Customer Quote</option><option value="team-message">Team Message</option></select></label>';sourceLabel.id="meetingVoiceSourceGroup";sourceLabel.innerHTML='<span>Customer Quote source</span><select id="meetingVoiceSourceMethod"><option value="saved">Use saved response</option><option value="pasted">Paste customer response</option></select>';modeWrap.append(sourceLabel);surveyLabel.id="meetingVoiceSavedGroup";surveyLabel.firstChild.textContent="Saved customer response";ui.meetingVoiceSurvey.options[0].textContent="Choose saved response";pasteLabel.id="meetingVoicePasteGroup";pasteLabel.innerHTML='<span>Pasted customer response</span><textarea id="meetingVoicePastedSource" rows="5" placeholder="Paste the customer’s actual response exactly as received."></textarea><small>This is the source text used to validate the TV excerpt. It does not create a CSI record.</small>';excerptLabel.id="meetingVoiceExcerptGroup";excerptLabel.firstChild.textContent="TV excerpt / display text";excerptLabel.querySelector("small").textContent="Use the full response or an exact excerpt contained in the selected source text.";full.id="meetingVoiceUseFull";full.type="button";full.className="voice-use-full";full.textContent="Use full response";teamLabel.id="meetingTeamMessageGroup";teamLabel.innerHTML='<span>Team Message</span><textarea id="meetingTeamMessage" rows="4" placeholder="Enter the message to show on the Advisor Meeting TV."></textarea><small>Manager-authored text is shown as TEAM MESSAGE and is not validated as a customer quote.</small>';surveyLabel.before(modeWrap);surveyLabel.after(pasteLabel);excerptLabel.after(full,teamLabel);ui.pinMeetingVoice.textContent="Apply to meeting";for(const id of ["meetingVoiceMode","meetingVoiceSourceMethod","meetingVoiceSourceGroup","meetingVoiceSavedGroup","meetingVoicePasteGroup","meetingVoicePastedSource","meetingVoiceExcerptGroup","meetingVoiceUseFull","meetingTeamMessageGroup","meetingTeamMessage"])ui[id]=document.getElementById(id);}
