@@ -1282,11 +1282,6 @@
     if (dailyPickedSources.has(name)) return;
     try {
       const expectedXlsx = xlsxSourceDeleteGuards.get(name);
-      if (expectedXlsx) {
-        const current = await (await sourceFileHandle(name)).getFile();
-        if (!sameByteContent(await current.arrayBuffer(), expectedXlsx))
-          throw new Error(`${name} changed while it was being checked and was left in place.`);
-      }
       const location = sourceLocations.get(name);
       const autoCleanup = typeof autoSourceDeleteContext !== "undefined" ? autoSourceDeleteContext.get(name) : null;
       if (autoCleanup && location === "inbox") {
@@ -1301,6 +1296,16 @@
         };
         model.autoImport.updatedAt=now();
         await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+      }
+      // Keep the source guard after the durable intent. If the source
+      // changed while an import finished, the original digest/path hold must
+      // survive reconnects instead of silently authorizing its replacement.
+      if (expectedXlsx) {
+        const current = await (await sourceFileHandle(name)).getFile();
+        if (!sameByteContent(await current.arrayBuffer(), expectedXlsx))
+          throw new Error(`${name} changed while it was being checked and was left in place.`);
+      }
+      if (autoCleanup && location === "inbox") {
         // OneDrive or another writer may replace the report while the ledger
         // save awaits filesystem transactions. Verify the bytes AGAIN after
         // that save, immediately before attempting the journaled removal.
@@ -3726,6 +3731,14 @@
             await saveOpenRoWorkload(openRoWorkloadSnapshot(
               safeWorkload,savedSource,savedSource.sourceModifiedAt));
             await ensureDailyFocus();
+            // Manager edits/closures are allowed while folder scans await I/O.
+            // Never delete the source after a stale projection overwrites an
+            // intervening manager change; retry against the latest roster.
+            const latestRoster = await readJson(STATE_PATH,null);
+            if (!latestRoster || latestRoster.source?.sha256!==digest ||
+                JSON.stringify(latestRoster.records)!==JSON.stringify(activeRecords) ||
+                JSON.stringify(latestRoster.closedRecords||[])!==JSON.stringify(durable.closedRecords||[]))
+              throw new DOMException("Open RO roster changed during dependent-report recovery; original retained for retry.","InvalidStateError");
             sourceLocations.set(candidate.name,candidate.location);
             model.autoImport.seen[candidate.signature]={
               fileName:candidate.name,relativePath:candidate.relativePath,kind,
@@ -3756,16 +3769,9 @@
         }
         if(outcome?.retired)retired.push(candidate.name);else imported.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, relativePath:candidate.relativePath, importedAt: now(), kind, retired:Boolean(outcome?.retired) }; ledgerChanged = true;recordDiagnostic("REPORT INBOX",outcome?.retired?`${kind} recognized and retired outside Service OS`:`${kind} recognized and imported or safely deduplicated`);
       } catch (error) {
-        // If the main Open RO snapshot was durably committed but a dependent
-        // history/workload/focus write failed, this is a recovery-pending
-        // import, NOT a rejected workbook. Keep the original in Inbox; the
-        // exact-SHA path above repairs all projections on the next scan.
-        if (candidate.location==="inbox" && kind==="open-ro" && bytes &&
-            model.state.source?.sha256===await sha256(new Uint8Array(bytes))) {
-          retained.push(candidate.name);
-          recordDiagnostic("OPEN RO INTAKE","Roster saved; dependent projection or cleanup retry is pending. Original report retained.");
-          continue;
-        }
+        // Source deletion is a separate durable transaction. Preserve its
+        // original bytes/path hold BEFORE any generic committed-roster retry,
+        // including a source changed during cleanup.
         if (candidate.location==="inbox" && model.autoImport.seen[candidate.signature]?.cleanupPending) {
           retained.push(candidate.name);cleanupPending.push(candidate.name);
           recordDiagnostic("REPORT INBOX CLEANUP", "Previously imported report retained; verified cleanup retry deferred");
@@ -3777,6 +3783,14 @@
             cleanupReason:error.message||String(error)};
           ledgerChanged=true;retained.push(candidate.name);cleanupPending.push(candidate.name);
           recordDiagnostic("REPORT INBOX CLEANUP", "Verified ingestion completed; source removal failed and will be retried");
+          continue;
+        }
+        // If the state committed but a dependent projection failed, retry
+        // projection recovery without ever moving the saved source to learn.
+        if (candidate.location==="inbox" && kind==="open-ro" && bytes &&
+            model.state.source?.sha256===await sha256(new Uint8Array(bytes))) {
+          retained.push(candidate.name);
+          recordDiagnostic("OPEN RO INTAKE","Roster saved; dependent projection or cleanup retry is pending. Original report retained.");
           continue;
         }
         console.warn(`Automatic import retained ${candidate.name}:`, error);if(/\.pdf$/i.test(candidate.name)){pdfFailureMessage=`PDF intake failed: ${error.message||error}. Source kept for retry/review.`;recordDiagnostic("PDF INTAKE",error.name+": "+(error.message||error));}
