@@ -132,3 +132,12 @@ test("read-back uncertainty is explicitly unverified, never claimed rolled back"
  assert.equal(await f.cx.closeRo("synthetic-ro-1"),false,"lock must reject stale local state on retry");
  assert.equal(f.writes,1,"retry cannot silently overwrite changed durable state");
 });
+
+test("Daily Focus advances only after a verified successful close",()=>{
+ const daily=fs.readFileSync(path.join(__dirname,"..","assets","daily-ops.js"),"utf8");
+ const closeStart=daily.indexOf("const close=button('This RO is closed'");
+ assert.ok(closeStart>=0,"production Daily Focus close control exists");
+ const closeControl=daily.slice(closeStart,daily.indexOf("const save=document.createElement",closeStart));
+ assert.match(closeControl,/const saved=await api\.closeRo\(r\.id\);if\(saved===true\)await selectNext\(\)/);
+ assert.doesNotMatch(closeControl,/await api\.closeRo\(r\.id\);await selectNext\(\)/);
+});
