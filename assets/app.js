@@ -1420,8 +1420,9 @@
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot; model.root = wrapOperationalRoot(await operationalRoot(handle)); model.applicationRoot = handle;
     // Synchronously revoke old Daily task/search actions before any B async load.
     document.dispatchEvent(new Event("moondog-workspace-changing"));
+    let pendingSettings;
     try {
-      const pendingSettings = await readJson(SETTINGS_PATH, {});
+      pendingSettings = await readJson(SETTINGS_PATH, {});
       const pendingAdapter = pendingSettings.sourceAdapters || await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
       if (!pendingAdapter && Object.keys(pendingSettings.advisors || {}).length && !pendingSettings.setup?.newStorePrepared) throw new Error("The protected local source adapter is missing. Restore local configuration before reconnecting.");
       if (pendingAdapter && pendingAdapter.schemaVersion !== 1) throw new Error("The protected local source adapter is invalid.");
@@ -1436,12 +1437,7 @@
       [MEETING_CYCLE_PATH, model.meetingCycle],
       [ASSIGN_NEXT_PATH, model.assignNext],
       [AUTO_IMPORT_PATH, model.autoImport],
-      [RECOVERY_PATH, model.recovery],
-      // Load the settings snapshot in the same bounded batch as the other
-      // authoritative state. Its source-adapter validation still runs before
-      // connection commit, but it no longer adds a serial I/O round after
-      // all other snapshots have finished.
-      [SETTINGS_PATH, {}]
+      [RECOVERY_PATH, model.recovery]
     ];
     const connectionReadResults = new Array(connectionReadSpecs.length);
     let nextConnectionRead = 0;
@@ -1456,7 +1452,7 @@
     // Do not publish partial model state: commit the snapshots only when all reads succeed.
     await Promise.all(Array.from({ length: Math.min(3, connectionReadSpecs.length) }, () => readConnectionSnapshots()));
     [model.state, model.appointments, model.performance, model.operationalMetrics, model.meetingCycle, model.assignNext, model.autoImport, model.recovery] = connectionReadResults;
-    const rawSettings = connectionReadResults[8];
+    const rawSettings = pendingSettings;
     model.state.closedRecords=pruneClosedRecords(model.state.closedRecords||[]);
     const priorPerformance=JSON.parse(JSON.stringify(model.performance));
     if(normalizeControllableVinCounts(model.performance)){

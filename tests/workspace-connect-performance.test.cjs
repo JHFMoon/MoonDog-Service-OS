@@ -16,6 +16,7 @@ function extract(source, first, last) {
   return source.slice(start, end);
 }
 const connectionCore = extract(app, "  let workspaceConnectionBusy=false;", "  async function connect() {");
+const transientWorkspaceState = extract(app, "  function transientWorkspaceState(error){", "  function transientIntakeError(");
 const restoreConnection = extract(app, "  async function restoreConnection() {", "  function headerMap(");
 
 function clone(value) {
@@ -193,7 +194,7 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   });
 
   vm.runInContext(
-    connectionCore + "\n" + restoreConnection + "\nthis.restore=restoreConnection;",
+    connectionCore + "\n" + transientWorkspaceState + "\n" + restoreConnection + "\nthis.restore=restoreConnection;",
     context
   );
   const started = performance.now();
@@ -201,8 +202,8 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
     const reconnecting = context.restore();
     await firstReadStarted;
     await new Promise(resolve => setTimeout(resolve, readDelayMs * 6 + 2));
-    assert.equal(readCalls.get(paths.settings), 2,
-      "the protected settings snapshot must be read during the bounded hydration batch, not in a serial round after it");
+    assert.equal(readCalls.get(paths.settings), 1,
+      "the adapter-preflight settings snapshot must be reused during hydration, not read twice");
     assert.equal(model.state.records.length, 0,
       "completed parallel reads must not expose partial snapshots while the state read is pending");
     assert.equal(model.root, handle, "The candidate root may be staged while its reads are pending");
