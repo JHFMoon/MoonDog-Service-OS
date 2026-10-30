@@ -111,7 +111,7 @@ test("Open RO coverage panel does not ask for a date range or historical trend",
 test("production source and safety checks remain intact",()=>{
   new vm.Script(app);
   assert.match(app,/function sourceFreshness\(key, options = \{\}\)/);
-  assert.match(app,/sourceTimestamp: item\?\.importedAt, sourceDate: item\?\.importedAt \? localDateKey/);
+  assert.match(app,/sourceTimestamp: item\?\.importedAt, sourceDate: item\?\.reportDate \|\| \(item\?\.importedAt \? localDateKey/);
   assert.match(app,/verifyCompleteRoImport\(name, file, bytes, incoming, verifiedAutomaticInbox\)/);
   assert.match(app,/await backupState\("before-import"\)/);
   assert.match(app,/mergeCompleteOpenRoRecords\(incoming,importedAt,"open-ro-xlsx"\)/);

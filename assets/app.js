@@ -4293,7 +4293,7 @@
         reportPeriodVerified: Boolean(item && evidence.loaded && reportPeriodVerified)
       });
     };
-    if (key === "openRo") { const item = options.item || model.state.source; return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, sourceDate: item?.importedAt ? localDateKey(new Date(item.importedAt)) : "", periodStart: item?.reportDate || "", periodEnd: item?.reportDate || "" }, item, Boolean(item?.reportDate)); }
+    if (key === "openRo") { const item = options.item || model.state.source; return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, sourceDate: item?.reportDate || (item?.importedAt ? localDateKey(new Date(item.importedAt)) : ""), periodStart: item?.reportDate || "", periodEnd: item?.reportDate || "" }, item, Boolean(item?.reportDate)); }
     if (key === "sapr") { const item = options.item || currentSaprSnapshot(true); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, Boolean(item?.periodStart && item?.periodEnd)); }
     if (key === "csi") {
       const branch = model.operationalMetrics?.csi || {}, imports = branch.imports || [],
