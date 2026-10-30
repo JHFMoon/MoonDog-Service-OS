@@ -81,7 +81,7 @@ test("a malformed explicit historical source start cannot finalize the month",()
   const result=ctx.buildSummary(month,performance,metrics);
   assert.equal(result.status,"pending-finalization");
   assert.equal(result.readiness.sources.menu.state,"pending");
-  assert.equal(result.readiness.sources.menu.status,"stale");
+  assert.equal(result.readiness.sources.menu.status,"invalid");
   assert.ok(Array.from(result.needed).includes("menu"));
   assert.equal("store" in result,false,"invalid source-period lineage cannot create final totals");
 });
