@@ -108,7 +108,7 @@ test("production freshness selectors and Home renderer preserve lineage for ever
   const productionLastDay = app.indexOf("  function lastDayOfMonth(");
   const productionLastDayEnd = app.indexOf("\n  function ", productionLastDay + 3);
   const lineageEnd = app.indexOf("  function advisorNextWin(", lineageStart);
-  const managerStart = app.indexOf("  function latestFamily(family)", rendererStart);
+  const managerStart = app.indexOf("  function latestFamily(family)");
   assert.ok(expectationStart >= 0 && expectationEnd > expectationStart, "production source expectation selector exists");
   assert.ok(freshnessStart >= 0 && freshnessEnd > freshnessStart, "production source freshness selector exists");
   assert.ok(productionLastDay >= 0 && productionLastDayEnd > productionLastDay, "production month boundary helper exists");
