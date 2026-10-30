@@ -296,3 +296,35 @@ test('Open RO with verified business-date source evidence retains normal freshne
     sourceDate: F.addDays(businessToday, -1)
   }).status, 'stale');
 });
+
+test('reversed requested historical periods never receive valid source confidence', () => {
+  const source = {
+    key: 'sor', exists: true, purpose: 'historical', today: '2026-10-30',
+    periodStart: '2026-10-01', periodEnd: '2026-10-31'
+  };
+  const reversed = F.evaluateSource({
+    ...source, targetStart: '2026-10-20', targetEnd: '2026-10-05'
+  });
+  assert.equal(reversed.status, 'stale',
+    'an impossible requested interval cannot pass source coverage');
+  assert.equal(reversed.safeForPurpose, false);
+  assert.equal(F.evaluateMetric([reversed]).verified, false);
+
+  const ordered = F.evaluateSource({
+    ...source, targetStart: '2026-10-05', targetEnd: '2026-10-20'
+  });
+  assert.equal(ordered.status, 'historical-valid',
+    'same source must continue to cover a properly ordered interval');
+  assert.equal(ordered.safeForPurpose, true);
+
+  const singleDay = F.evaluateSource({
+    ...source, targetStart: '2026-10-20', targetEnd: '2026-10-20'
+  });
+  assert.equal(singleDay.status, 'historical-valid',
+    'valid single-day history queries must remain supported');
+
+  const malformed = F.evaluateSource({
+    ...source, targetStart: '2026-02-30', targetEnd: '2026-10-20'
+  });
+  assert.equal(malformed.safeForPurpose, false);
+});

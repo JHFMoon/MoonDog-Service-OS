@@ -169,6 +169,7 @@
       const sourceStartMissing = input.periodStart === undefined || input.periodStart === null || input.periodStart === "";
       const sourceStartValid = sourceStartMissing || validDateKey(input.periodStart);
       const periodValid = validDateKey(targetStart) && validDateKey(targetEnd) &&
+        targetStart <= targetEnd &&
         validDateKey(input.periodEnd) && input.periodEnd >= targetEnd &&
         sourceStartValid && (sourceStartMissing || input.periodStart <= targetStart);
       return periodValid ? result(input, "historical-valid", { expectedPeriod: [targetStart, targetEnd].filter(Boolean).join(" through "), reason: "The source covers its requested historical period." }) : result(input, "stale", { expectedPeriod: [targetStart, targetEnd].filter(Boolean).join(" through "), reason: "The loaded source does not cover the requested historical period.", requiredAction: `Load ${definition.label} covering the requested historical period.` });
