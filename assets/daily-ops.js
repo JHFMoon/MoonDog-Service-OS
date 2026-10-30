@@ -897,7 +897,7 @@
     }
     const note=document.createElement('details');note.className='daily-note';note.innerHTML='<summary>Add note</summary><label for="daily-note">Update note</label><textarea id="daily-note" name="note" rows="2"></textarea>';note.querySelector('textarea').value=m.note||'';form.append(note);
     const actions=document.createElement('div');actions.className='daily-ro-actions';
-    const close=button('This RO is closed',()=>action(async()=>{await api.closeRo(r.id);await selectNext();}),'secondary daily-close-ro');
+    const close=button('This RO is closed',()=>action(async()=>{const saved=await api.closeRo(r.id);if(saved===true)await selectNext();}),'secondary daily-close-ro');
     const save=document.createElement('button');save.type='submit';save.className='primary daily-primary';save.textContent='Save and continue';actions.append(close,save);form.append(actions);
     form.addEventListener('input',()=>state.editing=true);form.addEventListener('change',()=>state.editing=true);
     form.addEventListener('submit',e=>{e.preventDefault();action(async()=>{const values=Object.fromEntries(new FormData(form));try{await api.saveHome(r.id,original,values);}catch(error){if(JSON.stringify(model.state.records.find(x=>x.id===r.id))!==original){state.pending=true;$("dailyChanged").hidden=false;}throw error;}const updated=compactTask(engine.roTask(model.state.records.find(x=>x.id===r.id),api,today(),now()));const savedTask=updated||task;await log('completed',savedTask,{fingerprint:savedTask.fingerprint,until:new Date(now()+(task.hard?30:120)*60000).toISOString()});await selectNext();});});
