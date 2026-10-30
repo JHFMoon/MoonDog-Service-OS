@@ -47,7 +47,7 @@ function harness(opts={}){
  status:(message,type)=>events.push(type+":"+message),
  renderAssignNext:()=>{renders++;events.push("render");}
  };
- vm.runInNewContext(source+"\nthis.save=saveOpenRoWorkload;this.day=ensureAssignDay;this.toggle=toggleAssignAvailability",ctx);
+ vm.runInNewContext(source+"\nthis.save=saveOpenRoWorkload;this.day=ensureAssignDay;this.toggle=toggleAssignAvailability;this.busy=()=>assignNextWriteBusy",ctx);
  return{ctx,model,events,prior:state,get durable(){return copy(durable);},
  get writes(){return attempts},get renders(){return renders},release:()=>release?.(),setDurable:next=>{durable=copy(next)} };
 }
@@ -96,11 +96,11 @@ test("day preparation can modify a detached state without mutating the visible s
 test("Assign Next availability cannot overlap a pending source snapshot write",async()=>{
  const f=harness({holdWrite:true});
  const pending=f.ctx.save(report());
- assert.equal(f.ctx.assignNextWriteBusy,true);
+ assert.equal(f.ctx.busy(),true);
  await assert.rejects(()=>f.ctx.toggle("110"),/already being saved/);
  assert.equal(f.model.assignNext.days["2026-10-29"].advisors["110"].available,false);
  f.release();assert.equal(await pending,true);
- assert.equal(f.ctx.assignNextWriteBusy,false);
+ assert.equal(f.ctx.busy(),false);
  assert.equal(await f.ctx.toggle("110"),true);
  assert.equal(f.model.assignNext.days["2026-10-30"].advisors["110"].available,false,
   "new day defaults to true before manager toggles them off");
