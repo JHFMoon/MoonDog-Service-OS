@@ -21,6 +21,7 @@ const storageSource = [
 ].join("\n");
 const draftGuardSource = extract("  let editDraftDirty = false;", "  function visibleFocusIds()");
 const finishSavedSource = extract("  async function finishSavedOpenRo(", "  async function saveRecord(");
+const productionHistorySource = extract("  async function addHistory(", "  function migrateOpenRoFieldIdentity(");
 const originalState = {
   updatedAt: "2026-10-24T11:00:00.000Z",
   records: [{
@@ -43,7 +44,7 @@ const originalState = {
   source: { kind: "synthetic-fixture" }
 };
 const hostCopy = value => JSON.parse(JSON.stringify(value));
-function harness(failPath = null, failOnce = false, productionDraftFlow = false) {
+function harness(failPath = null, failOnce = false, productionDraftFlow = false, productionHistory = false) {
   let failedOnce = false;
   const files = new Map();
   const directories = new Set(["data", "backups"]);
@@ -148,14 +149,18 @@ function harness(failPath = null, failOnce = false, productionDraftFlow = false)
     finishSavedOpenRo: productionDraftFlow ? undefined : async () => { finishCount += 1; return true; }
   });
   const draftSupport = productionDraftFlow ? "\n" + draftGuardSource + "\n" + finishSavedSource : "";
+  const historySupport = productionHistory
+    ? "\n" + productionHistorySource.replace("async function addHistory(", "async function addHistoryForTest(") + "\nthis.addHistoryForTest=addHistoryForTest;"
+    : "";
   const draftExports = productionDraftFlow
     ? "\nthis.setDraftDirty=value=>{editDraftDirty=value;}; this.markDraftDirty=markEditDraftDirty; this.isDraftDirty=()=>editDraftDirty; this.guardDraftUnload=guardUnsavedEditUnload; this.setReadJsonForTest=fn=>{readJson=fn;};"
     : "";
   vm.runInContext(
-    storageSource + draftSupport +
+    storageSource + draftSupport + historySupport +
       "\nthis.saveForTest = saveRecord; this.readForTest = readJson; this.statePathForTest = STATE_PATH;" + draftExports,
     context
   );
+  if (productionHistory) context.addHistory = context.addHistoryForTest;
   return { context, model, ui, files, diagnostics, history, events, get finishCount() { return finishCount; }, get dialogClosed() { return dialogClosed; } };
 }
 
@@ -187,16 +192,17 @@ test("Open RO production save verifies read-back, preserves source/manual fields
 });
 
 
-test("manual Open RO edit history preserves source lineage after verified durable read-back", async () => {
-  const h = harness(null, false, true);
+test("manual Open RO edit history is durably persisted after read-back with source lineage intact", async () => {
+  const h = harness(null, false, true, true);
   assert.equal(await h.context.saveForTest({ preventDefault() {} }), true);
 
   const durable = await h.context.readForTest(h.context.statePathForTest, null);
   const record = durable.records[0];
-  const audit = hostCopy(h.history[0]);
-  assert.equal(h.history.length, 1, "one verified manual update produces one audit event");
+  const historyPaths = [...h.files.keys()].filter(name => name.startsWith("data/history/") && name.endsWith(".json"));
+  assert.equal(historyPaths.length, 1, "one verified manual update persists one history file");
+  const audit = JSON.parse(new TextDecoder().decode(h.files.get(historyPaths[0])));
   assert.equal(audit.type, "ro-update");
-  assert.equal(audit.message, "Updated RO SYN-101");
+  assert.equal(audit.summary, "Updated RO SYN-101");
   assert.deepStrictEqual(audit.details.before, originalState.records[0].management,
     "history records the prior manager-authored state");
   assert.deepStrictEqual(audit.details.after, record.management,
@@ -205,15 +211,16 @@ test("manual Open RO edit history preserves source lineage after verified durabl
   assert.deepStrictEqual(record.sourceFields, originalState.records[0].sourceFields,
     "manual management edits do not replace imported report fields");
 
-  const historyEvent = h.events.indexOf("history:ro-update");
-  const stateWrite = h.events.findLastIndex((event, index) =>
-    index < historyEvent && event.startsWith("write:") && event.includes("current-state.json"));
-  const stateReadback = h.events.findLastIndex((event, index) =>
-    index < historyEvent && event.startsWith("read:") && event.includes("current-state.json"));
+  const stateWrite = h.events.findLastIndex(event =>
+    event.startsWith("write:") && event.includes("current-state.json"));
+  const stateReadback = h.events.findLastIndex(event =>
+    event.startsWith("read:") && event.includes("current-state.json"));
+  const historyWrite = h.events.findLastIndex(event => event === "write:"+historyPaths[0]);
+  const historyReadback = h.events.findLastIndex(event => event === "read:"+historyPaths[0]);
   assert.ok(stateWrite >= 0 && stateReadback > stateWrite,
-    "the production save writes and reads back the current-state file before recording history");
-  assert.ok(historyEvent > stateReadback,
-    "manual edit history follows the verified durable read-back");
+    "the production save writes and reads back the current-state file");
+  assert.ok(historyWrite > stateReadback && historyReadback > historyWrite,
+    "production history is written and read back only after verified state persistence");
 });
 
 test("transient Open RO write failure preserves the draft for a verified retry", async () => {
