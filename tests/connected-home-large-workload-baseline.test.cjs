@@ -57,6 +57,7 @@ function makeHarness(count) {
     renderOverviewPanelsIfNeeded: active => { calls.overviewDispatch += 1; if (active) context.renderOverviewIntelligence(); },
     renderDailyFocusIfNeeded: active => { calls.dailyDispatch += 1; if (active) context.renderDailyFocus(); },
     renderFilters: () => { calls.filters += 1; },
+    renderOpenRoFiltersIfNeeded: active => { if (active) calls.filters += 1; },
     renderTable: () => {},
     renderArrivals: () => {},
     renderPerformance: () => {},
@@ -91,7 +92,7 @@ test("connected Home summary counts remain correct for 2,100 synthetic records w
   assert.equal(calls.dailyDispatch, 3);
   assert.equal(calls.overview, 0, "inactive Overview panels stay deferred");
   assert.equal(calls.daily, 0, "inactive Open RO Daily Focus stays deferred");
-  assert.equal(calls.filters, 3);
+  assert.equal(calls.filters, 0, "inactive Home updates never rebuild Open RO select options");
   assert.equal(calls.setup, 3);
   assert.equal(JSON.stringify(model.state.records), original,
     "Home summary rendering must not alter authoritative synthetic source rows");
