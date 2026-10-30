@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.235 — current Beta
+
+- fix(#59-04): reject periodless reference reports as verified history. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.234 — current Beta
 
 - fix(#59-01): honor Open RO report date ahead of import timestamp. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
