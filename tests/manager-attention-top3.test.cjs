@@ -41,7 +41,8 @@ test('coaching requires a validated sample and uses the configured ELR target', 
 });
 
 test('advisor notification waits 3 configured working days; material decline overrides the wait', () => {
-  const context = vm.createContext({Date, Intl, __moondogSettingsModel:{settings:{future:{managementSchedule:{days:[2,3,4,5,6]}}}}});
+  const context = vm.createContext({Date, Intl, __moondogSettingsModel:{settings:{store:{timeZone:'UTC'},future:{managerSchedule:{days:[2,3,4,5,6]}}}}});
+  vm.runInContext(read('assets/freshness.js'),context);
   vm.runInContext(read('assets/daily-engine.js'),context);
   const engine=context.MoonDogDailyEngine;
   const item={type:'coaching',id:'coaching:101:cpElr',key:'cpElr',actual:196,rank:6,fingerprint:'fresh-report'};
