@@ -317,10 +317,25 @@ class AutoCloseTests(unittest.TestCase):
         }}
         self.assertEqual(eligible_snapshot(ISSUE, "open", MATRIX, RECORD, future), [])
 
-    def test_evidence_cannot_omit_a_criterion(self):
-        data = {ISSUE: {"987-01": True, "987-02": True}}
+    def test_evidence_cannot_omit_a_criterion_and_names_each_missing_id(self):
+        data = {ISSUE: {"987-01": True, "987-02": False}}
         reasons = evidence_shape(ISSUE, data, RECORD)
-        self.assertTrue(any("do not exactly match" in x for x in reasons))
+        self.assertTrue(any("987-02 is missing a structured evidence entry" in x
+                            for x in reasons))
+        self.assertTrue(any("987-02 has not reached VERIFIED COMPLETE" in x
+                            for x in reasons))
+        self.assertTrue(any("987-01" in x for x in reasons) is False,
+                        "a proven criterion must not be reported as missing")
+
+    def test_evidence_cannot_add_an_unknown_criterion(self):
+        extra = {**RECORD, "criteria": {
+            **RECORD["criteria"],
+            "987-02": {"kind": "test", "pr": 41,
+                       "tests": ["tests/verified.test.cjs"]}
+        }}
+        reasons = evidence_shape(ISSUE, MATRIX, extra)
+        self.assertTrue(any("987-02 is not in the authoritative acceptance matrix" in x
+                            for x in reasons))
 
     def test_invalid_stable_version_blocks_even_fully_completed_issue(self):
         changed = {**MANIFEST, "stable": {"version": "0.10.18"}}
