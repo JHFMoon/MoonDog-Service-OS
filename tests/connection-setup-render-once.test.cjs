@@ -27,6 +27,7 @@ function runSyntheticFirstRender(schedule){
     renderOverviewPanelsIfNeeded:active=>{counts.overviewDispatch++;if(active)counts.overview++;},
     renderDailyFocusIfNeeded:active=>{counts.dailyDispatch++;if(active)counts.daily++;},
     renderFilters:()=>{counts.filters++;},
+    renderOpenRoFiltersIfNeeded:active=>{if(active)counts.filters++;},
     renderTable:()=>{counts.activeReports++;},
     renderArrivals:()=>{counts.activeReports++;},
     renderPerformance:()=>{counts.activeReports++;},
@@ -42,7 +43,7 @@ function runSyntheticFirstRender(schedule){
 }
 test("connected Home first frame rebuilds Setup once and preserves recovery/watch ordering",()=>{
   const counts=runSyntheticFirstRender(firstRenderLine);
-  assert.deepEqual(counts,{setup:1,overview:0,daily:0,overviewDispatch:1,dailyDispatch:1,filters:1,
+  assert.deepEqual(counts,{setup:1,overview:0,daily:0,overviewDispatch:1,dailyDispatch:1,filters:0,
     recovery:1,setupGate:1,watch:1,activeReports:0},
     "the first frame dispatches both deferred panels but does not render hidden panel contents");
 });

@@ -47,7 +47,7 @@ function harness(root){
     setConnectionState:(state)=>signals.push({state,at:performance.now()}),
     recordDiagnostic:()=>{},
     localDateKey:()=>"2026-10-22",isClosedManagement:()=>false,
-    renderOverviewIntelligence:()=>{},renderDailyFocus:()=>{},renderOverviewPanelsIfNeeded:()=>{},renderDailyFocusIfNeeded:()=>{},renderFilters:()=>{},
+    renderOverviewIntelligence:()=>{},renderDailyFocus:()=>{},renderOverviewPanelsIfNeeded:()=>{},renderDailyFocusIfNeeded:()=>{},renderFilters:()=>{},renderOpenRoFiltersIfNeeded:()=>{},
     renderTable:()=>{},renderArrivals:()=>{},renderPerformance:()=>{},renderMeeting:()=>{},renderAssignNext:()=>{},
     renderSetup:()=>{},renderRecovery:()=>{},openSetupIfRequired:()=>{},startFolderWatch:()=>{}
   });

@@ -5217,6 +5217,20 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   ]; ui.managerSourceGrid.replaceChildren(); cards.forEach((item) => { const card = document.createElement("article"), eyebrow = document.createElement("span"), title = document.createElement("h3"), value = document.createElement("strong"), note = document.createElement("small"), lineage = document.createElement("small"); card.className = "manager-source-card card"; eyebrow.textContent = item.eyebrow; title.textContent = item.title; value.textContent = item.value; note.textContent = item.note; lineage.className = "source-lineage"; lineage.textContent = sourceLineageLabel(sourceFreshness(item.key, item.source ? { item: item.source } : {})); card.append(eyebrow, title, value, note, lineage); ui.managerSourceGrid.append(card); }); }
   let overviewPanelsDirty = true, overviewPanelsRenderedDate = "";
   let dailyFocusPanelDirty = true, dailyFocusPanelRenderedDate = "";
+  let openRoFiltersDirty = true, openRoFiltersRenderedDate = "", openRoFiltersRenderedRevision = -1;
+  function renderOpenRoFiltersIfNeeded(active, force = false) {
+    // Rebuilding Open RO select options scans the full vehicle list and
+    // remounts DOM options. Home/import refreshes should not do it off-screen.
+    if (!active) { openRoFiltersDirty = true; return false; }
+    const today = localDateKey();
+    if (!force && !openRoFiltersDirty && openRoFiltersRenderedDate === today &&
+        openRoFiltersRenderedRevision === navigationDataRevision) return false;
+    renderFilters();
+    openRoFiltersDirty = false;
+    openRoFiltersRenderedDate = today;
+    openRoFiltersRenderedRevision = navigationDataRevision;
+    return true;
+  }
   function renderOverviewPanelsIfNeeded(active, force = false) {
     if (!active) { overviewPanelsDirty = true; return false; }
     const today = localDateKey();
@@ -5250,7 +5264,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.metricOpen.textContent = activeCount;
     ui.metricDue.textContent = dueCount;
     ui.metricMissing.textContent = missingCount;
-    ui.metricUpdated.textContent = model.state.updatedAt ? new Date(model.state.updatedAt).toLocaleString() : "—"; ui.lastImport.textContent = model.state.source ? `${model.state.source.fileName} · ${new Date(model.state.source.importedAt).toLocaleString()}` : "—"; ui.lastExport.textContent = workbookState?.stale ? "OUT OF DATE · Generate before importing changes" : workbookState?.generatedAt ? new Date(workbookState.generatedAt).toLocaleString() : "—"; ui.exportButton.disabled = !model.root || !records.length; renderOverviewPanelsIfNeeded(ui["view-overview"]?.classList.contains("active"), true); renderDailyFocusIfNeeded(ui["view-open-ro"]?.classList.contains("active"), true); renderFilters(); if(ui["view-open-ro"]?.classList.contains("active"))renderTable(); if(ui["view-arrivals"]?.classList.contains("active")) renderArrivals(); if(ui["view-performance"]?.classList.contains("active")) renderPerformance(); if(ui["view-meeting"]?.classList.contains("active")) renderMeeting(); if(ui["view-assign-next"]?.classList.contains("active")) renderAssignNext(); renderSetup(); }
+    ui.metricUpdated.textContent = model.state.updatedAt ? new Date(model.state.updatedAt).toLocaleString() : "—"; ui.lastImport.textContent = model.state.source ? `${model.state.source.fileName} · ${new Date(model.state.source.importedAt).toLocaleString()}` : "—"; ui.lastExport.textContent = workbookState?.stale ? "OUT OF DATE · Generate before importing changes" : workbookState?.generatedAt ? new Date(workbookState.generatedAt).toLocaleString() : "—"; ui.exportButton.disabled = !model.root || !records.length; renderOverviewPanelsIfNeeded(ui["view-overview"]?.classList.contains("active"), true); renderDailyFocusIfNeeded(ui["view-open-ro"]?.classList.contains("active"), true); renderOpenRoFiltersIfNeeded(ui["view-open-ro"]?.classList.contains("active"), true); if(ui["view-open-ro"]?.classList.contains("active"))renderTable(); if(ui["view-arrivals"]?.classList.contains("active")) renderArrivals(); if(ui["view-performance"]?.classList.contains("active")) renderPerformance(); if(ui["view-meeting"]?.classList.contains("active")) renderMeeting(); if(ui["view-assign-next"]?.classList.contains("active")) renderAssignNext(); renderSetup(); }
   const renderAllWithCanonicalSourceLabels=renderAll;
   renderAll=function(){renderAllWithCanonicalSourceLabels();const openRo=sourceFreshness("openRo"),workbook=sourceFreshness("supervisorWorkbook");if(model.state.source)ui.lastImport.textContent=`${model.state.source.fileName} · ${new Date(model.state.source.importedAt).toLocaleString()} · ${sourceStatusLabel(openRo)}`;if(model.recovery.supervisorWorkbook?.generatedAt)ui.lastExport.textContent=`${new Date(model.recovery.supervisorWorkbook.generatedAt).toLocaleString()} · ${sourceStatusLabel(workbook)}`;};
   const renderAllWithConfiguredLabels=renderAll;renderAll=function(){renderAllWithConfiguredLabels();const filename=model.settings.supervisorWorkbook?.filename||model.settings.exportName||DEFAULTS.supervisorWorkbook.filename,description=ui["view-imports"]?.querySelector(".two-col .card:nth-child(2) p:not(.step)"),path=ui["view-imports"]?.querySelector(".file-map code:last-of-type");if(description)description.textContent=`Generate ${filename} from durable Open RO state.`;if(path)path.textContent=`exports/${filename}`;};
@@ -7304,6 +7318,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       renderOverviewPanelsIfNeeded(true);
     }
     if (view === "open-ro" && ui["view-open-ro"]?.classList.contains("active")) {
+      // Restore current source, advisor and status choices before the
+      // deferred Open RO table renderer runs after navigation.
+      renderOpenRoFiltersIfNeeded(true);
       renderDailyFocusIfNeeded(true);
     }
     return result;
