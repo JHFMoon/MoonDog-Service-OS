@@ -1420,8 +1420,9 @@
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot; model.root = wrapOperationalRoot(await operationalRoot(handle)); model.applicationRoot = handle;
     // Synchronously revoke old Daily task/search actions before any B async load.
     document.dispatchEvent(new Event("moondog-workspace-changing"));
+    let pendingSettings;
     try {
-      const pendingSettings = await readJson(SETTINGS_PATH, {});
+      pendingSettings = await readJson(SETTINGS_PATH, {});
       const pendingAdapter = pendingSettings.sourceAdapters || await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
       if (!pendingAdapter && Object.keys(pendingSettings.advisors || {}).length && !pendingSettings.setup?.newStorePrepared) throw new Error("The protected local source adapter is missing. Restore local configuration before reconnecting.");
       if (pendingAdapter && pendingAdapter.schemaVersion !== 1) throw new Error("The protected local source adapter is invalid.");
