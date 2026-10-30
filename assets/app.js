@@ -4991,8 +4991,31 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function openedTodayVerified(snapshot,today=storeDateKey()) {
     return Boolean(snapshot && snapshot.records.every((record)=>!record.isOpen || (/^\d{4}-\d{2}-\d{2}$/.test(record.openedDate||"") && record.openedDate<=today && !Number.isNaN(Date.parse(`${record.openedDate}T12:00:00Z`)) && new Date(`${record.openedDate}T12:00:00Z`).toISOString().slice(0,10)===record.openedDate)));
   }
+  let assignNextWriteBusy=false;
+  async function withAssignNextWrite(operation) {
+    if(assignNextWriteBusy)throw Error("An Assign Next update is already being saved. Retry after it completes.");
+    assignNextWriteBusy=true;
+    try {
+      const locks=globalThis.navigator?.locks;
+      if(!locks?.request)throw Error("This browser cannot safely serialize Assign Next writes.");
+      return await locks.request("moondog-assign-next",{mode:"exclusive"},async()=>{
+        // Ignore lazily hydrated UI defaults, but reject a different durable
+        // source revision or an advisor edit by another tab.
+        const durable=await readJson(ASSIGN_NEXT_PATH,null);
+        const local=model.assignNext;
+        if(durable) {
+          if(durable.updatedAt!==local.updatedAt||
+              JSON.stringify(durable.currentOpenRo||null)!==JSON.stringify(local.currentOpenRo||null))
+            throw Error("Assign Next was updated in another tab. Refresh the Workspace before retrying.");
+        } else if(local.updatedAt||local.currentOpenRo)
+          throw Error("Assign Next durable state is missing. Refresh the Workspace before retrying.");
+        return operation();
+      });
+    }finally{assignNextWriteBusy=false;}
+  }
   async function saveOpenRoWorkload(snapshot) {
     if(!snapshot||snapshot.sourceType!=="open-ro")return false;
+    return withAssignNextWrite(async()=>{
     // Assemble a detached snapshot: unverified writes must never appear as
     // current live workload or as a confirmed Assign Next date.
     const next=structuredClone(model.assignNext);
@@ -5008,6 +5031,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     await writeJson(ASSIGN_NEXT_PATH,next);
     model.assignNext=next;
     renderAssignNext();return true;
+    });
   }
   function assignNextRows(today=storeDateKey(), snapshotOverride=undefined) {
     const day=ensureAssignDay(today),snapshot=snapshotOverride===undefined?activeWorkloadSnapshot(today):snapshotOverride,records=snapshot?.records||[],openedVerified=openedTodayVerified(snapshot,today),snapshotDates=Object.keys(model.performance.snapshots||{}).sort(),latest=snapshotDates.length?model.performance.snapshots[snapshotDates.at(-1)]:null,grossRank=(value)=>Number.isFinite(value)?value:Number.POSITIVE_INFINITY;
@@ -5017,7 +5041,32 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }).sort((a,b)=>Number(b.available)-Number(a.available)||(snapshot?a.open-b.open:0)||(openedVerified?a.openedToday-b.openedToday:0)||grossRank(a.totalGross)-grossRank(b.totalGross)||a.code.localeCompare(b.code,undefined,{numeric:true}));
   }
   function renderAssignNext() { ui.assignAdvisorGrid.replaceChildren();ui.assignFormula.textContent="Workload = current Open ROs";if(!model.root){ui.assignRecommendation.querySelector("strong").textContent="Connect the working folder";ui.assignRecommendation.querySelector("small").textContent="No workload recommendation is available yet.";ui.assignSourceDate.textContent="WORKLOAD SOURCE NEEDED";ui.assignUpdated.textContent="Not connected";ui.assignAdvisorGrid.innerHTML='<p class="empty">Connect the working folder to load the current Open RO workload.</p>';return;}const day=ensureAssignDay(),snapshot=activeWorkloadSnapshot(day.date),rows=assignNextRows(day.date,snapshot),eligible=rows.filter((row)=>row.available),next=snapshot?(eligible[0]||null):null;ui.assignRecommendation.querySelector("strong").textContent=next?.name||(!snapshot?"Workload source needed":"No advisor available");ui.assignRecommendation.querySelector("small").textContent=next?`${next.open} current Open ROs · ${next.openedTodayVerified?`${next.openedToday} opened today`:"Opened Today unavailable"}`:!snapshot?"Import a current Open RO report.":"Everyone is currently marked unavailable.";ui.assignSourceDate.textContent=snapshot?`AUTO · Open RO · Updated ${new Date(snapshot.observedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`:"WORKLOAD SOURCE NEEDED";ui.assignUpdated.textContent=snapshot?(openedTodayVerified(snapshot,day.date)?"Counts from the current Open RO report":"Opened Today unavailable · Check OPEN-DATE values"):"Waiting for a current Open RO report";const max=Math.max(...rows.map((row)=>row.workload),1);rows.forEach((advisor)=>{const card=document.createElement("article"),label=document.createElement("span"),score=document.createElement("strong"),editor=document.createElement("div"),openLabel=document.createElement("label"),openInput=document.createElement("input"),todayLabel=document.createElement("label"),todayInput=document.createElement("input"),available=document.createElement("button"),track=document.createElement("div"),fill=document.createElement("i"),code=document.createElement("small");card.className=`assign-card${advisor.available&&advisor.code===next?.code?" next":""}${advisor.available?"":" unavailable"}`;card.dataset.assignCode=advisor.code;label.textContent=advisor.name;code.textContent=`Advisor ${advisor.code}`;score.textContent=advisor.open??"—";editor.className="assign-editor";openLabel.textContent=snapshot?"Open ROs · AUTO":"Open ROs";openInput.type=snapshot?"number":"text";openInput.value=advisor.open??"Unavailable";openInput.disabled=true;openInput.dataset.assignCode=advisor.code;todayLabel.textContent=advisor.openedTodayVerified?"Opened Today · AUTO":"Opened Today";todayInput.type=advisor.openedTodayVerified?"number":"text";todayInput.value=advisor.openedToday??(snapshot?"Date unavailable":"Unavailable");todayInput.disabled=true;openLabel.append(openInput);todayLabel.append(todayInput);editor.append(openLabel,todayLabel);available.type="button";available.className=`assign-availability${advisor.available?"":" unavailable"}`;available.dataset.assignAvailability=advisor.code;available.textContent=advisor.available?"Available · click to disqualify":"Unavailable · click to restore";track.className="assign-score";fill.style.width=snapshot?`${Math.max(5,advisor.open/max*100)}%`:"0%";track.append(fill);card.append(label,code,score,editor,available,track);ui.assignAdvisorGrid.append(card);}); }
-  async function toggleAssignAvailability(code) { if (!Object.hasOwn(ASSIGN_NEXT_ADVISORS, code)) return; const day = ensureAssignDay(), advisor = day.advisors[code]; advisor.available = !advisor.available; day.updatedAt = now(); model.assignNext.updatedAt = day.updatedAt; await writeJson(ASSIGN_NEXT_PATH, model.assignNext); await addHistory("assign-next-availability", `${advisor.name} marked ${advisor.available ? "available" : "unavailable"}`, { date: day.date, advisorCode: code, available: advisor.available }); renderAssignNext(); status(`${advisor.name} is ${advisor.available ? "available" : "excluded from Assign Next"}.`, "success"); }
+  async function toggleAssignAvailability(code) {
+    if(!Object.hasOwn(ASSIGN_NEXT_ADVISORS,code))return false;
+    return withAssignNextWrite(async()=>{
+      const next=structuredClone(model.assignNext);
+      next.days||={};next.schemaVersion=3;
+      const day=ensureAssignDay(storeDateKey(),next),advisor=day.advisors[code];
+      advisor.available=!advisor.available;
+      day.updatedAt=now();next.updatedAt=day.updatedAt;
+      await writeJson(ASSIGN_NEXT_PATH,next);
+      model.assignNext=next;
+      let warning="";
+      try{
+        await addHistory("assign-next-availability",
+          `${advisor.name} marked ${advisor.available?"available":"unavailable"}`,
+          {date:day.date,advisorCode:code,available:advisor.available});
+      }catch(error){
+        recordDiagnostic("ASSIGN NEXT HISTORY FAILED",
+          "Advisor availability was saved, but history could not be verified ("+(error?.name||"Error")+")");
+        warning=" Availability was saved, but activity history needs review.";
+      }
+      renderAssignNext();
+      status(`${advisor.name} is ${advisor.available?"available":"excluded from Assign Next"}.`+warning,
+        warning?"error":"success");
+      return true;
+    });
+  }
 
   function dailyFocusPriority(record, today = localDateKey()) { const management = record.management || {}; if (clarificationFor(record)) return 0; const validReviewDate=freshness.validDateKey(management.reviewDate); if (validReviewDate && management.reviewDate < today) return 1; if (validReviewDate && management.reviewDate === today) return 2; if (!management.nextAction || !validReviewDate) return 3; return 4; }
   const MANAGER_WORK_DAYS = Object.freeze([2,3,4,5,6]);
