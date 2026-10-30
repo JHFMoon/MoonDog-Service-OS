@@ -122,3 +122,50 @@ test("an undated Open RO source stays explicitly unknown while existing daily fa
   assert.equal(report.coverageDate, "2026-10-22",
     "existing file-modified-date fallback for the retained daily report is unchanged");
 });
+
+function productionOpenRoFreshness(source) {
+  const start = app.indexOf("  function sourceFreshness(");
+  const end = app.indexOf("  function metricDependencyEvidence(", start);
+  assert.ok(start >= 0 && end > start, "production source freshness adapter exists");
+  const freshness = require("../assets/freshness.js");
+  const context = vm.createContext({
+    freshness,
+    model: { state: { source } },
+    sourceExpectation: () => "recommended",
+    businessTimeZone: () => "UTC",
+    localDateKey: value => value instanceof Date
+      ? value.toISOString().slice(0, 10) : "2026-10-26"
+  });
+  vm.runInContext(app.slice(start, end) + "\\nthis.sourceFreshness = sourceFreshness;", context);
+  return context.sourceFreshness("openRo", { today: "2026-10-26" });
+}
+
+test("verified Open RO report date wins over a newer import timestamp across production import and source freshness", async () => {
+  const data = fixture([
+    ["Report Date", "10/21/2026"],
+    ["RO", "Status"],
+    ["SYN-601", "Working"]
+  ]);
+  await data.context.runImport("synthetic-open-ro.xlsx", false, new Uint8Array([1, 2, 3]));
+  const savedSource = data.context.model.state.source;
+  assert.equal(savedSource.importedAt, "2026-10-26T12:00:00.000Z");
+
+  const evidence = productionOpenRoFreshness(savedSource);
+  assert.equal(evidence.status, "stale", "importing an older report today must not make its coverage current");
+  assert.equal(evidence.safeForCurrent, false);
+  assert.equal(evidence.periodEnd, "2026-10-21");
+  assert.equal(evidence.reportPeriodVerified, true);
+  assert.match(evidence.reason, /2026-10-21/);
+
+  const current = productionOpenRoFreshness({
+    ...savedSource, reportDate: "2026-10-26"
+  });
+  assert.equal(current.status, "current", "a verified current-date report remains current");
+
+  const undated = productionOpenRoFreshness({
+    ...savedSource, reportDate: null
+  });
+  assert.equal(undated.status, "current", "legacy undated sources retain their import-time fallback");
+  assert.equal(undated.reportPeriodVerified, false,
+    "legacy import time must not fabricate a verified report period");
+});
