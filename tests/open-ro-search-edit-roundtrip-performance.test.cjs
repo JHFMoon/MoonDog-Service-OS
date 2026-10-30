@@ -228,3 +228,63 @@ test("search-selected Open RO save fails closed on permission loss, then retries
   assert.ok(h.diagnostics.some(item => item.kind === "QUICK UPDATE SAVE FAILED"));
   assert.ok(h.diagnostics.some(item => item.kind === "DURABLE WRITE"));
 });
+
+
+test("active Open RO search keeps one complete snapshot when a background refresh commits at the render boundary", () => {
+  const h = harness();
+  h.ui.searchInput.value = "SYN-0123";
+  h.context.renderForTest();
+  assert.equal(resultRows(h.table).length, 1);
+  assert.equal(resultRows(h.table)[0].dataset.id, "synthetic-record-0123");
+
+  const priorSnapshot = h.model.state.records;
+  const refreshedSnapshot = records(2100);
+  refreshedSnapshot[123].ro = "SYN-REFRESHED-0123";
+  refreshedSnapshot[123].management.nextAction = "Synthetic refreshed follow-up";
+  const refreshedBytes = JSON.stringify(refreshedSnapshot);
+  const visibleRecords = h.context.openRoVisibleRecords;
+  let committed = false;
+  h.context.openRoVisibleRecords = () => {
+    const snapshot = visibleRecords();
+    if (!committed) {
+      committed = true;
+      h.model.state = { ...h.model.state, records: refreshedSnapshot,
+        updatedAt: "2026-10-24T12:00:01.000Z" };
+    }
+    return snapshot;
+  };
+
+  // A background refresh can only publish between synchronous render turns.
+  // The active frame must therefore use the complete prior array; the next
+  // frame must use the complete replacement, never a mixed list.
+  h.context.renderForTest();
+  assert.equal(resultRows(h.table).length, 1);
+  assert.equal(resultRows(h.table)[0].dataset.id, "synthetic-record-0123");
+  assert.equal(h.model.state.records, refreshedSnapshot);
+  assert.equal(priorSnapshot.length, 2100);
+
+  h.context.openRoVisibleRecords = () => h.model.state.records;
+  h.context.renderForTest();
+  assert.equal(resultRows(h.table).length, 0, "old search cannot retain a removed match after refresh");
+  assert.match(h.ui.recordCount.textContent, /0 of 2100 records/);
+
+  h.ui.searchInput.value = "SYN-REFRESHED-0123";
+  const spans = [];
+  for (let sample = 0; sample < 15; sample++) {
+    const start = performance.now();
+    h.context.renderForTest();
+    spans.push(performance.now() - start);
+    assert.equal(resultRows(h.table).length, 1);
+    assert.equal(resultRows(h.table)[0].dataset.id, "synthetic-record-0123");
+  }
+  assert.equal(JSON.stringify(h.model.state.records), refreshedBytes,
+    "rendering the refreshed list must preserve every synthetic source and manual field");
+
+  console.log("#58-06 synthetic refresh-boundary search p50/p95:", JSON.stringify({
+    dataset: "synthetic-2100-open-ros",
+    samples: spans.length,
+    p50Ms: +percentile(spans, 0.5).toFixed(3),
+    p95Ms: +percentile(spans, 0.95).toFixed(3),
+    timingScope: "production renderTable across an atomic background-refresh snapshot boundary in a synthetic DOM; excludes browser layout and OneDrive I/O"
+  }));
+});
