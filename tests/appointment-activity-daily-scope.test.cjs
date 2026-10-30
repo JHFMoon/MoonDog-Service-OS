@@ -378,6 +378,8 @@ test("verified Appointment Activity period and aggregate remain aligned in the H
   f.ctx.ui={managerSourceGrid:grid};
   f.ctx.document={createElement:()=>({className:"",textContent:"",children:[],append(...items){this.children.push(...items);}})};
   f.ctx.businessTimeZone=()=>"UTC";
+  // Other Home source families are intentionally absent from this fixture.
+  f.ctx.latestOperationalSnapshot=()=>null;
   vm.runInContext(freshnessSource,f.ctx);
   f.ctx.freshness=f.ctx.MoonDogFreshness;
   const productionLineage=source("  function sourceExpectation(key)","  function sourceAvailable(")+
