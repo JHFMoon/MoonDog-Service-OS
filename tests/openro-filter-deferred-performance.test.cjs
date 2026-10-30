@@ -17,8 +17,8 @@ function harness(){
    const statuses=[...new Set(fakeChoices.map(x=>x.status))].sort();
    if(options.length!==12||statuses.length!==5)throw Error("Synthetic options lost");
  }};
- vm.runInNewContext(source+"
-this.paint=renderOpenRoFiltersIfNeeded;",context);\n const fn=context.paint;
+ vm.runInNewContext(source+"\nthis.paint=renderOpenRoFiltersIfNeeded;",context);
+ const fn=context.paint;
  return{fn,context,get count(){return renderCalls;},setDate:value=>date=value,
  setRevision:value=>context.navigationDataRevision=value,
  raw:()=>context.renderFilters()};
