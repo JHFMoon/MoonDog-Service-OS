@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.232 — current Beta
+
+- fix(#59-04): prevent undated CSI imports from inventing observation dates. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.231 — current Beta
 
 - perf(#58): defer Open RO filter rebuilding while hidden. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
