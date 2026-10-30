@@ -89,7 +89,8 @@ const hydrateSnapshots=extract(app,
   "    model.state.closedRecords=pruneClosedRecords");
 async function syntheticSnapshotHydration(recordCount,options={}){
   const names=["state","appointments","performance","operationalMetrics",
-    "meetingCycle","assignNext","autoImport","recovery","settings"];
+    "meetingCycle","assignNext","autoImport","recovery"];
+  const pendingSettings={source:"synthetic-preflight-settings"};
   const paths=names.map((name,index)=>["synthetic",String(index)+"-"+name+".json"]);
   const initial=Object.fromEntries(names.map(name=>[name,{unchanged:name}]));
   const model={...initial};
@@ -117,7 +118,7 @@ async function syntheticSnapshotHydration(recordCount,options={}){
     STATE_PATH:paths[0],APPOINTMENTS_PATH:paths[1],PERFORMANCE_PATH:paths[2],
     OPERATIONAL_METRICS_PATH:paths[3],MEETING_CYCLE_PATH:paths[4],
     ASSIGN_NEXT_PATH:paths[5],AUTO_IMPORT_PATH:paths[6],RECOVERY_PATH:paths[7],
-    SETTINGS_PATH:paths[8]
+    pendingSettings
   });
   const started=performance.now();
   const hydration=vm.runInContext("(async()=>{\n"+hydrateSnapshots+"\nthis.hydratedSettings=rawSettings;\n})()",context);
@@ -139,12 +140,12 @@ async function syntheticSnapshotHydration(recordCount,options={}){
   assert.equal(model.state.records.length,recordCount);
   return {failed:false,elapsedMs,maximumInflight,reads};
 }
-test("nine production snapshot reads, including settings, are bounded and atomically published for empty/large synthetic Workspaces",async()=>{
+test("eight production snapshot reads reuse protected preflight settings and atomically publish empty/large synthetic Workspaces",async()=>{
   for(const count of [0,2100]){
     const samples=[];
     for(let trial=0;trial<9;trial++){
       const result=await syntheticSnapshotHydration(count);
-      assert.equal(result.reads,9);
+      assert.equal(result.reads,8);
       assert.equal(result.maximumInflight,3,
         "The original connection path must limit independent reads to three");
       samples.push(result.elapsedMs);
@@ -157,8 +158,8 @@ test("nine production snapshot reads, including settings, are bounded and atomic
   }
 });
 test("late essential snapshot failure cannot commit a partial connection",async()=>{
-  const failed=await syntheticSnapshotHydration(2100,{failAt:8,latencyMs:2});
+  const failed=await syntheticSnapshotHydration(2100,{failAt:7,latencyMs:2});
   assert.equal(failed.failed,true);
-  assert.equal(failed.reads,9);
+  assert.equal(failed.reads,8);
   assert.ok(failed.maximumInflight<=3);
 });
