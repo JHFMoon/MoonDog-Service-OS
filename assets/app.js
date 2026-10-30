@@ -7271,6 +7271,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     // reconnection, and manual RO saves. No await separates the guard/set.
     pasteCommitBusy=true;dailyImportBusy=true;
     try{
+      // Use the same browser-wide lock and durable-state comparison as RO
+      // edits and Supervisor Workbook operations, including across tabs.
+      return await withSupervisorWorkbookLock(async()=>{
       const rechecked=pasteDiff(preview.parsed);
       if(rechecked.errors.length)throw Error("Existing RO identities changed. Review again.");
       const active=new Map((model.state.records||[]).map(row=>[String(row.ro),row]));
@@ -7329,6 +7332,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       }
       renderAll();
       return{status:"saved",added:added.length,updated:changed.length,missingClosed:0,warning:followupWarning};
+      });
     }finally{pasteCommitBusy=false;dailyImportBusy=false;}
   }
   async function savePasteLearningRule(candidate){
