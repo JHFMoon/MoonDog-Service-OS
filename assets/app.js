@@ -4314,7 +4314,7 @@
     if (key === "appointments") { const item = options.item || model.appointments.days?.[today]; return evaluate({ ...common, expectation: "recommended", exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.updatedAt, periodStart: item?.date || today, periodEnd: item?.date || (item ? today : "") }, item, Boolean(item?.date)); }
     if (["sor", "appointmentActivity", "efficiency", "mediaAsr", "mediaAsrTech", "openRoSummary"].includes(key)) {
       const item = options.item || latestOperationalSnapshot(key), rawPeriod = item?.period ?? item?.date ?? "",
-        period = String(rawPeriod).trim(), isMonth = /^\\d{4}-\\d{2}$/.test(period),
+        period = String(rawPeriod).trim(), isMonth = /^\d{4}-\d{2}$/.test(period),
         declaredPeriodValid = !period || freshness.validDateKey(period) ||
           (isMonth && freshness.validDateKey(period + "-01")),
         periodStart = item?.periodStart || (period.length === 10 ? period : ""),

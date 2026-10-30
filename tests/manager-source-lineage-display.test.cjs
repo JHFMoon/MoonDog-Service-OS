@@ -228,7 +228,7 @@ test("production lineage rejects malformed and reversed saved report periods bef
   const freshnessStart = app.indexOf("  function sourceFreshness(key, options = {})");
   const freshnessEnd = app.indexOf("  function metricDependencyEvidence(", freshnessStart);
   const lastDayStart = app.indexOf("  function lastDayOfMonth(month)");
-  const lastDayEnd = app.indexOf("\\n  function ", lastDayStart + 3);
+  const lastDayEnd = app.indexOf("\n  function ", lastDayStart + 3);
   assert.ok(expectationStart >= 0 && expectationEnd > expectationStart);
   assert.ok(freshnessStart >= 0 && freshnessEnd > freshnessStart);
   assert.ok(lastDayStart >= 0 && lastDayEnd > lastDayStart);
