@@ -29,8 +29,8 @@ test("coaching follow-up cooldown uses configured business timezone, not UTC hos
 
 test("coaching follow-up resolves business-zone noon correctly across daylight-saving transition",()=>{
   const event=completedEvent("2026-10-30T23:00:00.000Z"); // Fri Oct 30, 16:00 PDT
-  assert.equal(engine.eligible(changedTask,[event],Date.parse("2026-11-05T19:59:00.000Z")),false,
+  assert.equal(engine.eligible(changedTask,[event],Date.parse("2026-11-04T19:59:00.000Z")),false,
     "cooldown remains active through 11:59 PST after the daylight-saving change");
-  assert.equal(engine.eligible(changedTask,[event],Date.parse("2026-11-05T20:00:00.000Z")),true,
+  assert.equal(engine.eligible(changedTask,[event],Date.parse("2026-11-04T20:00:00.000Z")),true,
     "cooldown expires at noon PST after the daylight-saving change");
 });
