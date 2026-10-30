@@ -106,7 +106,7 @@ test("production freshness selectors and Home renderer preserve lineage for ever
   const freshnessStart = app.indexOf("  function sourceFreshness(key, options = {})");
   const freshnessEnd = app.indexOf("  function metricDependencyEvidence(", freshnessStart);
   const productionLastDay = app.indexOf("  function lastDayOfMonth(", freshnessEnd);
-  const productionLastDayEnd = app.indexOf("\\n  function ", productionLastDay + 3);
+  const productionLastDayEnd = app.indexOf("\n  function ", productionLastDay + 3);
   const lineageEnd = app.indexOf("  function advisorNextWin(", lineageStart);
   const managerStart = app.indexOf("  function latestFamily(family)", rendererStart);
   assert.ok(expectationStart >= 0 && expectationEnd > expectationStart, "production source expectation selector exists");
