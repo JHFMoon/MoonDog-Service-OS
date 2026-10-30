@@ -127,3 +127,52 @@ test("conflicting source evidence blocks an otherwise current metric for every c
     assert.deepEqual(metric.dependencies,[valid,conflicting],key+" retains both source dependencies");
   }
 });
+
+const fs=require("node:fs");
+const path=require("node:path");
+const vm=require("node:vm");
+const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+function productionLineageLabels(){
+  const start=app.indexOf("  function sourceStatusLabel(");
+  const end=app.indexOf("  function advisorNextWin(",start);
+  assert.ok(start>=0&&end>start,"production source confidence and lineage labels exist");
+  const context=vm.createContext({});
+  vm.runInContext(app.slice(start,end)+
+    ";this.sourceStatusLabel=sourceStatusLabel;this.sourceLineageLabel=sourceLineageLabel;",context);
+  return context;
+}
+
+test("production freshness states render truthful source confidence labels across every catalogued family",()=>{
+  const labels=productionLineageLabels();
+  const keys=Object.keys(F.SOURCE_DEFINITIONS);
+  const importedAt="2026-10-07T15:00:00.000Z";
+
+  for(const key of keys){
+    const missing=F.evaluateSource({key,today,exists:false});
+    assert.equal(labels.sourceLineageLabel(missing),
+      "Missing · Report period: Not verified · Last imported: Not verified",key+" missing");
+
+    const stale=F.evaluateSource({key,today,exists:true,purpose:"historical",
+      targetStart:"2026-10-01",targetEnd:"2026-10-06",
+      periodStart:"2026-09-01",periodEnd:"2026-09-30"});
+    assert.equal(stale.status,"stale",key+" historical coverage gap");
+    const staleLabel=labels.sourceLineageLabel({...stale,reportPeriodVerified:true,importTimestamp:importedAt});
+    assert.match(staleLabel,/^Loaded but stale · Needs updating/,key+" stale presentation");
+    assert.match(staleLabel,/Report period: 2026-09-01 through 2026-09-30/,key+" source coverage");
+    assert.match(staleLabel,/Last imported: 2026-10-07 15:00 UTC/,key+" independent import timestamp");
+
+    const unsupported=F.evaluateSource({key,today,exists:true,
+      invalid:"Unsupported synthetic report layout"});
+    assert.equal(unsupported.status,"invalid",key+" unsupported layout status");
+    assert.equal(labels.sourceLineageLabel(unsupported),
+      "Loaded · validation needed · Report period: Not verified · Last imported: Not verified",
+      key+" unsupported layout presentation");
+
+    const conflict=F.evaluateSource({key,today,exists:true,
+      invalid:"Conflicting duplicate synthetic report for the same period."});
+    assert.equal(conflict.status,"invalid",key+" duplicate conflict status");
+    assert.equal(labels.sourceLineageLabel(conflict),
+      "Conflict · Review required · Report period: Not verified · Last imported: Not verified",
+      key+" duplicate conflict presentation");
+  }
+});
