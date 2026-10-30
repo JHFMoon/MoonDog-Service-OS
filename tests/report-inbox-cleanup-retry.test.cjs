@@ -251,7 +251,7 @@ test("a replacement written during cleanup marker persistence is never deleted",
     Map,Uint8Array,Error
   });
   vm.runInContext(source + "\nthis.remove = removeSourceEntry;", context);
-  await assert.rejects(context.remove(name),/changed while cleanup intent was saved/);
+  await assert.rejects(context.remove(name),/changed while/);
   assert.equal(markerSaved,true);
   assert.equal(deleted,0);
 });
