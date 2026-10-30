@@ -1723,9 +1723,11 @@ try{
                   throw Error("Synthetic pasted report did not persist exactly 300 expected rows: "+JSON.stringify(persisted));
                 if(attempt===0){
                   if(!/300 new/.test(result.status))throw Error("First synthetic import did not add 300 rows: "+result.status);
-                  firstCommitAt=result.updatedAt;
-                }else if(!/Already current/.test(result.status)||result.updatedAt!==firstCommitAt){
-                  throw Error("Repeated synthetic re-import was not a no-write idempotent result: "+JSON.stringify(result));
+                  firstCommitAt=persisted.updatedAt;
+                }else if(!/Already current/.test(result.status)||persisted.updatedAt!==firstCommitAt){
+                  throw Error("Repeated synthetic re-import changed the durable timestamp: "+JSON.stringify({
+                    status:result.status,expectedUpdatedAt:firstCommitAt,persistedUpdatedAt:persisted.updatedAt
+                  }));
                 }
                 importSamples.push(result.elapsedMs);
               }
