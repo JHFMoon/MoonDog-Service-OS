@@ -106,7 +106,7 @@
     return `${plan.status} · Next optional: ${date(plan.next)}`;
   }
   function csiTrendEvidence({imports=[],surveys={},today}={}) {
-    const reportDates=[...new Set(imports.map(item=>item.refreshDate||dateKey(item.importedAt)).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
+    const reportDates=[...new Set(imports.map(item=>item.refreshDate||(item.importedAt ? dateKey(item.importedAt) : "")).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const responseDates=[...new Set(Object.values(surveys).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const advisorResponseDates=[...new Set(Object.values(surveys).filter(item=>item.advisorCode).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const unmappedAdvisorResponses=Object.values(surveys).filter(item=>validDateKey(item.surveyDate)&&(!today||item.surveyDate<=today)&&!item.advisorCode).length;
