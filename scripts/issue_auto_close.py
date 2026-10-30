@@ -65,11 +65,21 @@ def evidence_shape(issue: int, matrix: dict[int, dict[str, bool]], record: dict)
     proofs = record.get("criteria")
     if not listed:
         return ["Issue has no authoritative acceptance matrix criteria"]
-    if not isinstance(proofs, dict) or set(proofs) != set(listed):
-        return ["Evidence criterion IDs do not exactly match the authoritative acceptance matrix"]
+    if not isinstance(proofs, dict):
+        return ["Evidence criteria are not a structured object"]
+    unknown = sorted(set(proofs) - set(listed))
+    for key in unknown:
+        reasons.append(key + " is not in the authoritative acceptance matrix")
     for key, verified in listed.items():
+        # Partial rows are expected in an open backlog. They need no closure
+        # proof entry and must not turn a non-mutating evaluation into a
+        # workflow error; their status still prevents issue closure.
         if not verified:
             reasons.append(key + " has not reached VERIFIED COMPLETE")
+            continue
+        if key not in proofs:
+            reasons.append(key + " is missing a structured evidence entry")
+            continue
         proof = proofs[key]
         if not isinstance(proof, dict):
             reasons.append(key + " has no structured proof")
