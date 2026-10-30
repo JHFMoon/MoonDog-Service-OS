@@ -1655,6 +1655,89 @@ try{
               console.log("60 responsive, zoom-equivalent, keyboard, long-text, and task-effort evidence",
                 JSON.stringify({standardRoutes:routeResults.length,zoomEquivalentRoutes:zoomResults.length,keyboardFocus,
                   longTextSamples:longTextResults.length,openRoTaskEffort:report.openRoTaskEffort}));
+
+              // #58-05: time repeated production Paste & Learn imports against
+              // the connected in-memory synthetic Workspace. One attempt adds
+              // the 300 synthetic rows; eight subsequent attempts must be
+              // idempotent and leave durable bytes/timestamps unchanged.
+              const importSamples=[];
+              await connectedPage.locator('.nav-item[data-view="tools"]').click({timeout:5000});
+              await connectedPage.waitForFunction(()=>document.getElementById("view-tools")?.classList.contains("active"),null,{timeout:5000});
+              await connectedPage.getByRole("button",{name:"Paste & Learn",exact:true}).click({timeout:5000});
+              await connectedPage.waitForFunction(()=>document.getElementById("dailyTools")?.dataset.category==="paste",null,{timeout:5000});
+              const pastePayload=await connectedPage.evaluate(()=>{
+                const rows=["CDK","Repair Orders","RO #","All: 300 Open: 300 Working: 0 On Hold: 0 Closed: 0"];
+                for(let n=0;n<300;n++)rows.push(String(930000+n),"Open","Synthetic Customer",
+                  "1HGBH41J"+"XMN109186","2022 Synthetic Vehicle","TAG"+n,"110","225",
+                  "10/12/2026","08:30 AM","10/13/2026","09:00 AM","[C] Synthetic Service");
+                window.confirm=()=>true;
+                return rows.join("\n");
+              });
+              await connectedPage.evaluate(payload=>{
+                const input=document.getElementById("dailyPasteInput");
+                if(!input)throw Error("Synthetic report-learning input is missing");
+                input.value=payload;input.dispatchEvent(new Event("input",{bubbles:true}));
+                const supported=typeof PerformanceObserver!=="undefined"&&
+                  (PerformanceObserver.supportedEntryTypes||[]).includes("longtask");
+                if(!supported)throw Error("Chromium long-task measurement is unavailable for import smoke");
+                globalThis.__pasteImportLongTasks=[];
+                const observer=new PerformanceObserver(list=>{
+                  for(const entry of list.getEntries())globalThis.__pasteImportLongTasks.push(entry.duration);
+                });
+                observer.observe({type:"longtask",buffered:false});
+                globalThis.__pasteImportObserver=observer;
+              },pastePayload);
+              const initialPasteCount=await connectedPage.evaluate(async()=>{
+                const state=await globalThis.__moondogDaily.readJson("data/current-state.json");
+                return state.records.length;
+              });
+              let firstCommitAt="";
+              for(let attempt=0;attempt<9;attempt++){
+                if(attempt>0)await connectedPage.evaluate(payload=>{
+                  const input=document.getElementById("dailyPasteInput");
+                  input.value=payload;input.dispatchEvent(new Event("input",{bubbles:true}));
+                },pastePayload);
+                const started=await connectedPage.evaluate(()=>performance.now());
+                await connectedPage.getByRole("button",{name:"Understand Text",exact:true}).click({timeout:5000});
+                await connectedPage.waitForFunction(()=>document.querySelector(".daily-paste-status")?.textContent?.includes("Analysis complete")&&
+                  document.querySelector(".daily-paste-preview")?.textContent?.includes("Records detected: 300"),null,{timeout:18000});
+                await connectedPage.getByRole("button",{name:"Import Verified Data",exact:true}).click({timeout:5000});
+                await connectedPage.waitForFunction(()=>Boolean(document.querySelector(".daily-paste-success")?.textContent?.trim()),null,{timeout:20000});
+                const result=await connectedPage.evaluate(async started=>{
+                  const state=await globalThis.__moondogDaily.readJson("data/current-state.json");
+                  const imports=state.records.filter(record=>Number(record.ro)>=930000&&Number(record.ro)<930300);
+                  return {elapsedMs:performance.now()-started,status:document.querySelector(".daily-paste-success")?.textContent?.trim()||"",
+                    importedRows:imports.length,recordCount:state.records.length,updatedAt:state.updatedAt};
+                },started);
+                if(result.importedRows!==300||result.recordCount!==initialPasteCount+300)
+                  throw Error("Synthetic pasted report did not persist exactly 300 expected rows: "+JSON.stringify(result));
+                if(attempt===0){
+                  if(!/300 new/.test(result.status))throw Error("First synthetic import did not add 300 rows: "+result.status);
+                  firstCommitAt=result.updatedAt;
+                }else if(!/Already current/.test(result.status)||result.updatedAt!==firstCommitAt){
+                  throw Error("Repeated synthetic re-import was not a no-write idempotent result: "+JSON.stringify(result));
+                }
+                importSamples.push(result.elapsedMs);
+              }
+              await connectedPage.evaluate(()=>{
+                const observer=globalThis.__pasteImportObserver;
+                if(observer){for(const entry of observer.takeRecords())globalThis.__pasteImportLongTasks.push(entry.duration);observer.disconnect();}
+              });
+              const importTiming=summarizeNavigationMs(importSamples);
+              const importLongTasks=await connectedPage.evaluate(()=>{
+                const values=globalThis.__pasteImportLongTasks||[];
+                return {count:values.length,maxMs:values.length?Math.max(...values):0,
+                  totalMs:values.reduce((sum,value)=>sum+value,0)};
+              });
+              const importReport={schemaVersion:1,dataset:"synthetic-clean-install",
+                operation:"packaged file:// Paste & Learn preview + explicit production import + durable read-back",
+                attempts:importSamples.length,addedRows:300,idempotentReimports:8,
+                totalSyntheticOpenRos:initialPasteCount+300,
+                elapsedMs:{p50:importTiming.p50,p95:importTiming.p95,max:importTiming.max},
+                mainThreadLongTasks:importLongTasks,verifiedDurableReadback:true,
+                unchangedTimestampOnReimport:true,noCustomerOrWorkspaceData:true};
+              fs.writeFileSync(path.join(out,"report-import-performance.json"),JSON.stringify(importReport,null,2)+"\n");
+              console.log("58-05 repeated synthetic report-import performance",JSON.stringify(importReport));
             }
 
             connectedEditSamples.search.push(editCycle.searchMs);

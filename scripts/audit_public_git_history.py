@@ -73,6 +73,8 @@ VETTED_SYNTHETIC_VIN_BLOB_SHA1 = frozenset({
     "c725dce8e13b38a548594a1c5ce3b3ace379ee44",
     # Exact historical test blob: added layout tests reused only the previously vetted synthetic fixture values from main blob 795d7744bfbd898b8a90bfb260d79f9475be0c6a.
     "2a648b89e1b93448ea9909593763f9874441ae0f",
+    # Reviewed 2026-10-30: exact PR #636 browser-smoke blob contains only its synthetic in-memory Paste & Learn fixture.
+    "1458a818b0a6d484db13d9389f0a4c92f7c737af",
 })
 counts = collections.Counter()
 safe_counts = collections.Counter()
