@@ -4982,7 +4982,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function sourceRecordIsOpen(value) { return !["closed","closed / invoiced","invoiced","posted"].includes(norm(value)); }
   function canonicalWorkloadRecords(records) { const unique=new Map();for(const input of records){const ro=text(input.ro).trim(),advisorCode=text(input.advisorCode).trim();if(!/^\d+$/.test(ro)||/^WEB\*/i.test(ro)||!/^\d+$/.test(advisorCode))continue;const record={ro,advisorCode,openedDate:workloadDate(input.openedDate??input.opened),isOpen:input.isOpen!==false};const prior=unique.get(ro);if(prior&&(prior.advisorCode!==record.advisorCode||prior.isOpen!==record.isOpen||prior.openedDate!==record.openedDate))throw new Error(`Workload source contains conflicting rows for RO ${ro}.`);unique.set(ro,record);}return [...unique.values()]; }
   function openRoWorkloadSnapshot(records,source={},sourceModifiedAt="") { const observedAt=source.importedAt||now(),asOf=observedAt,normalized=canonicalWorkloadRecords(records.map((record)=>({ro:record.ro,advisorCode:record.advisorCode,openedDate:record.openedDate??record.opened,isOpen:record.isOpen??sourceRecordIsOpen(record.sourceStatus)})));return{sourceType:"open-ro",sourceFile:source.fileName||"Open RO report",observedAt,sourceModifiedAt:sourceModifiedAt||source.sourceModifiedAt||"",asOf,coverageDate:storeDateKey(new Date(asOf)),records:normalized,validation:{canonicalRecords:normalized.length,customerDataRetained:false}}; }
-  function ensureAssignDay(date=storeDateKey()) { if (model.assignNext.days[date]) { model.assignNext.days[date].openedToday||={};Object.entries(ASSIGN_NEXT_ADVISORS).forEach(([code, name]) => { model.assignNext.days[date].advisors[code] ||= { code, name, available: true }; }); return model.assignNext.days[date]; } const advisors = {}; Object.entries(ASSIGN_NEXT_ADVISORS).forEach(([code, name]) => { advisors[code] = { code, name, available: true }; }); model.assignNext.days[date] = { date, updatedAt: null, advisors,openedToday:{} }; return model.assignNext.days[date]; }
+  function ensureAssignDay(date=storeDateKey(),state=model.assignNext) { if (state.days[date]) { state.days[date].openedToday||={};Object.entries(ASSIGN_NEXT_ADVISORS).forEach(([code, name]) => { state.days[date].advisors[code] ||= { code, name, available: true }; }); return state.days[date]; } const advisors = {}; Object.entries(ASSIGN_NEXT_ADVISORS).forEach(([code, name]) => { advisors[code] = { code, name, available: true }; }); state.days[date] = { date, updatedAt: null, advisors,openedToday:{} }; return state.days[date]; }
   function activeWorkloadSnapshot(today=storeDateKey()) {
     const snapshot=model.assignNext.currentOpenRo, records=snapshot?.records;
     if(snapshot?.sourceType!=="open-ro" || !Array.isArray(records) || records.some((record)=>!/^\d+$/.test(text(record.ro))||!/^\d+$/.test(text(record.advisorCode))) || new Set(records.map((record)=>record.ro)).size!==records.length || (snapshot.validation?.canonicalRecords!==undefined && snapshot.validation.canonicalRecords!==records.length)) return null;
@@ -4993,14 +4993,20 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   }
   async function saveOpenRoWorkload(snapshot) {
     if(!snapshot||snapshot.sourceType!=="open-ro")return false;
-    model.assignNext.schemaVersion=3;model.assignNext.days||={};
-    const day=ensureAssignDay(),prior=model.assignNext.currentOpenRo;
-    if(!prior||text(snapshot.asOf).localeCompare(text(prior.asOf))>=0)model.assignNext.currentOpenRo=snapshot;
-    day.updatedAt=now();model.assignNext.updatedAt=day.updatedAt;
-    const dates=Object.keys(model.assignNext.days).sort();dates.slice(0,Math.max(0,dates.length-45)).forEach((date)=>delete model.assignNext.days[date]);
-    await writeJson(ASSIGN_NEXT_PATH,model.assignNext);
-    const check=await readJson(ASSIGN_NEXT_PATH,null);
-    if(check?.schemaVersion!==3||JSON.stringify(check.currentOpenRo)!==JSON.stringify(model.assignNext.currentOpenRo))throw new Error("Assign Next current Open RO snapshot could not be verified after saving.");
+    // Assemble a detached snapshot: unverified writes must never appear as
+    // current live workload or as a confirmed Assign Next date.
+    const next=structuredClone(model.assignNext);
+    next.schemaVersion=3;next.days||={};
+    const day=ensureAssignDay(storeDateKey(),next),prior=next.currentOpenRo;
+    if(!prior||text(snapshot.asOf).localeCompare(text(prior.asOf))>=0)next.currentOpenRo=snapshot;
+    day.updatedAt=now();next.updatedAt=day.updatedAt;
+    const dates=Object.keys(next.days).sort();
+    dates.slice(0,Math.max(0,dates.length-45)).forEach(date=>delete next.days[date]);
+    // writeJson already verifies the entire immutable payload by readback.
+    // A second fallible read here could falsely leave memory behind a
+    // successfully committed file after a transient OneDrive read error.
+    await writeJson(ASSIGN_NEXT_PATH,next);
+    model.assignNext=next;
     renderAssignNext();return true;
   }
   function assignNextRows(today=storeDateKey(), snapshotOverride=undefined) {
