@@ -665,15 +665,56 @@ try{
     await page.locator('#dailyPasteInput').evaluate((el,payload)=>{
       el.value=payload;el.dispatchEvent(new Event('input',{bubbles:true}));
     },synthetic);
-    const pasteStarted=Date.now();
-    await page.getByRole('button',{name:"Understand Text"}).click({timeout:5000});
-    await page.waitForFunction(()=>document.querySelector('.daily-paste-status')?.textContent?.includes("Analysis complete"),null,{timeout:18000});
-    const pasteMs=Date.now()-pasteStarted;
-    const preview=await page.locator('.daily-paste-preview').innerText();
-    if(!preview.includes("CDK Repair Orders")||!preview.includes("Records detected: 300")||
-       !await page.getByRole('button',{name:"Import Verified Data"}).count())
-      throw Error("CDK paste preview did not recognize 300 records: "+preview.slice(0,800));
-    if(pasteMs>12000)throw Error("300-record paste preview took "+pasteMs+"ms");
+    const pastePreviewStateBefore=await page.evaluate(()=>JSON.stringify(globalThis.__moondogDaily?.model?.state||{}));
+    const longTaskObserverReady=await page.evaluate(()=>{
+      const supported=typeof PerformanceObserver!=="undefined"&&
+        (PerformanceObserver.supportedEntryTypes||[]).includes("longtask");
+      if(!supported)return false;
+      globalThis.__syntheticPastePreviewLongTasks=[];
+      const observer=new PerformanceObserver(list=>{
+        for(const entry of list.getEntries())globalThis.__syntheticPastePreviewLongTasks.push(entry.duration);
+      });
+      observer.observe({type:"longtask",buffered:false});
+      globalThis.__syntheticPastePreviewObserver=observer;
+      return true;
+    });
+    if(!longTaskObserverReady)throw Error("Chromium long-task measurement is unavailable for the synthetic paste-preview scenario");
+    const pastePreviewSamples=[];
+    let preview="";
+    for(let sample=0;sample<9;sample++){
+      if(sample>0)await page.locator('#dailyPasteInput').evaluate((el,payload)=>{
+        el.value=payload;el.dispatchEvent(new Event('input',{bubbles:true}));
+      },synthetic);
+      const pasteStarted=await page.evaluate(()=>performance.now());
+      await page.getByRole('button',{name:"Understand Text"}).click({timeout:5000});
+      await page.waitForFunction(()=>document.querySelector('.daily-paste-status')?.textContent?.includes("Analysis complete")&&
+        document.querySelector('.daily-paste-preview')?.textContent?.includes("Records detected: 300"),null,{timeout:18000});
+      pastePreviewSamples.push(await page.evaluate(started=>performance.now()-started,pasteStarted));
+      preview=await page.locator('.daily-paste-preview').innerText();
+      if(!preview.includes("CDK Repair Orders")||!preview.includes("Records detected: 300")||
+         !await page.getByRole('button',{name:"Import Verified Data"}).count())
+        throw Error("CDK paste preview did not recognize 300 synthetic records: "+preview.slice(0,800));
+    }
+    const pastePreviewTiming=summarizeNavigationMs(pastePreviewSamples);
+    if(pastePreviewTiming.max>12000)throw Error("300-record paste preview exceeded the existing 12-second guard: "+pastePreviewTiming.max+"ms");
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0))));
+    const pasteLongTasks=await page.evaluate(()=>{
+      const observer=globalThis.__syntheticPastePreviewObserver;
+      if(observer){for(const entry of observer.takeRecords())globalThis.__syntheticPastePreviewLongTasks.push(entry.duration);observer.disconnect();}
+      const samples=globalThis.__syntheticPastePreviewLongTasks||[];
+      return {count:samples.length,maxMs:samples.length?Math.max(...samples):0,totalMs:samples.reduce((sum,value)=>sum+value,0)};
+    });
+    const pastePreviewStateAfter=await page.evaluate(()=>JSON.stringify(globalThis.__moondogDaily?.model?.state||{}));
+    if(pastePreviewStateAfter!==pastePreviewStateBefore)
+      throw Error("Repeated paste analysis changed operational state before explicit Import Verified Data approval");
+    const pasteMs=pastePreviewSamples[0];
+    console.log("Repeated synthetic report-preview performance",JSON.stringify({
+      format:"CDK Repair Orders paste preview",records:300,samples:pastePreviewTiming.count,
+      analysisToRenderedPreviewMs:{p50:pastePreviewTiming.p50,p95:pastePreviewTiming.p95,max:pastePreviewTiming.max},
+      longTasks:{count:pasteLongTasks.count,maxMs:pasteLongTasks.maxMs,totalMs:pasteLongTasks.totalMs},
+      modelUnchangedUntilExplicitImport:true,importCommitClicked:false,
+      scope:"packaged file:// Chromium synthetic Paste & Learn analysis only; excludes durable import and local OneDrive latency"
+    }));
     for(const size of [928,320]){
       await page.setViewportSize({width:size,height:820});
       const geom=await page.locator('#dailyPasteInput').evaluate(el=>{
