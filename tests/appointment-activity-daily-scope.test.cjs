@@ -2,6 +2,7 @@
 const test=require("node:test"),assert=require("node:assert/strict");
 const fs=require("node:fs"),vm=require("node:vm"),path=require("node:path");
 const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+const freshnessSource=fs.readFileSync(path.join(__dirname,"..","assets","freshness.js"),"utf8");
 function source(start,end){const a=app.indexOf(start),b=app.indexOf(end,a+start.length);assert.ok(a>=0&&b>a,start);return app.slice(a,b);}
 const layoutStart=app.indexOf("  function matchingAppointmentActivityReportLayout(");
 const layoutEnd=app.indexOf("  function normalizedPerson(",layoutStart);
@@ -376,11 +377,21 @@ test("verified Appointment Activity period and aggregate remain aligned in the H
   f.ctx.model.operationalMetrics=durable;
   f.ctx.ui={managerSourceGrid:grid};
   f.ctx.document={createElement:()=>({className:"",textContent:"",children:[],append(...items){this.children.push(...items);}})};
-  f.ctx.sourceFreshness=()=>({status:"historical-valid",loaded:true,reportPeriodVerified:true,
-    periodStart:"2026-10-19",periodEnd:"2026-10-20",importTimestamp:"2026-10-20T12:00:00.000Z"});
-  f.ctx.sourceLineageLabel=()=>"Historical · valid for stated period · Report period: 2026-10-19 through 2026-10-20 · Last imported: 2026-10-20 12:00 UTC";
+  f.ctx.businessTimeZone=()=>"UTC";
+  vm.runInContext(freshnessSource,f.ctx);
+  f.ctx.freshness=f.ctx.MoonDogFreshness;
+  const productionLineage=source("  function sourceExpectation(key)","  function sourceAvailable(")+
+    source("  function sourceFreshness(key, options = {}) {","  function metricDependencyEvidence(")+
+    source("  function sourceStatusLabel(evidence)","  // Source coverage and local import time describe DIFFERENT facts.")+
+    source("  function sourceLineageLabel(evidence) {","  function advisorNextWin(");
   const managerRenderer=source("  function latestFamily(family) {","  function renderAll() {");
-  vm.runInContext(managerRenderer,f.ctx);
+  vm.runInContext(productionLineage+managerRenderer,f.ctx);
+  const activity=durable.appointmentActivity.snapshots["2026-10-20"];
+  const evidence=f.ctx.sourceFreshness("appointmentActivity",{item:activity});
+  assert.equal(evidence.reportPeriodVerified,true,"production freshness must verify the saved report period");
+  assert.equal(evidence.periodStart,"2026-10-19");
+  assert.equal(evidence.periodEnd,"2026-10-20");
+  assert.equal(evidence.importTimestamp,activity.importedAt,"production lineage uses the durable import timestamp");
   f.ctx.renderManagerIntelligence();
 
   const text=node=>[node.textContent,...(node.children||[]).map(text)].filter(Boolean).join(" ");
@@ -388,6 +399,8 @@ test("verified Appointment Activity period and aggregate remain aligned in the H
   assert.ok(card,"Home must render the Appointment Activity source card from reloaded operational metrics");
   assert.match(text(card),/2 configured-store records/);
   assert.match(text(card),/2026-10-19 through 2026-10-20 · aggregate only/);
+  assert.match(text(card),/Report period: 2026-10-19 through 2026-10-20 · Last imported: 2026-10-20 12:00 UTC/,
+    "Home lineage is produced by the real freshness and lineage selectors");
   assert.doesNotMatch(text(card),/Synthetic Private|SYNTHETIC-ONLY-NOT-VIN|Synthetic note/,
     "the Home source lineage remains aggregate-only and excludes customer-like report cells");
 });
