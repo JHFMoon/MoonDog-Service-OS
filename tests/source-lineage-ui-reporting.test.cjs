@@ -106,3 +106,27 @@ test('CSI lineage uses verified export scope, not the configured scoring-window 
   assert.doesNotMatch(branch,/model\.settings\.csiPeriodStart/,
     'configured scoring window must not be presented as source coverage');
 });
+
+
+test("production source-lineage UI labels preserve every authority state for all catalogued families",()=>{
+  const p=productionSourceLineage();
+  const families=Object.keys(require("../assets/freshness.js").SOURCE_DEFINITIONS);
+  assert.equal(families.length,14,"every catalogued source family is covered");
+
+  const cases=[
+    ["missing",{status:"missing",loaded:false},"Missing · Report period: Not verified · Last imported: Not verified"],
+    ["stale",{status:"stale",loaded:true,reportPeriodVerified:true,periodStart:"2026-10-01",periodEnd:"2026-10-06",importTimestamp:"2026-10-07T15:00:00.000Z"},"Loaded but stale · Needs updating · Report period: 2026-10-01 through 2026-10-06 · Last imported: 2026-10-07 15:00 UTC"],
+    ["unsupported",{status:"invalid",loaded:true,reason:"Unsupported synthetic report layout"},"Loaded · validation needed · Report period: Not verified · Last imported: Not verified"],
+    ["conflict",{status:"invalid",loaded:true,reason:"Conflicting duplicate synthetic source period"},"Conflict · Review required · Report period: Not verified · Last imported: Not verified"],
+    ["invalid-period",{status:"invalid",loaded:true,reason:"Report period is malformed"},"Invalid period · Review required · Report period: Not verified · Last imported: Not verified"],
+    ["unavailable",{status:"temporarily-unavailable",loaded:true,reason:"Synthetic read was busy"},"Temporarily unavailable · Report period: Not verified · Last imported: Not verified"],
+    ["not-used",{status:"not-used",loaded:false},"Not used · Report period: Not verified · Last imported: Not verified"],
+    ["current-zero",{status:"current",loaded:true,reportPeriodVerified:true,periodStart:"2026-10-01",periodEnd:"2026-10-06",importTimestamp:"2026-10-07T15:00:00.000Z",verifiedValue:0},"Current · Report period: 2026-10-01 through 2026-10-06 · Last imported: 2026-10-07 15:00 UTC"]
+  ];
+
+  for(const family of families){
+    for(const [label,evidence,expected] of cases){
+      assert.equal(p.lineageLabel({...evidence,key:family}),expected,family+" "+label);
+    }
+  }
+});
