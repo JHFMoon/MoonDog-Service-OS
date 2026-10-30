@@ -18,6 +18,7 @@ function extract(source, first, last) {
 const connectionCore = extract(app, "  let workspaceConnectionBusy=false;", "  async function connect() {");
 const transientWorkspaceState = extract(app, "  function transientWorkspaceState(error){", "  function transientIntakeError(");
 const restoreConnection = extract(app, "  async function restoreConnection() {", "  function headerMap(");
+const connectWorkspaceSource = extract(app, "  async function connect() {", "  function handleWorkspaceRecoveryAction()");
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -79,6 +80,12 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
     assignNext: {}, autoImport: {}, recovery: {}, settings: {}
   };
   const states = [];
+  const permissionRequests = [];
+  const writeAuthority = {
+    canWrite: true,
+    async validate() { this.canWrite = true; },
+    disable() { this.canWrite = false; }
+  };
   const completedReads = new Set();
   const readCalls = new Map();
   const requiredReadPaths = [paths.settings, paths.state, paths.appointments, paths.performance, paths.metrics, paths.meeting, paths.assignNext, paths.autoImport, paths.recovery];
@@ -104,7 +111,7 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
 
   const context = vm.createContext({
     model,
-    writeAuthority: { canWrite: true, async validate() {}, disable() { this.canWrite = false; } },
+    writeAuthority,
     VERSION: "0.10.18-beta.synthetic",
     folderWatch: { busy: false },
     stopFolderWatch: () => {},
@@ -112,7 +119,14 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
     appointmentImportBusy: false,
     window: { showDirectoryPicker() {}, indexedDB: {} },
     recallRoot: async () => handle,
-    permission: async () => permissionSequence[permissionIndex++] || "granted",
+    permission: async (_handle, ask) => {
+      permissionRequests.push(ask === true);
+      const result = permissionSequence[permissionIndex++] || "granted";
+      if (ask === true && result === "granted") writeAuthority.canWrite = true;
+      return result;
+    },
+    __moondogDailyUI: { confirmWorkspaceChange: () => true },
+    clearTimeout: () => {},
     operationalRoot: async root => root,
     wrapOperationalRoot: root => root,
     connectedNativeRoot: null,
@@ -194,10 +208,12 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   });
 
   vm.runInContext(
-    connectionCore + "\n" + transientWorkspaceState + "\n" + restoreConnection + "\nthis.restore=restoreConnection;",
+    connectionCore + "\n" + transientWorkspaceState + "\n" + restoreConnection + "\n" + connectWorkspaceSource +
+      "\nthis.restore=restoreConnection; this.connectWorkspace=connect;",
     context
   );
   const started = performance.now();
+  let measuredRecoveryStart = started;
   if (inspectPendingRead) {
     const reconnecting = context.restore();
     await firstReadStarted;
@@ -228,7 +244,11 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
     assert.equal(writes.length, 0, "denied saved-folder access must not write operational state");
     assert.equal(model.root, null, "denied access must not commit a Workspace root");
     assert.equal(model.pendingRoot, handle, "the saved folder remains available for explicit retry");
-    await context.restore();
+    measuredRecoveryStart = performance.now();
+    await context.connectWorkspace();
+    assert.deepEqual(permissionRequests, [false, true],
+      "the measured recovery must use the real explicit connect path and request permission only on user retry");
+    assert.equal(states.includes("CONNECTED"), true, "explicit retry completes the production saved-folder recovery path");
   }
   const finished = performance.now();
 
@@ -254,8 +274,8 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   assert.equal(writes[0].key, paths.recovery, "reconnect must not rewrite operational source/state files");
   assert.equal(backgroundJobs.length, 1, "post-connection scans must be deferred after the first render");
   return {
-    firstHomeMs: firstRender.at - started,
-    totalReconnectMs: finished - started,
+    firstHomeMs: firstRender.at - measuredRecoveryStart,
+    totalReconnectMs: finished - measuredRecoveryStart,
     maxConcurrentReadCount,
     recordsAtFirstHome: firstRender.renderedRecordCount
   };
@@ -330,4 +350,34 @@ test("58-01: verified first usable Home remains complete for empty and large syn
     assert.ok(result.firstUsableHomeMs.p50 >= 0 && result.firstUsableHomeMs.p95 >= result.firstUsableHomeMs.p50);
     assert.ok(result.reconnectMs.p95 >= result.firstUsableHomeMs.p50);
   }
+});
+
+test("58-02: explicit permission recovery reaches verified Home with a measured bounded reconnect", async () => {
+  const firstHome = [];
+  const total = [];
+  for (let sample = 0; sample < 9; sample += 1) {
+    const measurement = await measureReconnect(2, ["denied", "granted"]);
+    firstHome.push(measurement.firstHomeMs);
+    total.push(measurement.totalReconnectMs);
+  }
+  const values = samples => ({
+    p50: Number(percentile(samples, .50).toFixed(2)),
+    p95: Number(percentile(samples, .95).toFixed(2)),
+    max: Number(Math.max(...samples).toFixed(2))
+  });
+  const result = {
+    scenario: "saved synthetic folder denied by silent restore, then recovered through production connect() explicit permission request; 2 ms in-memory snapshot reads",
+    samples: firstHome.length,
+    verifiedHomeAfterRecoveryMs: values(firstHome),
+    totalRecoveryMs: values(total),
+    dataReadsBeforeExplicitRetry: 0,
+    writesBeforeExplicitRetry: 0,
+    stableWorkspaceChanges: 0,
+    scope: "permission-state simulation only; does not measure Edge picker latency, Windows, OneDrive, or installed hardware"
+  };
+  console.log("Synthetic explicit permission-recovery latency", JSON.stringify(result));
+  assert.equal(result.samples, 9);
+  assert.ok(Number.isFinite(result.verifiedHomeAfterRecoveryMs.p50));
+  assert.ok(result.verifiedHomeAfterRecoveryMs.p95 >= result.verifiedHomeAfterRecoveryMs.p50);
+  assert.ok(result.totalRecoveryMs.p95 >= result.verifiedHomeAfterRecoveryMs.p50);
 });
