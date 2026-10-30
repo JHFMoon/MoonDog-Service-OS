@@ -317,15 +317,19 @@ class AutoCloseTests(unittest.TestCase):
         }}
         self.assertEqual(eligible_snapshot(ISSUE, "open", MATRIX, RECORD, future), [])
 
-    def test_evidence_cannot_omit_a_criterion_and_names_each_missing_id(self):
+    def test_partial_criterion_needs_no_closeout_proof_and_still_blocks_closure(self):
         data = {ISSUE: {"987-01": True, "987-02": False}}
         reasons = evidence_shape(ISSUE, data, RECORD)
-        self.assertTrue(any("987-02 is missing a structured evidence entry" in x
-                            for x in reasons))
-        self.assertTrue(any("987-02 has not reached VERIFIED COMPLETE" in x
-                            for x in reasons))
-        self.assertTrue(any("987-01" in x for x in reasons) is False,
-                        "a proven criterion must not be reported as missing")
+        self.assertEqual(reasons, ["987-02 has not reached VERIFIED COMPLETE"])
+        self.assertEqual(eligible_snapshot(
+            ISSUE, "open", data, RECORD, MANIFEST
+        ), ["987-02 has not reached VERIFIED COMPLETE"])
+
+    def test_complete_criterion_cannot_omit_its_closeout_proof(self):
+        data = {ISSUE: {"987-01": True}}
+        incomplete_record = {**RECORD, "criteria": {}}
+        reasons = evidence_shape(ISSUE, data, incomplete_record)
+        self.assertEqual(reasons, ["987-01 is missing a structured evidence entry"])
 
     def test_evidence_cannot_add_an_unknown_criterion(self):
         extra = {**RECORD, "criteria": {
