@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.219 — current Beta
+
+- fix(#619): restore hands-off grouped Open RO report ingestion. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.218 — current Beta
 
 - fix(#619): restore hands-off grouped Open RO report ingestion. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
