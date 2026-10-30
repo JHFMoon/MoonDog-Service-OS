@@ -16,6 +16,7 @@ function extract(source, first, last) {
   return source.slice(start, end);
 }
 const connectionCore = extract(app, "  let workspaceConnectionBusy=false;", "  async function connect() {");
+const transientWorkspaceState = extract(app, "  function transientWorkspaceState(error){", "  function transientIntakeError(");
 const restoreConnection = extract(app, "  async function restoreConnection() {", "  function headerMap(");
 
 function clone(value) {
@@ -193,7 +194,7 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   });
 
   vm.runInContext(
-    connectionCore + "\n" + restoreConnection + "\nthis.restore=restoreConnection;",
+    connectionCore + "\n" + transientWorkspaceState + "\n" + restoreConnection + "\nthis.restore=restoreConnection;",
     context
   );
   const started = performance.now();
