@@ -110,8 +110,10 @@ test("classification prepares each parser profile before invoking its synchronou
 
 test("classification and import retain one byte snapshot through workbook parsing", () => {
   assert.ok(app.includes('book = typeof prepareXlsxWorkbook === "function" ? await prepareXlsxWorkbook(bytes, { type: "array", cellDates: true, cellFormula: true }) : XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true })'));
-  for (const importer of ["importPerformanceFile", "importCsiFile", "importAppointmentFile", "importSource"])
+  for (const importer of ["importPerformanceFile", "importCsiFile", "importAppointmentFile"])
     assert.ok(app.includes(importer + "(candidate.name, deleteAfterSuccess, bytes)"));
+  assert.ok(app.includes('importSource(candidate.name, deleteAfterSuccess, bytes, candidate.location === "inbox")'),
+    "automatic Open RO import preserves the bytes and explicitly scopes auto-authority to the Inbox");
   assert.ok(app.includes("importMenuSalesFile(candidate.name, deleteAfterSuccess, bytes, layoutOverride)"),
     "Menu Sales layout retry passes the same immutable byte snapshot and approved local mapping into production import");
   assert.ok(app.includes("changed while it was being checked and was left in place"));

@@ -388,7 +388,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-28-local-layouts-v5";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-10-29-auto-grouped-openro-v6";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -2634,11 +2634,16 @@
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true, cellNF: true }); parseEfficiencyWorkbook(bytes, name); return "efficiency"; } catch (_) {}
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true, cellNF: true }); return parseMediaAsrWorkbook(bytes,name).sourceScope==="technician"?"media-asr-tech":"media-asr"; } catch (_) {}
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true }); parseOpenRoSummaryWorkbook(bytes, name); return "open-ro-summary"; } catch (_) {}
-    // A strictly reconciled advisor-grouped Open RO source is an eligible primary
-    // roster only after the global total, every section and each identity validate.
-    // The supplemental aging detector recognizes the same signature but cannot
-    // establish active RO authority or clear the current-source warning.
-    try { if (legacyReport(book)) return "open-ro"; } catch (_) {}
+    // A grouped Open RO workbook MUST either pass full source reconciliation
+    // or fail into Files To Learn. Do not swallow a group-count error and
+    // classify the same incomplete roster as harmless supplemental data.
+    const groupedOpenRo = book.SheetNames.some(sheetName =>
+      XLSX.utils.sheet_to_json(book.Sheets[sheetName], {header:1,defval:null,raw:true})
+        .some(row => /SVCADV\s*:|REPORT OF OPEN ROS BY ADVISOR/i.test(String(row?.[0]||"")+" "+String(row?.[1]||""))));
+    if (groupedOpenRo) {
+      if (!legacyReport(book)) throw new Error("Needs Review: grouped Open RO report layout is incomplete.");
+      return "open-ro";
+    }
     try { if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true }); if (parseSupplementalWorkbook(bytes,name)) return "supplemental-workbook"; } catch (_) {}
     const appointmentSheet = book.Sheets["Service Daily Log"] || book.Sheets[book.SheetNames[0]], appointmentRows = appointmentSheet ? XLSX.utils.sheet_to_json(appointmentSheet, { header: 1, defval: "", raw: false }) : [], isAppointment = appointmentRows.some((row) => row.some((value) => text(value).trim() === "Time") && row.some((value) => text(value).trim() === "Customer") && row.some((value) => text(value).trim() === "SA"));
     if (isAppointment) return "appointments";
@@ -2650,8 +2655,14 @@
     if (currentSignature !== candidate.signature) throw new Error(`${candidate.name} changed while it was being checked and was left in place.`);
     const folder = await directory(["Files To Learn"], true), dot = candidate.name.lastIndexOf("."), base = dot > 0 ? candidate.name.slice(0, dot) : candidate.name, extension = dot > 0 ? candidate.name.slice(dot) : ""; let targetName = candidate.name, copy = 2;
     while (true) { try { await folder.getFileHandle(targetName); targetName = `${base} (${copy})${extension}`; copy += 1; } catch (error) { if (error.name === "NotFoundError") break; throw error; } }
-    await writeBytes(["Files To Learn", targetName], new Uint8Array(await current.arrayBuffer()));
-    await removeSourceEntry(candidate.name);
+    const originalBytes = await current.arrayBuffer();
+    await writeBytes(["Files To Learn", targetName], new Uint8Array(originalBytes));
+    // Moving a rejected report is a copy/verify/delete transaction, never
+    // an unverified deletion of its only original.
+    const stagedCopy = await (await folder.getFileHandle(targetName)).getFile();
+    if (!sameByteContent(await stagedCopy.arrayBuffer(), originalBytes))
+      throw new Error("Files To Learn copy did not verify; original report retained.");
+    await removeSourceEntryWithByteGuard(candidate.name, originalBytes);
     await addHistory("file-to-learn", `Moved ${candidate.name} to Files To Learn`, { fileName: candidate.name, storedAs: targetName, reason });
     return targetName;
   }
@@ -3213,7 +3224,7 @@
     model.autoImport=next;
     return true;
   }
-  async function verifyCompleteRoImport(name, file, bytes, records) {
+  async function verifyCompleteRoImport(name, file, bytes, records, verifiedAutomaticInbox = false) {
     if (!records.length || records.some(row => !text(row.ro).trim())) throw new Error("Needs Review: incomplete RO identity.");
     const keys = records.map(row => text(row.ro).trim());
     if (new Set(keys).size !== keys.length) throw new Error("Needs Review: duplicate RO identities in complete source.");
@@ -3224,8 +3235,8 @@
     const current = await (await sourceFileHandle(name)).getFile();
     if (await sha256(await current.arrayBuffer()) !== digest) throw new Error("Needs Review: report changed during review; source retained.");
     const closing = (model.state.records || []).filter(row => !keys.includes(text(row.ro).trim())).length;
-    if (!window.confirm(`Review complete RO replacement: ${name}\n\n${records.length} incoming ROs; ${closing} existing ROs absent from this file.\nFile timestamp: ${new Date(modified).toLocaleString()}\n\nThis file is unsigned. Confirm the correct store, report generation date, complete scope and totals in the original report before continuing. Absent ROs will leave the active list; existing commitments are preserved for matching ROs. Continue?`)) throw new Error("Needs Review: complete RO replacement was not approved; source retained.");
-    return {sha256: digest, sourceModifiedAt: new Date(modified).toISOString(), acceptedDigests: [...new Set([...(prior.acceptedDigests || []), prior.sha256, digest].filter(Boolean))].slice(-256), verification: "explicit-local-source-review; unsigned"};
+    if (!verifiedAutomaticInbox && !window.confirm(`Review complete RO replacement: ${name}\n\n${records.length} incoming ROs; ${closing} existing ROs absent from this file.\nFile timestamp: ${new Date(modified).toLocaleString()}\n\nThis file is unsigned. Confirm the correct store, report generation date, complete scope and totals in the original report before continuing. Absent ROs will leave the active list; existing commitments are preserved for matching ROs. Continue?`)) throw new Error("Needs Review: complete RO replacement was not approved; source retained.");
+    return {sha256: digest, sourceModifiedAt: new Date(modified).toISOString(), acceptedDigests: [...new Set([...(prior.acceptedDigests || []), prior.sha256, digest].filter(Boolean))].slice(-256), verification: verifiedAutomaticInbox ? "reconciled-grouped-inbox-auto; unsigned" : "explicit-local-source-review; unsigned"};
   }
   async function importCdkRepairOrdersDocxUnlocked(candidate,bytes,deleteAfterSuccess=false) {
     const source=await docxText(bytes),parsed=parseCdkRepairOrdersDocx(source,candidate.name),file=await(await sourceFileHandle(candidate.name)).getFile();
@@ -3272,7 +3283,8 @@
   }
 
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true, layoutOverride = null) {
-    if (["open-ro", "open-ro-docx"].includes(kind) && candidate.location !== "picked") throw new Error("Needs Review: an unsigned complete RO report requires explicit source, date and completeness review. Use Import Report to select the original file; the automatic scan cannot replace Open ROs.");
+    if (kind === "open-ro-docx" && candidate.location !== "picked") throw new Error("Needs Review: DOCX source is not yet authorized for hands-off roster replacement.");
+    if (kind === "open-ro" && !["picked","inbox"].includes(candidate.location)) throw new Error("Needs Review: only the dedicated Inbox may automatically replace Open ROs.");
     sourceLocations.set(candidate.name, candidate.location);let appointmentOutcome;
     if (/\.xlsx$/i.test(candidate.name) && candidate.location !== "picked" && bytes) {
       const currentFile = await (await sourceFileHandle(candidate.name)).getFile();
@@ -3298,7 +3310,7 @@
       else if (kind === "appointments") appointmentOutcome=await importAppointmentFile(candidate.name, deleteAfterSuccess, bytes);
       else if (kind === "disposable-greeter") { if (deleteAfterSuccess) await removeSourceEntry(candidate.name); await addHistory("disposable-output-removed", "Removed generated Greeter appointment output", { outputType: "Greeter Appointment List" }); recordDiagnostic("REPORT INBOX", "MoonDog Greeter output deleted as disposable output"); }
       else if (kind === "ro-update") await importReturnedWorkbook(candidate.name, deleteAfterSuccess, bytes);
-      else await importSource(candidate.name, deleteAfterSuccess, bytes);
+      else await importSource(candidate.name, deleteAfterSuccess, bytes, candidate.location === "inbox");
   
       await ensurePreviousMonthSummary(); renderAll();return appointmentOutcome;
     } finally {
@@ -3552,9 +3564,9 @@
     if(candidate.readError)return false;
     const seen=model.autoImport.seen?.[candidate.signature];
     if(candidate.location==="inbox")
-      return Boolean(seen?.cleanupPending || seen?.cleanupReviewRequired || seen?.cleanupNeedsReview) || !(seen?.kind==="appointments"&&seen.importedAt)
-        &&!((seen?.kind==="open-ro"||seen?.kind==="open-ro-docx")
-          &&(seen.manualImportRequired||seen.importedAt));
+      // Previous Betas queued Open RO workbooks for manual review. Reconsider
+      // those unchanged files now that strict grouped intake is authorized.
+      return Boolean(seen?.cleanupPending || seen?.cleanupReviewRequired || seen?.cleanupNeedsReview) || !(seen?.kind==="appointments"&&seen.importedAt);
     return !seen||Boolean(seen.movedAt);
   }
   function transientWorkspaceState(error){return ["AbortError","InvalidStateError","NotReadableError","UnknownError","TimeoutError"].includes(error?.name)||/state cached in an interface object|state had changed since it was read from disk|changed since it was read from disk/i.test(error?.message||"");}
@@ -3652,9 +3664,9 @@
           if(/\.pdf$/i.test(candidate.name)&&!referenceOnly){pdfFailureMessage="PDF is not a supported PreRO appointment or supplemental report. Source kept in Files To Learn for review.";recordDiagnostic("PDF INTAKE","No supported PDF structure; source preserved for learning");}
           continue;
         }
-        // A complete Open RO source is recognized, but a watch must never
-        // replace the active roster without deliberate source review.
-        if((kind==="open-ro"||kind==="open-ro-docx")&&candidate.location==="inbox"){
+        // DOCX still requires deliberate review; only strictly reconciled
+        // grouped XLSX exports are authorized for unattended roster writes.
+        if(kind==="open-ro-docx"&&candidate.location==="inbox"){
           reviewRequired.push(candidate.name);
           model.autoImport.seen[candidate.signature]={fileName:candidate.name,
             relativePath:candidate.relativePath,kind,manualImportRequired:true,queuedAt:now()};
@@ -3663,6 +3675,73 @@
           await addHistory("open-ro-review-required","Recognized Open RO retained pending explicit source and completeness review",
             {fileName:candidate.name,sourceFamily:kind,sourcePreserved:true});
           continue;
+        }
+        if (kind==="open-ro" && candidate.location==="inbox") {
+          const digest=await sha256(new Uint8Array(bytes));
+          // Read disk even when the in-memory digest differs. A completed
+          // filesystem write can lose its read-back (OneDrive NotReadableError)
+          // before model.state is updated, leaving memory behind durable state.
+          const durable=await readJson(STATE_PATH,null);
+          if (durable?.source?.sha256===digest) {
+            if (!Array.isArray(durable.records))
+              throw new Error("Open RO durable roster is incomplete; source retained for retry.");
+            if (durable.updatedAt!==model.state.updatedAt ||
+                JSON.stringify(durable.records)!==JSON.stringify(model.state.records) ||
+                model.state.source?.sha256!==digest) {
+              // Do not replace an in-progress manager edit or its unsaved draft.
+              if (model.openRoSaveInFlight ||
+                  (typeof editDraftDirty!=="undefined" && editDraftDirty))
+                throw new DOMException("Durable Open RO recovery deferred until the pending manager edit is saved.","InvalidStateError");
+              model.state=durable;
+              recordDiagnostic("OPEN RO INTAKE","Recovered an already committed roster after an interrupted read-back; projections will be verified before source cleanup.");
+            }
+            // STATE_PATH may have committed before dependent snapshot writes
+            // failed. Rebuild and durably verify both projections from the
+            // exact trusted grouped source before any duplicate cleanup.
+            const priorBook = typeof prepareXlsxWorkbook === "function"
+              ? await prepareXlsxWorkbook(bytes, {type:"array",cellDates:true,cellFormula:true})
+              : XLSX.read(bytes, {type:"array",cellDates:true,cellFormula:true});
+            const grouped = legacyReport(priorBook);
+            if (!grouped || grouped.verification!=="group totals and global rows returned reconciled")
+              throw new Error("Open RO read-back reconciliation failed; source retained for retry.");
+            const savedSource=durable.source,activeRecords=durable.records;
+            await retainDailyReport("openRo",{
+              ...savedSource,coverageDate:savedSource.reportDate||coverageTimestamp(savedSource.sourceModifiedAt),
+              rowCount:activeRecords.length,
+              advisors:Object.fromEntries([...new Set(activeRecords.map(row=>row.advisorCode))]
+                .map(code=>[code,activeRecords.filter(row=>row.advisorCode===code).length]))
+            });
+            // Preserve managerial manual closures that occurred AFTER this
+            // source was imported. Keep all other source workload records,
+            // including legitimate untracked-advisor rows.
+            const stillActive=new Set(activeRecords.map(row=>String(row.ro)));
+            const manuallyClosed=new Set((durable.closedRecords||[])
+              .filter(row=>row.closedReason==="manual-manager-close" &&
+                !stillActive.has(String(row.ro)) &&
+                Number.isFinite(Date.parse(row.closedAt||"")) &&
+                Date.parse(row.closedAt)>=Date.parse(savedSource.importedAt||""))
+              .map(row=>String(row.ro)));
+            const safeWorkload=(grouped.workloadRecords||activeRecords)
+              .filter(row=>!manuallyClosed.has(String(row.ro)));
+            await saveOpenRoWorkload(openRoWorkloadSnapshot(
+              safeWorkload,savedSource,savedSource.sourceModifiedAt));
+            await ensureDailyFocus();
+            sourceLocations.set(candidate.name,candidate.location);
+            model.autoImport.seen[candidate.signature]={
+              fileName:candidate.name,relativePath:candidate.relativePath,kind,
+              importedAt:durable.source.importedAt||now(),
+              cleanupPending:true,cleanupSha256:digest
+            };
+            ledgerChanged=true;
+            await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+            await removeSourceEntryWithByteGuard(candidate.name,bytes);
+            model.autoImport.seen[candidate.signature].cleanupPending=false;
+            model.autoImport.seen[candidate.signature].cleanupCompletedAt=now();
+            delete model.autoImport.seen[candidate.signature].cleanupSha256;
+            cleaned.push(candidate.name);
+            recordDiagnostic("REPORT INBOX","Verified current Open RO duplicate removed without replay");
+            continue;
+          }
         }
         const outcome=await processClassifiedCandidate(candidate, kind, bytes, true);
         if (kind==="appointments" && outcome?.saved && outcome.deleted===false) {
@@ -3677,6 +3756,16 @@
         }
         if(outcome?.retired)retired.push(candidate.name);else imported.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, relativePath:candidate.relativePath, importedAt: now(), kind, retired:Boolean(outcome?.retired) }; ledgerChanged = true;recordDiagnostic("REPORT INBOX",outcome?.retired?`${kind} recognized and retired outside Service OS`:`${kind} recognized and imported or safely deduplicated`);
       } catch (error) {
+        // If the main Open RO snapshot was durably committed but a dependent
+        // history/workload/focus write failed, this is a recovery-pending
+        // import, NOT a rejected workbook. Keep the original in Inbox; the
+        // exact-SHA path above repairs all projections on the next scan.
+        if (candidate.location==="inbox" && kind==="open-ro" && bytes &&
+            model.state.source?.sha256===await sha256(new Uint8Array(bytes))) {
+          retained.push(candidate.name);
+          recordDiagnostic("OPEN RO INTAKE","Roster saved; dependent projection or cleanup retry is pending. Original report retained.");
+          continue;
+        }
         if (candidate.location==="inbox" && model.autoImport.seen[candidate.signature]?.cleanupPending) {
           retained.push(candidate.name);cleanupPending.push(candidate.name);
           recordDiagnostic("REPORT INBOX CLEANUP", "Previously imported report retained; verified cleanup retry deferred");
@@ -3764,26 +3853,29 @@
     status(`${clearUpdates.length} clear advisor update${clearUpdates.length === 1 ? " was" : "s were"} applied.${questions.length ? ` ${questions.length} item${questions.length === 1 ? " was" : "s were"} flagged to ask in person.` : " No clarification was needed."}`, questions.length ? "info" : "success");
   }
 
-  async function importSource(selectedName = null, deleteAfterSuccess = false, providedBytes = null) {
-    return withSupervisorWorkbookLock(() => importSourceUnlocked(selectedName,deleteAfterSuccess,providedBytes));
+  async function importSource(selectedName = null, deleteAfterSuccess = false, providedBytes = null, verifiedAutomaticInbox = false) {
+    return withSupervisorWorkbookLock(() => importSourceUnlocked(selectedName,deleteAfterSuccess,providedBytes,verifiedAutomaticInbox));
   }
-  async function importSourceUnlocked(selectedName = null, deleteAfterSuccess = false, providedBytes = null) {
+  async function importSourceUnlocked(selectedName = null, deleteAfterSuccess = false, providedBytes = null, verifiedAutomaticInbox = false) {
     const name = selectedName || ui.sourceSelect.value; if (!name) return; status("Reading "+name+"…", "working");
     const file = await (await sourceFileHandle(name)).getFile(); const bytes = providedBytes || await file.arrayBuffer(); const book = typeof prepareXlsxWorkbook === "function" ? await prepareXlsxWorkbook(bytes, { type: "array", cellDates: true, cellFormula: true }) : XLSX.read(bytes, { type: "array", cellDates: true, cellFormula: true }); if (workbookIsHandoff(book, name)) throw new Error("Advisor handoff snapshots are outbound only."); if (workbookHasReturnSchema(book)) return importReturnedWorkbookUnlocked(name, deleteAfterSuccess, bytes); if (workbookHasReturnIdentity(book)) throw new Error("Needs Review: damaged Supervisor Workbook cannot be imported as a generic Open RO report."); const legacy = legacyReport(book); const table = legacy ? null : findTable(book);
+    if (verifiedAutomaticInbox && (sourceLocations.get(name)!=="inbox" || !legacy ||
+        legacy.verification!=="group totals and global rows returned reconciled"))
+      throw new Error("Needs Review: only a complete, count-reconciled grouped Open RO workbook can be imported unattended.");
     const incoming = legacy ? legacy.records : table.rows.map((row) => rawRecord(row, table)).filter((record) => record.ro); if (!incoming.length) throw new Error("The detected table contained no RO records.");
-    const verifiedSource = await verifyCompleteRoImport(name, file, bytes, incoming);
+    const verifiedSource = await verifyCompleteRoImport(name, file, bytes, incoming, verifiedAutomaticInbox);
     incoming.forEach((raw)=>reconcileRecordSourceIdentity(raw));const importedAt=now(),merged=mergeCompleteOpenRoRecords(incoming,importedAt,"open-ro-xlsx"),records=merged.records;records.forEach(reconcileRecordSourceIdentity);
     await markSupervisorWorkbookStale("Open RO population changed after a source import");
     await backupState("before-import");
     if (!deleteAfterSuccess) await writeBytes(["imports", stamp()+"-"+slug(name.replace(/\.xlsx$/i, ""))+".xlsx"], new Uint8Array(bytes));
     const sheetName = legacy?.sheetName || table.sheetName, reportRows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { header: 1, defval: "" }), reportDate = internalObservationDate(reportRows) || null, nextState = { ...model.state, updatedAt: importedAt, source: { ...verifiedSource, fileName: name, importedAt, sourceModifiedAt:new Date(file.lastModified).toISOString(), reportDate, sheetName, rowCount: records.length, format: legacy?.format || "Generic table", advisorSections: legacy?.advisorSections || null }, records, closedRecords:merged.closedRecords };
     await writeJson(STATE_PATH,nextState);model.state=nextState;await retainDailyReport("openRo",{...model.state.source,coverageDate:reportDate||coverageTimestamp(model.state.source.sourceModifiedAt),rowCount:records.length,advisors:Object.fromEntries([...new Set(records.map(row=>row.advisorCode))].map(code=>[code,records.filter(row=>row.advisorCode===code).length]))});await saveOpenRoWorkload(openRoWorkloadSnapshot(legacy?.workloadRecords || records,model.state.source,model.state.source.sourceModifiedAt)); await ensureDailyFocus(); await addHistory("source-import", "Imported "+records.length+" open ROs from "+name, { fileName: name, reportDate, sheetName, format: model.state.source.format, advisorSections: model.state.source.advisorSections, rawCopyRetained: !deleteAfterSuccess,assignNextWorkload:true,closedByReconciliation:merged.closedCount,reopenedFromRetention:merged.reopenedCount });
-    await markOpenRoManualReviewComplete(name,file,importedAt);
+    if (!verifiedAutomaticInbox) await markOpenRoManualReviewComplete(name,file,importedAt);
     renderAll();
     let deleted = false;
     if (deleteAfterSuccess || (!dailyPickedSources.has(name) && window.confirm("Import complete and verified.\n\nDelete the original source file \""+name+"\" from the working folder?\n\nA timestamped audit copy remains in the imports folder."))) {
-      try { if (typeof removeSourceEntryWithByteGuard === "function") if (typeof removeSourceEntryWithByteGuard === "function") await removeSourceEntryWithByteGuard(name, bytes); else await removeSourceEntry(name); else await removeSourceEntry(name); await addHistory("source-deleted", "Deleted processed source file "+name, { fileName: name, retainedAuditCopy: !deleteAfterSuccess }); deleted = true; await scanFiles(); }
-      catch (error) { throw new Error("Imported "+records.length+" records, but "+name+" could not be deleted: "+(error.message || error)); }
+      try { await removeSourceEntryWithByteGuard(name, bytes); deleted = true; await addHistory("source-deleted", "Deleted processed source file "+name, { fileName: name, retainedAuditCopy: !deleteAfterSuccess }); await scanFiles(); }
+      catch (error) { if (error?.sourceCleanupFailure) throw error; throw new Error("Imported "+records.length+" records, but "+name+" could not be deleted: "+(error.message || error)); }
     }
     status("Imported "+records.length+" records. Existing reviews and commitments were retained for matching ROs."+(deleted ? " The original "+name+" was deleted"+(deleteAfterSuccess ? " after durable verification." : "; its audit copy remains in imports.") : " The original source file was retained."), "success");
   }

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.10.18-beta.218 — current Beta
+
+- fix(#619): restore hands-off grouped Open RO report ingestion. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.217 — current Beta
+
+- fix(#619): restore hands-off grouped Open RO report ingestion. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.216 — current Beta
+
+- fix(#619): restore hands-off grouped Open RO report ingestion. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.215 — current Beta
+
+- fix(#619): restore hands-off grouped Open RO report ingestion. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.214 — current Beta
+
+- fix(#619): restore hands-off grouped Open RO report ingestion. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.213 — current Beta
+
+- fix(#619): restore hands-off grouped Open RO report ingestion. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.212 — current Beta
 
 - fix: retry Report Inbox deletion after verified ingestion (#616). Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

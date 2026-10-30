@@ -4,6 +4,14 @@ Service Operations Hub separates **primary operational sources**, **supplemental
 
 Primary sources may update live operating state. Supplemental sources are retained as compact local snapshots and are explicitly marked `supplementalOnly` with KPI promotion disabled. Known non-service documents are identified so they do not remain in **Files To Learn** and do not create operational data.
 
+## Automatic Report Inbox contract
+
+- Drop a complete, advisor-grouped Open RO XLSX into `01 - DROP REPORTS HERE`. Once the file is stable, the watcher verifies the global `Rows Returned` total, every advisor-section item count, RO identities, and unchanged source bytes. It automatically updates the rolling Open RO population and Assign Next workload, retaining manager reviews/commitments. The source is deleted **only after durable import succeeds**. No manual file picker or confirmation is required for this reconciled workbook family.
+- If the original XLSX is already the **current, byte-identical authoritative Open RO source**, the watcher verifies the durable state and removes the duplicate without re-importing or overwriting RO state.
+- Unknown, incomplete, corrupt or non-reconciled report structures move to **Files To Learn** with a local failure diagnostic. Copy integrity is checked before deleting the original from Inbox. Temporary OneDrive read/write errors keep the original in place for retry rather than misclassifying it as a broken workbook.
+- Generic Open RO table XLSX, unsigned DOCX and other sources not proven to be count-reconciled are **not** granted automatic active-roster authority. A changed or ambiguous source pending cleanup is retained for review, never deleted blindly.
+- Previously queued `manualImportRequired` grouped XLSX files are retried by the watcher after the updated Beta is installed. Stable is unaffected. These guarantees are backed by synthetic CI; physical OneDrive operation must be checked on the installed device.
+
 ## Primary operational sources
 
 In addition to the established XLSX Open RO formats, the Hub accepts the CDK **Repair Orders browser-export DOCX** as a primary Open RO source.

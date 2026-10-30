@@ -19,49 +19,48 @@ const fakeEntries=names=>({
   async *entries(){for(const name of names)yield[name,{kind:"file"}];}
 });
 
-test("watch recognizes full Open RO but does not move it to learning or replace active roster",async()=>{
+test("watch hands off a recognized complete grouped Open RO workbook without manual review",async()=>{
   const name="Synthetic grouped Open RO.xlsx",signature="inbox|synthetic";
   const entry={name,signature,location:"inbox",relativePath:"01 - DROP REPORTS HERE/"+name,
     file:{lastModified:1,arrayBuffer:async()=>new ArrayBuffer(2)}};
-  const calls={imported:0,moved:0,scanned:0,history:[],saved:0};
+  const calls={imported:0,moved:0,scanned:0,saved:0};
   const ctx=source("  async function autoSurveyFolder(","  async function importReturnedWorkbook(",{
     watchCandidates:async()=>[entry],candidateNeedsImport:()=>true,
-    sourceLocations:new Map(),model:{autoImport:{seen:{}}},
+    sourceLocations:new Map(),model:{state:{source:{}},autoImport:{seen:{}}},
     classifyImportFile:async()=> "open-ro",
-    processClassifiedCandidate:async()=>{calls.imported++;throw Error("Unsafe automatic roster replacement");},
-    moveToLearn:async()=>{calls.moved++;throw Error("Misrouted to learning");},
-    now:()=>"2026-10-27T10:00:00Z",
+    processClassifiedCandidate:async()=>{calls.imported++;},
+    moveToLearn:async()=>{calls.moved++;throw Error("Should not move successfully ingested report");},
+    now:()=>"2026-10-29T10:00:00Z",readJson:async()=>({source:{sha256:"old"}}),
+    STATE_PATH:["data","state.json"],
     writeJson:async()=>{calls.saved++;},AUTO_IMPORT_PATH:["data","auto-import.json"],
-    recordDiagnostic:()=>{},addHistory:async(...args)=>{calls.history.push(args);},
+    recordDiagnostic:()=>{},addHistory:async()=>{},
     status:()=>{},scanFiles:async()=>{calls.scanned++;},
-    sha256:async()=>"",
-    TextDecoder
+    sha256:async()=>"",TextDecoder
   });
   const result=await ctx.autoSurveyFolder();
-  assert.equal(result.imported.length,0);
+  assert.equal(result.imported.length,1);
   assert.equal(result.learned.length,0);
-  assert.equal(result.reviewRequired.length,1);
-  assert.equal(result.reviewRequired[0],name);
-  assert.equal(calls.imported,0);
+  assert.equal(result.reviewRequired.length,0);
+  assert.equal(calls.imported,1);
   assert.equal(calls.moved,0);
-  assert.equal(calls.scanned,1);
+  assert.equal(calls.scanned,0);
   assert.equal(calls.saved,1);
-  assert.equal(calls.history[0][0],"open-ro-review-required");
-  assert.equal(ctx.model.autoImport.seen[signature].manualImportRequired,true);
+  assert.equal(ctx.model.autoImport.seen[signature].manualImportRequired,undefined);
 });
 
-test("watch skips already queued unchanged Open RO and rechecks a replaced file",()=>{
+test("old manual-review markers do not block a now-eligible Open RO import",()=>{
   const signature="inbox|same";
   const ctx=source("  function candidateNeedsImport(","  function transientWorkspaceState(",{
     model:{autoImport:{seen:{[signature]:{kind:"open-ro",manualImportRequired:true}}}}
   });
-  assert.equal(ctx.candidateNeedsImport({signature,location:"inbox"}),false);
+  assert.equal(ctx.candidateNeedsImport({signature,location:"inbox"}),true);
   assert.equal(ctx.candidateNeedsImport({signature:"inbox|changed",location:"inbox"}),true);
   assert.equal(ctx.candidateNeedsImport({signature,location:"root"}),false);
   assert.equal(ctx.candidateNeedsImport({signature:"root|new",location:"root"}),true);
   ctx.model.autoImport.seen[signature].manualImportRequired=false;
   ctx.model.autoImport.seen[signature].importedAt="2026-10-27T12:00:00Z";
-  assert.equal(ctx.candidateNeedsImport({signature,location:"inbox"}),false);
+  assert.equal(ctx.candidateNeedsImport({signature,location:"inbox"}),true,
+    "a still present imported Open RO must be checked for exact duplicate cleanup");
 });
 
 test("manual report picker recovers previously misrouted Open RO without surfacing unrelated learn files",async()=>{
