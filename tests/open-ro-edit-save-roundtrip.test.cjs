@@ -48,6 +48,7 @@ function harness(failPath = null, failOnce = false, productionDraftFlow = false,
   let failedOnce = false;
   const files = new Map();
   const directories = new Set(["data", "backups"]);
+  if (productionHistory) directories.add("data/history");
   const model = { state: hostCopy(originalState), selectedId: "synthetic-ro-101", editOrigin: "table", root: null };
   const diagnostics = [];
   const history = [];
@@ -223,8 +224,8 @@ test("manual Open RO edit history is durably persisted after read-back with sour
   assert.ok(historyWrite > stateReadback,
     "production history write follows verified state persistence; events: " + JSON.stringify(productionEvents));
   assert.ok(historyReadback > historyWrite,
-    "production history is read back after its write; events: " + JSON.stringify(productionEvents) +
-    "; diagnostics: " + JSON.stringify(h.diagnostics));
+    "production addHistory completes its durable write/read-back after state persistence; events: " +
+    JSON.stringify(productionEvents) + "; diagnostics: " + JSON.stringify(h.diagnostics.map(item => item.kind)));
 });
 
 test("transient Open RO write failure preserves the draft for a verified retry", async () => {
