@@ -177,7 +177,7 @@ test("production freshness selectors distinguish missing and stale coverage for 
   const freshnessStart = app.indexOf("  function sourceFreshness(key, options = {})");
   const freshnessEnd = app.indexOf("  function metricDependencyEvidence(", freshnessStart);
   const lastDayStart = app.indexOf("  function lastDayOfMonth(month)");
-  const lastDayEnd = app.indexOf("\\n  function ", lastDayStart + 3);
+  const lastDayEnd = app.indexOf("\n  function ", lastDayStart + 3);
   assert.ok(expectationStart >= 0 && expectationEnd > expectationStart, "production expectations selector exists");
   assert.ok(freshnessStart >= 0 && freshnessEnd > freshnessStart, "production freshness selector exists");
   assert.ok(lastDayStart >= 0 && lastDayEnd > lastDayStart, "production date helper exists");
