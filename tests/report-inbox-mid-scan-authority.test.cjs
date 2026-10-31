@@ -47,6 +47,7 @@ function harness({pauseAt="",permissionState="granted"}={}){
     autoSurveyFolder:async signatures=>{
       counters.imports++;
       assert.deepEqual([...signatures],[candidate.signature]);
+      await pause("import");
       return{imported:[candidate.name],retained:[],learned:[]};
     },
     stopFolderWatch:()=>{counters.stops++;},
@@ -162,5 +163,63 @@ test("real permission rejection still pauses the active root's watch",async()=>{
   await h.scan("poll");
   assert.equal(h.counters.stops,1);
   assert.equal(h.counters.reads,0);
+  assert.equal(h.folderWatch.busy,false);
+});
+
+test("switching workspaces while automatic import is pending preserves new-root UI and pending candidates",async()=>{
+  const h=harness({pauseAt:"import"});
+  const scan=h.scan();
+  await h.entered;
+  h.model.root={name:"Second synthetic Workspace"};
+  h.release();
+  await scan;
+  assert.equal(h.counters.imports,1,"the old import was already entered; this guards its completion effects");
+  assert.equal(h.counters.renders,0,"the old import cannot render over the newly connected Workspace");
+  assert.equal(h.folderWatch.pending.has(candidate.relativePath),true,
+    "stale import completion must not remove pending source identities");
+  assert.equal(h.folderWatch.lastChecked,undefined,
+    "a stale completion cannot set the new Workspace watch timestamp");
+  assert.equal(h.folderWatch.busy,false);
+});
+
+test("revoked write authority during automatic import suppresses stale post-import UI writes",async()=>{
+  const h=harness({pauseAt:"import"});
+  const scan=h.scan();
+  await h.entered;h.writeAuthority.canWrite=false;h.release();await scan;
+  assert.equal(h.counters.imports,1);
+  assert.equal(h.counters.renders,0);
+  assert.equal(h.folderWatch.pending.has(candidate.relativePath),true);
+  assert.equal(h.folderWatch.busy,false);
+});
+
+test("a manual import entering during automatic import suppresses stale completion effects",async()=>{
+  const h=harness({pauseAt:"import"});
+  const scan=h.scan();
+  await h.entered;h.state.dailyImportBusy=true;h.release();await scan;
+  assert.equal(h.counters.imports,1);
+  assert.equal(h.counters.renders,0);
+  assert.equal(h.folderWatch.pending.has(candidate.relativePath),true);
+  assert.equal(h.folderWatch.busy,false);
+});
+
+test("Watch OFF during automatic import does not publish a misleading completion",async()=>{
+  const h=harness({pauseAt:"import"});
+  const scan=h.scan();
+  await h.entered;h.state.watchEnabled=false;h.release();await scan;
+  assert.equal(h.counters.imports,1);
+  assert.equal(h.counters.renders,0);
+  assert.equal(h.folderWatch.pending.has(candidate.relativePath),true);
+  assert.equal(h.folderWatch.lastChecked,undefined);
+  assert.equal(h.folderWatch.busy,false);
+});
+
+test("successful import still clears only its confirmed candidate and repaints once",async()=>{
+  const h=harness({pauseAt:"import"});
+  const scan=h.scan();
+  await h.entered;h.release();await scan;
+  assert.equal(h.counters.imports,1);
+  assert.equal(h.counters.renders,1);
+  assert.equal(h.folderWatch.pending.size,0);
+  assert.equal(h.folderWatch.lastChecked,"2026-10-31T11:00:01.000Z");
   assert.equal(h.folderWatch.busy,false);
 });
