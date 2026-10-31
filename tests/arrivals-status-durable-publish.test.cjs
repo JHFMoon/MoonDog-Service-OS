@@ -41,7 +41,7 @@ function harness(options = {}) {
     APPOINTMENTS_PATH: ["data", "appointments.json"],
     stamp: () => "synthetic-stamp",
     now: () => "2026-10-31T16:00:00.000Z",
-    structuredClone,
+    structuredClone: options.clone || structuredClone,
     writeJson: async (file, value) => {
       const name = Array.isArray(file) ? file.join("/") : String(file);
       events.push("write:" + name);
@@ -204,4 +204,19 @@ test("production appointment import refuses to start while arrival-status save i
   assert.ok(importAt >= 0, "production appointment importer exists");
   const start = source.slice(importAt, importAt + 1100);
   assert.match(start, /appointmentImportBusy\s*\|\|\s*arrivalStatusWriteBusy/);
+});
+
+
+test("clone failure releases local Arrivals save exclusion and restores selection", async () => {
+  let first = true;
+  const h = harness({clone(value) {
+    if (first) { first = false; throw Error("Synthetic clone failure"); }
+    return structuredClone(value);
+  }});
+  await assert.rejects(h.ctx.saveArrival("synthetic-appointment-1", "Arrived"), /clone failure/);
+  assert.deepEqual(h.model.appointments, h.initial);
+  assert.deepEqual(h.events, ["render"]);
+  await h.ctx.saveArrival("synthetic-appointment-1", "Arrived");
+  assert.equal(h.model.appointments.days[day].appointments[0].arrivalStatus, "Arrived");
+  assert.equal(h.history.length, 1);
 });
