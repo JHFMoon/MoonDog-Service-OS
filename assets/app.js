@@ -3535,13 +3535,22 @@
   function watchedInboxFile(name) { const value=String(name||"").trim();return Boolean(value&&!/^\.moondog-txn-/.test(value)); }
   function returnedWorkbookCandidate(name){return /\.xlsx$/i.test(name)&&!/^~\$/.test(name)&&/^(?:MoonDog|Service Operations) /i.test(name)&&!/-revision\.xlsx$/i.test(name);}
   async function watchCandidates(){
+    // Capture one root for the complete asynchronous source enumeration. A
+    // reconnect can replace model.root while reportInbox or entries() awaits;
+    // never combine the old Inbox with another Workspace's returned workbooks.
+    const scanRoot=model.root;
+    if(!scanRoot)return [];
     const pending=[];
     const inbox=await reportInbox(false);
+    if(model.root!==scanRoot)return [];
     for await(const[name,handle]of inbox.entries()){
+      if(model.root!==scanRoot)return [];
       if(handle.kind==="file"&&watchedInboxFile(name))pending.push({name,handle,location:"inbox"});
     }
+    if(model.root!==scanRoot)return [];
     const knownNames=new Set(pending.map(item=>item.name));
-    for await(const[name,handle]of model.root.entries()){
+    for await(const[name,handle]of scanRoot.entries()){
+      if(model.root!==scanRoot)return [];
       if(handle.kind==="file"&&returnedWorkbookCandidate(name)&&!knownNames.has(name)){
         knownNames.add(name);
         pending.push({name,handle,location:"root"});
@@ -3564,7 +3573,9 @@
     // Two concurrent metadata reads shorten large scans while limiting pressure on
     // OneDrive. Result positions preserve the original Inbox-then-root order.
     await Promise.all(Array.from({length:Math.min(2,pending.length)},()=>readNext()));
-    return candidates;
+    // A previous file metadata read can settle after a reconnect; discard
+    // the whole scan instead of handing its old source identities to imports.
+    return model.root===scanRoot?candidates:[];
   }
   function candidateNeedsImport(candidate) {
     if(candidate.readError)return false;
