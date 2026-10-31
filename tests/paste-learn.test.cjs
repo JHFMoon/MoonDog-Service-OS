@@ -355,7 +355,10 @@ test("clipboard import releases shared lock after durable write/read-back failur
 test("shared durable lock permits only a genuinely empty first Workspace state",async()=>{
  const start=app.indexOf("  async function withSupervisorWorkbookLock(");
  assert.ok(start>0,"actual production lock must be available");
- const line=app.slice(start,app.indexOf("\n",start));
+ const end=app.indexOf("  const dailyPickedSources = new Map();",start);
+ const declaration=app.lastIndexOf("  let supervisorWorkbookOperationTail = Promise.resolve();",start);
+ assert.ok(declaration>=0&&end>start,"full production supervisor lock boundary exists");
+ const lockSection=app.slice(declaration,end);
  const model={root:{name:"Synthetic"},state:{updatedAt:null,source:null,records:[],closedRecords:[]},recovery:{}};
  let stateFile=null,executed=0,lockRequests=0;
  const cx={model,supervisorWorkbookOperationTail:Promise.resolve(),
@@ -366,7 +369,7 @@ test("shared durable lock permits only a genuinely empty first Workspace state",
    }}},
    STATE_PATH:["data","current-state.json"],RECOVERY_PATH:["data","recovery.json"],
    readJson:async path=>path===cx.STATE_PATH?stateFile:null};
- vm.runInNewContext(line+"\nthis.lock=withSupervisorWorkbookLock",cx);
+ vm.runInNewContext(lockSection+"\nthis.lock=withSupervisorWorkbookLock",cx);
  const action=async()=>{executed++;return "saved";};
  await assert.rejects(()=>cx.lock(action),/Workspace changed/,"the ordinary lock must still reject missing state");
  assert.equal(await cx.lock(action,{allowInitialEmptyState:true}),"saved",
