@@ -49,14 +49,6 @@ function harness({location="inbox",pauseAt="",autoCleanup=false,guardBytes=false
   return{model,oldRoot,newRoot,calls,name,paused,release:()=>release(),remove:()=>context.remove(name)};
 }
 
-async function expectStaleRejection(h){
-  await assert.rejects(h.remove(),e=>e.name==="InvalidStateError"&&e.sourceCleanupFailure===true);
-  assert.equal(h.calls.inboxRemovals,0);
-  assert.equal(h.calls.learnRemovals,0);
-  assert.equal(h.calls.oldRootRemovals,0);
-  assert.equal(h.calls.newRootRemovals,0);
-}
-
 test("normal Inbox cleanup still removes the verified source",async()=>{
   const h=harness();await h.remove();
   assert.equal(h.calls.inboxRemovals,1);
@@ -131,5 +123,23 @@ test("legacy fallback never deletes new Workspace after stale missing-Inbox fail
   await h.paused;h.model.root=h.newRoot;h.release();
   await assert.rejects(run,e=>e.name==="InvalidStateError");
   assert.equal(h.calls.oldRootRemovals,0);
+  assert.equal(h.calls.newRootRemovals,0);
+});
+
+test("ordinary verified cleanup saves pending provenance before removing original",async()=>{
+  const h=harness({autoCleanup:true});
+  await h.remove();
+  assert.equal(h.calls.intentWrites,1);
+  assert.equal(h.calls.inboxRemovals,1);
+  assert.equal(h.calls.newRootRemovals,0);
+  assert.equal(h.model.autoImport.seen["Report Inbox/synthetic-report.xlsx|3|1"].cleanupPending,true);
+  assert.equal(h.model.autoImport.seen["Report Inbox/synthetic-report.xlsx|3|1"].cleanupSha256,"synthetic-sha");
+});
+
+test("ordinary exact-byte-guard cleanup still removes only the intended source",async()=>{
+  const h=harness({guardBytes:true});
+  await h.remove();
+  assert.equal(h.calls.fileReads,1);
+  assert.equal(h.calls.inboxRemovals,1);
   assert.equal(h.calls.newRootRemovals,0);
 });
