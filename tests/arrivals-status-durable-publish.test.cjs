@@ -37,7 +37,7 @@ function harness(options = {}) {
   const model = { appointments: clone(initial) };
   const events = [], writes = [], history = [], statuses = [];
   const ctx = vm.createContext({
-    model, ui: { appointmentDate: { value: day } },
+    model, appointmentImportBusy: false, ui: { appointmentDate: { value: day } },
     APPOINTMENTS_PATH: ["data", "appointments.json"],
     stamp: () => "synthetic-stamp",
     now: () => "2026-10-31T16:00:00.000Z",
@@ -141,7 +141,7 @@ test("overlapping same-tab Arrivals status changes cannot overwrite one another"
   await started.promise;
   await assert.rejects(
     h.ctx.saveArrival("synthetic-appointment-1", "No Show"),
-    /Arrivals status save is already in progress/
+    /Arrivals status save or import is already in progress/
   );
   assert.equal(h.model.appointments.days[day].appointments[0].arrivalStatus, "Scheduled");
   gate.resolve();
@@ -163,4 +163,45 @@ test("failure releases same-tab save exclusion for a safe retry", async () => {
   await h.ctx.saveArrival("synthetic-appointment-1", "Arrived");
   assert.equal(h.model.appointments.days[day].appointments[0].arrivalStatus, "Arrived");
   assert.equal(h.history.length, 1, "history only records the verified retry");
+});
+
+test("status changes refuse concurrent appointment import before writing", async () => {
+  const h = harness();
+  h.ctx.appointmentImportBusy = true;
+  await assert.rejects(
+    h.ctx.saveArrival("synthetic-appointment-1", "Arrived"),
+    /Arrivals status save or import is already in progress/
+  );
+  assert.deepEqual(h.model.appointments, h.initial);
+  assert.deepEqual(h.events, []);
+});
+
+test("source replacement during delayed verified save fails closed without publishing stale model", async () => {
+  const gate = deferred(), started = deferred();
+  const h = harness({onWrite: async (name, model) => {
+    if (name === "data/appointments.json") {
+      started.resolve();
+      await gate.promise;
+      model.appointments = clone({
+        updatedAt: "competing-import",
+        days: { [day]: { date: day, appointments: [] } }
+      });
+    }
+  }});
+  const save = h.ctx.saveArrival("synthetic-appointment-1", "Arrived");
+  await started.promise;
+  assert.equal(h.model.appointments.updatedAt, "prior-revision");
+  gate.resolve();
+  await assert.rejects(save, /Appointments changed while the status save was being verified/);
+  assert.equal(h.model.appointments.updatedAt, "competing-import");
+  assert.equal(h.history.length, 0);
+  assert.equal(h.statuses.length, 0);
+  assert.equal(h.events.at(-1), "render");
+});
+
+test("production appointment import refuses to start while arrival-status save is active", () => {
+  const importAt = source.indexOf("async function importAppointmentFile(");
+  assert.ok(importAt >= 0, "production appointment importer exists");
+  const start = source.slice(importAt, importAt + 1100);
+  assert.match(start, /appointmentImportBusy\s*\|\|\s*arrivalStatusWriteBusy/);
 });
