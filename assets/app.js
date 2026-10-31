@@ -4307,10 +4307,20 @@
         scopeStart = scopeEnd && item?.scopeVerified ? validCoverageDate(item.scopeStart) : "",
         // Local import time and configured scoring window are not source coverage.
         observedDate = item?.reportObservationVerified ? validCoverageDate(item.reportObservationDate) : "",
-        reportPeriod = csiReportedPeriod(scopeStart, scopeEnd, observedDate);
+        reportPeriod = csiReportedPeriod(scopeStart, scopeEnd, observedDate),
+        // Do not silently erase an invalid date in a scope explicitly marked verified.
+        // Its sanitized period cannot be promoted to current by the remaining end date.
+        malformedDeclaredScope = item?.scopeVerified === true && (
+          (item.scopeStart != null && item.scopeStart !== "" && !validCoverageDate(item.scopeStart)) ||
+          (item.scopeEnd != null && item.scopeEnd !== "" && !validCoverageDate(item.scopeEnd))
+        );
       return evaluate({ ...common, exists: Boolean(item),
         sourceTimestamp: item?.importedAt, sourceDate: observedDate,
-        observationVerified: Boolean(observedDate), scopeVerified: Boolean(scopeEnd), scopeEnd,
+        observationVerified: Boolean(observedDate),
+        invalid: malformedDeclaredScope ? "The saved verified CSI report scope contains an invalid date." : "",
+        scopeVerified: Boolean(scopeEnd),
+        scopeStart: item?.scopeVerified ? item.scopeStart : "",
+        scopeEnd: item?.scopeVerified ? item.scopeEnd : "",
         periodStart: reportPeriod.periodStart, periodEnd: reportPeriod.periodEnd }, item, reportPeriod.verified);
     }
     if (key === "nextAppointments") { const item = options.item || latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, Boolean(item?.periodStart && item?.periodEnd)); }
