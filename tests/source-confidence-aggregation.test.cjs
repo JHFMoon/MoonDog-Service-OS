@@ -176,3 +176,30 @@ test("production freshness states render truthful source confidence labels acros
       key+" duplicate conflict presentation");
   }
 });
+
+
+test("a current Open RO workload snapshot never conceals invalid source evidence in report readiness",()=>{
+  const invalidReasons=[
+    "Conflicting duplicate Open RO report for this operating date.",
+    "Unsupported Open RO source layout.",
+    "The saved Open RO source period is invalid."
+  ];
+  for(const reason of invalidReasons){
+    const invalid=F.evaluateSource({key:"openRo",exists:true,today,sourceDate:today,invalid:reason});
+    assert.equal(invalid.status,"invalid");
+    const need=F.evaluateReportNeed({key:"openRo",today,evidence:invalid,currentSnapshot:true});
+    assert.equal(need.state,"NEED NOW","an independent current workload cannot erase "+reason);
+    assert.equal(need.actionable,true);
+    assert.match(need.reason,/missing, invalid or stale/);
+    assert.equal(F.evaluateMetric([invalid]).verified,false);
+  }
+  // Keep the existing, separately validated workload fallback for a missing
+  // source snapshot. Only an explicit invalid/contradictory source is a blocker.
+  const missing=F.evaluateSource({key:"openRo",exists:false,today});
+  assert.equal(F.evaluateReportNeed({key:"openRo",today,evidence:missing,currentSnapshot:true}).state,"CURRENT");
+  assert.equal(F.evaluateReportNeed({key:"openRo",today,evidence:missing,currentSnapshot:false}).state,"NEED NOW");
+  const valid=F.evaluateSource({key:"openRo",exists:true,today,sourceDate:today});
+  assert.equal(valid.status,"current");
+  assert.equal(F.evaluateReportNeed({key:"openRo",today,evidence:valid,currentSnapshot:true}).state,"CURRENT");
+  assert.equal(F.evaluateReportNeed({key:"openRo",today,evidence:valid}).state,"CURRENT");
+});
