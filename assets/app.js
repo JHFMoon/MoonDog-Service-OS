@@ -1288,6 +1288,7 @@
       supervisorWorkbookOperationTail=new Promise(resolve=>{release=resolve;});
       await previous;
       try{
+        if(typeof workspaceConnectionBusy!=="undefined"&&workspaceConnectionBusy)throw new Error("A Workspace connection is in progress. Retry the workbook operation after reconnection.");
         if(model.root!==requestedRoot)throw new Error("Workspace changed while the Supervisor Workbook operation was queued. Retry from the connected Workspace.");
         if(model.root){
           const durable=await readJson(STATE_PATH,null);
@@ -1296,6 +1297,7 @@
           const recovery=await readJson(RECOVERY_PATH,null);
           if(recovery)model.recovery=recovery;
         }
+        if(typeof workspaceConnectionBusy!=="undefined"&&workspaceConnectionBusy)throw new Error("A Workspace connection is in progress. Retry the workbook operation after reconnection.");
         if(model.root!==requestedRoot)throw new Error("Workspace changed before the Supervisor Workbook operation began. Retry from the connected Workspace.");
         return await operation();
       }finally{release();}
@@ -1485,6 +1487,8 @@
     }
     const permissionWasPending=model.pendingRoot===handle;
     if (await permission(handle, ask) !== "granted") throw new Error("Folder access was not granted.");
+    const afterPermissionBlock=workspaceConnectionBlockReason();
+    if(afterPermissionBlock){const error=new Error(afterPermissionBlock);error.code="WORKSPACE_CONNECTION_BUSY";throw error;}
     await writeAuthority.validate(handle, ask);
     // Permission prompts and operational-root resolution yield to imports and
     // workbook operations. Recheck immediately before replacing the root.
