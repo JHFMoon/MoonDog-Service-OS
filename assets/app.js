@@ -4045,33 +4045,39 @@
     }catch(error){if(!saved)model.appointments=prior;status(`Appointments were ${saved?"saved; follow-up failed":"not imported"}: ${error.message||error}. Source kept for retry/review.`,"error");recordDiagnostic("APPOINTMENT INTAKE",error.name+": "+(error.message||error));try{await addHistory("appointments-import-failed","Appointment intake failed; source preserved",{fileName:name,saved,errorName:error.name,reason:error.message||String(error)});}catch(historyError){console.error("Appointment failure history could not be saved:",historyError);}throw error;}
     finally{appointmentImportBusy=false;if(ui.status.textContent===reading)status("Appointment intake stopped. Source kept; check diagnostics and retry.","error");}
   }
+  let arrivalStatusWriteBusy = false;
   async function updateArrivalStatus(id, value) {
     const date = ui.appointmentDate.value, prior = model.appointments,
       appointment = prior.days[date]?.appointments.find(item => item.id === id);
     if (!appointment) return;
-    // A failed or unverified save must not publish an unsaved manager decision
-    // to Arrivals. Detach the candidate before any fallible Workspace await.
+    if (arrivalStatusWriteBusy) throw new Error("An Arrivals status save is already in progress. Retry after it finishes.");
+    arrivalStatusWriteBusy = true;
+    // Detach the candidate: a failed readback cannot publish an unsaved decision.
     const candidate = structuredClone(prior),
       edited = candidate.days[date].appointments.find(item => item.id === id),
       before = appointment.arrivalStatus;
     try {
-      await writeJson(["backups", `${stamp()}-appointments-status.json`], prior);
-      if (model.appointments !== prior)
-        throw new Error("Appointments changed while the status backup was being saved. Refresh and retry.");
-      edited.arrivalStatus = value;
-      edited.statusUpdatedAt = now();
-      candidate.updatedAt = now();
-      await writeJson(APPOINTMENTS_PATH, candidate);
-    } catch (error) {
-      renderArrivals(); // Reset a changed select to the last trusted local status.
-      throw error;
+      try {
+        await writeJson(["backups", `${stamp()}-appointments-status.json`], prior);
+        if (model.appointments !== prior)
+          throw new Error("Appointments changed while the status backup was being saved. Refresh and retry.");
+        edited.arrivalStatus = value;
+        edited.statusUpdatedAt = now();
+        candidate.updatedAt = now();
+        await writeJson(APPOINTMENTS_PATH, candidate);
+      } catch (error) {
+        renderArrivals(); // Reset a changed select to the last trusted local status.
+        throw error;
+      }
+      model.appointments = candidate;
+      renderArrivals();
+      await addHistory("arrival-status", `${edited.guest}: ${value}`, {
+        date, time: edited.time, advisor: edited.advisor, before, after: value
+      });
+      status(`${edited.guest} marked ${value}.`, "success");
+    } finally {
+      arrivalStatusWriteBusy = false;
     }
-    model.appointments = candidate;
-    await addHistory("arrival-status", `${edited.guest}: ${value}`, {
-      date, time: edited.time, advisor: edited.advisor, before, after: value
-    });
-    renderArrivals();
-    status(`${edited.guest} marked ${value}.`, "success");
   }
   function renderArrivals() { const date = ui.appointmentDate.value, appointments = model.appointments.days[date]?.appointments || [], query = norm(ui.arrivalSearch.value), visible = appointments.filter((item) => !query || [item.guest, item.advisor, item.advisorCode, item.vehicle, item.request, item.summary, item.time].some((value) => norm(value).includes(query))); const byHour = new Map(), byAdvisor = new Map(); appointments.forEach((item) => { const hour = String(Math.floor(timeMinutes(item.time) / 60)).padStart(2, "0"); byHour.set(hour, (byHour.get(hour) || 0) + 1); byAdvisor.set(`${item.advisor} (${item.advisorCode})`, (byAdvisor.get(`${item.advisor} (${item.advisorCode})`) || 0) + 1); }); const rush = [...byHour].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([hour, count]) => `${Number(hour) % 12 || 12} ${Number(hour) >= 12 ? "PM" : "AM"} (${count})`).join(" · "); const friendlyDate = date ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }) : "—"; ui.arrivalTotal.textContent = appointments.length || "—"; ui.arrivalArrived.textContent = appointments.length ? appointments.filter((item) => item.arrivalStatus === "Arrived").length : "—"; ui.arrivalVerify.textContent = appointments.length ? appointments.filter((item) => !item.customerNumber).length : "—"; ui.arrivalRush.textContent = rush || "—"; ui.arrivalRange.textContent = appointments.length ? `${appointmentTime(appointments[0].time)} to ${appointmentTime(appointments.at(-1).time)}` : "No schedule loaded"; ui.printAppointmentDate.textContent = friendlyDate; ui.printScheduled.textContent = appointments.length ? `${appointments.length} scheduled arrivals` : "No schedule loaded"; ui.printAtGlance.textContent = appointments.length ? `${appointments.length} appointments · ${appointmentTime(appointments[0].time)} to ${appointmentTime(appointments.at(-1).time)}` : "—"; ui.printRush.textContent = rush || "—"; ui.printArrivals.disabled = !appointments.length; ui.arrivalCount.textContent = visible.length === appointments.length ? `${appointments.length} scheduled arrivals` : `Showing ${visible.length} of ${appointments.length}`; ui.arrivalTimeline.replaceChildren(); if (!visible.length) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = appointments.length ? "No appointments match the search." : "Import a Service Daily Log to begin."; ui.arrivalTimeline.append(empty); } else visible.forEach((item, index) => { const row = document.createElement("article"); row.className = `arrival-row${index === 0 || visible[index - 1].time !== item.time ? " time-start" : ""}`; const time = document.createElement("div"); time.className = "arrival-time"; const friendlyTime = document.createElement("strong"); friendlyTime.textContent = appointmentTime(item.time); const sourceTime = document.createElement("small"); sourceTime.textContent = `Arrival ${index + 1}`; time.append(friendlyTime, sourceTime); const person = document.createElement("div"); person.className = "arrival-person"; const guest = document.createElement("b"); guest.textContent = item.guest; const flag = document.createElement("span"); flag.className = `profile-flag${item.customerNumber ? "" : " verify"}`; flag.textContent = item.customerNumber ? "Possible returning guest" : "New guest / profile check"; person.append(guest, flag); const advisor = document.createElement("div"); advisor.className = `arrival-advisor${item.advisorCode === unassignedAdvisorCode() ? " unassigned" : ""}`; const advisorName = document.createElement("strong"); advisorName.textContent = item.advisor; const advisorCode = document.createElement("small"); advisorCode.textContent = `Advisor ${item.advisorCode}`; advisor.append(advisorName, advisorCode); const vehicle = document.createElement("div"); vehicle.textContent = item.vehicle || "—"; const request = document.createElement("div"); request.className = "arrival-request"; request.textContent = item.summary; if (item.request && item.request !== item.summary) { const detail = document.createElement("small"); detail.textContent = item.request; request.append(detail); } const select = document.createElement("select"); select.className = "arrival-state"; select.dataset.appointmentId = item.id; ["Scheduled", "Arrived", "No show", "Cancelled", "Rescheduled"].forEach((value) => select.add(new Option(value, value))); select.value = item.arrivalStatus; row.append(time, person, advisor, vehicle, request, select); ui.arrivalTimeline.append(row); }); ui.appointmentAdvisors.replaceChildren(); const advisorRows = [...byAdvisor].sort((a, b) => b[1] - a[1]), max = advisorRows[0]?.[1] || 1; if (!advisorRows.length) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No appointments loaded."; ui.appointmentAdvisors.append(empty); } else advisorRows.forEach(([advisor, count]) => { const row = document.createElement("div"); row.className = "advisor-bar"; const heading = document.createElement("div"); const name = document.createElement("span"); name.textContent = advisor; const total = document.createElement("b"); total.textContent = count; heading.append(name, total); const track = document.createElement("div"); track.className = "advisor-bar-track"; const fill = document.createElement("div"); fill.className = "advisor-bar-fill"; fill.style.width = `${Math.round(count / max * 100)}%`; track.append(fill); row.append(heading, track); ui.appointmentAdvisors.append(row); }); }
   function printPorterList() { const appointments = model.appointments.days[ui.appointmentDate.value]?.appointments || []; if (!appointments.length) throw new Error("Import appointments for the selected date before printing."); const search = ui.arrivalSearch.value; ui.arrivalSearch.value = ""; renderArrivals(); groupArrivalSlots(); document.body.classList.add("printing-arrivals"); window.print(); document.body.classList.remove("printing-arrivals"); ui.arrivalSearch.value = search; renderArrivals(); }
