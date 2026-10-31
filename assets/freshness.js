@@ -320,8 +320,12 @@
     const original=history&&typeof history==="object"?history:empty();
     const sources={...(original.sources||{})},entry=sourceRecord(original,source);
     if(kind==="imported") {
-      const date=day(options.periodEnd||options.observedDate||at);
-      const observation={at,day:dateValid(date)?date:day(at),hour:Number.isInteger(options.hour)?options.hour:timeHour(at)};
+      const reported=options.periodEnd||options.observedDate||"";
+      const date=day(reported||at);
+      // An explicitly supplied invalid report date is not an import observation.
+      // Do not replace it with today's upload date or clear a pending snooze.
+      if(!dateValid(date))return history||empty();
+      const observation={at,day:date,hour:Number.isInteger(options.hour)?options.hour:timeHour(at)};
       const existing=entry.observations.findIndex(item=>item.day===observation.day);
       if(existing>=0) entry.observations.splice(existing,1);
       entry.observations.push(observation);
