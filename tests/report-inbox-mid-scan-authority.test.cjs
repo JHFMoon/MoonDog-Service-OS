@@ -13,7 +13,7 @@ const source=app.slice(start,end);
 const candidate={name:"synthetic-sapr.xlsx",relativePath:"Report Inbox/synthetic-sapr.xlsx",
   signature:"synthetic-signed-report",location:"inbox"};
 
-function harness({pauseAt="",permissionState="granted"}={}){
+function harness({pauseAt="",permissionState="granted",watchError=null}={}){
   const oldRoot={name:"First synthetic Workspace"};
   const model={root:oldRoot,autoImport:{inboxVersion:1,
     initializedAt:"2026-10-31T11:00:00.000Z",seen:{}}};
@@ -42,7 +42,7 @@ function harness({pauseAt="",permissionState="granted"}={}){
       await pause("permission");
       return permissionState;
     },
-    watchCandidates:async()=>{counters.reads++;await pause("enumeration");return[candidate];},
+    watchCandidates:async()=>{counters.reads++;await pause("enumeration");if(watchError)throw watchError;return[candidate];},
     candidateNeedsImport:()=>true,
     autoSurveyFolder:async signatures=>{
       counters.imports++;
@@ -221,5 +221,40 @@ test("successful import still clears only its confirmed candidate and repaints o
   assert.equal(h.counters.renders,1);
   assert.equal(h.folderWatch.pending.size,0);
   assert.equal(h.folderWatch.lastChecked,"2026-10-31T11:00:01.000Z");
+  assert.equal(h.folderWatch.busy,false);
+});
+
+test("old Workspace NotFound after reconnect cannot stop the newly connected watcher",async()=>{
+  for(const errorName of ["NotFoundError","NotAllowedError","SecurityError","NotReadableError"]){
+    const watchError=Object.assign(new Error("Synthetic old-root filesystem error"),{name:errorName});
+    const h=harness({pauseAt:"enumeration",watchError});
+    const scan=h.scan();
+    await h.entered;
+    h.model.root={name:"Replacement synthetic Workspace"};
+    h.release();
+    await scan;
+    assert.equal(h.counters.stops,0,errorName+" from a disconnected root cannot pause the current watch");
+    assert.equal(h.counters.imports,0);
+    assert.equal(h.counters.renders,0);
+    assert.equal(h.folderWatch.pending.get(candidate.relativePath).confirmations,1);
+    assert.equal(h.folderWatch.busy,false);
+  }
+});
+
+test("current Workspace missing Inbox still pauses the watcher and releases its scan slot",async()=>{
+  const missing=Object.assign(new Error("Synthetic Inbox missing"),{name:"NotFoundError"});
+  const h=harness({watchError:missing});
+  await h.scan();
+  assert.equal(h.counters.stops,1);
+  assert.equal(h.counters.imports,0);
+  assert.equal(h.folderWatch.busy,false);
+});
+
+test("current Workspace permission loss still pauses its watcher after enumeration failure",async()=>{
+  const denied=Object.assign(new Error("Synthetic folder permission denied"),{name:"NotAllowedError"});
+  const h=harness({watchError:denied});
+  await h.scan();
+  assert.equal(h.counters.stops,1);
+  assert.equal(h.counters.imports,0);
   assert.equal(h.folderWatch.busy,false);
 });
