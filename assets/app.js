@@ -1285,6 +1285,14 @@
   }
   async function removeSourceEntry(name) {
     if (dailyPickedSources.has(name)) return;
+    // Source deletion must belong to the Workspace in which it began. A
+    // reconnect while SHA-256, ledger writes or directory access awaits must
+    // never delete a same-named file in the newly connected Workspace.
+    const deletionRoot=model.root;
+    const assertDeletionWorkspace=()=>{
+      if(model.root!==deletionRoot)
+        throw new DOMException("Workspace changed during report cleanup; original source retained for retry.","InvalidStateError");
+    };
     try {
       const expectedXlsx = xlsxSourceDeleteGuards.get(name);
       const location = sourceLocations.get(name);
@@ -1293,21 +1301,27 @@
         // removeSourceEntry is reached only AFTER the importer's verified
         // durable save. Recording the pending marker now avoids a second
         // import if source deletion subsequently loses write permission.
+        const cleanupDigest=await sha256(new Uint8Array(autoCleanup.bytes));
+        assertDeletionWorkspace();
         model.autoImport.seen ||= {};
         model.autoImport.seen[autoCleanup.signature] = {
           fileName:name,relativePath:autoCleanup.relativePath,importedAt:now(),
           kind:autoCleanup.kind,cleanupPending:true,
-          cleanupSha256:await sha256(new Uint8Array(autoCleanup.bytes))
+          cleanupSha256:cleanupDigest
         };
         model.autoImport.updatedAt=now();
+        assertDeletionWorkspace();
         await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+        assertDeletionWorkspace();
       }
       // Keep the source guard after the durable intent. If the source
       // changed while an import finished, the original digest/path hold must
       // survive reconnects instead of silently authorizing its replacement.
       if (expectedXlsx) {
         const current = await (await sourceFileHandle(name)).getFile();
-        if (!sameByteContent(await current.arrayBuffer(), expectedXlsx))
+        const currentBytes=await current.arrayBuffer();
+        assertDeletionWorkspace();
+        if (!sameByteContent(currentBytes, expectedXlsx))
           throw new Error(`${name} changed while it was being checked and was left in place.`);
       }
       if (autoCleanup && location === "inbox") {
@@ -1315,15 +1329,33 @@
         // save awaits filesystem transactions. Verify the bytes AGAIN after
         // that save, immediately before attempting the journaled removal.
         const latest = await (await sourceFileHandle(name)).getFile();
-        if (!sameByteContent(await latest.arrayBuffer(), autoCleanup.bytes))
+        const latestBytes=await latest.arrayBuffer();
+        assertDeletionWorkspace();
+        if (!sameByteContent(latestBytes, autoCleanup.bytes))
           throw new Error(`${name} changed while cleanup intent was saved and was left in place.`);
       }
-      if (location === "root") return await model.root.removeEntry(name);
-      if (location === "learn") return await (await directory(["Files To Learn"], false)).removeEntry(name);
+      if (location === "root") {assertDeletionWorkspace();return await deletionRoot.removeEntry(name);}
+      if (location === "learn") {
+        const learnedFolder=await directory(["Files To Learn"],false);
+        assertDeletionWorkspace();
+        return await learnedFolder.removeEntry(name);
+      }
       // A missing Inbox entry must never cause deletion of a same-named root workbook.
-      if (location === "inbox") return await (await reportInbox(false)).removeEntry(name);
-      try { return await (await reportInbox(false)).removeEntry(name); }
-      catch (error) { if (error.name !== "NotFoundError") throw error; return await model.root.removeEntry(name); }
+      if (location === "inbox") {
+        const inbox=await reportInbox(false);
+        assertDeletionWorkspace();
+        return await inbox.removeEntry(name);
+      }
+      try {
+        const inbox=await reportInbox(false);
+        assertDeletionWorkspace();
+        return await inbox.removeEntry(name);
+      }
+      catch (error) {
+        if (error.name !== "NotFoundError") throw error;
+        assertDeletionWorkspace();
+        return await deletionRoot.removeEntry(name);
+      }
     } catch (error) {
       // Distinguish a post-commit cleanup failure from a failed parser/import.
       // Automatic intake retains and retries the verified source; never moves it
