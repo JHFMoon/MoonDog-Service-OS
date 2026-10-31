@@ -4050,7 +4050,10 @@
     const date = ui.appointmentDate.value, prior = model.appointments,
       appointment = prior.days[date]?.appointments.find(item => item.id === id);
     if (!appointment) return;
-    if (arrivalStatusWriteBusy || appointmentImportBusy) throw new Error("An Arrivals status save or import is already in progress. Retry after it finishes.");
+    if (arrivalStatusWriteBusy || appointmentImportBusy) {
+      renderArrivals(); // Never leave the rejected selection showing an unsaved status.
+      throw new Error("An Arrivals status save or import is already in progress. Retry after it finishes.");
+    }
     arrivalStatusWriteBusy = true;
     // Detach the candidate: a failed readback cannot publish an unsaved decision.
     const candidate = structuredClone(prior),
