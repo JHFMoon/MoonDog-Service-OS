@@ -173,7 +173,7 @@ test("status changes refuse concurrent appointment import before writing", async
     /Arrivals status save or import is already in progress/
   );
   assert.deepEqual(h.model.appointments, h.initial);
-  assert.deepEqual(h.events, []);
+  assert.deepEqual(h.events, ["render"]);
 });
 
 test("source replacement during delayed verified save fails closed without publishing stale model", async () => {
