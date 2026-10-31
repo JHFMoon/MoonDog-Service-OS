@@ -1274,7 +1274,37 @@
   async function reportInbox(create = false) { try { return await directory([REPORT_INBOX], create); } catch (error) { if (create) throw new Error(`Service Operations Dashboard could not create the Report Inbox: ${REPORT_INBOX}. Confirm folder write access and reconnect.`); throw error; } }
   const sourceLocations = new Map();
   let supervisorWorkbookOperationTail = Promise.resolve();
-  async function withSupervisorWorkbookLock(operation,options={}) { const locks = globalThis.navigator?.locks; if (!locks?.request) throw new Error("This browser cannot safely serialize Supervisor Workbook operations. Use an up-to-date browser and retry."); const run = async () => { const previous = supervisorWorkbookOperationTail; let release; supervisorWorkbookOperationTail = new Promise((resolve) => { release = resolve; }); await previous; try { if (model.root) { const durable = await readJson(STATE_PATH, null); const initialEmpty = options.allowInitialEmptyState===true && !durable && !model.state.updatedAt && !model.state.source && !(model.state.records||[]).length && !(model.state.closedRecords||[]).length; if (!initialEmpty && (!durable || durable.updatedAt !== model.state.updatedAt || JSON.stringify(durable.records) !== JSON.stringify(model.state.records))) throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing."); const recovery = await readJson(RECOVERY_PATH, null); if (recovery) model.recovery = recovery; } return await operation(); } finally { release(); } }; return locks.request("moondog-supervisor-workbook", { mode: "exclusive" }, run); }
+  // Includes queued as well as active operations, so reconnect cannot switch
+  // the source Workspace while a workbook save/import is awaiting the lock.
+  let supervisorWorkbookInFlight = 0;
+  async function withSupervisorWorkbookLock(operation,options={}) {
+    const locks=globalThis.navigator?.locks;
+    if(!locks?.request)throw new Error("This browser cannot safely serialize Supervisor Workbook operations. Use an up-to-date browser and retry.");
+    const requestedRoot=model.root;
+    supervisorWorkbookInFlight++;
+    const run=async()=>{
+      const previous=supervisorWorkbookOperationTail;
+      let release;
+      supervisorWorkbookOperationTail=new Promise(resolve=>{release=resolve;});
+      await previous;
+      try{
+        if(typeof workspaceConnectionBusy!=="undefined"&&workspaceConnectionBusy)throw new Error("A Workspace connection is in progress. Retry the workbook operation after reconnection.");
+        if(model.root!==requestedRoot)throw new Error("Workspace changed while the Supervisor Workbook operation was queued. Retry from the connected Workspace.");
+        if(model.root){
+          const durable=await readJson(STATE_PATH,null);
+          const initialEmpty=options.allowInitialEmptyState===true&&!durable&&!model.state.updatedAt&&!model.state.source&&!(model.state.records||[]).length&&!(model.state.closedRecords||[]).length;
+          if(!initialEmpty&&(!durable||durable.updatedAt!==model.state.updatedAt||JSON.stringify(durable.records)!==JSON.stringify(model.state.records)))throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing.");
+          const recovery=await readJson(RECOVERY_PATH,null);
+          if(recovery)model.recovery=recovery;
+        }
+        if(typeof workspaceConnectionBusy!=="undefined"&&workspaceConnectionBusy)throw new Error("A Workspace connection is in progress. Retry the workbook operation after reconnection.");
+        if(model.root!==requestedRoot)throw new Error("Workspace changed before the Supervisor Workbook operation began. Retry from the connected Workspace.");
+        return await operation();
+      }finally{release();}
+    };
+    try{return await locks.request("moondog-supervisor-workbook",{mode:"exclusive"},run);}
+    finally{supervisorWorkbookInFlight--;}
+  }
   const dailyPickedSources = new Map(); let dailyImportBusy = false, appointmentImportBusy = false;
   async function sourceFileHandle(name) { if(dailyPickedSources.has(name))return dailyPickedSources.get(name); const location = sourceLocations.get(name); if (location === "root") return model.root.getFileHandle(name); if (location === "learn") return (await directory(["Files To Learn"], false)).getFileHandle(name); if (location === "inbox") return (await reportInbox(false)).getFileHandle(name); try { return await (await reportInbox(false)).getFileHandle(name); } catch (error) { if (error.name !== "NotFoundError") throw error; return model.root.getFileHandle(name); } }
   async function removeSourceEntryWithByteGuard(name, bytes) {
@@ -1366,8 +1396,12 @@
   }
 
   async function finishReadOnlyConnection(handle) {
+    const resolvedRoot=await operationalRoot(handle);
+    // Read-only reconnects must obey the same operation boundary after the await.
+    const beforeCommitBlock=workspaceConnectionBlockReason();
+    if(beforeCommitBlock){const error=new Error(beforeCommitBlock);error.code="WORKSPACE_CONNECTION_BUSY";throw error;}
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot;
-    model.root = wrapOperationalRoot(await operationalRoot(handle)); model.applicationRoot = handle;
+    model.root = wrapOperationalRoot(resolvedRoot); model.applicationRoot = handle;
     // Synchronously revoke old Daily task/search actions before any B async load.
     document.dispatchEvent(new Event("moondog-workspace-changing"));
     try {
@@ -1429,7 +1463,8 @@
   // queued task while a connection is already in progress.
   let postConnectionScanBusy=false;
   function workspaceConnectionBlockReason(){
-    return folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy
+    return folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||
+      (typeof supervisorWorkbookInFlight!=="undefined"&&supervisorWorkbookInFlight>0)
       ? "Service Operations Dashboard is finishing another workspace operation. Reconnect after it finishes."
       : "";
   }
@@ -1452,9 +1487,18 @@
     }
     const permissionWasPending=model.pendingRoot===handle;
     if (await permission(handle, ask) !== "granted") throw new Error("Folder access was not granted.");
+    const afterPermissionBlock=workspaceConnectionBlockReason();
+    if(afterPermissionBlock){const error=new Error(afterPermissionBlock);error.code="WORKSPACE_CONNECTION_BUSY";throw error;}
     await writeAuthority.validate(handle, ask);
+    // Permission prompts and operational-root resolution yield to imports and
+    // workbook operations. Recheck immediately before replacing the root.
+    const lateBlock=workspaceConnectionBlockReason();
+    if(lateBlock){const error=new Error(lateBlock);error.code="WORKSPACE_CONNECTION_BUSY";throw error;}
     if (!writeAuthority.canWrite) return finishReadOnlyConnection(handle);
-    const previousRoot = model.root, previousNativeRoot = connectedNativeRoot; model.root = wrapOperationalRoot(await operationalRoot(handle)); model.applicationRoot = handle;
+    const resolvedRoot=await operationalRoot(handle);
+    const beforeCommitBlock=workspaceConnectionBlockReason();
+    if(beforeCommitBlock){const error=new Error(beforeCommitBlock);error.code="WORKSPACE_CONNECTION_BUSY";throw error;}
+    const previousRoot = model.root, previousNativeRoot = connectedNativeRoot; model.root = wrapOperationalRoot(resolvedRoot); model.applicationRoot = handle;
     // Synchronously revoke old Daily task/search actions before any B async load.
     document.dispatchEvent(new Event("moondog-workspace-changing"));
     let pendingSettings;
