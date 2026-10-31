@@ -130,3 +130,37 @@ test("unknown appointment id does not write, publish or add history", async () =
   assert.deepEqual(h.events, []);
   assert.deepEqual(h.model.appointments, h.initial);
 });
+
+
+test("overlapping same-tab Arrivals status changes cannot overwrite one another", async () => {
+  const gate = deferred(), started = deferred();
+  const h = harness({onWrite: async name => {
+    if (name === "data/appointments.json") { started.resolve(); await gate.promise; }
+  }});
+  const first = h.ctx.saveArrival("synthetic-appointment-1", "Arrived");
+  await started.promise;
+  await assert.rejects(
+    h.ctx.saveArrival("synthetic-appointment-1", "No Show"),
+    /Arrivals status save is already in progress/
+  );
+  assert.equal(h.model.appointments.days[day].appointments[0].arrivalStatus, "Scheduled");
+  gate.resolve();
+  await first;
+  assert.equal(h.model.appointments.days[day].appointments[0].arrivalStatus, "Arrived");
+  assert.equal(h.writes.filter(write => write.name === "data/appointments.json").length, 1);
+});
+
+test("failure releases same-tab save exclusion for a safe retry", async () => {
+  let failed = false;
+  const h = harness({onWrite: async name => {
+    if (name === "data/appointments.json" && !failed) {
+      failed = true;
+      throw Error("Synthetic transient save lock");
+    }
+  }});
+  await assert.rejects(h.ctx.saveArrival("synthetic-appointment-1", "Arrived"), /transient save lock/);
+  assert.equal(h.model.appointments.days[day].appointments[0].arrivalStatus, "Scheduled");
+  await h.ctx.saveArrival("synthetic-appointment-1", "Arrived");
+  assert.equal(h.model.appointments.days[day].appointments[0].arrivalStatus, "Arrived");
+  assert.equal(h.history.length, 1, "history only records the verified retry");
+});
