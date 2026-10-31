@@ -4051,35 +4051,33 @@
       appointment = prior.days[date]?.appointments.find(item => item.id === id);
     if (!appointment) return;
     if (arrivalStatusWriteBusy || appointmentImportBusy) {
-      renderArrivals(); // Never leave the rejected selection showing an unsaved status.
+      renderArrivals(); // Never leave a rejected selection showing an unsaved status.
       throw new Error("An Arrivals status save or import is already in progress. Retry after it finishes.");
     }
     arrivalStatusWriteBusy = true;
-    // Detach the candidate: a failed readback cannot publish an unsaved decision.
-    const candidate = structuredClone(prior),
-      edited = candidate.days[date].appointments.find(item => item.id === id),
-      before = appointment.arrivalStatus;
     try {
-      try {
-        await writeJson(["backups", `${stamp()}-appointments-status.json`], prior);
-        if (model.appointments !== prior)
-          throw new Error("Appointments changed while the status backup was being saved. Refresh and retry.");
-        edited.arrivalStatus = value;
-        edited.statusUpdatedAt = now();
-        candidate.updatedAt = now();
-        await writeJson(APPOINTMENTS_PATH, candidate);
-        if (model.appointments !== prior)
-          throw new Error("Appointments changed while the status save was being verified. Refresh and reconcile the saved source before retrying.");
-      } catch (error) {
-        renderArrivals(); // Reset a changed select to the last trusted local status.
-        throw error;
-      }
-      model.appointments = candidate;
+      // Clone while holding the local exclusion; even clone errors release it.
+      const candidate = structuredClone(prior),
+        edited = candidate.days[date].appointments.find(item => item.id === id),
+        before = appointment.arrivalStatus;
+      await writeJson(["backups", `${stamp()}-appointments-status.json`], prior);
+      if (model.appointments !== prior)
+        throw new Error("Appointments changed while the status backup was being saved. Refresh and retry.");
+      edited.arrivalStatus = value;
+      edited.statusUpdatedAt = now();
+      candidate.updatedAt = now();
+      await writeJson(APPOINTMENTS_PATH, candidate);
+      if (model.appointments !== prior)
+        throw new Error("Appointments changed while the status save was being verified. Refresh and reconcile the saved source before retrying.");
+      model.appointments = candidate; // Published only after verified durable write.
       renderArrivals();
       await addHistory("arrival-status", `${edited.guest}: ${value}`, {
         date, time: edited.time, advisor: edited.advisor, before, after: value
       });
       status(`${edited.guest} marked ${value}.`, "success");
+    } catch (error) {
+      renderArrivals(); // Reflect trusted state after any failed stage.
+      throw error;
     } finally {
       arrivalStatusWriteBusy = false;
     }
