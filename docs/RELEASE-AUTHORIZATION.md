@@ -30,6 +30,12 @@ After the protected policy change is merged, the trusted main-branch Guarded PR 
 
 The PR template supplies the standalone `MoonDog-Auto-Merge: yes` line to future PRs, and existing open PRs carry that line. The policy document alone is not an executor; no continuous agent run or installation is implied. Issue #34 tracks broader release/update and workflow integration work that remains independent of this merge authorization.
 
+## Chat-only review mode (no external coding agent)
+
+At James's direction, trusted release workflows must **not automatically summon Codex or any other external agent**. The packaging workflow publishes a same-PR candidate without posting an agent-review request. The guarded merger evaluates GitHub's existing authenticated, exact-head owner-attested review alternative, the exact-head Publication Check and Clean Install Proof, any already-present authenticated unresolved findings, protected paths, and GitHub merge controls. A missing or stale review is a pending condition, **not** permission to request another agent or bypass the gate.
+
+The trusted policy and workflows themselves remain protected automation files. A change to them requires a separately reviewed bootstrap PR using ordinary GitHub-authorized merge permissions; the automatic merger does not merge its own policy changes. This mode does not constitute independent human review or device validation.
+
 ## Owner-attested manual review when Codex review is unavailable
 
 James explicitly permits a review submitted through the connected ChatGPT GitHub account to satisfy the *repository automation review gate*, including a self-attested PR by `JHFMoon`. This is **not an independent Codex or third-party review**. The reviewer must actually inspect the current PR diff and the exact SHA, report findings, and submit a **GitHub pull-request review** using the authenticated `JHFMoon` account, with these two standalone lines:
