@@ -595,6 +595,7 @@
     // Do not delete saved adminCloseout evidence or alter the actual RO closeout workflow.
     section.hidden = true;
     section.style.display = "none";
+    ui.adminCloseoutEditor = section;
     ui.editCommunication.closest("label").before(section);
     for (const id of ["editAdminBlocker", "editAdminWorkStatus", "editAdminTaskDate", "editAdminCloseDate", "editAdminPickupStatus", "editAdminPickupContactDate", "editAdminPickupDate", "editAdminWarrantyStatus", "editAdminEvidence", "editAdminChangeReason", "editAdminCoachingGroup", "editAdminCoachingStatus", "editAdminCoachingAction"]) ui[id] = document.getElementById(id);
   }
@@ -5442,6 +5443,12 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       warnings.length?"error":"success");
     return true;
   }
+  // The obsolete administrative editor is hidden. Ordinary RO updates must not
+  // reinterpret, validate, or rewrite inaccessible legacy admin commitments.
+  function adminCloseoutSaveDecision(prior, submittedBlocker, editorHidden) {
+    const blocker = editorHidden ? (prior?.blocker || "") : submittedBlocker;
+    return {blocker, editable: !editorHidden && Boolean(blocker || prior?.blocker)};
+  }
   async function saveRecord(event, advance = false) {
     event?.preventDefault();
     if(ui.editValidation)ui.editValidation.hidden=true;
@@ -5489,10 +5496,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       if(detailOptions.length&&!statusDetail)editValidationError("Choose the status detail before saving.");
       if(statusDetail==="Other"&&!statusDetailOther)editValidationError("Describe the Other status detail before saving.");
       if(!COMMUNICATION_STATUSES.includes(submitted.communication))editValidationError("Choose a recognized customer communication state before saving.");
-      const adminBlocker=submitted.adminBlocker;
+      const adminDecision=adminCloseoutSaveDecision(record.management.adminCloseout,submitted.adminBlocker,ui.adminCloseoutEditor?.hidden===true);
+      const adminBlocker=adminDecision.blocker;
       if(!nextAction||(!commitmentDate&&!adminBlocker))editValidationError("Enter the next action and a commitment date, or identify a confirmed admin blocker awaiting an advisor commitment.");
       let adminCloseout=null;
-      if(adminBlocker||record.management.adminCloseout?.blocker)try{
+      if(adminDecision.editable)try{
         const commitments=nextAdminCloseout(record.management.adminCloseout,adminBlocker,submitted.adminTaskDate,submitted.adminCloseDate,submitted.adminChangeReason,now());
         adminCloseout=nextAdminCloseoutEvidence(commitments,submitted.adminEvidence,now());
       }catch(error){editValidationError(error.message);}
