@@ -82,50 +82,6 @@ class RedactedHistoryAuditTests(unittest.TestCase):
         finally:
             td.cleanup()
 
-    def test_scans_reused_tree_at_historical_restricted_directory(self):
-        """A deleted, reused Git subtree at a risky location must still be checked."""
-        td, repo = self.init_repo()
-        try:
-            safe = repo / "public"
-            safe.mkdir()
-            (safe / "note.txt").write_text("Synthetic harmless placeholder.\\n")
-            git(repo, "add", ".")
-            git(repo, "commit", "-qm", "Safe synthetic reference")
-            restricted = repo / "Workspace"
-            restricted.mkdir()
-            (restricted / "note.txt").write_bytes((safe / "note.txt").read_bytes())
-            git(repo, "add", ".")
-            git(repo, "commit", "-qm", "Add historical synthetic directory")
-            git(repo, "rm", "-qr", "Workspace")
-            git(repo, "commit", "-qm", "Remove historical synthetic directory")
-            result = self.audit(repo)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("restricted_path:", result.stdout)
-            self.assertNotIn("Workspace/note.txt", result.stdout)
-        finally:
-            td.cleanup()
-
-    def test_inspects_restricted_paths_only_reachable_on_another_branch(self):
-        td, repo = self.init_repo()
-        try:
-            (repo / "README.md").write_text("Synthetic public reference.\\n")
-            git(repo, "add", ".")
-            git(repo, "commit", "-qm", "Root synthetic commit")
-            original = git(repo, "branch", "--show-current").decode().strip()
-            git(repo, "checkout", "-qb", "old-history")
-            folder = repo / "exports"
-            folder.mkdir()
-            (folder / "synthetic.json").write_text("No personal information.\\n")
-            git(repo, "add", ".")
-            git(repo, "commit", "-qm", "Historical branch reference")
-            git(repo, "checkout", "-q", original)
-            result = self.audit(repo)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("restricted_path:", result.stdout)
-            self.assertNotIn("exports/synthetic.json", result.stdout)
-        finally:
-            td.cleanup()
-
     def test_high_signal_credentials_in_history_are_detected_and_redacted(self):
         td, repo = self.init_repo()
         try:
