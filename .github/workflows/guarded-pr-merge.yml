@@ -266,19 +266,15 @@ jobs:
           PY
           if ! grep -q '^ready=false$' "$GITHUB_OUTPUT"; then
             gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/pr-comments.json
-            CODEX_STATE="$(python3 scripts/guarded_merge_policy.py codex-review-state /tmp/pr-comments.json "$HEAD_SHA")"
             gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/pr-reviews.json
             REVIEW_STATE="$(python3 scripts/guarded_merge_policy.py merge-review-state /tmp/pr-comments.json /tmp/pr-reviews.json "$HEAD_SHA" --policy .github/guarded-merge-policy.json)"
             if [ "$REVIEW_STATE" = "findings" ]; then
               echo "Exact-head Codex or owner review reported findings; refusing merge." >&2
               exit 1
             fi
-            REVIEW_REQUESTED="$(jq --arg head "$HEAD_SHA" '[.[] | select((.body | contains($head)) and (.body | contains("@codex review")))] | length' /tmp/pr-comments.json)"
-            if [ "$REVIEW_STATE" = "pending" ] && [ "$CODEX_STATE" = "pending" ] && [ "$REVIEW_REQUESTED" = "0" ]; then
-              CURRENT_MAIN="$(gh api "repos/$REPO/branches/main" --jq .commit.sha)"
-              gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
-                -f body="@codex review. Review exact head $HEAD_SHA against current main $CURRENT_MAIN after the trusted path check. Review the complete PR diff and report findings for this exact commit."
-            fi
+            # Pending review is not permission to summon a third-party agent.
+            # The exact-head owner GitHub review remains required by the trusted
+            # policy and unresolved authenticated findings still veto merging.
             if [ "$REVIEW_STATE" = "clean" ]; then
               echo "ready=true" >> "$GITHUB_OUTPUT"
             else
