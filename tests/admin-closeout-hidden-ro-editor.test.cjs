@@ -23,35 +23,39 @@ test('stored administrative evidence can still roundtrip without deleting legacy
   assert.match(installer,/ui\[id\]\s*=\s*document\.getElementById\(id\)/);
 });
 
-const saveDecisionStart = app.indexOf('  function adminCloseoutSaveDecision(');
-const saveDecisionEnd = app.indexOf('  async function saveRecord(', saveDecisionStart);
-assert.ok(saveDecisionStart>=0 && saveDecisionEnd>saveDecisionStart, 'production legacy-save policy must exist');
-const sandbox={};
-vm.runInNewContext(app.slice(saveDecisionStart,saveDecisionEnd)+'\nthis.decide=adminCloseoutSaveDecision;',sandbox);
+const savePolicyStart=app.indexOf('      const adminEditorHidden=');
+const savePolicyEnd=app.indexOf('      if(!nextAction',savePolicyStart);
+assert.ok(savePolicyStart>=0&&savePolicyEnd>savePolicyStart,'production inline save policy must exist');
+const inlineSavePolicy=app.slice(savePolicyStart,savePolicyEnd);
+const decide=(prior,submittedBlocker,hidden)=>{
+  const context={record:{management:{adminCloseout:prior}},submitted:{adminBlocker:submittedBlocker},ui:{adminCloseoutEditor:{hidden}}};
+  vm.runInNewContext(inlineSavePolicy+'\nthis.decision={adminEditorHidden,adminBlocker};',context);
+  return context.decision;
+};
 
-test('hidden editor leaves existing administrative fields untouched by ordinary RO saves',()=>{
+test('hidden editor preserves existing administrative data and skips unseen admin updates',()=>{
   const old={blocker:'Customer pickup',taskDate:'2026-10-28',expectedCloseDate:'2026-10-30',physicalWorkStatus:'verified',revisions:[{reason:'original'}],evidence:'legacy evidence'};
-  const decision=sandbox.decide(old,'',true);
-  assert.equal(decision.blocker,old.blocker);
-  assert.equal(decision.editable,false);
-  assert.match(app,/if\(adminDecision\.editable\)try\{/);
+  const decision=decide(old,'',true);
+  assert.equal(decision.adminBlocker,old.blocker);
+  assert.equal(decision.adminEditorHidden,true);
+  assert.match(app,/if\(!adminEditorHidden&&\(adminBlocker\|\|record\.management\.adminCloseout\?\.blocker\)\)try\{/);
   assert.match(app,/proposed=\{\.\.\.record\.management/);
 });
 
-test('hidden editor cannot block a normal RO save on an unrecognized historical admin blocker',()=>{
-  const decision=sandbox.decide({blocker:'legacy-unsupported-value'},'',true);
-  assert.equal(decision.blocker,'legacy-unsupported-value');
-  assert.equal(decision.editable,false);
+test('hidden editor does not reinterpret unknown historical admin blockers',()=>{
+  const decision=decide({blocker:'legacy-unsupported-value'},'',true);
+  assert.equal(decision.adminBlocker,'legacy-unsupported-value');
+  assert.equal(decision.adminEditorHidden,true);
 });
 
-test('no administrative blocker stays absent when the hidden form has stale values',()=>{
-  const decision=sandbox.decide(null,'Customer pickup',true);
-  assert.equal(decision.blocker,'');
-  assert.equal(decision.editable,false);
+test('stale hidden input cannot create a new administrative blocker',()=>{
+  const decision=decide(null,'Customer pickup',true);
+  assert.equal(decision.adminBlocker,'');
+  assert.equal(decision.adminEditorHidden,true);
 });
 
-test('visible-only legacy editor continues to allow intentional admin changes',()=>{
-  const decision=sandbox.decide({blocker:'Customer pickup'},'Billing / paperwork',false);
-  assert.equal(decision.blocker,'Billing / paperwork');
-  assert.equal(decision.editable,true);
+test('visible legacy editor uses explicitly submitted admin values only',()=>{
+  const decision=decide({blocker:'Customer pickup'},'Billing / paperwork',false);
+  assert.equal(decision.adminBlocker,'Billing / paperwork');
+  assert.equal(decision.adminEditorHidden,false);
 });
