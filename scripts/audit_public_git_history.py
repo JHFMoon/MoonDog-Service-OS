@@ -113,19 +113,67 @@ for line in objects:
     data = git("cat-file", "blob", oid)
     scan_payload(data, approved_synthetic_vin_blob=oid in VETTED_SYNTHETIC_VIN_BLOB_SHA1)
 
-# Enumerate complete tree snapshots, not just git rev-list --objects names.
-# The latter prints only one possible pathname for a blob reused at many paths.
-# Deduplicate paths across commits to avoid multiplying findings by commit count.
+# Enumerate every reachable root tree, including old names of moved or deleted files.
+# Tree objects are immutable. Cache each (tree, directory prefix) instead of
+# launching 'git ls-tree -r' for every historical commit, which became
+# quadratic in the number of commits times the number of files.
+# Read tree objects through one persistent cat-file process; never sample refs
+# or skip historical directory aliases. A reused tree at a different prefix
+# must still be visited, because its full paths may be restricted.
 seen_paths = set()
-for commit_id in git("rev-list", "--all").splitlines():
-    for raw_path in git("ls-tree", "-r", "-z", "--name-only", commit_id.decode("ascii")).split(b"\x00"):
-        if not raw_path or raw_path in seen_paths:
+seen_tree_locations = set()
+root_trees = set(git("log", "--all", "--format=%T").decode("ascii").splitlines())
+object_format = git("rev-parse", "--show-object-format").strip()
+object_id_bytes = 32 if object_format == b"sha256" else 20
+tree_reader = subprocess.Popen(
+    ["git", "cat-file", "--batch"],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+)
+try:
+    stack = [(tree, b"") for tree in root_trees]
+    while stack:
+        tree_oid, directory = stack.pop()
+        location = (tree_oid, directory)
+        if location in seen_tree_locations:
             continue
-        seen_paths.add(raw_path)
-        pathname = raw_path.decode("utf-8", "replace")
-        if restricted.search(pathname):
-            counts["restricted_path"] += 1
-        scan_payload(raw_path, "path")
+        seen_tree_locations.add(location)
+        tree_reader.stdin.write(tree_oid.encode("ascii") + b"\n")
+        tree_reader.stdin.flush()
+        header = tree_reader.stdout.readline().strip().split()
+        if len(header) != 3 or header[0] != tree_oid.encode("ascii") or header[1] != b"tree":
+            raise RuntimeError("Unable to inspect a reachable historical Git tree")
+        size = int(header[2])
+        data = tree_reader.stdout.read(size)
+        if len(data) != size or tree_reader.stdout.read(1) != b"\n":
+            raise RuntimeError("Truncated historical Git tree")
+        offset = 0
+        while offset < len(data):
+            split = data.find(b" ", offset)
+            ending = data.find(b"\0", split + 1)
+            if split <= offset or ending < 0:
+                raise RuntimeError("Invalid historical Git tree entry")
+            mode = data[offset:split]
+            name = data[split + 1:ending]
+            first = ending + 1
+            last = first + object_id_bytes
+            if not name or last > len(data):
+                raise RuntimeError("Invalid historical Git tree object ID")
+            child = data[first:last].hex()
+            offset = last
+            full_path = directory + name
+            if mode in (b"40000", b"040000"):
+                stack.append((child, full_path + b"/"))
+            elif full_path not in seen_paths:
+                seen_paths.add(full_path)
+                pathname = full_path.decode("utf-8", "replace")
+                if restricted.search(pathname):
+                    counts["restricted_path"] += 1
+                scan_payload(full_path, "path")
+finally:
+    tree_reader.stdin.close()
+    tree_reader.stdout.close()
+    if tree_reader.wait(timeout=15) != 0:
+        raise RuntimeError("Historical Git tree inspection process failed")
 
 # Commit messages, annotated tag messages, and identity metadata are part of
 # public history too; scan them without printing values.
