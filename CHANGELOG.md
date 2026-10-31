@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.18-beta.239 — current Beta
+
+- fix(ui): remove confusing administrative closeout panel from RO Update Control. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.238 — current Beta
+
+- fix(ui): remove confusing administrative closeout panel from RO Update Control. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.237 — current Beta
 
 - fix(#59-04): exclude invalid zero-day SAPR historical comparisons. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
