@@ -164,6 +164,20 @@
       reason: "The report coverage period is invalid or internally inconsistent.",
       requiredAction: input.requiredAction || `Review ${definition.label} report coverage before using its values.`
     });
+    // A verified cumulative CSI scope cannot have an impossible or reversed
+    // explicit range. Do not grant current-source confidence from its end date
+    // when the accompanying start date contradicts that evidence.
+    const verifiedScopeEnd = input.scopeEnd || input.periodEnd;
+    const invalidVerifiedScope = input.scopeVerified === true && (
+      (hasPeriodValue(input.scopeStart) && !validDateKey(input.scopeStart)) ||
+      (hasPeriodValue(input.scopeEnd) && !validDateKey(input.scopeEnd)) ||
+      (hasPeriodValue(input.scopeStart) && validDateKey(verifiedScopeEnd) &&
+        input.scopeStart > verifiedScopeEnd)
+    );
+    if (invalidVerifiedScope) return result(input, "invalid", {
+      reason: "The verified CSI report scope is invalid or reversed.",
+      requiredAction: "Review the CSI export's verified coverage dates before using its values."
+    });
     if (input.purpose === "historical") {
       const targetStart = input.targetStart || input.targetEnd, targetEnd = input.targetEnd || input.targetStart;
       const sourceStartMissing = input.periodStart === undefined || input.periodStart === null || input.periodStart === "";
