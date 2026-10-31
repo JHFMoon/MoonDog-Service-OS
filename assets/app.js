@@ -4028,7 +4028,7 @@
 
   async function importAppointmentFile(selectedName=null,deleteAfterSuccess=false,providedBytes=null){
     const name=selectedName||ui.appointmentSource.value;syncArrivalDate();if(!name)throw new Error("Choose an appointment source file.");
-    if(appointmentImportBusy||(!deleteAfterSuccess&&!dailyPickedSources.has(name)&&(folderWatch.busy||dailyImportBusy)))throw new DOMException("Service Operations Dashboard is finishing another import. Try again in a moment.","InvalidStateError");
+    if(appointmentImportBusy||arrivalStatusWriteBusy||(!deleteAfterSuccess&&!dailyPickedSources.has(name)&&(folderWatch.busy||dailyImportBusy)))throw new DOMException("Service Operations Dashboard is finishing another import. Try again in a moment.","InvalidStateError");
     appointmentImportBusy=true;const reading=`Reading today’s appointments from ${name}…`,prior=model.appointments;let saved=false;status(reading,"working");
     try{
       const file=await boundedPdfRead(async()=> (await sourceFileHandle(name)).getFile(),"Appointment source read"),bytes=providedBytes||await boundedPdfRead(()=>file.arrayBuffer(),"Appointment source bytes"),isPdf=String.fromCharCode(...new Uint8Array(bytes).slice(0,4))==="%PDF",signature=isPdf?await pdfSignatureText(bytes):""; if(/\.xlsx$/i.test(name))if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes,{type:"array",cellDates:true});
@@ -4050,7 +4050,7 @@
     const date = ui.appointmentDate.value, prior = model.appointments,
       appointment = prior.days[date]?.appointments.find(item => item.id === id);
     if (!appointment) return;
-    if (arrivalStatusWriteBusy) throw new Error("An Arrivals status save is already in progress. Retry after it finishes.");
+    if (arrivalStatusWriteBusy || appointmentImportBusy) throw new Error("An Arrivals status save or import is already in progress. Retry after it finishes.");
     arrivalStatusWriteBusy = true;
     // Detach the candidate: a failed readback cannot publish an unsaved decision.
     const candidate = structuredClone(prior),
@@ -4065,6 +4065,8 @@
         edited.statusUpdatedAt = now();
         candidate.updatedAt = now();
         await writeJson(APPOINTMENTS_PATH, candidate);
+        if (model.appointments !== prior)
+          throw new Error("Appointments changed while the status save was being verified. Refresh and reconcile the saved source before retrying.");
       } catch (error) {
         renderArrivals(); // Reset a changed select to the last trusted local status.
         throw error;
