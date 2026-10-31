@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.246 — current Beta
+
+- fix(#59-03): keep Report Inbox scans and errors on captured Workspace. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.245 — current Beta
 
 - fix(#59-03): cancel stale second Report Inbox enumeration before mutation. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

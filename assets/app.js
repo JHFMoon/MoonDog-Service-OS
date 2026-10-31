@@ -3535,13 +3535,22 @@
   function watchedInboxFile(name) { const value=String(name||"").trim();return Boolean(value&&!/^\.moondog-txn-/.test(value)); }
   function returnedWorkbookCandidate(name){return /\.xlsx$/i.test(name)&&!/^~\$/.test(name)&&/^(?:MoonDog|Service Operations) /i.test(name)&&!/-revision\.xlsx$/i.test(name);}
   async function watchCandidates(){
+    // Capture one root for the complete asynchronous source enumeration. A
+    // reconnect can replace model.root while reportInbox or entries() awaits;
+    // never combine the old Inbox with another Workspace's returned workbooks.
+    const scanRoot=model.root;
+    if(!scanRoot)return [];
     const pending=[];
     const inbox=await reportInbox(false);
+    if(model.root!==scanRoot)return [];
     for await(const[name,handle]of inbox.entries()){
+      if(model.root!==scanRoot)return [];
       if(handle.kind==="file"&&watchedInboxFile(name))pending.push({name,handle,location:"inbox"});
     }
+    if(model.root!==scanRoot)return [];
     const knownNames=new Set(pending.map(item=>item.name));
-    for await(const[name,handle]of model.root.entries()){
+    for await(const[name,handle]of scanRoot.entries()){
+      if(model.root!==scanRoot)return [];
       if(handle.kind==="file"&&returnedWorkbookCandidate(name)&&!knownNames.has(name)){
         knownNames.add(name);
         pending.push({name,handle,location:"root"});
@@ -3564,7 +3573,9 @@
     // Two concurrent metadata reads shorten large scans while limiting pressure on
     // OneDrive. Result positions preserve the original Inbox-then-root order.
     await Promise.all(Array.from({length:Math.min(2,pending.length)},()=>readNext()));
-    return candidates;
+    // A previous file metadata read can settle after a reconnect; discard
+    // the whole scan instead of handing its old source identities to imports.
+    return model.root===scanRoot?candidates:[];
   }
   function candidateNeedsImport(candidate) {
     if(candidate.readError)return false;
@@ -3603,7 +3614,7 @@
       for(const name of [...folderWatch.pending.keys()])if(!present.has(name))folderWatch.pending.delete(name);
       if(stable.size){watchStatus("IMPORTING");const scrollX=window.scrollX,scrollY=window.scrollY,result=await autoSurveyFolder(stable,eligible);if(!result||!eligible())return;for(const candidate of candidates.filter(item=>stable.has(item.signature)))folderWatch.pending.delete(candidate.relativePath);renderAll();renderSetup();renderRecovery();window.scrollTo(scrollX,scrollY);folderWatch.lastChecked=now();if(result.cleanupReviewRequired?.length){watchStatus("REPORT CLEANUP REVIEW REQUIRED",`${result.cleanupReviewRequired.length} source file(s) changed identity after verified ingestion. They remain in Report Inbox; review before re-import or deletion.`);}else if(result.reviewRequired?.length){watchStatus("OPEN RO REVIEW REQUIRED",`${result.reviewRequired.length} recognized Open RO report(s) remain in Report Inbox. Choose Import Report to verify the source and roster.`);}else if(result.cleanupPending?.length){watchStatus("REPORT CLEANUP RETRY PENDING",`${result.cleanupPending.length} report(s) were saved, but original source deletion did not finish. Cleanup will retry without importing again.`);}else if(result.imported.length){watchStatus("REPORT INBOX WATCHING",`${result.imported.length} supported report${result.imported.length===1?"":"s"} updated automatically`);recordDiagnostic("REPORT INBOX WATCH",`${result.imported.length} supported source file(s) imported automatically from the Report Inbox`);}else if(result.cleaned?.length){watchStatus("REPORT INBOX WATCHING",`${result.cleaned.length} previously ingested file(s) were deleted after verified retry.`);}else watchStatus(result.retained.length?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",result.learned.length?`${result.learned.length} unsupported or failed file(s) moved safely to Files To Learn.`:"");}
       else{folderWatch.lastChecked=now();const pendingManual=candidates.filter(item=>item.location==="inbox"&&model.autoImport.seen?.[item.signature]?.manualImportRequired).length;if(pendingManual)watchStatus("OPEN RO REVIEW REQUIRED",`${pendingManual} recognized Open RO report(s) are ready in Import Report for explicit roster verification.`);else if(legacyCleanupReview.length)watchStatus("CLEANUP REVIEW REQUIRED",`${legacyCleanupReview.length} previously imported appointment source(s) are still present without verified cleanup provenance. Review the original files before manual removal; the Dashboard will not auto-delete legacy files.`);else watchStatus(folderWatch.pending.size?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",folderWatch.pending.size?`${folderWatch.pending.size} file(s) remain pending stability or temporary read recovery.`:"");}
-    }catch(error){if(error.name==="NotFoundError"){stopFolderWatch("REPORT INBOX MISSING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox is missing");}else if(error.name==="NotAllowedError"||error.name==="SecurityError"){stopFolderWatch("FOLDER PERMISSION REQUIRED");recordDiagnostic("REPORT INBOX WATCH","Folder permission error paused watching");}else{watchStatus("REPORT INBOX ERROR","The last scan failed; Service Operations Dashboard will retry automatically.");recordDiagnostic("REPORT INBOX WATCH",`Report Inbox scan failed (${error.name||"Error"})`);}}finally{folderWatch.busy=false;}
+    }catch(error){if(model.root!==scanRoot)return;if(error.name==="NotFoundError"){stopFolderWatch("REPORT INBOX MISSING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox is missing");}else if(error.name==="NotAllowedError"||error.name==="SecurityError"){stopFolderWatch("FOLDER PERMISSION REQUIRED");recordDiagnostic("REPORT INBOX WATCH","Folder permission error paused watching");}else{watchStatus("REPORT INBOX ERROR","The last scan failed; Service Operations Dashboard will retry automatically.");recordDiagnostic("REPORT INBOX WATCH",`Report Inbox scan failed (${error.name||"Error"})`);}}finally{folderWatch.busy=false;}
   }
   async function autoSurveyFolder(eligibleSignatures = null, scanEligible = () => true) {
     // Report Inbox candidates are enumerated a second time here. A reconnect
