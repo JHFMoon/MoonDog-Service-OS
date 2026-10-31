@@ -6,7 +6,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
-const start = source.indexOf("  async function updateArrivalStatus(");
+const start = source.indexOf("  let arrivalStatusWriteBusy = false;");
 const end = source.indexOf("  function renderArrivals()", start);
 assert.ok(start >= 0 && end > start, "production Arrivals status-save boundary exists");
 const production = source.slice(start, end);
