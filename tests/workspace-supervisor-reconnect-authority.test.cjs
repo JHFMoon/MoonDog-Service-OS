@@ -68,35 +68,46 @@ test("active and queued workbook operations reject reconnect before changing Wor
   assert.equal(await h.ctx.connect(h.rootB),"authorized writable connection");
 });
 
-test("operation beginning while picker permission is pending stops late reconnect",async()=>{
+test("a workbook cannot start while permission validation is already in progress",async()=>{
   const h=harness(),permissionStarted=deferred(),permissionHold=deferred();
   h.config.permission=async()=>{permissionStarted.resolve();await permissionHold.promise;return "granted";};
   const connecting=h.ctx.connect(h.rootB);
   await permissionStarted.promise;
-  const workStarted=deferred(),workHold=deferred();
-  const work=h.ctx.withWorkbookLock(async()=>{workStarted.resolve();await workHold.promise;});
-  await workStarted.promise;
-  permissionHold.resolve();
-  await assert.rejects(connecting,error=>error?.code==="WORKSPACE_CONNECTION_BUSY");
-  assert.equal(h.model.root,h.rootA);
-  workHold.resolve();await work;
+  let mutated=false;
+  await assert.rejects(h.ctx.withWorkbookLock(async()=>{mutated=true;}),/Workspace connection is in progress/);
+  assert.equal(mutated,false,"no workbook mutation can begin under a pending reconnect");
   assert.equal(h.ctx.pendingWorkbookCount(),0);
+  permissionHold.resolve();
+  assert.equal(await connecting,"authorized writable connection");
 });
 
-test("writable and read-only root-handle waits cannot cross a newly started workbook",async()=>{
+test("a picked import becoming busy during permission stops validation before authority changes",async()=>{
+  const h=harness(),permissionStarted=deferred(),permissionHold=deferred();
+  let validationCalls=0;
+  h.config.permission=async()=>{permissionStarted.resolve();await permissionHold.promise;return "granted";};
+  h.config.validate=async()=>{validationCalls++;};
+  const connecting=h.ctx.connect(h.rootB);
+  await permissionStarted.promise;
+  h.ctx.dailyImportBusy=true;
+  permissionHold.resolve();
+  await assert.rejects(connecting,error=>error?.code==="WORKSPACE_CONNECTION_BUSY");
+  assert.equal(validationCalls,0,"do not change write authority after a picked import starts");
+  assert.equal(h.model.root,h.rootA);
+  h.ctx.dailyImportBusy=false;
+});
+
+test("writable and read-only directory awaits refuse a competing import before root replacement",async()=>{
   for(const canWrite of [true,false]){
-    const h=harness(),rootStarted=deferred(),rootHold=deferred(),workStarted=deferred(),workHold=deferred();
+    const h=harness(),rootStarted=deferred(),rootHold=deferred();
     h.config.canWrite=canWrite;
     h.config.operationalRoot=async handle=>{rootStarted.resolve();await rootHold.promise;return handle;};
     const connecting=h.ctx.connect(h.rootB);
     await rootStarted.promise;
-    const work=h.ctx.withWorkbookLock(async()=>{workStarted.resolve();await workHold.promise;});
-    await workStarted.promise;
+    h.ctx.dailyImportBusy=true;
     rootHold.resolve();
     await assert.rejects(connecting,error=>error?.code==="WORKSPACE_CONNECTION_BUSY");
     assert.equal(h.model.root,h.rootA,"no Workspace switch, including read-only case");
-    workHold.resolve();await work;
-    assert.equal(h.ctx.pendingWorkbookCount(),0);
+    h.ctx.dailyImportBusy=false;
   }
 });
 
