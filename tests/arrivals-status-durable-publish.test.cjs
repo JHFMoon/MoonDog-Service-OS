@@ -112,7 +112,7 @@ test("unverified pending main write cannot appear as an arrived appointment", as
 });
 
 test("a competing completed import during backup refuses to overwrite changed source authority", async () => {
-  const h = harness({onWrite: async name, model => {
+  const h = harness({onWrite: async (name, model) => {
     if (name.startsWith("backups/")) model.appointments = clone({
       updatedAt: "new-import-revision",
       days: { [day]: { date: day, appointments: [] } }
