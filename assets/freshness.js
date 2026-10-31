@@ -268,7 +268,7 @@
     const optional = purpose?.startsWith('OPTIONAL'), prior = previousOperatingDay(today),
       observation = input.observationDate || '',
       datedCurrent = trustedDate(observation) && observation >= prior && observation <= today,
-      current = input.currentSnapshot === true || (!input.legacyUnsafe && (evidence.safeForCurrent || (evidence.loaded && evidence.status === 'historical-valid' && datedCurrent))),
+      current = evidence.status !== 'invalid' && (input.currentSnapshot === true || (!input.legacyUnsafe && (evidence.safeForCurrent || (evidence.loaded && evidence.status === 'historical-valid' && datedCurrent)))),
       missing = (input.missingDates || []).filter(date => trustedDate(date) && date.slice(0,7) === today.slice(0,7) && date < today && !isSunday(date)),
       active = Boolean(input.activeFeature), soon = Boolean(input.soonFeature);
     if (optional && !active && !soon) return finish(current ? 'CURRENT' : 'OPTIONAL', current ? 'Current trend is usable; additional dated observations are optional.' : 'Optional trend depth. No historical backfill required.');

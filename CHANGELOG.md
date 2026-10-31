@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.251 — current Beta
+
+- fix(#59-04): block invalid Open RO evidence despite current workload. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.250 — current Beta
 
 - fix(#59-01): require verified appointment period for Arrivals source confidence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

@@ -1,3 +1,16 @@
+## Live engineering checkpoint — 2026-10-31 (GitHub verified)
+
+This replaces the October 29 live-state snapshot below; the historical acceptance rows remain criteria, not an assertion of complete coverage.
+
+- Protected main at the checkpoint: `c656e3df3366558079ba5fab682585f2db88e17f`, guarded merge of [PR #661](https://github.com/JHFMoon/MoonDog-Service-OS/pull/661). Exact-head [Publication Check #41213734401](https://github.com/JHFMoon/MoonDog-Service-OS/actions/runs/41213734401) and [Clean Install Proof #41213734573](https://github.com/JHFMoon/MoonDog-Service-OS/actions/runs/41213734573) succeeded; guarded merge [#41214434317](https://github.com/JHFMoon/MoonDog-Service-OS/actions/runs/41214434317) succeeded. Owner-authorized AI-assisted exact-head GitHub review #5723497285 is explicitly not an independent human or Codex review.
+- Main manifest Beta: `0.10.18-beta.250`, SHA-256 `b26210db574146d43d5a41bd099783410d873ee253699f5015919ba2b08a76d3`; `migrationRequired=false`. Stable `0.10.17`, SHA-256 `10d9801feb53063c5b88ea69e3250622b498bfbef04aef58cd8f1ffe08bf6141`, unchanged.
+- Main post-merge [Publication Check #41214472713](https://github.com/JHFMoon/MoonDog-Service-OS/actions/runs/41214472713) and [Public Repository History Safety Audit #41214472751](https://github.com/JHFMoon/MoonDog-Service-OS/actions/runs/41214472751) were still running when this checkpoint was authored; requery before any claim of success or next protected change.
+- PR #661 corrects the production Arrivals source-confidence adapter: a saved undated/impossible-date appointment snapshot no longer derives a verified period from the current lookup date. Synthetic `tests/appointments-source-authority.test.cjs` exercises production code with current, missing, stale, invalid and import-time evidence. **#59-01 remains partially complete**; cross-family source-to-view/readback and manual-override/recovery lineage are still outstanding.
+- Open parent issues: #59 architecture and #58 performance. #59-06 and #58-03 are the only criterion-level verified complete entries in the existing closure registry; all other criterion rows remain partial. #212 coaching trend work is deliberately deferred. No issue closed here.
+- One P0 #59-04 follow-up is staged on `fix/59-04-report-need-conflict-guard-20261031` (no PR at time of checkpoint). It prevents a separately current Open RO workload from overriding an explicit INVALID/conflicting source in report-readiness decisions while retaining the validated missing-source workload fallback; synthetic confidence tests and source inventory notes accompany it. Treat as unverified until a separately protected, exact-head, packaged Beta PR succeeds. No Stable release approval, owner Workspace access, real dealership data, physical Windows/Edge/OneDrive test or cross-device write atomicity is claimed.
+
+---
+
 ## Current live engineering checkpoint — 2026-10-29 20:40 UTC
 
 This checkpoint supersedes older live-state summaries below. Issue #164 remains closed.
