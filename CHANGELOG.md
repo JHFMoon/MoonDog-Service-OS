@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.243 — current Beta
+
+- fix(#59-03): stop stale Report Inbox scans after permission or source transitions. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.242 — current Beta
 
 - fix(#59-04): validate explicit CSI scope in production source adapter. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
