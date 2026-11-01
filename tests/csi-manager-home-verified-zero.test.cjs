@@ -92,6 +92,15 @@ test("positive verified CSI responses retain real NPS, not the zero-response bra
   assert.match(actual.coverage,/verified Pulse responses/);
 });
 
+test("future or not-yet-completed CSI scoring window is not verified zero",()=>{
+  for(const periodStart of [TODAY,"2026-10-09"]){
+    const actual=fixture({imports:[verified()],periodStart});
+    assert.deepEqual(JSON.parse(JSON.stringify(actual.cards)),[]);
+    assert.equal(actual.message,"No verified CSI responses loaded.");
+    assert.equal(actual.coverage,"No verified current scoring-window coverage");
+  }
+});
+
 test("scoring window starting before cumulative report does not invent history",()=>{
   const actual=fixture({imports:[verified()],periodStart:"2026-09-01"});
   assert.equal(actual.message,"No verified CSI responses loaded.");
