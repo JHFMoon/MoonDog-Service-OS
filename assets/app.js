@@ -3963,8 +3963,10 @@
         if (kind==="appointments" && outcome?.saved && outcome.deleted===false) {
           // Import is already verified and durable; do not re-import, do not
           // claim removal, and do not discard the cleanup retry on next poll.
+          const cleanupDigest=await sha256(new Uint8Array(bytes));
+          if(!scanEligible())return null;
           model.autoImport.seen[candidate.signature]={fileName:candidate.name,relativePath:candidate.relativePath,
-            importedAt:now(),kind,cleanupPending:true,cleanupSha256:await sha256(new Uint8Array(bytes)),
+            importedAt:now(),kind,cleanupPending:true,cleanupSha256:cleanupDigest,
             cleanupReason:outcome.retainedReason||"Deletion not verified"};
           ledgerChanged=true;retained.push(candidate.name);cleanupPending.push(candidate.name);
           recordDiagnostic("REPORT INBOX CLEANUP","Appointment snapshot saved; source removal pending retry");
@@ -3984,8 +3986,10 @@
           continue;
         }
         if (candidate.location==="inbox" && error?.sourceCleanupFailure && kind && kind!=="disposable-greeter" && bytes) {
+          const cleanupDigest=await sha256(new Uint8Array(bytes));
+          if(!scanEligible())return null;
           model.autoImport.seen[candidate.signature]={fileName:candidate.name,relativePath:candidate.relativePath,
-            importedAt:now(),kind,cleanupPending:true,cleanupSha256:await sha256(new Uint8Array(bytes)),
+            importedAt:now(),kind,cleanupPending:true,cleanupSha256:cleanupDigest,
             cleanupReason:error.message||String(error)};
           ledgerChanged=true;retained.push(candidate.name);cleanupPending.push(candidate.name);
           recordDiagnostic("REPORT INBOX CLEANUP", "Verified ingestion completed; source removal failed and will be retried");
@@ -4003,12 +4007,15 @@
         if(transientIntakeError(error)){retained.push(candidate.name);recordDiagnostic("REPORT INBOX PENDING","Temporary read, permission, or durable-write failure; retry scheduled");continue;}
         try {
           const diagnostic=error.message||String(error),storedAs=await moveToLearn(candidate,diagnostic,scanEligible);
+          if(!scanEligible())return null;
+          const failureSha256=bytes?await sha256(new Uint8Array(bytes)):"";
+          if(!scanEligible())return null;
           learned.push(candidate.name);
-          model.autoImport.seen[candidate.signature]={fileName:candidate.name,movedAt:now(),storedAs,recognized:Boolean(kind)||recognizedFamilyHint(candidate.name,bytes),importFailed:true,diagnostic,failedAt:now(),failureSha256:bytes?await sha256(new Uint8Array(bytes)):""};
+          model.autoImport.seen[candidate.signature]={fileName:candidate.name,movedAt:now(),storedAs,recognized:Boolean(kind)||recognizedFamilyHint(candidate.name,bytes),importFailed:true,diagnostic,failedAt:now(),failureSha256};
           ledgerChanged=true;
           recordDiagnostic("REPORT INBOX","Moved to Files To Learn - recognized but invalid");
         }
-        catch (moveError) { retained.push(candidate.name); try { await addHistory("auto-import-retained", `Automatic import retained ${candidate.name}`, { fileName: candidate.name, reason: moveError.message || String(moveError) }); } catch (_) {} }
+        catch (moveError) { if(!scanEligible())return null; retained.push(candidate.name); try { await addHistory("auto-import-retained", `Automatic import retained ${candidate.name}`, { fileName: candidate.name, reason: moveError.message || String(moveError) }); } catch (_) {} }
       }
     }
     if(!scanEligible())return null;
