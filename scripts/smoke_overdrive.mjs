@@ -495,7 +495,7 @@ try{
     await page.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===413,null,{timeout:5000});
     // #58-04 paired packaged-browser synthetic benchmark: compare former
     // eager hidden-panel rebuild against production guarded table rendering.
-    const reviewPanelBrowser=await page.evaluate(()=>{
+    const reviewPanelBrowser=await page.evaluate(async()=>{
       const state=globalThis.__moondogDaily?.model?.state;
       const panel=document.getElementById("recentlyReviewedPanel");
       const button=document.getElementById("recentlyReviewed");
@@ -515,11 +515,17 @@ try{
         const valuesSorted=[...values].sort((a,b)=>a-b);
         return valuesSorted[Math.max(0,Math.ceil(valuesSorted.length*p)-1)];
       };
-      const oldTimes=[],newTimes=[],samples=16;
+      const oldTimes=[],newTimes=[],samples=16,intervals=[],longEntries=[];
       panel.hidden=true;button.setAttribute("aria-expanded","false");
       input.value="";render();
       if(table.querySelectorAll("tr[data-id]").length!==413)
         throw Error("Synthetic Open RO fixture lost table rows");
+      const longTaskSupported=typeof PerformanceObserver==="function"&&
+        (PerformanceObserver.supportedEntryTypes||[]).includes("longtask");
+      const longObserver=longTaskSupported?new PerformanceObserver(list=>{
+        for(const e of list.getEntries())longEntries.push({start:e.startTime,duration:e.duration});
+      }):null;
+      longObserver?.observe({type:"longtask",buffered:false});
       const observed=new MutationObserver(()=>{});
       observed.observe(panel,{subtree:true,childList:true});
       for(let n=0;n<samples;n++){
@@ -532,15 +538,25 @@ try{
           if(arm==="before")review();
           // Force comparable browser DOM layout resolution for both paths.
           void table.offsetHeight;
-          (arm==="before"?oldTimes:newTimes).push(performance.now()-started);
+          const ended=performance.now();
+          (arm==="before"?oldTimes:newTimes).push(ended-started);
+          intervals.push({arm,started,ended});
           const mutationCount=observed.takeRecords().length;
           if(arm==="after"&&mutationCount!==0)
             throw Error("Hidden Recently Reviewed panel rebuilt on optimized search");
           if(arm==="before"&&mutationCount===0)
             throw Error("Old-path synthetic comparison did not rebuild review panel");
+          // Distinct task boundaries allow PerformanceObserver longtask entries
+          // to be associated with the matching measured browser render.
+          await new Promise(resolve=>setTimeout(resolve,0));
         }
       }
-      observed.disconnect();
+      await new Promise(resolve=>setTimeout(resolve,0));
+      observed.disconnect();longObserver?.disconnect();
+      const overlapping=arm=>longEntries.filter(entry=>intervals.some(sample=>
+        sample.arm===arm&&entry.start<=sample.ended&&
+        entry.start+entry.duration>=sample.started));
+      const oldLong=overlapping("before"),newLong=overlapping("after");
       const oldP50=percentile(oldTimes,.50),oldP95=percentile(oldTimes,.95),
         newP50=percentile(newTimes,.50),newP95=percentile(newTimes,.95);
       const timing={dataset:"413 synthetic in-memory Open ROs",pairedSamples:samples,
@@ -549,6 +565,10 @@ try{
         delta:{p50Ms:+(oldP50-newP50).toFixed(3),p95Ms:+(oldP95-newP95).toFixed(3),
           p50Percent:+((newP50-oldP50)/Math.max(.001,oldP50)*100).toFixed(1),
           p95Percent:+((newP95-oldP95)/Math.max(.001,oldP95)*100).toFixed(1)},
+        longTasks:{observerSupported:longTaskSupported,
+          beforeCount:oldLong.length,afterCount:newLong.length,
+          maxBeforeMs:oldLong.length?+Math.max(...oldLong.map(e=>e.duration)).toFixed(2):0,
+          maxAfterMs:newLong.length?+Math.max(...newLong.map(e=>e.duration)).toFixed(2):0},
         scope:"packaged file:// Chromium; production Open RO/Recently Reviewed DOM; synthetic memory only, not installed Edge/OneDrive"};
       // Click the shipped button to verify hidden -> refreshed top 15 -> hidden.
       panel.hidden=true;button.setAttribute("aria-expanded","false");
