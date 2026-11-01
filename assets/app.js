@@ -5469,7 +5469,30 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     if (ui.csiSummary) {
       const summary = npsSummary(csiSurveys), periodStart = model.settings.csiPeriodStart || `${localDateKey().slice(0, 7)}-01`; ui.csiSummary.replaceChildren();
-      if (!summary.responses) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No verified CSI responses loaded."; ui.csiSummary.append(empty); ui.csiCoverage.textContent = "Same-day source · no verified coverage"; }
+      if (!summary.responses) {
+        // A verified cumulative export with no responses is not a missing
+        // report, but without known coverage it also cannot prove a zero.
+        // Scope must cover the entire configured scoring window through the
+        // last completed operating day; an import timestamp is not evidence.
+        const evidence=sourceFreshness("csi"),latestImport=model.operationalMetrics?.csi?.imports?.at(-1),
+          today=localDateKey(),requiredEnd=freshness.previousOperatingDay(today),
+          scopeStart=latestImport?.scopeStart,scopeEnd=latestImport?.scopeEnd,
+          zeroVerified=evidence.safeForCurrent&&latestImport?.scopeVerified===true&&
+            freshness.validDateKey(periodStart)&&freshness.validDateKey(scopeStart)&&
+            freshness.validDateKey(scopeEnd)&&scopeStart<=periodStart&&
+            scopeEnd>=requiredEnd&&scopeEnd<=today;
+        if(zeroVerified) {
+          [["Dealer NPS","Not applicable"],["Responses",0],["Promoters",0],["Detractors",0]].forEach(([label,value])=>{
+            const card=document.createElement("div"),name=document.createElement("span"),metric=document.createElement("strong");
+            name.textContent=label;metric.textContent=value;card.append(name,metric);ui.csiSummary.append(card);
+          });
+          ui.csiCoverage.textContent=`${periodStart} through ${scopeEnd} · verified cumulative export with zero scoring responses · refreshed ${csiRefreshDate||"not recorded"}`;
+        } else {
+          const empty=document.createElement("p");empty.className="empty";
+          empty.textContent="No verified CSI responses loaded.";ui.csiSummary.append(empty);
+          ui.csiCoverage.textContent="No verified current scoring-window coverage";
+        }
+      }
       else { [["Dealer NPS", summary.nps.toFixed(summary.nps % 1 ? 1 : 0)], ["Responses", summary.responses], ["Promoters", summary.promoters], ["Detractors", summary.detractors]].forEach(([label, value]) => { const card = document.createElement("div"), name = document.createElement("span"), metric = document.createElement("strong"); name.textContent = label; metric.textContent = value; card.append(name, metric); ui.csiSummary.append(card); }); ui.csiCoverage.textContent = `${periodStart} through ${csiCoverage} · refreshed ${csiRefreshDate || "not recorded"} · verified Pulse responses`; }
     }
   }
