@@ -58,6 +58,8 @@ Files To Learn relocation is a copy → verify → delete transaction. A stale s
 
 After automatic importer completion or failure, Report Inbox intake rechecks the original scan authority before publishing a ledger entry, an error-derived learning-file entry or a completion status. Delayed cleanup digests and Files To Learn move/digest results require a fresh authority check before the caller can update its intake ledger; already-started durable filesystem operations are not claimed reversible. The importer itself still owns its durable write and recovery guarantees; suppressing a stale caller acknowledgment is not a claim that its already-started filesystem write can be rolled back. The scan revalidates authority around the final ledger write and file-enumeration status update.
 
+Committed Open RO duplicate recovery is a separate post-import path: its source digest, durable roster read-back, workbook revalidation, dependent report/Assign Next repairs, final roster read-back and cleanup intent each await filesystem work. The scanner must revalidate its originating Workspace/write/import authority after each awaited boundary before replacing in-memory state, starting the next dependent action, deleting a source or recording clean completion. A stale caller returns without falsely completing the new Workspace's recovery; already-started filesystem writes or removal are not claimed cancelable or globally atomic.
+
 ## Clean-install distribution contract
 
 `scripts/build_distribution.py` reads the same `HANDOFF_RUNTIME_PATHS` catalog used by application handoff/runtime integrity checks. The builder:

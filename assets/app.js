@@ -3882,10 +3882,12 @@
         }
         if (kind==="open-ro" && candidate.location==="inbox") {
           const digest=await sha256(new Uint8Array(bytes));
+          if(!scanEligible())return null;
           // Read disk even when the in-memory digest differs. A completed
           // filesystem write can lose its read-back (OneDrive NotReadableError)
           // before model.state is updated, leaving memory behind durable state.
           const durable=await readJson(STATE_PATH,null);
+          if(!scanEligible())return null;
           if (durable?.source?.sha256===digest) {
             if (!Array.isArray(durable.records))
               throw new Error("Open RO durable roster is incomplete; source retained for retry.");
@@ -3905,6 +3907,7 @@
             const priorBook = typeof prepareXlsxWorkbook === "function"
               ? await prepareXlsxWorkbook(bytes, {type:"array",cellDates:true,cellFormula:true})
               : XLSX.read(bytes, {type:"array",cellDates:true,cellFormula:true});
+            if(!scanEligible())return null;
             const grouped = legacyReport(priorBook);
             if (!grouped || grouped.verification!=="group totals and global rows returned reconciled")
               throw new Error("Open RO read-back reconciliation failed; source retained for retry.");
@@ -3915,6 +3918,7 @@
               advisors:Object.fromEntries([...new Set(activeRecords.map(row=>row.advisorCode))]
                 .map(code=>[code,activeRecords.filter(row=>row.advisorCode===code).length]))
             });
+            if(!scanEligible())return null;
             // Preserve managerial manual closures that occurred AFTER this
             // source was imported. Keep all other source workload records,
             // including legitimate untracked-advisor rows.
@@ -3929,11 +3933,14 @@
               .filter(row=>!manuallyClosed.has(String(row.ro)));
             await saveOpenRoWorkload(openRoWorkloadSnapshot(
               safeWorkload,savedSource,savedSource.sourceModifiedAt));
+            if(!scanEligible())return null;
             await ensureDailyFocus();
+            if(!scanEligible())return null;
             // Manager edits/closures are allowed while folder scans await I/O.
             // Never delete the source after a stale projection overwrites an
             // intervening manager change; retry against the latest roster.
             const latestRoster = await readJson(STATE_PATH,null);
+            if(!scanEligible())return null;
             if (!latestRoster || latestRoster.source?.sha256!==digest ||
                 JSON.stringify(latestRoster.records)!==JSON.stringify(activeRecords) ||
                 JSON.stringify(latestRoster.closedRecords||[])!==JSON.stringify(durable.closedRecords||[]))
@@ -3946,7 +3953,9 @@
             };
             ledgerChanged=true;
             await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+            if(!scanEligible())return null;
             await removeSourceEntryWithByteGuard(candidate.name,bytes);
+            if(!scanEligible())return null;
             model.autoImport.seen[candidate.signature].cleanupPending=false;
             model.autoImport.seen[candidate.signature].cleanupCompletedAt=now();
             delete model.autoImport.seen[candidate.signature].cleanupSha256;
