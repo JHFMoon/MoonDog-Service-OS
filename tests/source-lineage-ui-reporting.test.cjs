@@ -36,7 +36,7 @@ test('recent import cannot relabel a stale source as current or invent a valid r
   assert.match(stale,/Last imported: 2026-10-27 09:01 UTC/);
   const invalid=p.lineageLabel({status:'invalid',loaded:true,
     sourceTimestamp:'not-a-timestamp',periodStart:'',periodEnd:'',reportPeriodVerified:false});
-  assert.match(invalid,/Loaded · validation needed/);
+  assert.match(invalid,/Invalid source · Review required/);
   assert.match(invalid,/Report period: Not verified/);
   assert.match(invalid,/Last imported: Not verified/);
 });

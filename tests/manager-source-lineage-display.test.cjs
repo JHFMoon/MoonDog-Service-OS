@@ -96,7 +96,7 @@ test("source status distinguishes a period conflict from other validation failur
   assert.equal(context.sourceStatusLabel({ status: "invalid", loaded: true,
     reason: "Conflicting validated source snapshots for the same reporting period" }), "Conflict · Review required");
   assert.equal(context.sourceStatusLabel({ status: "invalid", loaded: true,
-    reason: "Unsupported synthetic workbook structure" }), "Loaded · validation needed");
+    reason: "Unsupported synthetic workbook structure" }), "Unsupported format · Review required");
   assert.equal(context.sourceStatusLabel({ status: "invalid", loaded: true,
     reason: "The saved report period is invalid or internally inconsistent." }), "Invalid period · Review required");
 });

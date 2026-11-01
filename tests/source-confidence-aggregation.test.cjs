@@ -165,7 +165,7 @@ test("production freshness states render truthful source confidence labels acros
       invalid:"Unsupported synthetic report layout"});
     assert.equal(unsupported.status,"invalid",key+" unsupported layout status");
     assert.equal(labels.sourceLineageLabel(unsupported),
-      "Loaded · validation needed · Report period: Not verified · Last imported: Not verified",
+      "Unsupported format · Review required · Report period: Not verified · Last imported: Not verified",
       key+" unsupported layout presentation");
 
     const conflict=F.evaluateSource({key,today,exists:true,
