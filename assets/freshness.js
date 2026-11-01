@@ -289,6 +289,11 @@
   }
   function evaluateMetric(dependencies = []) {
     const blocking = dependencies.filter((item) => !item?.safeForPurpose && !["not-used", "temporarily-unavailable"].includes(item?.status));
+    // Optional dependencies may be excluded alongside a valid source, but an
+    // entirely unavailable input set is never proof of a current metric.
+    if (dependencies.length && !blocking.length && !dependencies.some((item) => item?.safeForPurpose)) {
+      blocking.push(...dependencies);
+    }
     return Object.freeze({ verified: blocking.length === 0, status: blocking[0]?.status || "verified", blocking, dependencies });
   }
 
