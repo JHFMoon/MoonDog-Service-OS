@@ -3308,7 +3308,7 @@
       if(exact){
         const priorVin=String(exact.vin||"").trim().toUpperCase(),newVin=String(raw.vin||"").trim().toUpperCase();
         if(String(exact.ro||"").trim()===String(raw.ro||"").trim()&&(!priorVin||!newVin||priorVin===newVin))return exact;
-        return null;
+        throw new Error("Needs Review: conflicting Open RO identity or full VIN; source retained.");
       }
       const ro=String(raw.ro||"").trim(),matches=previousByRo.get(ro)||[];
       const validNewVin=/^[A-HJ-NPR-Z0-9]{17}$/i.test(String(raw.vin||"").trim());
