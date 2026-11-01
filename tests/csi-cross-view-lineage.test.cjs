@@ -133,7 +133,7 @@ test("production Meeting CSI customer voice renders source text without HTML int
   assert.equal(parent.children.length,1);
   const card=parent.children[0];
   assert.deepEqual(card.children.map(child=>child.tag),["span","strong","small"]);
-  assert.equal(card.children[0].textContent,"CLEAR EXPLANATION");
+  assert.equal(card.children[0].textContent,"COMMUNICATION");
   assert.equal(card.children[1].textContent,"“"+message+"”");
   assert.equal(card.children[2].textContent,"Verified promoter comment · 2026-10-25");
   assert.equal(innerHtmlWrites,0,"private customer comments must never enter innerHTML");
