@@ -267,6 +267,30 @@ test('legacy historical reports with no explicit start retain end-only coverage'
   assert.equal(evidence.safeForPurpose, true);
 });
 
+test('end-only source observations cannot certify earlier historical intervals across all report families', () => {
+  const end='2026-09-30', keys=Object.keys(F.SOURCE_DEFINITIONS);
+  assert.equal(keys.length,14,'cover every catalogued source authority');
+  for(const key of keys){
+    const source={key,exists:true,purpose:'historical',today:'2026-10-07',periodEnd:end};
+    const unverifiedMonth=F.evaluateSource({...source,
+      targetStart:'2026-09-01',targetEnd:end});
+    assert.equal(unverifiedMonth.status,'stale',key+' end-only source cannot backfill a month');
+    assert.equal(unverifiedMonth.safeForPurpose,false,key+' earlier coverage remains unverified');
+    assert.equal(F.evaluateMetric([unverifiedMonth]).verified,false,key+' history cannot yield a verified KPI');
+
+    const unverifiedDay=F.evaluateSource({...source,
+      targetStart:'2026-09-29',targetEnd:'2026-09-29'});
+    assert.equal(unverifiedDay.status,'stale',key+' prior day is not established by a later observation');
+
+    const verifiedEnd=F.evaluateSource({...source,targetStart:end,targetEnd:end});
+    assert.equal(verifiedEnd.status,'historical-valid',key+' known observation date still works');
+
+    const explicitCoverage=F.evaluateSource({...source,periodStart:'2026-09-01',
+      targetStart:'2026-09-01',targetEnd:end});
+    assert.equal(explicitCoverage.status,'historical-valid',key+' documented start proves full period');
+  }
+});
+
 test('Open RO without source date never inherits the current computer date', () => {
   // Derive today's actual business-date key so this regression cannot turn
   // green merely because a hard-coded 2026 day has passed.
