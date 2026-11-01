@@ -181,3 +181,50 @@ test('Performance tracker refuses an undated Open RO as a verified zero',()=>{
   assert.equal(cells.at(-1).textContent,'UPDATE PENDING');
   assert.equal(calculations,1);
 });
+
+
+test('production Performance advisor table treats imported identity as text, never markup or a split delimiter',()=>{
+  const start=app.indexOf('  function renderPerformance() {');
+  const end=app.indexOf('  const renderPerformanceBase = renderPerformance;',start);
+  assert.ok(start>0&&end>start,'production Performance renderer is available');
+  let tableHtmlAssignments=0;
+  function node(tag){
+    return {tag,children:[],className:'',textContent:'',
+      append(...items){this.children.push(...items);},
+      replaceChildren(...items){this.children=items;},
+      set innerHTML(value){if(tag==='td')tableHtmlAssignments++;this.html=value;},
+      get innerHTML(){return this.html||'';}};
+  }
+  const advisorName='<img src=x onerror="synthetic-injection">|Alice';
+  const advisorCode='A&B';
+  const source={date:'2026-10-31',periodStart:'2026-10-01',periodEnd:'2026-10-31',
+    sourceFile:'synthetic-sapr.xlsx',store:{name:'Store',totalGross:120},
+    advisors:{'A&B':{code:advisorCode,name:advisorName,totalGross:120,totalRO:2}}};
+  const table=node('table'), select={value:'store',children:[],
+    replaceChildren(...values){this.children=values;},add(item){this.children.push(item);}};
+  const ui={performanceAdvisor:select,performanceSource:node('div'),performancePeriod:node('div'),
+    performanceKpis:node('div'),performanceTrendTitle:node('div'),performanceTrendNote:node('div'),
+    performanceTrendCount:node('div'),performanceChanges:node('div'),
+    performanceAdvisorNote:node('div'),performanceAdvisorTable:table,
+    performanceMetric:{value:'totalGross'}};
+  const context=vm.createContext({
+    model:{performance:{snapshots:{'2026-10-31':source}}},ui,
+    document:{createElement:node},Option:function(label,value){return {label,value};},
+    advisorShownInSection:()=>true,performanceEntity:(snapshot,selection)=>
+      selection==='store'?snapshot.store:snapshot.advisors[selection],
+    performanceDelta:()=>null,performanceFormat:value=>String(value??'—'),
+    performanceMetricMeta:{totalGross:['Total gross','money']},
+    renderPerformanceChart:()=>{}
+  });
+  vm.runInContext(app.slice(start,end)+';this.render=renderPerformance;',context);
+  context.render();
+  assert.equal(table.children.length,1);
+  const first=table.children[0].children[0];
+  assert.equal(first.tag,'td');
+  assert.deepEqual(first.children.map(item=>item.tag),['strong','small']);
+  assert.equal(first.children[0].textContent,advisorName,'literal HTML-looking text is retained');
+  assert.equal(first.children[1].textContent,advisorCode,'code is not interpreted as markup');
+  assert.equal(tableHtmlAssignments,0,'no imported advisor identity enters table HTML');
+  assert.equal(table.children[0].children[1].textContent,'120',
+    'existing numeric Performance KPI cell remains unchanged');
+});
