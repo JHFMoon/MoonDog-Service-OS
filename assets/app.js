@@ -3913,6 +3913,10 @@
           }
         }
         const outcome=await processClassifiedCandidate(candidate, kind, bytes, true);
+        // The importer may have awaited durable I/O while reconnect or a
+        // competing manual import claimed authority. Its completion must not
+        // mutate the new Workspace's intake ledger or report a false success.
+        if(!scanEligible())return null;
         if (kind==="appointments" && outcome?.saved && outcome.deleted===false) {
           // Import is already verified and durable; do not re-import, do not
           // claim removal, and do not discard the cleanup retry on next poll.
