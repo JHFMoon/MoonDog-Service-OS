@@ -34,7 +34,7 @@ function harness(period, includeImporter = false) {
     performanceRows: sheet => sheet.rows,
     performanceDays: () => ({ completed: 5, total: 24 }),
     performanceDetailCode: () => "SYN",
-    performanceMetrics: () => ({ totalGross: 900, cpRO: 5, cpHours: 10, cpElr: 120 }),
+    performanceMetrics: () => ({ totalGross: 900, cpRO: 5, cpHours: 10 }),
     validateAdvisorPerformance: () => {},
     parseControllableBenchmarks: () => ({ store: {}, advisors: {} }),
     ADVISOR_NAMES: { SYN: "Synthetic Advisor" },
