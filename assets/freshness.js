@@ -186,7 +186,11 @@
       const periodValid = validDateKey(targetStart) && validDateKey(targetEnd) &&
         targetStart <= targetEnd &&
         validDateKey(input.periodEnd) && input.periodEnd >= targetEnd &&
-        sourceStartValid && (sourceStartMissing || input.periodStart <= targetStart);
+        sourceStartValid && (sourceStartMissing
+          // An undated start cannot prove historical coverage before its only
+          // verified observation day. Preserve legacy end-day lookup only.
+          ? (targetStart === input.periodEnd && targetEnd === input.periodEnd)
+          : input.periodStart <= targetStart);
       return periodValid ? result(input, "historical-valid", { expectedPeriod: [targetStart, targetEnd].filter(Boolean).join(" through "), reason: "The source covers its requested historical period." }) : result(input, "stale", { expectedPeriod: [targetStart, targetEnd].filter(Boolean).join(" through "), reason: "The loaded source does not cover the requested historical period.", requiredAction: `Load ${definition.label} covering the requested historical period.` });
     }
     let current = false, expectedPeriod = "", reason = "", requiredAction = "";
