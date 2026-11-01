@@ -16,6 +16,15 @@ assert.ok(overview>=0&&blockStart>overview&&blockEnd>blockStart&&npsEnd>npsStart
   "extract actual Manager Home CSI renderer and production NPS calculation");
 const uiSource=app.slice(blockStart,blockEnd);
 const npsSource=app.slice(npsStart,npsEnd);
+const coverageStart=app.indexOf("  function validCoverageDate(");
+const coverageEnd=app.indexOf("\n  function coverageTimestamp(",coverageStart);
+const selectorStart=app.indexOf("  function csiReportedPeriod(");
+const selectorEnd=app.indexOf("\n  function metricDependencyEvidence(",selectorStart);
+assert.ok(coverageStart>=0&&coverageEnd>coverageStart&&
+  selectorStart>=0&&selectorEnd>selectorStart,
+  "test must exercise the actual production CSI date/scope and source selectors");
+const coverageSource=app.slice(coverageStart,coverageEnd);
+const selectorSource=app.slice(selectorStart,selectorEnd);
 assert.match(uiSource,/zeroVerified=/,"source zero-confidence guard exists");
 assert.match(uiSource,/evidence\.safeForCurrent/,"source freshness is mandatory");
 
@@ -28,22 +37,15 @@ const TODAY="2026-10-07",PERIOD_START="2026-10-01";
 function fixture({imports=[],surveys={},periodStart=PERIOD_START}={}){
   const ui={csiSummary:node("section"),csiCoverage:node("div")};
   const model={settings:{csiPeriodStart:periodStart},operationalMetrics:{csi:{imports,surveys}}};
-  const sourceFreshness=key=>{
-    assert.equal(key,"csi");
-    const last=imports.at(-1);
-    return F.evaluateSource({key:"csi",today:TODAY,exists:!!last,
-      scopeVerified:last?.scopeVerified===true,
-      scopeStart:last?.scopeStart,scopeEnd:last?.scopeEnd,
-      periodStart:last?.scopeStart,periodEnd:last?.scopeEnd,
-      observationVerified:false});
-  };
   const context=vm.createContext({
     ui,model,document:{createElement:node},localDateKey:()=>TODAY,
     csiSurveys:surveys,csiCoverage:Object.values(surveys).map(s=>s.surveyDate).sort().at(-1)||"",
     csiRefreshDate:imports.at(-1)?.refreshDate||"",
-    sourceFreshness,freshness:F
+    sourceExpectation:()=> "recommended",businessTimeZone:()=> "UTC",
+    freshness:F
   });
-  vm.runInContext(npsSource+"\nfunction renderCsi(){\n"+uiSource+
+  vm.runInContext(coverageSource+"\n"+selectorSource+"\n"+npsSource+
+    "\nfunction renderCsi(){\n"+uiSource+
     "\n}\nthis.renderCsi=renderCsi;",context);
   context.renderCsi();
   const cards=ui.csiSummary.children.map(child=>[child.children[0]?.textContent,child.children[1]?.textContent]);
