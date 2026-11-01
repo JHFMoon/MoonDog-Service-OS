@@ -36,7 +36,7 @@ test('recent import cannot relabel a stale source as current or invent a valid r
   assert.match(stale,/Last imported: 2026-10-27 09:01 UTC/);
   const invalid=p.lineageLabel({status:'invalid',loaded:true,
     sourceTimestamp:'not-a-timestamp',periodStart:'',periodEnd:'',reportPeriodVerified:false});
-  assert.match(invalid,/Loaded · validation needed/);
+  assert.match(invalid,/Invalid source · Review required/);
   assert.match(invalid,/Report period: Not verified/);
   assert.match(invalid,/Last imported: Not verified/);
 });
@@ -116,7 +116,13 @@ test("production source-lineage UI labels preserve every authority state for all
   const cases=[
     ["missing",{status:"missing",loaded:false},"Missing · Report period: Not verified · Last imported: Not verified"],
     ["stale",{status:"stale",loaded:true,reportPeriodVerified:true,periodStart:"2026-10-01",periodEnd:"2026-10-06",importTimestamp:"2026-10-07T15:00:00.000Z"},"Loaded but stale · Needs updating · Report period: 2026-10-01 through 2026-10-06 · Last imported: 2026-10-07 15:00 UTC"],
-    ["unsupported",{status:"invalid",loaded:true,reason:"Unsupported synthetic report layout"},"Loaded · validation needed · Report period: Not verified · Last imported: Not verified"],
+    ["unsupported",{status:"invalid",loaded:true,reason:"Unsupported synthetic report layout"},"Unsupported format · Review required · Report period: Not verified · Last imported: Not verified"],
+    ["explicit-unsupported",{status:"unsupported",loaded:true,reason:"Unsupported layout"},"Unsupported format · Review required · Report period: Not verified · Last imported: Not verified"],
+    ["unverified",{status:"unverified",loaded:true,reason:"Readback not independently confirmed"},"Unverified · Review required · Report period: Not verified · Last imported: Not verified"],
+    ["invalid-data",{status:"invalid",loaded:true,reason:"Source totals do not reconcile"},"Invalid source · Review required · Report period: Not verified · Last imported: Not verified"],
+    ["invalid-scope",{status:"invalid",loaded:true,reason:"The saved verified source coverage is malformed"},"Invalid period · Review required · Report period: Not verified · Last imported: Not verified"],
+    ["unverified-reporting-period",{status:"invalid",loaded:true,reason:"The loaded source has no verified reporting period."},"Invalid period · Review required · Report period: Not verified · Last imported: Not verified"],
+    ["explicit-conflict",{status:"conflicting",loaded:true,reason:"Multiple source authorities"},"Conflict · Review required · Report period: Not verified · Last imported: Not verified"],
     ["conflict",{status:"invalid",loaded:true,reason:"Conflicting duplicate synthetic source period"},"Conflict · Review required · Report period: Not verified · Last imported: Not verified"],
     ["invalid-period",{status:"invalid",loaded:true,reason:"Report period is malformed"},"Invalid period · Review required · Report period: Not verified · Last imported: Not verified"],
     ["unavailable",{status:"temporarily-unavailable",loaded:true,reason:"Synthetic read was busy"},"Temporarily unavailable · Report period: Not verified · Last imported: Not verified"],
@@ -131,6 +137,28 @@ test("production source-lineage UI labels preserve every authority state for all
   }
 });
 
+
+test("shared source evaluator and lineage UI agree that unsupported and invalid sources cannot verify metrics across all 14 families",()=>{
+  const F=require("../assets/freshness.js"),p=productionSourceLineage(),today="2026-10-07";
+  const families=Object.keys(F.SOURCE_DEFINITIONS);
+  for(const key of families){
+    for(const [cause,label] of [
+      ["Unsupported source layout","Unsupported format · Review required"],
+      ["Source totals do not reconcile","Invalid source · Review required"],
+      ["The verified reporting coverage is malformed","Invalid period · Review required"],
+      ["The loaded source has no verified reporting period.","Invalid period · Review required"],
+      ["Conflicting authoritative inputs","Conflict · Review required"]
+    ]){
+      const evidence=F.evaluateSource({key,exists:true,today,invalid:cause,
+        sourceTimestamp:"2026-10-07T15:00:00Z"});
+      assert.equal(evidence.status,"invalid",key+" "+cause);
+      assert.equal(evidence.safeForPurpose,false,key+" "+cause);
+      assert.equal(F.evaluateMetric([evidence]).verified,false,key+" "+cause);
+      assert.equal(p.statusLabel(evidence),label,key+" "+cause);
+      assert.match(p.lineageLabel(evidence),/Report period: Not verified/,key+" "+cause);
+    }
+  }
+});
 
 test('undated Open RO import is not labelled as a verified CURRENT report',()=>{
   const p=productionSourceLineage();
