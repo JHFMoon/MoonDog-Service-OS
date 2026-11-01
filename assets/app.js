@@ -2739,20 +2739,59 @@
     try { if (findTable(book)) return "open-ro"; } catch (_) {}
     return null;
   }
-  async function moveToLearn(candidate, reason) {
-    sourceLocations.set(candidate.name,candidate.location); const current = await (await sourceFileHandle(candidate.name)).getFile(), currentSignature = `${candidate.relativePath}|${current.size}|${current.lastModified}`;
-    if (currentSignature !== candidate.signature) throw new Error(`${candidate.name} changed while it was being checked and was left in place.`);
-    const folder = await directory(["Files To Learn"], true), dot = candidate.name.lastIndexOf("."), base = dot > 0 ? candidate.name.slice(0, dot) : candidate.name, extension = dot > 0 ? candidate.name.slice(dot) : ""; let targetName = candidate.name, copy = 2;
-    while (true) { try { await folder.getFileHandle(targetName); targetName = `${base} (${copy})${extension}`; copy += 1; } catch (error) { if (error.name === "NotFoundError") break; throw error; } }
-    const originalBytes = await current.arrayBuffer();
-    await writeBytes(["Files To Learn", targetName], new Uint8Array(originalBytes));
-    // Moving a rejected report is a copy/verify/delete transaction, never
-    // an unverified deletion of its only original.
-    const stagedCopy = await (await folder.getFileHandle(targetName)).getFile();
-    if (!sameByteContent(await stagedCopy.arrayBuffer(), originalBytes))
-      throw new Error("Files To Learn copy did not verify; original report retained.");
-    await removeSourceEntryWithByteGuard(candidate.name, originalBytes);
-    await addHistory("file-to-learn", `Moved ${candidate.name} to Files To Learn`, { fileName: candidate.name, storedAs: targetName, reason });
+  async function moveToLearn(candidate, reason, scanEligible = () => true) {
+    // Copy/verify/delete can await several browser file operations. Recheck
+    // the same Workspace and scan authority before each subsequent mutation;
+    // a stale scan must not move a file into a newly connected Workspace.
+    const originalRoot=model.root;
+    const assertAuthority=()=>{
+      if(model.root!==originalRoot||!scanEligible()){
+        const error=new DOMException("Report Inbox authority changed during Files To Learn relocation; original source retained for retry.","InvalidStateError");
+        error.reportInboxAuthorityRevoked=true;
+        throw error;
+      }
+    };
+    assertAuthority();
+    // The scanner already mapped this candidate after validating its source.
+    // Do not recreate a stale source mapping from a move in progress.
+    const sourceHandle=await sourceFileHandle(candidate.name);
+    assertAuthority();
+    const current=await sourceHandle.getFile();
+    assertAuthority();
+    const currentSignature=`${candidate.relativePath}|${current.size}|${current.lastModified}`;
+    if(currentSignature!==candidate.signature)throw new Error(`${candidate.name} changed while it was being checked and was left in place.`);
+    const folder=await directory(["Files To Learn"],true);
+    assertAuthority();
+    const dot=candidate.name.lastIndexOf("."),base=dot>0?candidate.name.slice(0,dot):candidate.name,
+      extension=dot>0?candidate.name.slice(dot):"",targetBase=candidate.name;
+    let targetName=targetBase,copy=2;
+    while(true){
+      try{
+        await folder.getFileHandle(targetName);
+        assertAuthority();
+        targetName=`${base} (${copy})${extension}`;
+        copy+=1;
+      }catch(error){
+        assertAuthority();
+        if(error.name==="NotFoundError")break;
+        throw error;
+      }
+    }
+    const originalBytes=await current.arrayBuffer();
+    assertAuthority();
+    await writeBytes(["Files To Learn",targetName],new Uint8Array(originalBytes));
+    assertAuthority();
+    const copyHandle=await folder.getFileHandle(targetName);
+    assertAuthority();
+    const stagedCopy=await copyHandle.getFile();
+    assertAuthority();
+    const copiedBytes=await stagedCopy.arrayBuffer();
+    assertAuthority();
+    if(!sameByteContent(copiedBytes,originalBytes))throw new Error("Files To Learn copy did not verify; original report retained.");
+    await removeSourceEntryWithByteGuard(candidate.name,originalBytes);
+    assertAuthority();
+    await addHistory("file-to-learn",`Moved ${candidate.name} to Files To Learn`,{fileName:candidate.name,storedAs:targetName,reason});
+    assertAuthority();
     return targetName;
   }
   const PDF_READ_TIMEOUT_MS=60000;
@@ -3785,7 +3824,10 @@
             continue;
           }
           bytes = await candidate.file.arrayBuffer();
-          if (await sha256(new Uint8Array(bytes)) !== pendingCleanup.cleanupSha256) {
+          if(!scanEligible())return null;
+          const cleanupDigest=await sha256(new Uint8Array(bytes));
+          if(!scanEligible())return null;
+          if (cleanupDigest !== pendingCleanup.cleanupSha256) {
             pendingCleanup.cleanupNeedsReview=true;
             pendingCleanup.cleanupReason="Report bytes changed after successful ingestion; review the retained file before cleanup or re-import.";
             ledgerChanged=true;retained.push(candidate.name);cleanupReviewRequired.push(candidate.name);
@@ -3793,11 +3835,12 @@
             continue;
           }
           sourceLocations.set(candidate.name,candidate.location);
-          // A prior marker may exist only in memory if permission failed during
-          // its initial write. Re-persist it before any cleanup-only deletion.
-          // If this write is denied, the source stays and the next scan retries.
+          // The cleanup intent remains durable if the Workspace/authority changes
+          // after ledger persistence; do not delete a same-named new-root source.
           await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+          if(!scanEligible())return null;
           await removeSourceEntryWithByteGuard(candidate.name, bytes);
+          if(!scanEligible())return null;
           pendingCleanup.cleanupPending = false;
           pendingCleanup.cleanupCompletedAt = now();
           delete pendingCleanup.cleanupSha256;
@@ -3817,7 +3860,7 @@
         sourceLocations.set(candidate.name,candidate.location);
         if(candidate.location==="root"&&kind!=="ro-update")throw new Error("Only returned supervisor workbooks use the specialized root intake path.");
         if (!kind) {
-          const referenceOnly=referenceOnlyHint(candidate.name),recognized=referenceOnly||recognizedFamilyHint(candidate.name,bytes),reason=referenceOnly?"Recognized non-KPI reference document; excluded from KPI ingestion":recognized?"Recognized report family but invalid or unsupported structure":"Unsupported or unrecognized file structure",storedAs=await moveToLearn(candidate,reason);
+          const referenceOnly=referenceOnlyHint(candidate.name),recognized=referenceOnly||recognizedFamilyHint(candidate.name,bytes),reason=referenceOnly?"Recognized non-KPI reference document; excluded from KPI ingestion":recognized?"Recognized report family but invalid or unsupported structure":"Unsupported or unrecognized file structure",storedAs=await moveToLearn(candidate,reason,scanEligible);
           learned.push(candidate.name);
           model.autoImport.seen[candidate.signature]={fileName:candidate.name,movedAt:now(),storedAs,recognized,referenceOnly,importFailed:recognized&&!referenceOnly,diagnostic:recognized&&!referenceOnly?reason:"",failedAt:recognized&&!referenceOnly?now():"",failureSha256:recognized&&!referenceOnly?await sha256(new Uint8Array(bytes)):""};
           ledgerChanged=true;
@@ -3925,6 +3968,7 @@
         }
         if(outcome?.retired)retired.push(candidate.name);else imported.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, relativePath:candidate.relativePath, importedAt: now(), kind, retired:Boolean(outcome?.retired) }; ledgerChanged = true;recordDiagnostic("REPORT INBOX",outcome?.retired?`${kind} recognized and retired outside Service OS`:`${kind} recognized and imported or safely deduplicated`);
       } catch (error) {
+        if(error?.reportInboxAuthorityRevoked&&!scanEligible())return null;
         // Source deletion is a separate durable transaction. Preserve its
         // original bytes/path hold BEFORE any generic committed-roster retry,
         // including a source changed during cleanup.
@@ -3952,7 +3996,7 @@
         console.warn(`Automatic import retained ${candidate.name}:`, error);if(/\.pdf$/i.test(candidate.name)){pdfFailureMessage=`PDF intake failed: ${error.message||error}. Source kept for retry/review.`;recordDiagnostic("PDF INTAKE",error.name+": "+(error.message||error));}
         if(transientIntakeError(error)){retained.push(candidate.name);recordDiagnostic("REPORT INBOX PENDING","Temporary read, permission, or durable-write failure; retry scheduled");continue;}
         try {
-          const diagnostic=error.message||String(error),storedAs=await moveToLearn(candidate,diagnostic);
+          const diagnostic=error.message||String(error),storedAs=await moveToLearn(candidate,diagnostic,scanEligible);
           learned.push(candidate.name);
           model.autoImport.seen[candidate.signature]={fileName:candidate.name,movedAt:now(),storedAs,recognized:Boolean(kind)||recognizedFamilyHint(candidate.name,bytes),importFailed:true,diagnostic,failedAt:now(),failureSha256:bytes?await sha256(new Uint8Array(bytes)):""};
           ledgerChanged=true;

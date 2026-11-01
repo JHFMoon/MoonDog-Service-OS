@@ -54,6 +54,8 @@ Supervisor Workbook issuance is recorded in durable recovery state and read back
 
 Report Inbox intake uses the currently connected Workspace and granted write authority as a short-lived capability. Byte reads and report-format classification can await browser file I/O or parser work; a reconnect, permission loss, Watch OFF or simultaneous manual import can invalidate that capability before the await completes. The automatic scanner rechecks eligibility **after reading bytes and after classification** before recording a source path, moving a rejected source to Files To Learn, or entering a report importer. Ineligible scans return without publishing completion or changing the replacement Workspace. This is a scoped scheduler safeguard, not proof that every later importer/storage operation is cancelable.
 
+Files To Learn relocation is a copy → verify → delete transaction. A stale source scan must reject further actions after source-file lookup, learning-folder access, byte reads, copy writes, or verification; on revocation it keeps the original source for retry rather than deleting across Workspace boundaries. Cleanup-only retries for already imported reports additionally revalidate scan authority after reading bytes, calculating the saved digest, and persisting deletion intent. A lost authorization leaves the durable cleanup marker pending; it is not proof that the report was reimported or deleted. These safeguards do not promise distributed filesystem atomicity or cancellation of a write that already started.
+
 ## Clean-install distribution contract
 
 `scripts/build_distribution.py` reads the same `HANDOFF_RUNTIME_PATHS` catalog used by application handoff/runtime integrity checks. The builder:

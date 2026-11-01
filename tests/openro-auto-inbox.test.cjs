@@ -199,7 +199,8 @@ test("Files To Learn requires byte-verified staging before original deletion",as
     const item={name,location:"inbox",relativePath:"01 - DROP REPORTS HERE/"+name,
       signature:"01 - DROP REPORTS HERE/"+name+"|3|100"};
     const sourceFile={size:3,lastModified:100,arrayBuffer:async()=>original.buffer};
-    const ctx={sourceLocations:new Map(),sourceFileHandle:async()=>({getFile:async()=>sourceFile}),
+    const ctx={model:{root:{name:"Synthetic Files To Learn workspace"}},DOMException,
+      sourceLocations:new Map(),sourceFileHandle:async()=>({getFile:async()=>sourceFile}),
       directory:async()=>folder,
       writeBytes:async(parts,current)=>{stored.set(parts[1],corrupted?new Uint8Array([7,8,9]):new Uint8Array(current));events.push("copy");},
       sameByteContent:equal,
