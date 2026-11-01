@@ -2752,7 +2752,8 @@
       }
     };
     assertAuthority();
-    sourceLocations.set(candidate.name,candidate.location);
+    // The scanner already mapped this candidate after validating its source.
+    // Do not recreate a stale source mapping from a move in progress.
     const sourceHandle=await sourceFileHandle(candidate.name);
     assertAuthority();
     const current=await sourceHandle.getFile();
