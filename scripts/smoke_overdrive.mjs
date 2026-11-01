@@ -20,7 +20,9 @@ try{
    throw Error("Production Manager Home renderer bridge location is not unique");
  fs.writeFileSync(packagedAppPath,
    packagedAppOriginal.replace(renderBridgeMarker,
-     "globalThis.__moondogManagerHomeRenderProbe=renderAll;\n"+renderBridgeMarker));
+     "globalThis.__moondogManagerHomeRenderProbe=renderAll;\n"+
+     "globalThis.__moondogOpenRoRenderProbe=renderTable;\n"+
+     "globalThis.__moondogRecentlyReviewedRenderProbe=renderRecentlyReviewed;\n"+renderBridgeMarker));
 
  for(const [width,height] of [[1920,1080],[1600,900],[1366,768]]){
   const page=await browser.newPage({viewport:{width,height},reducedMotion:width===1600?"no-preference":"reduce"});
@@ -491,6 +493,90 @@ try{
       input.dispatchEvent(new Event("input",{bubbles:true}));
     });
     await page.waitForFunction(()=>document.querySelectorAll("#roTable tr[data-id]").length===413,null,{timeout:5000});
+    // #58-04 paired packaged-browser synthetic benchmark: compare former
+    // eager hidden-panel rebuild against production guarded table rendering.
+    const reviewPanelBrowser=await page.evaluate(()=>{
+      const state=globalThis.__moondogDaily?.model?.state;
+      const panel=document.getElementById("recentlyReviewedPanel");
+      const button=document.getElementById("recentlyReviewed");
+      const table=document.getElementById("roTable");
+      const render=globalThis.__moondogOpenRoRenderProbe;
+      const review=globalThis.__moondogRecentlyReviewedRenderProbe;
+      if(!state||!panel||!button||!table||
+         typeof render!=="function"||typeof review!=="function")
+        throw Error("Synthetic Open RO review-panel browser probe unavailable");
+      const records=state.records;
+      if(records.length!==413)throw Error("Expected 413 synthetic Open ROs");
+      const priorRecords=JSON.stringify(records);
+      const originalDates=records.map(x=>x.management.managerReviewedOn);
+      records.forEach((row,i)=>{row.management.managerReviewedOn=i%3===0?"2026-10-24":"";});
+      const input=document.getElementById("searchInput"),priorQuery=input.value;
+      const percentile=(values,p)=>{
+        const valuesSorted=[...values].sort((a,b)=>a-b);
+        return valuesSorted[Math.max(0,Math.ceil(valuesSorted.length*p)-1)];
+      };
+      const oldTimes=[],newTimes=[],samples=16;
+      panel.hidden=true;button.setAttribute("aria-expanded","false");
+      input.value="";render();
+      if(table.querySelectorAll("tr[data-id]").length!==413)
+        throw Error("Synthetic Open RO fixture lost table rows");
+      const observed=new MutationObserver(()=>{});
+      observed.observe(panel,{subtree:true,childList:true});
+      for(let n=0;n<samples;n++){
+        // Alternate the first arm to reduce warm-cache/order bias.
+        const arms=n%2===0?["before","after"]:["after","before"];
+        for(const arm of arms){
+          input.value=["900312","Synthetic Test 1",""][n%3];
+          const started=performance.now();
+          render();
+          if(arm==="before")review();
+          // Force comparable browser DOM layout resolution for both paths.
+          void table.offsetHeight;
+          (arm==="before"?oldTimes:newTimes).push(performance.now()-started);
+          const mutationCount=observed.takeRecords().length;
+          if(arm==="after"&&mutationCount!==0)
+            throw Error("Hidden Recently Reviewed panel rebuilt on optimized search");
+          if(arm==="before"&&mutationCount===0)
+            throw Error("Old-path synthetic comparison did not rebuild review panel");
+        }
+      }
+      observed.disconnect();
+      const oldP50=percentile(oldTimes,.50),oldP95=percentile(oldTimes,.95),
+        newP50=percentile(newTimes,.50),newP95=percentile(newTimes,.95);
+      const timing={dataset:"413 synthetic in-memory Open ROs",pairedSamples:samples,
+        before:{p50Ms:+oldP50.toFixed(3),p95Ms:+oldP95.toFixed(3)},
+        after:{p50Ms:+newP50.toFixed(3),p95Ms:+newP95.toFixed(3)},
+        delta:{p50Ms:+(oldP50-newP50).toFixed(3),p95Ms:+(oldP95-newP95).toFixed(3),
+          p50Percent:+((newP50-oldP50)/Math.max(.001,oldP50)*100).toFixed(1),
+          p95Percent:+((newP95-oldP95)/Math.max(.001,oldP95)*100).toFixed(1)},
+        scope:"packaged file:// Chromium; production Open RO/Recently Reviewed DOM; synthetic memory only, not installed Edge/OneDrive"};
+      // Click the shipped button to verify hidden -> refreshed top 15 -> hidden.
+      panel.hidden=true;button.setAttribute("aria-expanded","false");
+      button.click();
+      const reviewCount=panel.querySelectorAll("button[data-recently-reviewed-id]").length;
+      if(panel.hidden||reviewCount!==15)
+        throw Error("Recently Reviewed did not refresh on open: "+reviewCount);
+      button.click();
+      if(!panel.hidden)throw Error("Recently Reviewed did not close");
+      // Restore synthetic source and unfiltered table for subsequent tests.
+      records.forEach((row,i)=>{
+        if(originalDates[i]===undefined)delete row.management.managerReviewedOn;
+        else row.management.managerReviewedOn=originalDates[i];
+      });
+      input.value=priorQuery;
+      render();
+      if(JSON.stringify(records)!==priorRecords)
+        throw Error("Synthetic reviewed source was not restored");
+      if(table.querySelectorAll("tr[data-id]").length!==413)
+        throw Error("Open RO baseline table not restored");
+      return {...timing,reviewButtonRows:reviewCount};
+    });
+    console.log("#58-04 packaged browser hidden-review behavior/timing PASS",
+      JSON.stringify({viewport:{width,height},...reviewPanelBrowser}));
+    const reviewArtifact=path.join(out,"navigation-baseline.json");
+    const reviewReport=JSON.parse(fs.readFileSync(reviewArtifact,"utf8"));
+    reviewReport.hiddenReviewPanel=reviewPanelBrowser;
+    fs.writeFileSync(reviewArtifact,JSON.stringify(reviewReport,null,2)+"\n");
     const initialTableRow=await page.locator("#roTable tr[data-id]").first().evaluate(el=>{
       el.dataset.syntheticNavigationProof="preserve";
       return el.dataset.id;
