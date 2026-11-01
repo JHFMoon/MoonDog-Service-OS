@@ -110,7 +110,7 @@ test("one synthetic CSI observation keeps the same reporting period and source e
 
 
 test("production Meeting CSI customer voice renders source text without HTML interpretation",()=>{
-  const helperStart=app.indexOf("  function relevantCustomerVoice(");
+  const helperStart=app.indexOf("function relevantCustomerVoice(");
   const helperEnd=app.indexOf("  function advisorMeetingWins(",helperStart);
   const renderStart=app.indexOf("    Object.values(surveys).map((survey) => ({ survey, voice: relevantCustomerVoice(survey) }))");
   const renderEnd=app.indexOf(" if (!voice.children.length)",renderStart);
