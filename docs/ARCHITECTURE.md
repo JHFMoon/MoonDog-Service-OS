@@ -54,6 +54,8 @@ Supervisor Workbook issuance is recorded in durable recovery state and read back
 
 Report Inbox intake uses the currently connected Workspace and granted write authority as a short-lived capability. Byte reads and report-format classification can await browser file I/O or parser work; a reconnect, permission loss, Watch OFF or simultaneous manual import can invalidate that capability before the await completes. The automatic scanner rechecks eligibility **after reading bytes and after classification** before recording a source path, moving a rejected source to Files To Learn, or entering a report importer. Ineligible scans return without publishing completion or changing the replacement Workspace. This is a scoped scheduler safeguard, not proof that every later importer/storage operation is cancelable.
 
+After an automatic report importer returns from awaited durable I/O, the caller must recheck the same connected Workspace and scan eligibility before acknowledging the result in the intake ledger or status UI. A stale completion cannot prove that the replacement Workspace imported the report; any work already durably committed remains subject to the underlying importer and recovery rules. This is not a cross-device transaction guarantee.
+
 ## Clean-install distribution contract
 
 `scripts/build_distribution.py` reads the same `HANDOFF_RUNTIME_PATHS` catalog used by application handoff/runtime integrity checks. The builder:
