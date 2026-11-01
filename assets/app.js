@@ -3288,13 +3288,39 @@
     return previous?.status?{...previous,stale:true,staleAt:importedAt}:null;
   }
   function mergeCompleteOpenRoRecords(incoming,importedAt,sourceKind){
-    const active=new Map((model.state.records||[]).map((record)=>[record.id,record])),retained=pruneClosedRecords(model.state.closedRecords||[]),closed=new Map(retained.map((record)=>[record.id,record])),incomingIds=new Set(incoming.map((record)=>record.id));
-    const records=incoming.map((raw)=>{const prior=active.get(raw.id)||closed.get(raw.id),management=prior?.management||defaultManagementFor(raw),cdkOperational=operationalStatusFromImport(raw,prior,importedAt),record={...(prior||{}),...raw,management};if(cdkOperational)record.cdkOperational=cdkOperational;else delete record.cdkOperational;delete record.closedAt;delete record.closedReason;return record;});
-    const newlyClosed=[...active.values()].filter((record)=>!incomingIds.has(record.id)).map((record)=>({...record,closedAt:importedAt,closedReason:"missing-from-complete-open-ro-source"}));
-    const reopened=new Set(records.map((record)=>record.id));
-    const retainedStillClosed=retained.filter((record)=>!reopened.has(record.id));
+    const active=new Map((model.state.records||[]).map((record)=>[record.id,record])),retained=pruneClosedRecords(model.state.closedRecords||[]),closed=new Map(retained.map((record)=>[record.id,record]));
+    // A later verified source may add a VIN to a previously VIN-less RO.
+    // Recover its manager-owned history only when the RO identity is unique
+    // across active, retained and incoming records. Never join known VIN conflicts.
+    const previousByRo=new Map(),incomingRoCount=new Map(),matchedPriorIds=new Set();
+    for(const previous of [...active.values(),...closed.values()]){
+      const ro=String(previous.ro||"").trim();
+      if(ro)previousByRo.set(ro,[...(previousByRo.get(ro)||[]),previous]);
+    }
+    for(const raw of incoming){
+      const ro=String(raw.ro||"").trim();
+      incomingRoCount.set(ro,(incomingRoCount.get(ro)||0)+1);
+    }
+    const previousRecord=raw=>{
+      const exact=active.get(raw.id)||closed.get(raw.id);
+      if(exact)return exact;
+      const ro=String(raw.ro||"").trim(),matches=previousByRo.get(ro)||[];
+      const validNewVin=/^[A-HJ-NPR-Z0-9]{17}$/i.test(String(raw.vin||"").trim());
+      if(!ro||incomingRoCount.get(ro)!==1||matches.length!==1||!validNewVin||String(matches[0].vin||"").trim())return null;
+      return matches[0];
+    };
+    const records=incoming.map(raw=>{
+      const prior=previousRecord(raw),management=prior?.management||defaultManagementFor(raw),cdkOperational=operationalStatusFromImport(raw,prior,importedAt);
+      if(prior)matchedPriorIds.add(prior.id);
+      const record={...(prior||{}),...raw,management};
+      if(cdkOperational)record.cdkOperational=cdkOperational;else delete record.cdkOperational;
+      delete record.closedAt;delete record.closedReason;
+      return record;
+    });
+    const newlyClosed=[...active.values()].filter(record=>!matchedPriorIds.has(record.id)).map(record=>({...record,closedAt:importedAt,closedReason:"missing-from-complete-open-ro-source"}));
+    const retainedStillClosed=retained.filter(record=>!matchedPriorIds.has(record.id));
     const closedRecords=pruneClosedRecords([...retainedStillClosed,...newlyClosed]);
-    return{records,closedRecords,reopenedCount:[...closed.keys()].filter((id)=>reopened.has(id)).length,closedCount:newlyClosed.length,sourceKind};
+    return{records,closedRecords,reopenedCount:[...closed.keys()].filter(id=>matchedPriorIds.has(id)).length,closedCount:newlyClosed.length,sourceKind};
   }
   async function importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess=false) {
     return withSupervisorWorkbookLock(() => importCdkRepairOrdersDocxUnlocked(candidate,bytes,deleteAfterSuccess));
