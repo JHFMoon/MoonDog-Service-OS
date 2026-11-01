@@ -4511,7 +4511,7 @@
     if(status==="invalid"||status==="conflicting"||status==="unsupported"){
       if(status==="conflicting"||/conflict/i.test(reason))return "Conflict · Review required";
       if(status==="unsupported"||/unsupported|layout|schema|parser|format/i.test(reason))return "Unsupported format · Review required";
-      if(/report period|scope|coverage|reporting date|date range/i.test(reason))return "Invalid period · Review required";
+      if(/report(?:ing)? period|scope|coverage|reporting date|date range/i.test(reason))return "Invalid period · Review required";
       return "Invalid source · Review required";
     }
     if(status==="unverified")return "Unverified · Review required";
