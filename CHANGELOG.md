@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.18-beta.275 — current Beta
+
+- fix(#59-03): reject stale Report Inbox post-import ledger updates. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.274 — current Beta
+
+- fix(#59-03): reject stale Report Inbox post-import ledger updates. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.273 — current Beta
 
 - fix(#59-03): guard Files To Learn relocation and cleanup retry authority. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

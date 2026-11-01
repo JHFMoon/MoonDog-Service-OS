@@ -94,5 +94,13 @@ test("stale scan cancellation is propagated out of the automatic intake catch",(
   const watcher=app.slice(start,end);
   assert.match(watcher,/moveToLearn\(candidate,reason,scanEligible\)/);
   assert.match(watcher,/moveToLearn\(candidate,diagnostic,scanEligible\)/);
-  assert.match(watcher,/error\?\.reportInboxAuthorityRevoked&&!scanEligible\(\)\)return null/);
+  // The importer catch must stop on *any* lost scan authority before it
+  // mutates cleanup, learning or intake-ledger state (not only tagged errors).
+  const importedAt=watcher.indexOf("const outcome=await processClassifiedCandidate(");
+  assert.ok(importedAt>=0,"production importer is present");
+  const catchAt=watcher.indexOf("} catch (error) {",importedAt);
+  assert.ok(catchAt>importedAt,"importer catch is present");
+  const beforeCleanup=watcher.indexOf("// Source deletion is a separate durable transaction.",catchAt);
+  assert.ok(beforeCleanup>catchAt,"cleanup begins after importer catch");
+  assert.match(watcher.slice(catchAt,beforeCleanup),/if\(!scanEligible\(\)\)return null;/);
 });
