@@ -3871,13 +3871,16 @@
         // DOCX still requires deliberate review; only strictly reconciled
         // grouped XLSX exports are authorized for unattended roster writes.
         if(kind==="open-ro-docx"&&candidate.location==="inbox"){
+          // The history write can await Workspace storage. Do not publish a
+          // manual-review ledger entry after the originating scan loses authority.
+          await addHistory("open-ro-review-required","Recognized Open RO retained pending explicit source and completeness review",
+            {fileName:candidate.name,sourceFamily:kind,sourcePreserved:true});
+          if(!scanEligible())return null;
           reviewRequired.push(candidate.name);
           model.autoImport.seen[candidate.signature]={fileName:candidate.name,
             relativePath:candidate.relativePath,kind,manualImportRequired:true,queuedAt:now()};
           ledgerChanged=true;
           recordDiagnostic("REPORT INBOX","Recognized Open RO retained for explicit Import Report review (not Files To Learn)");
-          await addHistory("open-ro-review-required","Recognized Open RO retained pending explicit source and completeness review",
-            {fileName:candidate.name,sourceFamily:kind,sourcePreserved:true});
           continue;
         }
         if (kind==="open-ro" && candidate.location==="inbox") {
@@ -4006,11 +4009,14 @@
         }
         // If the state committed but a dependent projection failed, retry
         // projection recovery without ever moving the saved source to learn.
-        if (candidate.location==="inbox" && kind==="open-ro" && bytes &&
-            model.state.source?.sha256===await sha256(new Uint8Array(bytes))) {
-          retained.push(candidate.name);
-          recordDiagnostic("OPEN RO INTAKE","Roster saved; dependent projection or cleanup retry is pending. Original report retained.");
-          continue;
+        if (candidate.location==="inbox" && kind==="open-ro" && bytes) {
+          const committedDigest=await sha256(new Uint8Array(bytes));
+          if(!scanEligible())return null;
+          if(model.state.source?.sha256===committedDigest){
+            retained.push(candidate.name);
+            recordDiagnostic("OPEN RO INTAKE","Roster saved; dependent projection or cleanup retry is pending. Original report retained.");
+            continue;
+          }
         }
         console.warn(`Automatic import retained ${candidate.name}:`, error);if(/\.pdf$/i.test(candidate.name)){pdfFailureMessage=`PDF intake failed: ${error.message||error}. Source kept for retry/review.`;recordDiagnostic("PDF INTAKE",error.name+": "+(error.message||error));}
         if(transientIntakeError(error)){retained.push(candidate.name);recordDiagnostic("REPORT INBOX PENDING","Temporary read, permission, or durable-write failure; retry scheduled");continue;}
