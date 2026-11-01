@@ -4,6 +4,8 @@
 
 ## Authority layers
 
+**Historical coverage boundary:** An end-dated report with no validated period start proves an observation on its end date only; it cannot certify coverage of earlier days or entire historical intervals. Explicit, validated start/end dates are required to establish multi-day coverage. This prevents reference snapshots and optional sources from manufacturing historical KPI confidence.
+
 | Domain | Authoritative input | Derived or retained values | Conflict rule and limit |
 | --- | --- | --- | --- |
 | Current Open RO roster and raw repair status | The latest validated CDK Open RO snapshot for the current operating view | Parsed RO facts, advisor/technician source identities, workload summaries | A filename or timestamp alone does not prove report coverage. A manager's saved follow-up plan remains a separate authority. If a later verified complete roster adds a valid VIN to a uniquely identifiable previously VIN-less RO, the report may enrich the source identity without discarding its manager plan or counting it as closed; conflicting known VINs or ambiguous RO matches must not inherit management records. A full-VIN conflict with a colliding last-eight-character generated stable ID fails closed and retains the source for review. The aggregate Open RO summary is reference data, not a replacement for the current roster. |
