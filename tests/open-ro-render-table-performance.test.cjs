@@ -168,8 +168,17 @@ test("hidden Recently Reviewed panel stays deferred, opens with fresh rows and u
   assert.equal(h.recentBuilds(),2,"open panel keeps updating when source/filter changes");
   h.ui.recentlyReviewedPanel.hidden=true;h.render();
   assert.equal(h.recentBuilds(),2,"closing the panel avoids repeated work");
+  // Update source while the review panel is hidden. Opening it must not
+  // expose old top-fifteen content left in a detached/hidden DOM.
+  const newTop=rows[17];
+  newTop.management.managerReviewedOn="2026-10-25";
+  newTop.management.updatedAt="2026-10-25T19:00:00Z";
+  h.render();
+  assert.equal(h.recentBuilds(),2,"a hidden panel defers fresh source reads");
   h.openRecent();
   assert.equal(h.recentBuilds(),3,"reopening refreshes current reviewed rows");
+  assert.equal(h.ui.recentlyReviewedPanel.children[0].children[0].textContent,newTop.ro,
+    "reopened review list must show the latest source review, not cached content");
 });
 
 test("paired same-data Open RO search p50/p95 measures hidden reviewed-panel work removal",()=>{
