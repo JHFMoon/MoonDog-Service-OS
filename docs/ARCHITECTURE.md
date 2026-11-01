@@ -50,6 +50,10 @@ Durable changes are guarded by authority and revision checks and use persistent 
 
 Supervisor Workbook issuance is recorded in durable recovery state and read back before the workbook is treated as current. Each issued workbook carries a cryptographically random identifier; returned workbooks must match that identifier and current recovery state. Source imports invalidate the prior issuance before changing durable source state. Imports and workbook generation share an exclusive browser lock across tabs and fail closed when that lock is unavailable. State changes are applied to the in-memory model only after verified persistence succeeds.
 
+## Report Inbox classification authority
+
+Report Inbox intake uses the currently connected Workspace and granted write authority as a short-lived capability. Byte reads and report-format classification can await browser file I/O or parser work; a reconnect, permission loss, Watch OFF or simultaneous manual import can invalidate that capability before the await completes. The automatic scanner rechecks eligibility **after reading bytes and after classification** before recording a source path, moving a rejected source to Files To Learn, or entering a report importer. Ineligible scans return without publishing completion or changing the replacement Workspace. This is a scoped scheduler safeguard, not proof that every later importer/storage operation is cancelable.
+
 ## Clean-install distribution contract
 
 `scripts/build_distribution.py` reads the same `HANDOFF_RUNTIME_PATHS` catalog used by application handoff/runtime integrity checks. The builder:
