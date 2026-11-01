@@ -1080,7 +1080,7 @@
         legacyUnsafe=key==='efficiency'&&Boolean(item)&&item.validation?.parser!=='efficiency-v2-role-hierarchy';
       // Record a successful import independently from verified report scope.
       // Do not re-request the same CSI export during this business date.
-      if(key==='csi'&&sourceExpectation(key)==='recommended'&&
+      if(key==='csi'&&sourceExpectation(key)==='recommended'&&evidence.status!=='invalid'&&
          model.operationalMetrics?.csi?.lastSuccessfulRefreshDate===todayKey&&
          (model.operationalMetrics.csi.imports||[]).length){
         out[key]={key,label:'CSI',state:'RECEIVED',actionable:false,actions:[],
@@ -1105,7 +1105,7 @@
       // current report even when normal source publication cadence is unknown.
       if(!['openRo','appointments'].includes(key)&&
           ['NEED NOW','NEED SOON'].includes(out[key].state)&&
-          !activeFeature&&!soonFeature&&!reportCadenceDue(key,todayKey)){
+          !activeFeature&&!soonFeature&&evidence.status!=='invalid'&&!reportCadenceDue(key,todayKey)){
         out[key]={...out[key],state:'AWAITING RELEASE',actionable:false,
           actions:[],reason:'Report is not scheduled as available yet. Missing dates remain unfilled.'};
       }
