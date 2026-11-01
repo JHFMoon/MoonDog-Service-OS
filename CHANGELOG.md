@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.269 — current Beta
+
+- fix(#59-01): retain Open RO manager lineage after safe VIN enrichment. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.268 — current Beta
 
 - fix(#59-01): retain intentionally cleared manager RO owner on source refresh. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
