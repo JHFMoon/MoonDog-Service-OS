@@ -238,3 +238,24 @@ test("optional exclusions remain allowed when another source actually verifies t
   assert.deepEqual(blocked.blocking,[missing],"a real missing dependency must still block");
   assert.equal(F.evaluateMetric([]).verified,true,"empty dependency behavior is unchanged");
 });
+
+
+test("production metric evidence suppresses zero when only temporarily unavailable source exists",()=>{
+  const metricStart=app.indexOf("  function metricEvidence({");
+  const metricEnd=app.indexOf("  function metricEvidenceText(",metricStart);
+  const dependencyStart=app.indexOf("  function metricDependencyEvidence(");
+  const dependencyEnd=app.indexOf("  function sourceStatusLabel(",dependencyStart);
+  assert.ok(metricStart>=0&&metricEnd>metricStart&&dependencyStart>=0&&dependencyEnd>dependencyStart);
+  const context=vm.createContext({freshness:F});
+  vm.runInContext(app.slice(metricStart,metricEnd)+"\n"+app.slice(dependencyStart,dependencyEnd)+
+    ";this.metricEvidence=metricEvidence;this.metricDependencyEvidence=metricDependencyEvidence;",context);
+  const input=F.evaluateSource({key:"csi",exists:false,today,expectation:"temporarily-unavailable"});
+  const candidate=context.metricEvidence({value:0,source:"Synthetic CSI",period:today});
+  assert.equal(candidate.verified,true,"positive control represents an otherwise verified zero");
+  const blocked=context.metricDependencyEvidence([input],candidate);
+  assert.equal(blocked.verified,false,"unavailable-only evidence cannot verify the zero");
+  assert.equal(blocked.value,null,"unknown is never displayed as a verified zero");
+  assert.equal(blocked.lastVerifiedValue,0,"last verified source value remains distinguishable");
+  assert.equal(blocked.status,"temporarily-unavailable");
+  assert.equal(blocked.source,"CSI");
+});
