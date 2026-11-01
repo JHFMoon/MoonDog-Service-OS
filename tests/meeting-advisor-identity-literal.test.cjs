@@ -56,3 +56,59 @@ test("configurable Meeting advisor identity is literal text with and without ver
     assert.match(cards[0].markup, hasSapr ? /advisor-scoreline/ : /SAPR detail is unavailable/);
   }
 });
+
+
+test("active and retained Meeting V3 advisor cards render configured identity through textContent", () => {
+  const variants = [
+    ["function renderMeetingV3()", "meetingRoster.forEach((advisor) => {", "advisors.append(card); });"],
+    ["function renderMeetingV3Accurate()", "roster.forEach((advisor) => {", "advisorRows.push({ code, name, window, goal, csi, next }); });"]
+  ];
+  const name = '<img src=x onerror="synthetic-active"> & Service Advisor';
+  const code = "104";
+  for (const [functionMark, loopMark, endMark] of variants) {
+    const functionStart = app.indexOf(functionMark);
+    const nextFunction = app.indexOf("\n  function ", functionStart + functionMark.length);
+    const bounded = app.slice(functionStart, nextFunction > functionStart ? nextFunction : undefined);
+    const loopStart = bounded.indexOf(loopMark);
+    const loopEnd = bounded.indexOf(endMark, loopStart);
+    assert.ok(functionStart >= 0 && loopStart >= 0 && loopEnd > loopStart,
+      "production Meeting V3 advisor loop exists: " + functionMark);
+    const source = bounded.slice(loopStart, loopEnd + endMark.length);
+    for (const hasSapr of [false, true]) {
+      const cards = [], heading = { textContent: "" }, attached = [];
+      const document = { createElement: () => ({
+        className: "", dataset: {},
+        classList: { toggle() {} },
+        set innerHTML(value) { this.markup = value; },
+        get innerHTML() { return this.markup || ""; },
+        querySelector(selector) { assert.equal(selector, "h3"); return heading; }
+      }) };
+      const entity = { totalGross: 200, cpGross: 100 };
+      const context = {
+        meetingRoster: [{ number: code }], roster: [{ number: code }],
+        advisorDisplayName: () => name,
+        latest: { advisors: hasSapr ? { [code]: entity } : {} },
+        end: "2026-10-30", surveys: {}, dealer: { responses: 0, nps: null },
+        npsSummary: () => ({ responses: 0, nps: null }),
+        meetingGrossWindow: () => ({ current: { total: 200, evidence: { value: 200 } }, prior: { total: 100, evidence: { value: 100 } } }),
+        meetingChange: () => ({ amount: 100, percent: 100, className: "up" }),
+        meetingGrossGoal: () => ({ configured: false, achieved: false, progress: 0, target: null, roundedDaily: null }),
+        meetingNextWin: () => ({ achieved: false, label: "FOCUS", text: "FOLLOW THROUGH", measure: "READY", action: "UPDATE" }),
+        metricEvidence: () => ({ status: "missing-source" }),
+        metricEvidenceText: () => "UNVERIFIED", publicMetricState: () => "UNVERIFIED",
+        performanceFormat: () => "$100", compactMoney: () => "$100", signedValue: () => "$100",
+        configuredNumber: () => null, meetingSetting: () => null,
+        document, advisors: { append(card) { cards.push(card); } },
+        attachMeetingAdvisorTv: (...args) => { attached.push(args); },
+        advisorRows: []
+      };
+      vm.runInNewContext(source, context);
+      assert.equal(cards.length, 1, functionMark + " must display the advisor");
+      assert.equal(attached.length, 1, functionMark + " presenter attachment must be preserved");
+      assert.match(cards[0].markup, /<h3><\/h3>/);
+      assert.ok(!cards[0].markup.includes(name), functionMark + " must not parse configured name");
+      assert.equal(heading.textContent, name, functionMark + " must preserve visible name");
+      assert.equal(context.advisorRows.length, functionMark.includes("Accurate") && hasSapr ? 1 : 0);
+    }
+  }
+});
