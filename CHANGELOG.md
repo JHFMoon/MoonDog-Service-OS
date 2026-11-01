@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.259 — current Beta
+
+- fix(#59-01): render configured advisor identity as text in Meeting. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.258 — current Beta
 
 - fix(#59-01): render CSI customer voice as literal text in Meeting. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
