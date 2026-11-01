@@ -96,6 +96,6 @@ test("missing mandatory date range cannot create a report snapshot",()=>{
 test("bundle remains syntactically valid and menu identity is not hardcoded to one dealer",()=>{
   new vm.Script(app);
   assert.match(app,/menu-sales-v3-local-layout-store-identity/);
-  assert.match(app,/strict-report-recognition-2026-11-01-sapr-period-validated-v7/);
+  assert.match(app,/strict-report-recognition-2026-11-01-vir-date-validated-v8/);
   assert.doesNotMatch(parser,/ROSEVILLE|HAYWARD|FREMONT|SAN JOSE/i);
 });
