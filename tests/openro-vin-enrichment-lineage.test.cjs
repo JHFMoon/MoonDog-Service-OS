@@ -79,6 +79,18 @@ test("conflicting known VINs never transfer manager-owned fields", () => {
   assert.equal(results.records[0].management.note, "");
 });
 
+test("colliding stable ID VIN suffixes fail closed before merging unrelated management", () => {
+  const ro = "SYN-207";
+  const collidingPriorVin = "B".repeat(9) + "A".repeat(8);
+  const previous = { ...oldRo(ro), id: newRo(ro, VIN_A).id, vin: collidingPriorVin };
+  assert.notEqual(previous.vin, VIN_A);
+  assert.equal(previous.id, newRo(ro, VIN_A).id,
+    "synthetic full VIN conflict shares the last-eight-character stable ID");
+  assert.throws(() => harness([previous])([newRo(ro, VIN_A)], now(), "open-ro-xlsx"),
+    /conflicting Open RO identity or full VIN/);
+  assert.equal(previous.management.owner, "Manager Assigned");
+});
+
 test("ambiguous prior RO numbers prevent unsafe owner migration", () => {
   const one = oldRo("SYN-204");
   const two = oldRo("SYN-204", { id: "ro-syn-204-other" });
