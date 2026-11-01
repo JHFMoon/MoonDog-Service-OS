@@ -5478,8 +5478,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           today=localDateKey(),requiredEnd=freshness.previousOperatingDay(today),
           scopeStart=latestImport?.scopeStart,scopeEnd=latestImport?.scopeEnd,
           zeroVerified=evidence.safeForCurrent&&latestImport?.scopeVerified===true&&
-            freshness.validDateKey(periodStart)&&freshness.validDateKey(scopeStart)&&
-            freshness.validDateKey(scopeEnd)&&scopeStart<=periodStart&&
+            freshness.validDateKey(periodStart)&&periodStart<=requiredEnd&&
+            freshness.validDateKey(scopeStart)&&freshness.validDateKey(scopeEnd)&&
+            scopeStart<=periodStart&&
             scopeEnd>=requiredEnd&&scopeEnd<=today;
         if(zeroVerified) {
           [["Dealer NPS","Not applicable"],["Responses",0],["Promoters",0],["Detractors",0]].forEach(([label,value])=>{
