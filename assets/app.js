@@ -3303,7 +3303,13 @@
     }
     const previousRecord=raw=>{
       const exact=active.get(raw.id)||closed.get(raw.id);
-      if(exact)return exact;
+      // Stable IDs use a VIN suffix: a shared suffix cannot prove a full VIN match.
+      // Do not inherit another vehicle's management history on an ID collision.
+      if(exact){
+        const priorVin=String(exact.vin||"").trim().toUpperCase(),newVin=String(raw.vin||"").trim().toUpperCase();
+        if(String(exact.ro||"").trim()===String(raw.ro||"").trim()&&(!priorVin||!newVin||priorVin===newVin))return exact;
+        return null;
+      }
       const ro=String(raw.ro||"").trim(),matches=previousByRo.get(ro)||[];
       const validNewVin=/^[A-HJ-NPR-Z0-9]{17}$/i.test(String(raw.vin||"").trim());
       if(!ro||incomingRoCount.get(ro)!==1||matches.length!==1||!validNewVin||String(matches[0].vin||"").trim())return null;
