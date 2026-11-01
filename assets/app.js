@@ -3806,7 +3806,16 @@
           recordDiagnostic("REPORT INBOX", "Previously ingested report source deleted after verified cleanup retry");
           continue;
         }
-        sourceLocations.set(candidate.name,candidate.location); bytes = await candidate.file.arrayBuffer(); kind = await classifyImportFile(candidate.name, candidate.file, bytes); if(candidate.location==="root"&&kind!=="ro-update")throw new Error("Only returned supervisor workbooks use the specialized root intake path.");
+        sourceLocations.set(candidate.name,candidate.location);
+        bytes = await candidate.file.arrayBuffer();
+        // A reconnect or manual import may start while reading report bytes.
+        // Never classify or act on the prior scan after its authority expires.
+        if (!scanEligible()) return null;
+        kind = await classifyImportFile(candidate.name, candidate.file, bytes);
+        // Classification can await PDF, DOCX, XLSX and CSV parsing. A stale
+        // result must never move, import, delete or update the new Workspace.
+        if (!scanEligible()) return null;
+        if(candidate.location==="root"&&kind!=="ro-update")throw new Error("Only returned supervisor workbooks use the specialized root intake path.");
         if (!kind) {
           const referenceOnly=referenceOnlyHint(candidate.name),recognized=referenceOnly||recognizedFamilyHint(candidate.name,bytes),reason=referenceOnly?"Recognized non-KPI reference document; excluded from KPI ingestion":recognized?"Recognized report family but invalid or unsupported structure":"Unsupported or unrecognized file structure",storedAs=await moveToLearn(candidate,reason);
           learned.push(candidate.name);
