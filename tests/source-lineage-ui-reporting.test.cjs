@@ -75,7 +75,7 @@ test('Home data health and Performance SAPR/tracker views use the same productio
   const fn=app.slice(start,end);
   assert.match(fn,/sourceLineageLabel\(saprHealth\)/);
   assert.match(fn,/sourceLineageLabel\(openRoHealth\)/);
-  assert.match(fn,/openRoHealth\.safeForCurrent\?performanceFormat\(trackerOpenCount\(code\), "count"\):"UPDATE PENDING"/,
+  assert.match(fn,/openRoHealth\.safeForCurrent&&openRoHealth\.reportPeriodVerified\?performanceFormat\(trackerOpenCount\(code\), "count"\):"UPDATE PENDING"/,
     'unverified Open RO tracking must not present zero as a verified count');
 });
 
@@ -129,4 +129,55 @@ test("production source-lineage UI labels preserve every authority state for all
       assert.equal(p.lineageLabel({...evidence,key:family}),expected,family+" "+label);
     }
   }
+});
+
+
+test('undated Open RO import is not labelled as a verified CURRENT report',()=>{
+  const p=productionSourceLineage();
+  const undated={key:'openRo',status:'current',loaded:true,reportPeriodVerified:false,
+    importTimestamp:'2026-10-26T12:00:00Z'};
+  const label=p.lineageLabel(undated);
+  assert.match(label,/^Recently imported · Report period not verified · Report period: Not verified/);
+  assert.match(label,/Last imported: 2026-10-26 12:00 UTC/);
+  assert.notEqual(p.statusLabel(undated),'Current');
+  const verified={...undated,reportPeriodVerified:true,periodStart:'2026-10-26',periodEnd:'2026-10-26'};
+  assert.match(p.lineageLabel(verified),/^Current · Report period: 2026-10-26/);
+});
+
+test('Performance tracker refuses an undated Open RO as a verified zero',()=>{
+  const start=app.indexOf('function renderPerformanceVerified()');
+  const end=app.indexOf('  const TREND_SOURCES=',start);
+  assert.ok(start>=0&&end>start,'production Performance renderer exists');
+  const cells=[];
+  const row={querySelector:selector=>selector==='td:first-child small'?{textContent:'SYN-A'}:null,
+    append:cell=>cells.push(cell)};
+  const ui={performanceAdvisor:{value:'store'},performanceSource:{textContent:''},
+    performanceAdvisorNote:{textContent:''},
+    performanceKpis:{querySelectorAll:()=>[]},
+    performanceAdvisorTable:{querySelectorAll:()=>[row]}};
+  const model={performance:{snapshots:{'2026-10-26':{
+    advisors:{'SYN-A':{}},periodStart:'2026-10-01',periodEnd:'2026-10-26',
+    sourceFile:'synthetic-sapr.xlsx'}}},state:{source:{fileName:'synthetic-open-ro.xlsx'}}};
+  let health={key:'openRo',status:'current',safeForCurrent:true,
+    reportPeriodVerified:false,importTimestamp:'2026-10-26T12:00:00Z'};
+  let calculations=0;
+  const ctx=vm.createContext({model,ui,sourceFreshness:key=>key==='openRo'?health:{key:'sapr',status:'current'},
+    sourceLineageLabel:e=>e.key==='openRo'?'Open RO · period unknown':'SAPR · verified',
+    renderPerformanceBase:()=>{},renderPerformanceExecutive:()=>{},
+    renderCurrentMonthTrend:()=>{},renderControllables:()=>{},
+    document:{createElement:()=>({className:'',textContent:''})},
+    trackerOpenCount:()=>{calculations++;return 0;},
+    performanceFormat:value=>String(value)});
+  vm.runInContext(app.slice(start,end)+';this.renderPerformanceVerified=renderPerformanceVerified;',ctx);
+  ctx.renderPerformanceVerified();
+  assert.equal(cells.at(-1).textContent,'UPDATE PENDING');
+  assert.equal(calculations,0,'unknown report period cannot produce a current count');
+  health={...health,reportPeriodVerified:true};
+  ctx.renderPerformanceVerified();
+  assert.equal(cells.at(-1).textContent,'0','verified source must preserve a real zero');
+  assert.equal(calculations,1);
+  health={...health,safeForCurrent:false};
+  ctx.renderPerformanceVerified();
+  assert.equal(cells.at(-1).textContent,'UPDATE PENDING');
+  assert.equal(calculations,1);
 });

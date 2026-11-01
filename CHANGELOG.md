@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.254 — current Beta
+
+- fix(#59-01): require verified Open RO report period for Performance tracker. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.253 — current Beta
 
 - fix(#59-05): publish verified Arrivals manager status after durable write. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
