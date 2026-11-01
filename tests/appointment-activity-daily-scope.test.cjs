@@ -406,3 +406,31 @@ test("verified Appointment Activity period and aggregate remain aligned in the H
   assert.doesNotMatch(text(card),/Synthetic Private|SYNTHETIC-ONLY-NOT-VIN|Synthetic note/,
     "the Home source lineage remains aggregate-only and excludes customer-like report cells");
 });
+
+
+test("legacy Appointment Activity without coverage provenance cannot become a daily observation on import",()=>{
+  const coverageStart=app.indexOf("  function validCoverageDate(");
+  const coverageEnd=app.indexOf("  function dailySourceCoverage(",coverageStart);
+  const trendStart=app.indexOf("  function trendObservationDate(");
+  const trendEnd=app.indexOf("  function trendEntity(",trendStart);
+  assert.ok(coverageStart>=0&&coverageEnd>coverageStart&&trendStart>=0&&trendEnd>trendStart);
+  const ctx=vm.createContext({localDateKey:date=>new Date(date).toISOString().slice(0,10)});
+  vm.runInContext(app.slice(coverageStart,coverageEnd)+"\n"+app.slice(trendStart,trendEnd)+
+    ";this.dailyEvidenceDate=dailyEvidenceDate;this.trendObservationDate=trendObservationDate;",ctx);
+  const legacy={periodStart:"2026-09-01",periodEnd:"2026-09-30",
+    importedAt:"2026-10-31T18:00:00.000Z",sourceModifiedAt:"2026-11-01T00:00:00.000Z"};
+  assert.equal(ctx.dailyEvidenceDate("appointmentActivity",legacy),"",
+    "neither local import nor source-file timestamp establishes an Activity report observation");
+  assert.equal(ctx.trendObservationDate("appointmentActivity",legacy),"",
+    "legacy undated reference aggregate must not create an imported-today trend point");
+  const saved={...legacy,coverageDate:"2026-09-30"};
+  assert.equal(ctx.dailyEvidenceDate("appointmentActivity",saved),"2026-09-30",
+    "explicit saved coverage from the existing production import remains usable");
+  assert.equal(ctx.trendObservationDate("appointmentActivity",saved),"2026-09-30");
+  const malformed={...legacy,coverageDate:"2026-09-31"};
+  assert.equal(ctx.dailyEvidenceDate("appointmentActivity",malformed),"",
+    "malformed saved coverage cannot fall back to a convenient import timestamp");
+  assert.equal(ctx.dailyEvidenceDate("efficiency",{periodEnd:"2026-09-30",
+    importedAt:legacy.importedAt}),"2026-09-30",
+    "unrelated period-bound source behavior is unchanged");
+});
