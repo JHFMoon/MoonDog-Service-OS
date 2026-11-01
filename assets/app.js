@@ -5062,7 +5062,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   const progress=Number.isFinite(gross)&&target?gross/target:null;
   const pct=progress===null?null:Math.round(progress*100);
   const fill=pct===null?0:Math.min(100,Math.max(0,pct));
-  const forecast=Number.isFinite(gross)&&latest?.saprDaysCompleted>0&&latest?.saprTotalDays>0?gross/latest.saprDaysCompleted*latest.saprTotalDays:null;
+  const meetingWorkdayHelper=globalThis.ServiceRefreshIntelligence?.workingProgress;
+  const meetingRawDaysValid=Number.isFinite(latest?.saprDaysCompleted)&&Number.isFinite(latest?.saprTotalDays)&&latest.saprDaysCompleted>=0&&latest.saprTotalDays>0&&latest.saprDaysCompleted<=latest.saprTotalDays;
+  const meetingWorkdayProgress=typeof meetingWorkdayHelper==="function"?meetingWorkdayHelper(latest,{today:localDateKey(),hour:freshness.timeParts(new Date(),businessTimeZone())?.hour??19,closeHour:18}):null;
+  const meetingFallback=typeof meetingWorkdayHelper!=="function"&&meetingRawDaysValid;
+  const reportedDays=meetingWorkdayProgress?meetingWorkdayProgress.daysWorked:meetingFallback?latest.saprDaysCompleted:null;
+  const operatingDaysTotal=meetingWorkdayProgress?meetingWorkdayProgress.workingDays:meetingFallback?latest.saprTotalDays:null;
+  const forecast=Number.isFinite(gross)&&reportedDays>0&&operatingDaysTotal>0?gross/reportedDays*operatingDaysTotal:null;
   const difference=Number.isFinite(forecast)&&target?forecast-target:null;
   const ahead=difference===null?"unknown":difference>=0?"ahead":"behind";
   const missing=Array.isArray(week?.current?.missingDates)?week.current.missingDates:[];
