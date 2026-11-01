@@ -1162,7 +1162,7 @@
       }
       return false;
     };
-    const saprCurrent=item=>item.periodStart===`${month}-01`&&item.periodEnd>=operatingEnd&&Number.isFinite(item.saprDaysCompleted)&&Number.isFinite(item.saprTotalDays)&&item.saprDaysCompleted>=item.saprTotalDays;
+    const saprCurrent=item=>item.periodStart===`${month}-01`&&item.periodEnd>=operatingEnd&&Number.isFinite(item.saprDaysCompleted)&&Number.isFinite(item.saprTotalDays)&&item.saprTotalDays>0&&item.saprDaysCompleted===item.saprTotalDays;
     const saprConflict=samePeriodConflict(performanceSnapshots,saprCurrent);
     const sapr=saprConflict?null:latestMonthlySnapshot(performanceSnapshots,month,saprCurrent);
     const virSnapshots=metrics?.vir?.snapshots||{},virPending=metrics?.vir?.pending||{};
