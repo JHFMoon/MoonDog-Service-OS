@@ -52,6 +52,7 @@ function harness(source) {
 test("production VIR parser rejects explicitly invalid calendar dates rather than replacing them with import time", () => {
   for (const metadata of [
     "Report Date,02/30/2026",
+    "Report Date:02/30/2026",
     "Report Date,2026-02-29",
     "As Of,13/01/2026",
     "Observation Date,",
@@ -69,6 +70,7 @@ test("production VIR parser rejects explicitly invalid calendar dates rather tha
 test("production VIR parser retains verified explicit dates, including leap day", () => {
   for (const [metadata, expected] of [
     ["Report Date,02/29/2028", "2028-02-29"],
+    ["Report Date:02/29/2028", "2028-02-29"],
     ["As Of,2026-11-01", "2026-11-01"],
     ["Observation Date,10/22/2026", "2026-10-22"]
   ]) {
@@ -88,7 +90,7 @@ test("genuinely undated VIR reports retain optional observation fallback", () =>
 });
 
 test("invalid explicitly dated VIR cannot reach persistence or source deletion", async () => {
-  const source = virCsv("Report Date,02/30/2026");
+  const source = virCsv("Report Date:02/30/2026");
   const { ctx, writes } = harness(source);
   await assert.rejects(ctx.importVirFile("synthetic-vir.csv", true),
     /invalid explicit observation date/);
