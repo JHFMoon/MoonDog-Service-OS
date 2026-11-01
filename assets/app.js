@@ -3823,7 +3823,10 @@
             continue;
           }
           bytes = await candidate.file.arrayBuffer();
-          if (await sha256(new Uint8Array(bytes)) !== pendingCleanup.cleanupSha256) {
+          if(!scanEligible())return null;
+          const cleanupDigest=await sha256(new Uint8Array(bytes));
+          if(!scanEligible())return null;
+          if (cleanupDigest !== pendingCleanup.cleanupSha256) {
             pendingCleanup.cleanupNeedsReview=true;
             pendingCleanup.cleanupReason="Report bytes changed after successful ingestion; review the retained file before cleanup or re-import.";
             ledgerChanged=true;retained.push(candidate.name);cleanupReviewRequired.push(candidate.name);
@@ -3831,11 +3834,12 @@
             continue;
           }
           sourceLocations.set(candidate.name,candidate.location);
-          // A prior marker may exist only in memory if permission failed during
-          // its initial write. Re-persist it before any cleanup-only deletion.
-          // If this write is denied, the source stays and the next scan retries.
+          // The cleanup intent remains durable if the Workspace/authority changes
+          // after ledger persistence; do not delete a same-named new-root source.
           await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+          if(!scanEligible())return null;
           await removeSourceEntryWithByteGuard(candidate.name, bytes);
+          if(!scanEligible())return null;
           pendingCleanup.cleanupPending = false;
           pendingCleanup.cleanupCompletedAt = now();
           delete pendingCleanup.cleanupSha256;
