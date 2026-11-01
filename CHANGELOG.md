@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.272 — current Beta
+
+- fix(#59-03): recheck Report Inbox authority after async classification. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.271 — current Beta
 
 - fix(#59-01): bound end-only historical source authority to observed date. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
