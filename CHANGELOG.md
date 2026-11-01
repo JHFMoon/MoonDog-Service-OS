@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.266 — current Beta
+
+- fix(#59-01): reject invalid explicitly dated VIR observations before import. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.265 — current Beta
 
 - fix(#59-01): validate SAPR periods on clean security-auditable ancestry. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
