@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.277 — current Beta
+
+- fix(#59-03): keep DOCX manual review authority through history I/O. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.276 — current Beta
 
 - fix(#59-03): preserve Workspace authority during committed Open RO recovery. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
