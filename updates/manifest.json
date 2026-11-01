@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.258",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.258.json",
-    "sha256": "955769c445c89036e58b1b4569d04aedc406526946acf6b863fc630176abbb38",
+    "version": "0.10.18-beta.260",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.260.json",
+    "sha256": "55aac15dfdf3e0f5bd8f159ccd3834c067f8a79d269436a74f2024ab6443ff75",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "fix(#59-01): render CSI customer voice as literal text in Meeting. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged."
+    "releaseNotes": "fix(#59-01): render configured advisor identity as text in Meeting. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged."
   }
 }
