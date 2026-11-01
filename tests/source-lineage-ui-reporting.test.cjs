@@ -75,7 +75,7 @@ test('Home data health and Performance SAPR/tracker views use the same productio
   const fn=app.slice(start,end);
   assert.match(fn,/sourceLineageLabel\(saprHealth\)/);
   assert.match(fn,/sourceLineageLabel\(openRoHealth\)/);
-  assert.match(fn,/openRoHealth\.safeForCurrent\?performanceFormat\(trackerOpenCount\(code\), "count"\):"UPDATE PENDING"/,
+  assert.match(fn,/openRoHealth\.safeForCurrent&&openRoHealth\.reportPeriodVerified\?performanceFormat\(trackerOpenCount\(code\), "count"\):"UPDATE PENDING"/,
     'unverified Open RO tracking must not present zero as a verified count');
 });
 
