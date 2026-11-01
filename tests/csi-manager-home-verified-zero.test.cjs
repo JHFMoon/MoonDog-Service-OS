@@ -106,3 +106,35 @@ test("scoring window starting before cumulative report does not invent history",
   assert.equal(actual.message,"No verified CSI responses loaded.");
   assert.equal(actual.coverage,"No verified current scoring-window coverage");
 });
+
+const csiHeaderStart=app.indexOf("  const CSI_REQUIRED_HEADERS = ");
+const csiParserEnd=app.indexOf("\n  function parseCsiCsv(",csiHeaderStart);
+const validDateStart=app.indexOf("  function strictReportDate(");
+const validDateEnd=app.indexOf("\n  function coverageTimestamp(",validDateStart);
+assert.ok(csiHeaderStart>=0&&csiParserEnd>csiHeaderStart&&
+  validDateStart>=0&&validDateEnd>validDateStart,
+  "production CSI zero-source parser and validated scope dates are available");
+const csiParserSource=app.slice(csiHeaderStart,csiParserEnd);
+const csiDateSource=app.slice(validDateStart,validDateEnd);
+
+test("actual CSI importer accepts zero only with recognized validated cumulative scope",()=>{
+  const csi=vm.createContext({
+    now:()=>TODAY,Date,
+    norm:v=>String(v??"").trim().toLowerCase().replace(/\s+/g," "),
+    text:v=>String(v??"")
+  });
+  vm.runInContext(csiDateSource+"\n"+csiParserSource+
+    "\nthis.parseForTest=parseCsiRows;this.headersForTest=CSI_REQUIRED_HEADERS;",csi);
+  const headers=[...csi.headersForTest];
+  const empty=[["From","2026-10-01"],["To","2026-10-06"],headers];
+  const parsed=csi.parseForTest(empty,"synthetic-empty-csi.csv","csv");
+  assert.equal(parsed.scopeVerified,true);
+  assert.equal(parsed.scopeStart,"2026-10-01");
+  assert.equal(parsed.scopeEnd,"2026-10-06");
+  assert.equal(Object.keys(parsed.surveys).length,0);
+  assert.throws(()=>csi.parseForTest([headers],"synthetic-unscoped.csv","csv"),
+    /no scoring surveys and no verified reporting scope/i);
+  assert.throws(()=>csi.parseForTest(
+    [["From","2026-10-99"],["To","2026-10-06"],headers],
+    "synthetic-invalid-scope.csv","csv"),/no scoring surveys and no verified reporting scope/i);
+});
