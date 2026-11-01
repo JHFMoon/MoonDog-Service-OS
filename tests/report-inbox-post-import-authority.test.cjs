@@ -13,7 +13,7 @@ const end=source.indexOf("  async function importReturnedWorkbook(",start);
 assert.ok(start>=0&&end>start,"production automatic intake exists");
 const production=source.slice(start,end);
 
-function harness(){
+function harness({failImport=false}={}){
   const initial={name:"Synthetic first Workspace"},newRoot={name:"Synthetic new Workspace"};
   const state={root:initial,manualImport:false,write:true},events=[];
   const item={name:"synthetic-dated-appointments.xlsx",
@@ -30,7 +30,7 @@ function harness(){
     sourceLocations:new Map(),AUTO_IMPORT_PATH:["data","auto-import.json"],
     watchCandidates:async()=>[item],candidateNeedsImport:()=>true,
     classifyImportFile:async()=>"appointments",
-    processClassifiedCandidate:async()=>{events.push("import-entered");entered();await gate;events.push("import-returned");return{saved:true,deleted:true};},
+    processClassifiedCandidate:async()=>{events.push("import-entered");entered();await gate;events.push("import-returned");if(failImport)throw Error("Synthetic importer rejected");return{saved:true,deleted:true};},
     writeJson:async()=>{events.push("ledger-write");},sha256:async()=>"digest",
     status:()=>events.push("status"),recordDiagnostic(){},scanFiles:async()=>{},
     now:()=>"2026-11-01T21:00:00Z"
@@ -54,6 +54,14 @@ for(const mode of ["root-switch","manual-import","write-revoked"]){
       "source completion must not be misapplied to new Workspace's ledger");
   });
 }
+test("import failure on stale Workspace cannot create a learned or cleanup record",async()=>{
+  const h=harness({failImport:true}),running=h.scan();
+  await h.reached;h.model.root=h.newRoot;h.release();
+  assert.equal(await running,null);
+  assert.deepEqual(h.events,["import-entered","import-returned"]);
+  assert.equal(h.model.autoImport.seen[h.item.signature],undefined);
+});
+
 test("unchanged eligible import still updates its ledger once",async()=>{
   const h=harness(),running=h.scan();
   await h.reached;h.release();
