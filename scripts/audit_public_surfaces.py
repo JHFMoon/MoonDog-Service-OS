@@ -2,6 +2,7 @@
 """Redacted audit of public GitHub surfaces outside reachable Git blobs."""
 from __future__ import annotations
 import collections, io, json, os, re, subprocess, sys, tempfile, zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import hashlib
 
@@ -309,18 +310,22 @@ for comment in review_comments:
         scan_bytes(str(comment["body"]).encode(),"pr-review-comment")
 
 # Review submissions are separate from review comments and can contain
-# public text. List each PR's reviews via a bounded API request per PR.
+# public text. Fetch every PR's full paginated review history with bounded
+# concurrency; consume and scan responses in repository order on this thread.
+# Failure of ANY endpoint still propagates and fails the entire audit closed.
 review_submission_count=0
-for issue in issues:
-    if "pull_request" not in issue:
-        continue
-    number=issue.get("number")
-    if not number:
-        continue
-    for review in gh_json(f"repos/{REPO}/pulls/{number}/reviews?per_page=100"):
-        review_submission_count+=1
-        if review.get("body"):
-            scan_bytes(str(review["body"]).encode(),"pr-review")
+review_numbers=[issue.get("number") for issue in issues
+                if "pull_request" in issue and issue.get("number")]
+
+def fetch_reviews(number):
+    return gh_json(f"repos/{REPO}/pulls/{number}/reviews?per_page=100")
+
+with ThreadPoolExecutor(max_workers=4) as review_pool:
+    for reviews in review_pool.map(fetch_reviews,review_numbers):
+        for review in reviews:
+            review_submission_count+=1
+            if review.get("body"):
+                scan_bytes(str(review["body"]).encode(),"pr-review")
 
 
 # Redacted provenance: no addresses, domains, paths or match excerpts are emitted.
