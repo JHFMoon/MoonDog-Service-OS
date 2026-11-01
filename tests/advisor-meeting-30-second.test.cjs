@@ -25,11 +25,18 @@ function render(opts={}){
   menuMeetingEvidence:()=>({verified:current&&!older,status:older?"stale":current?"verified":"missing-source"}),
   csiMetricEvidence:()=>({verified:current&&nps>0}),
  };
+ if(opts.loadSourceHelper){
+  context.localDateKey=()=>opts.today||"2026-10-12";
+  context.freshness={timeParts:()=>({hour:opts.hour??19})};
+  context.businessTimeZone=()=>"UTC";
+  const refresh=fs.readFileSync(path.join(root,"assets/freshness.js"),"utf8");
+  vm.runInNewContext(refresh,context);
+ }
  const functionBody=vm.runInNewContext(source+"\nmeetingAdvisorTv;",context);
  const values=[29600,opts.cpElrValue??215,opts.cpHoursValue??1.9,93,92];
  const entity=Object.fromEntries(["totalGross","cpElr","cpHours","mediaViewed","texting"].map((key,i)=>[key,values[i]]));
  return functionBody("test",
- {periodEnd:"2026-10-11",validation:{saprDaysVerified:current,finalTotalsVerified:current},saprDaysCompleted:7,saprTotalDays:23},
+ {periodEnd:opts.periodEnd??"2026-10-11",validation:{saprDaysVerified:current,finalTotalsVerified:current},saprDaysCompleted:opts.daysCompleted??7,saprTotalDays:opts.totalDays??23},
  entity,{configured:true,target:67000+8000,roundedDaily:2800,remainingDays:16.5,achieved:false},
  {current:{total:null,missingDates:opts.missing??["2026-10-10"]},prior:{total:null}},
  {label:opts.label??"ALIGNMENTS",measure:"Need 1 more sale",achieved:false},
@@ -241,4 +248,23 @@ test("Primetime screen changes layout and presentation but not the data renderer
  assert.match(app,/const weekLabel=weekNum\?/);
  assert.match(app,/const missing=Array\.isArray\(week\?\.current\?\.missingDates\)/);
  assert.match(app,/function decorateMeetingCycle/);
+});
+
+
+test("Meeting monthly forecast never uses impossible or negative source workdays",()=>{
+ for(const days of [-2,-0.5,24]){
+  const html=render({daysCompleted:days,totalDays:23});
+  assert.match(html,/PROJECTION NOT READY/);
+  assert.doesNotMatch(html,/PROJECTED \(EST\.\)/);
+ }
+ const zero=render({daysCompleted:0});
+ assert.match(zero,/PROJECTION NOT READY/,"verified zero cannot be a divisor");
+ assert.doesNotMatch(zero,/PROJECTED \(EST\.\)/);
+});
+test("Meeting and Performance use the same validated SAPR source date and working days",()=>{
+ const invalid=render({loadSourceHelper:true,periodEnd:"2026-02-30",daysCompleted:8});
+ assert.match(invalid,/PROJECTION NOT READY/);
+ assert.doesNotMatch(invalid,/PROJECTED \(EST\.\)/);
+ const valid=render({loadSourceHelper:true,daysCompleted:7,periodEnd:"2026-10-11"});
+ assert.match(valid,/PROJECTED \(EST\.\)/);
 });
