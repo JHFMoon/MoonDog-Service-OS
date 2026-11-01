@@ -13,7 +13,7 @@ const end=source.indexOf("  async function importReturnedWorkbook(",start);
 assert.ok(start>=0&&end>start,"production automatic intake exists");
 const production=source.slice(start,end);
 
-function harness({failImport=false,cleanupPending=false,cleanupFailure=false,pauseDigest=false}={}){
+function harness({failImport=false,cleanupPending=false,cleanupFailure=false,pauseDigest=false,pauseMove=false}={}){
   const initial={name:"Synthetic first Workspace"},newRoot={name:"Synthetic new Workspace"};
   const state={root:initial,manualImport:false,write:true},events=[];
   const item={name:"synthetic-dated-appointments.xlsx",
@@ -28,6 +28,9 @@ function harness({failImport=false,cleanupPending=false,cleanupFailure=false,pau
   let digestEntered,digestRelease;
   const digestReached=new Promise(resolve=>{digestEntered=resolve;});
   const digestGate=new Promise(resolve=>{digestRelease=resolve;});
+  let moveEntered,moveRelease;
+  const moveReached=new Promise(resolve=>{moveEntered=resolve;});
+  const moveGate=new Promise(resolve=>{moveRelease=resolve;});
   const ctx=vm.createContext({
     model,Map,Set,JSON,Object,Promise,Uint8Array,console,
     sourceLocations:new Map(),AUTO_IMPORT_PATH:["data","auto-import.json"],
@@ -37,11 +40,13 @@ function harness({failImport=false,cleanupPending=false,cleanupFailure=false,pau
     writeJson:async()=>{events.push("ledger-write");},
     sha256:async()=>{events.push("digest-entered");if(pauseDigest){digestEntered();await digestGate;}return"digest";},
     status:()=>events.push("status"),recordDiagnostic(){},scanFiles:async()=>{},
+    transientIntakeError:()=>false,recognizedFamilyHint:()=>true,
+    moveToLearn:async()=>{events.push("move-entered");if(pauseMove){moveEntered();await moveGate;}events.push("move-returned");return"synthetic-learned-file";},
     now:()=>"2026-11-01T21:00:00Z"
   });
   vm.runInContext(production+"\nthis.scan=autoSurveyFolder;",ctx);
   return{model,newRoot,state,events,reached,release:()=>release(),
-    digestReached,digestRelease:()=>digestRelease(),
+    digestReached,digestRelease:()=>digestRelease(),moveReached,moveRelease:()=>moveRelease(),
     scan:()=>ctx.scan(null,()=>model.root===initial&&!state.manualImport&&state.write),
     item};
 }
@@ -101,5 +106,33 @@ test("valid retained appointment persists exact cleanup digest for retry",async(
   assert.equal(result.cleanupPending.length,1);
   assert.equal(h.model.autoImport.seen[h.item.signature].cleanupSha256,"digest");
   assert.equal(h.model.autoImport.seen[h.item.signature].cleanupPending,true);
+  assert.equal(h.events.includes("ledger-write"),true);
+});
+
+for(const pauseAt of ["move","digest"]){
+  test("stale Workspace during learned-file "+pauseAt+" cannot publish a replacement-root ledger",async()=>{
+    const h=harness({failImport:true,pauseMove:pauseAt==="move",pauseDigest:pauseAt==="digest"});
+    const running=h.scan();
+    await h.reached;
+    h.release();
+    if(pauseAt==="move")await h.moveReached;
+    else await h.digestReached;
+    h.model.root=h.newRoot;
+    if(pauseAt==="move")h.moveRelease();
+    else h.digestRelease();
+    assert.equal(await running,null);
+    assert.equal(h.events.includes("ledger-write"),false);
+    assert.equal(h.events.includes("status"),false);
+    assert.equal(h.model.autoImport.seen[h.item.signature],undefined);
+  });
+}
+
+test("eligible failed import retains learned-file hash and marks intake ledger",async()=>{
+  const h=harness({failImport:true}),running=h.scan();
+  await h.reached;h.release();
+  const result=await running;
+  assert.equal(result.learned.length,1);
+  assert.equal(h.model.autoImport.seen[h.item.signature].importFailed,true);
+  assert.equal(h.model.autoImport.seen[h.item.signature].failureSha256,"digest");
   assert.equal(h.events.includes("ledger-write"),true);
 });
