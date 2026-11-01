@@ -268,3 +268,16 @@ test("Meeting and Performance use the same validated SAPR source date and workin
  const valid=render({loadSourceHelper:true,daysCompleted:7,periodEnd:"2026-10-11"});
  assert.match(valid,/PROJECTED \(EST\.\)/);
 });
+
+
+test("Meeting current-day forecast honors the shared half-day SAPR business rule",()=>{
+ const common={loadSourceHelper:true,periodEnd:"2026-10-12",
+   today:"2026-10-12",daysCompleted:7,totalDays:23};
+ const open=render({...common,hour:14});
+ const closed=render({...common,hour:19});
+ const projected=html=>html.match(/(\$[\d.]+K) PROJECTED \(EST\.\)/)?.[1];
+ assert.ok(projected(open));
+ assert.ok(projected(closed));
+ assert.notEqual(projected(open),projected(closed),
+   "open current operating day counts as half a day, not a full working day");
+});
