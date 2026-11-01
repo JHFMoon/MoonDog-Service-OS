@@ -3956,6 +3956,10 @@
           }
         }
         const outcome=await processClassifiedCandidate(candidate, kind, bytes, true);
+        // The importer may have awaited durable I/O while reconnect or a
+        // competing manual import claimed authority. Its completion must not
+        // mutate the new Workspace's intake ledger or report a false success.
+        if(!scanEligible())return null;
         if (kind==="appointments" && outcome?.saved && outcome.deleted===false) {
           // Import is already verified and durable; do not re-import, do not
           // claim removal, and do not discard the cleanup retry on next poll.
@@ -3968,7 +3972,9 @@
         }
         if(outcome?.retired)retired.push(candidate.name);else imported.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, relativePath:candidate.relativePath, importedAt: now(), kind, retired:Boolean(outcome?.retired) }; ledgerChanged = true;recordDiagnostic("REPORT INBOX",outcome?.retired?`${kind} recognized and retired outside Service OS`:`${kind} recognized and imported or safely deduplicated`);
       } catch (error) {
-        if(error?.reportInboxAuthorityRevoked&&!scanEligible())return null;
+        // A delayed importer failure has no authority to update the replacement
+        // Workspace's source, cleanup or learning-file state.
+        if(!scanEligible())return null;
         // Source deletion is a separate durable transaction. Preserve its
         // original bytes/path hold BEFORE any generic committed-roster retry,
         // including a source changed during cleanup.
@@ -4005,6 +4011,7 @@
         catch (moveError) { retained.push(candidate.name); try { await addHistory("auto-import-retained", `Automatic import retained ${candidate.name}`, { fileName: candidate.name, reason: moveError.message || String(moveError) }); } catch (_) {} }
       }
     }
+    if(!scanEligible())return null;
     if (ledgerChanged) {
       const entries = Object.entries(model.autoImport.seen);
       if (entries.length > 1000) {
@@ -4017,8 +4024,10 @@
       }
       model.autoImport.updatedAt = now();
       await writeJson(AUTO_IMPORT_PATH, model.autoImport);
+      if(!scanEligible())return null;
     }
     if(reviewRequired.length)await scanFiles();
+    if(!scanEligible())return null;
     const reviewNote=reviewRequired.length?` ${reviewRequired.length} recognized Open RO source(s) remain in Report Inbox for Import Report verification.`:"";
     const learnNote = learned.length ? ` ${learned.length} file${learned.length === 1 ? " was" : "s were"} moved safely to Files To Learn.` : "", retiredNote = retired.length ? ` ${retired.length} known non-service file${retired.length === 1 ? " was" : "s were"} retired from Service OS intake.` : "", retainedNote = retained.length ? ` ${retained.length} file${retained.length === 1 ? " remains" : "s remain"} in place because it could not be moved safely.` : "";
     const cleanupNote = cleanupPending.length ? ` ${cleanupPending.length} ingested file${cleanupPending.length===1?"":"s"} still need${cleanupPending.length===1?"s":""} source deletion; the Dashboard will retry without re-importing.` : "";
