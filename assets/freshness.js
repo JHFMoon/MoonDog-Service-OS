@@ -169,6 +169,7 @@
     // when the accompanying start date contradicts that evidence.
     const verifiedScopeEnd = input.scopeEnd || input.periodEnd;
     const invalidVerifiedScope = input.scopeVerified === true && (
+      !validDateKey(verifiedScopeEnd) ||
       (hasPeriodValue(input.scopeStart) && !validDateKey(input.scopeStart)) ||
       (hasPeriodValue(input.scopeEnd) && !validDateKey(input.scopeEnd)) ||
       (hasPeriodValue(input.scopeStart) && validDateKey(verifiedScopeEnd) &&
