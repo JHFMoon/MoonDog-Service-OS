@@ -4500,7 +4500,23 @@
     if (!blocked) return baseEvidence;
     return metricEvidence({ value: baseEvidence?.lastVerifiedValue ?? baseEvidence?.value, status: blocked.status === "missing" ? "missing-source" : blocked.status, source: blocked.label, period: [blocked.periodStart, blocked.periodEnd].filter(Boolean).join(" through "), importedDate: blocked.sourceTimestamp, freshness: blocked.expectedPeriod ? `Expected ${blocked.expectedPeriod}` : blocked.cadence, reason: blocked.reason, requiredAction: blocked.requiredAction, calculation: baseEvidence?.calculation || "", reconciliation: baseEvidence?.reconciliation || "" });
   }
-  function sourceStatusLabel(evidence) { if (evidence.status === "current") return evidence.key === "openRo" && !evidence.reportPeriodVerified ? "Recently imported · Report period not verified" : "Current"; if (evidence.status === "historical-valid") return "Historical · valid for stated period"; if (evidence.status === "missing") return "Missing"; if (evidence.status === "stale" && evidence.loaded) return "Loaded but stale · Needs updating"; if (evidence.status === "temporarily-unavailable") return "Temporarily unavailable"; if (evidence.status === "not-used") return "Not used"; if (evidence.status === "invalid" && /conflict/i.test(String(evidence.reason || ""))) return "Conflict · Review required"; if (evidence.status === "invalid" && /report period/i.test(String(evidence.reason || ""))) return "Invalid period · Review required"; return evidence.loaded ? "Loaded · validation needed" : "Missing"; }
+  function sourceStatusLabel(evidence) {
+    const status=evidence.status,reason=String(evidence.reason||"");
+    if(status==="current")return evidence.key==="openRo"&&!evidence.reportPeriodVerified?"Recently imported · Report period not verified":"Current";
+    if(status==="historical-valid")return "Historical · valid for stated period";
+    if(status==="missing")return "Missing";
+    if(status==="stale"&&evidence.loaded)return "Loaded but stale · Needs updating";
+    if(status==="temporarily-unavailable")return "Temporarily unavailable";
+    if(status==="not-used")return "Not used";
+    if(status==="invalid"||status==="conflicting"||status==="unsupported"){
+      if(status==="conflicting"||/conflict/i.test(reason))return "Conflict · Review required";
+      if(status==="unsupported"||/unsupported|layout|schema|parser|format/i.test(reason))return "Unsupported format · Review required";
+      if(/report period|scope|coverage|reporting date|date range/i.test(reason))return "Invalid period · Review required";
+      return "Invalid source · Review required";
+    }
+    if(status==="unverified")return "Unverified · Review required";
+    return evidence.loaded?"Loaded · validation needed":"Missing";
+  }
   // Source coverage and local import time describe DIFFERENT facts. A fresh
   // import cannot manufacture a current reporting period or a verified zero.
   function sourceLineageLabel(evidence) {
