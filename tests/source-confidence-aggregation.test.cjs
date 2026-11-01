@@ -203,3 +203,38 @@ test("a current Open RO workload snapshot never conceals invalid source evidence
   assert.equal(F.evaluateReportNeed({key:"openRo",today,evidence:valid,currentSnapshot:true}).state,"CURRENT");
   assert.equal(F.evaluateReportNeed({key:"openRo",today,evidence:valid}).state,"CURRENT");
 });
+
+
+test("disabled or temporarily unavailable sources alone never verify a metric",()=>{
+  const cases=[
+    F.evaluateSource({key:"sapr",exists:false,today,expectation:"not-used"}),
+    F.evaluateSource({key:"csi",exists:false,today,expectation:"temporarily-unavailable"})
+  ];
+  assert.deepEqual(cases.map(item=>item.status),["not-used","temporarily-unavailable"]);
+  for(const item of cases){
+    assert.equal(item.safeForPurpose,false);
+    const metric=F.evaluateMetric([item]);
+    assert.equal(metric.verified,false,item.status+" must not mean metric verified");
+    assert.equal(metric.status,item.status);
+    assert.deepEqual(metric.blocking,[item]);
+    assert.deepEqual(metric.dependencies,[item]);
+  }
+  const combined=F.evaluateMetric(cases);
+  assert.equal(combined.verified,false,"two unavailable inputs must not become verified");
+  assert.deepEqual(combined.blocking,cases);
+});
+
+test("optional exclusions remain allowed when another source actually verifies the calculation",()=>{
+  const current=F.evaluateSource({key:"sapr",exists:true,today,periodStart:"2026-10-01",periodEnd:"2026-10-06"});
+  const notUsed=F.evaluateSource({key:"vir",exists:false,today,expectation:"not-used"});
+  const unavailable=F.evaluateSource({key:"csi",exists:false,today,expectation:"temporarily-unavailable"});
+  const metric=F.evaluateMetric([current,notUsed,unavailable]);
+  assert.equal(current.safeForPurpose,true);
+  assert.equal(metric.verified,true,"configured exclusions must not invalidate verified SAPR-only evidence");
+  assert.deepEqual(metric.blocking,[]);
+  const missing=F.evaluateSource({key:"menu",exists:false,today});
+  const blocked=F.evaluateMetric([current,notUsed,missing]);
+  assert.equal(blocked.verified,false);
+  assert.deepEqual(blocked.blocking,[missing],"a real missing dependency must still block");
+  assert.equal(F.evaluateMetric([]).verified,true,"empty dependency behavior is unchanged");
+});
