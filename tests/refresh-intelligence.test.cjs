@@ -142,3 +142,19 @@ test("negative historical SAPR days cannot be selected as a valid prior-year com
   assert.equal(comparison.prior.periodEnd,"2025-10-03");
   assert.equal(comparison.workingDayGap,0);
 });
+
+
+test("canonical refresh source and shipped browser runtime agree on SAPR validity",()=>{
+  const src=fs.readFileSync(path.join(__dirname,"..","src","refresh-intelligence.js"),"utf8");
+  const check=vm.createContext({Date,Intl});
+  vm.runInContext(src,check);
+  const canonical=check.ServiceRefreshIntelligence;
+  for(const completed of [-1,0,8,25]){
+    const snapshot={periodEnd:"2026-10-06",saprDaysCompleted:completed,saprTotalDays:22};
+    assert.deepEqual(plain(R.workingProgress(snapshot,{today:"2026-10-06",hour:19})),
+      plain(canonical.workingProgress(snapshot,{today:"2026-10-06",hour:19})));
+    const hist=[{periodEnd:"2025-10-06",saprDaysCompleted:completed,saprTotalDays:22}];
+    assert.deepEqual(plain(R.matchPriorYear(snapshot,hist,{today:"2026-10-06",hour:19})),
+      plain(canonical.matchPriorYear(snapshot,hist,{today:"2026-10-06",hour:19})));
+  }
+});
