@@ -121,6 +121,7 @@ test("production source-lineage UI labels preserve every authority state for all
     ["unverified",{status:"unverified",loaded:true,reason:"Readback not independently confirmed"},"Unverified · Review required · Report period: Not verified · Last imported: Not verified"],
     ["invalid-data",{status:"invalid",loaded:true,reason:"Source totals do not reconcile"},"Invalid source · Review required · Report period: Not verified · Last imported: Not verified"],
     ["invalid-scope",{status:"invalid",loaded:true,reason:"The saved verified source coverage is malformed"},"Invalid period · Review required · Report period: Not verified · Last imported: Not verified"],
+    ["unverified-reporting-period",{status:"invalid",loaded:true,reason:"The loaded source has no verified reporting period."},"Invalid period · Review required · Report period: Not verified · Last imported: Not verified"],
     ["explicit-conflict",{status:"conflicting",loaded:true,reason:"Multiple source authorities"},"Conflict · Review required · Report period: Not verified · Last imported: Not verified"],
     ["conflict",{status:"invalid",loaded:true,reason:"Conflicting duplicate synthetic source period"},"Conflict · Review required · Report period: Not verified · Last imported: Not verified"],
     ["invalid-period",{status:"invalid",loaded:true,reason:"Report period is malformed"},"Invalid period · Review required · Report period: Not verified · Last imported: Not verified"],
@@ -145,6 +146,7 @@ test("shared source evaluator and lineage UI agree that unsupported and invalid 
       ["Unsupported source layout","Unsupported format · Review required"],
       ["Source totals do not reconcile","Invalid source · Review required"],
       ["The verified reporting coverage is malformed","Invalid period · Review required"],
+      ["The loaded source has no verified reporting period.","Invalid period · Review required"],
       ["Conflicting authoritative inputs","Conflict · Review required"]
     ]){
       const evidence=F.evaluateSource({key,exists:true,today,invalid:cause,
