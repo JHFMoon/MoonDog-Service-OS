@@ -107,3 +107,34 @@ test("one synthetic CSI observation keeps the same reporting period and source e
   assert.match(meetingHtml,/>100<\/strong>/);
   assert.match(meetingHtml,/OCT 6/);
 });
+
+
+test("production Meeting CSI customer voice renders source text without HTML interpretation",()=>{
+  const helperStart=app.indexOf("  function relevantCustomerVoice(");
+  const helperEnd=app.indexOf("  function advisorMeetingWins(",helperStart);
+  const renderStart=app.indexOf("    Object.values(surveys).map((survey) => ({ survey, voice: relevantCustomerVoice(survey) }))");
+  const renderEnd=app.indexOf(" if (!voice.children.length)",renderStart);
+  assert.ok(helperStart>=0&&helperEnd>helperStart&&renderStart>=0&&renderEnd>renderStart,
+    "production CSI voice selector and Meeting renderer exist");
+  let innerHtmlWrites=0;
+  function domNode(tag){
+    return {tag,children:[],textContent:"",
+      append(...items){this.children.push(...items);},
+      set innerHTML(value){innerHtmlWrites++;this.html=value;},
+      get innerHTML(){return this.html||"";}};
+  }
+  const message='The advisor explained <img src=x onerror="synthetic-test"> & kept me informed | great service';
+  const parent=domNode("section"),survey={surveyDate:"2026-10-25",positiveComment:message};
+  const ctx=vm.createContext({
+    surveys:{"synthetic-only":survey},voice:parent,document:{createElement:domNode},
+    redactCustomerVoice:value=>String(value),norm:value=>String(value).toLowerCase()
+  });
+  vm.runInContext(app.slice(helperStart,helperEnd)+"\n"+app.slice(renderStart,renderEnd),ctx);
+  assert.equal(parent.children.length,1);
+  const card=parent.children[0];
+  assert.deepEqual(card.children.map(child=>child.tag),["span","strong","small"]);
+  assert.equal(card.children[0].textContent,"CLEAR EXPLANATION");
+  assert.equal(card.children[1].textContent,"“"+message+"”");
+  assert.equal(card.children[2].textContent,"Verified promoter comment · 2026-10-25");
+  assert.equal(innerHtmlWrites,0,"private customer comments must never enter innerHTML");
+});
