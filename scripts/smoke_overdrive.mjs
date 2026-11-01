@@ -578,6 +578,16 @@ try{
         throw Error("Recently Reviewed did not refresh on open: "+reviewCount);
       button.click();
       if(!panel.hidden)throw Error("Recently Reviewed did not close");
+      const newest=records.at(-1);
+      newest.management.managerReviewedOn="2026-10-25";
+      render(); // hidden panel should remain deferred
+      if(!panel.hidden)throw Error("Review panel reopened during source update");
+      button.click();
+      const newestVisible=panel.querySelector("button[data-recently-reviewed-id]");
+      if(!newestVisible||newestVisible.dataset.recentlyReviewedId!==newest.id)
+        throw Error("Reopened review panel ignored newly reviewed synthetic RO");
+      button.click();
+      if(!panel.hidden)throw Error("Recently Reviewed did not close after source refresh");
       // Restore synthetic source and unfiltered table for subsequent tests.
       records.forEach((row,i)=>{
         if(originalDates[i]===undefined)delete row.management.managerReviewedOn;
