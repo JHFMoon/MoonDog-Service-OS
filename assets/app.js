@@ -924,6 +924,9 @@
     if(['efficiency','mediaAsr','mediaAsrTech','openRoSummary'].includes(key))return validCoverageDate(item.date||item.periodEnd);
     if(key==='appointments')return validCoverageDate(item.date);
     if(key==='csi'&&item.scopeVerified)return validCoverageDate(item.scopeEnd);
+    // A legacy Activity aggregate without saved coverage provenance cannot
+    // manufacture a daily observation from its import or file modification.
+    if(key==='appointmentActivity')return '';
     // SOR's month and Activity's event-date extent do not prove a report day.
     // For SOR, a local import timestamp is not source observation evidence.
     const observed=coverageTimestamp(item.sourceModifiedAt||item.generatedAt||(key==='sor'?'':item.importedAt));return key==='sor'&&item.period&&observed.slice(0,7)!==item.period?'':observed;
