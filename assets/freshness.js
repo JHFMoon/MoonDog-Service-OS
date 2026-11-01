@@ -409,7 +409,7 @@
   }
   function workingProgress(snapshot,{today="",hour=19,closeHour=18}={}) {
     const days=snapshot?.saprDaysCompleted,total=snapshot?.saprTotalDays,end=snapshot?.periodEnd;
-    if(!finite(days)||!finite(total)||total<=0||days>total||!dateValid(end)) return null;
+    if(!finite(days)||!finite(total)||days<0||total<=0||days>total||!dateValid(end)) return null;
     const open=Boolean(end===today&&civil(today).getUTCDay()!==0&&hour<closeHour&&hour>=0);
     const complete=open?Math.max(0,days-0.5):days;
     return {daysWorked:complete,workingDays:total,inProgress:open,reportedDays:days,
@@ -422,7 +422,7 @@
     const candidates=(Array.isArray(history)?history:Object.values(history||{}))
       .filter(item=>item&&typeof item==="object"&&dateValid(item.periodEnd)&&
         item.periodEnd.startsWith(`${year}-${month}-`)&&finite(item.saprDaysCompleted)&&
-        finite(item.saprTotalDays)&&item.saprTotalDays>0&&item.saprDaysCompleted<=item.saprTotalDays);
+        finite(item.saprTotalDays)&&item.saprTotalDays>0&&item.saprDaysCompleted>=0&&item.saprDaysCompleted<=item.saprTotalDays);
     const sorted=candidates.map(snapshot=>({snapshot,gap:Math.abs(snapshot.saprDaysCompleted-active.daysWorked)}))
       .sort((a,b)=>a.gap-b.gap||String(b.snapshot.periodEnd).localeCompare(String(a.snapshot.periodEnd)));
     if(sorted.length&&sorted[0].gap<=1) return {
