@@ -50,6 +50,22 @@ test("invalid verified scope-end cannot become current from a separate observati
   assert.equal(evidence.safeForPurpose, false);
 });
 
+test("a claimed verified CSI scope without an end cannot borrow a recent observation date", () => {
+  for (const scopeEnd of [undefined, null, ""]) {
+    const item = {
+      scopeVerified: true, scopeStart: "2026-10-01",
+      reportObservationVerified: true, reportObservationDate: "2026-10-06",
+      importedAt: "2026-10-07T15:00:00Z"
+    };
+    if (scopeEnd !== undefined) item.scopeEnd = scopeEnd;
+    const evidence = evaluate(item);
+    assert.equal(evidence.status, "invalid", "scopeEnd " + String(scopeEnd));
+    assert.equal(evidence.safeForCurrent, false);
+    assert.equal(evidence.safeForPurpose, false);
+    assert.equal(freshness.evaluateMetric([evidence]).verified, false);
+  }
+});
+
 test("reversed declared CSI coverage fails closed in the production adapter", () => {
   const evidence = evaluate({
     scopeVerified: true, scopeStart: "2026-10-07", scopeEnd: "2026-10-06"
