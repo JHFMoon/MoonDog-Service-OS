@@ -34,6 +34,20 @@ test('calendar-invalid verified CSI scope cannot substitute its current-looking 
   }
 });
 
+test('a claimed verified CSI scope with no end evidence cannot use observation freshness', () => {
+  const missingEnd = F.evaluateSource({...base,
+    scopeStart: '2026-10-01',
+    observationVerified: true, sourceDate: '2026-10-06'});
+  assert.equal(missingEnd.status, 'invalid');
+  assert.equal(missingEnd.safeForPurpose, false);
+  assert.match(missingEnd.requiredAction, /coverage dates/i);
+  assert.equal(F.evaluateMetric([missingEnd]).verified, false);
+  const validPeriodEnd = F.evaluateSource({...base,
+    scopeStart: '2026-10-01', periodEnd: '2026-10-06'});
+  assert.equal(validPeriodEnd.status, 'current',
+    'a verified periodEnd remains a valid core evaluator substitute');
+});
+
 test('ordered and end-only validated CSI coverage keep their current-source behavior', () => {
   const ordered = F.evaluateSource({...base,
     scopeStart: '2026-10-01', scopeEnd: '2026-10-06', responseCount: 0});

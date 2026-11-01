@@ -4457,8 +4457,10 @@
         // Do not silently erase an invalid date in a scope explicitly marked verified.
         // Its sanitized period cannot be promoted to current by the remaining end date.
         malformedDeclaredScope = item?.scopeVerified === true && (
-          (item.scopeStart != null && item.scopeStart !== "" && !validCoverageDate(item.scopeStart)) ||
-          (item.scopeEnd != null && item.scopeEnd !== "" && !validCoverageDate(item.scopeEnd))
+          // A scope claimed as verified must have a real end date. A separately
+          // verified observation or recent import cannot replace missing scope.
+          !scopeEnd ||
+          (item.scopeStart != null && item.scopeStart !== "" && !validCoverageDate(item.scopeStart))
         );
       return evaluate({ ...common, exists: Boolean(item),
         sourceTimestamp: item?.importedAt, sourceDate: observedDate,
