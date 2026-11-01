@@ -388,7 +388,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-11-01-sapr-period-validated-v7";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-11-01-vir-date-validated-v8";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -2101,7 +2101,11 @@
   const VIR_NAME_CODES = {};
   function parseVirCsv(source, fileName) {
     const normalizedSource = text(source).replace(/^\uFEFF/, "");
-    const rawRows = parseCsv(normalizedSource).filter((row) => row.some((value) => text(value).trim())), headerIndex=rawRows.findIndex(row=>norm(row[0])==="advisor name"), reportDate=internalObservationDate(rawRows.slice(0,Math.max(0,headerIndex))), rows=rawRows.slice(Math.max(0,headerIndex)), header = rows[0]?.map(norm);
+    const rawRows = parseCsv(normalizedSource).filter((row) => row.some((value) => text(value).trim())), headerIndex=rawRows.findIndex(row=>norm(row[0])==="advisor name");
+    const metadataRows = rawRows.slice(0, Math.max(0, headerIndex)), reportDate = internalObservationDate(metadataRows);
+    const explicitlyDated = metadataRows.some(row => row.some(value => /^(?:Report Date|As Of|Observation Date)\s*:?(?:\s|$)/i.test(text(value).trim())));
+    if (explicitlyDated && !reportDate) throw new Error("The VIR report contains an invalid explicit observation date. The source was not saved.");
+    const rows = rawRows.slice(Math.max(0, headerIndex)), header = rows[0]?.map(norm);
     const supportedDeliveryHeader = header?.[2] === "vir printed/emailed/texted" || header?.[2] === "vir printed/emailed";
     if (header?.[0] !== "advisor name" || header?.[1] !== "total ros" || !supportedDeliveryHeader || header?.[3] !== "vir use %") throw new Error("This is not a recognized VIR Use Utilization report.");
     const advisors = {}, ignored = [], seen = new Set(); let sourceTotalROs = 0, sourceUsed = 0;
