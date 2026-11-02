@@ -90,11 +90,13 @@ test('VIR point-in-time provenance stays current without falsely inventing inter
   const fs = require('node:fs');
   const path = require('node:path');
   const app = fs.readFileSync(path.join(__dirname,'..','assets','app.js'), 'utf8');
-  const start = app.indexOf('if (key === "vir") { const item = options.item || latestVirObservation();');
+  const start = app.indexOf('if (key === "vir") { const item = options.item || latestVirObservation()');
   const end = app.indexOf('if (key === "menu")', start);
   assert.ok(start > 0 && end > start, 'production VIR evidence adapter exists');
   const adapter = app.slice(start,end);
-  assert.match(adapter,/periodEnd: virObservationDate\(item\)/);
+  assert.match(adapter,/periodEnd: observed/);
+  assert.match(adapter,/verifiedVirSourceObservationDate\(item\)/,
+    'current VIR must have independently dated report/source observation');
   assert.doesNotMatch(adapter,/periodStart:/,
     'point-in-time VIR observations cannot claim coverage of an interval');
 
