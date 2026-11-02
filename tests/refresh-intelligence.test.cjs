@@ -119,3 +119,42 @@ test("Packaged modules stay byte-for-byte synchronized with canonical source",()
   assert.equal(between(meeting,"/* BEGIN GENERATED MEETING LAYOUT (see src/meeting-presenter.css) */","/* END GENERATED MEETING LAYOUT */"),
     src("meeting-presenter.css").trim());
 });
+
+
+test("invalid negative SAPR source workdays cannot become a verified business denominator",()=>{
+  const negative={periodEnd:"2026-10-06",saprDaysCompleted:-1,saprTotalDays:22};
+  assert.equal(R.workingProgress(negative,{today:"2026-10-06",hour:19}),null);
+  const yoy=R.matchPriorYear(negative,[],{today:"2026-10-06",hour:19});
+  assert.equal(yoy.status,"unavailable");
+  assert.match(yoy.reason,/working-day counts are not verified/);
+  assert.equal(R.workingProgress({...negative,saprDaysCompleted:0},
+    {today:"2026-10-06",hour:19}).daysWorked,0,
+    "zero verified completed days stays a true zero, not unknown");
+});
+
+test("negative historical SAPR days cannot be selected as a valid prior-year comparison",()=>{
+  const current={periodEnd:"2026-10-06",saprDaysCompleted:0,saprTotalDays:22};
+  const invalid=[{periodEnd:"2025-10-02",saprDaysCompleted:-0.5,saprTotalDays:22}];
+  assert.equal(R.matchPriorYear(current,invalid,{today:"2026-10-06",hour:19}).status,"needs-history");
+  const valid=[...invalid,{periodEnd:"2025-10-03",saprDaysCompleted:0,saprTotalDays:22}];
+  const comparison=R.matchPriorYear(current,valid,{today:"2026-10-06",hour:19});
+  assert.equal(comparison.status,"comparable");
+  assert.equal(comparison.prior.periodEnd,"2025-10-03");
+  assert.equal(comparison.workingDayGap,0);
+});
+
+
+test("canonical refresh source and shipped browser runtime agree on SAPR validity",()=>{
+  const src=fs.readFileSync(path.join(__dirname,"..","src","refresh-intelligence.js"),"utf8");
+  const check=vm.createContext({Date,Intl});
+  vm.runInContext(src,check);
+  const canonical=check.ServiceRefreshIntelligence;
+  for(const completed of [-1,0,8,25]){
+    const snapshot={periodEnd:"2026-10-06",saprDaysCompleted:completed,saprTotalDays:22};
+    assert.deepEqual(plain(R.workingProgress(snapshot,{today:"2026-10-06",hour:19})),
+      plain(canonical.workingProgress(snapshot,{today:"2026-10-06",hour:19})));
+    const hist=[{periodEnd:"2025-10-06",saprDaysCompleted:completed,saprTotalDays:22}];
+    assert.deepEqual(plain(R.matchPriorYear(snapshot,hist,{today:"2026-10-06",hour:19})),
+      plain(canonical.matchPriorYear(snapshot,hist,{today:"2026-10-06",hour:19})));
+  }
+});

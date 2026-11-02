@@ -40,6 +40,7 @@ source labels, safe example locations, and reusable logic.
 ## Comparison integrity
 
 - SAPR is authoritative for reported days worked/working days.
+- Negative reported or prior-year SAPR days worked are invalid source evidence, not pacing denominators; a verified zero-days count remains a true zero. Performance and Meeting pacing must not fall back to raw counts when the canonical validator rejects the period or day count. Month-end readiness requires a positive reported total and exactly that many completed days; negative, zero-total, and over-reported day counts cannot lock a final summary.
 - An in-progress SAPR covering today's operating day uses that day as
   **half completed** for pacing, with the original reported count preserved.
 - Prior-year SAPR must be selected by the **closest verified working-day count**,
