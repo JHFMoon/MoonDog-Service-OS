@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.283 — current Beta
+
+- fix(#59-04): reject invalid Gregorian manager-reviewed dates in Open RO views. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.282 — current Beta
 
 - fix(#59-01): reject start-only reference report coverage as historical authority. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
