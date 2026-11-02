@@ -4612,6 +4612,12 @@
         invalid: "The saved report period is invalid or internally inconsistent.",
         requiredAction: "Review the report period before using these values."
       }, item, false);
+      // A period start alone cannot establish when an observed report ended.
+      // Preserve end-dated point observations and explicit month/date periods.
+      if (periodStart && !periodEnd) return evaluate({ ...common, exists: Boolean(item),
+        invalid: "The saved report has a start date but no verified end or observation date.",
+        requiredAction: "Confirm the report end or observation date before using this source."
+      }, item, false);
       return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt,
         periodStart, periodEnd }, item, Boolean(item && (periodStart || periodEnd || period)));
     }
