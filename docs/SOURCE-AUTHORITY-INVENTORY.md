@@ -4,7 +4,7 @@
 
 ## Authority layers
 
-**Historical coverage boundary:** An end-dated report with no validated period start proves an observation on its end date only; it cannot certify coverage of earlier days or entire historical intervals. Explicit, validated start/end dates are required to establish multi-day coverage. This prevents reference snapshots and optional sources from manufacturing historical KPI confidence.
+**Historical coverage boundary:** An end-dated report with no validated period start proves an observation on its end date only; it cannot certify coverage of earlier days or entire historical intervals. Explicit, validated start/end dates are required to establish multi-day coverage. A report stating only a start date without a verified end or observation date cannot establish historical source confidence for the reference feeds; import time never supplies the missing reporting period. This prevents reference snapshots and optional sources from manufacturing historical KPI confidence.
 
 | Domain | Authoritative input | Derived or retained values | Conflict rule and limit |
 | --- | --- | --- | --- |
