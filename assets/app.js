@@ -5594,7 +5594,28 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if (ui.virSummary) {
       ui.virSummary.replaceChildren();
       if (!latestVir) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No verified VIR observation is available."; ui.virSummary.append(empty); ui.virCoverage.textContent = "No verified source loaded"; }
-      else { [["Store VIR", `${latestVir.store.utilization.toFixed(1)}%`], ["Local target", Number.isFinite(standard("vir")) ? performanceFormat(standard("vir"),"percent") : "Not configured"], ["VIR used", latestVir.store.used], ["Eligible ROs", latestVir.store.totalROs]].forEach(([label, value]) => { const card = document.createElement("div"), name = document.createElement("span"), metric = document.createElement("strong"); name.textContent = label; metric.textContent = value; card.append(name, metric); ui.virSummary.append(card); }); ui.virCoverage.textContent = `Latest point-in-time observation · ${shortDate(virObservationDate(latestVir))} · ${latestVir.deliveryHeader}`; }
+      else {
+        // A valid zero-RO VIR import has no utilization denominator (persisted as null).
+        // Home and Meeting must share reconciliation without making Home depend on
+        // which source advisors are opted into the Meeting presentation.
+        const virEvidence = virCompletenessEvidence(latestVir, localDateKey(), {
+          expectedCodes: Object.keys(latestVir.advisors || {}), requireNewest: false, requireFreshness: false
+        });
+        const trusted = virEvidence.verified || virEvidence.status === "not-applicable";
+        const utilization = virEvidence.verified ? `${virEvidence.value.toFixed(1)}%` :
+          virEvidence.status === "not-applicable" ? "Not applicable" : "Not verified";
+        const values = [
+          ["Store VIR", utilization],
+          ["Local target", Number.isFinite(standard("vir")) ? performanceFormat(standard("vir"), "percent") : "Not configured"],
+          ["VIR used", trusted && Number.isFinite(latestVir.store?.used) ? latestVir.store.used : "Not verified"],
+          ["Eligible ROs", trusted && Number.isFinite(latestVir.store?.totalROs) ? latestVir.store.totalROs : "Not verified"]
+        ];
+        values.forEach(([label, value]) => {
+          const card = document.createElement("div"), name = document.createElement("span"), metric = document.createElement("strong");
+          name.textContent = label; metric.textContent = value; card.append(name, metric); ui.virSummary.append(card);
+        });
+        ui.virCoverage.textContent = `Latest point-in-time observation · ${shortDate(virObservationDate(latestVir))} · ${latestVir.deliveryHeader || "VIR source"}${trusted ? "" : " · utilization not verified"}`;
+      }
     }
     if (ui.menuSummary) {
       ui.menuSummary.replaceChildren();

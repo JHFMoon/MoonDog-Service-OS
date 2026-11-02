@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.293 — current Beta
+
+- fix(#59-01): show Home VIR unknown safely using reconciled source evidence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.292 — current Beta
 
 - fix(#59-01): prevent fabricated zero VIR utilization from null source. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
