@@ -962,10 +962,23 @@
     model.operationalMetrics.updatedAt=now();
     try{await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);}catch(error){model.operationalMetrics=prior;throw error;}
   }
+  function verifiedMenuTrendReleases(snapshots={},todayKey=localDateKey()) {
+    const releases=new Set();
+    for(const item of Object.values(snapshots||{})){
+      const week=item?.releaseWeek,start=item?.periodStart,end=item?.periodEnd,ran=item?.ranDate;
+      // A retained key alone is not proof of a valid, dated weekly source.
+      if(!freshness.validDateKey(week)||week>todayKey||freshness.dayOfWeek(week)!==1)continue;
+      if(!freshness.validDateKey(start)||!freshness.validDateKey(end)||start>end)continue;
+      // Legacy report records may omit ranDate; when present it must agree with release lineage.
+      if(ran!=null&&ran!==""&&(!freshness.validDateKey(ran)||freshness.mondayFor(ran)!==week))continue;
+      releases.add(week);
+    }
+    return releases;
+  }
   function trendCoverageAudit(todayKey = localDateKey()) {
     const window=currentMonthWindow(todayKey),releases=[];
     for(let date=window.start;date<=todayKey;date=freshness.addDays(date,1))if(freshness.dayOfWeek(date)===1)releases.push(date);
-    const savedReleases=new Set(Object.values(model.operationalMetrics?.menu?.snapshots||{}).map(item=>item.releaseWeek).filter(date=>date<=todayKey));
+    const savedReleases=verifiedMenuTrendReleases(model.operationalMetrics?.menu?.snapshots||{},todayKey);
     const audit={window,sapr:saprTrendCoverage(model.performance?.snapshots||{},todayKey),menu:{state:sourceExpectation('menu'),rule:SOURCE_COVERAGE_RULES.menu,expectedReleases:releases,presentReleases:releases.filter(date=>savedReleases.has(date)),lastPoint:[...savedReleases].sort().at(-1)||'',missingReleases:releases.filter(date=>!savedReleases.has(date))}};
     for(const key of Object.keys(SOURCE_COVERAGE_RULES))if(!['menu','sapr'].includes(key))audit[key]={state:sourceExpectation(key),...dailySourceCoverage(key,todayKey)};
     audit.vir.observationDate=virObservationDate(latestVirObservation());audit.csi.refreshDate=latestCsiRefreshDate();
