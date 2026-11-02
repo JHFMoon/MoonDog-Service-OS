@@ -147,3 +147,59 @@ test("Meeting NPS health tile and comparison suppress missing, stale, conflictin
   assert.equal(meetingNps({responses: 8, nps: NaN}, verified), null);
   assert.equal(meetingNps({responses: 8, nps: undefined}, verified), null);
 });
+
+test("actual Meeting cycle baseline cannot persist unsourced CSI NPS", () => {
+  const start = app.indexOf("  function meetingCurrentMetrics()");
+  const end = app.indexOf("  async function ensureMeetingCycleBaseline(", start);
+  assert.ok(start >= 0 && end > start, "production persisted Meeting-cycle selector exists");
+  assert.ok(app.slice(start, end).includes("verifiedMeetingCsiNps(dealer)"),
+    "durable Meeting-cycle comparison baseline must share source authority with visible tile");
+  for (const validValue of [null, 0, 73]) {
+    const ctx = vm.createContext({
+      model: {settings: {csiPeriodStart: "2026-10-01"}},
+      latestVerifiedMeetingSnapshot: () => null,
+      latestOperationalSnapshot: () => null,
+      currentCsiSurveys: () => ({}),
+      npsSummary: () => ({responses: 8, nps: 73}),
+      controllableTeamStatus: () => ({progress: null}),
+      localDateKey: () => "2026-10-20",
+      virObservationDate: () => "",
+      verifiedMeetingCsiNps: () => validValue
+    });
+    vm.runInContext(app.slice(start, end) + "\nthis.metrics=meetingCurrentMetrics;", ctx);
+    const actual = ctx.metrics();
+    assert.equal(actual.dealerNps.value, validValue,
+      "saved comparison must not reintroduce unverified CSI NPS");
+  }
+});
+
+test("actual Meeting CSI evidence rejects current-looking sources without verified reporting period", () => {
+  const start = app.indexOf("  function metricEvidence({");
+  const end = app.indexOf("  function metricEvidenceText(", start);
+  const csi = app.indexOf("  function csiMetricEvidence(");
+  const csiEnd = app.indexOf("  const rawVirMeetingEvidence=", csi);
+  assert.ok(start >= 0 && end > start && csi >= 0 && csiEnd > csi,
+    "production evidence and CSI adapters exist");
+  const check = evidence => {
+    const ctx = vm.createContext({
+      model: {settings: {csiPeriodStart: "2026-10-01"}},
+      localDateKey: () => "2026-10-20",
+      currentCsiSurveys: () => ({"SYN-01": {surveyDate: "2026-10-19"}}),
+      sourceFreshness: key => {assert.equal(key, "csi"); return evidence;},
+      metricDependencyEvidence: (_, base) => base
+    });
+    vm.runInContext(app.slice(start, end) + "\n" + app.slice(csi, csiEnd) +
+      "\nthis.result=csiMetricEvidence;", ctx);
+    return ctx.result({responses: 1, promoters: 1, passives: 0, detractors: 0, nps: 100});
+  };
+  const unverified = check({status: "current", safeForCurrent: true,
+    reportPeriodVerified: false});
+  assert.equal(unverified.verified, false);
+  assert.equal(unverified.value, null);
+  assert.equal(unverified.status, "missing-period",
+    "fresh import clock alone cannot certify survey KPI reporting scope");
+  const trusted = check({status: "current", safeForCurrent: true,
+    reportPeriodVerified: true});
+  assert.equal(trusted.verified, true);
+  assert.equal(trusted.value, 100);
+});
