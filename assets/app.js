@@ -4975,7 +4975,27 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       controllables: { value: saprReady && controls.className !== "unknown" && Number.isFinite(controls.progress) ? controls.progress : null, period: `sapr:${saprPeriod}` }
     };
   }
-  async function ensureMeetingCycleBaseline(at = new Date()) { if (!model.root) return model.meetingCycle; const cycle = meetingCycleInfo(at); if (model.meetingCycle?.cycleStart === cycle.cycleStart) return model.meetingCycle; const metrics = meetingCurrentMetrics(); if (!Object.values(metrics).some((metric) => Number.isFinite(metric.value))) return model.meetingCycle; const prior = model.meetingCycle?.cycleStart ? JSON.parse(JSON.stringify(model.meetingCycle)) : null; model.meetingCycle = { schemaVersion: 1, cycleStart: cycle.cycleStart, resetAt: cycle.resetAt, capturedAt: now(), metrics }; if (prior) await writeJson(["backups", `${stamp()}-meeting-cycle-${prior.cycleStart}.json`], prior); await writeJson(MEETING_CYCLE_PATH, model.meetingCycle); await addHistory("meeting-cycle-baseline", `Created Advisor Meeting baseline for ${cycle.cycleStart}`, { cycleStart: cycle.cycleStart, resetAt: cycle.resetAt, availableMetrics: Object.values(metrics).filter((metric) => Number.isFinite(metric.value)).length }); return model.meetingCycle; }
+  async function ensureMeetingCycleBaseline(at = new Date()) {
+    if (!model.root) return model.meetingCycle;
+    const cycle = meetingCycleInfo(at);
+    if (model.meetingCycle?.cycleStart === cycle.cycleStart) return model.meetingCycle;
+    const metrics = meetingCurrentMetrics();
+    if (!Object.values(metrics).some((metric) => Number.isFinite(metric.value))) return model.meetingCycle;
+    const prior = model.meetingCycle?.cycleStart ? JSON.parse(JSON.stringify(model.meetingCycle)) : null;
+    const candidate = { schemaVersion: 1, cycleStart: cycle.cycleStart, resetAt: cycle.resetAt, capturedAt: now(), metrics };
+    // Persist and verify the candidate before publishing it to Meeting UI state.
+    // Failed backup or write/readback must leave the previous baseline retryable.
+    if (prior) await writeJson(["backups", `${stamp()}-meeting-cycle-${prior.cycleStart}.json`], prior);
+    await writeJson(MEETING_CYCLE_PATH, candidate);
+    model.meetingCycle = candidate;
+    // History is a separate durable record. If it fails, keep the verified
+    // baseline in memory, rather than reverting to a state no longer on disk.
+    await addHistory("meeting-cycle-baseline", `Created Advisor Meeting baseline for ${cycle.cycleStart}`, {
+      cycleStart: cycle.cycleStart, resetAt: cycle.resetAt,
+      availableMetrics: Object.values(metrics).filter((metric) => Number.isFinite(metric.value)).length
+    });
+    return candidate;
+  }
   function meetingDelta(key, current) { const baseline = model.meetingCycle?.metrics?.[key]; if (!baseline || !current || baseline.period !== current.period || !Number.isFinite(baseline.value) || !Number.isFinite(current.value)) return "CHANGE UNAVAILABLE"; const delta = current.value - baseline.value; if (Math.abs(delta) < .05) return "NO CHANGE"; const amount = Math.abs(delta), rounded = Math.round(amount * 10) / 10, formatted = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1); return `${delta > 0 ? "↑" : "↓"} ${formatted} PERCENTAGE POINT${formatted === "1" ? "" : "S"}`; }
   function meetingWindowKeys(endDate, length = 14) { return Array.from({ length }, (_, index) => freshness.addDays(endDate,-length+1+index)); }
   function meetingClosedGrossPoint(date, advisorCode = "") { if (isSunday(date)) return { date, value: 0, closed: true, available: true }; const snapshots = model.performance.snapshots || {}, current = snapshots[date]; if (!current) return { date, value: null, available: false }; const entity = advisorCode ? current.advisors?.[advisorCode] : current.store; if (!entity || !Number.isFinite(entity.totalGross)) return { date, value: null, available: false }; if (date === current.periodStart) return { date, value: entity.totalGross, available: true }; const priorDate=previousOperatingDateKey(date),prior = snapshots[priorDate], priorEntity = advisorCode ? prior?.advisors?.[advisorCode] : prior?.store; if (!prior || prior.periodStart !== current.periodStart || !Number.isFinite(priorEntity?.totalGross)) return { date, value: null, available: false }; return { date, value: entity.totalGross - priorEntity.totalGross, available: true }; }
