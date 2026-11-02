@@ -280,3 +280,22 @@ test("legacy CSI duplicates without a metric fingerprint remain a visible confli
   assert.equal(result.status,"pending-finalization");
   assert.equal(result.readiness.sources.csi.status,"conflict");
 });
+
+
+test("month-end SAPR readiness never locks with negative, zero-total, or over-reported workdays",()=>{
+  for(const [completed,total] of [[-1,-2],[0,0],[23,22]]){
+    const {month,metrics,performance}=completeSources(),ctx=harness();
+    performance.synthetic.saprDaysCompleted=completed;
+    performance.synthetic.saprTotalDays=total;
+    const readiness=ctx.readiness(month,metrics,performance);
+    assert.equal(readiness.ready,false,"invalid SAPR days "+completed+"/"+total);
+    assert.equal(readiness.sources.sapr.state,"pending");
+    const summary=ctx.buildSummary(month,performance,metrics);
+    assert.equal(summary.status,"pending-finalization");
+    assert.ok(Array.from(summary.needed).includes("sapr"));
+    assert.equal("store" in summary,false,"invalid days cannot create a locked monthly result");
+  }
+  const {month,metrics,performance}=completeSources(),ctx=harness();
+  const valid=ctx.buildSummary(month,performance,metrics);
+  assert.equal(valid.status,"locked","exact verified positive total remains eligible");
+});
