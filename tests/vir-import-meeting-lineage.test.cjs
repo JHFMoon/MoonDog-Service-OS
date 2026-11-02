@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const freshness = require("../assets/freshness.js");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
 function extract(startToken, endToken, label) {
@@ -16,6 +17,7 @@ function extract(startToken, endToken, label) {
 
 const parser = extract("  const VIR_NAME_CODES = {};", "  function virObservationDate(", "VIR parser");
 const storage = extract("  function virObservationDate(", "  function normalizeOperationalCoverage()", "VIR import and storage");
+const verified = extract("  function verifiedVirSourceObservationDate(", "  function sourceFreshness(", "VIR source date authority");
 const metricEvidence = extract("  function metricEvidence({", "  function metricEvidenceText(", "Meeting metric evidence");
 const completeness = extract("  function virCompletenessEvidence(", "  function virMeetingEvidence()", "Meeting VIR completeness");
 const meetingEvidence = extract("  function virMeetingEvidence()", "  function virMeetingWindowComparison(", "Meeting VIR evidence");
@@ -33,7 +35,8 @@ test("synthetic VIR report keeps its observation date and values through durable
   const history = [];
   const context = vm.createContext({
     ADVISOR_NAMES: { A1: "Demo Advisor" },
-    structuredClone,
+    structuredClone, freshness,
+    validCoverageDate: value => freshness.validDateKey(value) ? value : "",
     model,
     sourceLocations: new Map([["synthetic-vir.csv", "root"]]),
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
@@ -63,7 +66,7 @@ test("synthetic VIR report keeps its observation date and values through durable
   });
 
   vm.runInContext(
-    parser + "\nVIR_NAME_CODES[\"demo advisor\"] = \"A1\";\n" + storage + "\n" + metricEvidence + "\n" + completeness + "\n" + meetingEvidence +
+    parser + "\nVIR_NAME_CODES[\"demo advisor\"] = \"A1\";\n" + verified + "\n" + storage + "\n" + metricEvidence + "\n" + completeness + "\n" + meetingEvidence +
     "\nthis.importVirFile=importVirFile; this.virMeetingEvidence=virMeetingEvidence;",
     context
   );
@@ -110,7 +113,8 @@ test("one synthetic VIR observation keeps its durable lineage consistent in Home
   ].map(key=>[key,makeNode()]));
   const context=vm.createContext({
     ADVISOR_NAMES:{A1:"Demo Advisor"},
-    structuredClone,model,ui,
+    structuredClone, freshness, model,ui,
+    validCoverageDate:value=>freshness.validDateKey(value)?value:"",
     sourceLocations:new Map([["synthetic-vir.csv","root"]]),
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
     text:value=>String(value??""),
@@ -150,7 +154,7 @@ test("one synthetic VIR observation keeps its durable lineage consistent in Home
     document:{createElement:makeNode}
   });
   vm.runInContext(
-    parser+"\nVIR_NAME_CODES[\"demo advisor\"]=\"A1\";\n"+storage+"\n"+metricEvidence+"\n"+completeness+"\n"+meetingEvidence+"\n"+home+
+    parser+"\nVIR_NAME_CODES[\"demo advisor\"]=\"A1\";\n"+verified+"\n"+storage+"\n"+metricEvidence+"\n"+completeness+"\n"+meetingEvidence+"\n"+home+
     "\nthis.importVirFile=importVirFile;this.virMeetingEvidence=virMeetingEvidence;this.renderHome=renderOverviewIntelligence;",
     context
   );

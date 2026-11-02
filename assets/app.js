@@ -2136,8 +2136,16 @@
     const utilization = sourceTotalROs ? sourceUsed / sourceTotalROs * 100 : null;
     return { sourceFile: fileName, importedAt: now(), reportDate, periodModel: "point-in-time observation; VIR source provenance only", deliveryHeader: rows[0][2].trim(), store: { totalROs: sourceTotalROs, used: sourceUsed, utilization }, advisors, ignored, validation: { parser: "vir-v6-meeting-roster-independent-point-observation", sourceRows: rows.length - 1, advisorRows: Object.keys(advisors).length, extraRows: ignored.length, recognizedIdentities: true, reconciledPercentages: true, storeCountsReconciled: true, storeWeighted: true } };
   }
-  function virObservationDate(snapshot) { const candidate=snapshot?.observationTimestamp||snapshot?.sourceModifiedAt||snapshot?.importedAt||"",date=new Date(candidate);return Number.isNaN(date.valueOf())?"":localDateKey(date); }
-  function virObservationTime(snapshot) { const candidate=snapshot?.observationTimestamp||snapshot?.sourceModifiedAt||snapshot?.importedAt||"",time=Date.parse(candidate);return Number.isFinite(time)?time:0; }
+  function virObservationDate(snapshot) { return verifiedVirSourceObservationDate(snapshot); }
+  function virObservationTime(snapshot) {
+    const observed=virObservationDate(snapshot);
+    if(!observed)return 0; // Import timestamps never promote an undated observation.
+    const candidate=snapshot?.observationTimestamp||snapshot?.sourceModifiedAt||"";
+    const time=Date.parse(candidate);
+    // A source-verified explicit report date overrides contradictory timestamps.
+    return Number.isFinite(time)&&localDateKey(new Date(time))===observed
+      ?time:Date.parse(observed+"T12:00:00Z");
+  }
   function virObservationKey(snapshot) { const stamp=new Date(snapshot.observationTimestamp||snapshot.sourceModifiedAt||snapshot.importedAt||now());return `observation-${Number.isNaN(stamp.valueOf())?Date.now():stamp.valueOf()}-${snapshot.store.totalROs}-${snapshot.store.used}`; }
   function virConflictDate(snapshot) { const reportDate=text(snapshot?.reportDate);return /^20\d{2}-\d{2}-\d{2}$/.test(reportDate)?reportDate:virObservationDate(snapshot); }
   function comparableVirSnapshot(snapshot) {
