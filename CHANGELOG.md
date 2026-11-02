@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.290 — current Beta
+
+- fix(#59-03): single-flight Meeting baseline operations across overlapping triggers. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.289 — current Beta
 
 - fix(#59-05): commit Meeting-cycle baseline only after durable verification. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
