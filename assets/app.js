@@ -5587,10 +5587,47 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.moondogNeeds.append(fullChecks);
     renderTrendCoverageSummary(coverageAudit);renderPreviousMonthTotals();
     ui.nextAppointmentsSummary.replaceChildren();
-    if (!latest) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No verified Next Appointments snapshot loaded."; ui.nextAppointmentsSummary.append(empty); ui.nextAppointmentsCoverage.textContent = "No verified source loaded"; }
-    else { const substitute=latest.validation?.parser==='appointments-created-summary-v1',values = [[substitute?"NSA rate":"Success", `${latest.summary.successRate.toFixed(2)}%`], [substitute?"NSA count":"Scheduled", latest.summary.scheduled], ["Opportunities", latest.summary.opportunities??'Not supplied'], ["Existing appointments", latest.summary.existingAppointments??'Not supplied']];
-      const service=latest.serviceAppointments?.store;if(service)values.push(['Service appointments',service.appointmentCount],['Service appointment use',`${service.appointmentUseRate.toFixed(2)}%`],['Service show rate',`${service.showRate.toFixed(2)}%`],['Service no-shows',`${service.noShowCount} · ${service.noShowRate.toFixed(2)}%`]);
-      values.forEach(([label, value]) => { const card = document.createElement("div"); const name = document.createElement("span"), metric = document.createElement("strong"); name.textContent = label; metric.textContent = value; card.append(name, metric); ui.nextAppointmentsSummary.append(card); }); ui.nextAppointmentsCoverage.textContent = `${latest.periodStart&&latest.periodEnd?`${substitute?'Reported period':'Month to date'} · ${latest.periodStart} through ${latest.periodEnd}`:`Period unverified · imported ${latest.observationDate}`}${latest.identityConflicts.length ? ` · store totals verified; ${latest.identityConflicts.length} advisor identities held for review` : ""}`; }
+    if (!latest) {
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = "No verified Next Appointments snapshot loaded.";
+      ui.nextAppointmentsSummary.append(empty);
+      ui.nextAppointmentsCoverage.textContent = "No verified source loaded";
+    } else {
+      // Saved and recovered snapshots can predate the current parser; retained
+      // null/blank rates must remain unknown, not become zero or crash Home.
+      const verifiedRate = value => typeof value === "number" && Number.isFinite(value) ?
+        `${value.toFixed(2)}%` : "Not verified";
+      const verifiedCount = value => Number.isInteger(value) && value >= 0 ? value : "Not verified";
+      const suppliedCount = value => value == null ? "Not supplied" : verifiedCount(value);
+      const substitute = latest.validation?.parser === "appointments-created-summary-v1";
+      const summary = latest.summary || {};
+      const values = [
+        [substitute ? "NSA rate" : "Success", verifiedRate(summary.successRate)],
+        [substitute ? "NSA count" : "Scheduled", verifiedCount(summary.scheduled)],
+        ["Opportunities", suppliedCount(summary.opportunities)],
+        ["Existing appointments", suppliedCount(summary.existingAppointments)]
+      ];
+      const service = latest.serviceAppointments?.store;
+      if (service) values.push(
+        ["Service appointments", verifiedCount(service.appointmentCount)],
+        ["Service appointment use", verifiedRate(service.appointmentUseRate)],
+        ["Service show rate", verifiedRate(service.showRate)],
+        ["Service no-shows", `${verifiedCount(service.noShowCount)} · ${verifiedRate(service.noShowRate)}`]
+      );
+      values.forEach(([label, value]) => {
+        const card = document.createElement("div"), name = document.createElement("span"), metric = document.createElement("strong");
+        name.textContent = label; metric.textContent = value; card.append(name, metric);
+        ui.nextAppointmentsSummary.append(card);
+      });
+      const conflicts = Array.isArray(latest.identityConflicts) ? latest.identityConflicts.length : 0;
+      const incomplete = values.some(([, value]) => String(value).includes("Not verified"));
+      ui.nextAppointmentsCoverage.textContent = `${latest.periodStart && latest.periodEnd ?
+        `${substitute ? "Reported period" : "Month to date"} · ${latest.periodStart} through ${latest.periodEnd}` :
+        `Period unverified · imported ${latest.observationDate || "date unknown"}`}${
+        conflicts ? ` · store totals verified; ${conflicts} advisor identities held for review` : ""
+      }${incomplete ? " · retained metrics not verified" : ""}`;
+    }
     if (ui.virSummary) {
       ui.virSummary.replaceChildren();
       if (!latestVir) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No verified VIR observation is available."; ui.virSummary.append(empty); ui.virCoverage.textContent = "No verified source loaded"; }
