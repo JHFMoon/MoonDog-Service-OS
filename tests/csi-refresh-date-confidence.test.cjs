@@ -109,3 +109,41 @@ test("Meeting's NO RESPONSES label requires durable current CSI, verified report
   assert.equal(zeroEvidence({imports:[null, {}, {refreshDate:"2026-02-30"}]}, trusted), false,
     "invalid or null import lineage is not a verified zero source");
 });
+
+function meetingNps(dealer, evidence) {
+  const ctx = vm.createContext({freshness, Date, sourceFreshness: (key) => {
+    assert.equal(key, "csi");
+    return evidence;
+  }});
+  vm.runInContext(production + "\nthis.nps=verifiedMeetingCsiNps;", ctx);
+  return ctx.nps(dealer);
+}
+
+test("Meeting NPS health tile and comparison suppress missing, stale, conflicting or unverified CSI", () => {
+  assert.ok(app.includes('value: verifiedMeetingCsiNps(dealer)'),
+    "production Meeting NPS tile must consume verified source-backed value");
+  assert.ok(app.includes('item.key === "dealerNps" && !Number.isFinite(item.value)'),
+    "an unverified CSI number must also withhold historical trend comparisons");
+  const verified = {safeForCurrent: true, reportPeriodVerified: true};
+  const invalidCases = [
+    {status: "missing", safeForCurrent: false, reportPeriodVerified: false},
+    {status: "stale", safeForCurrent: false, reportPeriodVerified: true},
+    {status: "invalid", safeForCurrent: false, reportPeriodVerified: true},
+    {status: "conflicting", safeForCurrent: false, reportPeriodVerified: true},
+    {status: "temporarily-unavailable", safeForCurrent: false, reportPeriodVerified: true},
+    {status: "current", safeForCurrent: true, reportPeriodVerified: false}
+  ];
+  for (const evidence of invalidCases) {
+    for (const nps of [0, 73, -45]) {
+      assert.equal(meetingNps({responses: 8, nps}, evidence), null,
+        "unverified source cannot display numeric NPS " + evidence.status);
+    }
+  }
+  assert.equal(meetingNps({responses: 8, nps: 73}, verified), 73);
+  assert.equal(meetingNps({responses: 8, nps: 0}, verified), 0,
+    "genuine sourced NPS zero is not unknown");
+  assert.equal(meetingNps({responses: 0, nps: 0}, verified), null,
+    "zero survey responses cannot be relabeled as a numeric NPS score");
+  assert.equal(meetingNps({responses: 8, nps: NaN}, verified), null);
+  assert.equal(meetingNps({responses: 8, nps: undefined}, verified), null);
+});
