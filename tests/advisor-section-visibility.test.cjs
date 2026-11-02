@@ -101,7 +101,7 @@ test("UI surfaces have independent non-destructive visibility gates", () => {
     renderOverviewIntelligence:()=>{panelRenderCalls.overview++;},
     renderDailyFocus:()=>{panelRenderCalls.daily++;},renderFilters:()=>{},
     renderTable:()=>{},renderArrivals:()=>{},renderPerformance:()=>{},
-    renderMeeting:()=>{},renderAssignNext:()=>{},renderSetup:()=>{}
+    renderMeeting:()=>{},renderAssignNext:()=>{},renderSetup:()=>{},renderSetupGates:()=>{}
   });
   panels.renderAll();
   assert.equal(visibility.openRoVisibleRecords().length,2,

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.296 — current Beta
+
+- perf(#58): avoid hidden Setup checklist rebuilding on Home refresh. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.295 — current Beta
 
 - fix(#59-01): fail closed on incomplete retained Next Appointments Home rates. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
