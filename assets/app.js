@@ -970,7 +970,7 @@
       if(!freshness.validDateKey(week)||week>todayKey||freshness.dayOfWeek(week)!==1)continue;
       if(!freshness.validDateKey(start)||!freshness.validDateKey(end)||start>end)continue;
       // Legacy report records may omit ranDate; when present it must agree with release lineage.
-      if(ran!=null&&ran!==""&&(!freshness.validDateKey(ran)||freshness.mondayFor(ran)!==week))continue;
+      if(ran!=null&&ran!==""&&(!freshness.validDateKey(ran)||ran>todayKey||freshness.mondayFor(ran)!==week))continue;
       releases.add(week);
     }
     return releases;
@@ -4631,7 +4631,14 @@
     }
     if (key === "nextAppointments") { const item = options.item || latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, Boolean(item?.periodStart && item?.periodEnd)); }
     if (key === "vir") { const item = options.item || latestVirObservation(),observed=verifiedVirSourceObservationDate(item); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.observationTimestamp || item?.sourceModifiedAt || "", invalid: item && !observed ? "The retained VIR observation has no verified source reporting date; an import timestamp cannot establish coverage." : "", periodEnd: observed }, item, Boolean(observed)); }
-    if (key === "menu") { const item = options.item || latestOperationalSnapshot("menu"); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd, releaseWeek: item?.releaseWeek }, item, Boolean((item?.periodStart && item?.periodEnd) || item?.releaseWeek)); }
+    if (key === "menu") {
+      const item = options.item || latestOperationalSnapshot("menu"),
+        verified = Boolean(item && verifiedMenuTrendReleases({ retained: item }, today).has(item.releaseWeek));
+      return evaluate({ ...common, exists: Boolean(item),
+        invalid: item && !verified ? "The retained Menu Sales release has no verified Monday date and consistent reporting period." : "",
+        sourceTimestamp: item?.importedAt || item?.runAt,
+        periodStart: item?.periodStart, periodEnd: item?.periodEnd, releaseWeek: item?.releaseWeek }, item, verified);
+    }
     if (key === "appointments") { const item = options.item || model.appointments.days?.[today]; return evaluate({ ...common, expectation: "recommended", exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.updatedAt, invalid: item && !freshness.validDateKey(item.date) ? "The saved appointment snapshot has no valid verified reporting date." : "", periodStart: item?.date || "", periodEnd: item?.date || "" }, item, Boolean(item?.date && freshness.validDateKey(item.date))); }
     if (["sor", "appointmentActivity", "efficiency", "mediaAsr", "mediaAsrTech", "openRoSummary"].includes(key)) {
       const item = options.item || latestOperationalSnapshot(key), rawPeriod = item?.period ?? item?.date ?? "",
@@ -5097,7 +5104,28 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const current = select(currentKeys), prior = select(priorKeys), priorRange = `${priorKeys[0]} through ${priorKeys.at(-1)}`, recoverable = "Recoverable only from an actual retained VIR observation created during that prior window; a current VIR export cannot recreate it.";
     return { current, prior, currentKeys, priorKeys, priorRange, change: current && prior ? current.evidence.value - prior.evidence.value : null, priorMissingEvidence: prior ? null : metricEvidence({ status: "missing-period", source: "VIR", period: priorRange, reason: `No verified VIR observation exists in the immediately previous 7-day meeting window (${priorRange}).`, requiredAction: recoverable, calculation: "Latest verified VIR observation in each adjacent 7-day meeting window", reconciliation: "Prior window observation unavailable" }) };
   }
-  function menuMeetingEvidence(metric) { const snapshot = latestOperationalSnapshot("menu"), expectation = sourceExpectation("menu"), label = metric === "presentation" ? "Menu Presentation" : "Menu Penetration"; if (expectation === "not-used") return metricEvidence({ status: "not-used", source: "Menu Sales" }); if (expectation === "temporarily-unavailable") return metricEvidence({ status: "temporarily-unavailable", source: "Menu Sales", reason: "The source is marked temporarily unavailable" }); if (!snapshot) return metricEvidence({ status: "missing-source", source: "Menu Sales", requiredAction: "Import the current Menu Sales report" }); const rawValue = snapshot.store?.[metric], value = typeof rawValue === "number" && Number.isFinite(rawValue) ? rawValue : null, period = snapshot.releaseWeek || snapshot.periodEnd, stale = text(snapshot.releaseWeek) < expectedMenuWeek(); if (!Number.isFinite(value)) return metricEvidence({ status: "parser-error", source: "Menu Sales", period, reason: `${label} is not supported by the verified workbook`, requiredAction: "Review the Menu parser/source structure" }); return metricEvidence({ value, status: stale ? "stale" : value === 0 ? "known-zero" : "verified", source: "Menu Sales", period, importedDate: snapshot.importedAt, freshness: stale ? `Expected Monday ${expectedMenuWeek()}` : "current", reason: stale ? "Current Monday report not received" : "", requiredAction: stale ? "Import the current Menu Sales report" : "", calculation: `Source ${label} percentage`, reconciliation: "PASS" }); }
+  function menuMeetingEvidence(metric) {
+    const snapshot=latestOperationalSnapshot("menu"),expectation=sourceExpectation("menu"),
+      label=metric==="presentation"?"Menu Presentation":"Menu Penetration";
+    if(expectation==="not-used")return metricEvidence({status:"not-used",source:"Menu Sales"});
+    if(expectation==="temporarily-unavailable")return metricEvidence({status:"temporarily-unavailable",source:"Menu Sales",reason:"The source is marked temporarily unavailable"});
+    if(!snapshot)return metricEvidence({status:"missing-source",source:"Menu Sales",requiredAction:"Import the current Menu Sales report"});
+    const health=sourceFreshness("menu",{item:snapshot}),period=snapshot.releaseWeek||snapshot.periodEnd;
+    if(health.reportPeriodVerified!==true||!["current","stale"].includes(health.status))
+      return metricEvidence({status:"missing-period",source:"Menu Sales",period,
+        reason:health.reason||"The saved Menu Sales source has no verified reporting period.",
+        requiredAction:"Import a Menu Sales report with a verified release date and reporting period"});
+    const rawValue=snapshot.store?.[metric],value=typeof rawValue==="number"&&Number.isFinite(rawValue)?rawValue:null,
+      stale=health.status==="stale";
+    if(!Number.isFinite(value))return metricEvidence({status:"parser-error",source:"Menu Sales",period,
+      reason:`${label} is not supported by the verified workbook`,requiredAction:"Review the Menu parser/source structure"});
+    return metricEvidence({value,status:stale?"stale":value===0?"known-zero":"verified",
+      source:"Menu Sales",period,importedDate:snapshot.importedAt,
+      freshness:stale?`Expected Monday ${expectedMenuWeek()}`:"current",
+      reason:stale?"Current Monday report not received":"",
+      requiredAction:stale?"Import the current Menu Sales report":"",
+      calculation:`Source ${label} percentage`,reconciliation:"PASS"});
+  }
   function csiMetricEvidence(summary, advisorName = "Dealer") { const health=sourceFreshness("csi"),period=`${model.settings.csiPeriodStart||`${localDateKey().slice(0,7)}-01`} through ${Object.values(currentCsiSurveys()).map((item)=>item.surveyDate).filter(Boolean).sort().at(-1)||"no responses"}`,base=summary.responses?metricEvidence({value:summary.nps,status:summary.nps===0?"known-zero":"verified",source:"Dealer Dashboard CSI",period,calculation:`${summary.promoters} promoters, ${summary.passives} passives, ${summary.detractors} detractors`,reconciliation:`PASS · ${advisorName} scope` }):health.safeForCurrent?metricEvidence({status:"not-applicable",source:"Dealer Dashboard CSI",period,reason:`Current refresh contains no scoring responses for ${advisorName}`,requiredAction:"No report required solely for zero responses"}):metricEvidence({status:"missing-source",source:"Dealer Dashboard CSI",period,reason:"CSI currentness is not established",requiredAction:"Refresh Dealer Dashboard CSI"});if(health.safeForCurrent && health.reportPeriodVerified !== true) return metricEvidence({status:"missing-period",source:"Dealer Dashboard CSI",period,reason:"CSI report period is not verified",requiredAction:"Load a CSI export with verified report coverage"});return summary.responses?metricDependencyEvidence([health],base):health.safeForCurrent?{...base,verified:true}:base; }
   const rawVirMeetingEvidence=virMeetingEvidence,rawMenuMeetingEvidence=menuMeetingEvidence;
   virMeetingEvidence=function(){const base=rawVirMeetingEvidence();return base.verified?metricDependencyEvidence([sourceFreshness("vir")],base):base;};
