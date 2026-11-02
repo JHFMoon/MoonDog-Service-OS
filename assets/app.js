@@ -4621,7 +4621,20 @@
       return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt,
         periodStart, periodEnd }, item, Boolean(item && (periodStart || periodEnd || period)));
     }
-    if (key === "supervisorWorkbook") { const item = options.item || model.recovery?.supervisorWorkbook; return evaluate({ ...common, expectation: "recommended", exists: Boolean(item?.generatedAt), sourceTimestamp: item?.generatedAt, periodStart: item?.generatedAt ? localDateKey(new Date(item.generatedAt)) : "", periodEnd: item?.generatedAt ? localDateKey(new Date(item.generatedAt)) : "", stale: item?.stale === true }, item, false); }
+    if (key === "supervisorWorkbook") {
+      const item = options.item || model.recovery?.supervisorWorkbook,
+        rawStamp = item?.generatedAt,
+        stamp = typeof rawStamp === "string" ? rawStamp.trim() : "",
+        syntaxValid = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i.test(stamp) &&
+          freshness.validDateKey(stamp.slice(0, 10)),
+        issuedTime = syntaxValid ? Date.parse(stamp) : NaN,
+        verifiedTime = Number.isFinite(issuedTime) && issuedTime > 0 && issuedTime <= Date.now() + 300000,
+        issuedDate = verifiedTime ? localDateKey(new Date(issuedTime)) : "";
+      return evaluate({ ...common, expectation: "recommended", exists: Boolean(rawStamp),
+        invalid: rawStamp && !verifiedTime ? "The saved Supervisor Workbook generation timestamp is invalid or future-dated." : "",
+        sourceTimestamp: verifiedTime ? stamp : "", periodStart: issuedDate, periodEnd: issuedDate,
+        stale: item?.stale === true }, item, false);
+    }
     return evaluate({ ...common, exists: false }, null, false);
   }
   function metricDependencyEvidence(dependencies, baseEvidence) {
