@@ -36,7 +36,7 @@ function makeWorkspace(count) {
 function makeHarness(count) {
   const field = () => ({ textContent: "", disabled: false });
   const model = makeWorkspace(count);
-  const calls = { overview: 0, daily: 0, overviewDispatch: 0, dailyDispatch: 0, filters: 0, setup: 0 };
+  const calls = { overview: 0, daily: 0, overviewDispatch: 0, dailyDispatch: 0, filters: 0, setup: 0, setupGates: 0 };
   const ui = {
     metricOpen: field(),
     metricDue: field(),
@@ -63,7 +63,8 @@ function makeHarness(count) {
     renderPerformance: () => {},
     renderMeeting: () => {},
     renderAssignNext: () => {},
-    renderSetup: () => { calls.setup += 1; }
+    renderSetup: () => { calls.setup += 1; calls.setupGates += 1; },
+    renderSetupGates: () => { calls.setupGates += 1; }
   });
   vm.runInContext(renderHome + "\nthis.renderHome = renderAll;", context);
   return { model, ui, calls, render: context.renderHome };
@@ -93,7 +94,8 @@ test("connected Home summary counts remain correct for 2,100 synthetic records w
   assert.equal(calls.overview, 0, "inactive Overview panels stay deferred");
   assert.equal(calls.daily, 0, "inactive Open RO Daily Focus stays deferred");
   assert.equal(calls.filters, 0, "inactive Home updates never rebuild Open RO select options");
-  assert.equal(calls.setup, 3);
+  assert.equal(calls.setup, 0, "inactive Setup checklist is not rebuilt");
+  assert.equal(calls.setupGates, 3, "Home retains its required setup/operational gates");
   assert.equal(JSON.stringify(model.state.records), original,
     "Home summary rendering must not alter authoritative synthetic source rows");
 
