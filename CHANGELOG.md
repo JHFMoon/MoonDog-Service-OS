@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.297 — current Beta
+
+- perf(#58): avoid redundant Setup gate DOM replacements. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.296 — current Beta
 
 - perf(#58): avoid hidden Setup checklist rebuilding on Home refresh. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
