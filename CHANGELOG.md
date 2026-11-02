@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.286 — current Beta
+
+- fix(#59-01): suppress unverified CSI NPS and comparisons in Meeting health. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.285 — current Beta
 
 - fix(#59-04): require source-backed CSI refresh and verified zero-response Meeting evidence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
