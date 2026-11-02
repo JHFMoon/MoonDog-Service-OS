@@ -14,6 +14,7 @@ function extract(from, to) {
 }
 const validator = extract("  function verifiedVirSourceObservationDate(", "  function sourceFreshness(");
 const lineage = extract("  function virObservationDate(", "  function normalizeOperationalCoverage()");
+const menuValidator = extract("  function verifiedMenuTrendReleases(", "  function trendCoverageAudit(");
 const coverage = extract("  function trendCoverageAudit(", "  function trendMaintenance(");
 const windowKeys = extract("  function meetingWindowKeys(", "  function meetingClosedGrossPoint(");
 const comparison = extract("  function virMeetingWindowComparison(", "  function menuMeetingEvidence(");
@@ -52,7 +53,7 @@ function fixture(records = [], today = TODAY) {
     metricEvidence: r => ({...r, verified: false})
   });
   const before = JSON.stringify(model);
-  vm.runInContext(validator + "\n" + lineage + "\n" + coverage + "\n" + windowKeys + "\n" + comparison
+  vm.runInContext(validator + "\n" + lineage + "\n" + menuValidator + "\n" + coverage + "\n" + windowKeys + "\n" + comparison
     + "\nthis.observe=virObservationDate;this.observationTime=virObservationTime;"
     + "this.latest=latestVirObservation;this.stale=virObservationIsStale;"
     + "this.coverage=trendCoverageAudit;this.compare=virMeetingWindowComparison;", context);
