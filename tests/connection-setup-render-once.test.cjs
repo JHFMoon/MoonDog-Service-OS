@@ -1,5 +1,5 @@
 "use strict";
-// #58: a connected Workspace should build Setup once per first render,
+// #58: a connected Workspace should defer Setup checklist DOM when hidden,
 // not rebuild the Setup checklist immediately after renderAll() already did it.
 // Synthetic, DOM-free instrumentation; not a real-device latency benchmark.
 const test=require("node:test"),assert=require("node:assert/strict");
@@ -16,7 +16,7 @@ const connection=app.slice(connectionBegin,connectionEnd);
 const firstRenderLine=connection.split("\n").find(line=>/^\s*renderAll\(\); renderRecovery\(\); openSetupIfRequired\(\); startFolderWatch\(\);\s*$/.test(line));
 assert.ok(firstRenderLine,"First-frame work must run recovery and folder watch after one full draw");
 function runSyntheticFirstRender(schedule){
-  const counts={setup:0,overview:0,daily:0,overviewDispatch:0,dailyDispatch:0,filters:0,recovery:0,setupGate:0,watch:0,activeReports:0};
+  const counts={setup:0,overview:0,daily:0,overviewDispatch:0,dailyDispatch:0,filters:0,recovery:0,setupGate:0,setupGates:0,watch:0,activeReports:0};
   const field=()=>({textContent:""});
   const ui={metricOpen:field(),metricDue:field(),metricMissing:field(),
     metricUpdated:field(),lastImport:field(),lastExport:field(),exportButton:{disabled:false}};
@@ -34,6 +34,7 @@ function runSyntheticFirstRender(schedule){
     renderMeeting:()=>{counts.activeReports++;},
     renderAssignNext:()=>{counts.activeReports++;},
     renderSetup:()=>{counts.setup++;},
+    renderSetupGates:()=>{counts.setupGates++;},
     renderRecovery:()=>{counts.recovery++;},
     openSetupIfRequired:()=>{counts.setupGate++;},
     startFolderWatch:()=>{counts.watch++;}
@@ -43,15 +44,17 @@ function runSyntheticFirstRender(schedule){
 }
 test("connected Home first frame rebuilds Setup once and preserves recovery/watch ordering",()=>{
   const counts=runSyntheticFirstRender(firstRenderLine);
-  assert.deepEqual(counts,{setup:1,overview:0,daily:0,overviewDispatch:1,dailyDispatch:1,filters:0,
-    recovery:1,setupGate:1,watch:1,activeReports:0},
+  assert.deepEqual(counts,{setup:0,overview:0,daily:0,overviewDispatch:1,dailyDispatch:1,filters:0,
+    recovery:1,setupGate:1,setupGates:1,watch:1,activeReports:0},
     "the first frame dispatches both deferred panels but does not render hidden panel contents");
 });
 test("eliminating redundant render avoids one of two Setup DOM builds in synthetic call-count baseline",()=>{
   const baseline=runSyntheticFirstRender("renderAll(); renderSetup(); renderRecovery(); openSetupIfRequired(); startFolderWatch();");
   const optimized=runSyntheticFirstRender(firstRenderLine);
-  assert.equal(baseline.setup,2);
-  assert.equal(optimized.setup,1);
+  assert.equal(baseline.setup,1);
+  assert.equal(optimized.setup,0);
+  assert.equal(baseline.setupGates,1);
+  assert.equal(optimized.setupGates,1);
   assert.equal(baseline.recovery,optimized.recovery);
   assert.equal(baseline.watch,optimized.watch);
   assert.equal(baseline.setupGate,optimized.setupGate);
