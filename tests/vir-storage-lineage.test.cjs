@@ -4,20 +4,25 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const freshness = require("../assets/freshness.js");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
 const parserStart = app.indexOf("  const VIR_NAME_CODES = {};");
 const parserEnd = app.indexOf("  function virObservationDate(", parserStart);
 const lineageEnd = app.indexOf("  function normalizeOperationalCoverage()", parserEnd);
+const verifiedStart = app.indexOf("  function verifiedVirSourceObservationDate(");
+const verifiedEnd = app.indexOf("  function sourceFreshness(", verifiedStart);
 const evidenceStart = app.indexOf("  function virCompletenessEvidence(", lineageEnd);
 const evidenceEnd = app.indexOf("  function virMeetingEvidence(", evidenceStart);
 const meetingStart = evidenceEnd;
 const meetingEnd = app.indexOf("  function virMeetingWindowComparison(", meetingStart);
 assert.ok(parserStart >= 0 && parserEnd > parserStart, "Missing production VIR parser");
+assert.ok(verifiedStart > lineageEnd && verifiedEnd > verifiedStart, "Missing independent VIR source date validator");
 assert.ok(lineageEnd > parserEnd && evidenceEnd > evidenceStart && meetingEnd > meetingStart,
   "Missing production VIR storage or Meeting evidence path");
 const parser = app.slice(parserStart, parserEnd);
 const lineage = app.slice(parserEnd, lineageEnd);
+const verification = app.slice(verifiedStart, verifiedEnd);
 const evidence = app.slice(evidenceStart, evidenceEnd);
 const meetingEvidence = app.slice(meetingStart, meetingEnd);
 const homeStart = app.indexOf("  function renderOverviewIntelligence() {");
@@ -46,7 +51,8 @@ test("synthetic VIR observation keeps its source date through durable storage an
   ].map(key => [key, viewNode()]));
   const context = vm.createContext({
     ADVISOR_NAMES: { A1: "Demo Advisor" },
-    structuredClone,
+    structuredClone, freshness,
+    validCoverageDate: value => freshness.validDateKey(value) ? value : "",
     model, ui,
     document: { createElement: () => viewNode() },
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
@@ -83,7 +89,7 @@ test("synthetic VIR observation keeps its source date through durable storage an
     performanceFormat: value => String(value),
     shortDate: value => value === "2026-10-22" ? "Oct 22" : String(value || "—")
   });
-  vm.runInContext(parser + "\n" + lineage + "\n" + evidence + "\n" + meetingEvidence + "\n" + home + "\n" +
+  vm.runInContext(parser + "\n" + verification + "\n" + lineage + "\n" + evidence + "\n" + meetingEvidence + "\n" + home + "\n" +
     'VIR_NAME_CODES["demo advisor"] = "A1"; this.parseVirCsv = parseVirCsv; this.saveVirSnapshot = saveVirSnapshot; this.latestVirObservation = latestVirObservation; this.virMeetingEvidence = virMeetingEvidence; this.virCompletenessEvidence = virCompletenessEvidence; this.renderHome = renderOverviewIntelligence;',
     context);
 
@@ -166,7 +172,8 @@ function failedReadbackFixture(mode) {
   const history = [];
   const context = vm.createContext({
     ADVISOR_NAMES: { A1: "Demo Advisor" },
-    structuredClone,
+    structuredClone, freshness,
+    validCoverageDate: value => freshness.validDateKey(value) ? value : "",
     model,
     sourceLocations: new Map([["synthetic-vir.csv", "root"]]),
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
@@ -207,7 +214,7 @@ function failedReadbackFixture(mode) {
     recordDiagnostic: () => {},
     renderOverviewIntelligence: () => {}
   });
-  vm.runInContext(parser + "\n" + lineage + '\nVIR_NAME_CODES["demo advisor"] = "A1"; this.importVirFile = importVirFile; this.parseVirCsv = parseVirCsv; this.saveVirSnapshot = saveVirSnapshot;',
+  vm.runInContext(parser + "\n" + verification + "\n" + lineage + '\nVIR_NAME_CODES["demo advisor"] = "A1"; this.importVirFile = importVirFile; this.parseVirCsv = parseVirCsv; this.saveVirSnapshot = saveVirSnapshot;',
     context);
   return { context, events, history, model, existing, durable: () => durable, setCsv(value) { currentCsv = value; } };
 }
