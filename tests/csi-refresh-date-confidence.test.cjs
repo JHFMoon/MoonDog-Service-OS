@@ -25,9 +25,15 @@ function latest(csi, today = "2026-10-20") {
   return result;
 }
 
-test("verified real current CSI refresh date remains visible without import fallback", () => {
+test("CSI refresh is derived from durable imports, not an unbacked aggregate date", () => {
   assert.equal(latest({lastSuccessfulRefreshDate:"2026-10-20",
-    imports:[{refreshDate:"2026-10-19"}]}), "2026-10-20");
+    imports:[{refreshDate:"2026-10-19"}]}), "2026-10-19",
+    "a saved newer metadata date cannot promote an older source to current");
+  assert.equal(latest({lastSuccessfulRefreshDate:"2026-10-20",
+    imports:[{refreshDate:"2026-10-20"}]}), "2026-10-20");
+  assert.equal(latest({lastSuccessfulRefreshDate:"2026-10-20", imports:[]}), "",
+    "orphaned refresh metadata is not a verified source");
+  assert.equal(latest({lastSuccessfulRefreshDate:"2026-10-20"}), "");
 });
 
 test("impossible and future persisted CSI dates never certify a source refresh", () => {
@@ -62,4 +68,44 @@ test("latest valid dated source wins while absent sources remain unknown rather 
   ]}), "2026-10-19");
   assert.equal(latest({imports:[{}, {refreshDate:""}, {importedAt:null}]}), "");
   assert.equal(latest({}), "");
+});
+
+function zeroEvidence(csi, source, surveys = {}) {
+  const model = {operationalMetrics: {csi}};
+  const ctx = vm.createContext({
+    model, freshness, Date,
+    localDateKey: (value) => value instanceof Date ? value.toISOString().slice(0, 10) : "2026-10-20",
+    sourceFreshness: key => {
+      assert.equal(key, "csi");
+      return source;
+    },
+    currentCsiSurveys: () => surveys
+  });
+  vm.runInContext(production + "\nthis.zeroEvidence=verifiedCsiNoResponses;", ctx);
+  const before = JSON.stringify(model);
+  const result = ctx.zeroEvidence();
+  assert.equal(JSON.stringify(model), before, "source confidence checks must not mutate CSI records");
+  return result;
+}
+
+test("Meeting's NO RESPONSES label requires durable current CSI, verified report period and zero surveys", () => {
+  assert.ok(app.includes('item.key === "dealerNps" && verifiedCsiNoResponses()'),
+    "actual production Meeting source-health panel must use verified zero-response predicate");
+  const trusted = {safeForCurrent:true, reportPeriodVerified:true};
+  const importsToday = {imports:[{refreshDate:"2026-10-20", scopeVerified:true, scopeEnd:"2026-10-19", rows:0}]};
+  assert.equal(zeroEvidence(importsToday, trusted), true,
+    "current, report-verified zero-response source retains NO RESPONSES");
+  assert.equal(zeroEvidence({imports:[],lastSuccessfulRefreshDate:"2026-10-20"}, trusted), false,
+    "orphaned metadata must not manufacture verified zero");
+  assert.equal(zeroEvidence({imports:[{refreshDate:"2026-10-19"}],
+    lastSuccessfulRefreshDate:"2026-10-20"}, trusted), false,
+    "stale source dates must not borrow newer aggregate metadata");
+  assert.equal(zeroEvidence(importsToday, {safeForCurrent:false, reportPeriodVerified:true}), false,
+    "stale or conflicting source cannot claim verified zero");
+  assert.equal(zeroEvidence(importsToday, {safeForCurrent:true, reportPeriodVerified:false}), false,
+    "unverified reporting period cannot claim verified zero");
+  assert.equal(zeroEvidence(importsToday, trusted, {"SYN-01":{surveyDate:"2026-10-20"}}), false,
+    "existing survey evidence cannot be labeled NO RESPONSES");
+  assert.equal(zeroEvidence({imports:[null, {}, {refreshDate:"2026-02-30"}]}, trusted), false,
+    "invalid or null import lineage is not a verified zero source");
 });
