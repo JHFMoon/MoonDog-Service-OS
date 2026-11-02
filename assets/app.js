@@ -4573,6 +4573,18 @@
     if (observedDate) return { periodStart: observedDate, periodEnd: observedDate, verified: true };
     return { periodStart: "", periodEnd: "", verified: false };
   }
+  function verifiedVirSourceObservationDate(item) {
+    if(!item||typeof item!=="object")return "";
+    // The report's explicit date is the strongest period authority.
+    if(item.reportDate!=null&&item.reportDate!=="")
+      return validCoverageDate(item.reportDate);
+    // An importedAt timestamp tracks the local write, not the source observation.
+    const stamp=item.observationTimestamp||item.sourceModifiedAt;
+    if(typeof stamp!=="string"||!/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(stamp)
+      ||!freshness.validDateKey(stamp.slice(0,10)))return "";
+    const time=Date.parse(stamp);
+    return Number.isFinite(time)?validCoverageDate(localDateKey(new Date(time))):"";
+  }
   function sourceFreshness(key, options = {}) {
     const today = options.today || localDateKey(), purpose = options.purpose || "current", expectation = sourceExpectation(key), common = { key, today, purpose, targetStart: options.targetStart, targetEnd: options.targetEnd, expectation, timeZone: businessTimeZone() };
     const evaluate = (input, item, reportPeriodVerified = false) => {
@@ -4610,7 +4622,7 @@
         periodStart: reportPeriod.periodStart, periodEnd: reportPeriod.periodEnd }, item, reportPeriod.verified);
     }
     if (key === "nextAppointments") { const item = options.item || latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, Boolean(item?.periodStart && item?.periodEnd)); }
-    if (key === "vir") { const item = options.item || latestVirObservation(); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.sourceModifiedAt || item?.observationTimestamp, periodEnd: virObservationDate(item) }, item, Boolean(virObservationDate(item))); }
+    if (key === "vir") { const item = options.item || latestVirObservation(),observed=verifiedVirSourceObservationDate(item); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.observationTimestamp || item?.sourceModifiedAt || "", invalid: item && !observed ? "The retained VIR observation has no verified source reporting date; an import timestamp cannot establish coverage." : "", periodEnd: observed }, item, Boolean(observed)); }
     if (key === "menu") { const item = options.item || latestOperationalSnapshot("menu"); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.runAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd, releaseWeek: item?.releaseWeek }, item, Boolean((item?.periodStart && item?.periodEnd) || item?.releaseWeek)); }
     if (key === "appointments") { const item = options.item || model.appointments.days?.[today]; return evaluate({ ...common, expectation: "recommended", exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.updatedAt, invalid: item && !freshness.validDateKey(item.date) ? "The saved appointment snapshot has no valid verified reporting date." : "", periodStart: item?.date || "", periodEnd: item?.date || "" }, item, Boolean(item?.date && freshness.validDateKey(item.date))); }
     if (["sor", "appointmentActivity", "efficiency", "mediaAsr", "mediaAsrTech", "openRoSummary"].includes(key)) {
