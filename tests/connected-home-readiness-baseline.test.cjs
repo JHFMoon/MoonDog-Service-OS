@@ -49,7 +49,7 @@ function harness(root){
     localDateKey:()=>"2026-10-22",isClosedManagement:()=>false,
     renderOverviewIntelligence:()=>{},renderDailyFocus:()=>{},renderOverviewPanelsIfNeeded:()=>{},renderDailyFocusIfNeeded:()=>{},renderFilters:()=>{},renderOpenRoFiltersIfNeeded:()=>{},
     renderTable:()=>{},renderArrivals:()=>{},renderPerformance:()=>{},renderMeeting:()=>{},renderAssignNext:()=>{},
-    renderSetup:()=>{},renderRecovery:()=>{},openSetupIfRequired:()=>{},startFolderWatch:()=>{}
+    renderSetup:()=>{},renderSetupGates:()=>{},renderRecovery:()=>{},openSetupIfRequired:()=>{},startFolderWatch:()=>{}
   });
   vm.runInContext(renderHome+"\n"+reconcile+"\nthis.paintHome=renderAll;this.publishConnected=postConnectReconciliation;",context);
   return {context,model,signals,ui,get durableRecovery(){return durableRecovery;},markRenderDispatched(){renderDispatchAt=performance.now();},get renderDispatchAt(){return renderDispatchAt;}};
