@@ -15,7 +15,7 @@ function source(name){
 }
 const production=[
   source("lastDayOfMonth"),source("monthFinalOperatingDate"),
-  source("virObservationDate"),source("latestMonthlySnapshot"),
+  source("verifiedVirSourceObservationDate"),source("virObservationDate"),source("latestMonthlySnapshot"),
   source("monthEndSourceReadiness"),source("monthlyMetricEntity"),
   source("buildMonthEndSummary")
 ].join("\n");
@@ -33,6 +33,7 @@ function harness(expectations={}){
   });
   vm.runInNewContext(read("assets/freshness.js")+"\nthis.MoonDogFreshness=globalThis.MoonDogFreshness;",context);
   context.freshness=context.MoonDogFreshness;
+  context.validCoverageDate=value=>context.freshness.validDateKey(value)?value:"";
   vm.runInNewContext(production+"\nthis.buildSummary=buildMonthEndSummary;this.readiness=monthEndSourceReadiness;",context);
   return context;
 }
