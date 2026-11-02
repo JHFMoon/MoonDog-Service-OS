@@ -12,7 +12,7 @@ const end = app.indexOf("  function metricDependencyEvidence(", start);
 assert.ok(start >= 0 && end > start, "production source-confidence adapter exists");
 
 const families = ["sor", "appointmentActivity", "efficiency", "mediaAsr", "mediaAsrTech", "openRoSummary"];
-function sourceEvidence(key, item) {
+function sourceEvidence(key, item, options = {}) {
   const context = vm.createContext({
     freshness,
     model: {},
@@ -22,7 +22,7 @@ function sourceEvidence(key, item) {
     lastDayOfMonth: freshness.lastDayOfMonth
   });
   vm.runInContext(app.slice(start, end) + ";this.sourceFreshness = sourceFreshness;", context);
-  return context.sourceFreshness(key, { item, today: "2026-10-30" });
+  return context.sourceFreshness(key, { item, today: "2026-10-30", ...options });
 }
 
 test("all six production reference adapters block undated import-time-only data", () => {
@@ -91,6 +91,16 @@ test("start-only reference report coverage cannot be promoted to historical-vali
     assert.equal(observed.safeForPurpose, true, key);
     assert.equal(observed.reportPeriodVerified, true, key);
     assert.equal(observed.periodEnd, "2026-10-29", key);
+
+    const priorRange = sourceEvidence(key, {periodEnd: "2026-10-29"}, {
+      purpose: "historical", targetStart: "2026-10-01", targetEnd: "2026-10-29"
+    });
+    assert.equal(priorRange.status, "stale", key + " end-only cannot prove a whole month");
+    assert.equal(priorRange.safeForPurpose, false, key);
+    const exactObservation = sourceEvidence(key, {periodEnd: "2026-10-29"}, {
+      purpose: "historical", targetStart: "2026-10-29", targetEnd: "2026-10-29"
+    });
+    assert.equal(exactObservation.status, "historical-valid", key + " exact observation remains usable");
 
     const bounded = sourceEvidence(key, {
       periodStart: "2026-10-01", periodEnd: "2026-10-29"
