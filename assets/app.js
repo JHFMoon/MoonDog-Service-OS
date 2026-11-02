@@ -4975,26 +4975,49 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       controllables: { value: saprReady && controls.className !== "unknown" && Number.isFinite(controls.progress) ? controls.progress : null, period: `sapr:${saprPeriod}` }
     };
   }
+  // Distinct triggers (connection, timer, Settings) must share one pending
+  // baseline transaction per Workspace/cycle. Never stack durable writes.
+  let meetingBaselineInFlight = null;
   async function ensureMeetingCycleBaseline(at = new Date()) {
-    if (!model.root) return model.meetingCycle;
+    const root = model.root;
+    if (!root) return model.meetingCycle;
     const cycle = meetingCycleInfo(at);
     if (model.meetingCycle?.cycleStart === cycle.cycleStart) return model.meetingCycle;
-    const metrics = meetingCurrentMetrics();
-    if (!Object.values(metrics).some((metric) => Number.isFinite(metric.value))) return model.meetingCycle;
-    const prior = model.meetingCycle?.cycleStart ? JSON.parse(JSON.stringify(model.meetingCycle)) : null;
-    const candidate = { schemaVersion: 1, cycleStart: cycle.cycleStart, resetAt: cycle.resetAt, capturedAt: now(), metrics };
-    // Persist and verify the candidate before publishing it to Meeting UI state.
-    // Failed backup or write/readback must leave the previous baseline retryable.
-    if (prior) await writeJson(["backups", `${stamp()}-meeting-cycle-${prior.cycleStart}.json`], prior);
-    await writeJson(MEETING_CYCLE_PATH, candidate);
-    model.meetingCycle = candidate;
-    // History is a separate durable record. If it fails, keep the verified
-    // baseline in memory, rather than reverting to a state no longer on disk.
-    await addHistory("meeting-cycle-baseline", `Created Advisor Meeting baseline for ${cycle.cycleStart}`, {
-      cycleStart: cycle.cycleStart, resetAt: cycle.resetAt,
-      availableMetrics: Object.values(metrics).filter((metric) => Number.isFinite(metric.value)).length
-    });
-    return candidate;
+    if (meetingBaselineInFlight) {
+      const pending = meetingBaselineInFlight;
+      if (pending.root === root && pending.cycleStart === cycle.cycleStart)
+        return pending.promise;
+      // A different cycle or Workspace cannot race the previous pending write.
+      await pending.promise;
+      if (model.root !== root) throw new Error("Workspace changed while queuing Meeting baseline.");
+      return ensureMeetingCycleBaseline(at);
+    }
+    const work = (async () => {
+      const ensureRoot = () => {
+        if (model.root !== root) throw new Error("Workspace changed during Meeting baseline save.");
+      };
+      const metrics = meetingCurrentMetrics();
+      if (!Object.values(metrics).some((metric) => Number.isFinite(metric.value))) return model.meetingCycle;
+      const prior = model.meetingCycle?.cycleStart ? JSON.parse(JSON.stringify(model.meetingCycle)) : null;
+      const candidate = { schemaVersion: 1, cycleStart: cycle.cycleStart, resetAt: cycle.resetAt, capturedAt: now(), metrics };
+      if (prior) {
+        ensureRoot();
+        await writeJson(["backups", `${stamp()}-meeting-cycle-${prior.cycleStart}.json`], prior);
+      }
+      ensureRoot();
+      await writeJson(MEETING_CYCLE_PATH, candidate);
+      // Do not attach a completed write to a different connected Workspace.
+      ensureRoot();
+      model.meetingCycle = candidate;
+      await addHistory("meeting-cycle-baseline", `Created Advisor Meeting baseline for ${cycle.cycleStart}`, {
+        cycleStart: cycle.cycleStart, resetAt: cycle.resetAt,
+        availableMetrics: Object.values(metrics).filter((metric) => Number.isFinite(metric.value)).length
+      });
+      return candidate;
+    })();
+    meetingBaselineInFlight = { root, cycleStart: cycle.cycleStart, promise: work };
+    try { return await work; }
+    finally { if (meetingBaselineInFlight?.promise === work) meetingBaselineInFlight = null; }
   }
   function meetingDelta(key, current) { const baseline = model.meetingCycle?.metrics?.[key]; if (!baseline || !current || baseline.period !== current.period || !Number.isFinite(baseline.value) || !Number.isFinite(current.value)) return "CHANGE UNAVAILABLE"; const delta = current.value - baseline.value; if (Math.abs(delta) < .05) return "NO CHANGE"; const amount = Math.abs(delta), rounded = Math.round(amount * 10) / 10, formatted = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1); return `${delta > 0 ? "↑" : "↓"} ${formatted} PERCENTAGE POINT${formatted === "1" ? "" : "S"}`; }
   function meetingWindowKeys(endDate, length = 14) { return Array.from({ length }, (_, index) => freshness.addDays(endDate,-length+1+index)); }
