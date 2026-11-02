@@ -5619,8 +5619,40 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     if (ui.menuSummary) {
       ui.menuSummary.replaceChildren();
-      if (!latestMenu) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No verified Menu Sales report loaded."; ui.menuSummary.append(empty); ui.menuCoverage.textContent = "Monday report required"; }
-      else { [["Presentation", `${latestMenu.store.presentation.toFixed(1)}%`], ["Presentation target", Number.isFinite(standard("menuPresentation")) ? performanceFormat(standard("menuPresentation"),"percent") : "Not configured"], ["Penetration", `${latestMenu.store.penetration.toFixed(1)}%`], ["Penetration target", Number.isFinite(standard("menuPenetration")) ? performanceFormat(standard("menuPenetration"),"percent") : "Not configured"]].forEach(([label, value]) => { const card = document.createElement("div"), name = document.createElement("span"), metric = document.createElement("strong"); name.textContent = label; metric.textContent = value; card.append(name, metric); ui.menuSummary.append(card); }); ui.menuCoverage.textContent = `${latestMenu.periodStart} through ${latestMenu.periodEnd} · release week ${latestMenu.releaseWeek}`; }
+      if (!latestMenu) {
+        const empty = document.createElement("p");
+        empty.className = "empty";
+        empty.textContent = "No verified Menu Sales report loaded.";
+        ui.menuSummary.append(empty);
+        ui.menuCoverage.textContent = "Monday report required";
+      } else {
+        // Home uses the same source-authority contract as Meeting. A persisted
+        // null/blank is unknown, not zero, and stale figures are historical.
+        const presentationEvidence = menuMeetingEvidence("presentation");
+        const penetrationEvidence = menuMeetingEvidence("penetration");
+        const displayMenuMetric = evidence => {
+          if (evidence.verified) return `${evidence.value.toFixed(1)}%`;
+          if (evidence.status === "stale" && Number.isFinite(evidence.lastVerifiedValue))
+            return `${evidence.lastVerifiedValue.toFixed(1)}% · Historical`;
+          if (evidence.status === "not-used") return "Not used";
+          if (evidence.status === "temporarily-unavailable") return "Temporarily unavailable";
+          return "Not verified";
+        };
+        [
+          ["Presentation", displayMenuMetric(presentationEvidence)],
+          ["Presentation target", Number.isFinite(standard("menuPresentation")) ? performanceFormat(standard("menuPresentation"), "percent") : "Not configured"],
+          ["Penetration", displayMenuMetric(penetrationEvidence)],
+          ["Penetration target", Number.isFinite(standard("menuPenetration")) ? performanceFormat(standard("menuPenetration"), "percent") : "Not configured"]
+        ].forEach(([label, value]) => {
+          const card = document.createElement("div"), name = document.createElement("span"), metric = document.createElement("strong");
+          name.textContent = label; metric.textContent = value; card.append(name, metric); ui.menuSummary.append(card);
+        });
+        const states = [presentationEvidence.status, penetrationEvidence.status];
+        const evidenceNote = states.includes("stale") ? " · current release overdue" :
+          states.some(status => !["verified", "known-zero"].includes(status)) ?
+          " · source metrics not current/verified" : "";
+        ui.menuCoverage.textContent = `${latestMenu.periodStart || "Period not supplied"} through ${latestMenu.periodEnd || "Period not supplied"} · release week ${latestMenu.releaseWeek || "unverified"}${evidenceNote}`;
+      }
     }
     if (ui.csiSummary) {
       const summary = npsSummary(csiSurveys), periodStart = model.settings.csiPeriodStart || `${localDateKey().slice(0, 7)}-01`; ui.csiSummary.replaceChildren();

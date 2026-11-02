@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.294 — current Beta
+
+- fix(#59-02): reconcile Home Menu percentage authority and historical confidence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.293 — current Beta
 
 - fix(#59-01): show Home VIR unknown safely using reconciled source evidence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
