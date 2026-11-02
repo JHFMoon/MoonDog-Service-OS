@@ -64,3 +64,38 @@ test("verified dates, month boundaries and invalid stated periods remain distinc
     assert.equal(malformed.safeForPurpose, false, key);
   }
 });
+
+
+test("start-only reference report coverage cannot be promoted to historical-valid source authority", () => {
+  for (const key of families) {
+    const startOnly = sourceEvidence(key, {
+      importedAt: "2026-10-30T17:00:00Z",
+      periodStart: "2026-10-01"
+    });
+    assert.equal(startOnly.status, "invalid", key);
+    assert.equal(startOnly.safeForCurrent, false, key);
+    assert.equal(startOnly.safeForPurpose, false, key);
+    assert.equal(startOnly.reportPeriodVerified, false, key);
+    assert.match(startOnly.reason, /no verified end or observation date/i, key);
+    const metric = freshness.evaluateMetric([startOnly]);
+    assert.equal(metric.verified, false, key);
+    assert.strictEqual(metric.blocking[0], startOnly, key);
+
+    // A report with a verified end date alone can still represent exactly
+    // that one observed report date; it cannot certify earlier coverage.
+    const observed = sourceEvidence(key, {
+      importedAt: "2026-10-30T17:00:00Z",
+      periodEnd: "2026-10-29"
+    });
+    assert.equal(observed.status, "historical-valid", key);
+    assert.equal(observed.safeForPurpose, true, key);
+    assert.equal(observed.reportPeriodVerified, true, key);
+    assert.equal(observed.periodEnd, "2026-10-29", key);
+
+    const bounded = sourceEvidence(key, {
+      periodStart: "2026-10-01", periodEnd: "2026-10-29"
+    });
+    assert.equal(bounded.status, "historical-valid", key);
+    assert.equal(bounded.reportPeriodVerified, true, key);
+  }
+});
