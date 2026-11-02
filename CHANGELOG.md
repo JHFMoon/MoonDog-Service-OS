@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.298 — current Beta
+
+- fix(#59-04): require verified CSI source before Home trend Complete. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.297 — current Beta
 
 - perf(#58): avoid redundant Setup gate DOM replacements. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
