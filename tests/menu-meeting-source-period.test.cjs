@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const freshness = require("../assets/freshness.js");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
 function extract(start, end, label) {
@@ -14,6 +15,8 @@ function extract(start, end, label) {
   return app.slice(a, b);
 }
 
+const menuValidator = extract("  function verifiedMenuTrendReleases(", "  function trendCoverageAudit(", "Menu period validator");
+const sourceEvidence = extract("  function sourceFreshness(", "  function metricDependencyEvidence(", "shared source freshness");
 const menuEvidence = extract("  function menuMeetingEvidence(metric)", "  function csiMetricEvidence(", "Menu Meeting evidence");
 const meeting = extract("  function meetingAdvisorTv(", "  function renderMeetingArenaStore(", "active Meeting renderer");
 const menuImporter = extract("  async function importMenuSalesFile(", "  const CSI_ADVISOR_CODES =", "Menu Sales importer");
@@ -33,7 +36,9 @@ function fixture(releaseWeek) {
   const history = [];
   const events = [];
   const context = vm.createContext({
-    model, structuredClone,
+    model, structuredClone, freshness,
+    localDateKey: () => "2026-10-20",
+    businessTimeZone: () => "America/Los_Angeles",
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
     parseMenuSalesWorkbook: () => structuredClone(snapshot),
     pruneDatedSnapshots: value => value,
@@ -60,7 +65,7 @@ function fixture(releaseWeek) {
     compactMoney: value => "$" + Math.round(value / 1000) + "K",
     meetingEscape: value => String(value ?? "")
   });
-  vm.runInNewContext(managerComparison + "\n" + menuImporter + "\n" + menuEvidence + "\n" + meeting +
+  vm.runInNewContext(menuValidator + "\n" + sourceEvidence + "\n" + managerComparison + "\n" + menuImporter + "\n" + menuEvidence + "\n" + meeting +
     "\nthis.api={importMenuSalesFile,menuMeetingEvidence,meetingAdvisorTv};", context);
   const latest = {
     periodStart: "2026-10-01",
