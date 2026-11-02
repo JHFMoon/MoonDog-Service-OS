@@ -3387,14 +3387,17 @@
   async function verifyCompleteRoImport(name, file, bytes, records, verifiedAutomaticInbox = false) {
     if (!records.length || records.some(row => !text(row.ro).trim())) throw new Error("Needs Review: incomplete RO identity.");
     const keys = records.map(row => text(row.ro).trim());
-    if (new Set(keys).size !== keys.length) throw new Error("Needs Review: duplicate RO identities in complete source.");
+    // Reuse the verified identity set for current-roster coverage. A linear
+    // search for every existing RO made complete-import review quadratic.
+    const incomingRoKeys = new Set(keys);
+    if (incomingRoKeys.size !== keys.length) throw new Error("Needs Review: duplicate RO identities in complete source.");
     const digest = await sha256(bytes), prior = model.state.source || {};
     if (prior.sha256 === digest || prior.acceptedDigests?.includes(digest)) throw new Error("Needs Review: this report was already imported; replay was stopped.");
     const modified = Number(file.lastModified), priorModified = Date.parse(prior.sourceModifiedAt || "");
     if (!Number.isFinite(modified) || modified <= 0 || modified > Date.now() + 300000 || Number.isFinite(priorModified) && modified < priorModified) throw new Error("Needs Review: source timestamp is missing, future-dated, or older than the current RO source.");
     const current = await (await sourceFileHandle(name)).getFile();
     if (await sha256(await current.arrayBuffer()) !== digest) throw new Error("Needs Review: report changed during review; source retained.");
-    const closing = (model.state.records || []).filter(row => !keys.includes(text(row.ro).trim())).length;
+    const closing = (model.state.records || []).filter(row => !incomingRoKeys.has(text(row.ro).trim())).length;
     if (!verifiedAutomaticInbox && !window.confirm(`Review complete RO replacement: ${name}\n\n${records.length} incoming ROs; ${closing} existing ROs absent from this file.\nFile timestamp: ${new Date(modified).toLocaleString()}\n\nThis file is unsigned. Confirm the correct store, report generation date, complete scope and totals in the original report before continuing. Absent ROs will leave the active list; existing commitments are preserved for matching ROs. Continue?`)) throw new Error("Needs Review: complete RO replacement was not approved; source retained.");
     return {sha256: digest, sourceModifiedAt: new Date(modified).toISOString(), acceptedDigests: [...new Set([...(prior.acceptedDigests || []), prior.sha256, digest].filter(Boolean))].slice(-256), verification: verifiedAutomaticInbox ? "reconciled-grouped-inbox-auto; unsigned" : "explicit-local-source-review; unsigned"};
   }
