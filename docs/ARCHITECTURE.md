@@ -62,6 +62,8 @@ Recognized Open RO DOCX reports require manual Import Report review; an asynchro
 
 Committed Open RO duplicate recovery is a separate post-import path: its source digest, durable roster read-back, workbook revalidation, dependent report/Assign Next repairs, final roster read-back and cleanup intent each await filesystem work. The scanner must revalidate its originating Workspace/write/import authority after each awaited boundary before replacing in-memory state, starting the next dependent action, deleting a source or recording clean completion. A stale caller returns without falsely completing the new Workspace's recovery; already-started filesystem writes or removal are not claimed cancelable or globally atomic.
 
+Complete Open RO replacement remains a reviewed, byte-verified source operation: duplicate incoming repair-order IDs and missing IDs fail closed, digest replays and mid-review byte changes are rejected, and the owner must explicitly approve a partial replacement when not using the trusted automatic Inbox path. Its prior-roster absence count now reuses the already validated incoming-ID Set instead of performing a linear lookup per existing RO. This changes neither which ROs are considered missing nor the verification, approval, durable-write or rollback contracts. A synthetic membership benchmark is not a real connected-file or browser-end-to-end timing.
+
 ## Clean-install distribution contract
 
 `scripts/build_distribution.py` reads the same `HANDOFF_RUNTIME_PATHS` catalog used by application handoff/runtime integrity checks. The builder:
