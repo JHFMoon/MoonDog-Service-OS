@@ -5111,7 +5111,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if(expectation==="temporarily-unavailable")return metricEvidence({status:"temporarily-unavailable",source:"Menu Sales",reason:"The source is marked temporarily unavailable"});
     if(!snapshot)return metricEvidence({status:"missing-source",source:"Menu Sales",requiredAction:"Import the current Menu Sales report"});
     const health=sourceFreshness("menu",{item:snapshot}),period=snapshot.releaseWeek||snapshot.periodEnd;
-    if(health.reportPeriodVerified!==true||!["current","stale"].includes(health.status))
+    if(health.reportPeriodVerified!==true||!["current","stale"].includes(health.status)||
+      (health.status==="current"&&health.safeForCurrent!==true))
       return metricEvidence({status:"missing-period",source:"Menu Sales",period,
         reason:health.reason||"The saved Menu Sales source has no verified reporting period.",
         requiredAction:"Import a Menu Sales report with a verified release date and reporting period"});
