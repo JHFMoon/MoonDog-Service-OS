@@ -6,7 +6,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
-const start = app.indexOf("  async function ensureMeetingCycleBaseline(");
+const start = app.indexOf("  let meetingBaselineInFlight = null;");
 const end = app.indexOf("\n  function meetingDelta(", start);
 assert.ok(start >= 0 && end > start, "production durable baseline function exists");
 const production = app.slice(start, end);
