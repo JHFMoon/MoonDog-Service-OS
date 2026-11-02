@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const freshness = require("../assets/freshness.js");
 
 const shipped = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
 function source(start, end, label) {
@@ -13,6 +14,8 @@ function source(start, end, label) {
 }
 const evidenceSource = source("  function metricEvidence({", "  function metricEvidenceText(", "metric evidence");
 const snapshotSource = source("  function latestOperationalSnapshot(", "  function csiReportedPeriod(", "snapshot selector");
+const menuValidator = source("  function verifiedMenuTrendReleases(", "  function trendCoverageAudit(", "Menu validated period selector");
+const menuSource = source("  function sourceFreshness(", "  function metricDependencyEvidence(", "Menu freshness adapter");
 const menuEvidenceSource = source("  function menuMeetingEvidence(", "  function csiMetricEvidence(", "Menu evidence");
 const homeSource = source("  function renderOverviewIntelligence() {",
   "  const renderOverviewIntelligenceBase=renderOverviewIntelligence;", "Home renderer");
@@ -44,7 +47,9 @@ function renderMenu(sourceSnapshot, expectation = "recommended") {
     csi: { surveys: {} }
   } };
   const ctx = vm.createContext({
-    ui, model, document: { createElement: () => node() },
+    ui, model, freshness,
+    businessTimeZone: () => "America/Los_Angeles",
+    document: { createElement: () => node() },
     text: x => String(x ?? ""),
     localDateKey: () => "2026-11-02",
     expectedMenuWeek: () => "2026-11-02",
@@ -60,13 +65,12 @@ function renderMenu(sourceSnapshot, expectation = "recommended") {
     latestCsiRefreshDate: () => "",
     npsSummary: () => ({ responses: 0 }),
     reportNeeds: () => ({}),
-    sourceFreshness: () => ({ safeForCurrent: true }),
     sourceLineageLabel: () => "",
     standard: () => NaN,
     performanceFormat: x => String(x),
     shortDate: x => String(x || "—")
   });
-  vm.runInContext(evidenceSource + "\n" + snapshotSource + "\n" +
+  vm.runInContext(menuValidator + "\n" + menuSource + "\n" + evidenceSource + "\n" + snapshotSource + "\n" +
     menuEvidenceSource + "\n" + homeSource +
     "\nthis.renderActualHome=renderOverviewIntelligence;", ctx);
   assert.doesNotThrow(() => ctx.renderActualHome());

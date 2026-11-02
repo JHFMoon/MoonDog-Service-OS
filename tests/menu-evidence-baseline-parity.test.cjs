@@ -20,7 +20,7 @@ function fixture(presentation, penetration=37) {
     releaseWeek: "2026-11-02", periodStart: "2026-11-02", periodEnd: "2026-11-08",
     store: {presentation,penetration}, importedAt: "synthetic-import"
   };
-  const sourceHealth = {safeForCurrent:true,reportPeriodVerified:true};
+  const sourceHealth = {status:"current",safeForCurrent:true,reportPeriodVerified:true};
   const model = {settings:{csiPeriodStart:"2026-11-01"}};
   const ctx = vm.createContext({
     model,
