@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.300",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.300.json",
-    "sha256": "0215731b675e761f4b9b473d0d718ceaf87f84ae82c0021f30b74d20f16e08df",
+    "version": "0.10.18-beta.301",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.301.json",
+    "sha256": "2fb5c5139ec00e3be0a944f430325efdc95a351d626d768ed446217f689dd6c2",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "fix(#59-01): require source-dated VIR observations for current freshness. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged."
+    "releaseNotes": "fix(#59-01): unify VIR Home and Meeting source observation dates. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged."
   }
 }
