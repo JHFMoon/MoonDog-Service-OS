@@ -177,7 +177,7 @@ test("hidden Recently Reviewed panel stays deferred, opens with fresh rows and u
   assert.equal(h.recentBuilds(),2,"a hidden panel defers fresh source reads");
   h.openRecent();
   assert.equal(h.recentBuilds(),3,"reopening refreshes current reviewed rows");
-  assert.equal(h.ui.recentlyReviewedPanel.children[0].children[0].textContent,newTop.ro,
+  assert.equal(h.ui.recentlyReviewedPanel.children[0].children[0].textContent,`RO ${newTop.ro}`,
     "reopened review list must show the latest source review, not cached content");
 });
 
