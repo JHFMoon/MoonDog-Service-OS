@@ -114,30 +114,53 @@ def classify(changes: list[dict]) -> str:
 
 
 def has_scoped_preservation_proof(changes: list[dict]) -> bool:
-    """Runtime edits need at least one accompanying focused synthetic test.
+    """Require focused executed source-bound synthetic regression evidence.
 
-    Exact-head Publication Check must prove all tests, including immutable
-    baseline RO/history/recovery tests. This is evidence, not certainty.
+    This is an eligibility gate, not a claim that static inspection can prove
+    correctness. The exact-head test run and its broader data-integrity suite
+    are still mandatory.
     """
     files = {item["filename"]: item for item in changes}
-    edits_runtime = any(
-        (path.startswith(("assets/", "src/")) and path.endswith((".js", ".mjs", ".json")))
+    runtime_paths = [
+        path for path in files
+        if (path.startswith(("assets/", "src/")) and path.endswith((".js", ".mjs", ".json")))
         or path.endswith(".html")
-        for path in files if isinstance(path, str)
-    )
-    if not edits_runtime:
+    ]
+    # Unknown operational JSON payload changes cannot bypass review merely
+    # because they are not JavaScript or HTML.
+    if any(
+        path.startswith("updates/") and path not in NON_EXECUTABLE_METADATA
+        and not BETA_PACKAGE.fullmatch(path)
+        for path in files
+    ):
+        return False
+    if not runtime_paths:
         return True
-    return any(
-        isinstance(path, str) and path.startswith("tests/")
-        and path.count("/") == 1  # must match node --test tests/*.test.cjs
-        and path.endswith(".test.cjs")
-        and re.search(r"(?i)(?:ro|import|history|source|data|durab|backup|recover|preserv|integrity|storage|state|roundtrip|migration|write)", path)
-        and item.get("status") in {"added", "modified"}
-        and path not in CRITICAL_PRESERVATION_TESTS
-        and isinstance(item.get("patch"), str)
-        and re.search(r"(?m)^\+[^+].*(?:assert[.([]|test\s*\(|expect\s*\()", item["patch"])
-        for path, item in files.items()
-    )
+    eligible = []
+    for path, item in files.items():
+        if not (path.startswith("tests/") and path.count("/") == 1
+                and path.endswith(".test.cjs")
+                and re.search(r"(?i)(?:ro|import|history|source|data|durab|backup|recover|preserv|integrity|storage|state|roundtrip|migration|write)", path)
+                and item.get("status") in {"added", "modified"}
+                and path not in CRITICAL_PRESERVATION_TESTS):
+            continue
+        patch = item.get("patch")
+        if not isinstance(patch, str):
+            continue
+        added = "\n".join(line[1:] for line in patch.splitlines()
+                          if line.startswith("+") and not line.startswith("+++"))
+        # Tests must exercise real production source, not only a mock or an
+        # unrelated assertion with an RO-looking filename.
+        if not re.search(r"\b(?:readFileSync|require)\s*\(", added):
+            continue
+        if not re.search(r"\b(?:before|prior|original|snapshot)\b", added, re.IGNORECASE):
+            continue
+        if not re.search(r"\b(?:after|saved|restored|current)\b", added, re.IGNORECASE):
+            continue
+        if not re.search(r"\bassert\.(?:deepEqual|strictEqual|equal)\s*\(", added):
+            continue
+        eligible.append(added)
+    return all(any(path in test for test in eligible) for path in runtime_paths)
 
 
 def merge_decision(changes: list[dict]) -> str:
