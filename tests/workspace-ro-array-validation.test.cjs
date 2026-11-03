@@ -118,8 +118,8 @@ test("write-enabled reconnect accepts verified synthetic empty and legacy retain
     if(kind==="empty"){snapshot.records=[];snapshot.closedRecords=[];}
     const h=writableHarness(snapshot);
     await h.run();
-    assert.deepEqual(h.model.state.records,snapshot.records);
-    assert.deepEqual(h.model.state.closedRecords,snapshot.closedRecords??[]);
+    assert.deepEqual(clone(h.model.state.records),snapshot.records);
+    assert.deepEqual(clone(h.model.state.closedRecords),snapshot.closedRecords??[]);
     assert.equal(h.calls.normalizations,1);
     assert.equal(h.calls.writes,0);
     assert.equal(h.calls.history,0);
