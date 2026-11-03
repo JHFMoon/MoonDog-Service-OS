@@ -1548,6 +1548,22 @@
     // Bound independent reads to protect local folders and OneDrive from a burst.
     // Do not publish partial model state: commit the snapshots only when all reads succeed.
     await Promise.all(Array.from({ length: Math.min(3, connectionReadSpecs.length) }, () => readConnectionSnapshots()));
+    // A legacy bootstrap is migrated into settings below. Before hydrating any
+    // replacement state or writing a migration, recheck that its authoritative
+    // contents still match the already validated preflight snapshot. An absent
+    // legacy bootstrap needs no second read on a normal reconnect.
+    if (!pendingSettings.sourceAdapters && pendingAdapter) {
+      try {
+        const currentBootstrapAdapter = await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
+        if (JSON.stringify(currentBootstrapAdapter) !== JSON.stringify(pendingAdapter))
+          throw new Error("Protected local source adapter changed during connection. Reconnect before migrating.");
+      } catch (error) {
+        model.root = previousRoot;
+        model.applicationRoot = previousNativeRoot;
+        connectedNativeRoot = previousNativeRoot;
+        throw error;
+      }
+    }
     [model.state, model.appointments, model.performance, model.operationalMetrics, model.meetingCycle, model.assignNext, model.autoImport, model.recovery] = connectionReadResults;
     const rawSettings = pendingSettings;
     model.state.closedRecords=pruneClosedRecords(model.state.closedRecords||[]);
@@ -1573,12 +1589,6 @@
     if (!configuredAdapter && Object.keys(rawSettings.advisors || {}).length && !rawSettings.setup?.newStorePrepared) throw new Error("The protected local source adapter is missing. Restore local configuration before reconnecting.");
     if (configuredAdapter) loadSourceAdapter(configuredAdapter, rawSettings); else clearSourceAdapter();
     if (bootstrapAdapter) {
-      // This legacy bootstrap is migrated and removed below. Revalidate its
-      // source before the first write so a concurrent replacement is never
-      // silently replaced by the earlier preflight snapshot.
-      const currentBootstrapAdapter = await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
-      if (JSON.stringify(currentBootstrapAdapter) !== JSON.stringify(bootstrapAdapter))
-        throw new Error("Protected local source adapter changed during connection. Reconnect before migrating.");
       await writeJson(["backups", `${stamp()}-before-source-adapter-settings-migration.json`], rawSettings);
       rawSettings.sourceAdapters = bootstrapAdapter;
       await writeJson(SETTINGS_PATH, rawSettings);
