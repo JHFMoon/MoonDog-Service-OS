@@ -3806,8 +3806,25 @@
     // whole batch. Retain its watch marker for a later confirmed retry.
     const deferredPaths = new Set(enumerated.filter(item=>item.readError || !item.file)
       .map(item=>item.relativePath));
-    const candidates = enumerated.filter(item=>item.file && !item.readError);
-    for (const candidate of candidates) { candidate.modified=candidate.file.lastModified; candidate.structurePriority=10; if (/\.csv$/i.test(candidate.name)) { const start=(await candidate.file.slice(0,160).text()).trim().toLowerCase(); candidate.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
+    const candidates = [];
+    for (const candidate of enumerated.filter(item=>item.file && !item.readError)) {
+      candidate.modified=candidate.file.lastModified; candidate.structurePriority=10;
+      if (/\.csv$/i.test(candidate.name)) {
+        let start;
+        try { start=(await candidate.file.slice(0,160).text()).trim().toLowerCase(); }
+        catch (error) {
+          if (!scanEligible()) return null;
+          // A transient CSV preview failure must not block unrelated imports;
+          // real permission failures still reach the watch's fail-closed guard.
+          if (!transientWorkspaceState(error)) throw error;
+          deferredPaths.add(candidate.relativePath);
+          recordDiagnostic("REPORT INBOX PENDING","Temporary CSV preview read failure; retry scheduled");
+          continue;
+        }
+        candidate.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5;
+      }
+      candidates.push(candidate);
+    }
     // CSV metadata previews also await file IO. Do not touch retained source
     // state if the connection or write authority changed while reading them.
     if (!scanEligible()) return null;
