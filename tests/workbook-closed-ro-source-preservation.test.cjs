@@ -159,3 +159,21 @@ test("queued workbook write rechecks a newer Closed RO revision after the first 
   assert.deepEqual(h.model.state,prior,"original in-memory note remains available for review");
   assert.deepEqual(h.durable,newer,"the durable newer note is not silently overwritten");
 });
+
+test("explicit null or malformed Closed RO records are not silently treated as zero",async()=>{
+  const baseline=example(),empty=clone(baseline);
+  empty.closedRecords=[];
+  for(const invalid of [null,{"not-an-array":"synthetic corruption"},"invalid"]){
+    const badDurable=clone(empty);badDurable.closedRecords=invalid;
+    const h=harness({local:empty,durable:badDurable});
+    await assert.rejects(h.run(),/Workspace changed/);
+    assert.equal(h.calls.operations,0,"unknown Closed RO state must not authorize a write");
+    assert.equal(h.calls.writes,0);
+    assert.deepEqual(h.model.state,empty);
+  }
+  const badLocal=clone(empty);badLocal.closedRecords=null;
+  const h=harness({local:badLocal,durable:empty});
+  await assert.rejects(h.run(),/Workspace changed/);
+  assert.equal(h.calls.operations,0);
+  assert.deepEqual(h.durable,empty,"durable state remains unchanged");
+});
