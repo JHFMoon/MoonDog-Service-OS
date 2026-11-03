@@ -15,7 +15,7 @@ test("trusted Beta packaging never requests an external Codex review",()=>{
   assert.match(packageWorkflow,/Push package commit to the same reviewed PR/);
   assert.match(packageWorkflow,/APP_TOKEN/);
   assert.match(packageWorkflow,/HEAD_BRANCH/);
-  assert.match(packageWorkflow,/exact-head owner review and both CI gates are still required/);
+  assert.match(packageWorkflow,/exact-head Publication Check, Clean Install Proof, and guarded review\/risk decision remain mandatory/);
 });
 
 test("protected merger never requests an external Codex review",()=>{
@@ -24,7 +24,9 @@ test("protected merger never requests an external Codex review",()=>{
   assert.match(mergeWorkflow,/merge-review-state/);
   assert.match(mergeWorkflow,/\[ "\$REVIEW_STATE" = "findings" \]/);
   assert.match(mergeWorkflow,/\[ "\$REVIEW_STATE" = "clean" \]/);
-  assert.match(mergeWorkflow,/Final guarded merge refused: exact-head review is missing, stale, or has findings/);
+  assert.match(mergeWorkflow,/Final guarded merge refused: scoped preservation proof or required review is missing/);
+  assert.match(mergeWorkflow,/scripts\/beta_change_risk\.py/);
+  assert.match(mergeWorkflow,/\[ \"\$FINAL_REVIEW\" = \"findings\" \]/);
 });
 
 test("normal guarded release still enforces exact-head checks and protected GitHub merge",()=>{
