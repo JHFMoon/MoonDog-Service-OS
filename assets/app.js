@@ -4606,7 +4606,9 @@
       const evidence = freshness.evaluateSource(input);
       return Object.freeze({ ...evidence,
         importTimestamp: typeof item?.importedAt === "string" ? item.importedAt : "",
-        reportPeriodVerified: Boolean(item && evidence.loaded && reportPeriodVerified)
+        // A loaded but invalid/not-used source never certifies reporting coverage.
+        reportPeriodVerified: Boolean(item && evidence.loaded && reportPeriodVerified &&
+          ["current", "stale", "historical-valid"].includes(evidence.status))
       });
     };
     // A loaded interval is not source-verified merely because both fields
