@@ -1422,17 +1422,6 @@
     }
   }
 
-  // Saved RO populations are durable source authority, not empty defaults when
-  // a file is damaged. Only the genuinely absent legacy Closed RO property is
-  // an empty retained roster; reject explicit malformed values before hydration.
-  function validateConnectedWorkbookSnapshot(snapshot) {
-    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) ||
-        !Array.isArray(snapshot.records) ||
-        (snapshot.closedRecords !== undefined && !Array.isArray(snapshot.closedRecords)))
-      throw new Error("Saved Open/Closed RO records are invalid. Original Workspace data was retained; review a verified backup before editing.");
-    return snapshot;
-  }
-
   async function finishReadOnlyConnection(handle) {
     const resolvedRoot=await operationalRoot(handle);
     // Read-only reconnects must obey the same operation boundary after the await.
@@ -1499,6 +1488,17 @@
   // All folder changes, including automatic restoration, share one exclusive
   // connection operation. A second picker must not overlap this root's model load.
   let workspaceConnectionBusy=false;
+  // Saved RO populations are durable source authority, not empty defaults when
+  // a file is damaged. Only the genuinely absent legacy Closed RO property is
+  // an empty retained roster; reject explicit malformed values before hydration.
+  function validateConnectedWorkbookSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) ||
+        !Array.isArray(snapshot.records) ||
+        (snapshot.closedRecords !== undefined && !Array.isArray(snapshot.closedRecords)))
+      throw new Error("Saved Open/Closed RO records are invalid. Original Workspace data was retained; review a verified backup before editing.");
+    return snapshot;
+  }
+
   // A queued maintenance task may be writing durable state. Do not switch the
   // active Workspace until that one task has settled; do not start another
   // queued task while a connection is already in progress.

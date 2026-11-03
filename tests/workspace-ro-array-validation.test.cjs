@@ -11,7 +11,7 @@ function production(start,end){
   assert.ok(a>=0&&b>a,"actual production connection guard and stable source anchors exist");
   return app.slice(a,b);
 }
-const helper=production("  function validateConnectedWorkbookSnapshot(", "  async function finishReadOnlyConnection(");
+const helper=production("  function validateConnectedWorkbookSnapshot(", "  let postConnectionScanBusy=false;");
 const readOnly=production("      for (const [key, path] of paths) {", "      const rawSettings =");
 const writable=production(
   "    validateConnectedWorkbookSnapshot(connectionReadResults[0]);",

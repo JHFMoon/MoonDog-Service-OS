@@ -90,7 +90,7 @@ test("invalid settings adapter takes precedence and fails closed without bootstr
 
 // Exercise the shipped pre-hydration race guard, not a mock implementation.
 const guardBegin=runtime.indexOf("    if (!pendingSettings.sourceAdapters && pendingAdapter) {");
-const guardEnd=runtime.indexOf("    [model.state, model.appointments",guardBegin);
+const guardEnd=runtime.indexOf("    validateConnectedWorkbookSnapshot(connectionReadResults[0]);",guardBegin);
 assert.ok(guardBegin>0&&guardEnd>guardBegin,"production adapter race guard runs before any model hydration");
 const preHydrationGuard=runtime.slice(guardBegin,guardEnd);
 async function adapterRaceCheck(preflight,actual,{settingsAdapter=false,readFailure=false}={}){
