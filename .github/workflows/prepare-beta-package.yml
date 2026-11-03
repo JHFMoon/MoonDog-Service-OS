@@ -222,7 +222,7 @@ jobs:
           test "$PACKAGE_BOT_LOGIN" = "$APP_SLUG[bot]"
           AUTH="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
           git -C candidate -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH" push origin "HEAD:$HEAD_BRANCH"
-          # Review remains mandatory, but is supplied by an authenticated
-          # exact-head GitHub PR review; do not invoke external coding agents.
-          echo "Trusted Beta candidate pushed at $(git -C candidate rev-parse HEAD); exact-head owner review and both CI gates are still required."
+          # Trusted merge policy decides whether scoped data proof or an
+          # exact-head review is required; no external review agents are called.
+          echo "Trusted Beta candidate pushed at $(git -C candidate rev-parse HEAD); exact-head Publication Check, Clean Install Proof, and guarded review/risk decision remain mandatory."
           echo "Pushed the candidate with the installed MoonDog Release App; normal pull_request checks now verify the new exact head."

@@ -314,5 +314,33 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('"--jq", ".[] | .filename, (.previous_filename // empty)"', prepare)
         self.assertNotIn('"--jq", ".[].filename, (.previous_filename // empty)"', prepare)
 
+
+    def test_risk_based_beta_merge_checks_scope_at_both_boundaries(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        self.assertEqual(merge.count("      - name: Squash merge verified current PR"), 1)
+        self.assertEqual(merge.count("  advance-beta-queue:"), 1)
+        self.assertEqual(merge.count("scripts/beta_change_risk.py"), 2)
+        self.assertIn("/tmp/pr-risk-files.json --decision --expected", merge)
+        self.assertIn("/tmp/final-risk-files.json --decision --expected", merge)
+        self.assertIn("CHANGED_FILES=", merge)
+        self.assertIn("FINAL_COUNT=", merge)
+        self.assertIn('if [ "$REVIEW_STATE" = "findings" ]', merge)
+        self.assertIn('[ "$FINAL_REVIEW" = "findings" ]', merge)
+        self.assertIn('"$DECISION" = "automatic"', merge)
+        self.assertIn('"$FINAL_DECISION" != "automatic"', merge)
+        self.assertIn('scripts/pipeline_guard.py check-paths', merge)
+        self.assertIn('Clean Install Proof', merge)
+        self.assertIn('Refuse Stable manifest changes', merge)
+        self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"', merge)
+        policy = __import__("json").loads(
+            (ROOT / ".github/guarded-merge-policy.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(policy["beta_review_mode"], "automated-data-proofs")
+        self.assertEqual(policy["stable_publication"], "existing-stable-release-workflow-only")
+        publication = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
+        self.assertIn("node --test tests/*.test.cjs", publication)
+        self.assertIn("python3 scripts/audit_public_git_history.py", publication)
+
+
 if __name__ == "__main__":
     unittest.main()
