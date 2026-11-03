@@ -124,6 +124,7 @@ async function syntheticSnapshotHydration(recordCount,options={}){
   };
   const context=vm.createContext({
     model,readJson,
+    newWorkspaceSnapshot: name=>({syntheticDefaultFor:name}),
     STATE_PATH:paths[0],APPOINTMENTS_PATH:paths[1],PERFORMANCE_PATH:paths[2],
     OPERATIONAL_METRICS_PATH:paths[3],MEETING_CYCLE_PATH:paths[4],
     ASSIGN_NEXT_PATH:paths[5],AUTO_IMPORT_PATH:paths[6],RECOVERY_PATH:paths[7],
