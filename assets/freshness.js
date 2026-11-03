@@ -183,8 +183,10 @@
       const targetStart = input.targetStart || input.targetEnd, targetEnd = input.targetEnd || input.targetStart;
       const sourceStartMissing = input.periodStart === undefined || input.periodStart === null || input.periodStart === "";
       const sourceStartValid = sourceStartMissing || validDateKey(input.periodStart);
-      const periodValid = validDateKey(targetStart) && validDateKey(targetEnd) &&
-        targetStart <= targetEnd &&
+      // History cannot certify a future target even if a retained report
+      // falsely declares future source coverage. Keep the source untouched.
+      const periodValid = validDateKey(today) && validDateKey(targetStart) && validDateKey(targetEnd) &&
+        targetStart <= targetEnd && targetEnd <= today &&
         validDateKey(input.periodEnd) && input.periodEnd >= targetEnd &&
         sourceStartValid && (sourceStartMissing
           // An undated start cannot prove historical coverage before its only
