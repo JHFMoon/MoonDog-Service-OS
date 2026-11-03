@@ -15,7 +15,7 @@ const preflight=runtime.slice(begin,finish);
 const expression=runtime.match(/const bootstrapAdapter = rawSettings\.sourceAdapters \? null : pendingAdapter;/);
 assert.ok(expression,"verified production bootstrap adapter reuse exists");
 
-async function inspect(sourceSettings,sourceBootstrap) {
+async function inspect(sourceSettings,sourceBootstrap,observeFailure=()=>{}) {
   const before=JSON.parse(JSON.stringify({sourceSettings,sourceBootstrap}));
   const reads=[],writes=[];
   const adapterPath="source-adapter-bootstrap.json",settingsPath="settings.json";
@@ -34,7 +34,9 @@ async function inspect(sourceSettings,sourceBootstrap) {
   const script="(async()=>{"+preflight+"\n"+
     "const rawSettings=pendingSettings;"+expression[0]+
     "return {pendingSettings,pendingAdapter,bootstrapAdapter};})()";
-  const after=await vm.runInNewContext(script,ctx);
+  let after;
+  try{after=await vm.runInNewContext(script,ctx);}
+  catch(error){observeFailure({before,reads,writes,model,oldRoot});throw error;}
   return {before,after,reads,writes,model};
 }
 test("reconnect reuses validated bootstrap adapter without another source read or mutation",async()=>{
@@ -61,7 +63,13 @@ test("stored adapter remains authoritative and missing bootstrap is never consul
 test("invalid bootstrap adapter fails before hydration and restores previous Workspace root",async()=>{
   const invalid={schemaVersion:99,sourceId:"synthetic-invalid"};
   const before={schemaVersion:5,advisors:{"110":{}},setup:{completedAt:"synthetic"}};
-  await assert.rejects(inspect(before,invalid),/protected local source adapter is invalid/);
+  let failure;
+  await assert.rejects(inspect(before,invalid,state=>{failure=state;}),/protected local source adapter is invalid/);
+  assert.ok(failure,"invalid adapter rejection must expose the synthetic recovery snapshot");
+  assert.equal(failure.model.root,failure.oldRoot,"root restored after invalid preflight");
+  assert.equal(failure.model.applicationRoot,failure.oldRoot,"application root restored");
+  assert.deepEqual(failure.reads,["settings.json","source-adapter-bootstrap.json"]);
+  assert.deepEqual(failure.writes,[],"invalid adapter must fail before writing any source or notes");
   assert.deepEqual(before,{schemaVersion:5,advisors:{"110":{}},setup:{completedAt:"synthetic"}},
     "failed adapter preflight must preserve before state, not silently alter source data");
 });
