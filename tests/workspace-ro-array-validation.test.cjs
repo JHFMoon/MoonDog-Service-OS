@@ -50,7 +50,11 @@ test("corrupt arrays fail closed instead of becoming a zero-record Workspace",()
     {...source,records:null},{...source,records:"invalid"},
     {...source,records:{items:[]}}, {...source,closedRecords:null},
     {...source,closedRecords:"invalid"},
-    {...source,closedRecords:{items:[]}}];
+    {...source,closedRecords:{items:[]}},
+    {...source,records:[null]}, {...source,records:[false]},
+    {...source,records:[[]]}, {...source,records:["invalid"]},
+    {...source,closedRecords:[null]}, {...source,closedRecords:[123]},
+    {...source,closedRecords:[[]]}];
   for(const value of values)assert.throws(()=>runHelper(value),/Saved Open\/Closed RO records are invalid/);
 });
 function readOnlyHarness(saved){
@@ -73,6 +77,19 @@ test("read-only reconnect rejects malformed source before replacing prior active
   assert.deepEqual(h.model.state,h.previous,"existing connected state stays intact");
   assert.deepEqual(h.model.appointments,{original:true},"no partial hydration of later files");
   assert.deepEqual(h.readEvents,["state"],"invalid RO state halts subsequent reads");
+});
+test("read-only reconnect fails closed on malformed roster members",async()=>{
+  for(const mutate of [
+    state=>{state.records[0]=null;},state=>{state.records[0]=[];},
+    state=>{state.closedRecords[0]=false;},state=>{state.closedRecords[0]=null;}
+  ]){
+    const bad=valid();mutate(bad);
+    const h=readOnlyHarness(bad);
+    await assert.rejects(h.run(),/Saved Open\/Closed RO records are invalid/);
+    assert.deepEqual(h.model.state,h.previous,"prior RO notes and source preserved");
+    assert.deepEqual(h.model.appointments,{original:true},"no partial hydration");
+    assert.deepEqual(h.readEvents,["state"],"reject member before reading another source");
+  }
 });
 test("read-only reconnect hydrates validated source and preserves manager notes",async()=>{
   const source=valid(),h=readOnlyHarness(source);
@@ -102,7 +119,9 @@ function writableHarness(saved){
 test("write-enabled reconnect rejects malformed durable roster before hydration or migration",async()=>{
   for(const mutate of [state=>{state.records=null;},
     state=>{state.records={};},state=>{state.closedRecords=null;},
-    state=>{state.closedRecords={items:[]};}]){
+    state=>{state.closedRecords={items:[]};},
+    state=>{state.records[0]=null;},state=>{state.records[0]=false;},
+    state=>{state.closedRecords[0]=[];},state=>{state.closedRecords[0]=null;}]){
     const snapshot=valid();mutate(snapshot);
     const h=writableHarness(snapshot);
     await assert.rejects(h.run(),/Saved Open\/Closed RO records are invalid/);
