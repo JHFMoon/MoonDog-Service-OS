@@ -151,3 +151,24 @@ test("adapter read failure restores the previous root without replacing saved st
   assert.deepEqual(settingsWins.calls,{reads:0,writes:0},
     "verified adapter already in settings must not re-read legacy bootstrap");
 });
+
+test("missing protected adapter stays unknown without a fabricated configured source",async()=>{
+  const before={schemaVersion:5,advisors:{},setup:{completedAt:"synthetic"}};
+  const output=await inspect(before,null);
+  assert.deepEqual(output.reads,["settings.json","source-adapter-bootstrap.json"]);
+  assert.equal(output.after.pendingAdapter,null);
+  assert.equal(output.after.bootstrapAdapter,null);
+  assert.deepEqual(output.writes,[]);
+  assert.deepEqual(output.before.sourceSettings,before);
+});
+test("advisors configured without a source adapter fail before hydration or writes",async()=>{
+  const before={schemaVersion:5,advisors:{"110":{}},setup:{completedAt:"synthetic"}};
+  let failure;
+  await assert.rejects(inspect(before,null,evidence=>{failure=evidence;}),
+    /protected local source adapter is missing/);
+  assert.ok(failure);
+  assert.equal(failure.model.root,failure.oldRoot);
+  assert.equal(failure.model.applicationRoot,failure.oldRoot);
+  assert.deepEqual(failure.writes,[]);
+  assert.deepEqual(failure.before.sourceSettings,before);
+});
