@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.317 — current Beta
+
+- perf(#58-05): defer collapsed Paste & Learn change details without modifying source data. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.316 — current Beta
 
 - perf(#58-05): bypass redundant merge construction for verified unchanged Paste & Learn reimports. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
