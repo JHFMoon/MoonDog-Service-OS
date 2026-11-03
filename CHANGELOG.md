@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.319 — current Beta
+
+- guard(#58-06): preserve retained Closed RO data across competing workbook operations. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.318 — current Beta
 
 - perf(#58-02): reuse verified adapter preflight with safe reconnect migration. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
