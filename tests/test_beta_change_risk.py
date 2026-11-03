@@ -20,7 +20,7 @@ def scoped_test():
     return entry(
         "tests/open-ro-new-write-preservation.test.cjs",
         status="added",
-        patch="@@ -0,0 +1,2 @@\n+test('saved data remains', () => {\n+  assert.equal(actual, expected);",
+        patch="@@ -0,0 +1,7 @@\n+const fs = require('node:fs');\n+const app = fs.readFileSync('assets/app.js', 'utf8');\n+test('saved data remains', () => {\n+  const before = JSON.stringify(state);\n+  const after = JSON.stringify(state);\n+  assert.equal(after, before);\n+});",
     )
 
 
@@ -50,6 +50,25 @@ class BetaChangeRiskTests(unittest.TestCase):
         self.assertEqual(merge_decision([
             entry("assets/app.js"),
             entry("tests/open-ro-new-write-preservation.test.cjs", patch=None),
+        ]), "review-required")
+
+    def test_unrelated_test_does_not_fake_data_preservation(self):
+        not_source_bound = entry(
+            "tests/open-ro-made-up-preservation.test.cjs",
+            status="added",
+            patch="+test('no-loss',()=>{const before = {}; const after = {}; assert.equal(before, after)})",
+        )
+        self.assertEqual(merge_decision([entry("assets/app.js"), not_source_bound]), "review-required")
+        self.assertEqual(merge_decision([
+            entry("assets/app.js"),
+            entry("tests/open-ro-made-up-preservation.test.cjs", status="added",
+                  patch="+const a = fs.readFileSync('assets/app.js');\n+assert.equal(true, true);"),
+        ]), "review-required")
+        self.assertEqual(merge_decision([
+            entry("assets/app.js"), scoped_test(), entry("assets/daily-ops.js")
+        ]), "review-required")
+        self.assertEqual(merge_decision([
+            entry("updates/unknown-intake.json", status="added"), scoped_test()
         ]), "review-required")
 
     def test_nested_scoped_proof_does_not_bypass_review(self):
