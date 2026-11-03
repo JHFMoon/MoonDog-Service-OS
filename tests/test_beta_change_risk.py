@@ -52,6 +52,14 @@ class BetaChangeRiskTests(unittest.TestCase):
             entry("tests/open-ro-new-write-preservation.test.cjs", patch=None),
         ]), "review-required")
 
+    def test_nested_scoped_proof_does_not_bypass_review(self):
+        nested = entry(
+            "tests/fake/open-ro-preservation.test.cjs",
+            status="added",
+            patch="+test('fake', () => { assert.equal(before, after) }",
+        )
+        self.assertEqual(merge_decision([entry("assets/app.js"), nested]), "review-required")
+
     def test_css_remote_resources_fail_closed(self):
         for patch in (
             "@@ -1 +1 @@\n+@import 'https://example.invalid/foo.css';",
@@ -70,6 +78,12 @@ class BetaChangeRiskTests(unittest.TestCase):
             ".github/guarded-merge-policy.json",
             "scripts/beta_change_risk.py",
             "scripts/pipeline_guard.py",
+            "assets/moondog-update-install.js",
+            "assets/moondog-update-verify.js",
+            "assets/moondog-write-authority.js",
+            "assets/maintenance.js",
+            "tests/local-target-boundary.test.cjs",
+            "tests/source-boundary.test.cjs",
             "tests/test_beta_change_risk.py",
             "tests/durable-write-fault-matrix.test.cjs",
             "tests/workspace-history-isolation.test.cjs",
