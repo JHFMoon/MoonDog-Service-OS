@@ -31,7 +31,7 @@ function harness(selector,rows,options={}){
   }}};
   const ctx=vm.createContext({model,ASSIGN_NEXT_ADVISORS:advisors,storeDateKey:()=>DAY,
     ensureAssignDay:()=>day,activeWorkloadSnapshot:()=>snapshot,
-    openedTodayVerified:()=>!options.unverifiedOpened,Map,Number,Object,String});
+    openedTodayVerified:active=>Boolean(active)&&!options.unverifiedOpened,Map,Number,Object,String});
   vm.runInContext(selector+"\nthis.select=assignNextRows;",ctx);
   return {select:(date=DAY)=>ctx.select(date,snapshot),
     filters:()=>filters,reset:()=>{filters=0;},model,records,day};
@@ -76,6 +76,8 @@ test("58-04: one roster scan preserves every advisor count, eligibility and orde
   const emptyOld=harness(legacy,rows(0),{disconnected:true});
   const emptyNow=harness(shipped,rows(0),{disconnected:true});
   assert.equal(serialize(emptyNow.select()),serialize(emptyOld.select()),"no snapshot means unknown, not zero");
+  assert.ok(emptyNow.select().every(row=>row.open===null&&row.openedToday===null),
+    "a missing workload must never be represented as verified zero");
 });
 
 test("58-04: paired synthetic Assign Next scan benchmark records p50/p95 on shipped selector",()=>{
