@@ -1309,7 +1309,15 @@
         if(model.root){
           const durable=await readJson(STATE_PATH,null);
           const initialEmpty=options.allowInitialEmptyState===true&&!durable&&!model.state.updatedAt&&!model.state.source&&!(model.state.records||[]).length&&!(model.state.closedRecords||[]).length;
-          if(!initialEmpty&&(!durable||durable.updatedAt!==model.state.updatedAt||JSON.stringify(durable.records)!==JSON.stringify(model.state.records)))throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing.");
+          // A second tab can update a retained Closed RO's management history
+          // without changing the active roster. Compare both durable populations
+          // before any Workbook operation can write; preserve legacy absent arrays.
+          const durableClosed=durable?.closedRecords==null?[]:durable.closedRecords;
+          const currentClosed=model.state.closedRecords==null?[]:model.state.closedRecords;
+          if(!initialEmpty&&(!durable||durable.updatedAt!==model.state.updatedAt||
+              JSON.stringify(durable.records)!==JSON.stringify(model.state.records)||
+              JSON.stringify(durableClosed)!==JSON.stringify(currentClosed)))
+            throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing.");
           const recovery=await readJson(RECOVERY_PATH,null);
           if(recovery)model.recovery=recovery;
         }
