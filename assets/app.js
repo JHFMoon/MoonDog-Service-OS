@@ -4705,10 +4705,20 @@
         labelConsistent = !period || (
           (!periodStart || periodStart <= labelEnd) &&
           (!periodEnd || periodEnd >= labelStart)
-        );
+        ),
+        // Future report-day labels and future financial months are not
+        // historical observations. A current financial month, however, may
+        // legitimately have a month-end boundary after today's business date.
+        futureDeclaredObservation = (isMonth && period + "-01" > today) ||
+          (period.length === 10 && freshness.validDateKey(period) && period > today) ||
+          (!isMonth && freshness.validDateKey(item?.periodEnd) && item.periodEnd > today);
       if (!declaredPeriodValid || !validBounds || !labelConsistent) return evaluate({ ...common, exists: Boolean(item),
         invalid: "The saved report period is invalid or internally inconsistent.",
         requiredAction: "Review the report period before using these values."
+      }, item, false);
+      if (futureDeclaredObservation) return evaluate({ ...common, exists: Boolean(item),
+        invalid: "The saved reference report declares a future reporting date.",
+        requiredAction: "Verify the actual report observation date before using these values."
       }, item, false);
       // A period start alone cannot establish when an observed report ended.
       // Preserve end-dated point observations and explicit month/date periods.
