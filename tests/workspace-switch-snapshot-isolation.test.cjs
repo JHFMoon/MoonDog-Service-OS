@@ -101,3 +101,46 @@ test("malformed B state fails without fallback to still-present A RO records",as
   await assert.rejects(ctx.load(),/Saved Open\/Closed RO records are invalid/);
   assert.deepEqual(f.model.state,existing,"invalid B never replaces A in-memory state before connection error");
 });
+
+
+test("actual batched writable hydration never inherits the preceding Workspace on missing files",async()=>{
+  const f=fresh();switchToWorkspaceA(f);
+  const originalA=clone(f.model);
+  const ctx=f.ctx;
+  const pathNames=[
+    "STATE_PATH","APPOINTMENTS_PATH","PERFORMANCE_PATH","OPERATIONAL_METRICS_PATH",
+    "MEETING_CYCLE_PATH","ASSIGN_NEXT_PATH","AUTO_IMPORT_PATH","RECOVERY_PATH"
+  ];
+  const paths=pathNames.map((_,i)=>"SYN-B-"+i);
+  Object.assign(ctx,Object.fromEntries(pathNames.map((name,i)=>[name,paths[i]])));
+  const active=source("    const connectionReadSpecs = [",
+    "    // A legacy bootstrap is migrated into settings below.");
+  const commit=source(
+    "    [model.state, model.appointments, model.performance, model.operationalMetrics, model.meetingCycle, model.assignNext, model.autoImport, model.recovery] = connectionReadResults;",
+    "    const rawSettings = pendingSettings;");
+  let readCount=0;
+  ctx.readJson=async(_path,fallback)=>{readCount++;return fallback;};
+  await vm.runInContext("(async()=>{"+active+commit+"})()",ctx);
+  assert.equal(readCount,8);
+  for(const key of names)assert.deepEqual(clone(f.model[key]),f.initial[key],
+    "committed Workspace B must not inherit A's "+key);
+  assert.equal(originalA.state.records[0].management.note,"Manager A note");
+});
+test("batched writable connection aborts before changing the old Workspace model on an unreadable file",async()=>{
+  const f=fresh();switchToWorkspaceA(f);
+  const original=clone(f.model),ctx=f.ctx;
+  const keys=[
+    "STATE_PATH","APPOINTMENTS_PATH","PERFORMANCE_PATH","OPERATIONAL_METRICS_PATH",
+    "MEETING_CYCLE_PATH","ASSIGN_NEXT_PATH","AUTO_IMPORT_PATH","RECOVERY_PATH"
+  ];
+  Object.assign(ctx,Object.fromEntries(keys.map((name,i)=>[name,"SYN-C-"+i])));
+  const code=source("    const connectionReadSpecs = [",
+    "    // A legacy bootstrap is migrated into settings below.");
+  const commit=source(
+    "    [model.state, model.appointments, model.performance, model.operationalMetrics, model.meetingCycle, model.assignNext, model.autoImport, model.recovery] = connectionReadResults;",
+    "    const rawSettings = pendingSettings;");
+  ctx.readJson=async(path,fallback)=>{if(path==="SYN-C-2")throw Error("Synthetic source unreadable");return fallback;};
+  await assert.rejects(vm.runInContext("(async()=>{"+code+commit+"})()",ctx),/Synthetic source unreadable/);
+  assert.deepEqual(clone(f.model),original,
+    "a failed B source read must not replace A's in-memory records or other snapshots");
+});
