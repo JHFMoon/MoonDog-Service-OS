@@ -8084,6 +8084,14 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       return await withSupervisorWorkbookLock(async()=>{
       const rechecked=pasteDiff(preview.parsed);
       if(rechecked.errors.length)throw Error("Existing RO identities changed. Review again.");
+      // After the shared lock has verified current durable state, a fully
+      // unchanged partial import has nothing to merge, back up, or redraw.
+      // Retain the same eligibility, identity and concurrent-Workspace gates.
+      if(rechecked.changes?.length===preview.parsed.records.length&&
+          rechecked.changes.every(change=>change.kind==="unchanged")){
+        pastePreview=null;
+        return{status:"unchanged",added:0,updated:0,missingClosed:0};
+      }
       const active=new Map((model.state.records||[]).map(row=>[String(row.ro),row]));
       const closed=new Map((model.state.closedRecords||[]).map(row=>[String(row.ro),row]));
       const added=[],changed=[],unchanged=[];
