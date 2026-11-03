@@ -22,11 +22,25 @@ function candidate(name, serial) {
     }}
   };
 }
-function harness({onlyUnreadable = false} = {}) {
+function harness({onlyUnreadable = false, csvPreview = false, unexpectedPreviewError = false} = {}) {
   const root = {name: "Synthetic Workspace"};
-  const good = candidate("synthetic-good.xlsx", 100);
-  const bad = candidate("synthetic-deferred.xlsx", 200);
+  const extension = csvPreview ? "csv" : "xlsx";
+  const good = candidate("synthetic-good." + extension, 100);
+  const bad = candidate("synthetic-deferred." + extension, 200);
   const sources = onlyUnreadable ? [bad] : [good, bad];
+  let failedPreview = false;
+  if (csvPreview) {
+    good.file.slice = () => ({text: async () => "advisor name,total ros,vir printed/emailed"});
+    bad.file.slice = () => ({text: async () => {
+      if (!failedPreview) {
+        failedPreview = true;
+        const error = new Error("Synthetic metadata preview failure");
+        error.name = unexpectedPreviewError ? "TypeError" : "NotReadableError";
+        throw error;
+      }
+      return "advisor name,total ros,vir printed/emailed";
+    }});
+  }
   const deferred = {...bad, file: undefined, readError: {name: "NotReadableError"}};
   const model = {root, autoImport: {seen: {}, inboxVersion: 1, initializedAt: "2026-11-02T12:00:00Z"}};
   const pending = new Map(sources.map(source => [source.relativePath, {
@@ -46,9 +60,11 @@ function harness({onlyUnreadable = false} = {}) {
     folderWatchEnabled: () => true, permission: async () => "granted",
     watchCandidates: async () => {
       inventoryReads++;
-      return inventoryReads === 2 ? (onlyUnreadable ? [deferred] : [good, deferred]) : sources;
+      return inventoryReads === 2 && !csvPreview
+        ? (onlyUnreadable ? [deferred] : [good, deferred]) : sources;
     },
     candidateNeedsImport: item => !model.autoImport.seen?.[item.signature],
+    transientIntakeError: error => error?.name === "NotReadableError",
     classifyImportFile: async () => "appointments",
     processClassifiedCandidate: async item => {
       imports.push(item.name);
@@ -94,4 +110,42 @@ test("only-unreadable second-pass source remains retryable without ledger writes
   assert.equal(h.folderWatch.busy, false);
   await h.run();
   assert.deepEqual(h.imports, [h.bad.name], "recovered source must still import");
+});
+
+
+test("transient CSV preview read failure defers only the locked file, then retries it", async () => {
+  const h = harness({csvPreview: true});
+  await h.run();
+  assert.deepEqual(h.imports, [h.good.name], "healthy CSV must import despite the other preview lock");
+  assert.equal(h.model.autoImport.seen[h.bad.signature], undefined,
+    "preview failure cannot claim import or mutate the bad source's ledger");
+  assert.equal(h.folderWatch.pending.has(h.good.relativePath), false);
+  assert.equal(h.folderWatch.pending.get(h.bad.relativePath).confirmations, 2,
+    "stable confirmation must survive preview failure for next scan");
+  assert.equal(h.folderWatch.busy, false, "watch should release after partial success");
+  assert.deepEqual(h.errors, [], "a transient preview lock must not fail entire intake");
+  await h.run();
+  assert.deepEqual(h.imports, [h.good.name, h.bad.name],
+    "recovered CSV should import exactly once without reprocessing the healthy source");
+  assert.equal(h.folderWatch.pending.has(h.bad.relativePath), false);
+});
+
+test("a sole CSV preview lock does not create a false ledger update and remains retryable", async () => {
+  const h = harness({onlyUnreadable: true, csvPreview: true});
+  await h.run();
+  assert.deepEqual(h.imports, []);
+  assert.deepEqual(h.writes, [], "a preview failure cannot issue an unrelated workspace write");
+  assert.equal(h.model.autoImport.seen[h.bad.signature], undefined);
+  assert.equal(h.folderWatch.pending.get(h.bad.relativePath).confirmations, 2);
+  await h.run();
+  assert.deepEqual(h.imports, [h.bad.name]);
+});
+
+test("nontransient preview error falls through to ordinary validation instead of hiding source", async () => {
+  const h = harness({csvPreview: true, unexpectedPreviewError: true});
+  await h.run();
+  assert.deepEqual(h.imports, [h.good.name, h.bad.name],
+    "ordering-only preview errors do not permanently suppress a valid source");
+  assert.equal(h.folderWatch.pending.size, 0);
+  assert.deepEqual(h.errors, []);
 });
