@@ -20,6 +20,7 @@ function evidence(key, item) {
   const ctx = vm.createContext({
     model: {},
     freshness,
+    latestOperationalSnapshot: () => null,
     sourceExpectation: () => "recommended",
     businessTimeZone: () => "America/Los_Angeles",
     localDateKey: () => TODAY,
