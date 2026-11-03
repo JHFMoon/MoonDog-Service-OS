@@ -1573,6 +1573,12 @@
     if (!configuredAdapter && Object.keys(rawSettings.advisors || {}).length && !rawSettings.setup?.newStorePrepared) throw new Error("The protected local source adapter is missing. Restore local configuration before reconnecting.");
     if (configuredAdapter) loadSourceAdapter(configuredAdapter, rawSettings); else clearSourceAdapter();
     if (bootstrapAdapter) {
+      // This legacy bootstrap is migrated and removed below. Revalidate its
+      // source before the first write so a concurrent replacement is never
+      // silently replaced by the earlier preflight snapshot.
+      const currentBootstrapAdapter = await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
+      if (JSON.stringify(currentBootstrapAdapter) !== JSON.stringify(bootstrapAdapter))
+        throw new Error("Protected local source adapter changed during connection. Reconnect before migrating.");
       await writeJson(["backups", `${stamp()}-before-source-adapter-settings-migration.json`], rawSettings);
       rawSettings.sourceAdapters = bootstrapAdapter;
       await writeJson(SETTINGS_PATH, rawSettings);
