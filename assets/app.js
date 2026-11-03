@@ -1517,10 +1517,10 @@
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot; model.root = wrapOperationalRoot(resolvedRoot); model.applicationRoot = handle;
     // Synchronously revoke old Daily task/search actions before any B async load.
     document.dispatchEvent(new Event("moondog-workspace-changing"));
-    let pendingSettings;
+    let pendingSettings,pendingAdapter;
     try {
       pendingSettings = await readJson(SETTINGS_PATH, {});
-      const pendingAdapter = pendingSettings.sourceAdapters || await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
+      pendingAdapter = pendingSettings.sourceAdapters || await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
       if (!pendingAdapter && Object.keys(pendingSettings.advisors || {}).length && !pendingSettings.setup?.newStorePrepared) throw new Error("The protected local source adapter is missing. Restore local configuration before reconnecting.");
       if (pendingAdapter && pendingAdapter.schemaVersion !== 1) throw new Error("The protected local source adapter is invalid.");
     } catch (error) { model.root = previousRoot; model.applicationRoot = previousNativeRoot; connectedNativeRoot = previousNativeRoot; throw error; }
@@ -1566,7 +1566,9 @@
     model.operationalMetrics.supplementalReports ||= { snapshots: {} };
     for (const family of ["sor", "appointmentActivity", "efficiency", "mediaAsr", "openRoSummary"]) model.operationalMetrics[family] ||= { snapshots: {} };
     model.assignNext.days||={};
-    const bootstrapAdapter = rawSettings.sourceAdapters ? null : await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
+    // The protected adapter was already read and schema-validated before
+    // hydration. Reuse it instead of paying a second local/OneDrive read.
+    const bootstrapAdapter = rawSettings.sourceAdapters ? null : pendingAdapter;
     const configuredAdapter = rawSettings.sourceAdapters || bootstrapAdapter;
     if (!configuredAdapter && Object.keys(rawSettings.advisors || {}).length && !rawSettings.setup?.newStorePrepared) throw new Error("The protected local source adapter is missing. Restore local configuration before reconnecting.");
     if (configuredAdapter) loadSourceAdapter(configuredAdapter, rawSettings); else clearSourceAdapter();
