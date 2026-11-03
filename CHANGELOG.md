@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.315 — current Beta
+
+- perf(58-04): aggregate Assign Next workload in one roster pass. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.314 — current Beta
 
 - fix(59-01): bind Manager Intelligence lineage to selected report. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
