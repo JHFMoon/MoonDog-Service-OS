@@ -102,3 +102,32 @@ test("missing source, malformed dates and start-only sources remain blocked by p
     }
   }
 });
+
+test("explicit future reference observations fail closed without rejecting a current financial-month boundary", () => {
+  const currentMonth = { period: "2026-10", periodStart: "2026-10-01", periodEnd: "2026-10-31" };
+  const invalid = [
+    { period: "2026-10-31", importedAt: "2026-10-30T18:00:00.000Z" },
+    { date: "2026-10-31", importedAt: "2026-10-30T18:00:00.000Z" },
+    { periodStart: "2026-10-01", periodEnd: "2026-10-31" },
+    { period: "2026-11", importedAt: "2026-10-30T18:00:00.000Z" }
+  ];
+  for (const key of families) {
+    for (const source of invalid) {
+      const result = evidence(key, source);
+      assert.equal(result.status, "invalid", key + " " + JSON.stringify(source));
+      assert.equal(result.loaded, true, key);
+      assert.equal(result.safeForCurrent, false, key);
+      assert.equal(result.safeForPurpose, false, key);
+      assert.equal(result.reportPeriodVerified, false, key);
+      assert.match(result.reason, /future reporting date/i, key);
+      assert.equal(freshness.evaluateMetric([result]).verified, false, key);
+    }
+    // Current-month cumulative financial data can still carry a projected
+    // calendar month-end boundary; the month label is not a future month.
+    const partialMonth = evidence(key, currentMonth);
+    assert.equal(partialMonth.status, "historical-valid", key);
+    assert.equal(partialMonth.reportPeriodVerified, true, key);
+    const observed = evidence(key, { period: "2026-10-30" });
+    assert.equal(observed.status, "historical-valid", key + " actual report date");
+  }
+});

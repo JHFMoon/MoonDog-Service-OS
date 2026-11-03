@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.312 — current Beta
+
+- guard(59-04): reject future declared reference report observations. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.311 — current Beta
 
 - guard(59-01): disallow future periods in historical confidence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
