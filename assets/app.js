@@ -1517,10 +1517,10 @@
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot; model.root = wrapOperationalRoot(resolvedRoot); model.applicationRoot = handle;
     // Synchronously revoke old Daily task/search actions before any B async load.
     document.dispatchEvent(new Event("moondog-workspace-changing"));
-    let pendingSettings;
+    let pendingSettings,pendingAdapter;
     try {
       pendingSettings = await readJson(SETTINGS_PATH, {});
-      const pendingAdapter = pendingSettings.sourceAdapters || await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
+      pendingAdapter = pendingSettings.sourceAdapters || await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
       if (!pendingAdapter && Object.keys(pendingSettings.advisors || {}).length && !pendingSettings.setup?.newStorePrepared) throw new Error("The protected local source adapter is missing. Restore local configuration before reconnecting.");
       if (pendingAdapter && pendingAdapter.schemaVersion !== 1) throw new Error("The protected local source adapter is invalid.");
     } catch (error) { model.root = previousRoot; model.applicationRoot = previousNativeRoot; connectedNativeRoot = previousNativeRoot; throw error; }
@@ -1548,6 +1548,22 @@
     // Bound independent reads to protect local folders and OneDrive from a burst.
     // Do not publish partial model state: commit the snapshots only when all reads succeed.
     await Promise.all(Array.from({ length: Math.min(3, connectionReadSpecs.length) }, () => readConnectionSnapshots()));
+    // A legacy bootstrap is migrated into settings below. Before hydrating any
+    // replacement state or writing a migration, recheck that its authoritative
+    // contents still match the already validated preflight snapshot. An absent
+    // legacy bootstrap needs no second read on a normal reconnect.
+    if (!pendingSettings.sourceAdapters && pendingAdapter) {
+      try {
+        const currentBootstrapAdapter = await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
+        if (JSON.stringify(currentBootstrapAdapter) !== JSON.stringify(pendingAdapter))
+          throw new Error("Protected local source adapter changed during connection. Reconnect before migrating.");
+      } catch (error) {
+        model.root = previousRoot;
+        model.applicationRoot = previousNativeRoot;
+        connectedNativeRoot = previousNativeRoot;
+        throw error;
+      }
+    }
     [model.state, model.appointments, model.performance, model.operationalMetrics, model.meetingCycle, model.assignNext, model.autoImport, model.recovery] = connectionReadResults;
     const rawSettings = pendingSettings;
     model.state.closedRecords=pruneClosedRecords(model.state.closedRecords||[]);
@@ -1566,7 +1582,9 @@
     model.operationalMetrics.supplementalReports ||= { snapshots: {} };
     for (const family of ["sor", "appointmentActivity", "efficiency", "mediaAsr", "openRoSummary"]) model.operationalMetrics[family] ||= { snapshots: {} };
     model.assignNext.days||={};
-    const bootstrapAdapter = rawSettings.sourceAdapters ? null : await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
+    // The protected adapter was already read and schema-validated before
+    // hydration. Reuse it instead of paying a second local/OneDrive read.
+    const bootstrapAdapter = rawSettings.sourceAdapters ? null : pendingAdapter;
     const configuredAdapter = rawSettings.sourceAdapters || bootstrapAdapter;
     if (!configuredAdapter && Object.keys(rawSettings.advisors || {}).length && !rawSettings.setup?.newStorePrepared) throw new Error("The protected local source adapter is missing. Restore local configuration before reconnecting.");
     if (configuredAdapter) loadSourceAdapter(configuredAdapter, rawSettings); else clearSourceAdapter();

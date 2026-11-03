@@ -28,7 +28,7 @@ function percentile(samples, p) {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)];
 }
 
-async function measureReconnect(readDelayMs, permissionResults = ["granted"], inspectPendingRead = false, recordCount = 1) {
+async function measureReconnect(readDelayMs, permissionResults = ["granted"], inspectPendingRead = false, recordCount = 1, adapterInSettings = true, connectionSource = connectionCore) {
   const permissionSequence = [...permissionResults];
   let permissionIndex = 0;
   const handle = {
@@ -51,7 +51,7 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   const fixture = {
     [paths.settings]: {
       schemaVersion: 5,
-      sourceAdapters: { schemaVersion: 1, key: "synthetic" },
+      sourceAdapters: adapterInSettings ? { schemaVersion: 1, key: "synthetic" } : undefined,
       advisors: {},
       setup: { completedAt: "synthetic" },
       openRo: { managementStatuses: [] }
@@ -89,6 +89,7 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   const completedReads = new Set();
   const readCalls = new Map();
   const requiredReadPaths = [paths.settings, paths.state, paths.appointments, paths.performance, paths.metrics, paths.meeting, paths.assignNext, paths.autoImport, paths.recovery];
+  if (!adapterInSettings) requiredReadPaths.push(paths.adapter);
   const connectedSnapshots = [];
   let signalFirstReadStarted;
   const firstReadStarted = new Promise(resolve => { signalFirstReadStarted = resolve; });
@@ -208,7 +209,7 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
   });
 
   vm.runInContext(
-    connectionCore + "\n" + transientWorkspaceState + "\n" + restoreConnection + "\n" + connectWorkspaceSource +
+    connectionSource + "\n" + transientWorkspaceState + "\n" + restoreConnection + "\n" + connectWorkspaceSource +
       "\nthis.restore=restoreConnection; this.connectWorkspace=connect;",
     context
   );
@@ -277,7 +278,8 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
     firstHomeMs: firstRender.at - measuredRecoveryStart,
     totalReconnectMs: finished - measuredRecoveryStart,
     maxConcurrentReadCount,
-    recordsAtFirstHome: firstRender.renderedRecordCount
+    recordsAtFirstHome: firstRender.renderedRecordCount,
+    bootstrapAdapterReads: readCalls.get(paths.adapter) || 0
   };
 }
 
@@ -380,4 +382,28 @@ test("58-02: explicit permission recovery reaches verified Home with a measured 
   assert.ok(Number.isFinite(result.verifiedHomeAfterRecoveryMs.p50));
   assert.ok(result.verifiedHomeAfterRecoveryMs.p95 >= result.verifiedHomeAfterRecoveryMs.p50);
   assert.ok(result.totalRecoveryMs.p95 >= result.verifiedHomeAfterRecoveryMs.p50);
+});
+
+test("58-02: reusable validated adapter avoids the second read on a source-adapter-free connection", async () => {
+  const anchor = "    const bootstrapAdapter = rawSettings.sourceAdapters ? null : pendingAdapter;";
+  assert.equal(connectionCore.split(anchor).length,2,"protected production bootstrap adapter reuse must exist once");
+  const legacyCore=connectionCore.replace(anchor,
+    "    const bootstrapAdapter = rawSettings.sourceAdapters ? null : await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);");
+  const legacy=[],optimized=[];
+  for(let i=0;i<9;i++){
+    const old=await measureReconnect(25,["granted"],false,2100,false,legacyCore);
+    const now=await measureReconnect(25,["granted"],false,2100,false,connectionCore);
+    assert.equal(old.bootstrapAdapterReads,2,"legacy rereads missing adapter even after preflight");
+    assert.equal(now.bootstrapAdapterReads,1,"optimized path reuses the already verified adapter preflight");
+    assert.equal(old.recordsAtFirstHome,2100);
+    assert.equal(now.recordsAtFirstHome,2100);
+    legacy.push(old.firstHomeMs);
+    optimized.push(now.firstHomeMs);
+  }
+  const value=s=>({p50:Number(percentile(s,.5).toFixed(2)),p95:Number(percentile(s,.95).toFixed(2))});
+  console.log("58-02 synthetic bootstrap-adapter reconnect before/after",
+    JSON.stringify({samples:9,recordCount:2100,perReadDelayMs:25,
+      legacy:value(legacy),optimized:value(optimized),
+      legacyAdapterReads:2,optimizedAdapterReads:1,
+      scope:"actual production connection VM; missing protected bootstrap adapter; verified Home; no browser/file picker/real OneDrive"}));
 });
