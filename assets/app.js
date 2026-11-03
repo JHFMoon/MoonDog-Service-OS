@@ -1517,7 +1517,10 @@
   function validateConnectedWorkbookSnapshot(snapshot) {
     if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) ||
         !Array.isArray(snapshot.records) ||
-        (snapshot.closedRecords !== undefined && !Array.isArray(snapshot.closedRecords)))
+        (snapshot.closedRecords !== undefined && !Array.isArray(snapshot.closedRecords)) ||
+        snapshot.records.some(record => !record || typeof record !== "object" || Array.isArray(record)) ||
+        (Array.isArray(snapshot.closedRecords) &&
+          snapshot.closedRecords.some(record => !record || typeof record !== "object" || Array.isArray(record))))
       throw new Error("Saved Open/Closed RO records are invalid. Original Workspace data was retained; review a verified backup before editing.");
     return snapshot;
   }
