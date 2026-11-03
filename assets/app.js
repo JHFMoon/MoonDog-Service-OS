@@ -4877,6 +4877,15 @@
     const points=[];
     for(const item of sourceTrendObservations(measure.family)){
       const date=trendObservationDate(measure.family,item);if(!date||date.slice(0,7)!==month||date>today)continue;
+      // A retained reference record may be older than current importer guards.
+      // Chart dates and numeric values do not independently prove that the
+      // saved report's declared period agrees with its observation.
+      if(['sor','efficiency','mediaAsr','mediaAsrTech'].includes(measure.family)){
+        const lineage=sourceFreshness(measure.family,{
+          item,today,purpose:'historical',targetStart:date,targetEnd:date
+        });
+        if(!lineage.safeForPurpose||!lineage.reportPeriodVerified)continue;
+      }
       if(measure.family==='sapr'&&(item.periodStart!==start||['totalGross','totalRevenue'].includes(measure.key)&&!item.validation?.finalTotalsVerified))continue;
       let entity=trendEntity(item,role,id,measure.family),value,benchmark=null,bic=null;
       if(measure.controllable){const control=role==='store'?item.controllables?.store?.[measure.key]:item.controllables?.advisors?.[id]?.[measure.key];value=control?.actual;benchmark=control?.brandAverage;bic=control?.bic;}
