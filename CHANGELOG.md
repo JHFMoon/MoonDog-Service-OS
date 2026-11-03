@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.310 — current Beta
+
+- guard(59-04): require end-dated reference evidence in canonical freshness. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.309 — current Beta
 
 - fix(#59-03): keep Report Inbox healthy when a CSV preview read is locked. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

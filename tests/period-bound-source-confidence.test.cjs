@@ -109,3 +109,43 @@ test("start-only reference report coverage cannot be promoted to historical-vali
     assert.equal(bounded.reportPeriodVerified, true, key);
   }
 });
+
+test("canonical reference-source evaluator never promotes start-only provenance", () => {
+  const today = "2026-11-02";
+  for (const key of families) {
+    const source = {
+      key, exists: true, today,
+      periodStart: "2026-10-01",
+      sourceTimestamp: "2026-11-02T17:00:00.000Z"
+    };
+    const before = JSON.stringify(source);
+    const unverified = freshness.evaluateSource(source);
+    assert.equal(unverified.status, "invalid", key + " start-only report");
+    assert.match(unverified.reason, /no verified end or observation date/i, key);
+    assert.equal(unverified.safeForCurrent, false, key);
+    assert.equal(unverified.safeForPurpose, false, key);
+    assert.equal(freshness.evaluateMetric([unverified]).verified, false, key);
+    assert.equal(JSON.stringify(source), before, key + " input remains immutable");
+
+    const missing = freshness.evaluateSource({...source, periodStart: undefined});
+    assert.equal(missing.status, "invalid", key + " undated report");
+    assert.match(missing.reason, /no verified reporting period/i, key);
+
+    const endOnly = freshness.evaluateSource({
+      ...source, periodStart: undefined, periodEnd: "2026-10-29"
+    });
+    assert.equal(endOnly.status, "historical-valid", key + " valid point observation");
+    assert.equal(endOnly.safeForPurpose, true, key);
+
+    const complete = freshness.evaluateSource({...source, periodEnd: "2026-10-29"});
+    assert.equal(complete.status, "historical-valid", key + " verified interval");
+    assert.equal(complete.safeForPurpose, true, key);
+    assert.equal(freshness.evaluateMetric([complete]).verified, true, key);
+
+    const historic = freshness.evaluateSource({
+      ...source, purpose: "historical",
+      targetStart: "2026-10-01", targetEnd: "2026-10-02"
+    });
+    assert.equal(historic.status, "stale", key + " cannot cover historical interval");
+  }
+});
