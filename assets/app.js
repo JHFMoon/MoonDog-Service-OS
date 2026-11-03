@@ -1422,6 +1422,17 @@
     }
   }
 
+  // Saved RO populations are durable source authority, not empty defaults when
+  // a file is damaged. Only the genuinely absent legacy Closed RO property is
+  // an empty retained roster; reject explicit malformed values before hydration.
+  function validateConnectedWorkbookSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) ||
+        !Array.isArray(snapshot.records) ||
+        (snapshot.closedRecords !== undefined && !Array.isArray(snapshot.closedRecords)))
+      throw new Error("Saved Open/Closed RO records are invalid. Original Workspace data was retained; review a verified backup before editing.");
+    return snapshot;
+  }
+
   async function finishReadOnlyConnection(handle) {
     const resolvedRoot=await operationalRoot(handle);
     // Read-only reconnects must obey the same operation boundary after the await.
@@ -1437,7 +1448,10 @@
         ["operationalMetrics", OPERATIONAL_METRICS_PATH], ["meetingCycle", MEETING_CYCLE_PATH],
         ["assignNext", ASSIGN_NEXT_PATH], ["autoImport", AUTO_IMPORT_PATH], ["recovery", RECOVERY_PATH]
       ];
-      for (const [key, path] of paths) model[key] = await readJson(path, model[key]);
+      for (const [key, path] of paths) {
+        const loaded = await readJson(path, model[key]);
+        model[key] = key === "state" ? validateConnectedWorkbookSnapshot(loaded) : loaded;
+      }
       const rawSettings = await readJson(SETTINGS_PATH, {});
       const adapter = rawSettings.sourceAdapters || await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
       if (!adapter && Object.keys(rawSettings.advisors || {}).length && !rawSettings.setup?.newStorePrepared)
@@ -1559,6 +1573,9 @@
     // Bound independent reads to protect local folders and OneDrive from a burst.
     // Do not publish partial model state: commit the snapshots only when all reads succeed.
     await Promise.all(Array.from({ length: Math.min(3, connectionReadSpecs.length) }, () => readConnectionSnapshots()));
+    // Reject corrupt persisted RO populations before installing snapshots or
+    // performing subsequent Workspace migrations and operational writes.
+    validateConnectedWorkbookSnapshot(connectionReadResults[0]);
     // A legacy bootstrap is migrated into settings below. Before hydrating any
     // replacement state or writing a migration, recheck that its authoritative
     // contents still match the already validated preflight snapshot. An absent
