@@ -18,7 +18,9 @@ const DAY="2026-11-02";
 
 function harness(selector,rows,options={}){
   let filters=0;
-  const records=new Proxy(rows,{get(target,key,receiver){
+  // Only the behavioral scan-count assertion instruments filter. Timed
+  // comparisons use ordinary arrays so instrumentation cannot skew p50/p95.
+  const records=options.trackFilters===false?rows:new Proxy(rows,{get(target,key,receiver){
     if(key==="filter")return callback=>{filters++;return Array.prototype.filter.call(target,callback);};
     return Reflect.get(target,key,receiver);
   }});
@@ -82,7 +84,7 @@ test("58-04: one roster scan preserves every advisor count, eligibility and orde
 
 test("58-04: paired synthetic Assign Next scan benchmark records p50/p95 on shipped selector",()=>{
   for(const count of [2100,15000]){
-    const data=rows(count),before=harness(legacy,data),after=harness(shipped,data);
+    const data=rows(count),before=harness(legacy,data,{trackFilters:false}),after=harness(shipped,data,{trackFilters:false});
     assert.equal(serialize(after.select()),serialize(before.select()));
     const result=paired(()=>before.select(),()=>after.select());
     console.log("58-04 Assign Next per-advisor scans vs single roster pass",JSON.stringify({
