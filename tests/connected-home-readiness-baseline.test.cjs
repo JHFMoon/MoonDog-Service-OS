@@ -84,9 +84,15 @@ test("synthetic connection reconciliation precedes stubbed render dispatch",asyn
 // #58-01: isolate the production essential snapshot hydration block. This
 // measures only the bounded read/atomic publication stage on synthetic handles.
 // It does NOT include browser/OneDrive latency, full connection, or real DOM.
+// Keep the read/atomic-publication benchmark scoped to hydration only.
+// The production pre-hydration adapter-race guard is independently exercised
+// by workspace-connection-data-preservation.test.cjs with root rollback cases.
 const hydrateSnapshots=extract(app,
   "    const connectionReadSpecs = [",
-  "    model.state.closedRecords=pruneClosedRecords");
+  "    // A legacy bootstrap is migrated into settings below.")+
+  extract(app,
+    "    [model.state, model.appointments, model.performance, model.operationalMetrics, model.meetingCycle, model.assignNext, model.autoImport, model.recovery] = connectionReadResults;",
+    "    model.state.closedRecords=pruneClosedRecords");
 async function syntheticSnapshotHydration(recordCount,options={}){
   const names=["state","appointments","performance","operationalMetrics",
     "meetingCycle","assignNext","autoImport","recovery"];
