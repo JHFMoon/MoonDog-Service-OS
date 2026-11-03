@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.322 — current Beta
+
+- guard(#59-05): validate connected RO snapshots and isolate Workspace defaults. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.321 — current Beta
 
 - guard(#58-06): prevent stale workbook writes after source or review-queue changes. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

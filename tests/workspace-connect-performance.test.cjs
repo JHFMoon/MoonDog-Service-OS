@@ -112,6 +112,7 @@ async function measureReconnect(readDelayMs, permissionResults = ["granted"], in
 
   const context = vm.createContext({
     model,
+    newWorkspaceSnapshot: key => clone(model[key]),
     writeAuthority,
     VERSION: "0.10.18-beta.synthetic",
     folderWatch: { busy: false },

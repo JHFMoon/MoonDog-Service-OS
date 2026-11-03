@@ -87,7 +87,10 @@ test("synthetic connection reconciliation precedes stubbed render dispatch",asyn
 // Keep the read/atomic-publication benchmark scoped to hydration only.
 // The production pre-hydration adapter-race guard is independently exercised
 // by workspace-connection-data-preservation.test.cjs with root rollback cases.
-const hydrateSnapshots=extract(app,
+const reconnectValidation=extract(app,
+  "  function validateConnectedWorkbookSnapshot(",
+  "  let postConnectionScanBusy=false;");
+const hydrateSnapshots=reconnectValidation+extract(app,
   "    const connectionReadSpecs = [",
   "    // A legacy bootstrap is migrated into settings below.")+
   extract(app,
@@ -121,6 +124,7 @@ async function syntheticSnapshotHydration(recordCount,options={}){
   };
   const context=vm.createContext({
     model,readJson,
+    newWorkspaceSnapshot: name=>({syntheticDefaultFor:name}),
     STATE_PATH:paths[0],APPOINTMENTS_PATH:paths[1],PERFORMANCE_PATH:paths[2],
     OPERATIONAL_METRICS_PATH:paths[3],MEETING_CYCLE_PATH:paths[4],
     ASSIGN_NEXT_PATH:paths[5],AUTO_IMPORT_PATH:paths[6],RECOVERY_PATH:paths[7],

@@ -191,6 +191,8 @@ test("production connection keeps the saved handle when a transient snapshot rea
   let reads=0;
   const context={
     model:{pendingRoot:handle,root:null,applicationRoot:null,state:{},appointments:{},performance:{},operationalMetrics:{},meetingCycle:{},assignNext:{},autoImport:{},recovery:{}},
+    // Actual connection code requests fresh root-independent fallback snapshots.
+    newWorkspaceSnapshot:key=>key==="state"?{records:[],closedRecords:[]}:{},
     workspaceConnectionBlockReason:()=>"",
     permission:async(received,ask)=>{assert.equal(received,handle);assert.equal(ask,false);return "granted";},
     writeAuthority:{canWrite:true,validate:async()=>{}},

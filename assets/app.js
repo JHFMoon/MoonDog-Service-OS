@@ -812,6 +812,15 @@
   const assignIntro = ui["view-assign-next"]?.querySelector(".assign-hero p:not(.eyebrow)"); if (assignIntro) assignIntro.textContent = "Open ROs and Opened Today update exclusively from verified Open RO reports. Mark anyone unavailable as needed.";
   ui["view-performance"]?.querySelector(".performance-controls")?.after(ui["view-performance"].querySelector(".performance-chart-card"));
   const model = { root: null, pendingRoot: null, connectionState: "STARTING", selectedId: null, editOrigin: "table", state: { schemaVersion: 1, appVersion: VERSION, updatedAt: null, source: null, records: [], closedRecords: [] }, appointments: { schemaVersion: 1, updatedAt: null, days: {} }, performance: { schemaVersion: 1, updatedAt: null, snapshots: {} }, operationalMetrics: { schemaVersion: 1, updatedAt: null, nextAppointments: { snapshots: {} }, vir: { snapshots: {} }, menu: { snapshots: {} }, csi: { surveys: {}, imports: [] }, monthlySummaries: {}, sor: { snapshots: {} }, appointmentActivity: { snapshots: {} }, efficiency: { snapshots: {} }, mediaAsr: { snapshots: {} }, openRoSummary: { snapshots: {} }, supplementalReports: { snapshots: {} } }, meetingCycle: { schemaVersion: 1, cycleStart: "", resetAt: "", capturedAt: "", metrics: {} }, assignNext: { schemaVersion: 3, updatedAt: null, days: {}, currentOpenRo: null }, autoImport: { schemaVersion: 1, initializedAt: null, updatedAt: null, seen: {} }, recovery: { schemaVersion: 1, lastSuccessfulConnectionAt: "", lastBackup: null, lastRestore: null, status: "Ready" }, settings: { ...DEFAULTS } };
+  // Capture fresh, root-independent defaults once, before any Workspace connects.
+  // A missing file in Workspace B must not reuse Workspace A's live reports,
+  // manual RO notes, review state or performance history as its fallback.
+  const pristineWorkspaceSnapshots=Object.fromEntries(
+    ["state","appointments","performance","operationalMetrics","meetingCycle","assignNext","autoImport","recovery"]
+      .map(key=>[key,JSON.parse(JSON.stringify(model[key]))]));
+  function newWorkspaceSnapshot(key){
+    return JSON.parse(JSON.stringify(pristineWorkspaceSnapshots[key]));
+  }
   let connectedNativeRoot = null;
   new MutationObserver(() => { const node = ui.clarificationBanner?.querySelector("span"); if (node?.textContent.includes("and Activity history")) node.textContent = node.textContent.replace(" and Activity history", ""); }).observe(ui.clarificationBanner, { childList: true, subtree: true });
   const status = (message, type = "info") => { ui.status.textContent = message; ui.status.className = `status ${type}`; };
@@ -1451,7 +1460,10 @@
         ["operationalMetrics", OPERATIONAL_METRICS_PATH], ["meetingCycle", MEETING_CYCLE_PATH],
         ["assignNext", ASSIGN_NEXT_PATH], ["autoImport", AUTO_IMPORT_PATH], ["recovery", RECOVERY_PATH]
       ];
-      for (const [key, path] of paths) model[key] = await readJson(path, model[key]);
+      for (const [key, path] of paths) {
+        const loaded = await readJson(path, newWorkspaceSnapshot(key));
+        model[key] = key === "state" ? validateConnectedWorkbookSnapshot(loaded) : loaded;
+      }
       const rawSettings = await readJson(SETTINGS_PATH, {});
       const adapter = rawSettings.sourceAdapters || await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
       if (!adapter && Object.keys(rawSettings.advisors || {}).length && !rawSettings.setup?.newStorePrepared)
@@ -1499,6 +1511,17 @@
   // All folder changes, including automatic restoration, share one exclusive
   // connection operation. A second picker must not overlap this root's model load.
   let workspaceConnectionBusy=false;
+  // Saved RO populations are durable source authority, not empty defaults when
+  // a file is damaged. Only the genuinely absent legacy Closed RO property is
+  // an empty retained roster; reject explicit malformed values before hydration.
+  function validateConnectedWorkbookSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) ||
+        !Array.isArray(snapshot.records) ||
+        (snapshot.closedRecords !== undefined && !Array.isArray(snapshot.closedRecords)))
+      throw new Error("Saved Open/Closed RO records are invalid. Original Workspace data was retained; review a verified backup before editing.");
+    return snapshot;
+  }
+
   // A queued maintenance task may be writing durable state. Do not switch the
   // active Workspace until that one task has settled; do not start another
   // queued task while a connection is already in progress.
@@ -1552,14 +1575,14 @@
     connectedNativeRoot = handle;
     try { await rememberRoot(handle); } catch (_) { /* Manual folder reconnection remains available without browser storage. */ } await initializeFolders(); await recordDiagnostic("APPLICATION", `Service Operations Dashboard ${VERSION} connected; recent diagnostics rotated`);
     const connectionReadSpecs = [
-      [STATE_PATH, model.state],
-      [APPOINTMENTS_PATH, model.appointments],
-      [PERFORMANCE_PATH, model.performance],
-      [OPERATIONAL_METRICS_PATH, model.operationalMetrics],
-      [MEETING_CYCLE_PATH, model.meetingCycle],
-      [ASSIGN_NEXT_PATH, model.assignNext],
-      [AUTO_IMPORT_PATH, model.autoImport],
-      [RECOVERY_PATH, model.recovery]
+      [STATE_PATH, newWorkspaceSnapshot("state")],
+      [APPOINTMENTS_PATH, newWorkspaceSnapshot("appointments")],
+      [PERFORMANCE_PATH, newWorkspaceSnapshot("performance")],
+      [OPERATIONAL_METRICS_PATH, newWorkspaceSnapshot("operationalMetrics")],
+      [MEETING_CYCLE_PATH, newWorkspaceSnapshot("meetingCycle")],
+      [ASSIGN_NEXT_PATH, newWorkspaceSnapshot("assignNext")],
+      [AUTO_IMPORT_PATH, newWorkspaceSnapshot("autoImport")],
+      [RECOVERY_PATH, newWorkspaceSnapshot("recovery")]
     ];
     const connectionReadResults = new Array(connectionReadSpecs.length);
     let nextConnectionRead = 0;
@@ -1573,6 +1596,9 @@
     // Bound independent reads to protect local folders and OneDrive from a burst.
     // Do not publish partial model state: commit the snapshots only when all reads succeed.
     await Promise.all(Array.from({ length: Math.min(3, connectionReadSpecs.length) }, () => readConnectionSnapshots()));
+    // Reject corrupt persisted RO populations before installing snapshots or
+    // performing subsequent Workspace migrations and operational writes.
+    validateConnectedWorkbookSnapshot(connectionReadResults[0]);
     // A legacy bootstrap is migrated into settings below. Before hydrating any
     // replacement state or writing a migration, recheck that its authoritative
     // contents still match the already validated preflight snapshot. An absent
