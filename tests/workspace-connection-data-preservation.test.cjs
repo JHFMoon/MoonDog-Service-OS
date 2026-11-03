@@ -88,36 +88,66 @@ test("invalid settings adapter takes precedence and fails closed without bootstr
   assert.equal(original.sourceAdapters.sourceId,"synthetic-invalid-settings");
 });
 
-// Exercise the exact production pre-write race guard for bootstrap migration.
-const guardBegin=runtime.indexOf("      const currentBootstrapAdapter = await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);");
-const guardEnd=runtime.indexOf("      await writeJson([\"backups\"",guardBegin);
-assert.ok(guardBegin>0&&guardEnd>guardBegin,"production migration race guard exists");
-const migrationGuard=runtime.slice(guardBegin,guardEnd);
-async function migrationPrewriteCheck(preflight,actual){
+// Exercise the shipped pre-hydration race guard, not a mock implementation.
+const guardBegin=runtime.indexOf("    if (!pendingSettings.sourceAdapters && pendingAdapter) {");
+const guardEnd=runtime.indexOf("    [model.state, model.appointments",guardBegin);
+assert.ok(guardBegin>0&&guardEnd>guardBegin,"production adapter race guard runs before any model hydration");
+const preHydrationGuard=runtime.slice(guardBegin,guardEnd);
+async function adapterRaceCheck(preflight,actual,{settingsAdapter=false,readFailure=false}={}){
   const calls={reads:0,writes:0};
-  const ctx={bootstrapAdapter:JSON.parse(JSON.stringify(preflight)),
+  const original={...preflight};
+  const previousRoot={id:"existing-safe-root"},pendingRoot={id:"uncommitted-root"};
+  const model={root:pendingRoot,applicationRoot:pendingRoot,state:{id:"existing-safe-state"}};
+  const ctx={model,previousRoot,previousNativeRoot:previousRoot,connectedNativeRoot:pendingRoot,
+    pendingSettings:settingsAdapter?{sourceAdapters:preflight}:{sourceAdapters:null},
+    pendingAdapter:{...preflight},
     SOURCE_ADAPTER_BOOTSTRAP_PATH:"source-adapter-bootstrap.json",
-    readJson:async()=>{calls.reads++;return actual==null?null:JSON.parse(JSON.stringify(actual));},
+    readJson:async()=>{calls.reads++;if(readFailure)throw Error("Synthetic adapter read failure");
+      return actual==null?null:{...actual};},
     writeJson:async()=>{calls.writes++;},JSON,Error};
   try{
-    const accepted=await vm.runInNewContext("(async()=>{"+migrationGuard+"return true;})()",ctx);
-    return{accepted,calls};
-  }catch(error){error.calls=calls;throw error;}
+    const accepted=await vm.runInNewContext("(async()=>{"+preHydrationGuard+"return true;})()",ctx);
+    return{accepted,calls,model,ctx,previousRoot,original};
+  }catch(error){
+    error.raceEvidence={calls,model,ctx,previousRoot,original};
+    throw error;
+  }
 }
-test("legacy bootstrap migration rechecks current source before any persistent write",async()=>{
-  const before={schemaVersion:1,sourceId:"original-adapter"};
-  const same=await migrationPrewriteCheck(before,{...before});
+test("bootstrap source race stops before hydration, restores prior root and never writes",async()=>{
+  const original={schemaVersion:1,sourceId:"original-adapter"};
+  const same=await adapterRaceCheck(original,{...original});
   assert.equal(same.accepted,true);
   assert.deepEqual(same.calls,{reads:1,writes:0});
-  for(const current of [{schemaVersion:1,sourceId:"newer-adapter"},null,{schemaVersion:2,sourceId:"invalid"}]){
+  assert.equal(same.model.root.id,"uncommitted-root","valid adapter may continue through hydration");
+  for(const current of [{schemaVersion:1,sourceId:"newer-adapter"},null,
+    {schemaVersion:2,sourceId:"invalid"}]){
     await assert.rejects(async()=>{
-      try{await migrationPrewriteCheck(before,current);}
+      try{await adapterRaceCheck(original,current);}
       catch(error){
-        assert.deepEqual(error.calls,{reads:1,writes:0},"never write after a conflicting adapter read");
+        const proof=error.raceEvidence;
+        assert.deepEqual(proof.calls,{reads:1,writes:0},"no operational write after adapter mismatch");
+        assert.equal(proof.model.root,proof.previousRoot,"restore old Workspace root");
+        assert.equal(proof.model.applicationRoot,proof.previousRoot,"restore application root");
+        assert.equal(proof.ctx.connectedNativeRoot,proof.previousRoot,"restore native root");
+        assert.deepEqual(proof.model.state,{id:"existing-safe-state"},
+          "failed pre-hydration migration cannot replace previous operational state");
+        assert.deepEqual(proof.original,original,"source before and after remain unchanged");
         throw error;
       }
     },/Protected local source adapter changed during connection/);
   }
-  assert.deepEqual(before,{schemaVersion:1,sourceId:"original-adapter"},
-    "previously validated source adapter remains unmodified after conflict");
+});
+test("adapter read failure restores the previous root without replacing saved state",async()=>{
+  const original={schemaVersion:1,sourceId:"previous"};
+  await assert.rejects(async()=>{
+    try{await adapterRaceCheck(original,null,{readFailure:true});}
+    catch(error){
+      assert.equal(error.raceEvidence.model.root,error.raceEvidence.previousRoot);
+      assert.equal(error.raceEvidence.calls.writes,0);
+      throw error;
+    }
+  },/Synthetic adapter read failure/);
+  const settingsWins=await adapterRaceCheck(original,{sourceId:"ignored"},{settingsAdapter:true});
+  assert.deepEqual(settingsWins.calls,{reads:0,writes:0},
+    "verified adapter already in settings must not re-read legacy bootstrap");
 });
