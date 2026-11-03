@@ -120,6 +120,17 @@ class SecurityWorkflowTests(unittest.TestCase):
             if line.strip() and not line[0].isspace() and not line.startswith("#"):
                 self.assertRegex(line, top_level, f"Unexpected column-zero text at line {line_no}")
 
+    def test_guarded_merge_blocks_unintended_issue_close_at_both_boundaries(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        self.assertEqual(merge.count("check-unintended-closures"), 2,
+                         "both initial authorization and final protected merge must recheck PR metadata")
+        self.assertIn("/tmp/pr.json /tmp/pr-commits.json --matrix docs/ROADMAP-ACCEPTANCE-MATRIX.md", merge)
+        self.assertIn("/tmp/final-pr.json /tmp/final-pr-commits.json --matrix docs/ROADMAP-ACCEPTANCE-MATRIX.md", merge)
+        self.assertEqual(merge.count("pulls/$PR_NUMBER/commits?per_page=100"), 2,
+                         "scan exact PR commit messages, not only title/body")
+        self.assertIn("jq -s '.' > /tmp/pr-commits.json", merge)
+        self.assertIn("jq -s '.' > /tmp/final-pr-commits.json", merge)
+
     def test_guarded_merge_and_offline_distribution_are_hands_off_safe(self):
         merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
         self.assertIn('workflows: ["Publication check", "Clean Install Proof"]', merge)
