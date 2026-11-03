@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.322",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.322.json",
-    "sha256": "ef373b4f575c70961102aec8e9eadc0251481e0d3347f742d5363d1533d7b349",
+    "version": "0.10.18-beta.323",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.323.json",
+    "sha256": "4c4ea850a5d5f895c5deed5c9d17ec9e2f4c1e15ac2962d4862228e937f7ac7b",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "guard(#59-05): validate connected RO snapshots and isolate Workspace defaults. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged."
+    "releaseNotes": "guard(#59-05): reject malformed Open/Closed RO roster members. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged."
   }
 }
