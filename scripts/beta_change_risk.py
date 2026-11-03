@@ -97,7 +97,9 @@ def classify(changes: list[dict]) -> str:
                 substantive = True
     if "protected" in kinds:
         return "protected"
-    if "data-affecting" in kinds or not substantive:
+    if not substantive:
+        return "protected"
+    if "data-affecting" in kinds:
         return "data-affecting"
     return "routine"
 
@@ -119,8 +121,11 @@ def has_scoped_preservation_proof(changes: list[dict]) -> bool:
     return any(
         isinstance(path, str) and path.startswith("tests/")
         and path.endswith(".test.cjs")
+        and re.search(r"(?i)(?:ro|import|history|source|data|durab|backup|recover|preserv|integrity|storage|state|roundtrip|migration|write)", path)
         and item.get("status") in {"added", "modified"}
         and path not in CRITICAL_PRESERVATION_TESTS
+        and isinstance(item.get("patch"), str)
+        and re.search(r"(?m)^\+[^+].*(?:assert[.([]|test\s*\(|expect\s*\()", item["patch"])
         for path, item in files.items()
     )
 
