@@ -7,6 +7,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const freshness = require("../assets/freshness.js");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
 function renderedText(node) { return [node.textContent, ...(node.children || []).map(renderedText)].filter(Boolean).join(" "); }
@@ -26,6 +27,11 @@ const trendAvailableEnd = app.indexOf("  function availableTrendMeasures(", tren
 assert.ok([mediaScopeStart, mediaScopeEnd, trendSourcesStart, trendSourcesEnd, trendObservationStart, trendMeasuresStart, trendPointsStart, trendAvailableEnd].every(index => index >= 0),
   "production Media ASR Performance lineage selectors are present");
 const mediaScopeProductionSource = app.slice(mediaScopeStart, mediaScopeEnd);
+const sourceFreshnessStart = app.indexOf("  function sourceFreshness(");
+const sourceFreshnessEnd = app.indexOf("  function metricDependencyEvidence(", sourceFreshnessStart);
+assert.ok(sourceFreshnessStart >= 0 && sourceFreshnessEnd > sourceFreshnessStart,
+  "canonical production source-confidence adapter exists for Performance history");
+const sourceFreshnessProduction = app.slice(sourceFreshnessStart, sourceFreshnessEnd);
 const trendSourcesProductionDeclaration = app.slice(trendSourcesStart, trendSourcesEnd);
 const mediaAsrPerformanceLineageSource = app.slice(trendObservationStart, trendMeasuresStart) + lineBreak +
   app.slice(trendPointsStart, trendAvailableEnd);
@@ -145,6 +151,10 @@ function mediaFixture(candidate) {
     now: () => "2026-10-23T12:00:00.000Z",
     localDateKey: () => "2026-10-23",
     text: value => String(value ?? ""),
+    freshness,
+    sourceExpectation: () => "recommended",
+    businessTimeZone: () => "UTC",
+    lastDayOfMonth: freshness.lastDayOfMonth,
     advisorDisplayName: id => "Synthetic Advisor " + id,
     sourceFileHandle: async () => ({ getFile: async () => ({ lastModified: Date.UTC(2026, 9, 22) }) }),
     parseSorWorkbook: () => { throw new Error("Unexpected SOR parse"); },
@@ -163,7 +173,8 @@ function mediaFixture(candidate) {
     removeSourceEntry: async name => { events.push("delete"); removed.push(name); }
   });
   vm.runInContext(
-    managerImport + "\n" + mediaScopeProductionSource + "\n" + trendSourcesProductionDeclaration + "\n" + mediaAsrPerformanceLineageSource +
+    managerImport + "\n" + mediaScopeProductionSource + "\n" + sourceFreshnessProduction + "\n" +
+      trendSourcesProductionDeclaration + "\n" + mediaAsrPerformanceLineageSource +
       "\nthis.importManagerSource = importManagerSource; this.mediaAsrTrendPoints = trendPoints;",
     context
   );
@@ -292,4 +303,27 @@ test("Manager Home marks missing Efficiency period as unverified rather than inf
   context.renderManagerIntelligence();
   assert.match(renderedText(managerSourceGrid.children[2]), /Period unverified/);
   assert.doesNotMatch(renderedText(managerSourceGrid.children[2]), /2026-10-26/);
+});
+
+test("Performance trends never verify inconsistent retained Media ASR source periods", () => {
+  const measure = { family: "mediaAsr", key: "mediaCreated", unit: "count", roles: ["advisor"] };
+  const fixtureData = mediaFixture(equivalentMedia);
+  const source = fixtureData.model.operationalMetrics.mediaAsr.snapshots["2026-10-21"];
+  const initial = JSON.stringify(source);
+  const valid = fixtureData.trendPoints(measure, "advisor", "SYN01", "2026-10-23");
+  assert.equal(valid.length, 1, "valid retained report remains visible in Performance history");
+  for (const change of [
+    { period: "2026-09" },
+    { periodStart: "2026-10-01", periodEnd: "" },
+    { periodEnd: "2026-10-24" }
+  ]) {
+    Object.assign(source, JSON.parse(initial), change);
+    const before = JSON.stringify(source);
+    const points = fixtureData.trendPoints(measure, "advisor", "SYN01", "2026-10-23");
+    assert.equal(points.length, 0, "unverified source must not supply a verified Performance trend point: " + JSON.stringify(change));
+    assert.equal(JSON.stringify(source), before, "source authority check must not mutate retained records");
+  }
+  Object.assign(source, JSON.parse(initial));
+  assert.equal(fixtureData.trendPoints(measure, "advisor", "SYN01", "2026-10-23").length, 1,
+    "a restored validated observation remains visible");
 });
