@@ -5574,8 +5574,18 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   }
   function assignNextRows(today=storeDateKey(), snapshotOverride=undefined) {
     const day=ensureAssignDay(today),snapshot=snapshotOverride===undefined?activeWorkloadSnapshot(today):snapshotOverride,records=snapshot?.records||[],openedVerified=openedTodayVerified(snapshot,today),snapshotDates=Object.keys(model.performance.snapshots||{}).sort(),latest=snapshotDates.length?model.performance.snapshots[snapshotDates.at(-1)]:null,grossRank=(value)=>Number.isFinite(value)?value:Number.POSITIVE_INFINITY;
+    // Aggregate this verified roster once. Filtering it separately for every
+    // advisor grows with advisor count and repeats work on every tab refresh.
+    const counts=new Map();
+    for(const record of records){
+      if(!record.isOpen)continue;
+      const byAdvisor=counts.get(record.advisorCode)||{open:0,openedToday:0};
+      byAdvisor.open++;
+      if(openedVerified&&record.openedDate===today)byAdvisor.openedToday++;
+      counts.set(record.advisorCode,byAdvisor);
+    }
     return Object.entries(ASSIGN_NEXT_ADVISORS).map(([code,name])=>{
-      const saved=day.advisors[code]||{code,name,available:true},current=records.filter((record)=>record.isOpen&&record.advisorCode===code),open=snapshot?current.length:null,openedToday=openedVerified?current.filter((record)=>record.openedDate===today).length:null,totalGross=latest?.advisors?.[code]?.totalGross;
+      const saved=day.advisors[code]||{code,name,available:true},count=counts.get(code),open=snapshot?(count?.open||0):null,openedToday=openedVerified?(count?.openedToday||0):null,totalGross=latest?.advisors?.[code]?.totalGross;
       return{...saved,code,name,open,openedToday,automatic:Boolean(snapshot),openedTodayVerified:openedVerified,workload:open,totalGross:Number.isFinite(totalGross)?totalGross:null};
     }).sort((a,b)=>Number(b.available)-Number(a.available)||(snapshot?a.open-b.open:0)||(openedVerified?a.openedToday-b.openedToday:0)||grossRank(a.totalGross)-grossRank(b.totalGross)||a.code.localeCompare(b.code,undefined,{numeric:true}));
   }
