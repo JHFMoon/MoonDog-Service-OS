@@ -29,12 +29,21 @@ CRITICAL_PRESERVATION_TESTS = frozenset({
     "tests/supervisor-workbook-recovery.test.cjs",
     "tests/workspace-history-isolation.test.cjs",
     "tests/write-authority-recovery-conflicts.test.cjs",
+    "tests/local-target-boundary.test.cjs",
+    "tests/source-boundary.test.cjs",
+    "tests/manifest-cdn-bypass.test.cjs",
+    "tests/automatic-diagnostics-disabled.test.cjs",
 })
 PROTECTED_TESTS = {
     "tests/test_guarded_merge_policy.py", "tests/test_pipeline_guard.py",
     "tests/test_security_workflows.py", "tests/test_check_publication.py",
     "tests/test_public_audit_history.py", "tests/test_beta_change_risk.py",
 }
+PROTECTED_RUNTIME = frozenset({
+    "assets/moondog-write-authority.js",
+    "assets/maintenance.js",
+    "assets/maintenance-tests.js",
+})
 CSS_NETWORK = re.compile(
     r"@import|@font-face|url\s*\(|image-set\s*\(|expression\s*\(|"
     r"-moz-binding|behavior\s*:|(?:https?|data|javascript)\s*:|\\",
@@ -49,7 +58,7 @@ def path_risk(path: str, change: dict) -> str:
         return "protected"
     if path.startswith((".github/", "scripts/", "distribution/")) or path in {
         ".gitattributes", ".gitignore", "SECURITY.md",
-    } or path in PROTECTED_DOCUMENTS or path in PROTECTED_TESTS or path in CRITICAL_PRESERVATION_TESTS:
+    } or path in PROTECTED_DOCUMENTS or path in PROTECTED_TESTS or path in CRITICAL_PRESERVATION_TESTS or path in PROTECTED_RUNTIME or path.startswith("assets/moondog-update-"):
         return "protected"
     if path in NON_EXECUTABLE_METADATA or BETA_PACKAGE.fullmatch(path):
         return "metadata"
@@ -120,6 +129,7 @@ def has_scoped_preservation_proof(changes: list[dict]) -> bool:
         return True
     return any(
         isinstance(path, str) and path.startswith("tests/")
+        and path.count("/") == 1  # must match node --test tests/*.test.cjs
         and path.endswith(".test.cjs")
         and re.search(r"(?i)(?:ro|import|history|source|data|durab|backup|recover|preserv|integrity|storage|state|roundtrip|migration|write)", path)
         and item.get("status") in {"added", "modified"}
