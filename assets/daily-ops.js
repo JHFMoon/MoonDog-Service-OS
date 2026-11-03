@@ -1487,16 +1487,25 @@
       if(outcome.changes?.length){
         const details=document.createElement('details');
         const summary=document.createElement('summary');summary.textContent='Proposed source changes ('+outcome.changes.length+' shown)';details.append(summary);
-        const ul=document.createElement('ul');
-        for(const item of outcome.changes){
-          const entry=line(ul,'RO '+item.ro+': '+item.kind,'li');
-          if(item.fields?.length){
-            const fields=document.createElement('ul');
-            for(const change of item.fields)line(fields,change.field+': '+String(change.before||'(blank)')+' → '+String(change.after||'(blank)'),'li');
-            entry.append(fields);
+        // The details list is collapsed by default. Defer potentially
+        // thousands of nested DOM nodes until a user actually expands it.
+        // Preserve full source change detail and keyboard/summary semantics.
+        let materialized=false;
+        details.addEventListener('toggle',()=>{
+          if(!details.open||materialized)return;
+          materialized=true;
+          const ul=document.createElement('ul');
+          for(const item of outcome.changes){
+            const entry=line(ul,'RO '+item.ro+': '+item.kind,'li');
+            if(item.fields?.length){
+              const fields=document.createElement('ul');
+              for(const change of item.fields)line(fields,change.field+': '+String(change.before||'(blank)')+' → '+String(change.after||'(blank)'),'li');
+              entry.append(fields);
+            }
           }
-        }
-        details.append(ul);result.append(details);
+          details.append(ul);
+        });
+        result.append(details);
       }
       if(outcome.canCommit&&activeNonce){
         const save=button('Import Verified Data',async()=>{
