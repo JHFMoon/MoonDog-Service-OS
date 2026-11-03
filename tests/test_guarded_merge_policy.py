@@ -102,12 +102,12 @@ Keep work on #59 open"},
 
     def test_cli_reads_authoritative_matrix_and_fails_on_unsafe_pr_text(self):
         matrix = (
-            "## #59 — Architecture\\n"
-            "| ID | Requirement | Evidence | Verification |\\n"
-            "| 59-01 | Work | Synthetic | **PARTIALLY COMPLETE** |\\n"
-            "| 59-06 | Work | Synthetic | **VERIFIED COMPLETE** |\\n"
-            "## #60 — Complete\\n"
-            "| 60-01 | Work | Synthetic | **VERIFIED COMPLETE** |\\n"
+            "## #59 — Architecture\n"
+            "| ID | Requirement | Evidence | Verification |\n"
+            "| 59-01 | Work | Synthetic | **PARTIALLY COMPLETE** |\n"
+            "| 59-06 | Work | Synthetic | **VERIFIED COMPLETE** |\n"
+            "## #60 — Complete\n"
+            "| 60-01 | Work | Synthetic | **VERIFIED COMPLETE** |\n"
         )
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
