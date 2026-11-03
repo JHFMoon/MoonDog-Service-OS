@@ -1312,9 +1312,12 @@
           // A second tab can update a retained Closed RO's management history
           // without changing the active roster. Compare both durable populations
           // before any Workbook operation can write; preserve legacy absent arrays.
-          const durableClosed=durable?.closedRecords==null?[]:durable.closedRecords;
-          const currentClosed=model.state.closedRecords==null?[]:model.state.closedRecords;
+          // A truly absent legacy array is empty; an explicit null/non-array
+          // signals invalid data and must not be silently treated as zero ROs.
+          const durableClosed=durable?.closedRecords===undefined?[]:durable.closedRecords;
+          const currentClosed=model.state.closedRecords===undefined?[]:model.state.closedRecords;
           if(!initialEmpty&&(!durable||durable.updatedAt!==model.state.updatedAt||
+              !Array.isArray(durableClosed)||!Array.isArray(currentClosed)||
               JSON.stringify(durable.records)!==JSON.stringify(model.state.records)||
               JSON.stringify(durableClosed)!==JSON.stringify(currentClosed)))
             throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing.");
