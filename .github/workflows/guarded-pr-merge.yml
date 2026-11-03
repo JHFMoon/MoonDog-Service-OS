@@ -272,21 +272,25 @@ jobs:
               sys.exit(0)
           PY
           if ! grep -q '^ready=false$' "$GITHUB_OUTPUT"; then
+            # Evaluate the complete authenticated GitHub PR file list. The
+            # classifier and review veto both run from TRUSTED main.
+            gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[]' | jq -s '.' > /tmp/pr-risk-files.json
+            CHANGED_FILES="$(jq -r '.changed_files' /tmp/pr.json)"
+            DECISION="$(python3 scripts/beta_change_risk.py /tmp/pr-risk-files.json --decision --expected "$CHANGED_FILES")"
             gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/pr-comments.json
             gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/pr-reviews.json
             REVIEW_STATE="$(python3 scripts/guarded_merge_policy.py merge-review-state /tmp/pr-comments.json /tmp/pr-reviews.json "$HEAD_SHA" --policy .github/guarded-merge-policy.json)"
-            if [ "$REVIEW_STATE" = "findings" ]; then
-              echo "Exact-head Codex or owner review reported findings; refusing merge." >&2
+            if [ "$REVIEW_STATE" = "findings" ] || [ "$DECISION" = "protected" ]; then
+              echo "Protected change or unresolved authenticated finding; refusing merge." >&2
               exit 1
             fi
-            # Pending review is not permission to summon a third-party agent.
-            # The exact-head owner GitHub review remains required by the trusted
-            # policy and unresolved authenticated findings still veto merging.
-            if [ "$REVIEW_STATE" = "clean" ]; then
+            REVIEW_MODE="$(jq -r '.beta_review_mode // "review-required"' .github/guarded-merge-policy.json)"
+            if [ "$REVIEW_STATE" = "clean" ] || { [ "$REVIEW_MODE" = "automated-data-proofs" ] && [ "$DECISION" = "automatic" ]; }; then
               echo "ready=true" >> "$GITHUB_OUTPUT"
+              echo "Beta review decision: $DECISION; mandatory exact-head checks passed."
             else
               echo "ready=false" >> "$GITHUB_OUTPUT"
-              echo "Exact-head review remains pending; its review event will reevaluate this PR."
+              echo "Beta review pending ($DECISION); a new review event will reevaluate."
             fi
           else
             echo "Required exact-head checks are pending; workflow_run will reevaluate this PR."
@@ -367,17 +371,23 @@ jobs:
           if failed:
               raise SystemExit('Final guarded merge refused: '+', '.join(failed))
           PY
+          # Re-evaluate changed files at the final guarded boundary. This
+          # prevents a stale risk decision from surviving a mutable PR.
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[]' | jq -s '.' > /tmp/final-risk-files.json
+          FINAL_COUNT="$(jq -r '.changed_files' /tmp/final-pr.json)"
+          FINAL_DECISION="$(python3 scripts/beta_change_risk.py /tmp/final-risk-files.json --decision --expected "$FINAL_COUNT")"
           gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/final-pr-comments.json
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/final-pr-reviews.json
-          python3 - <<'PY'
-          import json, os
-          from scripts.guarded_merge_policy import merge_review_state, load_policy
-          comments=json.load(open('/tmp/final-pr-comments.json',encoding='utf-8'))
-          reviews=json.load(open('/tmp/final-pr-reviews.json',encoding='utf-8'))
-          policy=load_policy('.github/guarded-merge-policy.json')
-          if merge_review_state(comments, reviews, os.environ['HEAD_SHA'], policy) != 'clean':
-              raise SystemExit('Final guarded merge refused: exact-head review is missing, stale, or has findings.')
-          PY
+          FINAL_REVIEW="$(python3 scripts/guarded_merge_policy.py merge-review-state /tmp/final-pr-comments.json /tmp/final-pr-reviews.json "$HEAD_SHA" --policy .github/guarded-merge-policy.json)"
+          REVIEW_MODE="$(jq -r '.beta_review_mode // "review-required"' .github/guarded-merge-policy.json)"
+          if [ "$FINAL_DECISION" = "protected" ] || [ "$FINAL_REVIEW" = "findings" ]; then
+            echo "Final guarded merge refused: protected change or unresolved findings." >&2
+            exit 1
+          fi
+          if [ "$FINAL_REVIEW" != "clean" ] && { [ "$REVIEW_MODE" != "automated-data-proofs" ] || [ "$FINAL_DECISION" != "automatic" ]; }; then
+            echo "Final guarded merge refused: scoped preservation proof or required review is missing." >&2
+            exit 1
+          fi
           RESULT="$(gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge" -f merge_method=squash -f sha="$HEAD_SHA")"
           test "$(jq -r '.merged' <<<"$RESULT")" = "true" || {
             echo "GitHub protected merge was denied; no bypass was attempted." >&2
