@@ -4,15 +4,53 @@
   "issues": {
     "58": {
       "criteria": {
+        "58-01": {
+          "kind": "runtime",
+          "pr": 627,
+          "tests": [
+            "tests/connected-home-readiness-baseline.test.cjs",
+            "tests/workspace-connect-performance.test.cjs"
+          ]
+        },
+        "58-02": {
+          "kind": "runtime",
+          "pr": 726,
+          "tests": [
+            "tests/workspace-connection-data-preservation.test.cjs",
+            "tests/workspace-connect-performance.test.cjs"
+          ]
+        },
         "58-03": {
           "kind": "runtime",
           "pr": 590,
           "tests": [
             "tests/advisor-section-visibility.test.cjs"
           ]
+        },
+        "58-04": {
+          "kind": "runtime",
+          "pr": 722,
+          "tests": [
+            "tests/assign-next-linear-counts-performance.test.cjs"
+          ]
+        },
+        "58-05": {
+          "kind": "runtime",
+          "pr": 725,
+          "tests": [
+            "tests/paste-preview-import-data-preservation.test.cjs",
+            "tests/paste-preview-lazy-dom-performance.test.cjs"
+          ]
+        },
+        "58-06": {
+          "kind": "runtime",
+          "pr": 728,
+          "tests": [
+            "tests/workbook-source-lineage-preservation.test.cjs"
+          ]
         }
       },
-      "package_pr": 593
+      "package_pr": 731
     },
     "59": {
       "criteria": {
