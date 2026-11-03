@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.306 — current Beta
+
+- fix(#59-01): validate SAPR and next-appointment source period verification. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.305 — current Beta
 
 - fix(#59-04): fail closed on conflicting reference report-period labels. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

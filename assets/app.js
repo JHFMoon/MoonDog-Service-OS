@@ -4602,6 +4602,12 @@
         reportPeriodVerified: Boolean(item && evidence.loaded && reportPeriodVerified)
       });
     };
+    // A loaded interval is not source-verified merely because both fields
+    // are nonempty; reject impossible and reversed retained source dates.
+    const verifiedDatedInterval = item => Boolean(item &&
+      freshness.validDateKey(item.periodStart) &&
+      freshness.validDateKey(item.periodEnd) &&
+      item.periodStart <= item.periodEnd);
     if (key === "openRo") {
       const item = options.item || model.state.source, stated = item?.reportDate,
         declared = stated !== undefined && stated !== null && stated !== "",
@@ -4612,7 +4618,7 @@
         invalid: declared && !verifiedDate ? "The retained Open RO source has an invalid or future report date." : ""
       }, item, verifiedDate);
     }
-    if (key === "sapr") { const item = options.item || currentSaprSnapshot(true); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, Boolean(item?.periodStart && item?.periodEnd)); }
+    if (key === "sapr") { const item = options.item || currentSaprSnapshot(true); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, verifiedDatedInterval(item)); }
     if (key === "csi") {
       const branch = model.operationalMetrics?.csi || {}, imports = branch.imports || [],
         item = options.item || imports.at(-1),
@@ -4638,7 +4644,7 @@
         scopeEnd: item?.scopeVerified ? item.scopeEnd : "",
         periodStart: reportPeriod.periodStart, periodEnd: reportPeriod.periodEnd }, item, reportPeriod.verified);
     }
-    if (key === "nextAppointments") { const item = options.item || latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, Boolean(item?.periodStart && item?.periodEnd)); }
+    if (key === "nextAppointments") { const item = options.item || latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, verifiedDatedInterval(item)); }
     if (key === "vir") { const item = options.item || latestVirObservation(),observed=verifiedVirSourceObservationDate(item); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.observationTimestamp || item?.sourceModifiedAt || "", invalid: item && !observed ? "The retained VIR observation has no verified source reporting date; an import timestamp cannot establish coverage." : "", periodEnd: observed }, item, Boolean(observed)); }
     if (key === "menu") {
       const item = options.item || latestOperationalSnapshot("menu"),
