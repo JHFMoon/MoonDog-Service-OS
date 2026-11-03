@@ -158,3 +158,20 @@ test("24 paired production lock measurements with synthetic large record populat
     scope:"actual production lock with synthetic Node VM readback; not OneDrive or browser timing"
   }));
 });
+
+test("malformed in-memory source or review queue also fails closed before starting a write",async()=>{
+  const saved=state();
+  for(const edit of [
+    data=>{data.source="unverified-source-string";},
+    data=>{data.source=[];},
+    data=>{data.reviewQueue=null;},
+    data=>{data.reviewQueue={items:[]};}
+  ]){
+    const local=copy(saved);edit(local);
+    const h=fixture(local,saved);
+    await assert.rejects(h.run(),/Workspace changed/);
+    assert.equal(h.calls.operations,0);
+    assert.equal(h.calls.writes,0);
+    assert.deepEqual(h.durable,saved,"authoritative saved state is never silently normalized");
+  }
+});
