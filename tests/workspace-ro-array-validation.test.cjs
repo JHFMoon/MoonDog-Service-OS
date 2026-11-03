@@ -56,6 +56,8 @@ test("corrupt arrays fail closed instead of becoming a zero-record Workspace",()
 function readOnlyHarness(saved){
   const previous=valid(),model={state:clone(previous),appointments:{original:true}},readEvents=[];
   const ctx=vm.createContext({model,paths:[["state","state"],["appointments","appointments"]],
+    // Production read-only reconnect uses a fresh default for each missing file.
+    newWorkspaceSnapshot:key=>key==="state"?{records:[],closedRecords:[]}:{},
     readJson:async location=>{
       readEvents.push(location);
       return location==="state"?clone(saved):{replaced:true};
