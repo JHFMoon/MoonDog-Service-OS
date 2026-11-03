@@ -90,7 +90,7 @@ function writableHarness(saved){
     {from:"meeting"},{from:"assign"},{from:"auto"},{from:"recovery"}];
   const calls={normalizations:0,writes:0,history:0};
   const ctx=vm.createContext({
-    model,connectionReadResults:replacement,pendingSettings:{},JSON,
+    model,connectionReadResults:replacement,pendingSettings:{},pendingAdapter:null,JSON,
     pruneClosedRecords:rows=>rows,
     normalizeControllableVinCounts:()=>{calls.normalizations++;return false;},
     writeJson:async()=>{calls.writes++;},addHistory:async()=>{calls.history++;},
