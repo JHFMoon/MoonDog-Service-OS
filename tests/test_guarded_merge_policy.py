@@ -79,8 +79,7 @@ class IssueAutoCloseReferenceTests(unittest.TestCase):
         pr = {"title": "guard(59-03): validate import locking",
               "body": "Continue issue #59 and #58; neither umbrella has completed acceptance. "
                       "Fixes #60 is complete; fixes #590 is not #59."}
-        commits = [{"message": "recovery: task 59-03
-Keep work on #59 open"},
+        commits = [{"message": "recovery: task 59-03\nKeep work on #59 open"},
                    {"message": "fixes other-org/other-repo#59 does not target this repository"}]
         self.assertEqual(unintended_issue_closures(pr, commits, self.MATRIX), [])
 
