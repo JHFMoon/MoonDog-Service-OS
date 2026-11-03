@@ -310,6 +310,12 @@ test("Performance trends never verify inconsistent retained Media ASR source per
   const fixtureData = mediaFixture(equivalentMedia);
   const source = fixtureData.model.operationalMetrics.mediaAsr.snapshots["2026-10-21"];
   const initial = JSON.stringify(source);
+  // Reset by replacing all keys, not Object.assign alone: a synthetic
+  // conflicting month label adds a property absent from the original.
+  const restore = () => {
+    for (const key of Object.keys(source)) delete source[key];
+    Object.assign(source, JSON.parse(initial));
+  };
   const valid = fixtureData.trendPoints(measure, "advisor", "SYN01", "2026-10-23");
   assert.equal(valid.length, 1, "valid retained report remains visible in Performance history");
   for (const change of [
@@ -317,13 +323,14 @@ test("Performance trends never verify inconsistent retained Media ASR source per
     { periodStart: "2026-10-01", periodEnd: "" },
     { periodEnd: "2026-10-24" }
   ]) {
-    Object.assign(source, JSON.parse(initial), change);
+    restore();
+    Object.assign(source, change);
     const before = JSON.stringify(source);
     const points = fixtureData.trendPoints(measure, "advisor", "SYN01", "2026-10-23");
     assert.equal(points.length, 0, "unverified source must not supply a verified Performance trend point: " + JSON.stringify(change));
     assert.equal(JSON.stringify(source), before, "source authority check must not mutate retained records");
   }
-  Object.assign(source, JSON.parse(initial));
+  restore();
   assert.equal(fixtureData.trendPoints(measure, "advisor", "SYN01", "2026-10-23").length, 1,
     "a restored validated observation remains visible");
 });
