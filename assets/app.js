@@ -4658,8 +4658,17 @@
         periodEnd = item?.periodEnd || (period.length === 10 ? period : isMonth ? lastDayOfMonth(period) : ""),
         validBounds = (!periodStart || freshness.validDateKey(periodStart)) &&
           (!periodEnd || freshness.validDateKey(periodEnd)) &&
-          !(periodStart && periodEnd && periodStart > periodEnd);
-      if (!declaredPeriodValid || !validBounds) return evaluate({ ...common, exists: Boolean(item),
+          !(periodStart && periodEnd && periodStart > periodEnd),
+        // The source-defined reporting label must not contradict explicit
+        // coverage. A monthly label may have a cumulative range crossing a
+        // month boundary, but the range must intersect the labeled month.
+        labelStart = isMonth ? period + "-01" : period,
+        labelEnd = isMonth ? lastDayOfMonth(period) : period,
+        labelConsistent = !period || (
+          (!periodStart || periodStart <= labelEnd) &&
+          (!periodEnd || periodEnd >= labelStart)
+        );
+      if (!declaredPeriodValid || !validBounds || !labelConsistent) return evaluate({ ...common, exists: Boolean(item),
         invalid: "The saved report period is invalid or internally inconsistent.",
         requiredAction: "Review the report period before using these values."
       }, item, false);
