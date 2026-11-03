@@ -49,8 +49,8 @@ test("fresh default snapshot is never aliased to a previously connected Workspac
   const f=fresh();switchToWorkspaceA(f);
   for(const key of names){
     const one=f.ctx.next(key),two=f.ctx.next(key);
-    assert.deepEqual(one,f.initial[key],"B does not inherit A's "+key);
-    assert.deepEqual(two,f.initial[key]);
+    assert.deepEqual(clone(one),f.initial[key],"B does not inherit A's "+key);
+    assert.deepEqual(clone(two),f.initial[key]);
     assert.notEqual(one,f.model[key],"B must not reference A's mutable "+key);
     assert.notEqual(one,two,"different reconnects need independent "+key+" instances");
     one.syntheticMutation=true;
@@ -70,7 +70,7 @@ test("actual writable connection read plan uses fresh fallback for all eight fil
   assert.equal(ctx.plan.length,8);
   for(let i=0;i<8;i++){
     assert.equal(ctx.plan[i][0],parts[i]);
-    assert.deepEqual(ctx.plan[i][1],f.initial[names[i]],"missing B file must not copy A "+names[i]);
+    assert.deepEqual(clone(ctx.plan[i][1]),f.initial[names[i]],"missing B file must not copy A "+names[i]);
     assert.notEqual(ctx.plan[i][1],f.model[names[i]]);
   }
 });
@@ -84,7 +84,7 @@ test("actual read-only connection uses root-independent defaults and preserves v
     key==="performance" ? {snapshots:{"2026-11-03":{source:"SYN-B"}}} : fallback;
   vm.runInContext("this.load=async function(){"+readOnly+"};",ctx);
   await ctx.load();
-  assert.deepEqual(f.model.state,f.initial.state,"missing B state cannot import A RO notes");
+  assert.deepEqual(clone(f.model.state),f.initial.state,"missing B state cannot import A RO notes");
   assert.deepEqual(f.model.performance,{snapshots:{"2026-11-03":{source:"SYN-B"}}},
     "verified B report takes precedence over empty default");
   assert.equal(f.model.appointments.days["2026-11-03"],undefined);
