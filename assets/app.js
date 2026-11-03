@@ -1327,6 +1327,7 @@
           const currentReview=model.state.reviewQueue===undefined?[]:model.state.reviewQueue;
           if(!initialEmpty&&(!durable||durable.updatedAt!==model.state.updatedAt||
               !Array.isArray(durableClosed)||!Array.isArray(currentClosed)||
+              !Array.isArray(durable.records)||!Array.isArray(model.state.records)||
               !validSource(durableSource)||!validSource(currentSource)||
               !Array.isArray(durableReview)||!Array.isArray(currentReview)||
               JSON.stringify(durable.records)!==JSON.stringify(model.state.records)||

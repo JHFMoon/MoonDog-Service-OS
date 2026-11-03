@@ -175,3 +175,24 @@ test("malformed in-memory source or review queue also fails closed before starti
     assert.deepEqual(h.durable,saved,"authoritative saved state is never silently normalized");
   }
 });
+
+test("malformed active Open RO arrays never authorize a Workbook operation even when both copies match",async()=>{
+  const original=state();
+  const empty=copy(original);empty.records=[];
+  assert.equal(await fixture(empty,empty).run(),"authorized","verified empty Open RO array remains valid");
+  for(const badRecords of [null,"not-an-array",{items:[]},17]){
+    const malformed=copy(original);malformed.records=badRecords;
+    const former=fixture(malformed,malformed,baseline);
+    assert.equal(await former.run(),"authorized","old equality-only gate missed matching malformed Open RO records");
+    const guarded=fixture(malformed,malformed);
+    await assert.rejects(guarded.run(),/Workspace changed in another tab or computer/);
+    assert.equal(guarded.calls.operations,0);
+    assert.equal(guarded.calls.writes,0);
+    assert.deepEqual(guarded.model.state,malformed,"malformed local state remains untouched for recovery");
+    assert.deepEqual(guarded.durable,malformed,"durable state is not silently normalized");
+  }
+  const absent=copy(original);delete absent.records;
+  const h=fixture(absent,absent);
+  await assert.rejects(h.run(),/Workspace changed/,"absent current RO population must not masquerade as verified empty");
+  assert.equal(h.calls.operations,0);assert.equal(h.calls.writes,0);
+});
