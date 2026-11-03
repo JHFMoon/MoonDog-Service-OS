@@ -87,3 +87,37 @@ test("invalid settings adapter takes precedence and fails closed without bootstr
   assert.deepEqual(failure.writes,[],"invalid authoritative settings must never be silently repaired");
   assert.equal(original.sourceAdapters.sourceId,"synthetic-invalid-settings");
 });
+
+// Exercise the exact production pre-write race guard for bootstrap migration.
+const guardBegin=runtime.indexOf("      const currentBootstrapAdapter = await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);");
+const guardEnd=runtime.indexOf("      await writeJson([\"backups\"",guardBegin);
+assert.ok(guardBegin>0&&guardEnd>guardBegin,"production migration race guard exists");
+const migrationGuard=runtime.slice(guardBegin,guardEnd);
+async function migrationPrewriteCheck(preflight,actual){
+  const calls={reads:0,writes:0};
+  const ctx={bootstrapAdapter:JSON.parse(JSON.stringify(preflight)),
+    SOURCE_ADAPTER_BOOTSTRAP_PATH:"source-adapter-bootstrap.json",
+    readJson:async()=>{calls.reads++;return actual==null?null:JSON.parse(JSON.stringify(actual));},
+    writeJson:async()=>{calls.writes++;},JSON,Error};
+  try{
+    const accepted=await vm.runInNewContext("(async()=>{"+migrationGuard+"return true;})()",ctx);
+    return{accepted,calls};
+  }catch(error){error.calls=calls;throw error;}
+}
+test("legacy bootstrap migration rechecks current source before any persistent write",async()=>{
+  const before={schemaVersion:1,sourceId:"original-adapter"};
+  const same=await migrationPrewriteCheck(before,{...before});
+  assert.equal(same.accepted,true);
+  assert.deepEqual(same.calls,{reads:1,writes:0});
+  for(const current of [{schemaVersion:1,sourceId:"newer-adapter"},null,{schemaVersion:2,sourceId:"invalid"}]){
+    await assert.rejects(async()=>{
+      try{await migrationPrewriteCheck(before,current);}
+      catch(error){
+        assert.deepEqual(error.calls,{reads:1,writes:0},"never write after a conflicting adapter read");
+        throw error;
+      }
+    },/Protected local source adapter changed during connection/);
+  }
+  assert.deepEqual(before,{schemaVersion:1,sourceId:"original-adapter"},
+    "previously validated source adapter remains unmodified after conflict");
+});
