@@ -13,6 +13,11 @@ try:
 except ImportError:
     from guarded_merge_authorization import has_explicit_approval
 
+try:
+    from .issue_auto_close import parse_matrix
+except ImportError:
+    from issue_auto_close import parse_matrix
+
 REVIEW_MARKER = "<!-- codex-review-state:v1 "
 
 
@@ -40,6 +45,38 @@ def has_merge_authorization(body: str | None, policy: dict) -> bool:
 
 HUMAN_PR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 BETA_PACKAGE_MARKER = "MoonDog-Automation-Package: yes"
+
+# GitHub interprets issue-closing keywords in PR descriptions and commit messages
+# without understanding negation ("Do not ..."). The parent issue must not be
+# accidentally closed by an incremental criterion PR.
+AUTO_CLOSE_REFERENCE = re.compile(
+    r"\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)"
+    r"[ \t]*(?::[ \t]*|\([ \t]*)?"
+    r"(?:JHFMoon/MoonDog-Service-OS)?#([1-9]\d*)(?:-\d{1,3})?\b",
+    re.IGNORECASE,
+)
+
+
+def unintended_issue_closures(pr: dict, commits: list, matrix: dict[int, dict[str, bool]]) -> list[tuple[str, int]]:
+    """Identify auto-close references to unfinished matrix issues, never using PR text as code."""
+    if not isinstance(pr, dict) or not isinstance(commits, list) or not isinstance(matrix, dict) or not matrix:
+        raise ValueError("Closure guard input is not structured")
+    unfinished = {number for number, criteria in matrix.items()
+                  if not criteria or not all(criteria.values())}
+    surfaces = [("PR title", pr.get("title") or ""), ("PR body", pr.get("body") or "")]
+    for index, commit in enumerate(commits, start=1):
+        if not isinstance(commit, dict) or not isinstance(commit.get("message"), str):
+            raise ValueError("Commit message metadata is incomplete")
+        surfaces.append((f"PR commit {index}", commit["message"]))
+    findings = []
+    for label, source in surfaces:
+        if not isinstance(source, str):
+            raise ValueError("PR text metadata is malformed")
+        for match in AUTO_CLOSE_REFERENCE.finditer(source):
+            issue = int(match.group(1))
+            if issue in unfinished:
+                findings.append((label, issue))
+    return findings
 
 
 def has_accepted_pr_author(
@@ -189,6 +226,10 @@ def main() -> int:
     auth = sub.add_parser("check-authorization")
     auth.add_argument("pr_json", type=Path)
     auth.add_argument("--policy", type=Path, required=True)
+    closures = sub.add_parser("check-unintended-closures")
+    closures.add_argument("pr_json", type=Path)
+    closures.add_argument("commits_json", type=Path)
+    closures.add_argument("--matrix", type=Path, required=True)
     review = sub.add_parser("codex-review-state")
     review.add_argument("comments_json", type=Path)
     review.add_argument("head_sha")
@@ -198,6 +239,22 @@ def main() -> int:
     combined.add_argument("head_sha")
     combined.add_argument("--policy", type=Path, required=True)
     args = parser.parse_args()
+    if args.command == "check-unintended-closures":
+        try:
+            pr = json.loads(args.pr_json.read_text(encoding="utf-8"))
+            commits = json.loads(args.commits_json.read_text(encoding="utf-8"))
+            matrix = parse_matrix(args.matrix.read_text(encoding="utf-8"))
+            violations = unintended_issue_closures(pr, commits, matrix)
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            print("Cannot verify accidental issue-closure safety: " + type(error).__name__, file=sys.stderr)
+            return 2
+        if violations:
+            # Report issue numbers and metadata origins, never user-supplied content.
+            details = ", ".join(f"{label} references unfinished issue #{number}"
+                                for label, number in violations)
+            print("Guarded merge blocked: " + details, file=sys.stderr)
+            return 1
+        return 0
     if args.command in {"check-pr-author", "check-authorization"}:
         try:
             pr = json.loads(args.pr_json.read_text(encoding="utf-8"))

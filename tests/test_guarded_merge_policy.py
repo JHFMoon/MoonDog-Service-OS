@@ -1,3 +1,8 @@
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from scripts.guarded_merge_policy import (
@@ -7,6 +12,7 @@ from scripts.guarded_merge_policy import (
     has_merge_authorization,
     has_standing_authorization,
     has_accepted_pr_author,
+    unintended_issue_closures,
 )
 
 POLICY = {
@@ -34,6 +40,99 @@ def summary(sha=HEAD, status="completed", findings=False, unresolved=False):
         "user": {"login": "chatgpt-codex-connector[bot]"},
         "body": "<!-- codex-review-state:v1 " + json.dumps(payload) + " -->",
     }
+
+
+
+class IssueAutoCloseReferenceTests(unittest.TestCase):
+    # Synthetic matrix: parent architecture and performance remain unfinished,
+    # while completed criteria and deferred issue handling remain distinct.
+    MATRIX = {
+        59: {"59-01": False, "59-06": True},
+        58: {"58-03": True, "58-01": False},
+        60: {"60-01": True},
+        212: {},
+    }
+
+    def test_negative_warning_still_contains_an_operative_github_close_keyword(self):
+        pr = {"title": "Report Inbox recovery",
+              "body": "Do not close #59/#58 prematurely; keep their acceptance open."}
+        self.assertEqual(unintended_issue_closures(pr, [], self.MATRIX),
+                         [("PR body", 59)])
+
+    def test_criterion_specific_fix_title_still_targets_parent_issue(self):
+        self.assertEqual(unintended_issue_closures(
+            {"title": "fix(#59-03): retry unreadable CSV", "body": ""}, [], self.MATRIX
+        ), [("PR title", 59)])
+
+    def test_commit_messages_are_scanned_without_executing_untrusted_text(self):
+        commits = [
+            {"message": "Fixes #58 after data reconciliation"},
+            {"message": "resolves JHFMoon/MoonDog-Service-OS#59"},
+            {"message": "Synthetic private data: a harmless nonclosing commit"},
+        ]
+        self.assertEqual(unintended_issue_closures(
+            {"title": "safety: verified source import", "body": ""},
+            commits, self.MATRIX
+        ), [("PR commit 1", 58), ("PR commit 2", 59)])
+
+    def test_safe_references_and_verified_completed_issues_do_not_block(self):
+        pr = {"title": "guard(59-03): validate import locking",
+              "body": "Continue issue #59 and #58; neither umbrella has completed acceptance. "
+                      "Fixes #60 is complete; fixes #590 is not #59."}
+        commits = [{"message": "recovery: task 59-03\nKeep work on #59 open"},
+                   {"message": "fixes other-org/other-repo#59 does not target this repository"}]
+        self.assertEqual(unintended_issue_closures(pr, commits, self.MATRIX), [])
+
+    def test_incomplete_deferred_issue_uses_same_guard(self):
+        self.assertEqual(unintended_issue_closures(
+            {"title": "Closes: #212", "body": ""}, [], self.MATRIX
+        ), [("PR title", 212)])
+
+    def test_untrusted_or_incomplete_metadata_fails_closed(self):
+        for pr, commits, matrix in [
+            (None, [], self.MATRIX),
+            ({}, None, self.MATRIX),
+            ({"title": 1}, [], self.MATRIX),
+            ({}, [{"commit": {"message": "hi"}}], self.MATRIX),
+            ({}, [], {}),
+        ]:
+            with self.assertRaises(ValueError):
+                unintended_issue_closures(pr, commits, matrix)
+
+    def test_cli_reads_authoritative_matrix_and_fails_on_unsafe_pr_text(self):
+        matrix = (
+            "## #59 — Architecture\n"
+            "| ID | Requirement | Evidence | Verification |\n"
+            "| 59-01 | Work | Synthetic | **PARTIALLY COMPLETE** |\n"
+            "| 59-06 | Work | Synthetic | **VERIFIED COMPLETE** |\n"
+            "## #60 — Complete\n"
+            "| 60-01 | Work | Synthetic | **VERIFIED COMPLETE** |\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / "matrix.md").write_text(matrix, encoding="utf-8")
+            (folder / "commits.json").write_text(
+                json.dumps([{"message": "synthetic safe commit"}]), encoding="utf-8"
+            )
+            pr = folder / "pr.json"
+            command = [sys.executable, str(Path(__file__).resolve().parents[1] /
+                       "scripts/guarded_merge_policy.py"), "check-unintended-closures",
+                       str(pr), str(folder / "commits.json"), "--matrix",
+                       str(folder / "matrix.md")]
+            pr.write_text(json.dumps({"title": "No automatic closure",
+                                      "body": "Do not close #59 unexpectedly: Synthetic private note."}),
+                          encoding="utf-8")
+            refused = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(refused.returncode, 1, refused.stderr)
+            self.assertIn("unfinished issue #59", refused.stderr)
+            self.assertNotIn("Synthetic private note", refused.stderr)
+            pr.write_text(json.dumps({"title": "Maintain 59-01 evidence",
+                                      "body": "Keep umbrella #59 open."}), encoding="utf-8")
+            allowed = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(allowed.returncode, 0, allowed.stderr)
+            (folder / "matrix.md").write_text("malformed", encoding="utf-8")
+            denied = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(denied.returncode, 2, denied.stderr)
 
 
 class PackageBotAuthorTests(unittest.TestCase):
