@@ -36,17 +36,18 @@ function example(){
 }
 function harness({local=example(),durable=example(),code=shipped}={}){
   const model={root:{id:"Synthetic Workspace"},state:clone(local),recovery:{}};
+  let currentDurable=clone(durable);
   const calls={locks:0,reads:0,operations:0,writes:0};
   const ctx=vm.createContext({
     model,STATE_PATH:["data","current-state.json"],
     RECOVERY_PATH:["data","recovery.json"],
     navigator:{locks:{request:async(_name,_options,fn)=>{calls.locks++;return fn();}}},
-    readJson:async parts=>{calls.reads++;return parts.at(-1)==="current-state.json"?clone(durable):null;},
+    readJson:async parts=>{calls.reads++;return parts.at(-1)==="current-state.json"?clone(currentDurable):null;},
     writeJson:async()=>{calls.writes++;},Promise,Error,JSON
   });
   vm.runInContext(code+"\nthis.withProductionLock=withSupervisorWorkbookLock;",ctx);
   const run=async()=>ctx.withProductionLock(async()=>{calls.operations++;return "safe";});
-  return {run,model,calls,durable:clone(durable)};
+  return {run,model,calls,ctx,setDurable:value=>{currentDurable=clone(value);},get durable(){return clone(currentDurable);}};
 }
 test("unchanged active and retained Closed RO populations remain authorized",async()=>{
   const before=example(),h=harness({local:before,durable:before});
@@ -132,4 +133,29 @@ test("24 paired synthetic large-roster gate measurements retain unchanged data",
     guarded:{p50:percentile(guarded,.5),p95:percentile(guarded,.95)},
     scope:"actual production lock VM with synthetic in-memory state; no physical OneDrive/disk/browser timings"
   }));
+});
+
+test("queued workbook write rechecks a newer Closed RO revision after the first operation",async()=>{
+  const prior=example(),h=harness({local:prior,durable:prior});
+  let startFirst,releaseFirst;
+  const started=new Promise(resolve=>{startFirst=resolve;});
+  const hold=new Promise(resolve=>{releaseFirst=resolve;});
+  const first=h.ctx.withProductionLock(async()=>{
+    h.calls.operations++;
+    startFirst();
+    await hold;
+    return "first";
+  });
+  await started;
+  const second=h.run(); // Actual production operation tail queues this callback.
+  const newer=clone(prior);
+  newer.closedRecords[0].management.note="Another tab's newer Closed RO note";
+  h.setDurable(newer);
+  releaseFirst();
+  assert.equal(await first,"first");
+  await assert.rejects(second,/Workspace changed in another tab or computer/);
+  assert.equal(h.calls.operations,1,"the queued stale operation must never execute");
+  assert.equal(h.calls.writes,0);
+  assert.deepEqual(h.model.state,prior,"original in-memory note remains available for review");
+  assert.deepEqual(h.durable,newer,"the durable newer note is not silently overwritten");
 });
