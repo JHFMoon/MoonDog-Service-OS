@@ -73,3 +73,17 @@ test("invalid bootstrap adapter fails before hydration and restores previous Wor
   assert.deepEqual(before,{schemaVersion:5,advisors:{"110":{}},setup:{completedAt:"synthetic"}},
     "failed adapter preflight must preserve before state, not silently alter source data");
 });
+
+test("invalid settings adapter takes precedence and fails closed without bootstrap reads",async()=>{
+  const bad={schemaVersion:2,sourceId:"synthetic-invalid-settings"};
+  const original={schemaVersion:5,advisors:{"110":{}},sourceAdapters:bad};
+  let failure;
+  await assert.rejects(inspect(original,{schemaVersion:1,sourceId:"must-not-override"},
+    state=>{failure=state;}),/protected local source adapter is invalid/);
+  assert.ok(failure);
+  assert.deepEqual(failure.reads,["settings.json"],"protected settings are the authoritative source");
+  assert.equal(failure.model.root,failure.oldRoot);
+  assert.equal(failure.model.applicationRoot,failure.oldRoot);
+  assert.deepEqual(failure.writes,[],"invalid authoritative settings must never be silently repaired");
+  assert.equal(original.sourceAdapters.sourceId,"synthetic-invalid-settings");
+});
