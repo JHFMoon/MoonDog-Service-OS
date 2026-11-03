@@ -127,6 +127,13 @@ jobs:
           PY
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/pr-paths.txt
           python3 scripts/pipeline_guard.py check-paths /tmp/pr-paths.txt
+          # GitHub closing keywords are operative even inside negative wording.
+          # Check the trusted matrix against untrusted PR title/body and the
+          # complete set of messages that a squash merge may publish.
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100" \
+            --jq '.[] | {message: .commit.message}' | jq -s '.' > /tmp/pr-commits.json
+          python3 scripts/guarded_merge_policy.py check-unintended-closures \
+            /tmp/pr.json /tmp/pr-commits.json --matrix docs/ROADMAP-ACCEPTANCE-MATRIX.md
 
       - name: Create scoped MoonDog release App token
         id: release-app
@@ -295,6 +302,12 @@ jobs:
           gh api "repos/$REPO/pulls/$PR_NUMBER" > /tmp/final-pr.json
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/final-pr-paths.txt
           python3 scripts/pipeline_guard.py check-paths /tmp/final-pr-paths.txt
+          # Re-check mutable PR text and commit messages at the last guarded
+          # merge boundary; a later description edit cannot reuse earlier proof.
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100" \
+            --jq '.[] | {message: .commit.message}' | jq -s '.' > /tmp/final-pr-commits.json
+          python3 scripts/guarded_merge_policy.py check-unintended-closures \
+            /tmp/final-pr.json /tmp/final-pr-commits.json --matrix docs/ROADMAP-ACCEPTANCE-MATRIX.md
           CURRENT_HEAD="$(jq -r '.head.sha // empty' /tmp/final-pr.json)"
           test "$CURRENT_HEAD" = "$HEAD_SHA" || {
             echo "PR head changed after exact-head verification; refusing stale merge." >&2
