@@ -1316,10 +1316,23 @@
           // signals invalid data and must not be silently treated as zero ROs.
           const durableClosed=durable?.closedRecords===undefined?[]:durable.closedRecords;
           const currentClosed=model.state.closedRecords===undefined?[]:model.state.closedRecords;
+          // The current and saved RO arrays can match while a second tab has
+          // replaced the validated source digest or retained manager review queue.
+          // These are authorities too; missing legacy values are not corrupt,
+          // but explicit malformed values must never be silently normalized.
+          const durableSource=durable?.source===undefined?null:durable.source;
+          const currentSource=model.state.source===undefined?null:model.state.source;
+          const validSource=value=>value===null||(typeof value==="object"&&!Array.isArray(value));
+          const durableReview=durable?.reviewQueue===undefined?[]:durable.reviewQueue;
+          const currentReview=model.state.reviewQueue===undefined?[]:model.state.reviewQueue;
           if(!initialEmpty&&(!durable||durable.updatedAt!==model.state.updatedAt||
               !Array.isArray(durableClosed)||!Array.isArray(currentClosed)||
+              !validSource(durableSource)||!validSource(currentSource)||
+              !Array.isArray(durableReview)||!Array.isArray(currentReview)||
               JSON.stringify(durable.records)!==JSON.stringify(model.state.records)||
-              JSON.stringify(durableClosed)!==JSON.stringify(currentClosed)))
+              JSON.stringify(durableClosed)!==JSON.stringify(currentClosed)||
+              JSON.stringify(durableSource)!==JSON.stringify(currentSource)||
+              JSON.stringify(durableReview)!==JSON.stringify(currentReview)))
             throw new Error("Workspace changed in another tab or computer. Refresh durable state before continuing.");
           const recovery=await readJson(RECOVERY_PATH,null);
           if(recovery)model.recovery=recovery;
