@@ -8660,7 +8660,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     },
     importFile: async function(file) {
       if (!model.root) throw new Error('Connect your Service Operations Dashboard folder first.');
-      if (folderWatch.busy || dailyImportBusy || appointmentImportBusy) throw new Error('Service Operations Dashboard is finishing another import. Try again in a moment.');
+      if (folderWatch.busy || dailyImportBusy || appointmentImportBusy || workspaceConnectionBusy || postConnectionScanBusy)
+        throw new Error('Another Workspace import or connection is in progress. Retry the Daily import when it finishes.');
       dailyImportBusy=true; const watchEnabled=folderWatchEnabled(); stopFolderWatch();
       try {
         const bytes=await file.arrayBuffer(), kind=await classifyImportFile(file.name,file,bytes);
