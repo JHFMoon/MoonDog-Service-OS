@@ -32,9 +32,9 @@ test("legacy or stale vendor overrides fail closed instead of selecting another 
 });
 test("explicit verified vendor alias is valid only for that exact configured dealership",()=>{
   const reports={tradeAr:{storeCode:"1010",storeIdentityVerified:true,
-    guidedSetupStoreCode:"9001",guidedSetupStoreName:"Dodge Exampletown"}};
-  assert.equal(resolve("Dodge Exampletown","9001",reports,"tradeAr"),"1010");
-  assert.throws(()=>resolve("BMW Exampletown","7007",reports,"tradeAr"),/Needs Review/);
+    guidedSetupStoreCode:"9001",guidedSetupStoreName:"Dodge Exampletown",guidedSetupStoreBrand:"Dodge"}};
+  assert.equal(resolve("Dodge Exampletown","9001",reports,"tradeAr","Dodge"),"1010");
+  assert.throws(()=>resolve("BMW Exampletown","7007",reports,"tradeAr","BMW"),/Needs Review/);
 });
 test("vendor aliases are brand-specific and stale branded mappings fail closed",()=>{
   const mapped={storeCode:"1010",storeIdentityVerified:true,guidedSetupStoreCode:"9001",

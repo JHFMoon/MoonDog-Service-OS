@@ -75,11 +75,11 @@ test("overlapping advisor codes never identify another dealership",()=>{
 });
 test("an explicit vendor account alias must be bound to Guided Setup name and code",()=>{
   const config={menuSales:{accountName:cdjr,storeIdentityVerified:true,
-    guidedSetupStoreCode:"9001",guidedSetupStoreName:"BMW Exampletown"}};
-  const bad=prepare({name:"BMW Exampletown",ids:["3001","3002"],rows:reportRows(),
+    guidedSetupStoreCode:"9001",guidedSetupStoreName:"BMW Exampletown",guidedSetupStoreBrand:"BMW"}};
+  const bad=prepare({name:"BMW Exampletown",brand:"BMW",ids:["3001","3002"],rows:reportRows(),
     reportConfig:{menuSales:{...config.menuSales,guidedSetupStoreCode:"1010"}}});
   assert.throws(()=>bad.parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
-  const good=prepare({name:"BMW Exampletown",ids:["3001","3002"],rows:reportRows(),reportConfig:config});
+  const good=prepare({name:"BMW Exampletown",brand:"BMW",ids:["3001","3002"],rows:reportRows(),reportConfig:config});
   const selected=good.parseMenuSalesWorkbook([],"synthetic-menu.xlsx");
   assert.equal(selected.account,cdjr);
   assert.equal(selected.validation.storeIdentityMethod,"configured-store-name");
