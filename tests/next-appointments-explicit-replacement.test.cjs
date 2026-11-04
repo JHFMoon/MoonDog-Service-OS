@@ -65,6 +65,7 @@ test("manual same-period replacement requires confirmation and verifies durable 
   assert.equal(f.events[2].type,"next-appointments-import");
   assert.match(f.events[2].message,/^Replaced Next Appointments snapshot through 2026-10-20$/);
   assert.equal(f.events[2].details.fileName,"synthetic-next-appointments.csv");
+  assert.equal(f.events[2].details.sourceStoreConfidence,"configured-destination-only");
   assert.equal(f.events[3].type,"remove");
   assert.equal(f.events[3].name,"synthetic-next-appointments.csv");
   assert.deepEqual(f.events.slice(-2).map(item=>typeof item==="string"?item:item.type),["source-deleted","render"]);
@@ -122,6 +123,8 @@ test("paired daily summaries use advancing verified coverage instead of collidin
   assert.equal(saved.supplementalReports.snapshots[newKey].coverageDate,"2026-10-23","effective paired coverage is explicit");
   assert.equal(saved.supplementalReports.snapshots[newKey].sourceStoreConfidence,"configured-destination-only");
   assert.equal(saved.nextAppointments.snapshots["2026-10-23"].sourceStoreConfidence,"configured-destination-only");
+  assert.equal(f.events[2].details.sourceStoreConfidence,"configured-destination-only");
+  assert.equal(f.events[3].details.sourceStoreConfidence,"configured-destination-only");
   assert.deepEqual(f.events.slice(0,2),["write","read"]);
 });
 
