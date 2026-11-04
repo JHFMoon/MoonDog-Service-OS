@@ -81,6 +81,24 @@ safe_counts = collections.Counter()
 diagnostic_counts = collections.Counter()
 blobs = set()
 
+def scan_payload(data, prefix="", approved_synthetic_vin_blob=False):
+    key = (lambda name: f"{prefix}_{name}" if prefix else name)
+    for kind, rx in patterns.items():
+        if rx.search(data):
+            counts[key(kind)] += 1
+    emails = list(unsafe_email_matches(data))
+    if emails:
+        counts[key("email_address")] += 1
+    elif email_rx.search(data):
+        safe_counts[key("known_public_or_synthetic_email")] += 1
+    if any(valid_vin(m.group(0)) for m in vin_rx.finditer(data)):
+        if approved_synthetic_vin_blob and not prefix:
+            safe_counts["vetted_synthetic_vin_blob"] += 1
+        else:
+            counts[key("valid_vin")] += 1
+    if ssn_rx.search(data):
+        counts[key("ssn_candidate")] += 1
+
 # Strict full-history audit uses a single Git object stream. There are no
 # cross-run caches or shortcuts: every reachable object is enumerated anew.
 object_ids = list(dict.fromkeys(
@@ -128,9 +146,7 @@ with subprocess.Popen(
             if len(data) != size or stream.stdout.read(1) != b"\n":
                 raise RuntimeError("Git batch stream ended before a complete object")
             if kind == "blob":
-                scan_payload(data, approved_synthetic_vin_blob=(
-                    oid in VETTED_SYNTHETIC_VIN_BLOB_SHA1
-                ))
+                scan_payload(data, approved_synthetic_vin_blob=oid in VETTED_SYNTHETIC_VIN_BLOB_SHA1)
                 continue
             members = []
             offset = 0
