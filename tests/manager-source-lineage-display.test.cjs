@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const freshness = require("../assets/freshness.js");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
 const lineageStart = app.indexOf("  function sourceStatusLabel(evidence)");
@@ -54,6 +55,7 @@ test("manager source cards expose verified periods, import time, stale state, co
   const grid = element();
   const freshnessItems = {};
   const context = vm.createContext({
+    freshness,
     ui: { managerSourceGrid: grid },
     model: { state: { records: [] } },
     document: { createElement: element },
