@@ -28,6 +28,9 @@ test("another dealership's backup cannot replace the configured installation",()
     configured("Dodge Exampletown","7007")),/Needs Review/);
   assert.throws(()=>verify(configured("Dodge Exampletown","9001"),
     configured("BMW Exampletown","9001")),/Needs Review/);
+  assert.throws(()=>verify(configured("Example Auto Mall","9001","Dodge"),
+    configured("Example Auto Mall","9001","BMW")),/Needs Review/,
+    "Matching store numbers and names must not override a verified brand conflict");
 });
 test("missing or partial destination and source identities fail closed",()=>{
   assert.throws(()=>verify(dodge,blank),/Needs Review/);
