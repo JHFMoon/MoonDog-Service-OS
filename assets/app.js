@@ -2340,7 +2340,7 @@
     return{resolved:true,date:virObservationDate(snapshot),key};
   }
   async function importVirFile(name, deleteAfterSuccess = false) {
-    const file = await (await sourceFileHandle(name)).getFile(), snapshot = parseVirCsv(await file.text(), name); snapshot.sourceModifiedAt = new Date(file.lastModified).toISOString(); snapshot.observationTimestamp=snapshot.reportDate?`${snapshot.reportDate}T12:00:00-07:00`:snapshot.sourceModifiedAt||snapshot.importedAt;snapshot.sourceLocation=sourceLocations.get(name)||"root"; const result = await saveVirSnapshot(snapshot);
+    const file = await (await sourceFileHandle(name)).getFile(), snapshot = parseVirCsv(await file.text(), name); snapshot.sourceStoreConfidence="configured-destination-only"; snapshot.sourceModifiedAt = new Date(file.lastModified).toISOString(); snapshot.observationTimestamp=snapshot.reportDate?`${snapshot.reportDate}T12:00:00-07:00`:snapshot.sourceModifiedAt||snapshot.importedAt;snapshot.sourceLocation=sourceLocations.get(name)||"root"; const result = await saveVirSnapshot(snapshot);
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported VIR source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
     return result.resolved;
   }
@@ -3617,6 +3617,14 @@
   }
 
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true, layoutOverride = null) {
+    // A structurally valid VIR export with familiar advisor names does not
+    // authenticate its store. Keep another dealer's point observations out of
+    // this Workspace unless the manager deliberately confirms the original.
+    if (kind === "vir" && candidate.location !== "picked")
+      throw new Error("Needs Review: unsigned VIR cannot be imported unattended; select the original manually and confirm the dealership.");
+    if (kind === "vir" && !window.confirm(
+      `Verify VIR source: ${candidate.name}\n\nConfirm the original VIR export belongs to ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}) and check its observation date. This export has no verifiable source-store identifier. Continue?`))
+      throw new Error("Needs Review: VIR dealership and source observation were not confirmed; source retained.");
     if (kind === "performance" && candidate.location !== "picked") throw new Error("Needs Review: SAPR source dealership is not verified. Confirm the original workbook using explicit Import Performance.");
     if (kind === "open-ro-docx" && candidate.location !== "picked") throw new Error("Needs Review: DOCX source is not yet authorized for hands-off roster replacement.");
     if (kind === "open-ro" && !["picked","inbox"].includes(candidate.location)) throw new Error("Needs Review: only the dedicated Inbox may automatically replace Open ROs.");
@@ -4078,6 +4086,22 @@
         // SAPR sheet headings, periods and matching advisor codes do not
         // prove which dealership produced this unsigned XLSX. Never let an
         // unattended watch poll promote another store's performance metrics.
+        if(kind==="vir"&&candidate.location==="inbox"){
+          await addHistory("vir-review-required",
+            "Unsigned VIR retained pending explicit dealership and observation-date review",
+            {fileName:candidate.name,sourceFamily:kind,sourcePreserved:true,
+              sourceStoreConfidence:"configured-destination-only"});
+          if(!scanEligible())return null;
+          reviewRequired.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={
+            fileName:candidate.name,relativePath:candidate.relativePath,
+            kind,manualImportRequired:true,queuedAt:now(),
+            sourceStoreConfidence:"configured-destination-only"
+          };
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX","Unsigned VIR retained for explicit manager store review");
+          continue;
+        }
         if(kind==="performance"&&candidate.location==="inbox"){
           await addHistory("performance-review-required",
             "Unsigned SAPR retained pending explicit dealership and report-period review",
