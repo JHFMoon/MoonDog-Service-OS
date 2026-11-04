@@ -5,6 +5,11 @@ const path=require('node:path');
 const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
 const app=fs.readFileSync(path.join(root,'assets/app.js'),'utf8');
+const saprSelectorStart=app.indexOf('  function saprImportRank(');
+const saprSelectorEnd=app.indexOf('  function verifiedSaprSnapshot(',saprSelectorStart);
+assert.ok(saprSelectorStart>=0&&saprSelectorEnd>saprSelectorStart,
+  'production canonical SAPR selection is available for isolated Performance render tests');
+const saprSelector=app.slice(saprSelectorStart,saprSelectorEnd);
 
 function productionSourceLineage(){
   const start=app.indexOf('  function sourceStatusLabel(evidence)');
@@ -196,7 +201,7 @@ test('Performance tracker refuses an undated Open RO as a verified zero',()=>{
     document:{createElement:()=>({className:'',textContent:''})},
     trackerOpenCount:()=>{calculations++;return 0;},
     performanceFormat:value=>String(value)});
-  vm.runInContext(app.slice(start,end)+';this.renderPerformanceVerified=renderPerformanceVerified;',ctx);
+  vm.runInContext(saprSelector+'\n'+app.slice(start,end)+';this.renderPerformanceVerified=renderPerformanceVerified;',ctx);
   ctx.renderPerformanceVerified();
   assert.equal(cells.at(-1).textContent,'UPDATE PENDING');
   assert.equal(calculations,0,'unknown report period cannot produce a current count');
@@ -244,7 +249,7 @@ test('production Performance advisor table treats imported identity as text, nev
     performanceMetricMeta:{totalGross:['Total gross','money']},
     renderPerformanceChart:()=>{}
   });
-  vm.runInContext(app.slice(start,end)+';this.render=renderPerformance;',context);
+  vm.runInContext(saprSelector+'\n'+app.slice(start,end)+';this.render=renderPerformance;',context);
   context.render();
   assert.equal(table.children.length,1);
   const first=table.children[0].children[0];
