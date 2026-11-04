@@ -62,7 +62,7 @@ function fixture(opts={}){
     csvNumber:v=>{const source=String(v??"").trim();if(!source||source==="-")return null;const number=Number(source.replace(/[$,%\s,]/g,""));return Number.isFinite(number)?number:null;},
     localReportLayoutRules:()=>layoutRules,
     RETURN_ID_HEADER:"__MoonDog RO ID",RETURN_ISSUANCE_CELL:"Q1",
-    model:{settings:{store:{name:opts.storeName||"Synthetic CDJR City"},storeName:opts.storeName||"Synthetic CDJR City"}},
+    model:{settings:{store:{name:opts.storeName||"Synthetic CDJR City",code:opts.storeCode||"9001"},storeName:opts.storeName||"Synthetic CDJR City"}},
     sourceAdapter:{reports:{}},configuredAdvisors:()=>(
       opts.codes||["4001","4002","9001","9002"]).map(number=>({number})),
     validAdvisorIdentity:(code,name="")=>/^\d+$/.test(String(code))&&!/^0+$/.test(String(code))&&!/^(unknown|not found|total)/i.test(name),
