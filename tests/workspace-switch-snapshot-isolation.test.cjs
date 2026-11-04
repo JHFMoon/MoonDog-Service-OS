@@ -144,3 +144,55 @@ test("batched writable connection aborts before changing the old Workspace model
   assert.deepEqual(clone(f.model),original,
     "a failed B source read must not replace A's in-memory records or other snapshots");
 });
+
+test("independent synthetic Dodge and BMW Workspaces with overlapping RO/advisor identities never reuse prior source-family snapshots",async()=>{
+  const f=fresh(),ctx=f.ctx;
+  switchToWorkspaceA(f);
+  const catalog=require("../assets/freshness.js").SOURCE_DEFINITIONS;
+  const operational=Object.keys(catalog).filter(key=>!
+    ["openRo","sapr","appointments","supervisorWorkbook"].includes(key));
+  assert.equal(operational.length,10,"ten canonical operational families supplement Open RO, SAPR, Arrivals and workbook");
+  const sameRO="SYN-RO-301",sameAdvisor="SYN-101";
+  f.model.state.records=[{id:sameRO,ro:sameRO,advisorCode:sameAdvisor,
+    management:{owner:"Synthetic Dodge",note:"A-specific manager decision"}}];
+  f.model.operationalMetrics=Object.fromEntries(operational.map(key=>[key,{
+    snapshots:{"2026-11-04":{sourceFile:"synthetic-"+key+"-A.xlsx",
+      sourceStoreConfidence:"configured-destination-only",value:"A"}}
+  }]));
+  const priorA=clone(f.model);
+  const B={
+    state:{schemaVersion:1,updatedAt:"synthetic-B",source:{sha256:"SYN-B"},
+      records:[{id:sameRO,ro:sameRO,advisorCode:sameAdvisor,
+        management:{owner:"Synthetic BMW",note:"B-specific manager decision"}}],
+      closedRecords:[]},
+    appointments:{days:{"2026-11-04":{sourceFile:"synthetic-arrivals-B.xlsx",records:[sameRO]}}},
+    performance:{snapshots:{"2026-11-04":{sourceFile:"synthetic-sapr-B.xlsx",
+      periodStart:"2026-11-01",periodEnd:"2026-11-04",value:"B"}}},
+    operationalMetrics:Object.fromEntries(operational.map(key=>[key,{
+      snapshots:{"2026-11-04":{sourceFile:"synthetic-"+key+"-B.xlsx",
+        sourceStoreConfidence:"configured-destination-only",value:"B"}}
+    }])),
+    meetingCycle:{metrics:{store:"B"}},
+    assignNext:{days:{"2026-11-04":{source:"SYN-B",ro:sameRO}}},
+    autoImport:{seen:{"synthetic-B":{verified:true}}},
+    recovery:{status:"Ready",supervisorWorkbook:{issuanceStore:"SYN-B"}}
+  };
+  ctx.paths=names.map(key=>[key,key]);
+  ctx.readJson=async key=>clone(B[key]);
+  vm.runInContext("this.load=async function(){"+readOnly+"};",ctx);
+  await ctx.load();
+  for(const key of names){
+    assert.deepEqual(clone(f.model[key]),B[key],"B must read its own saved "+key);
+    assert.notDeepEqual(clone(f.model[key]),priorA[key],
+      "a colliding RO/advisor cannot resurrect A's "+key);
+  }
+  assert.equal(f.model.state.records[0].management.note,"B-specific manager decision");
+  assert.equal(priorA.state.records[0].management.note,"A-specific manager decision",
+    "A's manager override is not rewritten by a B load");
+  for(const family of operational){
+    const current=f.model.operationalMetrics[family].snapshots["2026-11-04"];
+    assert.equal(current.value,"B","B's "+family+" source is selected");
+    assert.ok(current.sourceFile.endsWith("-B.xlsx"));
+  }
+  assert.equal(f.model.recovery.supervisorWorkbook.issuanceStore,"SYN-B");
+});
