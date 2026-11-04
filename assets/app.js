@@ -2179,8 +2179,9 @@
   function pruneDatedSnapshots(snapshots, limit = 730) { const dates = Object.keys(snapshots).sort(); return Object.fromEntries(dates.slice(-limit).map((date) => [date, snapshots[date]])); }
   async function importNextAppointmentsFile(name, deleteAfterSuccess = false, allowInteractiveReplacement = false) {
     const file = await (await sourceFileHandle(name)).getFile(), source = await file.text(), snapshot = parseNextAppointmentsCsv(source, name), key=snapshot.periodEnd||`observation-${snapshot.observationDate}`,existingSnapshot=model.operationalMetrics.nextAppointments.snapshots[key],replacing=Boolean(existingSnapshot),prior=structuredClone(model.operationalMetrics);
+    snapshot.sourceStoreConfidence="configured-destination-only";
     const comparable = value => {
-      const volatile = new Set(["sourceFile", "importedAt", "sourceModifiedAt", "validation"]);
+      const volatile = new Set(["sourceFile", "importedAt", "sourceModifiedAt", "sourceStoreConfidence", "validation"]);
       const normalize = (item, root = false) => {
         if (Array.isArray(item)) return item.map(value => normalize(value));
         if (item && typeof item === "object") {
@@ -2196,6 +2197,7 @@
     let supplemental = null;
     try {
       supplemental = parseAppointmentsCreatedSummaryCsv(source, name);
+      supplemental.sourceStoreConfidence="configured-destination-only";
       supplemental.sourceModifiedAt = new Date(file.lastModified).toISOString();
       // The paired summary's filter end may remain month-wide while NSA coverage advances daily.
       supplemental.coverageDate = snapshot.periodEnd || supplemental.periodEnd || supplemental.asOfDate || "";
@@ -2340,7 +2342,7 @@
     return{resolved:true,date:virObservationDate(snapshot),key};
   }
   async function importVirFile(name, deleteAfterSuccess = false) {
-    const file = await (await sourceFileHandle(name)).getFile(), snapshot = parseVirCsv(await file.text(), name); snapshot.sourceModifiedAt = new Date(file.lastModified).toISOString(); snapshot.observationTimestamp=snapshot.reportDate?`${snapshot.reportDate}T12:00:00-07:00`:snapshot.sourceModifiedAt||snapshot.importedAt;snapshot.sourceLocation=sourceLocations.get(name)||"root"; const result = await saveVirSnapshot(snapshot);
+    const file = await (await sourceFileHandle(name)).getFile(), snapshot = parseVirCsv(await file.text(), name); snapshot.sourceStoreConfidence="configured-destination-only"; snapshot.sourceModifiedAt = new Date(file.lastModified).toISOString(); snapshot.observationTimestamp=snapshot.reportDate?`${snapshot.reportDate}T12:00:00-07:00`:snapshot.sourceModifiedAt||snapshot.importedAt;snapshot.sourceLocation=sourceLocations.get(name)||"root"; const result = await saveVirSnapshot(snapshot);
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported VIR source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
     return result.resolved;
   }
@@ -3617,6 +3619,16 @@
   }
 
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true, layoutOverride = null) {
+    // Neither VIR nor Next Appointments exports attest the issuing dealership.
+    // Identical advisor populations at two stores must not grant auto-import.
+    if ((kind === "vir" || kind === "next-appointments") && candidate.location !== "picked")
+      throw new Error("Needs Review: unsigned " + kind + " report cannot be imported unattended. Select its original manually and confirm the dealership and report dates.");
+    if (kind === "vir" && !window.confirm(
+      `Verify VIR source: ${candidate.name}\n\nConfirm the original VIR export belongs to ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}) and check its observation date. This export has no authenticated source-store identifier. Continue?`))
+      throw new Error("Needs Review: VIR dealership and source observation were not confirmed; original retained.");
+    if (kind === "next-appointments" && !window.confirm(
+      `Verify Next Appointments source: ${candidate.name}\n\nConfirm the original report belongs to ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}) and its reporting date range. Matching advisor identities do not establish its source dealership. Continue?`))
+      throw new Error("Needs Review: Next Appointments source dealership and date range were not confirmed; original retained.");
     // CSI exports identify scoring responses but do not authenticate their
     // originating dealership. Manual intent is required even with matching
     // advisor codes and validated export dates.
@@ -4100,6 +4112,24 @@
           };
           ledgerChanged=true;
           recordDiagnostic("REPORT INBOX","Unsigned CSI retained for explicit manual dealership/source review");
+          continue;
+        }
+        if((kind==="vir"||kind==="next-appointments")&&candidate.location==="inbox"){
+          // The original is retained and marked for deliberate manager review.
+          // A matching advisor identity is not proof of source-store ownership.
+          await addHistory(kind+"-review-required",
+            "Unsigned "+kind+" retained pending manager dealership and report-period review",
+            {fileName:candidate.name,sourceFamily:kind,sourcePreserved:true,
+              sourceStoreConfidence:"configured-destination-only"});
+          if(!scanEligible())return null;
+          reviewRequired.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={
+            fileName:candidate.name,relativePath:candidate.relativePath,
+            kind,manualImportRequired:true,queuedAt:now(),
+            sourceStoreConfidence:"configured-destination-only"
+          };
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX","Unsigned "+kind+" retained for explicit source-store review");
           continue;
         }
         if(kind==="performance"&&candidate.location==="inbox"){
