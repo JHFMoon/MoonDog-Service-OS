@@ -77,7 +77,7 @@
       const start=input.cumulativeStart&&input.cumulativeStart<input.monthStart?input.cumulativeStart:input.monthStart,
         scope=input.verifiedScope,next=`${format(start)}–${format(today)}`,
         responses=input.responsesRange?.start&&input.responsesRange?.end?`${format(input.responsesRange.start)}–${format(input.responsesRange.end)}`:'';
-      return{...result,cadence:'Cumulative export',last:scope?`${format(scope.start)}–${format(scope.end)}`:'',responses,next,missing,lastReportObservation:input.lastReportObservation||'',recovery:missing.length?`One verified Dealer Dashboard CSI export covering ${next} can recover missing response history; no daily files needed.`:'Response event dates and report observation dates are distinct; a day without a response is not a missing report.',status:missing.length?'Recoverable':scope?`Verified export scope through ${format(scope.end)}`:'Verified export scope not established'};
+      return{...result,cadence:'Cumulative export',last:scope?(scope.start?`${format(scope.start)}–${format(scope.end)}`:format(scope.end)):'',scopeStartVerified:Boolean(scope?.start),responses,next,missing,lastReportObservation:input.lastReportObservation||'',recovery:missing.length?`One verified Dealer Dashboard CSI export covering ${next} can recover missing response history; no daily files needed.`:'Response event dates and report observation dates are distinct; a day without a response is not a missing report.',status:missing.length?'Recoverable':scope?(scope.start?`Verified export scope through ${format(scope.end)}`:`Verified end-only CSI observation ${format(scope.end)}; cumulative start unknown`):'Verified export scope not established'};
     }
     let next=operatingFrom(today);if(last>=next)next=operatingFrom(addDays(last,1));
     result.cadence=key==='sapr'?'Daily — operating days':key==='sor'?'Optional dated financial observation':'Optional daily — operating days';
@@ -94,7 +94,7 @@
       if(key==='appointmentActivity'||key==='openRoSummary')return `Reference data · Last received: ${plan.lastActivityDate?date(plan.lastActivityDate):'not recorded'}`;
       return key==='openRo'||key==='appointments'?`${plan.importDate?`Current verified import: ${date(plan.importDate)}`:'Current verified import: not available'} · Source snapshot date: ${plan.snapshotDate?date(plan.snapshotDate):'not provided'} · Historical daily trend: not required`:plan.note;
     }
-    if(plan.kind==='recoverable')return `${plan.status} · Responses present: ${plan.responses||'not established'} · Last report observation: ${date(plan.lastReportObservation)} · Verified export scope: ${plan.last||'not established'}${missing.length?` · Next useful export: ${plan.next} cumulative`:''}`;
+    if(plan.kind==='recoverable')return `${plan.status} · Responses present: ${plan.responses||'not established'} · Last report observation: ${date(plan.lastReportObservation)} · ${plan.last&&plan.scopeStartVerified===false?'Verified end-only observation':'Verified export scope'}: ${plan.last||'not established'}${missing.length?` · Next useful export: ${plan.next} cumulative`:''}`;
     if(plan.kind==='required'){
       if(key==='sapr')return missing.length?`Missing required ${missing.length===1?'date':'dates'}: ${missing.map(date).join(', ')}`:plan.status;
       return `${plan.status} · Next required release: ${date(plan.next)}${missing.length?` · Missing required releases: ${missing.map(date).join(', ')}`:''}`;
@@ -110,7 +110,12 @@
     const responseDates=[...new Set(Object.values(surveys).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const advisorResponseDates=[...new Set(Object.values(surveys).filter(item=>item.advisorCode).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const unmappedAdvisorResponses=Object.values(surveys).filter(item=>validDateKey(item.surveyDate)&&(!today||item.surveyDate<=today)&&!item.advisorCode).length;
-    const scopes=imports.filter(item=>item.scopeVerified&&validDateKey(item.scopeStart)&&validDateKey(item.scopeEnd)&&item.scopeStart<=item.scopeEnd&&(!today||item.scopeEnd<=today)).sort((a,b)=>a.scopeEnd.localeCompare(b.scopeEnd));
+    // A verified end-only CSI observation is valid for its stated day but must
+    // never imply a verified cumulative start or full-month response coverage.
+    const declaredStart=item=>item.scopeStart!==undefined&&item.scopeStart!==null&&item.scopeStart!=='';
+    const scopes=imports.filter(item=>item?.scopeVerified===true&&validDateKey(item.scopeEnd)&&
+      (!declaredStart(item)||(validDateKey(item.scopeStart)&&item.scopeStart<=item.scopeEnd))&&
+      (!today||item.scopeEnd<=today)).sort((a,b)=>a.scopeEnd.localeCompare(b.scopeEnd));
     return {reportDates,responseDates,advisorResponseDates,unmappedAdvisorResponses,lastReportObservation:reportDates.at(-1)||'',lastResponseEvent:responseDates.at(-1)||'',verifiedScope:scopes.at(-1)||null,missingDates:[]};
   }
   function trendMaintenanceAction(row,format=(value)=>value) {
