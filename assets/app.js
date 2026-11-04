@@ -3952,7 +3952,10 @@
       // Unsigned store-unverified reports must not replay during each poll.
       // A reviewed SAPR left in the Inbox is never silently imported again.
       if(seen?.manualImportRequired)return false;
-      if(seen?.kind==="performance"&&seen.importedAt&&!seen.cleanupPending&&!seen.cleanupReviewRequired&&!seen.cleanupNeedsReview)return false;
+      // A manager-reviewed, durably accepted unsigned report left in Inbox
+      // is not a new unattended import on the next poll. Keep its original.
+      if(["performance","csi","vir","next-appointments","supplemental-csv"].includes(seen?.kind) &&
+         seen.importedAt&&!seen.cleanupPending&&!seen.cleanupReviewRequired&&!seen.cleanupNeedsReview)return false;
       return Boolean(seen?.cleanupPending || seen?.cleanupReviewRequired || seen?.cleanupNeedsReview) || !(seen?.kind==="appointments"&&seen.importedAt);
     }
     return !seen||Boolean(seen.movedAt);
