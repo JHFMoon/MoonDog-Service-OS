@@ -8108,7 +8108,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         "Browser storage unavailable; Manager Home remains the fallback.";
     });
   }
-  ui.refreshPerformanceFiles.addEventListener("click", () => run(scanPerformanceFiles)); ui.performanceSourceSelect.addEventListener("change", () => { ui.importPerformance.disabled = !ui.performanceSourceSelect.value; }); ui.importPerformance.addEventListener("click", () => run(async () => {
+  ui.refreshPerformanceFiles.addEventListener("click", () => run(async () => {
+    // The manual picker must not change the selected source's Inbox location
+    // while its verified import and exact-file review marker are in flight.
+    if(dailyImportBusy||appointmentImportBusy||folderWatch.busy||workspaceConnectionBusy||postConnectionScanBusy)
+      throw new Error("A Workspace import or connection is in progress. Refresh reports after it finishes.");
+    await scanPerformanceFiles();
+  })); ui.performanceSourceSelect.addEventListener("change", () => { ui.importPerformance.disabled = !ui.performanceSourceSelect.value; }); ui.importPerformance.addEventListener("click", () => run(async () => {
     // A direct SAPR button import is a durable Workspace mutation, just like
     // a Daily-picked report. Take the same exclusion before any file await:
     // reconnect may not replace model.root halfway through SAPR readback.
