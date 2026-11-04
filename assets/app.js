@@ -944,7 +944,7 @@
     const window=currentMonthWindow(todayKey),metrics=model.operationalMetrics||{},family=metrics[key]||{};
     if(key==='csi'){
       const evidence=freshness.csiTrendEvidence({imports:family.imports||[],surveys:family.surveys||{},today:todayKey});
-      return {source:key,rule:SOURCE_COVERAGE_RULES[key],expectedDates:[],presentDates:evidence.reportDates,lastPoint:evidence.lastReportObservation,missingDates:[],expectedEnd:'',responseDates:evidence.responseDates,advisorResponseDates:evidence.advisorResponseDates,unmappedAdvisorResponses:evidence.unmappedAdvisorResponses,verifiedScope:evidence.verifiedScope};
+      return {source:key,rule:SOURCE_COVERAGE_RULES[key],expectedDates:[],presentDates:evidence.reportDates,lastPoint:evidence.lastReportObservation,lastImportDate:evidence.lastImportDate,missingDates:[],expectedEnd:'',responseDates:evidence.responseDates,advisorResponseDates:evidence.advisorResponseDates,unmappedAdvisorResponses:evidence.unmappedAdvisorResponses,verifiedScope:evidence.verifiedScope};
     }
     let items=[...Object.values(family.snapshots||{}),...Object.values(family.dailySnapshots||{})];
     if(key==='vir')items=allVirObservations();
@@ -996,7 +996,7 @@
   function trendMaintenance(key,audit,todayKey=localDateKey(),evidence=sourceFreshness(key,{today:todayKey})) {
     const imports=model.operationalMetrics?.csi?.imports||[],scope=audit.csi.verifiedScope,recent=imports.at(-1),responses=recent&&validCoverageDate(recent.coverageStart)&&validCoverageDate(recent.coverageEnd)&&recent.coverageEnd<=todayKey?{start:recent.coverageStart,end:recent.coverageEnd}:null,
       snapshotDate=key==='openRo'?model.state.source?.reportDate:key==='appointments'?model.appointments.days?.[todayKey]?.date:'',importDate=evidence.safeForCurrent&&evidence.sourceTimestamp?coverageTimestamp(evidence.sourceTimestamp):'',lastActivityDate=evidence.sourceTimestamp?coverageTimestamp(evidence.sourceTimestamp):'';
-    return freshness.trendMaintenance({key,today:todayKey,coverage:audit[key],monthStart:audit.window.start,cumulativeStart:validCoverageDate(model.settings.csiPeriodStart),verifiedScope:scope?{start:scope.scopeStart,end:scope.scopeEnd}:null,responsesRange:responses,lastReportObservation:audit.csi.lastPoint,currentImportDate:importDate,sourceSnapshotDate:validCoverageDate(snapshotDate),lastActivityDate,financialMonth:key==='sor'?latestOperationalSnapshot('sor')?.period:'',formatDate:shortDate});
+    return freshness.trendMaintenance({key,today:todayKey,coverage:audit[key],monthStart:audit.window.start,cumulativeStart:validCoverageDate(model.settings.csiPeriodStart),verifiedScope:scope?{start:scope.scopeStart,end:scope.scopeEnd}:null,responsesRange:responses,lastReportObservation:audit.csi.lastPoint,lastImportDate:audit.csi.lastImportDate,currentImportDate:importDate,sourceSnapshotDate:validCoverageDate(snapshotDate),lastActivityDate,financialMonth:key==='sor'?latestOperationalSnapshot('sor')?.period:'',formatDate:shortDate});
   }
   function importCoverageWording(audit,todayKey) {
     const {window}=audit,sunday=isSunday(todayKey),out={};
@@ -4789,11 +4789,16 @@
           // verified observation or recent import cannot replace missing scope.
           !scopeEnd ||
           (item.scopeStart != null && item.scopeStart !== "" && !validCoverageDate(item.scopeStart))
-        );
+        ),
+        // A record claiming a verified observation must supply a valid
+        // non-future date even when cumulative scope itself is current.
+        malformedDeclaredObservation = item?.reportObservationVerified === true &&
+          (!observedDate || observedDate > today);
       return evaluate({ ...common, exists: Boolean(item),
         sourceTimestamp: item?.importedAt, sourceDate: observedDate,
         observationVerified: Boolean(observedDate),
-        invalid: malformedDeclaredScope ? "The saved verified CSI report scope contains an invalid date." : "",
+        invalid: malformedDeclaredScope ? "The saved verified CSI report scope contains an invalid date." :
+          malformedDeclaredObservation ? "The saved verified CSI report observation date is invalid or future-dated." : "",
         scopeVerified: Boolean(scopeEnd),
         scopeStart: item?.scopeVerified ? item.scopeStart : "",
         scopeEnd: item?.scopeVerified ? item.scopeEnd : "",
