@@ -68,6 +68,9 @@ test('validated header-only zero-response CSI report passes production parse and
   assert.equal(csi.imports[0].dailySummary.nps, null);
   assert.equal(csi.imports[0].scopeVerified, true);
   assert.equal(csi.imports[0].scopeEnd, '2026-10-06');
+  assert.equal(csi.imports[0].sourceStoreConfidence, 'configured-destination-only',
+    'unsigned CSI cannot independently verify the originating dealership');
+  assert.equal(durable().csi.imports[0].sourceStoreConfidence, 'configured-destination-only');
   assert.equal(durable().csi.imports[0].scopeEnd, '2026-10-06');
   assert.equal(freshness.evaluateSource({
     key: 'csi', exists: true, today: '2026-10-07',
