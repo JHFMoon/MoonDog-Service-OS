@@ -4954,7 +4954,8 @@
     // report dates, numerical totals or recent local import timestamps.
     if(evidence?.sourceStoreConfidence==="store-conflict")
       return "Dealership mismatch · Review required";
-    if(evidence?.sourceStoreConfidence==="configured-destination-only")
+    if(evidence?.sourceStoreConfidence==="configured-destination-only"&&
+       ["current","historical-valid","stale"].includes(evidence.status))
       return "Source dealership unverified · Review required";
     const status=evidence.status,reason=String(evidence.reason||"");
     if(status==="current")return evidence.key==="openRo"&&!evidence.reportPeriodVerified?"Recently imported · Report period not verified":"Current";
