@@ -81,51 +81,103 @@ safe_counts = collections.Counter()
 diagnostic_counts = collections.Counter()
 blobs = set()
 
-def scan_payload(data, prefix="", approved_synthetic_vin_blob=False):
-    key = (lambda name: f"{prefix}_{name}" if prefix else name)
-    for kind, rx in patterns.items():
-        if rx.search(data):
-            counts[key(kind)] += 1
-    emails = list(unsafe_email_matches(data))
-    if emails:
-        counts[key("email_address")] += 1
-    elif email_rx.search(data):
-        safe_counts[key("known_public_or_synthetic_email")] += 1
-    if any(valid_vin(m.group(0)) for m in vin_rx.finditer(data)):
-        if approved_synthetic_vin_blob and not prefix:
-            safe_counts["vetted_synthetic_vin_blob"] += 1
-        else:
-            counts[key("valid_vin")] += 1
-    if ssn_rx.search(data):
-        counts[key("ssn_candidate")] += 1
+# Strict full-history audit uses a single Git object stream. There are no
+# cross-run caches or shortcuts: every reachable object is enumerated anew.
+object_ids = list(dict.fromkeys(
+    line.partition(" ")[0] for line in objects if line.strip()
+))
+metadata_rows = git(
+    "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)",
+    input=("\n".join(object_ids) + "\n").encode("ascii"),
+).splitlines()
+if len(metadata_rows) != len(object_ids):
+    raise RuntimeError("Git metadata response did not cover every reachable object")
+metadata = {}
+for requested, row in zip(object_ids, metadata_rows):
+    columns = row.decode("ascii").split()
+    if len(columns) != 3 or columns[0] != requested:
+        raise RuntimeError("Git object metadata identity or type mismatch")
+    metadata[requested] = (columns[1], int(columns[2]))
 
-for line in objects:
-    oid, _, path = line.partition(" ")
-    if oid in blobs:
-        continue
-    blobs.add(oid)
-    if git("cat-file", "-t", oid).strip() != b"blob":
-        continue
-    size = int(git("cat-file", "-s", oid))
-    if size > 15_000_000:
-        counts["oversize_uninspected_blob"] += 1
-        continue
-    data = git("cat-file", "blob", oid)
-    scan_payload(data, approved_synthetic_vin_blob=oid in VETTED_SYNTHETIC_VIN_BLOB_SHA1)
+object_format = git("rev-parse", "--show-object-format").strip()
+oid_bytes = {b"sha1": 20, b"sha256": 32}.get(object_format)
+if oid_bytes is None:
+    raise RuntimeError("Unsupported Git hash format for strict history scan")
+tree_members = {}
+with subprocess.Popen(
+    ["git", "cat-file", "--batch"], stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+) as stream:
+    try:
+        for oid in object_ids:
+            kind, size = metadata[oid]
+            blobs.add(oid)
+            if kind == "blob" and size > 15_000_000:
+                counts["oversize_uninspected_blob"] += 1
+                continue
+            if kind not in ("blob", "tree"):
+                continue
+            stream.stdin.write((oid + "\n").encode("ascii"))
+            stream.stdin.flush()
+            header = stream.stdout.readline().strip().split()
+            if len(header) != 3 or header[0].decode("ascii") != oid or (
+                header[1].decode("ascii"), int(header[2])
+            ) != (kind, size):
+                raise RuntimeError("Git batch object identity, type or size mismatch")
+            data = stream.stdout.read(size)
+            if len(data) != size or stream.stdout.read(1) != b"\n":
+                raise RuntimeError("Git batch stream ended before a complete object")
+            if kind == "blob":
+                scan_payload(data, approved_synthetic_vin_blob=(
+                    oid in VETTED_SYNTHETIC_VIN_BLOB_SHA1
+                ))
+                continue
+            members = []
+            offset = 0
+            while offset < len(data):
+                space = data.find(b" ", offset)
+                nul = data.find(b"\x00", space + 1)
+                if space <= offset or nul <= space:
+                    raise RuntimeError("Malformed raw historical Git tree entry")
+                mode = data[offset:space]
+                name = data[space + 1:nul]
+                end = nul + 1 + oid_bytes
+                if end > len(data) or not name or b"/" in name:
+                    raise RuntimeError("Malformed historical tree ID or filename")
+                members.append((mode, name, data[nul + 1:end].hex()))
+                offset = end
+            tree_members[oid] = members
+    except BaseException:
+        stream.kill()
+        raise
 
-# Enumerate complete tree snapshots, not just git rev-list --objects names.
-# The latter prints only one possible pathname for a blob reused at many paths.
-# Deduplicate paths across commits to avoid multiplying findings by commit count.
+# Recover every distinct historical path from ALL commit tree snapshots,
+# including deleted/renamed paths and repeated blobs under different names.
 seen_paths = set()
-for commit_id in git("rev-list", "--all").splitlines():
-    for raw_path in git("ls-tree", "-r", "-z", "--name-only", commit_id.decode("ascii")).split(b"\x00"):
-        if not raw_path or raw_path in seen_paths:
+visited_tree_prefixes = set()
+roots = set(git("log", "--all", "--format=%T").decode("ascii").splitlines())
+for root in roots:
+    stack = [(root, b"")]
+    while stack:
+        tree_oid, prefix = stack.pop()
+        identity = (tree_oid, prefix)
+        if identity in visited_tree_prefixes:
             continue
-        seen_paths.add(raw_path)
-        pathname = raw_path.decode("utf-8", "replace")
-        if restricted.search(pathname):
-            counts["restricted_path"] += 1
-        scan_payload(raw_path, "path")
+        visited_tree_prefixes.add(identity)
+        if tree_oid not in tree_members:
+            raise RuntimeError("Reachable commit tree missing from strict object audit")
+        for mode, name, child in tree_members[tree_oid]:
+            full_path = prefix + name
+            if mode in (b"40000", b"040000"):
+                stack.append((child, full_path + b"/"))
+                continue
+            if full_path in seen_paths:
+                continue
+            seen_paths.add(full_path)
+            pathname = full_path.decode("utf-8", "replace")
+            if restricted.search(pathname):
+                counts["restricted_path"] += 1
+            scan_payload(full_path, "path")
 
 # Commit messages, annotated tag messages, and identity metadata are part of
 # public history too; scan them without printing values.
