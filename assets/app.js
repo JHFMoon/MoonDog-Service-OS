@@ -7380,10 +7380,24 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       await writeBytes(entry.path.split("/"),bytes,restoreId);
     }
   }
+  // A whole-state restore replaces settings as well as KPIs and history.
+  // Never let a configured dealership silently become another dealership.
+  function verifyBackupStoreOwnership(currentSettings,restoredSettings){
+    const nameOf=settings=>String(settings?.store?.name||settings?.storeName||"").trim().replace(/\\s+/g," ").toLowerCase();
+    const codeOf=settings=>String(settings?.store?.code||"").trim();
+    const currentCode=codeOf(currentSettings),currentName=nameOf(currentSettings);
+    const backupCode=codeOf(restoredSettings),backupName=nameOf(restoredSettings);
+    if(!currentCode&&!currentName)return true; // A genuinely blank fresh install may recover its own complete backup.
+    if(!currentCode||!currentName||!backupCode||!backupName||
+       currentCode!==backupCode||currentName!==backupName)
+      throw new Error("Needs Review: this backup's dealership does not match Guided Setup. Restoring another store over this installation is blocked. Preserve both Workspaces and review the source identity.");
+    return true;
+  }
   async function restoreSelectedBackup(){
     const name=ui.restoreBackupSelect.value;
     if(!name)throw new Error("Choose a validated backup first.");
     const selected=await validateBackupBytes(await readFileBytes(["backups",name]));
+    verifyBackupStoreOwnership(model.settings,selected.values["data/settings.json"]);
     if(!confirm(`Restore the complete Service Operations Dashboard state from ${new Date(selected.manifest.createdAt).toLocaleString()}?\n\nVersion: ${selected.manifest.appVersion}\n\nA safety backup of the current state will be created first.`))return;
     model.recovery.status="Creating restore safety backup";
     renderRecovery();
