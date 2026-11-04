@@ -4825,8 +4825,10 @@
         periodStart: reportPeriod.periodStart, periodEnd: reportPeriod.periodEnd }, item, reportPeriod.verified);
     }
     if (key === "nextAppointments") { const item = hasSelectedItem ? options.item : latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd,
-        invalid: observation && purpose==="historical" ?
-          "The observed Next Appointments summary has no verified reporting interval for historical metrics." : ""
+        // Historical metrics require a real, validated interval. An end-only
+        // observation may still inform current operations but not past coverage.
+        invalid: item && purpose==="historical" && (observation || !verifiedDatedInterval(item)) ?
+          "Next Appointments historical metrics require a verified reporting start and end." : ""
       }, item, verifiedDatedInterval(item) && !observation); }
     if (key === "vir") { const item = hasSelectedItem ? options.item : latestVirObservation(),observed=verifiedVirSourceObservationDate(item); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.observationTimestamp || item?.sourceModifiedAt || "", invalid: item && !observed ? "The retained VIR observation has no verified source reporting date; an import timestamp cannot establish coverage." : "", periodEnd: observed }, item, Boolean(observed)); }
     if (key === "menu") {
