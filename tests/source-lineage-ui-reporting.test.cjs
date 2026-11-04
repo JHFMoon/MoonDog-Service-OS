@@ -15,7 +15,7 @@ function productionSourceLineage(){
   const start=app.indexOf('  function sourceStatusLabel(evidence)');
   const end=app.indexOf('  function advisorNextWin(',start);
   assert.ok(start>0&&end>start,'production source confidence helpers exist');
-  const context=vm.createContext({Date,Intl});
+  const context=vm.createContext({Date,Intl,freshness:require('../assets/freshness.js')});
   vm.runInContext(app.slice(start,end)+
     ';this.statusLabel=sourceStatusLabel;this.lineageLabel=sourceLineageLabel;',context);
   return context;
@@ -260,4 +260,19 @@ test('production Performance advisor table treats imported identity as text, nev
   assert.equal(tableHtmlAssignments,0,'no imported advisor identity enters table HTML');
   assert.equal(table.children[0].children[1].textContent,'120',
     'existing numeric Performance KPI cell remains unchanged');
+});
+
+test('impossible and future import timestamps cannot masquerade as verified lineage in any family',()=>{
+  const p=productionSourceLineage();
+  for(const stamp of ['2026-02-30T15:00:00Z','2026-13-01T15:00:00Z',
+    '2099-01-01T00:00:00Z','not-a-date']){
+    const label=p.lineageLabel({status:'historical-valid',loaded:true,
+      reportPeriodVerified:true,periodStart:'2026-10-01',periodEnd:'2026-10-26',
+      importTimestamp:stamp});
+    assert.match(label,/Report period: 2026-10-01 through 2026-10-26/,stamp);
+    assert.match(label,/Last imported: Not verified$/,stamp);
+  }
+  const valid=p.lineageLabel({status:'current',loaded:true,reportPeriodVerified:true,
+    periodEnd:'2026-10-26',importTimestamp:'2026-10-27T01:16:00Z'});
+  assert.match(valid,/Last imported: 2026-10-27 01:16 UTC$/);
 });

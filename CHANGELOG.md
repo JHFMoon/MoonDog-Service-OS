@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.333 — current Beta
+
+- fix(59-01): separate CSI observation/import lineage and reject invalid source clocks. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.332 — current Beta
 
 - guard(59-01): fail closed on unknown report authority and scope Open RO workload fallback. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

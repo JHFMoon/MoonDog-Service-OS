@@ -944,7 +944,7 @@
     const window=currentMonthWindow(todayKey),metrics=model.operationalMetrics||{},family=metrics[key]||{};
     if(key==='csi'){
       const evidence=freshness.csiTrendEvidence({imports:family.imports||[],surveys:family.surveys||{},today:todayKey});
-      return {source:key,rule:SOURCE_COVERAGE_RULES[key],expectedDates:[],presentDates:evidence.reportDates,lastPoint:evidence.lastReportObservation,missingDates:[],expectedEnd:'',responseDates:evidence.responseDates,advisorResponseDates:evidence.advisorResponseDates,unmappedAdvisorResponses:evidence.unmappedAdvisorResponses,verifiedScope:evidence.verifiedScope};
+      return {source:key,rule:SOURCE_COVERAGE_RULES[key],expectedDates:[],presentDates:evidence.reportDates,lastPoint:evidence.lastReportObservation,lastImportDate:evidence.lastImportDate,missingDates:[],expectedEnd:'',responseDates:evidence.responseDates,advisorResponseDates:evidence.advisorResponseDates,unmappedAdvisorResponses:evidence.unmappedAdvisorResponses,verifiedScope:evidence.verifiedScope};
     }
     let items=[...Object.values(family.snapshots||{}),...Object.values(family.dailySnapshots||{})];
     if(key==='vir')items=allVirObservations();
@@ -996,7 +996,7 @@
   function trendMaintenance(key,audit,todayKey=localDateKey(),evidence=sourceFreshness(key,{today:todayKey})) {
     const imports=model.operationalMetrics?.csi?.imports||[],scope=audit.csi.verifiedScope,recent=imports.at(-1),responses=recent&&validCoverageDate(recent.coverageStart)&&validCoverageDate(recent.coverageEnd)&&recent.coverageEnd<=todayKey?{start:recent.coverageStart,end:recent.coverageEnd}:null,
       snapshotDate=key==='openRo'?model.state.source?.reportDate:key==='appointments'?model.appointments.days?.[todayKey]?.date:'',importDate=evidence.safeForCurrent&&evidence.sourceTimestamp?coverageTimestamp(evidence.sourceTimestamp):'',lastActivityDate=evidence.sourceTimestamp?coverageTimestamp(evidence.sourceTimestamp):'';
-    return freshness.trendMaintenance({key,today:todayKey,coverage:audit[key],monthStart:audit.window.start,cumulativeStart:validCoverageDate(model.settings.csiPeriodStart),verifiedScope:scope?{start:scope.scopeStart,end:scope.scopeEnd}:null,responsesRange:responses,lastReportObservation:audit.csi.lastPoint,currentImportDate:importDate,sourceSnapshotDate:validCoverageDate(snapshotDate),lastActivityDate,financialMonth:key==='sor'?latestOperationalSnapshot('sor')?.period:'',formatDate:shortDate});
+    return freshness.trendMaintenance({key,today:todayKey,coverage:audit[key],monthStart:audit.window.start,cumulativeStart:validCoverageDate(model.settings.csiPeriodStart),verifiedScope:scope?{start:scope.scopeStart,end:scope.scopeEnd}:null,responsesRange:responses,lastReportObservation:audit.csi.lastPoint,lastImportDate:audit.csi.lastImportDate,currentImportDate:importDate,sourceSnapshotDate:validCoverageDate(snapshotDate),lastActivityDate,financialMonth:key==='sor'?latestOperationalSnapshot('sor')?.period:'',formatDate:shortDate});
   }
   function importCoverageWording(audit,todayKey) {
     const {window}=audit,sunday=isSunday(todayKey),out={};
@@ -4789,11 +4789,16 @@
           // verified observation or recent import cannot replace missing scope.
           !scopeEnd ||
           (item.scopeStart != null && item.scopeStart !== "" && !validCoverageDate(item.scopeStart))
-        );
+        ),
+        // A record claiming a verified observation must supply a valid
+        // non-future date even when cumulative scope itself is current.
+        malformedDeclaredObservation = item?.reportObservationVerified === true &&
+          (!observedDate || observedDate > today);
       return evaluate({ ...common, exists: Boolean(item),
         sourceTimestamp: item?.importedAt, sourceDate: observedDate,
         observationVerified: Boolean(observedDate),
-        invalid: malformedDeclaredScope ? "The saved verified CSI report scope contains an invalid date." : "",
+        invalid: malformedDeclaredScope ? "The saved verified CSI report scope contains an invalid date." :
+          malformedDeclaredObservation ? "The saved verified CSI report observation date is invalid or future-dated." : "",
         scopeVerified: Boolean(scopeEnd),
         scopeStart: item?.scopeVerified ? item.scopeStart : "",
         scopeEnd: item?.scopeVerified ? item.scopeEnd : "",
@@ -4899,9 +4904,12 @@
     const start=hasVerifiedPeriod?String(source.periodStart||"").trim():"",end=hasVerifiedPeriod?String(source.periodEnd||"").trim():"";
     const period=start&&end?(start===end?end:start+" through "+end):end||start||"Not verified";
     const timestamp=String(source.importTimestamp||"").trim();
-    const importTime=/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}/.test(timestamp)&&
-      Number.isFinite(Date.parse(timestamp))
-      ?new Date(timestamp).toISOString().slice(0,16).replace("T"," ")+" UTC":"Not verified";
+    // Retained timestamps are provenance, not proof of report coverage.
+    // An impossible or future local import must not become a verified clock.
+    const parsedImport=/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}/.test(timestamp)&&
+      freshness.validDateKey(timestamp.slice(0,10))?Date.parse(timestamp):NaN,
+      importTime=Number.isFinite(parsedImport)&&parsedImport<=Date.now()+300000
+        ?new Date(parsedImport).toISOString().slice(0,16).replace("T"," ")+" UTC":"Not verified";
     return sourceStatusLabel(source)+" · Report period: "+period+" · Last imported: "+importTime;
   }
   function advisorNextWin(code, latest, plan) {

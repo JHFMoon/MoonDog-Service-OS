@@ -136,7 +136,7 @@ function productionLineageLabels(){
   const start=app.indexOf("  function sourceStatusLabel(");
   const end=app.indexOf("  function advisorNextWin(",start);
   assert.ok(start>=0&&end>start,"production source confidence and lineage labels exist");
-  const context=vm.createContext({});
+  const context=vm.createContext({freshness:F});
   vm.runInContext(app.slice(start,end)+
     ";this.sourceStatusLabel=sourceStatusLabel;this.sourceLineageLabel=sourceLineageLabel;",context);
   return context;
