@@ -96,6 +96,18 @@ test("older, impossible, or conflicting end-only reports do not certify prior-da
   }
 });
 
+test("VIR keeps valid point observations from today and the prior day without borrowing an interval", () => {
+  for (const observed of [prior, today]) {
+    const evidence = freshness.evaluateSource({key: "vir", exists: true, today, periodEnd: observed});
+    assert.equal(evidence.status, "current", observed);
+    assert.equal(evidence.safeForCurrent, true, observed);
+    assert.equal(evidence.periodStart, "", "no source-defined range start may be invented");
+  }
+  assert.equal(freshness.evaluateSource({
+    key: "vir", exists: true, today, periodEnd: "2026-10-17"
+  }).status, "stale", "an outdated VIR point observation remains stale");
+});
+
 test("historical interval cannot be certified by a point observation only", () => {
   const source = freshness.evaluateSource({
     key: "sapr", exists: true, today, purpose: "historical",
