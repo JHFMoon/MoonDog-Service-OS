@@ -415,10 +415,19 @@
     sourceAdapter = {};
   }
   const unassignedAdvisorCode = () => String(sourceAdapter.unassignedAdvisorCode || "");
+  // Guided Setup owns the installation identity. A vendor's alternate report
+  // code may be used only with an explicit binding to this exact local store.
   function reportStoreCode(family) {
-    const code = String(sourceAdapter.reports?.[family]?.storeCode || model.settings?.store?.code || "").trim();
-    if (!code) throw new Error(`Configure the store code before importing ${family}.`);
-    return code;
+    const store=model.settings?.store||{},name=String(store.name||"").trim(),
+      canonical=String(store.code||"").trim(),rule=sourceAdapter.reports?.[family]||{},
+      vendor=String(rule.storeCode||"").trim();
+    if(!name||!canonical)throw new Error(`Configure Guided Setup store identity before importing ${family}.`);
+    if(!vendor||vendor===canonical)return canonical;
+    if(rule.storeIdentityVerified!==true||
+       String(rule.guidedSetupStoreCode||"").trim()!==canonical||
+       String(rule.guidedSetupStoreName||"").trim().toLowerCase()!==name.toLowerCase())
+      throw new Error(`Needs Review: ${family} report store code differs from Guided Setup without a verified mapping to this dealership.`);
+    return vendor;
   }
   const escapeSourceCode = value => String(value).replace(/[^A-Za-z0-9]/g, char => "\\" + char);
   const storeRowPattern = family => new RegExp("^" + escapeSourceCode(reportStoreCode(family)) + "\\s*-", "i");
@@ -2417,25 +2426,28 @@
           .filter(code=>configuredCodes.has(code))).size;
       return{account,group,matches};
     });
-    // The source is multistore. Prefer the local configured dealership name
-    // over overlapping staff numbers; only a unique, exact normalized match is accepted.
-    const names=[sourceAdapter.reports?.menuSales?.accountName,
-      sourceAdapter.reports?.menu?.accountName,model.settings?.store?.name,model.settings?.storeName]
-      .map(menuSalesAccountKey).filter(Boolean);
-    const distinctNames=new Set(names);
+    // Never identify a source dealership by overlapping advisor codes. Only
+    // the Guided Setup name or an explicitly bound vendor account alias may
+    // select a multistore report; ambiguous or unknown reports stay in review.
+    const localStore=model.settings?.store||{},localName=String(localStore.name||"").trim(),
+      localCode=String(localStore.code||"").trim();
+    if(!localName||!localCode)throw new Error("Needs Review: configure Guided Setup store identity before Menu Sales import.");
+    const verifiedAccountAlias=family=>{
+      const rule=sourceAdapter.reports?.[family]||{},alias=String(rule.accountName||"").trim();
+      if(!alias||menuSalesAccountKey(alias)===menuSalesAccountKey(localName))return alias;
+      if(rule.storeIdentityVerified!==true||
+         String(rule.guidedSetupStoreCode||"").trim()!==localCode||
+         String(rule.guidedSetupStoreName||"").trim().toLowerCase()!==localName.toLowerCase())
+        throw new Error("Needs Review: Menu Sales account alias is not verified for the Guided Setup dealership.");
+      return alias;
+    };
+    const distinctNames=new Set([localName,verifiedAccountAlias("menuSales"),verifiedAccountAlias("menu")]
+      .map(menuSalesAccountKey).filter(Boolean));
     const byName=options.filter(option=>distinctNames.has(menuSalesAccountKey(option.account)));
-    let selected,storeIdentityMethod;
-    if(byName.length===1){
-      selected=byName[0];storeIdentityMethod="configured-store-name";
-    }else if(byName.length>1){
-      throw new Error("Menu Sales configured dealership name matched multiple accounts. Review the store settings.");
-    }else{
-      const ranked=options.filter(option=>option.matches>=2)
-        .sort((a,b)=>b.matches-a.matches||a.account.localeCompare(b.account));
-      if(!ranked.length||ranked.length>1&&ranked[0].matches===ranked[1].matches)
-        throw new Error("Menu Sales store could not be verified. Configure the exact dealership name from the Account column, or verify at least two matching advisor codes.");
-      selected=ranked[0];storeIdentityMethod="configured-advisor-codes";
-    }
+    if(byName.length!==1)throw new Error(byName.length>1
+      ?"Menu Sales configured dealership name matched multiple accounts. Review the store settings."
+      :"Menu Sales store could not be verified against Guided Setup. Advisor-code overlap cannot prove dealership identity.");
+    const selected=byName[0],storeIdentityMethod="configured-store-name";
     const {account,group}=selected,storeRow=summaries.get(account);
     if(!storeRow)throw new Error("The Menu Sales store summary row is missing.");
     const percentCell=value=>{const number=csvNumber(value);return number==null?null:number*100;},
