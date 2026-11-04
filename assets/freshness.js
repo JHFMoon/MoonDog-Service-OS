@@ -294,7 +294,12 @@
     const optional = purpose?.startsWith('OPTIONAL'), prior = previousOperatingDay(today),
       observation = input.observationDate || '',
       datedCurrent = trustedDate(observation) && observation >= prior && observation <= today,
-      current = evidence.status !== 'invalid' && (input.currentSnapshot === true || (!input.legacyUnsafe && (evidence.safeForCurrent || (evidence.loaded && evidence.status === 'historical-valid' && datedCurrent)))),
+      // Only a recognized source-confidence state can authorize readiness.
+      // A caller's independent current workload may cover a genuinely missing
+      // or stale source, but blank/unknown/pending states cannot silently pass.
+      // Explicit conflicts and invalid authority remain fail-closed.
+      recognizedSourceState = ['current', 'historical-valid', 'missing', 'stale'].includes(evidence.status),
+      current = recognizedSourceState && (input.currentSnapshot === true || (!input.legacyUnsafe && (evidence.safeForCurrent || (evidence.loaded && evidence.status === 'historical-valid' && datedCurrent)))),
       missing = (input.missingDates || []).filter(date => trustedDate(date) && date.slice(0,7) === today.slice(0,7) && date < today && !isSunday(date)),
       active = Boolean(input.activeFeature), soon = Boolean(input.soonFeature);
     if (optional && !active && !soon) return finish(current ? 'CURRENT' : 'OPTIONAL', current ? 'Current trend is usable; additional dated observations are optional.' : 'Optional trend depth. No historical backfill required.');
