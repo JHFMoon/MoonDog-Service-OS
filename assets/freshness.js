@@ -294,7 +294,11 @@
     const optional = purpose?.startsWith('OPTIONAL'), prior = previousOperatingDay(today),
       observation = input.observationDate || '',
       datedCurrent = trustedDate(observation) && observation >= prior && observation <= today,
-      current = evidence.status !== 'invalid' && (input.currentSnapshot === true || (!input.legacyUnsafe && (evidence.safeForCurrent || (evidence.loaded && evidence.status === 'historical-valid' && datedCurrent)))),
+      // A separately current workload may cover an absent source, but it must
+      // never override explicit integrity contradictions or unverified authority.
+      // Keep the established missing-source fallback intact for validated ROs.
+      sourceIntegrityBlocked = ['invalid', 'conflicting', 'unsupported', 'unverified'].includes(evidence.status),
+      current = !sourceIntegrityBlocked && (input.currentSnapshot === true || (!input.legacyUnsafe && (evidence.safeForCurrent || (evidence.loaded && evidence.status === 'historical-valid' && datedCurrent)))),
       missing = (input.missingDates || []).filter(date => trustedDate(date) && date.slice(0,7) === today.slice(0,7) && date < today && !isSunday(date)),
       active = Boolean(input.activeFeature), soon = Boolean(input.soonFeature);
     if (optional && !active && !soon) return finish(current ? 'CURRENT' : 'OPTIONAL', current ? 'Current trend is usable; additional dated observations are optional.' : 'Optional trend depth. No historical backfill required.');

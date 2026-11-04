@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.331 — current Beta
+
+- guard: explicit source integrity faults veto report readiness and verified KPI display. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.330 — current Beta
 
 - guard: require prior-day observation or verified interval for SAPR and NSA. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
