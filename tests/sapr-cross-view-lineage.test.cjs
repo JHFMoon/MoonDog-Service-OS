@@ -135,7 +135,7 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
     console
   });
   vm.runInContext([
-    historyWriter, importer, entity, delta, plan, performanceView, meeting,
+    historyWriter, importer, entity, delta, plan, saprSnapshotSelector, performanceView, meeting,
     "this.api = { importPerformanceFile, performanceEntity, performancePlan, renderPerformance, meetingAdvisorTv };"
   ].join("\n"), context);
 
