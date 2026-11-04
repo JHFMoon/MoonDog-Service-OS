@@ -4732,6 +4732,10 @@
     return Number.isFinite(time)?validCoverageDate(localDateKey(new Date(time))):"";
   }
   function sourceFreshness(key, options = {}) {
+    // A selected, explicitly absent source must remain absent: only an omitted
+    // selection may consult the latest retained Workspace snapshot.
+    const selectedItem = loadDefault => Object.prototype.hasOwnProperty.call(options, "item")
+      ? options.item : loadDefault();
     const today = options.today || localDateKey(), purpose = options.purpose || "current", expectation = sourceExpectation(key), common = { key, today, purpose, targetStart: options.targetStart, targetEnd: options.targetEnd, expectation, timeZone: businessTimeZone() };
     const evaluate = (input, item, reportPeriodVerified = false) => {
       const evidence = freshness.evaluateSource(input);
@@ -4749,7 +4753,7 @@
       freshness.validDateKey(item.periodEnd) &&
       item.periodStart <= item.periodEnd);
     if (key === "openRo") {
-      const item = options.item || model.state.source, stated = item?.reportDate,
+      const item = selectedItem(() => model.state.source), stated = item?.reportDate,
         declared = stated !== undefined && stated !== null && stated !== "",
         verifiedDate = typeof stated === "string" && freshness.validDateKey(stated) && stated <= today;
       return evaluate({ ...common, exists: Boolean(item),
@@ -4758,10 +4762,10 @@
         invalid: declared && !verifiedDate ? "The retained Open RO source has an invalid or future report date." : ""
       }, item, verifiedDate);
     }
-    if (key === "sapr") { const item = options.item || currentSaprSnapshot(true); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, verifiedDatedInterval(item)); }
+    if (key === "sapr") { const item = selectedItem(() => currentSaprSnapshot(true)); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, verifiedDatedInterval(item)); }
     if (key === "csi") {
       const branch = model.operationalMetrics?.csi || {}, imports = branch.imports || [],
-        item = options.item || imports.at(-1),
+        item = selectedItem(() => imports.at(-1)),
         scopeEnd = item?.scopeVerified ? validCoverageDate(item.scopeEnd) : "",
         scopeStart = scopeEnd && item?.scopeVerified ? validCoverageDate(item.scopeStart) : "",
         // Local import time and configured scoring window are not source coverage.
@@ -4784,17 +4788,17 @@
         scopeEnd: item?.scopeVerified ? item.scopeEnd : "",
         periodStart: reportPeriod.periodStart, periodEnd: reportPeriod.periodEnd }, item, reportPeriod.verified);
     }
-    if (key === "nextAppointments") { const item = options.item || latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, verifiedDatedInterval(item)); }
-    if (key === "vir") { const item = options.item || latestVirObservation(),observed=verifiedVirSourceObservationDate(item); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.observationTimestamp || item?.sourceModifiedAt || "", invalid: item && !observed ? "The retained VIR observation has no verified source reporting date; an import timestamp cannot establish coverage." : "", periodEnd: observed }, item, Boolean(observed)); }
+    if (key === "nextAppointments") { const item = selectedItem(() => latestOperationalSnapshot("nextAppointments")),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, verifiedDatedInterval(item)); }
+    if (key === "vir") { const item = selectedItem(() => latestVirObservation()),observed=verifiedVirSourceObservationDate(item); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.observationTimestamp || item?.sourceModifiedAt || "", invalid: item && !observed ? "The retained VIR observation has no verified source reporting date; an import timestamp cannot establish coverage." : "", periodEnd: observed }, item, Boolean(observed)); }
     if (key === "menu") {
-      const item = options.item || latestOperationalSnapshot("menu"),
+      const item = selectedItem(() => latestOperationalSnapshot("menu")),
         verified = Boolean(item && verifiedMenuTrendReleases({ retained: item }, today).has(item.releaseWeek));
       return evaluate({ ...common, exists: Boolean(item),
         invalid: item && !verified ? "The retained Menu Sales release has no verified Monday date and consistent reporting period." : "",
         sourceTimestamp: item?.importedAt || item?.runAt,
         periodStart: item?.periodStart, periodEnd: item?.periodEnd, releaseWeek: item?.releaseWeek }, item, verified);
     }
-    if (key === "appointments") { const item = options.item || model.appointments.days?.[today]; return evaluate({ ...common, expectation: "recommended", exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.updatedAt, invalid: item && !freshness.validDateKey(item.date) ? "The saved appointment snapshot has no valid verified reporting date." : "", periodStart: item?.date || "", periodEnd: item?.date || "" }, item, Boolean(item?.date && freshness.validDateKey(item.date))); }
+    if (key === "appointments") { const item = selectedItem(() => model.appointments.days?.[today]); return evaluate({ ...common, expectation: "recommended", exists: Boolean(item), sourceTimestamp: item?.importedAt || item?.updatedAt, invalid: item && !freshness.validDateKey(item.date) ? "The saved appointment snapshot has no valid verified reporting date." : "", periodStart: item?.date || "", periodEnd: item?.date || "" }, item, Boolean(item?.date && freshness.validDateKey(item.date))); }
     if (["sor", "appointmentActivity", "efficiency", "mediaAsr", "mediaAsrTech", "openRoSummary"].includes(key)) {
       const item = Object.prototype.hasOwnProperty.call(options, "item") ? options.item : latestOperationalSnapshot(key), rawPeriod = item?.period ?? item?.date ?? "",
         period = String(rawPeriod).trim(), isMonth = /^\d{4}-\d{2}$/.test(period),
@@ -4838,7 +4842,7 @@
         periodStart, periodEnd }, item, Boolean(item && (periodStart || periodEnd || period)));
     }
     if (key === "supervisorWorkbook") {
-      const item = options.item || model.recovery?.supervisorWorkbook,
+      const item = selectedItem(() => model.recovery?.supervisorWorkbook),
         rawStamp = item?.generatedAt,
         stamp = typeof rawStamp === "string" ? rawStamp.trim() : "",
         syntaxValid = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i.test(stamp) &&
