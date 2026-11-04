@@ -7457,7 +7457,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     if(!currentCode||!currentName||!backupCode||!backupName||
        currentCode!==backupCode||currentName!==backupName||
-       (currentBrand&&backupBrand&&currentBrand!==backupBrand))
+       ((currentBrand||backupBrand)&&currentBrand!==backupBrand))
       throw new Error("Needs Review: this backup's dealership does not match Guided Setup. Restoring another store over this installation is blocked. Preserve both Workspaces and review the source identity.");
     return true;
   }
