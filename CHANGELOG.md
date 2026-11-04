@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.325 — current Beta
+
+- guard: unify verified SAPR period across Performance and Meeting. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.324 — current Beta
 
 - guard: commit verified month-end snapshot only after durable readback. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
