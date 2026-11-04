@@ -120,6 +120,9 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
     "production restore preflight, verification, history replacement, and restore entry point exist");
   const restoreSupport=app.slice(restoreSupportStart,restoreSupportEnd);
   const historyReplaceSource=app.slice(historyReplaceStart,historyReplaceEnd);
+  const identityStart=app.indexOf("  function verifyBackupStoreOwnership(",historyReplaceStart);
+  assert.ok(identityStart>=historyReplaceStart&&identityStart<restoreStart,"production store ownership preflight exists");
+  const identitySource=app.slice(identityStart,restoreStart);
   const restoreSource=app.slice(restoreStart,restoreEnd);
   const nodeCrypto=require("node:crypto");
   const canonicalPaths=[
@@ -149,7 +152,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
   };
   const valuesFor=state=>({
     "data/current-state.json":copy(state),
-    "data/settings.json":{schemaVersion:4,store:{name:"Synthetic Store"},advisors:{}},
+    "data/settings.json":{schemaVersion:4,store:{name:"Synthetic Store",code:"9001"},advisors:{}},
     "data/appointments.json":{days:{}},
     "data/advisor-performance.json":{snapshots:{}},
     "data/assign-next.json":{days:{}},
@@ -182,7 +185,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
   const histories=[];
   const events=[];
   const model={
-    state:copy(liveState),settings:{},appointments:{},performance:{},assignNext:{},autoImport:{},
+    state:copy(liveState),settings:copy(valuesFor(liveState)["data/settings.json"]),appointments:{},performance:{},assignNext:{},autoImport:{},
     operationalMetrics:{},meetingCycle:{},recovery:{status:"Ready",lastRestore:null},root:{}
   };
   const historyDirectory={kind:"directory",async *entries(){}};
@@ -223,7 +226,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
     physicalWorkspacePath:path=>["System Files","Workspace",...path],
     status:()=>{},console
   });
-  vm.runInContext(restoreSupport+"\n"+historyReplaceSource+"\n"+restoreSource+"\nthis.runRestore=restoreSelectedBackup;",context);
+  vm.runInContext(restoreSupport+"\n"+historyReplaceSource+"\n"+identitySource+"\n"+restoreSource+"\nthis.runRestore=restoreSelectedBackup;",context);
 
   await context.runRestore();
   const restored=JSON.parse(JSON.stringify(model.state));
