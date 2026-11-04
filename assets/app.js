@@ -3612,6 +3612,7 @@
   }
 
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true, layoutOverride = null) {
+    if (kind === "performance" && candidate.location !== "picked") throw new Error("Needs Review: SAPR source dealership is not verified. Confirm the original workbook using explicit Import Performance.");
     if (kind === "open-ro-docx" && candidate.location !== "picked") throw new Error("Needs Review: DOCX source is not yet authorized for hands-off roster replacement.");
     if (kind === "open-ro" && !["picked","inbox"].includes(candidate.location)) throw new Error("Needs Review: only the dedicated Inbox may automatically replace Open ROs.");
     sourceLocations.set(candidate.name, candidate.location);let appointmentOutcome;
@@ -3904,9 +3905,10 @@
     if(candidate.readError)return false;
     const seen=model.autoImport.seen?.[candidate.signature];
     if(candidate.location==="inbox"){
-      // An unsigned Open RO must remain held until its exact source is
-      // manually reviewed; do not requeue the same file on every watch poll.
+      // Unsigned store-unverified reports must not replay during each poll.
+      // A reviewed SAPR left in the Inbox is never silently imported again.
       if(seen?.manualImportRequired)return false;
+      if(seen?.kind==="performance"&&seen.importedAt&&!seen.cleanupPending&&!seen.cleanupReviewRequired&&!seen.cleanupNeedsReview)return false;
       return Boolean(seen?.cleanupPending || seen?.cleanupReviewRequired || seen?.cleanupNeedsReview) || !(seen?.kind==="appointments"&&seen.importedAt);
     }
     return !seen||Boolean(seen.movedAt);
@@ -4068,8 +4070,26 @@
           if(/\.pdf$/i.test(candidate.name)&&!referenceOnly){pdfFailureMessage="PDF is not a supported PreRO appointment or supplemental report. Source kept in Files To Learn for review.";recordDiagnostic("PDF INTAKE","No supported PDF structure; source preserved for learning");}
           continue;
         }
-        // DOCX still requires deliberate review; only strictly reconciled
-        // grouped XLSX exports are authorized for unattended roster writes.
+        // SAPR sheet headings, periods and matching advisor codes do not
+        // prove which dealership produced this unsigned XLSX. Never let an
+        // unattended watch poll promote another store's performance metrics.
+        if(kind==="performance"&&candidate.location==="inbox"){
+          await addHistory("performance-review-required",
+            "Unsigned SAPR retained pending explicit dealership and report-period review",
+            {fileName:candidate.name,sourceFamily:kind,
+              sourceStoreConfidence:"configured-destination-only",sourcePreserved:true});
+          if(!scanEligible())return null;
+          reviewRequired.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={
+            fileName:candidate.name,relativePath:candidate.relativePath,
+            kind,manualImportRequired:true,queuedAt:now(),
+            sourceStoreConfidence:"configured-destination-only"
+          };
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX","Unsigned SAPR retained for explicit Import Performance review");
+          continue;
+        }
+        // Unsigned CDK DOCX requires deliberate manager source review.
         if(kind==="open-ro-docx"&&candidate.location==="inbox"){
           // The history write can await Workspace storage. Do not publish a
           // manual-review ledger entry after the originating scan loses authority.
@@ -4270,7 +4290,7 @@
     }
     if(reviewRequired.length)await scanFiles();
     if(!scanEligible())return null;
-    const reviewNote=reviewRequired.length?` ${reviewRequired.length} recognized Open RO source(s) remain in Report Inbox for Import Report verification.`:"";
+    const reviewNote=reviewRequired.length?` ${reviewRequired.length} unsigned Open RO or SAPR report(s) remain in Report Inbox for explicit import and dealership review.`:"";
     const learnNote = learned.length ? ` ${learned.length} file${learned.length === 1 ? " was" : "s were"} moved safely to Files To Learn.` : "", retiredNote = retired.length ? ` ${retired.length} known non-service file${retired.length === 1 ? " was" : "s were"} retired from Service OS intake.` : "", retainedNote = retained.length ? ` ${retained.length} file${retained.length === 1 ? " remains" : "s remain"} in place because it could not be moved safely.` : "";
     const cleanupNote = cleanupPending.length ? ` ${cleanupPending.length} ingested file${cleanupPending.length===1?"":"s"} still need${cleanupPending.length===1?"s":""} source deletion; the Dashboard will retry without re-importing.` : "";
     const cleanedNote = cleaned.length ? ` Deleted ${cleaned.length} previously ingested source file${cleaned.length===1?"":"s"} after verified retry.` : "";
@@ -4724,9 +4744,15 @@
     const name = selectedName || ui.performanceSourceSelect.value;
     if (!name) throw new Error("Choose a Service Advisor Performance XLSX.");
     status(`Reading advisor performance from ${name}…`, "working");
-    const bytes = providedBytes || await (await (await sourceFileHandle(name)).getFile()).arrayBuffer();
+    const sourceFile = await (await sourceFileHandle(name)).getFile();
+    const bytes = providedBytes || await sourceFile.arrayBuffer();
     if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true });
     const snapshot = parsePerformanceWorkbook(bytes, name);
+    // The current SAPR parser has no source-store marker: verified structure,
+    // period and advisor overlap cannot establish dealership origin.
+    if (!window.confirm(`Review SAPR import: ${name}\n\nConfirm the original workbook is for ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}), and verify its complete date range and advisor detail before saving. This unsigned report cannot prove source dealership automatically. Continue?`))
+      throw new Error("Needs Review: SAPR dealership and report period were not manually confirmed; source retained.");
+    snapshot.sourceStoreConfidence="configured-destination-only";
     const priorPerformance = structuredClone(model.performance);
     const replacing = Boolean(model.performance.snapshots[snapshot.date]);
     model.performance.snapshots[snapshot.date] = snapshot;
@@ -4744,6 +4770,18 @@
       // values. Uncertain disk bytes are reserved for controlled recovery.
       model.performance = priorPerformance;
       throw error;
+    }
+    // Clear only this exact Inbox review marker after the full performance
+    // payload is durably verified; a retained original must not auto-replay.
+    if(sourceLocations.get(name)==="inbox"){
+      const signature=`${REPORT_INBOX}/${name}|${sourceFile.size}|${sourceFile.lastModified}`;
+      const previous=model.autoImport.seen?.[signature]||{};
+      const next={...model.autoImport,seen:{...model.autoImport.seen,
+        [signature]:{...previous,fileName:name,relativePath:`${REPORT_INBOX}/${name}`,
+          kind:"performance",importedAt:now(),manualImportRequired:false,
+          manualImportCompletedAt:now(),sourceStoreConfidence:"configured-destination-only"}}};
+      await writeJson(AUTO_IMPORT_PATH,next);
+      model.autoImport=next;
     }
     await addHistory("performance-import", `${replacing ? "Replaced" : "Added"} performance snapshot for ${snapshot.date}`, { date: snapshot.date, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, fileName: name, advisors: Object.keys(snapshot.advisors).length, rawCopyRetained: false });
     renderPerformance();
