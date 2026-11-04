@@ -358,9 +358,9 @@
     });
     if(!Object.prototype.hasOwnProperty.call(SOURCE_DEFINITIONS,key))
       return result("store-conflict","unknown-source-family");
-    const name=s=>String(s?.name||"").trim().replace(/\\s+/g," ").toLowerCase();
+    const name=s=>String(s?.name||"").trim().replace(/\s+/g," ").toLowerCase();
     const code=s=>String(s?.code||"").trim();
-    const brand=s=>String(s?.brand||"").trim().replace(/\\s+/g," ").toLowerCase();
+    const brand=s=>String(s?.brand||"").trim().replace(/\s+/g," ").toLowerCase();
     const local={name:name(configuredStore),code:code(configuredStore),brand:brand(configuredStore)};
     if(!local.name||!local.code||!local.brand)
       return result("configured-destination-only","destination-identity-incomplete");
