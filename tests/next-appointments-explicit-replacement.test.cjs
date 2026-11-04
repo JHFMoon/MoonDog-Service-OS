@@ -58,7 +58,8 @@ test("manual same-period replacement requires confirmation and verifies durable 
   const f=fixture();
   await f.run(true,true);
   const saved=f.model.operationalMetrics.nextAppointments.snapshots[f.key];
-  assert.deepEqual(JSON.parse(JSON.stringify(saved)),JSON.parse(JSON.stringify(f.incoming)));
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)),JSON.parse(JSON.stringify({...f.incoming,sourceStoreConfidence:"configured-destination-only"})));
+  assert.equal(f.durable().nextAppointments.snapshots[f.key].sourceStoreConfidence,"configured-destination-only");
   assert.deepEqual(JSON.parse(JSON.stringify(f.durable().nextAppointments.snapshots[f.key])),JSON.parse(JSON.stringify(saved)));
   assert.deepEqual(f.events.slice(0,2),["write","read"],"read-back must follow the durable write");
   assert.equal(f.events[2].type,"next-appointments-import");
@@ -119,6 +120,8 @@ test("paired daily summaries use advancing verified coverage instead of collidin
   assert.ok(saved.supplementalReports.snapshots[newKey],"new daily coverage is stored under its effective date");
   assert.equal(saved.supplementalReports.snapshots[newKey].periodEnd,"2026-10-31","source report filter end remains unchanged");
   assert.equal(saved.supplementalReports.snapshots[newKey].coverageDate,"2026-10-23","effective paired coverage is explicit");
+  assert.equal(saved.supplementalReports.snapshots[newKey].sourceStoreConfidence,"configured-destination-only");
+  assert.equal(saved.nextAppointments.snapshots["2026-10-23"].sourceStoreConfidence,"configured-destination-only");
   assert.deepEqual(f.events.slice(0,2),["write","read"]);
 });
 
