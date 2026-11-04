@@ -19,7 +19,7 @@ const fakeEntries=names=>({
   async *entries(){for(const name of names)yield[name,{kind:"file"}];}
 });
 
-test("watch hands off a recognized complete grouped Open RO workbook without manual review",async()=>{
+test("watch retains unverified grouped Open RO for explicit source-store review without writing roster",async()=>{
   const name="Synthetic grouped Open RO.xlsx",signature="inbox|synthetic";
   const entry={name,signature,location:"inbox",relativePath:"01 - DROP REPORTS HERE/"+name,
     file:{lastModified:1,arrayBuffer:async()=>new ArrayBuffer(2)}};
@@ -38,22 +38,23 @@ test("watch hands off a recognized complete grouped Open RO workbook without man
     sha256:async()=>"",TextDecoder
   });
   const result=await ctx.autoSurveyFolder();
-  assert.equal(result.imported.length,1);
+  assert.equal(result.imported.length,0);
   assert.equal(result.learned.length,0);
-  assert.equal(result.reviewRequired.length,0);
-  assert.equal(calls.imported,1);
+  assert.equal(result.reviewRequired.length,1);
+  assert.equal(calls.imported,0);
   assert.equal(calls.moved,0);
-  assert.equal(calls.scanned,0);
+  assert.equal(calls.scanned,1);
   assert.equal(calls.saved,1);
-  assert.equal(ctx.model.autoImport.seen[signature].manualImportRequired,undefined);
+  assert.equal(ctx.model.autoImport.seen[signature].manualImportRequired,true);
+  assert.equal(ctx.model.autoImport.seen[signature].sourceStoreConfidence,"configured-destination-only");
 });
 
-test("old manual-review markers do not block a now-eligible Open RO import",()=>{
+test("existing manual-review markers prevent repeated unattended replay until explicit import completes",()=>{
   const signature="inbox|same";
   const ctx=source("  function candidateNeedsImport(","  function transientWorkspaceState(",{
     model:{autoImport:{seen:{[signature]:{kind:"open-ro",manualImportRequired:true}}}}
   });
-  assert.equal(ctx.candidateNeedsImport({signature,location:"inbox"}),true);
+  assert.equal(ctx.candidateNeedsImport({signature,location:"inbox"}),false);
   assert.equal(ctx.candidateNeedsImport({signature:"inbox|changed",location:"inbox"}),true);
   assert.equal(ctx.candidateNeedsImport({signature,location:"root"}),false);
   assert.equal(ctx.candidateNeedsImport({signature:"root|new",location:"root"}),true);

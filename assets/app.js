@@ -3547,6 +3547,10 @@
     return true;
   }
   async function verifyCompleteRoImport(name, file, bytes, records, verifiedAutomaticInbox = false) {
+    // Group count reconciliation proves completeness, NOT source dealership.
+    // Unsigned grouped exports carry no reliable store name/code/brand.
+    // Manual confirmation is mandatory before any destructive roster replace.
+    if(verifiedAutomaticInbox)throw new Error("Needs Review: unsigned grouped Open RO has no verified source dealership. Use Import Report to confirm the correct store, date and roster before replacement.");
     if (!records.length || records.some(row => !text(row.ro).trim())) throw new Error("Needs Review: incomplete RO identity.");
     const keys = records.map(row => text(row.ro).trim());
     // Reuse the verified identity set for current-roster coverage. A linear
@@ -3569,7 +3573,7 @@
     await markSupervisorWorkbookStale("Open RO population changed after a CDK Repair Orders import");
     await backupState("before-cdk-docx-import");
     const importedAt=now(),sourceModifiedAt=new Date(file.lastModified).toISOString(),merged=mergeCompleteOpenRoRecords(parsed.records,importedAt,"cdk-repair-orders");
-    const nextState={...model.state,updatedAt:importedAt,source:{...verifiedSource,fileName:candidate.name,importedAt,sourceModifiedAt,sheetName:"CDK Repair Orders",rowCount:merged.records.length,format:parsed.format,summary:parsed.summary,validation:parsed.validation},records:merged.records,closedRecords:merged.closedRecords};
+    const nextState={...model.state,updatedAt:importedAt,source:{...verifiedSource,sourceStoreConfidence:"configured-destination-only",fileName:candidate.name,importedAt,sourceModifiedAt,sheetName:"CDK Repair Orders",rowCount:merged.records.length,format:parsed.format,summary:parsed.summary,validation:parsed.validation},records:merged.records,closedRecords:merged.closedRecords};
     await writeJson(STATE_PATH,nextState);model.state=nextState;
     await retainDailyReport("openRo",{...model.state.source,coverageDate:coverageTimestamp(sourceModifiedAt),rowCount:merged.records.length,advisors:Object.fromEntries([...new Set(merged.records.map((row)=>row.advisorCode).filter(Boolean))].map((code)=>[code,merged.records.filter((row)=>row.advisorCode===code).length]))});
     await saveOpenRoWorkload(openRoWorkloadSnapshot(parsed.workloadRecords,model.state.source,sourceModifiedAt));
@@ -3899,10 +3903,12 @@
   function candidateNeedsImport(candidate) {
     if(candidate.readError)return false;
     const seen=model.autoImport.seen?.[candidate.signature];
-    if(candidate.location==="inbox")
-      // Previous Betas queued Open RO workbooks for manual review. Reconsider
-      // those unchanged files now that strict grouped intake is authorized.
+    if(candidate.location==="inbox"){
+      // An unsigned Open RO must remain held until its exact source is
+      // manually reviewed; do not requeue the same file on every watch poll.
+      if(seen?.manualImportRequired)return false;
       return Boolean(seen?.cleanupPending || seen?.cleanupReviewRequired || seen?.cleanupNeedsReview) || !(seen?.kind==="appointments"&&seen.importedAt);
+    }
     return !seen||Boolean(seen.movedAt);
   }
   function transientWorkspaceState(error){return ["AbortError","InvalidStateError","NotReadableError","UnknownError","TimeoutError"].includes(error?.name)||/state cached in an interface object|state had changed since it was read from disk|changed since it was read from disk/i.test(error?.message||"");}
@@ -4161,6 +4167,26 @@
             continue;
           }
         }
+        if(kind==="open-ro"&&candidate.location==="inbox"){
+          // A different, unsigned grouped export cannot automatically replace
+          // the live roster, even when all advisor/global row totals reconcile.
+          // Exact already-committed duplicates above retain their separate
+          // verified projection-recovery and byte-guarded cleanup path.
+          await addHistory("open-ro-review-required",
+            "Unsigned grouped Open RO retained for explicit dealership and roster review",
+            {fileName:candidate.name,sourceFamily:kind,
+              sourceStoreConfidence:"configured-destination-only",sourcePreserved:true});
+          if(!scanEligible())return null;
+          reviewRequired.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={
+            fileName:candidate.name,relativePath:candidate.relativePath,
+            kind,manualImportRequired:true,queuedAt:now(),
+            sourceStoreConfidence:"configured-destination-only"
+          };
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX","Unsigned Open RO retained for dealership verification in Import Report");
+          continue;
+        }
         const outcome=await processClassifiedCandidate(candidate, kind, bytes, true);
         // The importer may have awaited durable I/O while reconnect or a
         // competing manual import claimed authority. Its completion must not
@@ -4308,7 +4334,7 @@
     await markSupervisorWorkbookStale("Open RO population changed after a source import");
     await backupState("before-import");
     if (!deleteAfterSuccess) await writeBytes(["imports", stamp()+"-"+slug(name.replace(/\.xlsx$/i, ""))+".xlsx"], new Uint8Array(bytes));
-    const sheetName = legacy?.sheetName || table.sheetName, reportRows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { header: 1, defval: "" }), reportDate = internalObservationDate(reportRows) || null, nextState = { ...model.state, updatedAt: importedAt, source: { ...verifiedSource, fileName: name, importedAt, sourceModifiedAt:new Date(file.lastModified).toISOString(), reportDate, sheetName, rowCount: records.length, format: legacy?.format || "Generic table", advisorSections: legacy?.advisorSections || null }, records, closedRecords:merged.closedRecords };
+    const sheetName = legacy?.sheetName || table.sheetName, reportRows = XLSX.utils.sheet_to_json(book.Sheets[sheetName], { header: 1, defval: "" }), reportDate = internalObservationDate(reportRows) || null, nextState = { ...model.state, updatedAt: importedAt, source: { ...verifiedSource, sourceStoreConfidence:"configured-destination-only",fileName: name, importedAt, sourceModifiedAt:new Date(file.lastModified).toISOString(), reportDate, sheetName, rowCount: records.length, format: legacy?.format || "Generic table", advisorSections: legacy?.advisorSections || null }, records, closedRecords:merged.closedRecords };
     await writeJson(STATE_PATH,nextState);model.state=nextState;await retainDailyReport("openRo",{...model.state.source,coverageDate:reportDate||coverageTimestamp(model.state.source.sourceModifiedAt),rowCount:records.length,advisors:Object.fromEntries([...new Set(records.map(row=>row.advisorCode))].map(code=>[code,records.filter(row=>row.advisorCode===code).length]))});await saveOpenRoWorkload(openRoWorkloadSnapshot(legacy?.workloadRecords || records,model.state.source,model.state.source.sourceModifiedAt)); await ensureDailyFocus(); await addHistory("source-import", "Imported "+records.length+" open ROs from "+name, { fileName: name, reportDate, sheetName, format: model.state.source.format, advisorSections: model.state.source.advisorSections, rawCopyRetained: !deleteAfterSuccess,assignNextWorkload:true,closedByReconciliation:merged.closedCount,reopenedFromRetention:merged.reopenedCount });
     if (!verifiedAutomaticInbox) await markOpenRoManualReviewComplete(name,file,importedAt);
     renderAll();
