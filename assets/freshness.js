@@ -106,12 +106,17 @@
     return `${plan.status} · Next optional: ${date(plan.next)}`;
   }
   function csiTrendEvidence({imports=[],surveys={},today}={}) {
-    const reportDates=[...new Set(imports.map(item=>item.refreshDate||(item.importedAt ? dateKey(item.importedAt) : "")).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
+    // Local refreshDate/importedAt records import activity, not a report-supplied
+    // observation. A verified export scope is separate coverage evidence.
+    // Never manufacture report observation dates from a recent local import.
+    const saved=imports.filter(item=>item && typeof item==="object"),
+      importDates=[...new Set(saved.map(item=>item.refreshDate||(item.importedAt ? dateKey(item.importedAt) : "")).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort(),
+      reportDates=[...new Set(saved.filter(item=>item.reportObservationVerified===true).map(item=>item.reportObservationDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const responseDates=[...new Set(Object.values(surveys).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const advisorResponseDates=[...new Set(Object.values(surveys).filter(item=>item.advisorCode).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const unmappedAdvisorResponses=Object.values(surveys).filter(item=>validDateKey(item.surveyDate)&&(!today||item.surveyDate<=today)&&!item.advisorCode).length;
-    const scopes=imports.filter(item=>item.scopeVerified&&validDateKey(item.scopeStart)&&validDateKey(item.scopeEnd)&&item.scopeStart<=item.scopeEnd&&(!today||item.scopeEnd<=today)).sort((a,b)=>a.scopeEnd.localeCompare(b.scopeEnd));
-    return {reportDates,responseDates,advisorResponseDates,unmappedAdvisorResponses,lastReportObservation:reportDates.at(-1)||'',lastResponseEvent:responseDates.at(-1)||'',verifiedScope:scopes.at(-1)||null,missingDates:[]};
+    const scopes=saved.filter(item=>item.scopeVerified&&validDateKey(item.scopeStart)&&validDateKey(item.scopeEnd)&&item.scopeStart<=item.scopeEnd&&(!today||item.scopeEnd<=today)).sort((a,b)=>a.scopeEnd.localeCompare(b.scopeEnd));
+    return {reportDates,importDates,responseDates,advisorResponseDates,unmappedAdvisorResponses,lastReportObservation:reportDates.at(-1)||'',lastImportDate:importDates.at(-1)||'',lastResponseEvent:responseDates.at(-1)||'',verifiedScope:scopes.at(-1)||null,missingDates:[]};
   }
   function trendMaintenanceAction(row,format=(value)=>value) {
     const {key,trend={},need={}}=row,missing=trend.missing||[],date=value=>value?format(value):'not established';
