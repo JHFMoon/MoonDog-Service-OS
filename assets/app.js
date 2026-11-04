@@ -7383,7 +7383,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   // A whole-state restore replaces settings as well as KPIs and history.
   // Never let a configured dealership silently become another dealership.
   function verifyBackupStoreOwnership(currentSettings,restoredSettings){
-    const nameOf=settings=>String(settings?.store?.name||settings?.storeName||"").trim().replace(/\\s+/g," ").toLowerCase();
+    const nameOf=settings=>String(settings?.store?.name||settings?.storeName||"").trim().replace(/\s+/g," ").toLowerCase();
     const codeOf=settings=>String(settings?.store?.code||"").trim();
     const brandOf=settings=>String(settings?.store?.brand||"").trim().replace(/\s+/g," ").toLowerCase();
     const currentCode=codeOf(currentSettings),currentName=nameOf(currentSettings),
