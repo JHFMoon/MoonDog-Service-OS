@@ -3609,7 +3609,7 @@
   async function importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess=false,layoutOverride=null) {
     if(kind==="supplemental-workbook")if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true });
     let snapshot;if(kind==="supplemental-pdf"){const signature=await pdfSignatureText(bytes),family=supplementalPdfFamily(signature,candidate.name),pages=family==="controllable-ranking"?80:family==="service-consulting-audit"?20:4;snapshot=parseSupplementalPdfReport(await pdfReportText(bytes,pages),candidate.name,{storeCode:model.settings.store?.code||""});}
-    else if(kind==="supplemental-csv")snapshot=parseAppointmentsCreatedSummaryCsv(new TextDecoder().decode(new Uint8Array(bytes)),candidate.name);
+    else if(kind==="supplemental-csv"){snapshot=parseAppointmentsCreatedSummaryCsv(new TextDecoder().decode(new Uint8Array(bytes)),candidate.name);snapshot.sourceStoreConfidence="configured-destination-only";}
     else if(kind==="supplemental-workbook")snapshot=parseSupplementalWorkbook(bytes,candidate.name,layoutOverride);
     else if(kind==="supplemental-docx")snapshot=parseSupplementalDocxReport(await docxText(bytes),candidate.name);
     if(!snapshot)throw new Error("The supplemental report structure could not be verified.");sourceLocations.set(candidate.name,candidate.location);const sourceFile=await(await sourceFileHandle(candidate.name)).getFile();snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString();model.operationalMetrics.supplementalReports||={snapshots:{}};const key=supplementalSnapshotKey(snapshot),replacing=Boolean(model.operationalMetrics.supplementalReports.snapshots[key]),prior=structuredClone(model.operationalMetrics.supplementalReports);model.operationalMetrics.supplementalReports.snapshots[key]=snapshot;model.operationalMetrics.supplementalReports.snapshots=pruneSupplementalSnapshots(model.operationalMetrics.supplementalReports.snapshots);model.operationalMetrics.updatedAt=now();
@@ -3623,12 +3623,12 @@
     // Identical advisor populations at two stores must not grant auto-import.
     if (kind === "vir" && candidate.location !== "picked")
       throw new Error("Needs Review: unsigned VIR cannot be imported unattended; select the original manually and confirm the dealership.");
-    if (kind === "next-appointments" && candidate.location !== "picked")
+    if (["next-appointments","supplemental-csv"].includes(kind) && candidate.location !== "picked")
       throw new Error("Needs Review: unsigned Next Appointments cannot be imported unattended; select the original manually and verify the dealership.");
     if (kind === "vir" && !window.confirm(
       `Verify VIR source: ${candidate.name}\n\nConfirm the original VIR export belongs to ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}) and check its observation date. This export has no authenticated source-store identifier. Continue?`))
       throw new Error("Needs Review: VIR dealership and source observation were not confirmed; original retained.");
-    if (kind === "next-appointments" && !window.confirm(
+    if (["next-appointments","supplemental-csv"].includes(kind) && !window.confirm(
       `Verify Next Appointments source: ${candidate.name}\n\nConfirm the original report belongs to ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}) and its reporting date range. Matching advisor identities do not establish its source dealership. Continue?`))
       throw new Error("Needs Review: Next Appointments source dealership and date range were not confirmed; original retained.");
     // CSI exports identify scoring responses but do not authenticate their
@@ -4116,7 +4116,7 @@
           recordDiagnostic("REPORT INBOX","Unsigned CSI retained for explicit manual dealership/source review");
           continue;
         }
-        if((kind==="vir"||kind==="next-appointments")&&candidate.location==="inbox"){
+        if((kind==="vir"||kind==="next-appointments"||kind==="supplemental-csv")&&candidate.location==="inbox"){
           // The original is retained and marked for deliberate manager review.
           // A matching advisor identity is not proof of source-store ownership.
           await addHistory(kind+"-review-required",
