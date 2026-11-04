@@ -3621,8 +3621,10 @@
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true, layoutOverride = null) {
     // Neither VIR nor Next Appointments exports attest the issuing dealership.
     // Identical advisor populations at two stores must not grant auto-import.
-    if ((kind === "vir" || kind === "next-appointments") && candidate.location !== "picked")
-      throw new Error("Needs Review: unsigned " + kind + " report cannot be imported unattended. Select its original manually and confirm the dealership and report dates.");
+    if (kind === "vir" && candidate.location !== "picked")
+      throw new Error("Needs Review: unsigned VIR cannot be imported unattended; select the original manually and confirm the dealership.");
+    if (kind === "next-appointments" && candidate.location !== "picked")
+      throw new Error("Needs Review: unsigned Next Appointments cannot be imported unattended; select the original manually and verify the dealership.");
     if (kind === "vir" && !window.confirm(
       `Verify VIR source: ${candidate.name}\n\nConfirm the original VIR export belongs to ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}) and check its observation date. This export has no authenticated source-store identifier. Continue?`))
       throw new Error("Needs Review: VIR dealership and source observation were not confirmed; original retained.");
