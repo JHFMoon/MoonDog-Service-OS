@@ -38,9 +38,9 @@ function snapshot(date,importedAt,gross,days=10,total=22,verified=true){
     saprDaysCompleted:days,saprTotalDays:total,
     validation:{advisorDetailSheets:1,saprDaysVerified:verified,finalTotalsVerified:true},
     store:{name:"Synthetic Store",totalGross:gross,cpGross:gross/2,totalRO:9,
-      open:2,aged:1,grossPerRo:gross/9,cpHours:2,cpElr:150},
+      open:2,aged:1,grossPerRo:gross/9,cpHours:2,cpElr:null},
     advisors:{"101":{code:"101",name:"Synthetic Advisor",totalGross:gross,
-      totalRO:9,open:2,aged:1,grossPerRo:gross/9,cpHours:2,cpElr:150}}
+      totalRO:9,open:2,aged:1,grossPerRo:gross/9,cpHours:2,cpElr:null}}
   };
 }
 function harness(snapshots){
