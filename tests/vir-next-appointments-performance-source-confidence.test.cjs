@@ -53,8 +53,8 @@ function exercise(family,snapshot) {
   return {
     model,
     points:()=>JSON.parse(JSON.stringify(ctx.plot(measure,"store","",today))),
-    evidence:()=>ctx.evidence(family,{item:snapshot,today,
-      purpose:"historical",targetStart:"2026-10-29",targetEnd:"2026-10-29"})
+    evidence:(options={})=>ctx.evidence(family,{item:snapshot,today,
+      purpose:"historical",targetStart:"2026-10-29",targetEnd:"2026-10-29",...options})
   };
 }
 
@@ -84,6 +84,10 @@ test("Next Appointments cannot project a count from an invalid or unverified sou
     const before=JSON.stringify(f.model);
     assert.equal(f.evidence().reportPeriodVerified,false,
       "invalid or one-day-only report cannot verify a declared interval: "+JSON.stringify(change));
+    assert.equal(f.evidence().safeForPurpose,false,
+      "unverified observation cannot satisfy historical Performance source confidence");
+    assert.equal(freshness.evaluateMetric([f.evidence()]).verified,false,
+      "a historical summary with no validated interval must remain UNKNOWN");
     assert.deepEqual(f.points(),[],
       "Performance must not show zero as verified from missing/invalid interval");
     assert.equal(JSON.stringify(f.model),before,"source selection is read-only");
@@ -111,4 +115,18 @@ test("an invalid declared VIR date cannot borrow a separately valid file observa
   assert.equal(f.evidence().status,"invalid");
   assert.deepEqual(f.points(),[],
     "invalid explicit report-date claim must veto a file-timestamp fallback or a false verified zero");
+});
+
+test("observation-only Next Appointments may remain current-day operational context but not historical coverage",()=>{
+  const f=exercise("nextAppointments",{
+    periodStart:"2026-10-01",periodEnd:"2026-10-29",
+    observationDate:today,importedAt:"2026-10-30T08:00:00Z",
+    summary:{scheduled:5},
+    validation:{parser:"appointments-created-summary-v1",periodVerified:false}
+  });
+  const point=f.evidence({purpose:"current"});
+  assert.equal(point.status,"current","valid dated operational observation remains available for today");
+  assert.equal(point.reportPeriodVerified,false,"operational freshness does not verify historical interval");
+  assert.equal(f.evidence().status,"invalid");
+  assert.deepEqual(f.points(),[],"historical Performance points remain unverified");
 });
