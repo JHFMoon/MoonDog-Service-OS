@@ -72,13 +72,13 @@ test("complete source markers can establish an exact local match while partial m
       family+" old sources do not acquire fabricated marker evidence");
   }
 });
-test("verified source alias is constrained to current brand, family and full reported identity",()=>{
+test("a report cannot self-authorize a vendor alias or change its configured dealership",()=>{
   const vendor={name:"Synthetic Vendor Alias",code:"V-09001",brand:"Dodge"};
-  const alias={storeIdentityVerified:true,family:"mediaAsr",
+  const selfClaimed={storeIdentityVerified:true,family:"mediaAsr",
     sourceStore:{...vendor},configuredStore:{...dodge}};
-  const report={...base,sourceReportedStore:vendor,sourceStoreAlias:alias};
-  assert.equal(runtime(dodge)(report,"mediaAsr").sourceStoreConfidence,"verified-source-store");
+  const report={...base,sourceReportedStore:vendor,sourceStoreAlias:selfClaimed};
+  assert.equal(runtime(dodge)(report,"mediaAsr").sourceStoreConfidence,"store-conflict",
+    "vendor alias evidence must originate in verified local settings, never an imported report");
   assert.equal(runtime(bmw)(report,"mediaAsr").sourceStoreConfidence,"store-conflict");
   assert.equal(runtime(dodge)(report,"efficiency").sourceStoreConfidence,"store-conflict");
-  assert.equal(runtime(dodge)({...report,sourceStoreAlias:{...alias,storeIdentityVerified:false}},"mediaAsr").sourceStoreConfidence,"store-conflict");
 });
