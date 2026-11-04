@@ -82,3 +82,20 @@ test("production CSI planning preserves the verified observation versus local im
   assert.match(app, /lastPoint:evidence\.lastReportObservation,lastImportDate:evidence\.lastImportDate/);
   assert.match(app, /lastReportObservation:audit\.csi\.lastPoint,lastImportDate:audit\.csi\.lastImportDate/);
 });
+
+test("CSI local import history rejects impossible ISO days instead of normalizing them", () => {
+  const evidence = freshness.csiTrendEvidence({
+    imports: [
+      {importedAt: "2026-02-30T14:00:00Z"},
+      {importedAt: "2026-13-01T14:00:00Z"},
+      {refreshDate: "2026-02-30", importedAt: "2026-10-28T14:00:00Z"},
+      {refreshDate: "2026-10-28", importedAt: "2026-02-30T14:00:00Z"}
+    ],
+    today: "2026-10-30", surveys: {}
+  });
+  assert.deepEqual(evidence.importDates, ["2026-10-28"],
+    "only the explicitly saved valid import day survives malformed timestamp metadata");
+  assert.equal(evidence.lastImportDate, "2026-10-28");
+  assert.deepEqual(evidence.reportDates, [],
+    "a valid import day is never a verified source observation");
+});
