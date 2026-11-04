@@ -7385,8 +7385,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function verifyBackupStoreOwnership(currentSettings,restoredSettings){
     const nameOf=settings=>String(settings?.store?.name||settings?.storeName||"").trim().replace(/\\s+/g," ").toLowerCase();
     const codeOf=settings=>String(settings?.store?.code||"").trim();
-    const currentCode=codeOf(currentSettings),currentName=nameOf(currentSettings);
-    const backupCode=codeOf(restoredSettings),backupName=nameOf(restoredSettings);
+    const brandOf=settings=>String(settings?.store?.brand||"").trim().replace(/\s+/g," ").toLowerCase();
+    const currentCode=codeOf(currentSettings),currentName=nameOf(currentSettings),
+      currentBrand=brandOf(currentSettings);
+    const backupCode=codeOf(restoredSettings),backupName=nameOf(restoredSettings),
+      backupBrand=brandOf(restoredSettings);
     if(!currentCode&&!currentName){
       // Fresh-install recovery may adopt a verified backup identity, never an
       // unidentified legacy payload that could contain another store’s data.
@@ -7395,7 +7398,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       return true;
     }
     if(!currentCode||!currentName||!backupCode||!backupName||
-       currentCode!==backupCode||currentName!==backupName)
+       currentCode!==backupCode||currentName!==backupName||
+       (currentBrand&&backupBrand&&currentBrand!==backupBrand))
       throw new Error("Needs Review: this backup's dealership does not match Guided Setup. Restoring another store over this installation is blocked. Preserve both Workspaces and review the source identity.");
     return true;
   }
