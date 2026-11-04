@@ -120,7 +120,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
     "production restore preflight, verification, history replacement, and restore entry point exist");
   const restoreSupport=app.slice(restoreSupportStart,restoreSupportEnd);
   const historyReplaceSource=app.slice(historyReplaceStart,historyReplaceEnd);
-  const identityStart=app.indexOf("  function verifyBackupStoreOwnership(",historyReplaceStart);
+  const identityStart=app.indexOf("  function hasExistingOperationalStateForRestore(",historyReplaceStart);
   assert.ok(identityStart>=historyReplaceStart&&identityStart<restoreStart,"production store ownership preflight exists");
   const identitySource=app.slice(identityStart,restoreStart);
   const restoreSource=app.slice(restoreStart,restoreEnd);
