@@ -4749,7 +4749,9 @@
     const name = selectedName || ui.performanceSourceSelect.value;
     if (!name) throw new Error("Choose a Service Advisor Performance XLSX.");
     status(`Reading advisor performance from ${name}…`, "working");
-    const sourceFile = await (await sourceFileHandle(name)).getFile();
+    // Caller-supplied bytes are already read under its own source operation;
+    // do not refetch them before parser validation (including invalid periods).
+    const sourceFile = providedBytes ? null : await (await sourceFileHandle(name)).getFile();
     const bytes = providedBytes || await sourceFile.arrayBuffer();
     if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true });
     const snapshot = parsePerformanceWorkbook(bytes, name);
@@ -4779,7 +4781,8 @@
     // Clear only this exact Inbox review marker after the full performance
     // payload is durably verified; a retained original must not auto-replay.
     if(sourceLocations.get(name)==="inbox"){
-      const signature=`${REPORT_INBOX}/${name}|${sourceFile.size}|${sourceFile.lastModified}`;
+      const reviewedFile=sourceFile||await (await sourceFileHandle(name)).getFile();
+      const signature=`${REPORT_INBOX}/${name}|${reviewedFile.size}|${reviewedFile.lastModified}`;
       const previous=model.autoImport.seen?.[signature]||{};
       const next={...model.autoImport,seen:{...model.autoImport.seen,
         [signature]:{...previous,fileName:name,relativePath:`${REPORT_INBOX}/${name}`,
