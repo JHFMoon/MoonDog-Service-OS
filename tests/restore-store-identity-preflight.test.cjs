@@ -3,11 +3,19 @@ const test=require("node:test"),assert=require("node:assert/strict");
 const fs=require("node:fs"),path=require("node:path"),vm=require("node:vm");
 
 const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+const stateStart=app.indexOf("  function hasExistingOperationalStateForRestore(");
 const start=app.indexOf("  function verifyBackupStoreOwnership(");
 const restoreStart=app.indexOf("  async function restoreSelectedBackup()",start);
 const nextFunction=app.indexOf("  function latestImportSummary()",restoreStart);
 assert.ok(start>=0&&restoreStart>start&&nextFunction>restoreStart,
   "Expected production identity preflight and restore operations");
+assert.ok(stateStart>=0&&stateStart<start,"Expected live Workspace state predicate before identity validation");
+const stateSource=app.slice(stateStart,start);
+function hasExistingState(model){
+  const context={model};
+  vm.runInNewContext(stateSource+"\nglobalThis.hasState=hasExistingOperationalStateForRestore;",context);
+  return context.hasState();
+}
 const context={};
 vm.runInNewContext(app.slice(start,restoreStart)+"\nglobalThis.verifyStoreBackup=verifyBackupStoreOwnership;",context);
 const verify=context.verifyStoreBackup;
@@ -53,4 +61,22 @@ test("identity preflight happens before confirmation, safety backup or write aut
   const writeBegin=restore.indexOf("writeAuthority.beginRestore(");
   assert.ok(identity>=0&&confirmation>identity&&safetyBackup>confirmation&&writeBegin>safetyBackup,
     "Dealership identity must be checked before starting a restore or its write flow");
+});
+
+test("blank identity never adopts foreign backup over an already populated Workspace",()=>{
+  assert.equal(verify(blank,dodge,false),true);
+  assert.throws(()=>verify(blank,dodge,true),/existing operational data has no configured dealership identity/);
+  assert.throws(()=>verify(blank,bmw,true),/existing operational data has no configured dealership identity/);
+  const restore=app.slice(restoreStart,nextFunction);
+  assert.match(restore,/verifyBackupStoreOwnership\(model\.settings,selected\.values\["data\/settings\.json"\],hasExistingOperationalStateForRestore\(\)\)/);
+});
+test("real Workspace state predicate distinguishes clean from populated local store",()=>{
+  assert.equal(hasExistingState({state:{records:[]},performance:{snapshots:{}},operationalMetrics:{}}),false);
+  assert.equal(hasExistingState({state:{records:[{id:"synthetic-ro"}]}}),true);
+  assert.equal(hasExistingState({state:{closedRecords:[{id:"synthetic-closed"}]}}),true);
+  assert.equal(hasExistingState({state:{source:{fileName:"synthetic.xlsx"}}}),true);
+  assert.equal(hasExistingState({performance:{snapshots:{october:{value:1}}}}),true);
+  assert.equal(hasExistingState({appointments:{days:{"2026-10-01":{}}}}),true);
+  assert.equal(hasExistingState({operationalMetrics:{csi:{surveys:{"SYN-1":{}}}}}),true);
+  assert.equal(hasExistingState({operationalMetrics:{menu:{snapshots:{week:{}}}}}),true);
 });
