@@ -2179,8 +2179,9 @@
   function pruneDatedSnapshots(snapshots, limit = 730) { const dates = Object.keys(snapshots).sort(); return Object.fromEntries(dates.slice(-limit).map((date) => [date, snapshots[date]])); }
   async function importNextAppointmentsFile(name, deleteAfterSuccess = false, allowInteractiveReplacement = false) {
     const file = await (await sourceFileHandle(name)).getFile(), source = await file.text(), snapshot = parseNextAppointmentsCsv(source, name), key=snapshot.periodEnd||`observation-${snapshot.observationDate}`,existingSnapshot=model.operationalMetrics.nextAppointments.snapshots[key],replacing=Boolean(existingSnapshot),prior=structuredClone(model.operationalMetrics);
+    snapshot.sourceStoreConfidence="configured-destination-only";
     const comparable = value => {
-      const volatile = new Set(["sourceFile", "importedAt", "sourceModifiedAt", "validation"]);
+      const volatile = new Set(["sourceFile", "importedAt", "sourceModifiedAt", "sourceStoreConfidence", "validation"]);
       const normalize = (item, root = false) => {
         if (Array.isArray(item)) return item.map(value => normalize(value));
         if (item && typeof item === "object") {
@@ -2196,6 +2197,7 @@
     let supplemental = null;
     try {
       supplemental = parseAppointmentsCreatedSummaryCsv(source, name);
+      supplemental.sourceStoreConfidence="configured-destination-only";
       supplemental.sourceModifiedAt = new Date(file.lastModified).toISOString();
       // The paired summary's filter end may remain month-wide while NSA coverage advances daily.
       supplemental.coverageDate = snapshot.periodEnd || supplemental.periodEnd || supplemental.asOfDate || "";
@@ -3617,6 +3619,13 @@
   }
 
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true, layoutOverride = null) {
+    // Next Appointments validates report scope and advisor populations, not
+    // source dealership. Overlapping advisor IDs cannot authorize auto-import.
+    if (kind === "next-appointments" && candidate.location !== "picked")
+      throw new Error("Needs Review: unsigned Next Appointments cannot be imported unattended; select the original manually and verify the dealership.");
+    if (kind === "next-appointments" && !window.confirm(
+      `Verify Next Appointments source: ${candidate.name}\n\nConfirm the original report belongs to ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}) and its reported date range. Matching advisor identities do not establish its source dealership. Continue?`))
+      throw new Error("Needs Review: Next Appointments source dealership and date range were not confirmed; original retained.");
     if (kind === "performance" && candidate.location !== "picked") throw new Error("Needs Review: SAPR source dealership is not verified. Confirm the original workbook using explicit Import Performance.");
     if (kind === "open-ro-docx" && candidate.location !== "picked") throw new Error("Needs Review: DOCX source is not yet authorized for hands-off roster replacement.");
     if (kind === "open-ro" && !["picked","inbox"].includes(candidate.location)) throw new Error("Needs Review: only the dedicated Inbox may automatically replace Open ROs.");
@@ -4078,6 +4087,22 @@
         // SAPR sheet headings, periods and matching advisor codes do not
         // prove which dealership produced this unsigned XLSX. Never let an
         // unattended watch poll promote another store's performance metrics.
+        if(kind==="next-appointments"&&candidate.location==="inbox"){
+          await addHistory("next-appointments-review-required",
+            "Unsigned Next Appointments retained for manager dealership and report-period review",
+            {fileName:candidate.name,sourceFamily:kind,sourcePreserved:true,
+              sourceStoreConfidence:"configured-destination-only"});
+          if(!scanEligible())return null;
+          reviewRequired.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={
+            fileName:candidate.name,relativePath:candidate.relativePath,kind,
+            manualImportRequired:true,queuedAt:now(),
+            sourceStoreConfidence:"configured-destination-only"
+          };
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX","Unsigned Next Appointments retained for explicit source-store review");
+          continue;
+        }
         if(kind==="performance"&&candidate.location==="inbox"){
           await addHistory("performance-review-required",
             "Unsigned SAPR retained pending explicit dealership and report-period review",
