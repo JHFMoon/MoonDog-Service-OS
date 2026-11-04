@@ -4858,8 +4858,9 @@
         issuedTime = syntaxValid ? Date.parse(stamp) : NaN,
         verifiedTime = Number.isFinite(issuedTime) && issuedTime > 0 && issuedTime <= Date.now() + 300000,
         issuedDate = verifiedTime ? localDateKey(new Date(issuedTime)) : "";
-      return evaluate({ ...common, expectation: "recommended", exists: Boolean(rawStamp),
-        invalid: rawStamp && !verifiedTime ? "The saved Supervisor Workbook generation timestamp is invalid or future-dated." : "",
+      return evaluate({ ...common, expectation: "recommended", exists: Boolean(item),
+        // A retained workbook artifact with a missing stamp is invalid, not absent.
+        invalid: item && !verifiedTime ? "The saved Supervisor Workbook generation timestamp is missing, invalid or future-dated." : "",
         sourceTimestamp: verifiedTime ? stamp : "", periodStart: issuedDate, periodEnd: issuedDate,
         stale: item?.stale === true }, item, false);
     }
