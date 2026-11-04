@@ -89,6 +89,30 @@ for(const [option,label] of [
   });
 }
 
+test("manual SAPR source picker refresh refuses to rebind Inbox origins during active import",async()=>{
+  const refresh=extract('ui.refreshPerformanceFiles.addEventListener("click"',
+    'ui.performanceSourceSelect.addEventListener(');
+  let callback=null,scans=0;
+  const ctx=vm.createContext({
+    ui:{refreshPerformanceFiles:{addEventListener(event,fn){
+      assert.equal(event,"click");callback=fn;
+    }}},
+    dailyImportBusy:true,appointmentImportBusy:false,
+    folderWatch:{busy:false},workspaceConnectionBusy:false,postConnectionScanBusy:false,
+    run:async action=>action(),
+    scanPerformanceFiles:async()=>{scans++;}
+  });
+  vm.runInContext(refresh,ctx);
+  await assert.rejects(callback(),/Refresh reports after it finishes/);
+  assert.equal(scans,0);
+  ctx.dailyImportBusy=false;
+  await callback();
+  assert.equal(scans,1);
+  ctx.workspaceConnectionBusy=true;
+  await assert.rejects(callback(),/Refresh reports after it finishes/);
+  assert.equal(scans,1);
+});
+
 test("manual SAPR exclusion preserves production dashboard syntax",()=>{
   new vm.Script(app);
   assert.match(click,/dailyImportBusy=true/);
