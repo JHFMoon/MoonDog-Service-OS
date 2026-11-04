@@ -4786,11 +4786,16 @@
           // verified observation or recent import cannot replace missing scope.
           !scopeEnd ||
           (item.scopeStart != null && item.scopeStart !== "" && !validCoverageDate(item.scopeStart))
-        );
+        ),
+        // A record claiming a verified observation must supply a valid
+        // non-future date even when cumulative scope itself is current.
+        malformedDeclaredObservation = item?.reportObservationVerified === true &&
+          (!observedDate || observedDate > today);
       return evaluate({ ...common, exists: Boolean(item),
         sourceTimestamp: item?.importedAt, sourceDate: observedDate,
         observationVerified: Boolean(observedDate),
-        invalid: malformedDeclaredScope ? "The saved verified CSI report scope contains an invalid date." : "",
+        invalid: malformedDeclaredScope ? "The saved verified CSI report scope contains an invalid date." :
+          malformedDeclaredObservation ? "The saved verified CSI report observation date is invalid or future-dated." : "",
         scopeVerified: Boolean(scopeEnd),
         scopeStart: item?.scopeVerified ? item.scopeStart : "",
         scopeEnd: item?.scopeVerified ? item.scopeEnd : "",
