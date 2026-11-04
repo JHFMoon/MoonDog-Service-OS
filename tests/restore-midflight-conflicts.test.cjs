@@ -11,7 +11,7 @@ const vm=require("node:vm");
 const app=fs.readFileSync(path.join(__dirname,"..","assets/app.js"),"utf8");
 const start=app.indexOf("  function sameRestoreValue(");
 const end=app.indexOf("  async function replaceHistoryFromBackup(",start);
-const identityStart=app.indexOf("  function verifyBackupStoreOwnership(",end);
+const identityStart=app.indexOf("  function hasExistingOperationalStateForRestore(",end);
 const restoreStart=app.indexOf("  async function restoreSelectedBackup()",end);
 const restoreEnd=app.indexOf("  function latestImportSummary()",restoreStart);
 assert.ok(start>=0&&end>start&&identityStart>=end&&restoreStart>identityStart&&restoreEnd>restoreStart,
