@@ -77,7 +77,7 @@
       const start=input.cumulativeStart&&input.cumulativeStart<input.monthStart?input.cumulativeStart:input.monthStart,
         scope=input.verifiedScope,next=`${format(start)}–${format(today)}`,
         responses=input.responsesRange?.start&&input.responsesRange?.end?`${format(input.responsesRange.start)}–${format(input.responsesRange.end)}`:'';
-      return{...result,cadence:'Cumulative export',last:scope?`${format(scope.start)}–${format(scope.end)}`:'',responses,next,missing,lastReportObservation:input.lastReportObservation||'',recovery:missing.length?`One verified Dealer Dashboard CSI export covering ${next} can recover missing response history; no daily files needed.`:'Response event dates and report observation dates are distinct; a day without a response is not a missing report.',status:missing.length?'Recoverable':scope?`Verified export scope through ${format(scope.end)}`:'Verified export scope not established'};
+      return{...result,cadence:'Cumulative export',last:scope?`${format(scope.start)}–${format(scope.end)}`:'',responses,next,missing,lastReportObservation:input.lastReportObservation||'',lastImportDate:input.lastImportDate||'',recovery:missing.length?`One verified Dealer Dashboard CSI export covering ${next} can recover missing response history; no daily files needed.`:'Response event dates and report observation dates are distinct; a day without a response is not a missing report.',status:missing.length?'Recoverable':scope?`Verified export scope through ${format(scope.end)}`:'Verified export scope not established'};
     }
     let next=operatingFrom(today);if(last>=next)next=operatingFrom(addDays(last,1));
     result.cadence=key==='sapr'?'Daily — operating days':key==='sor'?'Optional dated financial observation':'Optional daily — operating days';
@@ -94,7 +94,7 @@
       if(key==='appointmentActivity'||key==='openRoSummary')return `Reference data · Last received: ${plan.lastActivityDate?date(plan.lastActivityDate):'not recorded'}`;
       return key==='openRo'||key==='appointments'?`${plan.importDate?`Current verified import: ${date(plan.importDate)}`:'Current verified import: not available'} · Source snapshot date: ${plan.snapshotDate?date(plan.snapshotDate):'not provided'} · Historical daily trend: not required`:plan.note;
     }
-    if(plan.kind==='recoverable')return `${plan.status} · Responses present: ${plan.responses||'not established'} · Last report observation: ${date(plan.lastReportObservation)} · Verified export scope: ${plan.last||'not established'}${missing.length?` · Next useful export: ${plan.next} cumulative`:''}`;
+    if(plan.kind==='recoverable')return `${plan.status} · Responses present: ${plan.responses||'not established'} · Last verified report observation: ${date(plan.lastReportObservation)} · Last imported: ${date(plan.lastImportDate)} · Verified export scope: ${plan.last||'not established'}${missing.length?` · Next useful export: ${plan.next} cumulative`:''}`;
     if(plan.kind==='required'){
       if(key==='sapr')return missing.length?`Missing required ${missing.length===1?'date':'dates'}: ${missing.map(date).join(', ')}`:plan.status;
       return `${plan.status} · Next required release: ${date(plan.next)}${missing.length?` · Missing required releases: ${missing.map(date).join(', ')}`:''}`;
