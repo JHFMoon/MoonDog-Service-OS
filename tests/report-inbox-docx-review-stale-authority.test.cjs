@@ -72,8 +72,8 @@ test("eligible DOCX still requests manual source review and commits intake ledge
   assert.equal(h.events.includes("scan-files"),true);
   assert.equal(h.events.includes("learn-move"),false);
 });
-test("stale Open RO error-derived digest cannot report source retained in replacement root",async()=>{
-  const h=harness("open-ro",{failImport:true,delayedCatchDigest:true});
+test("stale unsigned grouped Open RO review cannot publish to replacement Workspace",async()=>{
+  const h=harness("open-ro",{failImport:true,delayedHistory:true});
   const running=h.scan();
   await h.reached;
   h.model.root=h.replacement;
@@ -83,10 +83,12 @@ test("stale Open RO error-derived digest cannot report source retained in replac
   assert.equal(h.events.includes("diagnostic"),false);
   assert.equal(h.events.includes("learn-move"),false);
 });
-test("eligible Open RO failed projection keeps already-committed roster source for retry",async()=>{
+test("unsigned grouped Open RO cannot invoke automatic projection when destination identity is only configured",async()=>{
   const h=harness("open-ro",{failImport:true});
   const result=await h.scan();
-  assert.equal(result.retained.length,1);
+  assert.equal(result.reviewRequired.length,1);
+  assert.equal(result.imported.length,0);
   assert.equal(result.learned.length,0);
+  assert.equal(h.events.includes("import-enter"),false);
   assert.equal(h.events.includes("learn-move"),false);
 });

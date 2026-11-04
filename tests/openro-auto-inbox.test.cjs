@@ -12,25 +12,27 @@ const sha256=async input=>crypto.createHash("sha256").update(Buffer.from(input))
 const equal=(a,b)=>Buffer.from(a).equals(Buffer.from(b));
 const bytes=new Uint8Array([41,42,43]).buffer;
 
-test("unattended full RO verification requires exact bytes, unique ROs and forward source time, but not a dialog",async()=>{
+test("unsigned grouped Open RO cannot bypass manual store review; confirmed import still verifies bytes, identity and time",async()=>{
   const code=section("  async function verifyCompleteRoImport(","  async function importCdkRepairOrdersDocxUnlocked(");
   const current={bytes,modified:Date.now()},model={state:{records:[],source:{}}};
   const context={text:x=>String(x??""),model,sha256,Date,Set,
     sourceFileHandle:async()=>({getFile:async()=>({arrayBuffer:async()=>current.bytes})}),
-    window:{confirm:()=>{throw Error("Automatic import cannot ask for confirmation");}}};
+    window:{confirm:()=>true}};
   vm.runInNewContext(code,context);
-  const good=await context.verifyCompleteRoImport("synthetic-openro.xlsx",
-    {lastModified:current.modified},bytes,[{ro:"900001"}],true);
-  assert.equal(good.sha256,await sha256(bytes));
-  assert.match(good.verification,/reconciled-grouped-inbox-auto/);
   await assert.rejects(context.verifyCompleteRoImport("synthetic-openro.xlsx",
-    {lastModified:current.modified},bytes,[{ro:"900001"},{ro:"900001"}],true),/duplicate/);
+    {lastModified:current.modified},bytes,[{ro:"900001"}],true),/no verified source dealership/);
+  const good=await context.verifyCompleteRoImport("synthetic-openro.xlsx",
+    {lastModified:current.modified},bytes,[{ro:"900001"}],false);
+  assert.equal(good.sha256,await sha256(bytes));
+  assert.match(good.verification,/explicit-local-source-review/);
+  await assert.rejects(context.verifyCompleteRoImport("synthetic-openro.xlsx",
+    {lastModified:current.modified},bytes,[{ro:"900001"},{ro:"900001"}],false),/duplicate/);
   model.state.source={sha256:good.sha256};
   await assert.rejects(context.verifyCompleteRoImport("synthetic-openro.xlsx",
-    {lastModified:current.modified},bytes,[{ro:"900001"}],true),/already imported/);
+    {lastModified:current.modified},bytes,[{ro:"900001"}],false),/already imported/);
   model.state.source={};current.bytes=new Uint8Array([99]).buffer;
   await assert.rejects(context.verifyCompleteRoImport("synthetic-openro.xlsx",
-    {lastModified:current.modified},bytes,[{ro:"900001"}],true),/changed/);
+    {lastModified:current.modified},bytes,[{ro:"900001"}],false),/changed/);
 });
 
 test("watch dispatches verified full XLSX automatically and blocks non-inbox Open RO",async()=>{
@@ -52,7 +54,7 @@ test("watch dispatches verified full XLSX automatically and blocks non-inbox Ope
     /DOCX source is not yet authorized/);
 });
 
-test("real Open RO importer saves verified grouped snapshot, preserves commitments, then deletes source",async()=>{
+test("manually confirmed grouped Open RO importer preserves commitments and source-origin confidence through verified write",async()=>{
   const code=section("  async function importSourceUnlocked(","  const timeMinutes =");
   const priorManagement={nextAction:"Call customer",reviewDate:"2026-10-30",owner:"SYNTHETIC"};
   const incoming=[{id:"synthetic-1",ro:"900001",advisorCode:"101",management:undefined}];
@@ -69,7 +71,7 @@ test("real Open RO importer saves verified grouped snapshot, preserves commitmen
     legacyReport:()=>({records:incoming,sheetName:"Synthetic",
       verification:"group totals and global rows returned reconciled",format:"Open ROs by advisor - reconciled",advisorSections:1}),
     verifyCompleteRoImport:async(_name,_file,_bytes,_rows,auto)=>{
-      assert.equal(auto,true);events.push("verified");return{sha256:await sha256(bytes),verification:"reconciled-grouped-inbox-auto"};},
+      assert.equal(auto,false);events.push("verified");return{sha256:await sha256(bytes),verification:"explicit-local-source-review; unsigned"};},
     reconcileRecordSourceIdentity:()=>{},now:()=> "2026-10-29T15:00:00.000Z",
     mergeCompleteOpenRoRecords:()=>({records:[{...incoming[0],management:priorManagement}],closedRecords:[],closedCount:0,reopenedCount:0}),
     markSupervisorWorkbookStale:async()=>{events.push("stale");},backupState:async()=>{events.push("backup");},
@@ -79,16 +81,17 @@ test("real Open RO importer saves verified grouped snapshot, preserves commitmen
     coverageTimestamp:()=> "2026-10-29",saveOpenRoWorkload:async()=>{events.push("workload");},
     openRoWorkloadSnapshot:()=>({}),ensureDailyFocus:async()=>{},
     addHistory:async()=>{events.push("import-history");},
-    markOpenRoManualReviewComplete:async()=>{throw Error("Auto import must not add manual marker");},
+    markOpenRoManualReviewComplete:async()=>{events.push("manual-review-cleared");},
     renderAll:()=>{},dailyPickedSources:new Map(),
     removeSourceEntryWithByteGuard:async(name,current)=>{
       assert.equal(name,"synthetic-openro.xlsx");assert.ok(equal(current,bytes));
       events.push("delete");
     },scanFiles:async()=>{},Date,Map};
   vm.runInNewContext(code,ctx);
-  await ctx.importSourceUnlocked("synthetic-openro.xlsx",true,bytes,true);
+  await ctx.importSourceUnlocked("synthetic-openro.xlsx",true,bytes,false);
   assert.equal(model.state.records[0].management.nextAction,"Call customer");
-  assert.match(model.state.source.verification,/reconciled-grouped-inbox-auto/);
+  assert.match(model.state.source.verification,/explicit-local-source-review/);
+  assert.equal(model.state.source.sourceStoreConfidence,"configured-destination-only");
   assert.ok(events.indexOf("durable-state")>=0);
   assert.ok(events.indexOf("delete")>events.indexOf("import-history"));
   assert.ok(events.indexOf("backup")<events.indexOf("durable-state"));
@@ -243,30 +246,30 @@ test("matching RO duplicate never deletes if Assign Next repair fails after curr
   assert.equal(removed,0);assert.equal(moved,0);assert.equal(result.retained.length,1);
 });
 
-test("a roster committed before a dependent write failure is retained, not moved to Files To Learn",async()=>{
+test("an uncommitted unsigned grouped Open RO is held for review without invoking the importer or losing its source",async()=>{
   const code=section("  async function autoSurveyFolder(","  async function importReturnedWorkbook(");
-  const digest=await sha256(bytes),name="synthetic-projection-repair.xlsx";
+  const name="synthetic-unsigned-grouped.xlsx";
   const item={name,location:"inbox",relativePath:"01 - DROP REPORTS HERE/"+name,
     signature:"inbox|3|100",file:{lastModified:100,arrayBuffer:async()=>bytes}};
-  const model={state:{source:{sha256:"old"},records:[{ro:"prior"}]},autoImport:{seen:{}}};
-  let moved=0;
+  const state={source:{sha256:"old"},records:[{ro:"prior"}]};
+  const model={state,autoImport:{seen:{}}};
+  let moved=0,imported=0;
   const ctx={model,sourceLocations:new Map(),watchCandidates:async()=>[item],
     candidateNeedsImport:()=>true,classifyImportFile:async()=> "open-ro",
-    readJson:async()=>({source:{sha256:"old"},records:[{ro:"prior"}]}),
-    processClassifiedCandidate:async()=>{
-      model.state.source.sha256=digest; // production importer completed STATE_PATH write
-      throw new Error("Synthetic post-state projection write failed");
-    },
-    moveToLearn:async()=>{moved++;},
+    readJson:async()=>JSON.parse(JSON.stringify(state)),
+    processClassifiedCandidate:async()=>{imported++;throw Error("Must not replace roster");},
+    addHistory:async()=>{},moveToLearn:async()=>{moved++;},
     transientIntakeError:()=>false,sha256,now:()=> "2026-10-29",
     recordDiagnostic:()=>{},status:()=>{},writeJson:async()=>{},
     AUTO_IMPORT_PATH:["data","auto-import.json"],STATE_PATH:["data","state.json"],
     scanFiles:async()=>{},TextDecoder,Uint8Array,Map,Set,JSON};
   vm.runInNewContext(code,ctx);
-  const outcome=await ctx.autoSurveyFolder();
-  assert.equal(moved,0);
-  assert.equal(outcome.retained.length,1);
-  assert.equal(outcome.learned.length,0);
+  const result=await ctx.autoSurveyFolder();
+  assert.equal(imported,0);assert.equal(moved,0);
+  assert.equal(result.reviewRequired.length,1);
+  assert.equal(result.imported.length,0);
+  assert.equal(model.state.source.sha256,"old");
+  assert.equal(model.autoImport.seen[item.signature].manualImportRequired,true);
 });
 
 test("a committed Open RO write with a lost read-back is recovered from disk without reimport",async()=>{
@@ -410,25 +413,32 @@ test("automatic cleanup records its digest hold before discovering changed Inbox
   assert.equal(model.autoImport.seen[signature].cleanupSha256,await sha256(original));
 });
 
-test("post-import cleanup failure takes priority over generic saved-roster handling",async()=>{
+test("verified already-committed Open RO cleanup failure retains digest and pending retry without replacing roster",async()=>{
   const code=section("  async function autoSurveyFolder(","  async function importReturnedWorkbook(");
   const digest=await sha256(bytes),name="synthetic-cleanup.xlsx";
   const entry={name,location:"inbox",relativePath:"01 - DROP REPORTS HERE/"+name,
     signature:"inbox|3|100",file:{lastModified:100,arrayBuffer:async()=>bytes}};
-  const model={state:{source:{sha256:digest},records:[]},autoImport:{seen:{}}};
-  let moved=0;
+  const state={source:{sha256:digest,importedAt:"2026-10-29"},records:[],closedRecords:[],updatedAt:"synthetic"};
+  const model={state,autoImport:{seen:{}}};
+  let moved=0,imported=0;
   const ctx={model,sourceLocations:new Map(),watchCandidates:async()=>[entry],
     candidateNeedsImport:()=>true,classifyImportFile:async()=> "open-ro",
-    readJson:async()=>({source:{sha256:"older"}}),STATE_PATH:["data","state.json"],
-    processClassifiedCandidate:async()=>{throw Object.assign(Error("source replaced"),{sourceCleanupFailure:true});},
+    readJson:async()=>JSON.parse(JSON.stringify(state)),
+    STATE_PATH:["data","state.json"],AUTO_IMPORT_PATH:["data","auto-import.json"],
+    prepareXlsxWorkbook:async()=>({SheetNames:["Synthetic"],Sheets:{Synthetic:{}}}),
+    legacyReport:()=>({verification:"group totals and global rows returned reconciled",workloadRecords:[]}),
+    retainDailyReport:async()=>{},saveOpenRoWorkload:async()=>{},
+    openRoWorkloadSnapshot:()=>({}),ensureDailyFocus:async()=>{},
+    coverageTimestamp:()=> "2026-10-29",
+    processClassifiedCandidate:async()=>{imported++;throw Error("Already committed roster must never be reimported");},
+    removeSourceEntryWithByteGuard:async()=>{throw Object.assign(Error("source cleanup deferred"),{sourceCleanupFailure:true});},
     moveToLearn:async()=>{moved++;},sha256,writeJson:async()=>{},
-    AUTO_IMPORT_PATH:["data","auto-import.json"],now:()=> "2026-10-29",
-    recordDiagnostic:()=>{},status:()=>{},scanFiles:async()=>{},
+    now:()=> "2026-10-29",recordDiagnostic:()=>{},status:()=>{},scanFiles:async()=>{},
     TextDecoder,Uint8Array,Map,Set,JSON};
   vm.runInNewContext(code,ctx);
   const result=await ctx.autoSurveyFolder();
   assert.equal(result.cleanupPending.length,1);
-  assert.equal(moved,0);
+  assert.equal(moved,0);assert.equal(imported,0);
   assert.equal(model.autoImport.seen[entry.signature].cleanupSha256,digest);
   assert.equal(model.autoImport.seen[entry.signature].cleanupPending,true);
 });
