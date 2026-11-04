@@ -79,4 +79,10 @@ test("real Workspace state predicate distinguishes clean from populated local st
   assert.equal(hasExistingState({appointments:{days:{"2026-10-01":{}}}}),true);
   assert.equal(hasExistingState({operationalMetrics:{csi:{surveys:{"SYN-1":{}}}}}),true);
   assert.equal(hasExistingState({operationalMetrics:{menu:{snapshots:{week:{}}}}}),true);
+  assert.equal(hasExistingState({assignNext:{days:{"2026-11-04":{}}}}),true,
+    "Unidentified current workload is not equivalent to an empty installation");
+  assert.equal(hasExistingState({operationalMetrics:{mediaAsrTech:{dailySnapshots:{"2026-11-04":{}}}}}),true,
+    "A retained reference-family day cannot be silently reassigned to another store");
+  assert.equal(hasExistingState({operationalMetrics:{csi:{imports:[{importedAt:"2026-11-04"}]}}}),true,
+    "Durable source-import history counts as preexisting operational state");
 });
