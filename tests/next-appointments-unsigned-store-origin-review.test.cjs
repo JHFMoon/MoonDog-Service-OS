@@ -150,11 +150,33 @@ test("reviewed standalone Appointments Created retains its destination-only conf
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],now:()=>"2026-11-04T12:00:00Z",
     writeJson:async(_path,value)=>{durable=clone(value);},
     readJson:async()=>clone(durable),
-    addHistory:async()=>{observed=clone(durable);},
+    addHistory:async(kind,_description,details)=>{observed={kind,details:clone(details),durable:clone(durable)};},
     removeSourceEntry:async()=>{throw Error("Original must remain");}
   });
   vm.runInContext(importer+"\nthis.importer=importSupplementalSource;",context);
   await context.importer({name:"synthetic-created-summary.csv",location:"picked"},"supplemental-csv",new Uint8Array([1,2,3]),false);
   assert.equal(durable.supplementalReports.snapshots["created-2026-11-04"].sourceStoreConfidence,"configured-destination-only");
-  assert.equal(observed.supplementalReports.snapshots["created-2026-11-04"].sourceStoreConfidence,"configured-destination-only");
+  assert.equal(observed.durable.supplementalReports.snapshots["created-2026-11-04"].sourceStoreConfidence,"configured-destination-only");
+  assert.equal(observed.kind,"supplemental-report-import");
+  assert.equal(observed.details.sourceStoreConfidence,"configured-destination-only");
+});
+
+test("Next Appointments and standalone summary cannot use an unnamed destination store",async()=>{
+  let prompts=0,imports=0;
+  const ctx=vm.createContext({
+    model:{settings:{store:{name:"",code:""}}},sourceLocations:new Map(),
+    window:{confirm:()=>{prompts++;return true;}},
+    importNextAppointmentsFile:async()=>{imports++;},
+    importSupplementalSource:async()=>{imports++;},
+    ensurePreviousMonthSummary:async()=>{},renderAll:()=>{}
+  });
+  vm.runInContext(dispatch+"\nthis.dispatch=processClassifiedCandidate;",ctx);
+  for(const kind of ["next-appointments","supplemental-csv"]){
+    await assert.rejects(
+      ctx.dispatch({name:"synthetic-source.csv",location:"picked"},kind,new ArrayBuffer(1),false),
+      /complete Guided Setup dealership name and code/
+    );
+  }
+  assert.equal(imports,0);
+  assert.equal(prompts,0);
 });
