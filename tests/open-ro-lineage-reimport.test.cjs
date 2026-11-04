@@ -135,7 +135,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
       id:"synthetic-ro-301",ro:"SYN-301",sourceStatus:"Working",
       advisor:"Synthetic Advisor Backup",technician:"Synthetic Technician Backup",
       sourceFields:{"RO Number":"SYN-301","Source Status":"Working","Advisor":"Synthetic Advisor Backup","Technician":"Synthetic Technician Backup"},
-      management:{status:"Being Repaired",owner:"Synthetic Parts Owner",nextAction:"Recheck synthetic delivery",
+      management:{status:"Being Repaired",owner:"",ownerAssignmentSource:"manager-cleared",nextAction:"Recheck synthetic delivery",
         reviewDate:"2026-10-27",communication:"Updated",note:"Synthetic backed-up plan",
         manualAnnotation:"Synthetic manager recovery marker",updatedAt:"2026-10-26T08:55:00.000Z"}
     }],
@@ -144,7 +144,7 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
   const liveState={
     schemaVersion:1,updatedAt:"2026-10-26T10:00:00.000Z",
     records:[{id:"synthetic-ro-301",ro:"SYN-301",sourceStatus:"Working",sourceFields:{"RO Number":"SYN-301","Source Status":"Working"},
-      management:{status:"Being Repaired",owner:"Synthetic Parts Owner",nextAction:"Recheck synthetic delivery",reviewDate:"2026-10-27",communication:"Updated",note:"Synthetic backed-up plan",manualAnnotation:"Synthetic manager recovery marker",updatedAt:"2026-10-26T08:55:00.000Z"}}],
+      management:{status:"Being Repaired",owner:"",ownerAssignmentSource:"manager-cleared",nextAction:"Recheck synthetic delivery",reviewDate:"2026-10-27",communication:"Updated",note:"Synthetic backed-up plan",manualAnnotation:"Synthetic manager recovery marker",updatedAt:"2026-10-26T08:55:00.000Z"}}],
     closedRecords:[],source:{fileName:"synthetic-open-ro-live.xlsx",importedAt:"2026-10-26T09:58:00.000Z"}
   };
   const valuesFor=state=>({
@@ -230,6 +230,8 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
   assert.deepEqual(restored.records[0].management,manualState.records[0].management,
     "the real verified restore path rehydrates all manager-owned fields from the selected backup");
   assert.equal(restored.source.fileName,"synthetic-open-ro-backup.xlsx");
+  assert.equal(restored.records[0].management.ownerAssignmentSource,"manager-cleared",
+    "durable restore retains explicit manager-cleared owner authority");
   assert.equal(files.has("data/restore-in-progress.json"),false,
     "the restore marker is removed only after verified completion");
   assert.ok(events.some(event=>event.startsWith("history:full-restore-complete:1")),
@@ -245,6 +247,10 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
   const result=copy(merge([incoming],"2026-10-26T10:10:00.000Z","cdk-repair-orders").records[0]);
   assert.deepEqual(result.management,manualState.records[0].management,
     "the first complete-source reimport after recovery retains the selected backup's manager authority");
+  assert.equal(result.management.owner,"",
+    "new source after restore cannot reassign intentionally cleared manager owner");
+  assert.equal(result.management.ownerAssignmentSource,"manager-cleared",
+    "manual blank provenance remains separate from source identity");
   assert.deepEqual(result.sourceFields,incoming.sourceFields,
     "the fresh source replaces source-owned fields after recovery");
   assert.equal(result.cdkOperational.status,"Ready for Review");
@@ -303,7 +309,8 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
   assert.equal(editContext.openRecoveredRecord(result.id),true);
   assert.equal(editUi.editStatus.value,"Being Repaired",
     "the edit screen displays the recovered manager-authoritative status");
-  assert.equal(editUi.editOwner.value,"Synthetic Parts Owner");
+  assert.equal(editUi.editOwner.value,"",
+    "actual Edit dialog keeps an intentionally cleared owner blank after restore and reimport");
   assert.equal(editUi.editNextAction.value,"Recheck synthetic delivery");
   assert.equal(editUi.editReviewDate.value,"2026-10-27");
   assert.equal(editUi.editNote.value,"Synthetic backed-up plan");
