@@ -40,6 +40,17 @@ test("another dealership's backup cannot replace the configured installation",()
     configured("Example Auto Mall","9001","BMW")),/Needs Review/,
     "Matching store numbers and names must not override a verified brand conflict");
 });
+test("a matching name and code cannot silently adopt a backup with missing or newly introduced brand",()=>{
+  const branded=configured("Example Auto Mall","9001","Dodge");
+  const brandless=configured("Example Auto Mall","9001","");
+  assert.throws(()=>verify(branded,brandless),/Needs Review/,
+    "An identified local brand cannot accept an unbranded foreign backup");
+  assert.throws(()=>verify(brandless,branded),/Needs Review/,
+    "A legacy unbranded installation cannot silently adopt an external brand");
+  assert.equal(verify(branded,configured("Example Auto Mall","9001"," dodge ")),true,
+    "Matching brands with harmless whitespace and case normalization remain valid");
+});
+
 test("missing or partial destination and source identities fail closed",()=>{
   assert.throws(()=>verify(dodge,blank),/Needs Review/);
   assert.throws(()=>verify(dodge,configured("Dodge Exampletown","")),/Needs Review/);
