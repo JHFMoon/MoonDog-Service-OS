@@ -15,7 +15,7 @@ function extract(begin,end){
   return app.slice(a,b);
 }
 const preflight=extract("  function sameRestoreValue(","  async function replaceHistoryFromBackup(");
-const identity=extract("  function verifyBackupStoreOwnership(","  async function restoreSelectedBackup()");
+const identity=extract("  function hasExistingOperationalStateForRestore(","  async function restoreSelectedBackup()");
 const restore=extract("  async function restoreSelectedBackup()","  function latestImportSummary()");
 const encode=value=>new TextEncoder().encode(value);
 const decode=bytes=>new TextDecoder().decode(bytes);
