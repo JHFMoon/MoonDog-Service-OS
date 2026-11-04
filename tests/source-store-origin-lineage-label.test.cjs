@@ -26,6 +26,11 @@ test("a matching code without complete source-store markers cannot masquerade as
   assert.equal(ctx.label(uncertain),"Source dealership unverified · Review required");
   assert.match(ctx.lineage(uncertain),/Source dealership unverified/);
 });
+test("invalid reporting periods still show the concrete invalid source state when store origin is only partial",()=>{
+  const uncertain={key:"csi",status:"invalid",loaded:true,reason:"Invalid report period",
+    sourceStoreConfidence:"configured-destination-only"};
+  assert.equal(ctx.label(uncertain),"Invalid period · Review required");
+});
 test("fully validated local source and legacy date-only labels keep their existing status wording",()=>{
   const accepted={key:"csi",status:"current",loaded:true,
     sourceStoreConfidence:"verified-source-store",
