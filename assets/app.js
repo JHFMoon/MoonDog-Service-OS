@@ -5038,7 +5038,7 @@
       // A retained reference record may be older than current importer guards.
       // Chart dates and numeric values do not independently prove that the
       // saved report's declared period agrees with its observation.
-      if(['sor','efficiency','mediaAsr','mediaAsrTech'].includes(measure.family)){
+      if(['sor','efficiency','mediaAsr','mediaAsrTech','nextAppointments','vir'].includes(measure.family)){
         const lineage=sourceFreshness(measure.family,{
           item,today,purpose:'historical',targetStart:date,targetEnd:date
         });
