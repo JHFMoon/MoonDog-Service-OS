@@ -2179,8 +2179,9 @@
   function pruneDatedSnapshots(snapshots, limit = 730) { const dates = Object.keys(snapshots).sort(); return Object.fromEntries(dates.slice(-limit).map((date) => [date, snapshots[date]])); }
   async function importNextAppointmentsFile(name, deleteAfterSuccess = false, allowInteractiveReplacement = false) {
     const file = await (await sourceFileHandle(name)).getFile(), source = await file.text(), snapshot = parseNextAppointmentsCsv(source, name), key=snapshot.periodEnd||`observation-${snapshot.observationDate}`,existingSnapshot=model.operationalMetrics.nextAppointments.snapshots[key],replacing=Boolean(existingSnapshot),prior=structuredClone(model.operationalMetrics);
+    snapshot.sourceStoreConfidence="configured-destination-only";
     const comparable = value => {
-      const volatile = new Set(["sourceFile", "importedAt", "sourceModifiedAt", "validation"]);
+      const volatile = new Set(["sourceFile", "importedAt", "sourceModifiedAt", "sourceStoreConfidence", "validation"]);
       const normalize = (item, root = false) => {
         if (Array.isArray(item)) return item.map(value => normalize(value));
         if (item && typeof item === "object") {
@@ -2196,6 +2197,7 @@
     let supplemental = null;
     try {
       supplemental = parseAppointmentsCreatedSummaryCsv(source, name);
+      supplemental.sourceStoreConfidence="configured-destination-only";
       supplemental.sourceModifiedAt = new Date(file.lastModified).toISOString();
       // The paired summary's filter end may remain month-wide while NSA coverage advances daily.
       supplemental.coverageDate = snapshot.periodEnd || supplemental.periodEnd || supplemental.asOfDate || "";
@@ -2216,7 +2218,7 @@
       const check = await readJson(OPERATIONAL_METRICS_PATH, null);
       if (comparable(check?.nextAppointments?.snapshots?.[key]) !== comparable(existingSnapshot) || supplemental && comparable(check?.supplementalReports?.snapshots?.[supplementalKey]) !== comparable(existingSupplemental))
         throw new Error("The existing Appointments snapshots could not be verified from durable storage; the source was retained.");
-      await addHistory("next-appointments-duplicate", `Verified duplicate Next Appointments source for ${snapshot.periodEnd || "unverified period"}; saved snapshot was unchanged`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd });
+      await addHistory("next-appointments-duplicate", `Verified duplicate Next Appointments source for ${snapshot.periodEnd || "unverified period"}; saved snapshot was unchanged`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, sourceStoreConfidence:existingSnapshot?.sourceStoreConfidence||"unknown" });
       if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted verified duplicate Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
       renderOverviewIntelligence();
       return;
@@ -2236,8 +2238,8 @@
         throw new Error("The Appointments Created snapshots could not be verified after saving.");
     } catch(error) { model.operationalMetrics = prior; throw error; }
     if (!snapshotDuplicate)
-      await addHistory("next-appointments-import", `${replacing ? "Replaced" : "Added"} Next Appointments ${snapshot.periodEnd ? `snapshot through ${snapshot.periodEnd}` : "import observation; period unverified"}`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, identityConflicts: snapshot.identityConflicts.length });
-    if (supplemental) await addHistory("supplemental-report-import", `${existingSupplemental ? "Replaced" : "Retained"} Appointments Created service summary from the same report`, { fileName: name, family: supplemental.family, supplementalOnly: true });
+      await addHistory("next-appointments-import", `${replacing ? "Replaced" : "Added"} Next Appointments ${snapshot.periodEnd ? `snapshot through ${snapshot.periodEnd}` : "import observation; period unverified"}`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, identityConflicts: snapshot.identityConflicts.length, sourceStoreConfidence:snapshot.sourceStoreConfidence||"unknown" });
+    if (supplemental) await addHistory("supplemental-report-import", `${existingSupplemental ? "Replaced" : "Retained"} Appointments Created service summary from the same report`, { fileName: name, family: supplemental.family, supplementalOnly: true, sourceStoreConfidence:supplemental.sourceStoreConfidence||"unknown" });
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
     renderOverviewIntelligence();
   }
@@ -2326,7 +2328,8 @@
       await addHistory("vir-import","Added independent VIR point-in-time observation",{
         fileName:snapshot.sourceFile,
         observationDate:virObservationDate(snapshot),
-        totalROs:snapshot.store.totalROs
+        totalROs:snapshot.store.totalROs,
+        sourceStoreConfidence:snapshot.sourceStoreConfidence||"unknown"
       });
     } catch(error) {
       recordDiagnostic("VIR INTAKE",`VIR was durably saved but its history summary was deferred (${error.name||"Error"})`);
@@ -2340,7 +2343,7 @@
     return{resolved:true,date:virObservationDate(snapshot),key};
   }
   async function importVirFile(name, deleteAfterSuccess = false) {
-    const file = await (await sourceFileHandle(name)).getFile(), snapshot = parseVirCsv(await file.text(), name); snapshot.sourceModifiedAt = new Date(file.lastModified).toISOString(); snapshot.observationTimestamp=snapshot.reportDate?`${snapshot.reportDate}T12:00:00-07:00`:snapshot.sourceModifiedAt||snapshot.importedAt;snapshot.sourceLocation=sourceLocations.get(name)||"root"; const result = await saveVirSnapshot(snapshot);
+    const file = await (await sourceFileHandle(name)).getFile(), snapshot = parseVirCsv(await file.text(), name); snapshot.sourceStoreConfidence="configured-destination-only"; snapshot.sourceModifiedAt = new Date(file.lastModified).toISOString(); snapshot.observationTimestamp=snapshot.reportDate?`${snapshot.reportDate}T12:00:00-07:00`:snapshot.sourceModifiedAt||snapshot.importedAt;snapshot.sourceLocation=sourceLocations.get(name)||"root"; const result = await saveVirSnapshot(snapshot);
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported VIR source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
     return result.resolved;
   }
@@ -3607,16 +3610,34 @@
   async function importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess=false,layoutOverride=null) {
     if(kind==="supplemental-workbook")if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true });
     let snapshot;if(kind==="supplemental-pdf"){const signature=await pdfSignatureText(bytes),family=supplementalPdfFamily(signature,candidate.name),pages=family==="controllable-ranking"?80:family==="service-consulting-audit"?20:4;snapshot=parseSupplementalPdfReport(await pdfReportText(bytes,pages),candidate.name,{storeCode:model.settings.store?.code||""});}
-    else if(kind==="supplemental-csv")snapshot=parseAppointmentsCreatedSummaryCsv(new TextDecoder().decode(new Uint8Array(bytes)),candidate.name);
+    else if(kind==="supplemental-csv"){snapshot=parseAppointmentsCreatedSummaryCsv(new TextDecoder().decode(new Uint8Array(bytes)),candidate.name);snapshot.sourceStoreConfidence="configured-destination-only";}
     else if(kind==="supplemental-workbook")snapshot=parseSupplementalWorkbook(bytes,candidate.name,layoutOverride);
     else if(kind==="supplemental-docx")snapshot=parseSupplementalDocxReport(await docxText(bytes),candidate.name);
     if(!snapshot)throw new Error("The supplemental report structure could not be verified.");sourceLocations.set(candidate.name,candidate.location);const sourceFile=await(await sourceFileHandle(candidate.name)).getFile();snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString();model.operationalMetrics.supplementalReports||={snapshots:{}};const key=supplementalSnapshotKey(snapshot),replacing=Boolean(model.operationalMetrics.supplementalReports.snapshots[key]),prior=structuredClone(model.operationalMetrics.supplementalReports);model.operationalMetrics.supplementalReports.snapshots[key]=snapshot;model.operationalMetrics.supplementalReports.snapshots=pruneSupplementalSnapshots(model.operationalMetrics.supplementalReports.snapshots);model.operationalMetrics.updatedAt=now();
     try{await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);const check=await readJson(OPERATIONAL_METRICS_PATH,null);if(JSON.stringify(check?.supplementalReports?.snapshots?.[key])!==JSON.stringify(snapshot))throw new Error("The supplemental report snapshot could not be verified after saving.");}catch(error){model.operationalMetrics.supplementalReports=prior;throw error;}
     if(snapshot.family==="ato-task-performance"){invalidateNavigationRenders();if(ui["view-performance"]?.classList.contains("active"))renderAtoTaskPerformance();}
-    await addHistory("supplemental-report-import",(replacing?"Replaced ":"Added ")+snapshot.family+" supplemental report",{fileName:candidate.name,family:snapshot.family,periodStart:snapshot.periodStart,periodEnd:snapshot.periodEnd,asOfDate:snapshot.asOfDate||"",supplementalOnly:true});if(deleteAfterSuccess)await removeSourceEntry(candidate.name);
+    await addHistory("supplemental-report-import",(replacing?"Replaced ":"Added ")+snapshot.family+" supplemental report",{fileName:candidate.name,family:snapshot.family,periodStart:snapshot.periodStart,periodEnd:snapshot.periodEnd,asOfDate:snapshot.asOfDate||"",supplementalOnly:true,sourceStoreConfidence:snapshot.sourceStoreConfidence||"unknown"});if(deleteAfterSuccess)await removeSourceEntry(candidate.name);
   }
 
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true, layoutOverride = null) {
+    // Destination identity is required before any local approval can assign
+    // an unsigned report to this Workspace. A generic store prompt is unsafe.
+    if (["vir","next-appointments","supplemental-csv"].includes(kind) &&
+        (!String(model.settings?.store?.name||"").trim() ||
+         !String(model.settings?.store?.code||"").trim()))
+      throw new Error("Needs Review: complete Guided Setup dealership name and code before reviewing the unsigned source.");
+    // Neither VIR nor Next Appointments exports attest the issuing dealership.
+    // Identical advisor populations at two stores must not grant auto-import.
+    if (kind === "vir" && candidate.location !== "picked")
+      throw new Error("Needs Review: unsigned VIR cannot be imported unattended; select the original manually and confirm the dealership.");
+    if (["next-appointments","supplemental-csv"].includes(kind) && candidate.location !== "picked")
+      throw new Error("Needs Review: unsigned Next Appointments cannot be imported unattended; select the original manually and verify the dealership.");
+    if (kind === "vir" && !window.confirm(
+      `Verify VIR source: ${candidate.name}\n\nConfirm the original VIR export belongs to ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}) and check its observation date. This export has no authenticated source-store identifier. Continue?`))
+      throw new Error("Needs Review: VIR dealership and source observation were not confirmed; original retained.");
+    if (["next-appointments","supplemental-csv"].includes(kind) && !window.confirm(
+      `Verify Next Appointments source: ${candidate.name}\n\nConfirm the original report belongs to ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}) and its reporting date range. Matching advisor identities do not establish its source dealership. Continue?`))
+      throw new Error("Needs Review: Next Appointments source dealership and date range were not confirmed; original retained.");
     // CSI exports identify scoring responses but do not authenticate their
     // originating dealership. Manual intent is required even with matching
     // advisor codes and validated export dates.
@@ -4134,6 +4155,24 @@
           };
           ledgerChanged=true;
           recordDiagnostic("REPORT INBOX","Unsigned CSI retained for explicit manual dealership/source review");
+          continue;
+        }
+        if((kind==="vir"||kind==="next-appointments"||kind==="supplemental-csv")&&candidate.location==="inbox"){
+          // The original is retained and marked for deliberate manager review.
+          // A matching advisor identity is not proof of source-store ownership.
+          await addHistory(kind+"-review-required",
+            "Unsigned "+kind+" retained pending manager dealership and report-period review",
+            {fileName:candidate.name,sourceFamily:kind,sourcePreserved:true,
+              sourceStoreConfidence:"configured-destination-only"});
+          if(!scanEligible())return null;
+          reviewRequired.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={
+            fileName:candidate.name,relativePath:candidate.relativePath,
+            kind,manualImportRequired:true,queuedAt:now(),
+            sourceStoreConfidence:"configured-destination-only"
+          };
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX","Unsigned "+kind+" retained for explicit source-store review");
           continue;
         }
         if(kind==="performance"&&candidate.location==="inbox"){
