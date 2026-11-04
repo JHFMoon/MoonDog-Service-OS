@@ -3608,6 +3608,11 @@
   }
 
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true, layoutOverride = null) {
+    // A grouped report's reconciled totals prove its population, not its
+    // dealership origin. Until the report includes verified source-store
+    // evidence, never grant unattended authority to replace the live RO roster.
+    if (kind === "open-ro" && candidate.location === "inbox")
+      throw new Error("Needs Review: unsigned grouped Open RO origin is unverified; use explicit Import Report store review.");
     if (kind === "open-ro-docx" && candidate.location !== "picked") throw new Error("Needs Review: DOCX source is not yet authorized for hands-off roster replacement.");
     if (kind === "open-ro" && !["picked","inbox"].includes(candidate.location)) throw new Error("Needs Review: only the dedicated Inbox may automatically replace Open ROs.");
     sourceLocations.set(candidate.name, candidate.location);let appointmentOutcome;
@@ -3899,10 +3904,13 @@
   function candidateNeedsImport(candidate) {
     if(candidate.readError)return false;
     const seen=model.autoImport.seen?.[candidate.signature];
-    if(candidate.location==="inbox")
-      // Previous Betas queued Open RO workbooks for manual review. Reconsider
-      // those unchanged files now that strict grouped intake is authorized.
+    if(candidate.location==="inbox"){
+      // Keep unverified unsigned grouped reports in manager review until the
+      // source changes or an explicitly authorized manual import completes.
+      // A completed manual import can still be rechecked for safe cleanup.
+      if(seen?.manualImportRequired)return false;
       return Boolean(seen?.cleanupPending || seen?.cleanupReviewRequired || seen?.cleanupNeedsReview) || !(seen?.kind==="appointments"&&seen.importedAt);
+    }
     return !seen||Boolean(seen.movedAt);
   }
   function transientWorkspaceState(error){return ["AbortError","InvalidStateError","NotReadableError","UnknownError","TimeoutError"].includes(error?.name)||/state cached in an interface object|state had changed since it was read from disk|changed since it was read from disk/i.test(error?.message||"");}
@@ -4160,6 +4168,25 @@
             recordDiagnostic("REPORT INBOX","Verified current Open RO duplicate removed without replay");
             continue;
           }
+        }
+        // The grouped XLSX may be count-perfect while belonging to another
+        // dealership. Retain it in Report Inbox for an explicit manager review,
+        // just like unsigned CDK DOCX. The byte-identical already-committed
+        // duplicate recovery above remains allowed; no new roster is written.
+        if(kind==="open-ro"&&candidate.location==="inbox"){
+          await addHistory("open-ro-review-required",
+            "Count-reconciled grouped Open RO retained: unsigned source-store origin requires manual review",
+            {fileName:candidate.name,sourceFamily:kind,sourcePreserved:true,sourceStoreVerified:false});
+          if(!scanEligible())return null;
+          sourceLocations.set(candidate.name,candidate.location);
+          reviewRequired.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={
+            fileName:candidate.name,relativePath:candidate.relativePath,kind,
+            manualImportRequired:true,sourceStoreVerified:false,queuedAt:now()};
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX",
+            "Unsigned grouped Open RO requires explicit dealership review before roster replacement");
+          continue;
         }
         const outcome=await processClassifiedCandidate(candidate, kind, bytes, true);
         // The importer may have awaited durable I/O while reconnect or a

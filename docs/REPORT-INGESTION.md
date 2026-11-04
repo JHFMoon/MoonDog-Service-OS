@@ -6,11 +6,11 @@ Primary sources may update live operating state. Supplemental sources are retain
 
 ## Automatic Report Inbox contract
 
-- Drop a complete, advisor-grouped Open RO XLSX into `01 - DROP REPORTS HERE`. Once the file is stable, the watcher verifies the global `Rows Returned` total, every advisor-section item count, RO identities, and unchanged source bytes. It automatically updates the rolling Open RO population and Assign Next workload, retaining manager reviews/commitments. The source is deleted **only after durable import succeeds**. No manual file picker or confirmation is required for this reconciled workbook family.
+- Drop a complete, advisor-grouped Open RO XLSX into `01 - DROP REPORTS HERE`. Once stable, the watcher verifies row totals and structure, but **count reconciliation is not proof of dealership origin**. For an unsigned report with no source-store identifier it retains the file in Inbox and exposes an explicit **Import Report** review; the manager must confirm the right dealership and source before the roster is replaced. No unknown-origin grouped report is permitted to replace active ROs unattended. A previously committed, exact-byte duplicate can still be safely reconciled/cleaned after durable projection checks. Any new source is deleted **only after an accepted, durable manual import**, retaining manager reviews and commitments.
 - If the original XLSX is already the **current, byte-identical authoritative Open RO source**, the watcher verifies the durable state and removes the duplicate without re-importing or overwriting RO state.
 - Unknown, incomplete, corrupt or non-reconciled report structures move to **Files To Learn** with a local failure diagnostic. Copy integrity is checked before deleting the original from Inbox. Temporary OneDrive read/write errors keep the original in place for retry rather than misclassifying it as a broken workbook.
 - Generic Open RO table XLSX, unsigned DOCX and other sources not proven to be count-reconciled are **not** granted automatic active-roster authority. A changed or ambiguous source pending cleanup is retained for review, never deleted blindly.
-- Previously queued `manualImportRequired` grouped XLSX files are retried by the watcher after the updated Beta is installed. Stable is unaffected. These guarantees are backed by synthetic CI; physical OneDrive operation must be checked on the installed device.
+- Previously queued `manualImportRequired` grouped XLSX files remain visible for explicit manager approval, not automatic replay. Stable is unaffected. These guarantees are backed by synthetic CI; physical OneDrive operation must be checked on the installed device.
 
 ## Primary operational sources
 
