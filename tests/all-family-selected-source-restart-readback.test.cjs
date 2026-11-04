@@ -42,7 +42,7 @@ function appAfterStart(saved) {
     freshness, model, Date, Intl,
     sourceExpectation: () => "recommended",
     businessTimeZone: () => "America/Los_Angeles",
-    localDateKey: () => today,
+    localDateKey: value => value instanceof Date ? value.toISOString().slice(0, 10) : today,
     currentSaprSnapshot: () => saved,
     latestOperationalSnapshot: () => saved,
     latestVirObservation: () => saved,
@@ -58,7 +58,7 @@ function appAfterStart(saved) {
     lastDayOfMonth: freshness.lastDayOfMonth
   });
   vm.runInContext(selector + "\nthis.selectedEvidence = sourceFreshness;", context);
-  return (key, item) => context.selectedEvidence(key, {item, today});
+  return (key, item, options = {}) => context.selectedEvidence(key, {item, today, ...options});
 }
 
 function corrupt(key, item) {
@@ -121,5 +121,27 @@ test("a corrupted recovered source is never silently replaced by a different val
     assert.equal(recovered.safeForPurpose, false, key);
     assert.equal(freshness.evaluateMetric([recovered]).verified, false, key);
     assert.equal(JSON.stringify(changed), before, key + " source nonmutation");
+  }
+});
+
+test("restarted sources with older verified periods are stale for a later requested day across all fourteen families", () => {
+  const read = appAfterStart(JSON.parse(JSON.stringify(original)));
+  for (const key of families) {
+    const old = JSON.parse(JSON.stringify(original));
+    old.reportDate = "2026-10-29";
+    old.date = "2026-10-29";
+    old.periodEnd = "2026-10-29";
+    old.scopeEnd = "2026-10-29";
+    old.reportObservationDate = "2026-10-29";
+    old.generatedAt = "2026-10-29T17:30:00.000Z";
+    const bytes = JSON.stringify(old);
+    const recovered = JSON.parse(bytes);
+    const evidence = read(key, recovered, {
+      purpose: "historical", targetStart: today, targetEnd: today
+    });
+    assert.equal(evidence.status, "stale", key + " cannot borrow current import time for missing historical coverage");
+    assert.equal(evidence.safeForPurpose, false, key + " cannot certify uncovered day");
+    assert.equal(freshness.evaluateMetric([evidence]).verified, false, key + " cannot relabel unknown metric as true zero");
+    assert.equal(JSON.stringify(old), bytes, key + " original serialized bytes remain untouched");
   }
 });
