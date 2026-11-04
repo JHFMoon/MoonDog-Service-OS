@@ -4904,9 +4904,12 @@
     const start=hasVerifiedPeriod?String(source.periodStart||"").trim():"",end=hasVerifiedPeriod?String(source.periodEnd||"").trim():"";
     const period=start&&end?(start===end?end:start+" through "+end):end||start||"Not verified";
     const timestamp=String(source.importTimestamp||"").trim();
-    const importTime=/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}/.test(timestamp)&&
-      Number.isFinite(Date.parse(timestamp))
-      ?new Date(timestamp).toISOString().slice(0,16).replace("T"," ")+" UTC":"Not verified";
+    // Retained timestamps are provenance, not proof of report coverage.
+    // An impossible or future local import must not become a verified clock.
+    const parsedImport=/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}/.test(timestamp)&&
+      freshness.validDateKey(timestamp.slice(0,10))?Date.parse(timestamp):NaN,
+      importTime=Number.isFinite(parsedImport)&&parsedImport<=Date.now()+300000
+        ?new Date(parsedImport).toISOString().slice(0,16).replace("T"," ")+" UTC":"Not verified";
     return sourceStatusLabel(source)+" · Report period: "+period+" · Last imported: "+importTime;
   }
   function advisorNextWin(code, latest, plan) {
