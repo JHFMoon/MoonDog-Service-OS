@@ -2574,7 +2574,8 @@
   }
   function npsSummary(surveys) { const rows = Object.values(surveys), promoters = rows.filter((row) => row.classification === "Promoter").length, passives = rows.filter((row) => row.classification === "Passive").length, detractors = rows.filter((row) => row.classification === "Detractor").length; return { responses: rows.length, promoters, passives, detractors, nps: rows.length ? (promoters - detractors) / rows.length * 100 : null }; }
   async function importCsiFile(name, deleteAfterSuccess = false, providedBytes = null) {
-    const file = await (await sourceFileHandle(name)).getFile(), sourceBytes = providedBytes || (/\.xlsx$/i.test(name) ? await file.arrayBuffer() : null); if (/\.xlsx$/i.test(name)) if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(sourceBytes, { type: "array", cellDates: true }); const parsed = /\.xlsx$/i.test(name) ? parseCsiWorkbook(sourceBytes, name) : parseCsiCsv(await file.text(), name), priorMetrics = structuredClone(model.operationalMetrics), existing = model.operationalMetrics.csi.surveys || {}, refreshAt = now(), refreshDate = localDateKey(); const metricSnapshotSha256 = await sha256(new TextEncoder().encode(csiMetricSnapshotPayload(parsed.surveys)));
+    const connectedRoot = model.root;
+    const file = await (await sourceFileHandle(name)).getFile(), sourceBytes = providedBytes || (/\.xlsx$/i.test(name) ? await file.arrayBuffer() : null); if (/\.xlsx$/i.test(name)) if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(sourceBytes, { type: "array", cellDates: true }); const parsed = /\.xlsx$/i.test(name) ? parseCsiWorkbook(sourceBytes, name) : parseCsiCsv(await file.text(), name), priorMetrics = model.operationalMetrics, priorSignature = JSON.stringify(priorMetrics), candidate = structuredClone(priorMetrics), existing = candidate.csi.surveys || {}, refreshAt = now(), refreshDate = localDateKey(); const metricSnapshotSha256 = await sha256(new TextEncoder().encode(csiMetricSnapshotPayload(parsed.surveys)));
     // Cumulative CSI exports may legitimately correct a previously imported
     // response. Count metric-bearing revisions before merging so the durable
     // source history identifies a correction without copying response values
@@ -2586,20 +2587,29 @@
     }, 0);
     Object.values(parsed.surveys).forEach((survey) => { const prior = existing[survey.id]; existing[survey.id] = prior && prior.surveyDate > survey.surveyDate ? prior : { ...prior, ...survey, extensionRecordIds: [...new Set([...(prior?.extensionRecordIds || []), ...survey.extensionRecordIds])], lastSeenAt: now() }; });
     const newest = Object.values(existing).map((survey) => survey.surveyDate).sort().at(-1); if (newest) { const cutoff = freshness.addDays(newest,-730); Object.keys(existing).forEach((id) => { if (existing[id].surveyDate < cutoff) delete existing[id]; }); }
-    model.operationalMetrics.csi.surveys = existing; model.operationalMetrics.csi.imports ||= []; model.operationalMetrics.csi.imports.push({ sourceFile: name, importedAt: refreshAt, refreshDate, coverageStart: parsed.coverageStart, coverageEnd: parsed.coverageEnd, scopeStart:parsed.scopeStart,scopeEnd:parsed.scopeEnd,scopeVerified:parsed.scopeVerified, metricSnapshotSha256, dailySummary:npsSummary(parsed.surveys), rows: Object.keys(parsed.surveys).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount, format: /\.xlsx$/i.test(name) ? "xlsx" : "csv" }); model.operationalMetrics.csi.imports = model.operationalMetrics.csi.imports.slice(-250); model.operationalMetrics.csi.lastSuccessfulRefreshAt = refreshAt; model.operationalMetrics.csi.lastSuccessfulRefreshDate = refreshDate; model.operationalMetrics.updatedAt = refreshAt; try {
-      await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics);
+    candidate.csi.surveys = existing; candidate.csi.imports ||= []; candidate.csi.imports.push({ sourceFile: name, importedAt: refreshAt, refreshDate, coverageStart: parsed.coverageStart, coverageEnd: parsed.coverageEnd, scopeStart:parsed.scopeStart,scopeEnd:parsed.scopeEnd,scopeVerified:parsed.scopeVerified, metricSnapshotSha256, dailySummary:npsSummary(parsed.surveys), rows: Object.keys(parsed.surveys).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount, format: /\.xlsx$/i.test(name) ? "xlsx" : "csv" }); candidate.csi.imports = candidate.csi.imports.slice(-250); candidate.csi.lastSuccessfulRefreshAt = refreshAt; candidate.csi.lastSuccessfulRefreshDate = refreshDate; candidate.updatedAt = refreshAt; try {
+      // Import data and its source lineage must not become visible to Home,
+      // Meeting or reports before the entire durable candidate is verified.
+      const authorityCurrent = () => model.root === connectedRoot &&
+        model.operationalMetrics === priorMetrics &&
+        JSON.stringify(priorMetrics) === priorSignature;
+      if (!authorityCurrent()) throw new Error("CSI source authority changed during report preparation. Reconnect and retry.");
+      await writeJson(OPERATIONAL_METRICS_PATH, candidate);
       const check = await readJson(OPERATIONAL_METRICS_PATH, null);
-      // Verify complete persisted survey details, prior history, import lineage
-      // and refresh metadata; matching survey IDs alone is insufficient.
-      if (JSON.stringify(check) !== JSON.stringify(model.operationalMetrics))
+      if (JSON.stringify(check) !== JSON.stringify(candidate))
         throw new Error("The CSI surveys and refresh metadata could not be verified after saving.");
+      if (!authorityCurrent()) throw new Error("CSI source authority changed during durable verification. Reconnect and review before retry.");
+      // Keep the existing CSI object identity for view consumers, but commit
+      // its survey/period/refresh values together after verified read-back.
+      Object.assign(priorMetrics.csi, candidate.csi);
+      priorMetrics.updatedAt = candidate.updatedAt;
     } catch (error) {
-      // Runtime must never display uncertain CSI. Leave original report and
-      // uncertain disk data available for controlled recovery.
-      model.operationalMetrics = priorMetrics;
+      // Leave the prior source and its original customer evidence untouched.
+      // Any uncertain disk write remains available for controlled recovery.
       throw error;
     }
     const revisionNote = revisedMetricSurveyCount ? `; revised ${revisedMetricSurveyCount} previously imported metric response${revisedMetricSurveyCount === 1 ? "" : "s"} from this cumulative source` : "";
+    if (model.root !== connectedRoot) throw new Error("CSI Workspace changed after verification. Reconnect and review before recording history.");
     await addHistory("csi-import", `Merged CSI surveys through ${parsed.coverageEnd}${revisionNote}`, {
       fileName: name,
       sourcePeriodStart: parsed.scopeStart || parsed.coverageStart,
@@ -2610,7 +2620,7 @@
       revisedMetricSurveyCount,
       unresolvedAdvisorCount: parsed.unresolvedAdvisorCount
     });
-    if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported CSI source file ${name}`, { fileName: name, compactSurveysRetained: true }); }
+    if (deleteAfterSuccess) { if (model.root !== connectedRoot) throw new Error("CSI Workspace changed before source cleanup; original report retained."); await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported CSI source file ${name}`, { fileName: name, compactSurveysRetained: true }); }
     if(typeof status==="function")status(`CSI imported and verified: ${Object.keys(parsed.surveys).length} scoring responses saved from ${name}. Report scope ${parsed.scopeVerified?'verified':'not supplied by export'}.`, "success");
     if(typeof renderAll==="function")renderAll();
     if(typeof renderMeeting==="function")renderMeeting();

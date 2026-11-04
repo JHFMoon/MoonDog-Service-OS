@@ -20,7 +20,7 @@ const fingerprintEnd = app.indexOf("\n  function parseCsiRows(", fingerprintStar
 assert.ok(fingerprintStart >= 0 && fingerprintEnd > fingerprintStart, "Production CSI metric fingerprint helper must exist");
 const fingerprintHelper = app.slice(fingerprintStart, fingerprintEnd);
 
-function fixture(mode = "verified") {
+function fixture(mode = "verified", options = {}) {
   let currentMode = mode;
   const previous = {
     csi: {
@@ -49,7 +49,10 @@ function fixture(mode = "verified") {
     model, structuredClone, crypto, TextEncoder, now: () => "2026-10-21T15:00:00Z",
     localDateKey: () => "2026-10-21",
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
-    sourceFileHandle: async () => ({getFile: async () => ({text: async () => "synthetic CSV"})}),
+    sourceFileHandle: async () => ({getFile: async () => ({text: async () => {
+      if(options.onReadFile)options.onReadFile(model);
+      return "synthetic CSV";
+    }})}),
     parseCsiCsv: () => structuredClone(parsed),
     npsSummary: surveys => ({responseCount: Object.keys(surveys).length}),
     freshness: {addDays: (_date, days) => days === -730 ? "2024-10-21" : "unexpected"},
@@ -57,6 +60,7 @@ function fixture(mode = "verified") {
       events.push("write");
       if (currentMode === "write-denied") throw Error("synthetic write denied");
       persisted = structuredClone(data);
+      if (options.afterPersist) await options.afterPersist(model);
     },
     readJson: async () => {
       events.push("read");
@@ -133,7 +137,7 @@ test("a failed CSI reimport preserves the prior verified state and leaves its so
   const firstDurable = structuredClone(f.persisted());
   f.setMode("write-denied");
   await assert.rejects(f.run(true), /synthetic write denied/);
-  assert.deepEqual(f.model.operationalMetrics, firstVerified);
+  assert.deepEqual(structuredClone(f.model.operationalMetrics), firstVerified);
   assert.deepEqual(f.persisted(), firstDurable);
   assert.equal(f.events.filter(event => event === "history:csi-import").length, 1,
     "failed reimport must not create a success history event");
@@ -144,9 +148,9 @@ test("a failed CSI reimport preserves the prior verified state and leaves its so
 
 test("actual CSI importer is syntax-valid and uses full readback comparison", () => {
   new vm.Script(app);
-  assert.match(importer, /structuredClone\(model\.operationalMetrics\)/);
-  assert.match(importer, /JSON\.stringify\(check\) !== JSON\.stringify\(model\.operationalMetrics\)/);
-  assert.match(importer, /model\.operationalMetrics = priorMetrics/);
+  assert.match(importer, /candidate = structuredClone\(priorMetrics\)/);
+  assert.match(importer, /JSON\.stringify\(check\) !== JSON\.stringify\(candidate\)/);
+  assert.match(importer, /Object\.assign\(priorMetrics\.csi, candidate\.csi\)/);
 });
 
 
@@ -170,4 +174,63 @@ test("cumulative CSI metric corrections retain period provenance in durable impo
   assert.deepEqual(f.history.map(entry => entry.details.revisedMetricSurveyCount), [1, 0],
     "the repeated same cumulative export is idempotent and creates no false correction");
   assert.equal(f.history[1].details.sourcePeriodEnd, "2026-10-21");
+});
+
+
+test("CSI source period and survey metrics stay unchanged throughout a delayed verified write", async () => {
+  let release;
+  let beganWrite;
+  const entered = new Promise(resolve => { beganWrite = resolve; });
+  const hold = new Promise(resolve => { release = resolve; });
+  const f = fixture("verified", {afterPersist: async () => { beganWrite(); await hold; }});
+  const original = f.model.operationalMetrics;
+  const csi = original.csi;
+  const before = structuredClone(original);
+  const pending = f.run(true);
+  await entered;
+  assert.strictEqual(f.model.operationalMetrics, original);
+  assert.strictEqual(f.model.operationalMetrics.csi, csi);
+  assert.deepEqual(f.model.operationalMetrics, before, "unverified source values are not visible to Home or Meeting");
+  assert.equal(f.events.some(x => x.startsWith("history:")), false);
+  assert.equal(f.events.includes("source-deleted"), false);
+  release();
+  await pending;
+  assert.strictEqual(f.model.operationalMetrics, original);
+  assert.strictEqual(f.model.operationalMetrics.csi, csi);
+  assert.deepEqual(structuredClone(f.model.operationalMetrics), f.persisted());
+  assert.equal(csi.imports.length, 2);
+  assert.equal(f.events.includes("source-deleted"), true);
+});
+
+test("CSI write/readback cannot publish a snapshot from a superseded Workspace", async () => {
+  const f=fixture("verified",{afterPersist: async model => {model.root={name:"replacement synthetic Workspace"};}});
+  const original=f.model.operationalMetrics,prior=structuredClone(original);
+  await assert.rejects(f.run(true), /CSI source authority changed during durable verification/);
+  assert.strictEqual(f.model.operationalMetrics, original);
+  assert.deepEqual(f.model.operationalMetrics,prior);
+  assert.equal(f.events.some(x => x.startsWith("history:")),false);
+  assert.equal(f.events.includes("source-deleted"),false);
+});
+
+test("CSI import does not erase a newer live source update while its disk write waits", async () => {
+  const f=fixture("verified",{afterPersist: async model => {
+    model.operationalMetrics.anotherFamily.snapshots["2026-10-22"]={count:9};
+  }});
+  const original=f.model.operationalMetrics;
+  await assert.rejects(f.run(true), /CSI source authority changed during durable verification/);
+  assert.strictEqual(f.model.operationalMetrics,original);
+  assert.equal(f.model.operationalMetrics.anotherFamily.snapshots["2026-10-22"].count,9);
+  assert.equal(f.model.operationalMetrics.csi.imports.length,1);
+  assert.equal(f.events.some(x => x.startsWith("history:")),false);
+  assert.equal(f.events.includes("source-deleted"),false);
+});
+
+test("CSI source file read cannot import into a replacement Workspace", async () => {
+  const f=fixture("verified",{onReadFile:model=>{model.root={name:"another synthetic Workspace"};}});
+  const previous=structuredClone(f.model.operationalMetrics);
+  await assert.rejects(f.run(true),/CSI source authority changed during report preparation/);
+  assert.deepEqual(f.model.operationalMetrics,previous);
+  assert.deepEqual(f.events.filter(x=>x==="write"),[]);
+  assert.equal(f.events.some(x=>x.startsWith("history:")),false);
+  assert.equal(f.events.includes("source-deleted"),false);
 });
