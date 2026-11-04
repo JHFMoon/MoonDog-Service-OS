@@ -388,7 +388,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-11-01-vir-date-validated-v8";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-11-04-store-identity-v9";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -415,10 +415,19 @@
     sourceAdapter = {};
   }
   const unassignedAdvisorCode = () => String(sourceAdapter.unassignedAdvisorCode || "");
+  // Guided Setup owns the installation identity. A vendor's alternate report
+  // code may be used only with an explicit binding to this exact local store.
   function reportStoreCode(family) {
-    const code = String(sourceAdapter.reports?.[family]?.storeCode || model.settings?.store?.code || "").trim();
-    if (!code) throw new Error(`Configure the store code before importing ${family}.`);
-    return code;
+    const store=model.settings?.store||{},name=String(store.name||"").trim(),
+      canonical=String(store.code||"").trim(),rule=sourceAdapter.reports?.[family]||{},
+      vendor=String(rule.storeCode||"").trim();
+    if(!name||!canonical)throw new Error(`Configure Guided Setup store identity before importing ${family}.`);
+    if(!vendor||vendor===canonical)return canonical;
+    if(rule.storeIdentityVerified!==true||
+       String(rule.guidedSetupStoreCode||"").trim()!==canonical||
+       String(rule.guidedSetupStoreName||"").trim().toLowerCase()!==name.toLowerCase())
+      throw new Error(`Needs Review: ${family} report store code differs from Guided Setup without a verified mapping to this dealership.`);
+    return vendor;
   }
   const escapeSourceCode = value => String(value).replace(/[^A-Za-z0-9]/g, char => "\\" + char);
   const storeRowPattern = family => new RegExp("^" + escapeSourceCode(reportStoreCode(family)) + "\\s*-", "i");
@@ -2417,25 +2426,28 @@
           .filter(code=>configuredCodes.has(code))).size;
       return{account,group,matches};
     });
-    // The source is multistore. Prefer the local configured dealership name
-    // over overlapping staff numbers; only a unique, exact normalized match is accepted.
-    const names=[sourceAdapter.reports?.menuSales?.accountName,
-      sourceAdapter.reports?.menu?.accountName,model.settings?.store?.name,model.settings?.storeName]
-      .map(menuSalesAccountKey).filter(Boolean);
-    const distinctNames=new Set(names);
+    // Never identify a source dealership by overlapping advisor codes. Only
+    // the Guided Setup name or an explicitly bound vendor account alias may
+    // select a multistore report; ambiguous or unknown reports stay in review.
+    const localStore=model.settings?.store||{},localName=String(localStore.name||"").trim(),
+      localCode=String(localStore.code||"").trim();
+    if(!localName||!localCode)throw new Error("Needs Review: configure Guided Setup store identity before Menu Sales import.");
+    const verifiedAccountAlias=family=>{
+      const rule=sourceAdapter.reports?.[family]||{},alias=String(rule.accountName||"").trim();
+      if(!alias||menuSalesAccountKey(alias)===menuSalesAccountKey(localName))return alias;
+      if(rule.storeIdentityVerified!==true||
+         String(rule.guidedSetupStoreCode||"").trim()!==localCode||
+         String(rule.guidedSetupStoreName||"").trim().toLowerCase()!==localName.toLowerCase())
+        throw new Error("Needs Review: Menu Sales account alias is not verified for the Guided Setup dealership.");
+      return alias;
+    };
+    const distinctNames=new Set([localName,verifiedAccountAlias("menuSales"),verifiedAccountAlias("menu")]
+      .map(menuSalesAccountKey).filter(Boolean));
     const byName=options.filter(option=>distinctNames.has(menuSalesAccountKey(option.account)));
-    let selected,storeIdentityMethod;
-    if(byName.length===1){
-      selected=byName[0];storeIdentityMethod="configured-store-name";
-    }else if(byName.length>1){
-      throw new Error("Menu Sales configured dealership name matched multiple accounts. Review the store settings.");
-    }else{
-      const ranked=options.filter(option=>option.matches>=2)
-        .sort((a,b)=>b.matches-a.matches||a.account.localeCompare(b.account));
-      if(!ranked.length||ranked.length>1&&ranked[0].matches===ranked[1].matches)
-        throw new Error("Menu Sales store could not be verified. Configure the exact dealership name from the Account column, or verify at least two matching advisor codes.");
-      selected=ranked[0];storeIdentityMethod="configured-advisor-codes";
-    }
+    if(byName.length!==1)throw new Error(byName.length>1
+      ?"Menu Sales configured dealership name matched multiple accounts. Review the store settings."
+      :"Menu Sales store could not be verified against Guided Setup. Advisor-code overlap cannot prove dealership identity.");
+    const selected=byName[0],storeIdentityMethod="configured-store-name";
     const {account,group}=selected,storeRow=summaries.get(account);
     if(!storeRow)throw new Error("The Menu Sales store summary row is missing.");
     const percentCell=value=>{const number=csvNumber(value);return number==null?null:number*100;},
@@ -7368,10 +7380,53 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       await writeBytes(entry.path.split("/"),bytes,restoreId);
     }
   }
+  // A whole-state restore replaces settings as well as KPIs and history.
+  // Never let a configured dealership silently become another dealership.
+  // A blank store form is not evidence of an empty Workspace: reject adoption
+  // when verified operational state already exists, even if setup was reset.
+  function hasExistingOperationalStateForRestore(){
+    const state=model.state||{},performance=model.performance||{},
+      appointments=model.appointments||{},assignNext=model.assignNext||{};
+    const hasSnapshot=group=>group&&typeof group==="object"&&(
+      Object.keys(group.snapshots||{}).length>0||
+      Object.keys(group.dailySnapshots||{}).length>0||
+      Object.keys(group.surveys||{}).length>0||
+      (Array.isArray(group.imports)&&group.imports.length>0));
+    return Boolean((Array.isArray(state.records)&&state.records.length)||
+      (Array.isArray(state.closedRecords)&&state.closedRecords.length)||
+      state.source||Object.keys(performance.snapshots||{}).length||
+      Object.keys(appointments.days||{}).length||
+      Object.keys(assignNext.days||{}).length||
+      Object.values(model.operationalMetrics||{}).some(hasSnapshot));
+  }
+  function verifyBackupStoreOwnership(currentSettings,restoredSettings,hasExistingState=false){
+    const nameOf=settings=>String(settings?.store?.name||settings?.storeName||"").trim().replace(/\s+/g," ").toLowerCase();
+    const codeOf=settings=>String(settings?.store?.code||"").trim();
+    const brandOf=settings=>String(settings?.store?.brand||"").trim().replace(/\s+/g," ").toLowerCase();
+    const currentCode=codeOf(currentSettings),currentName=nameOf(currentSettings),
+      currentBrand=brandOf(currentSettings);
+    const backupCode=codeOf(restoredSettings),backupName=nameOf(restoredSettings),
+      backupBrand=brandOf(restoredSettings);
+    if(!currentCode&&!currentName){
+      if(hasExistingState)
+        throw new Error("Needs Review: existing operational data has no configured dealership identity. Restore is blocked until the Workspace identity is reconciled.");
+      // Fresh-install recovery may adopt a verified backup identity, never an
+      // unidentified legacy payload that could contain another store’s data.
+      if(!backupCode||!backupName)
+        throw new Error("Needs Review: this backup has no verified dealership identity. Configure Guided Setup and review the backup before restoring.");
+      return true;
+    }
+    if(!currentCode||!currentName||!backupCode||!backupName||
+       currentCode!==backupCode||currentName!==backupName||
+       (currentBrand&&backupBrand&&currentBrand!==backupBrand))
+      throw new Error("Needs Review: this backup's dealership does not match Guided Setup. Restoring another store over this installation is blocked. Preserve both Workspaces and review the source identity.");
+    return true;
+  }
   async function restoreSelectedBackup(){
     const name=ui.restoreBackupSelect.value;
     if(!name)throw new Error("Choose a validated backup first.");
     const selected=await validateBackupBytes(await readFileBytes(["backups",name]));
+    verifyBackupStoreOwnership(model.settings,selected.values["data/settings.json"],hasExistingOperationalStateForRestore());
     if(!confirm(`Restore the complete Service Operations Dashboard state from ${new Date(selected.manifest.createdAt).toLocaleString()}?\n\nVersion: ${selected.manifest.appVersion}\n\nA safety backup of the current state will be created first.`))return;
     model.recovery.status="Creating restore safety backup";
     renderRecovery();

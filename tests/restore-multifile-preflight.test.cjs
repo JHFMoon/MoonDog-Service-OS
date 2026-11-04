@@ -15,6 +15,7 @@ function extract(begin,end){
   return app.slice(a,b);
 }
 const preflight=extract("  function sameRestoreValue(","  async function replaceHistoryFromBackup(");
+const identity=extract("  function hasExistingOperationalStateForRestore(","  async function restoreSelectedBackup()");
 const restore=extract("  async function restoreSelectedBackup()","  function latestImportSummary()");
 const encode=value=>new TextEncoder().encode(value);
 const decode=bytes=>new TextDecoder().decode(bytes);
@@ -26,7 +27,7 @@ const canonical=["data/current-state.json","data/settings.json"];
 function fixture(options={}){
   const files=new Map([
     ["data/current-state.json",encode(JSON.stringify({records:[{id:"synthetic-original"}]})+"\n")],
-    ["data/settings.json",encode(JSON.stringify({schemaVersion:4,store:{name:"synthetic"}})+"\n")],
+    ["data/settings.json",encode(JSON.stringify({schemaVersion:4,store:{name:"synthetic",code:"9001"}})+"\n")],
     ["data/history/2026-01.json",encode(JSON.stringify({events:[{id:"synthetic-history"}]})+"\n")]
   ]);
   const initialValues=Object.fromEntries(canonical.map(p=>[p,JSON.parse(decode(files.get(p)))]));
@@ -38,9 +39,10 @@ function fixture(options={}){
   };
   const selected={
     manifest:{createdAt:"2026-01-01T00:00:00Z",appVersion:"synthetic"},
+    values:{"data/settings.json":{schemaVersion:4,store:{name:"synthetic",code:"9001"}}},
     zip:{file(){return{async:async()=>encode("synthetic-restore-payload")};}}
   };
-  const model={recovery:{status:"Idle"}};
+  const model={settings:{store:{name:"synthetic",code:"9001"}},recovery:{status:"Idle"}};
   const context=vm.createContext({
     BACKUP_FILES:Object.fromEntries(canonical.map(p=>[p,()=>{}])),
     readFileBytes:async parts=>{
@@ -77,7 +79,7 @@ function fixture(options={}){
     renderRecovery:()=>events.push("render"),
     Date
   });
-  vm.runInContext(preflight+"\n"+restore+"\nglobalThis.runPreflight=preflightRestoreState;globalThis.runRestore=restoreSelectedBackup;",context);
+  vm.runInContext(preflight+"\n"+identity+"\n"+restore+"\nglobalThis.runPreflight=preflightRestoreState;globalThis.runRestore=restoreSelectedBackup;",context);
   return{files,events,changedPaths,model,safety,preflight:()=>context.runPreflight(safety),restore:()=>context.runRestore()};
 }
 
@@ -89,7 +91,7 @@ test("matching durable objects and history pass the real restore preflight",asyn
 
 test("equivalent JSON property order is not a false multi-file conflict",async()=>{
   const f=fixture();
-  f.files.set("data/settings.json",encode('{"store":{"name":"synthetic"},"schemaVersion":4}\n'));
+  f.files.set("data/settings.json",encode('{"store":{"code":"9001","name":"synthetic"},"schemaVersion":4}\n'));
   await f.preflight();
   assert.deepEqual(f.changedPaths,[]);
 });

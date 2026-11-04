@@ -19,9 +19,9 @@ const params=[
 const cdjr="AutoNation CDJR Exampletown";
 const other="Different Brand Exampletown";
 function prepare({name="AutoNation Chrysler Dodge Jeep Ram Exampletown",
-  ids=[],rows=[],parameters=params}={}){
-  const model={settings:{store:{name},storeName:name}};
-  const sourceAdapter={reports:{}};
+  code="9001",ids=[],rows=[],parameters=params,reportConfig={}}={}){
+  const model={settings:{store:{name,code},storeName:name}};
+  const sourceAdapter={reports:reportConfig};
   const XLSX={read:()=>({Sheets:{"HyperBi Report":{rows:[header,...rows]},Parameters:{rows:parameters}}}),
     utils:{sheet_to_json:(sheet)=>sheet.rows}};
   const norm=v=>String(v??"").trim().toLowerCase().replace(/\s+/g," ");
@@ -69,11 +69,26 @@ test("verified account summary is useful even when no advisor IDs are configured
   assert.equal(result.validation.unmatchedSourceAdvisorRows,2);
   assert.equal(result.validation.storeIdentityMethod,"configured-store-name");
 });
-test("advisor code fallback requires at least two unique matches in a single account",()=>{
+test("overlapping advisor codes never identify another dealership",()=>{
   const {parseMenuSalesWorkbook}=prepare({name:"Unmatched configured name",ids:["3001","3002"],rows:reportRows()});
-  const result=parseMenuSalesWorkbook([],"synthetic-menu.xlsx");
-  assert.equal(result.validation.storeIdentityMethod,"configured-advisor-codes");
-  assert.equal(result.validation.configuredAdvisorMatches,2);
+  assert.throws(()=>parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/could not be verified against Guided Setup/);
+});
+test("an explicit vendor account alias must be bound to Guided Setup name and code",()=>{
+  const config={menuSales:{accountName:cdjr,storeIdentityVerified:true,
+    guidedSetupStoreCode:"9001",guidedSetupStoreName:"BMW Exampletown"}};
+  const bad=prepare({name:"BMW Exampletown",ids:["3001","3002"],rows:reportRows(),
+    reportConfig:{menuSales:{...config.menuSales,guidedSetupStoreCode:"1010"}}});
+  assert.throws(()=>bad.parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
+  const good=prepare({name:"BMW Exampletown",ids:["3001","3002"],rows:reportRows(),reportConfig:config});
+  const selected=good.parseMenuSalesWorkbook([],"synthetic-menu.xlsx");
+  assert.equal(selected.account,cdjr);
+  assert.equal(selected.validation.storeIdentityMethod,"configured-store-name");
+});
+test("same workbook does not select another dealership's rows on a fresh store",()=>{
+  const dodge=prepare({name:"AutoNation Chrysler Dodge Jeep Ram Exampletown",code:"9001",ids:["3001"],rows:reportRows()});
+  const bmw=prepare({name:"Different Brand Exampletown",code:"7007",ids:["3001","1001"],rows:reportRows()});
+  assert.equal(dodge.parseMenuSalesWorkbook([],"synthetic-menu.xlsx").account,cdjr);
+  assert.equal(bmw.parseMenuSalesWorkbook([],"synthetic-menu.xlsx").account,other);
 });
 test("unrecognized dealership and ambiguous advisor codes fail closed",()=>{
   const {parseMenuSalesWorkbook}=prepare({name:"Different dealership",ids:["3001"],rows:reportRows()});
@@ -96,6 +111,6 @@ test("missing mandatory date range cannot create a report snapshot",()=>{
 test("bundle remains syntactically valid and menu identity is not hardcoded to one dealer",()=>{
   new vm.Script(app);
   assert.match(app,/menu-sales-v3-local-layout-store-identity/);
-  assert.match(app,/strict-report-recognition-2026-11-01-vir-date-validated-v8/);
+  assert.match(app,/strict-report-recognition-2026-11-04-store-identity-v9/);
   assert.doesNotMatch(parser,/ROSEVILLE|HAYWARD|FREMONT|SAN JOSE/i);
 });

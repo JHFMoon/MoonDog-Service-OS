@@ -11,11 +11,12 @@ const vm=require("node:vm");
 const app=fs.readFileSync(path.join(__dirname,"..","assets/app.js"),"utf8");
 const start=app.indexOf("  function sameRestoreValue(");
 const end=app.indexOf("  async function replaceHistoryFromBackup(",start);
+const identityStart=app.indexOf("  function hasExistingOperationalStateForRestore(",end);
 const restoreStart=app.indexOf("  async function restoreSelectedBackup()",end);
 const restoreEnd=app.indexOf("  function latestImportSummary()",restoreStart);
-assert.ok(start>=0&&end>start&&restoreStart>=end&&restoreEnd>restoreStart,
+assert.ok(start>=0&&end>start&&identityStart>=end&&restoreStart>identityStart&&restoreEnd>restoreStart,
   "production restore/preflight functions must be available");
-const production=app.slice(start,end)+"\n"+app.slice(restoreStart,restoreEnd);
+const production=app.slice(start,end)+"\n"+app.slice(identityStart,restoreStart)+"\n"+app.slice(restoreStart,restoreEnd);
 const mergeStart=app.indexOf("  function defaultManagementFor(");
 const mergeEnd=app.indexOf("  async function importCdkRepairOrdersDocx(",mergeStart);
 assert.ok(mergeStart>=0&&mergeEnd>mergeStart,"production complete-source Open RO merge must exist");
@@ -36,22 +37,23 @@ const missing=()=>Object.assign(Error("synthetic missing"),{name:"NotFoundError"
 function fixture(options={}){
   const files=new Map([
     [keys[0],json({records:[{id:"old"}]})],
-    [keys[1],json({schemaVersion:4,store:{name:"old"}})],
+    [keys[1],json({schemaVersion:4,store:{name:"Synthetic Store",code:"9001"}})],
     [history,json({records:[{id:"historic"}]})]
   ]);
   const before=Object.fromEntries(keys.map(p=>[p,JSON.parse(decode(files.get(p)))]));
   const safety={values:before,manifest:{entries:[{path:history,size:files.get(history).length,sha256:digest(files.get(history))}]}};
   const incoming=new Map([
     [keys[0],json(options.restoredState||{records:[{id:"restored"}]})],
-    [keys[1],json({schemaVersion:4,store:{name:"restored"}})],
+    [keys[1],json({schemaVersion:4,store:{name:"Synthetic Store",code:"9001"}})],
     [history,json({records:[{id:"restored-history"}]})]
   ]);
   const selected={
     manifest:{createdAt:"2026-01-01T00:00:00Z",appVersion:"synthetic",
       entries:[...incoming].map(([p,b])=>({path:p,size:b.length,sha256:digest(b)}))},
+    values:{"data/settings.json":{schemaVersion:4,store:{name:"Synthetic Store",code:"9001"}}},
     zip:{file:p=>({async:async()=>new Uint8Array(incoming.get(p.slice("payload/".length)))})}
   };
-  const actions=[],diagnostics=[],model={recovery:{status:"Ready",lastRestore:{sourceFile:"previous.zip"}}};
+  const actions=[],diagnostics=[],model={settings:{store:{name:"Synthetic Store",code:"9001"}},recovery:{status:"Ready",lastRestore:{sourceFile:"previous.zip"}}};
   let disabled=0,historyStarted=0,safetyExists=false;
   const context=vm.createContext({
     BACKUP_FILES:Object.fromEntries(keys.map(p=>[p,()=>null])),Date,crypto:{randomUUID:()=> "123e4567-e89b-42d3-a456-426614174000"},RECOVERY_PATH:["data","recovery.json"],
@@ -293,7 +295,7 @@ test("permission revoked between canonical restore writes keeps later bytes and 
   await assert.rejects(f.restore(),/synthetic permission revoked between writes/);
   assert.deepEqual(f.actions.filter(([action])=>action==="write").map(([,p])=>p),[keys[0],keys[1]],"the second write attempt must fail before replacing its target");
   assert.equal(JSON.parse(decode(f.files.get(keys[0]))).records[0].id,"restored","the first verified write remains recorded for controlled recovery");
-  assert.equal(JSON.parse(decode(f.files.get(keys[1]))).store.name,"old","permission loss must preserve the untouched later file");
+  assert.equal(JSON.parse(decode(f.files.get(keys[1]))).store.name,"Synthetic Store","permission loss must preserve the untouched later file");
   assert.equal(f.files.has("data/restore-in-progress.json"),true,"the persistent recovery hold stays in place");
   assert.equal(f.safetyExists,true,"the original-state safety package remains available");
   assert.equal(f.disabled,1,"the interrupted restore disables further editing");
