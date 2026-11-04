@@ -36,8 +36,8 @@ function evidenceFor(key, snapshot) {
 }
 
 test("end-only observation dated today cannot prove yesterday's reporting coverage", () => {
-  for (const key of sources) {
-    const saved = {periodEnd: today, importedAt: "2026-10-20T17:00:00Z"};
+  for (const key of sources) for (const periodStart of [undefined, null, ""]) {
+    const saved = {periodStart, periodEnd: today, importedAt: "2026-10-20T17:00:00Z"};
     const evidence = evidenceFor(key, saved);
     assert.equal(evidence.status, "stale", key);
     assert.equal(evidence.loaded, true, key);
@@ -49,6 +49,8 @@ test("end-only observation dated today cannot prove yesterday's reporting covera
     assert.equal(freshness.evaluateMetric([evidence]).verified, false, key);
     const need = freshness.evaluateReportNeed({key, today, evidence});
     assert.notEqual(need.state, "CURRENT", key + " cannot promote a one-day observation to current coverage");
+    const activeNeed = freshness.evaluateReportNeed({key, today, evidence, activeFeature: true});
+    assert.equal(activeNeed.state, "NEED NOW", key + " active report planning must not hide missing coverage");
   }
 });
 
