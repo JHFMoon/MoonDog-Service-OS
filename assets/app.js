@@ -7387,7 +7387,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const codeOf=settings=>String(settings?.store?.code||"").trim();
     const currentCode=codeOf(currentSettings),currentName=nameOf(currentSettings);
     const backupCode=codeOf(restoredSettings),backupName=nameOf(restoredSettings);
-    if(!currentCode&&!currentName)return true; // A genuinely blank fresh install may recover its own complete backup.
+    if(!currentCode&&!currentName){
+      // Fresh-install recovery may adopt a verified backup identity, never an
+      // unidentified legacy payload that could contain another store’s data.
+      if(!backupCode||!backupName)
+        throw new Error("Needs Review: this backup has no verified dealership identity. Configure Guided Setup and review the backup before restoring.");
+      return true;
+    }
     if(!currentCode||!currentName||!backupCode||!backupName||
        currentCode!==backupCode||currentName!==backupName)
       throw new Error("Needs Review: this backup's dealership does not match Guided Setup. Restoring another store over this installation is blocked. Preserve both Workspaces and review the source identity.");
