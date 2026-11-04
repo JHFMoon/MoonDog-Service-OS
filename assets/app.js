@@ -4824,7 +4824,10 @@
         scopeEnd: item?.scopeVerified ? item.scopeEnd : "",
         periodStart: reportPeriod.periodStart, periodEnd: reportPeriod.periodEnd }, item, reportPeriod.verified);
     }
-    if (key === "nextAppointments") { const item = hasSelectedItem ? options.item : latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, verifiedDatedInterval(item)); }
+    if (key === "nextAppointments") { const item = hasSelectedItem ? options.item : latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd,
+        invalid: observation && purpose==="historical" ?
+          "The observed Next Appointments summary has no verified reporting interval for historical metrics." : ""
+      }, item, verifiedDatedInterval(item) && !observation); }
     if (key === "vir") { const item = hasSelectedItem ? options.item : latestVirObservation(),observed=verifiedVirSourceObservationDate(item); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.observationTimestamp || item?.sourceModifiedAt || "", invalid: item && !observed ? "The retained VIR observation has no verified source reporting date; an import timestamp cannot establish coverage." : "", periodEnd: observed }, item, Boolean(observed)); }
     if (key === "menu") {
       const item = hasSelectedItem ? options.item : latestOperationalSnapshot("menu"),
@@ -5024,7 +5027,33 @@
     const month=today.slice(0,7),start=month+'-01';
     if(measure.family==='csi'){
       const surveys=Object.values(model.operationalMetrics.csi?.surveys||{}).filter(s=>s.surveyDate>=start&&s.surveyDate<=today&&(role==='store'||s.advisorCode===id)),dates=[...new Set(surveys.map(s=>s.surveyDate))].sort();
-      return dates.map(date=>{const population=surveys.filter(s=>s.surveyDate<=date),summary=npsSummary(Object.fromEntries(population.map(s=>[s.id,s]))),provenance=(model.operationalMetrics.csi.imports||[]).filter(item=>item.coverageStart<=date&&item.coverageEnd>=date).at(-1);return {date,value:summary[measure.key],responses:summary.responses,source:TREND_SOURCES.csi,sourceFile:provenance?.sourceFile||'Retained Invite_ID survey history',entity:role==='store'?'Store Total':advisorDisplayName(id),periodStart:start,periodEnd:date};});
+      return dates.map(date=>{
+        const population=surveys.filter(s=>s.surveyDate<=date),
+          summary=npsSummary(Object.fromEntries(population.map(s=>[s.id,s]))),
+          imports=model.operationalMetrics.csi?.imports||[],
+          provenance=imports.filter(item=>item?.coverageStart<=date&&item?.coverageEnd>=date).at(-1),
+          // Response events establish that a response occurred, not that the
+          // cumulative export covers the entire reporting month. Only a
+          // separately verified source period covering the full displayed MTD
+          // interval may certify the starting date or a Current MTD label.
+          verifiedScope=imports.filter(item=>item?.scopeVerified===true&&
+            freshness.validDateKey(item.scopeStart)&&freshness.validDateKey(item.scopeEnd)&&
+            item.scopeStart<=start&&item.scopeEnd>=date&&item.scopeEnd<=today)
+            .filter(item=>{
+              const authority=sourceFreshness('csi',{
+                item,today,purpose:'historical',targetStart:start,targetEnd:date
+              });
+              return authority.safeForPurpose&&authority.reportPeriodVerified;
+            }).sort((a,b)=>a.scopeEnd.localeCompare(b.scopeEnd)).at(-1);
+        return {
+          date,value:summary[measure.key],responses:summary.responses,
+          source:TREND_SOURCES.csi,
+          sourceFile:verifiedScope?.sourceFile||provenance?.sourceFile||'Retained Invite_ID survey history',
+          entity:role==='store'?'Store Total':advisorDisplayName(id),
+          periodStart:verifiedScope?start:'',periodEnd:date,
+          periodVerified:Boolean(verifiedScope)
+        };
+      });
     }
     const points=[];
     for(const item of sourceTrendObservations(measure.family)){
@@ -5032,7 +5061,7 @@
       // A retained reference record may be older than current importer guards.
       // Chart dates and numeric values do not independently prove that the
       // saved report's declared period agrees with its observation.
-      if(['sor','efficiency','mediaAsr','mediaAsrTech'].includes(measure.family)){
+      if(['sor','efficiency','mediaAsr','mediaAsrTech','nextAppointments','vir'].includes(measure.family)){
         const lineage=sourceFreshness(measure.family,{
           item,today,purpose:'historical',targetStart:date,targetEnd:date
         });
