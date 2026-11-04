@@ -2041,7 +2041,12 @@
     const files = [];
     const inboxEntries=Array.isArray(inboxSnapshot)?inboxSnapshot:await reportInboxEntries();
     for (const [name, handle] of inboxEntries)
-      if (handle.kind === "file" && /\.xlsx$/i.test(name) && !/^~\$/.test(name) && !/^(?:MoonDog|Service Operations) Open RO/i.test(name)) files.push(name);
+      if (handle.kind === "file" && /\.xlsx$/i.test(name) && !/^~\$/.test(name) && !/^(?:MoonDog|Service Operations) Open RO/i.test(name)){
+        files.push(name);
+        // The manual SAPR importer must know the selected source belongs to
+        // Inbox so the exact reviewed file marker can be durably committed.
+        sourceLocations.set(name,"inbox");
+      }
     files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     ui.performanceSourceSelect.replaceChildren(new Option(files.length ? "Select performance XLSX from Report Inbox" : "No performance XLSX in Report Inbox", ""));
     files.forEach((name) => ui.performanceSourceSelect.add(new Option(name, name)));
