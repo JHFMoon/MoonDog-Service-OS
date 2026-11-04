@@ -33,7 +33,7 @@ test("unattended full RO verification requires exact bytes, unique ROs and forwa
     {lastModified:current.modified},bytes,[{ro:"900001"}],true),/changed/);
 });
 
-test("watch dispatches verified full XLSX automatically and blocks non-inbox Open RO",async()=>{
+test("unsigned grouped Open RO cannot enter an unattended roster writer, but an explicitly picked source can be reviewed",async()=>{
   const code=section("  async function processClassifiedCandidate(","  async function reconcileLearnedFiles(");
   const params=[],candidate={name:"synthetic-openro.xlsx",location:"inbox",signature:"synthetic",
     relativePath:"01 - DROP REPORTS HERE/synthetic-openro.xlsx"};
@@ -42,9 +42,12 @@ test("watch dispatches verified full XLSX automatically and blocks non-inbox Ope
     importSource:async(...args)=>params.push(args),
     ensurePreviousMonthSummary:async()=>{},renderAll:()=>{},Map,Boolean};
   vm.runInNewContext(code,ctx);
-  await ctx.processClassifiedCandidate(candidate,"open-ro",bytes,true);
+  await assert.rejects(ctx.processClassifiedCandidate(candidate,"open-ro",bytes,true),
+    /unsigned grouped Open RO origin is unverified/);
+  assert.equal(params.length,0,"No automatic roster replacement is authorized");
+  await ctx.processClassifiedCandidate({...candidate,location:"picked"},"open-ro",bytes,false);
   assert.equal(params.length,1);
-  assert.deepEqual(params[0],["synthetic-openro.xlsx",true,bytes,true]);
+  assert.deepEqual(params[0],["synthetic-openro.xlsx",false,bytes,false]);
   assert.equal(ctx.autoSourceDeleteContext.size,0);
   await assert.rejects(ctx.processClassifiedCandidate({...candidate,location:"root"},"open-ro",bytes,true),
     /only the dedicated Inbox/);
