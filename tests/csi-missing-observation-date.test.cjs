@@ -40,6 +40,18 @@ test("local CSI imports, including validated scopes, do not become reported obse
   assert.deepEqual(evidence.responseDates, ["2026-10-29"],
     "survey events remain separate from import and report observation dates");
   assert.equal(JSON.stringify(imports), original, "source evidence must never be mutated");
+  const plan = freshness.trendMaintenance({
+    key: "csi", today: "2026-10-30", monthStart: "2026-10-01",
+    coverage: {missingDates: []}, verifiedScope: {
+      start: evidence.verifiedScope.scopeStart, end: evidence.verifiedScope.scopeEnd
+    },
+    lastReportObservation: evidence.lastReportObservation,
+    lastImportDate: evidence.lastImportDate
+  });
+  const label = freshness.trendMaintenanceSummary("csi", plan);
+  assert.match(label, /Last verified report observation: None/);
+  assert.match(label, /Last imported: 2026-10-28/);
+  assert.match(label, /Verified export scope: 2026-10-01–2026-10-26/);
 });
 
 test("only explicit verified CSI report observations supply source observation points", () => {
@@ -61,4 +73,12 @@ test("only explicit verified CSI report observations supply source observation p
   assert.deepEqual(evidence.importDates, ["2026-10-28", "2026-10-29", "2026-10-30"]);
   assert.equal(evidence.lastImportDate, "2026-10-30");
   assert.equal(evidence.lastResponseEvent, "");
+});
+
+test("production CSI planning preserves the verified observation versus local import distinction", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+  assert.match(app, /lastPoint:evidence\.lastReportObservation,lastImportDate:evidence\.lastImportDate/);
+  assert.match(app, /lastReportObservation:audit\.csi\.lastPoint,lastImportDate:audit\.csi\.lastImportDate/);
 });
