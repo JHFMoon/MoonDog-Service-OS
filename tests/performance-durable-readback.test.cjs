@@ -17,12 +17,13 @@ function fixture(mode = "verified") {
     "2026-10-20": {date: "2026-10-20", total: 15, advisors: {"101": {gross: 15}}}
   }, updatedAt: "previous"};
   const snapshot = {date: "2026-10-21", periodEnd: "2026-10-21", total: 20,
-    advisors: {"101": {gross: 20}}, validation: {source: "synthetic"}};
+    advisors: {"101": {gross: 20}}, validation: {source: "synthetic"},
+    sourceStoreConfidence: "configured-destination-only"};
   const model = {performance: structuredClone(previous)};
   const events = [];
   let disk = structuredClone(previous);
   const context = {
-    model, structuredClone,
+    model, structuredClone, sourceLocations: new Map(),
     ui: {performanceSourceSelect: {value: name}},
     PERFORMANCE_PATH: ["data", "performance.json"],
     sourceFileHandle: async () => ({getFile: async () => ({arrayBuffer: async () => new ArrayBuffer(2)})}),
@@ -59,7 +60,7 @@ function fixture(mode = "verified") {
     addHistory: async type => events.push("history:" + type),
     renderPerformance: () => events.push("render"),
     dailyPickedSources: new Set([name]),
-    window: {confirm: () => {throw new Error("Unexpected confirmation")}},
+    window: {confirm: () => {events.push("review-confirm"); return mode !== "review-denied";}},
     removeSourceEntry: async () => events.push("delete-source"),
     scanFiles: async () => events.push("scan-files"),
     scanAppointmentFiles: async () => events.push("scan-appointments"),
@@ -78,13 +79,13 @@ test("production SAPR import verifies the full durable payload before reporting 
   await f.run(false);
   assert.deepEqual(f.disk().snapshots[f.snapshot.date], f.snapshot);
   assert.equal(f.model.performance.updatedAt, "2026-10-21T12:00:00Z");
-  assert.deepEqual(f.events, ["status:working", "write", "readback", "history:performance-import", "render", "status:success"]);
+  assert.deepEqual(f.events, ["status:working", "review-confirm", "write", "readback", "history:performance-import", "render", "status:success"]);
 });
 
 test("source removal is allowed only after a successful verified readback", async () => {
   const f = fixture();
   await f.run(true);
-  assert.deepEqual(f.events, ["status:working", "write", "readback", "history:performance-import", "render",
+  assert.deepEqual(f.events, ["status:working", "review-confirm", "write", "readback", "history:performance-import", "render",
     "delete-source", "history:source-deleted", "scan-files", "scan-appointments", "scan-performance", "status:success"]);
 });
 
@@ -106,6 +107,15 @@ for (const [mode, pattern] of [
     assert.ok(!f.events.includes("status:success"), "No false saved indication");
   });
 }
+
+
+test("unsigned SAPR without manager confirmation never writes or promotes a performance metric", async () => {
+  const f = fixture("review-denied");
+  await assert.rejects(f.run(true), /not manually confirmed/);
+  assert.deepEqual(f.model.performance, f.previous);
+  assert.deepEqual(f.events, ["status:working", "review-confirm"]);
+  assert.deepEqual(f.disk(), f.previous);
+});
 
 test("targeted performance importer remains syntax-valid and leaves source authority intact", () => {
   new vm.Script(app);

@@ -45,6 +45,7 @@ const syntheticSnapshot = {
   periodStart: "2026-10-01",
   periodEnd: "2026-10-21",
   sourceFile: "synthetic-sapr.xlsx",
+  sourceStoreConfidence: "configured-destination-only",
   saprDaysCompleted: 8,
   saprTotalDays: 22,
   validation: { advisorDetailSheets: 1, saprDaysVerified: true, finalTotalsVerified: true },
@@ -75,7 +76,8 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
   const history = [];
   const persistenceEvents = [];
   const context = vm.createContext({
-    model, ui, structuredClone,
+    model, ui, structuredClone, sourceLocations: new Map(),
+    window:{confirm:()=>true},
     PERFORMANCE_PATH: ["data", "performance.json"],
     dailyPickedSources: new Set(["synthetic-sapr.xlsx"]),
     now: () => "2026-10-22T12:00:00Z",
