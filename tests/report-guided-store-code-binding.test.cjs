@@ -6,8 +6,8 @@ const from=app.indexOf("  // Guided Setup owns the installation identity.");
 const to=app.indexOf("  const escapeSourceCode =",from);
 assert.ok(from>=0&&to>from,"Expected centralized Guided Setup report store binding");
 const selected=app.slice(from,to);
-function resolve(name,code,reports={},family="appointmentActivity"){
-  const context={model:{settings:{store:{name,code}}},sourceAdapter:{reports}};
+function resolve(name,code,reports={},family="appointmentActivity",brand=""){
+  const context={model:{settings:{store:{name,code,brand}}},sourceAdapter:{reports}};
   vm.runInNewContext(selected,context);
   return context.reportStoreCode(family);
 }
@@ -32,9 +32,27 @@ test("legacy or stale vendor overrides fail closed instead of selecting another 
 });
 test("explicit verified vendor alias is valid only for that exact configured dealership",()=>{
   const reports={tradeAr:{storeCode:"1010",storeIdentityVerified:true,
-    guidedSetupStoreCode:"9001",guidedSetupStoreName:"Dodge Exampletown"}};
-  assert.equal(resolve("Dodge Exampletown","9001",reports,"tradeAr"),"1010");
-  assert.throws(()=>resolve("BMW Exampletown","7007",reports,"tradeAr"),/Needs Review/);
+    guidedSetupStoreCode:"9001",guidedSetupStoreName:"Dodge Exampletown",guidedSetupStoreBrand:"Dodge"}};
+  assert.equal(resolve("Dodge Exampletown","9001",reports,"tradeAr","Dodge"),"1010");
+  assert.throws(()=>resolve("BMW Exampletown","7007",reports,"tradeAr","BMW"),/Needs Review/);
+});
+test("vendor aliases are brand-specific and stale branded mappings fail closed",()=>{
+  const mapped={storeCode:"1010",storeIdentityVerified:true,guidedSetupStoreCode:"9001",
+    guidedSetupStoreName:"Exampletown Motors",guidedSetupStoreBrand:"Dodge"};
+  assert.equal(resolve("Exampletown Motors","9001",{tradeAr:mapped},"tradeAr","  DODGE  "),"1010");
+  assert.throws(()=>resolve("Exampletown Motors","9001",{tradeAr:mapped},"tradeAr","BMW"),/Needs Review/);
+  assert.throws(()=>resolve("Exampletown Motors","9001",
+    {tradeAr:{...mapped,guidedSetupStoreBrand:""}},"tradeAr","Dodge"),/Needs Review/);
+  assert.throws(()=>resolve("Exampletown Motors","9001",{tradeAr:mapped},"tradeAr",""),/Needs Review/);
+});
+test("an unidentified install cannot validate a vendor alias with two blank brands",()=>{
+  const alias={storeCode:"1010",storeIdentityVerified:true,
+    guidedSetupStoreCode:"9001",guidedSetupStoreName:"Exampletown Motors",guidedSetupStoreBrand:""};
+  assert.throws(()=>resolve("Exampletown Motors","9001",{tradeAr:alias},"tradeAr",""),/Needs Review/);
+});
+test("same-store vendor codes do not need alias-brand exceptions",()=>{
+  assert.equal(resolve("Exampletown Motors","9001",
+    {tradeAr:{storeCode:"9001",guidedSetupStoreBrand:"Other"}},"tradeAr","Dodge"),"9001");
 });
 test("no store code or name cannot establish identity",()=>{
   assert.throws(()=>resolve("BMW Exampletown",""),/Guided Setup/);

@@ -19,8 +19,8 @@ const params=[
 const cdjr="AutoNation CDJR Exampletown";
 const other="Different Brand Exampletown";
 function prepare({name="AutoNation Chrysler Dodge Jeep Ram Exampletown",
-  code="9001",ids=[],rows=[],parameters=params,reportConfig={}}={}){
-  const model={settings:{store:{name,code},storeName:name}};
+  code="9001",brand="",ids=[],rows=[],parameters=params,reportConfig={}}={}){
+  const model={settings:{store:{name,code,brand},storeName:name}};
   const sourceAdapter={reports:reportConfig};
   const XLSX={read:()=>({Sheets:{"HyperBi Report":{rows:[header,...rows]},Parameters:{rows:parameters}}}),
     utils:{sheet_to_json:(sheet)=>sheet.rows}};
@@ -75,14 +75,33 @@ test("overlapping advisor codes never identify another dealership",()=>{
 });
 test("an explicit vendor account alias must be bound to Guided Setup name and code",()=>{
   const config={menuSales:{accountName:cdjr,storeIdentityVerified:true,
-    guidedSetupStoreCode:"9001",guidedSetupStoreName:"BMW Exampletown"}};
-  const bad=prepare({name:"BMW Exampletown",ids:["3001","3002"],rows:reportRows(),
+    guidedSetupStoreCode:"9001",guidedSetupStoreName:"BMW Exampletown",guidedSetupStoreBrand:"BMW"}};
+  const bad=prepare({name:"BMW Exampletown",brand:"BMW",ids:["3001","3002"],rows:reportRows(),
     reportConfig:{menuSales:{...config.menuSales,guidedSetupStoreCode:"1010"}}});
   assert.throws(()=>bad.parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
-  const good=prepare({name:"BMW Exampletown",ids:["3001","3002"],rows:reportRows(),reportConfig:config});
+  const good=prepare({name:"BMW Exampletown",brand:"BMW",ids:["3001","3002"],rows:reportRows(),reportConfig:config});
   const selected=good.parseMenuSalesWorkbook([],"synthetic-menu.xlsx");
   assert.equal(selected.account,cdjr);
   assert.equal(selected.validation.storeIdentityMethod,"configured-store-name");
+});
+test("Menu Sales vendor account aliases reject branded dealership identity drift",()=>{
+  const alias={accountName:cdjr,storeIdentityVerified:true,
+    guidedSetupStoreName:"Exampletown Motors",guidedSetupStoreCode:"9001",guidedSetupStoreBrand:"Dodge"};
+  const setup=brand=>prepare({name:"Exampletown Motors",code:"9001",brand,
+    ids:["3001"],rows:reportRows(),reportConfig:{menuSales:alias}});
+  assert.equal(setup("dODGE").parseMenuSalesWorkbook([],"synthetic-menu.xlsx").account,cdjr);
+  assert.throws(()=>setup("BMW").parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
+  assert.throws(()=>setup("").parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
+  const missingBrand=prepare({name:"Exampletown Motors",code:"9001",brand:"Dodge",
+    ids:["3001"],rows:reportRows(),reportConfig:{menuSales:{...alias,guidedSetupStoreBrand:""}}});
+  assert.throws(()=>missingBrand.parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
+});
+test("two blank brands are never valid Menu Sales vendor alias proof",()=>{
+  const alias={accountName:cdjr,storeIdentityVerified:true,
+    guidedSetupStoreCode:"9001",guidedSetupStoreName:"Exampletown Motors",guidedSetupStoreBrand:""};
+  const candidate=prepare({name:"Exampletown Motors",code:"9001",brand:"",
+    ids:["3001"],rows:reportRows(),reportConfig:{menuSales:alias}});
+  assert.throws(()=>candidate.parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
 });
 test("same workbook does not select another dealership's rows on a fresh store",()=>{
   const dodge=prepare({name:"AutoNation Chrysler Dodge Jeep Ram Exampletown",code:"9001",ids:["3001"],rows:reportRows()});
@@ -111,6 +130,6 @@ test("missing mandatory date range cannot create a report snapshot",()=>{
 test("bundle remains syntactically valid and menu identity is not hardcoded to one dealer",()=>{
   new vm.Script(app);
   assert.match(app,/menu-sales-v3-local-layout-store-identity/);
-  assert.match(app,/strict-report-recognition-2026-11-04-store-identity-v9/);
+  assert.match(app,/strict-report-recognition-2026-11-04-store-brand-v11/);
   assert.doesNotMatch(parser,/ROSEVILLE|HAYWARD|FREMONT|SAN JOSE/i);
 });
