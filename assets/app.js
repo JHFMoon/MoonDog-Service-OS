@@ -425,7 +425,11 @@
     if(!vendor||vendor===canonical)return canonical;
     if(rule.storeIdentityVerified!==true||
        String(rule.guidedSetupStoreCode||"").trim()!==canonical||
-       String(rule.guidedSetupStoreName||"").trim().toLowerCase()!==name.toLowerCase())
+       String(rule.guidedSetupStoreName||"").trim().toLowerCase()!==name.toLowerCase()||
+       // An alias belongs to the exact configured brand as well as the store.
+       // Missing brand proof cannot silently authorize a branded mapping.
+       String(rule.guidedSetupStoreBrand||"").trim().replace(/\s+/g," ").toLowerCase()!==
+         String(store.brand||"").trim().replace(/\s+/g," ").toLowerCase())
       throw new Error(`Needs Review: ${family} report store code differs from Guided Setup without a verified mapping to this dealership.`);
     return vendor;
   }
