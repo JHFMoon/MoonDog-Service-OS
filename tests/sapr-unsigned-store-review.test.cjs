@@ -70,6 +70,73 @@ test("review-pending and reviewed SAPR files never reimport on the next watcher 
     "separate previously verified cleanup retry remains eligible");
 });
 
+
+test("manual Performance picker retains Inbox ownership for exact reviewed-source marker",async()=>{
+  const code=production("  async function scanPerformanceFiles(","  async function scanAppointmentAndPerformanceFiles(");
+  const name="synthetic-sapr.xlsx",locations=new Map(),optionRows=[];
+  const makeSelect=()=>({
+    replaceChildren(...rows){optionRows.splice(0,optionRows.length,...rows);},
+    add(row){optionRows.push(row);},disabled:true
+  });
+  const ui={performanceSourceSelect:makeSelect(),importPerformance:{disabled:true}};
+  const ctx=vm.createContext({
+    sourceLocations:locations,ui,
+    Option:function Option(label,value){this.label=label;this.value=value;},
+    reportInboxEntries:async()=>[[name,{kind:"file"}],["Notes.pdf",{kind:"file"}]]
+  });
+  vm.runInContext(code+"\nthis.scanPerformanceFiles=scanPerformanceFiles;",ctx);
+  await ctx.scanPerformanceFiles();
+  assert.equal(locations.get(name),"inbox");
+  assert.equal(ui.performanceSourceSelect.disabled,false);
+  assert.ok(optionRows.some(row=>row.value===name));
+  assert.ok(!locations.has("Notes.pdf"));
+});
+
+test("confirmed SAPR writes exact Inbox review completion only after full readback",async()=>{
+  const source=production("  async function importPerformanceFile(","  function performanceFormat(");
+  const name="synthetic-sapr.xlsx",modified=123,size=3,events=[];
+  const signature="01 - DROP REPORTS HERE/"+name+"|"+size+"|"+modified;
+  const performance={snapshots:{},updatedAt:"before"};
+  const model={
+    settings:{store:{name:"Synthetic Store",code:"9001"}},
+    performance:structuredClone(performance),
+    autoImport:{seen:{[signature]:{kind:"performance",manualImportRequired:true,queuedAt:"prior"}}}
+  };
+  let written=null,ledger=null;
+  const ctx=vm.createContext({
+    model,structuredClone,Map,Set,Date,
+    ui:{performanceSourceSelect:{value:name}},sourceLocations:new Map([[name,"inbox"]]),
+    REPORT_INBOX:"01 - DROP REPORTS HERE",
+    PERFORMANCE_PATH:["data","performance.json"],AUTO_IMPORT_PATH:["data","auto-import.json"],
+    status:()=>{},
+    sourceFileHandle:async()=>({getFile:async()=>({
+      size,lastModified:modified,arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer
+    })}),
+    parsePerformanceWorkbook:()=>({
+      date:"2026-11-04",periodStart:"2026-11-01",periodEnd:"2026-11-04",
+      advisors:{"101":{cpGross:10}},store:{},validation:{source:"synthetic"}
+    }),
+    prunePerformanceSnapshots:x=>x,now:()=>"2026-11-04T21:00:00Z",
+    window:{confirm:()=>{events.push("manager-review");return true;}},
+    writeJson:async(path,value)=>{
+      if(path[1]==="performance.json"){written=structuredClone(value);events.push("save-performance");}
+      else {ledger=structuredClone(value);events.push("save-review-marker");}
+    },
+    readJson:async()=>structuredClone(written),
+    addHistory:async()=>events.push("history"),
+    renderPerformance:()=>events.push("render"),
+    dailyPickedSources:new Set([name]),scanFiles:async()=>{},
+    scanAppointmentFiles:async()=>{},scanPerformanceFiles:async()=>{}
+  });
+  vm.runInContext(source+"\nthis.importer=importPerformanceFile;",ctx);
+  await ctx.importer(name,false);
+  assert.equal(written.snapshots["2026-11-04"].sourceStoreConfidence,"configured-destination-only");
+  assert.equal(ledger.seen[signature].manualImportRequired,false);
+  assert.equal(ledger.seen[signature].sourceStoreConfidence,"configured-destination-only");
+  assert.deepEqual(events,["manager-review","save-performance","save-review-marker","history","render"]);
+  assert.equal(model.autoImport.seen[signature].manualImportRequired,false);
+});
+
 test("the full dashboard source remains syntax-valid",()=>{
   new vm.Script(app);
 });
