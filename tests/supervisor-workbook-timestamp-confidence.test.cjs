@@ -12,6 +12,7 @@ const end = app.indexOf("  function metricDependencyEvidence(", start);
 assert.ok(start >= 0 && end > start, "shipped source-confidence adapter must exist");
 function confidence(item) {
   const model = {recovery: {supervisorWorkbook: item}};
+  const prior = JSON.stringify(item);
   const ctx = vm.createContext({
     freshness, model, Date,
     sourceExpectation: () => "recommended",
@@ -19,7 +20,9 @@ function confidence(item) {
     localDateKey: value => value instanceof Date ? value.toISOString().slice(0, 10) : "2026-11-02"
   });
   vm.runInContext(app.slice(start, end) + "\nthis.evidence = sourceFreshness;", ctx);
-  return ctx.evidence("supervisorWorkbook", {item, today: "2026-11-02"});
+  const evidence = ctx.evidence("supervisorWorkbook", {item, today: "2026-11-02"});
+  assert.equal(JSON.stringify(item), prior, "source confidence cannot modify the retained artifact");
+  return evidence;
 }
 
 test("verified Supervisor Workbook issue time remains current unless state is explicitly stale", () => {
@@ -45,6 +48,22 @@ test("invalid, non-ISO, impossible, numeric and future timestamps cannot certify
     assert.equal(evidence.safeForCurrent, false, String(stamp));
     assert.equal(evidence.safeForPurpose, false, String(stamp));
     assert.equal(evidence.reportPeriodVerified, false, String(stamp));
-    assert.match(evidence.reason, /generation timestamp is invalid or future-dated/, String(stamp));
+    assert.match(evidence.reason, /generation timestamp is (?:missing, )?invalid or future-dated/, String(stamp));
   }
+});
+
+test("present workbook without a verified issuance stamp is invalid, not a missing source or zero", () => {
+  for (const item of [{}, {generatedAt: ""}, {generatedAt: null},
+    {generatedAt: undefined}, {generatedAt: 0}]) {
+    const health = confidence(item);
+    assert.equal(health.status, "invalid", JSON.stringify(item));
+    assert.equal(health.loaded, true, "the retained artifact exists but has corrupt lineage");
+    assert.equal(health.safeForCurrent, false);
+    assert.equal(health.safeForPurpose, false);
+    assert.equal(health.reportPeriodVerified, false);
+    assert.equal(freshness.evaluateMetric([health]).verified, false, "unknown data is not zero");
+    assert.match(health.reason, /generation timestamp is missing, invalid or future-dated/);
+  }
+  assert.equal(confidence(undefined).status, "missing", "explicitly absent remains absent");
+  assert.equal(confidence(null).status, "missing", "null artifact remains absent");
 });
