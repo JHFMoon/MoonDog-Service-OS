@@ -348,7 +348,38 @@
     return Object.freeze({ verified: blocking.length === 0, status: blocking[0]?.status || "verified", blocking, dependencies });
   }
 
-  root.MoonDogFreshness = Object.freeze({ DEFAULT_TIME_ZONE, SOURCE_DEFINITIONS, REPORT_PURPOSES, evaluateReportNeed, trendMaintenance, trendMaintenanceSummary, trendMaintenanceAction, trendMaintenanceActions, csiTrendEvidence, validDateKey, dateKey, timeParts, addDays, dayOfWeek, isSunday, previousOperatingDay, operatingDays, mondayFor, lastDayOfMonth, previousMonth, finalOperatingDay, adjacentWindows, evaluateSource, evaluateMetric });
+  // #59-01: classify source-reported dealership identity without using
+  // filenames, import times, advisor IDs or repair-order IDs as evidence.
+  // These labels are local source-origin confidence, not signatures.
+  function classifySourceStoreOrigin({family,configuredStore={},sourceStore={},verifiedAlias=null}={}) {
+    const key=String(family||"");
+    const result=(status,reason,evidence=[])=>Object.freeze({
+      family:key,status,reason,evidence:Object.freeze(evidence)
+    });
+    if(!Object.prototype.hasOwnProperty.call(SOURCE_DEFINITIONS,key))
+      return result("store-conflict","unknown-source-family");
+    const name=s=>String(s?.name||"").trim().replace(/\s+/g," ").toLowerCase();
+    const code=s=>String(s?.code||"").trim();
+    const brand=s=>String(s?.brand||"").trim().replace(/\s+/g," ").toLowerCase();
+    const local={name:name(configuredStore),code:code(configuredStore),brand:brand(configuredStore)};
+    if(!local.name||!local.code||!local.brand)
+      return result("configured-destination-only","destination-identity-incomplete");
+    const reported={name:name(sourceStore),code:code(sourceStore),brand:brand(sourceStore)};
+    const evidence=Object.keys(reported).filter(k=>Boolean(reported[k]));
+    if(!evidence.length)return result("configured-destination-only","no-source-store-marker");
+    const direct=Object.entries(reported).every(([k,v])=>!v||v===local[k]);
+    const alias=verifiedAlias||{};
+    const target={name:name(alias.configuredStore),code:code(alias.configuredStore),brand:brand(alias.configuredStore)};
+    const vendor={name:name(alias.sourceStore),code:code(alias.sourceStore),brand:brand(alias.sourceStore)};
+    const aliasBound=alias.storeIdentityVerified===true&&alias.family===key&&
+      Object.keys(local).every(k=>local[k]&&target[k]===local[k])&&
+      Object.keys(vendor).every(k=>vendor[k]&&vendor[k]===reported[k]);
+    if(!direct&&!aliasBound)return result("store-conflict","source-marker-disagrees",evidence);
+    if(evidence.length!==3)return result("configured-destination-only","partial-source-store-marker",evidence);
+    return result("verified-source-store",aliasBound?"verified-local-alias":"complete-source-marker-match",evidence);
+  }
+
+  root.MoonDogFreshness = Object.freeze({ DEFAULT_TIME_ZONE, SOURCE_DEFINITIONS, classifySourceStoreOrigin, REPORT_PURPOSES, evaluateReportNeed, trendMaintenance, trendMaintenanceSummary, trendMaintenanceAction, trendMaintenanceActions, csiTrendEvidence, validDateKey, dateKey, timeParts, addDays, dayOfWeek, isSunday, previousOperatingDay, operatingDays, mondayFor, lastDayOfMonth, previousMonth, finalOperatingDay, adjacentWindows, evaluateSource, evaluateMetric });
   if (typeof module !== "undefined") module.exports = root.MoonDogFreshness;
 })(globalThis);
 // BEGIN GENERATED REFRESH INTELLIGENCE (see src/refresh-intelligence.js)

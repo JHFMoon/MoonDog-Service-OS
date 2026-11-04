@@ -4795,8 +4795,27 @@
     // Explicitly selecting an absent source must not inherit a different saved report.
     const hasSelectedItem = Object.prototype.hasOwnProperty.call(options, "item");
     const evaluate = (input, item, reportPeriodVerified = false) => {
-      const evidence = freshness.evaluateSource(input);
+      // A retained report's actual source-declared dealership must never
+      // become authoritative in a different configured Workspace merely
+      // because advisor IDs, dates, or numeric KPIs appear compatible.
+      // Legacy reports without source markers remain explicitly unverified;
+      // never manufacture source evidence from local settings.
+      const origin=item?.sourceReportedStore&&
+        typeof freshness.classifySourceStoreOrigin==="function"
+        ?freshness.classifySourceStoreOrigin({
+          family:key,configuredStore:model.settings?.store||{},
+          // Never trust an alias authorization embedded in a report.
+          // A future alias integration must read the verified local adapter,
+          // not the untrusted retained source payload.
+          sourceStore:item.sourceReportedStore
+        }):null;
+      const conflict=origin?.status==="store-conflict";
+      const evidence=freshness.evaluateSource(conflict
+        ?{...input,invalid:[input.invalid,
+          "Saved report source dealership conflicts with Guided Setup."].filter(Boolean).join(" ")}
+        :input);
       return Object.freeze({ ...evidence,
+        ...(origin?{sourceStoreConfidence:origin.status}:{}),
         importTimestamp: typeof item?.importedAt === "string" ? item.importedAt : "",
         // A loaded but invalid/not-used source never certifies reporting coverage.
         reportPeriodVerified: Boolean(item && evidence.loaded && reportPeriodVerified &&
