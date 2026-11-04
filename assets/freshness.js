@@ -294,7 +294,13 @@
     const optional = purpose?.startsWith('OPTIONAL'), prior = previousOperatingDay(today),
       observation = input.observationDate || '',
       datedCurrent = trustedDate(observation) && observation >= prior && observation <= today,
-      current = evidence.status !== 'invalid' && (input.currentSnapshot === true || (!input.legacyUnsafe && (evidence.safeForCurrent || (evidence.loaded && evidence.status === 'historical-valid' && datedCurrent)))),
+      // Only Open RO has an independently verified current-workload authority.
+      // Other report families cannot borrow that fallback to certify their own
+      // missing or stale source periods.
+      current = evidence.status !== 'invalid' &&
+        ((key === 'openRo' && input.currentSnapshot === true) ||
+          (!input.legacyUnsafe && (evidence.safeForCurrent ||
+            (evidence.loaded && evidence.status === 'historical-valid' && datedCurrent)))),
       missing = (input.missingDates || []).filter(date => trustedDate(date) && date.slice(0,7) === today.slice(0,7) && date < today && !isSunday(date)),
       active = Boolean(input.activeFeature), soon = Boolean(input.soonFeature);
     if (optional && !active && !soon) return finish(current ? 'CURRENT' : 'OPTIONAL', current ? 'Current trend is usable; additional dated observations are optional.' : 'Optional trend depth. No historical backfill required.');
