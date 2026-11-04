@@ -45,6 +45,11 @@ test("vendor aliases are brand-specific and stale branded mappings fail closed",
     {tradeAr:{...mapped,guidedSetupStoreBrand:""}},"tradeAr","Dodge"),/Needs Review/);
   assert.throws(()=>resolve("Exampletown Motors","9001",{tradeAr:mapped},"tradeAr",""),/Needs Review/);
 });
+test("an unidentified install cannot validate a vendor alias with two blank brands",()=>{
+  const alias={storeCode:"1010",storeIdentityVerified:true,
+    guidedSetupStoreCode:"9001",guidedSetupStoreName:"Exampletown Motors",guidedSetupStoreBrand:""};
+  assert.throws(()=>resolve("Exampletown Motors","9001",{tradeAr:alias},"tradeAr",""),/Needs Review/);
+});
 test("same-store vendor codes do not need alias-brand exceptions",()=>{
   assert.equal(resolve("Exampletown Motors","9001",
     {tradeAr:{storeCode:"9001",guidedSetupStoreBrand:"Other"}},"tradeAr","Dodge"),"9001");

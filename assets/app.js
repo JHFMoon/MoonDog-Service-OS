@@ -388,7 +388,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-11-04-store-brand-v10";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-11-04-store-brand-v11";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -424,6 +424,7 @@
     if(!name||!canonical)throw new Error(`Configure Guided Setup store identity before importing ${family}.`);
     if(!vendor||vendor===canonical)return canonical;
     if(rule.storeIdentityVerified!==true||
+       !String(store.brand||"").trim()||!String(rule.guidedSetupStoreBrand||"").trim()||
        String(rule.guidedSetupStoreCode||"").trim()!==canonical||
        String(rule.guidedSetupStoreName||"").trim().toLowerCase()!==name.toLowerCase()||
        // An alias belongs to the exact configured brand as well as the store.
@@ -2440,6 +2441,7 @@
       const rule=sourceAdapter.reports?.[family]||{},alias=String(rule.accountName||"").trim();
       if(!alias||menuSalesAccountKey(alias)===menuSalesAccountKey(localName))return alias;
       if(rule.storeIdentityVerified!==true||
+         !String(localStore.brand||"").trim()||!String(rule.guidedSetupStoreBrand||"").trim()||
          String(rule.guidedSetupStoreCode||"").trim()!==localCode||
          String(rule.guidedSetupStoreName||"").trim().toLowerCase()!==localName.toLowerCase()||
          String(rule.guidedSetupStoreBrand||"").trim().replace(/\s+/g," ").toLowerCase()!==

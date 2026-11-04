@@ -96,6 +96,13 @@ test("Menu Sales vendor account aliases reject branded dealership identity drift
     ids:["3001"],rows:reportRows(),reportConfig:{menuSales:{...alias,guidedSetupStoreBrand:""}}});
   assert.throws(()=>missingBrand.parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
 });
+test("two blank brands are never valid Menu Sales vendor alias proof",()=>{
+  const alias={accountName:cdjr,storeIdentityVerified:true,
+    guidedSetupStoreCode:"9001",guidedSetupStoreName:"Exampletown Motors",guidedSetupStoreBrand:""};
+  const candidate=prepare({name:"Exampletown Motors",code:"9001",brand:"",
+    ids:["3001"],rows:reportRows(),reportConfig:{menuSales:alias}});
+  assert.throws(()=>candidate.parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
+});
 test("same workbook does not select another dealership's rows on a fresh store",()=>{
   const dodge=prepare({name:"AutoNation Chrysler Dodge Jeep Ram Exampletown",code:"9001",ids:["3001"],rows:reportRows()});
   const bmw=prepare({name:"Different Brand Exampletown",code:"7007",ids:["3001","1001"],rows:reportRows()});
@@ -123,6 +130,6 @@ test("missing mandatory date range cannot create a report snapshot",()=>{
 test("bundle remains syntactically valid and menu identity is not hardcoded to one dealer",()=>{
   new vm.Script(app);
   assert.match(app,/menu-sales-v3-local-layout-store-identity/);
-  assert.match(app,/strict-report-recognition-2026-11-04-store-brand-v10/);
+  assert.match(app,/strict-report-recognition-2026-11-04-store-brand-v11/);
   assert.doesNotMatch(parser,/ROSEVILLE|HAYWARD|FREMONT|SAN JOSE/i);
 });
