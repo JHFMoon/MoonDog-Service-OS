@@ -69,3 +69,37 @@ test('CSI trend coverage and current-source confidence agree on a reversed range
   assert.equal(evidence.verifiedScope, null);
   assert.equal(F.evaluateSource({...base, ...bad}).safeForPurpose, false);
 });
+
+test('legacy end-only CSI has a verified point observation without invented cumulative coverage', () => {
+  const saved = {scopeVerified: true, scopeEnd: '2026-10-06', rows: 0};
+  const source = F.evaluateSource({...base, ...saved});
+  assert.equal(source.status, 'current', 'existing verified end-day freshness is preserved');
+  const trend = F.csiTrendEvidence({imports: [saved], surveys: {}, today});
+  assert.equal(trend.verifiedScope.scopeEnd, '2026-10-06');
+  assert.equal(trend.verifiedScope.scopeStart, undefined,
+    'the missing cumulative start is not synthesized from month or import day');
+  assert.deepEqual(trend.reportDates, [], 'a scope end does not invent a report observation timestamp');
+  const plan = F.trendMaintenance({
+    key: 'csi', today, monthStart: '2026-10-01',
+    coverage: {missingDates: []},
+    verifiedScope: {start: trend.verifiedScope.scopeStart, end: trend.verifiedScope.scopeEnd},
+    responsesRange: {}, lastReportObservation: ''
+  });
+  assert.equal(plan.last, '2026-10-06');
+  assert.equal(plan.scopeStartVerified, false);
+  assert.match(plan.status, /end-only CSI observation.*cumulative start unknown/);
+  const label = F.trendMaintenanceSummary('csi', plan);
+  assert.match(label, /Verified end-only observation: 2026-10-06/);
+  assert.doesNotMatch(label, /2026-10-01–2026-10-06/,
+    'a recent end-only export cannot verify coverage from the first of the month');
+});
+
+test('invalid declared CSI scope start remains excluded from trend after end-only compatibility', () => {
+  for (const scopeStart of ['2026-02-30', '2026-10-07', 0]) {
+    const saved = {scopeVerified: true, scopeStart, scopeEnd: '2026-10-06'};
+    const source = F.evaluateSource({...base, ...saved});
+    assert.equal(source.status, 'invalid', String(scopeStart));
+    const trend = F.csiTrendEvidence({imports: [saved], surveys: {}, today});
+    assert.equal(trend.verifiedScope, null, String(scopeStart));
+  }
+});
