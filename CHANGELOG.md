@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.348 — current Beta
+
+- fix(59-03): serialize direct SAPR import with workspace reconnection and picker refresh. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.347 — current Beta
 
 - guard(59-01): hold unsigned SAPR for verified manual dealership review. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
