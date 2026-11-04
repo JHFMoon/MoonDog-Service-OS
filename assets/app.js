@@ -4950,6 +4950,12 @@
     return metricEvidence({ value: baseEvidence?.lastVerifiedValue ?? baseEvidence?.value, status: blocked.status === "missing" ? "missing-source" : blocked.status, source: blocked.label, period: [blocked.periodStart, blocked.periodEnd].filter(Boolean).join(" through "), importedDate: blocked.sourceTimestamp, freshness: blocked.expectedPeriod ? `Expected ${blocked.expectedPeriod}` : blocked.cadence, reason: blocked.reason, requiredAction: blocked.requiredAction, calculation: baseEvidence?.calculation || "", reconciliation: baseEvidence?.reconciliation || "" });
   }
   function sourceStatusLabel(evidence) {
+    // Source-dealership ownership takes precedence over otherwise valid
+    // report dates, numerical totals or recent local import timestamps.
+    if(evidence?.sourceStoreConfidence==="store-conflict")
+      return "Dealership mismatch · Review required";
+    if(evidence?.sourceStoreConfidence==="configured-destination-only")
+      return "Source dealership unverified · Review required";
     const status=evidence.status,reason=String(evidence.reason||"");
     if(status==="current")return evidence.key==="openRo"&&!evidence.reportPeriodVerified?"Recently imported · Report period not verified":"Current";
     if(status==="historical-valid")return "Historical · valid for stated period";
