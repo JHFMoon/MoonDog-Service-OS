@@ -4778,8 +4778,10 @@
         typeof freshness.classifySourceStoreOrigin==="function"
         ?freshness.classifySourceStoreOrigin({
           family:key,configuredStore:model.settings?.store||{},
-          sourceStore:item.sourceReportedStore,
-          verifiedAlias:item.sourceStoreAlias||null
+          // Never trust an alias authorization embedded in a report.
+          // A future alias integration must read the verified local adapter,
+          // not the untrusted retained source payload.
+          sourceStore:item.sourceReportedStore
         }):null;
       const conflict=origin?.status==="store-conflict";
       const evidence=freshness.evaluateSource(conflict
