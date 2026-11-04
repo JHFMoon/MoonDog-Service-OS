@@ -4804,7 +4804,10 @@
         scopeEnd: item?.scopeVerified ? item.scopeEnd : "",
         periodStart: reportPeriod.periodStart, periodEnd: reportPeriod.periodEnd }, item, reportPeriod.verified);
     }
-    if (key === "nextAppointments") { const item = hasSelectedItem ? options.item : latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, verifiedDatedInterval(item) && !observation); }
+    if (key === "nextAppointments") { const item = hasSelectedItem ? options.item : latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd,
+        invalid: observation && purpose==="historical" ?
+          "The observed Next Appointments summary has no verified reporting interval for historical metrics." : ""
+      }, item, verifiedDatedInterval(item) && !observation); }
     if (key === "vir") { const item = hasSelectedItem ? options.item : latestVirObservation(),observed=verifiedVirSourceObservationDate(item); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.observationTimestamp || item?.sourceModifiedAt || "", invalid: item && !observed ? "The retained VIR observation has no verified source reporting date; an import timestamp cannot establish coverage." : "", periodEnd: observed }, item, Boolean(observed)); }
     if (key === "menu") {
       const item = hasSelectedItem ? options.item : latestOperationalSnapshot("menu"),
