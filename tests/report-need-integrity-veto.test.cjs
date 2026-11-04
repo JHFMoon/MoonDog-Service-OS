@@ -64,3 +64,33 @@ test("stale-but-independent current workload fallback is not changed by the expl
   assert.equal(check("openRo", stale).state, "CURRENT");
   assert.equal(check("openRo", stale, {currentSnapshot: false}).state, "NEED NOW");
 });
+
+test("production KPI evidence never presents a known zero as verified when source integrity conflicts", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const vm = require("node:vm");
+  const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+  function extract(start, end) {
+    const i = app.indexOf(start), j = app.indexOf(end, i);
+    assert.ok(i >= 0 && j > i, "production metric adapter must exist");
+    return app.slice(i, j);
+  }
+  const source = extract("  function metricEvidence({", "  function metricEvidenceText(") + "\n" +
+    extract("  function metricDependencyEvidence(", "  function sourceStatusLabel(");
+  const ctx = vm.createContext({freshness});
+  vm.runInContext(source + "\nthis.api = {metricEvidence, metricDependencyEvidence};", ctx);
+  for (const status of ["invalid", "conflicting", "unsupported", "unverified"]) {
+    const dependency = Object.freeze({
+      key: "openRo", label: "Open RO", status, loaded: true, safeForPurpose: false,
+      safeForCurrent: false, reason: "Synthetic source-integrity veto"
+    });
+    const base = ctx.api.metricEvidence({value: 0, source: "Synthetic source", period: today});
+    assert.equal(base.verified, true, "verified zero positive control");
+    const observed = ctx.api.metricDependencyEvidence([dependency], base);
+    assert.equal(observed.verified, false, status);
+    assert.equal(observed.value, null, status + " cannot imply a certified zero");
+    assert.equal(observed.lastVerifiedValue, 0, status + " may retain non-authoritative history");
+    assert.equal(observed.status, status);
+    assert.equal(observed.source, "Open RO");
+  }
+});
