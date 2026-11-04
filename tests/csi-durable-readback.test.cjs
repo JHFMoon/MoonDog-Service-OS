@@ -49,7 +49,10 @@ function fixture(mode = "verified", options = {}) {
     model, structuredClone, crypto, TextEncoder, now: () => "2026-10-21T15:00:00Z",
     localDateKey: () => "2026-10-21",
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
-    sourceFileHandle: async () => ({getFile: async () => ({text: async () => "synthetic CSV"})}),
+    sourceFileHandle: async () => ({getFile: async () => ({text: async () => {
+      if(options.onReadFile)options.onReadFile(model);
+      return "synthetic CSV";
+    }})}),
     parseCsiCsv: () => structuredClone(parsed),
     npsSummary: surveys => ({responseCount: Object.keys(surveys).length}),
     freshness: {addDays: (_date, days) => days === -730 ? "2024-10-21" : "unexpected"},
@@ -219,5 +222,15 @@ test("CSI import does not erase a newer live source update while its disk write 
   assert.equal(f.model.operationalMetrics.anotherFamily.snapshots["2026-10-22"].count,9);
   assert.equal(f.model.operationalMetrics.csi.imports.length,1);
   assert.equal(f.events.some(x => x.startsWith("history:")),false);
+  assert.equal(f.events.includes("source-deleted"),false);
+});
+
+test("CSI source file read cannot import into a replacement Workspace", async () => {
+  const f=fixture("verified",{onReadFile:model=>{model.root={name:"another synthetic Workspace"};}});
+  const previous=structuredClone(f.model.operationalMetrics);
+  await assert.rejects(f.run(true),/CSI source authority changed during report preparation/);
+  assert.deepEqual(f.model.operationalMetrics,previous);
+  assert.deepEqual(f.events.filter(x=>x==="write"),[]);
+  assert.equal(f.events.some(x=>x.startsWith("history:")),false);
   assert.equal(f.events.includes("source-deleted"),false);
 });
