@@ -2441,7 +2441,9 @@
       if(!alias||menuSalesAccountKey(alias)===menuSalesAccountKey(localName))return alias;
       if(rule.storeIdentityVerified!==true||
          String(rule.guidedSetupStoreCode||"").trim()!==localCode||
-         String(rule.guidedSetupStoreName||"").trim().toLowerCase()!==localName.toLowerCase())
+         String(rule.guidedSetupStoreName||"").trim().toLowerCase()!==localName.toLowerCase()||
+         String(rule.guidedSetupStoreBrand||"").trim().replace(/\s+/g," ").toLowerCase()!==
+           String(localStore.brand||"").trim().replace(/\s+/g," ").toLowerCase())
         throw new Error("Needs Review: Menu Sales account alias is not verified for the Guided Setup dealership.");
       return alias;
     };
