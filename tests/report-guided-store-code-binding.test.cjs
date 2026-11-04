@@ -1,0 +1,45 @@
+"use strict";
+const test=require("node:test"),assert=require("node:assert/strict");
+const fs=require("node:fs"),path=require("node:path"),vm=require("node:vm");
+const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+const from=app.indexOf("  // Guided Setup owns the installation identity.");
+const to=app.indexOf("  const escapeSourceCode =",from);
+assert.ok(from>=0&&to>from,"Expected centralized Guided Setup report store binding");
+const selected=app.slice(from,to);
+function resolve(name,code,reports={},family="appointmentActivity"){
+  const context={model:{settings:{store:{name,code}}},sourceAdapter:{reports}};
+  vm.runInNewContext(selected,context);
+  return context.reportStoreCode(family);
+}
+test("every report uses the configured Guided Setup store absent an explicit mapping",()=>{
+  for(const name of ["Dodge Exampletown","BMW Exampletown"])
+    for(const family of ["sor","appointmentActivity","mediaAsr","efficiency","openRoSummary","tradeAr"])
+      assert.equal(resolve(name,name.startsWith("Dodge")?"9001":"7007",{},family),
+        name.startsWith("Dodge")?"9001":"7007");
+});
+test("configured identical vendor code does not need a separate approval",()=>{
+  assert.equal(resolve("Dodge Exampletown","9001",{sor:{storeCode:"9001"}},"sor"),"9001");
+});
+test("legacy or stale vendor overrides fail closed instead of selecting another store",()=>{
+  assert.throws(()=>resolve("Dodge Exampletown","9001",
+    {appointmentActivity:{storeCode:"7007"}}),/Needs Review/);
+  assert.throws(()=>resolve("Dodge Exampletown","9001",
+    {appointmentActivity:{storeCode:"7007",storeIdentityVerified:true,guidedSetupStoreCode:"9001",
+      guidedSetupStoreName:"BMW Exampletown"}}),/Needs Review/);
+  assert.throws(()=>resolve("BMW Exampletown","7007",
+    {appointmentActivity:{storeCode:"9001",storeIdentityVerified:true,guidedSetupStoreCode:"9001",
+      guidedSetupStoreName:"Dodge Exampletown"}}),/Needs Review/);
+});
+test("explicit verified vendor alias is valid only for that exact configured dealership",()=>{
+  const reports={tradeAr:{storeCode:"1010",storeIdentityVerified:true,
+    guidedSetupStoreCode:"9001",guidedSetupStoreName:"Dodge Exampletown"}};
+  assert.equal(resolve("Dodge Exampletown","9001",reports,"tradeAr"),"1010");
+  assert.throws(()=>resolve("BMW Exampletown","7007",reports,"tradeAr"),/Needs Review/);
+});
+test("no store code or name cannot establish identity",()=>{
+  assert.throws(()=>resolve("BMW Exampletown",""),/Guided Setup/);
+  assert.throws(()=>resolve("","7007"),/Guided Setup/);
+});
+test("source code includes no hardcoded dealer identity",()=>{
+  assert.doesNotMatch(selected,/Roseville|Rocklin|Dodge Exampletown|BMW Exampletown|42947/i);
+});
