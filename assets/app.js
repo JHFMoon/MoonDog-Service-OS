@@ -2615,7 +2615,7 @@
     }, 0);
     Object.values(parsed.surveys).forEach((survey) => { const prior = existing[survey.id]; existing[survey.id] = prior && prior.surveyDate > survey.surveyDate ? prior : { ...prior, ...survey, extensionRecordIds: [...new Set([...(prior?.extensionRecordIds || []), ...survey.extensionRecordIds])], lastSeenAt: now() }; });
     const newest = Object.values(existing).map((survey) => survey.surveyDate).sort().at(-1); if (newest) { const cutoff = freshness.addDays(newest,-730); Object.keys(existing).forEach((id) => { if (existing[id].surveyDate < cutoff) delete existing[id]; }); }
-    candidate.csi.surveys = existing; candidate.csi.imports ||= []; candidate.csi.imports.push({ sourceFile: name, importedAt: refreshAt, refreshDate, coverageStart: parsed.coverageStart, coverageEnd: parsed.coverageEnd, scopeStart:parsed.scopeStart,scopeEnd:parsed.scopeEnd,scopeVerified:parsed.scopeVerified, metricSnapshotSha256, dailySummary:npsSummary(parsed.surveys), rows: Object.keys(parsed.surveys).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount, format: /\.xlsx$/i.test(name) ? "xlsx" : "csv" }); candidate.csi.imports = candidate.csi.imports.slice(-250); candidate.csi.lastSuccessfulRefreshAt = refreshAt; candidate.csi.lastSuccessfulRefreshDate = refreshDate; candidate.updatedAt = refreshAt; try {
+    candidate.csi.surveys = existing; candidate.csi.imports ||= []; candidate.csi.imports.push({ sourceFile: name, sourceStoreConfidence:"configured-destination-only", importedAt: refreshAt, refreshDate, coverageStart: parsed.coverageStart, coverageEnd: parsed.coverageEnd, scopeStart:parsed.scopeStart,scopeEnd:parsed.scopeEnd,scopeVerified:parsed.scopeVerified, metricSnapshotSha256, dailySummary:npsSummary(parsed.surveys), rows: Object.keys(parsed.surveys).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount, format: /\.xlsx$/i.test(name) ? "xlsx" : "csv" }); candidate.csi.imports = candidate.csi.imports.slice(-250); candidate.csi.lastSuccessfulRefreshAt = refreshAt; candidate.csi.lastSuccessfulRefreshDate = refreshDate; candidate.updatedAt = refreshAt; try {
       // Import data and its source lineage must not become visible to Home,
       // Meeting or reports before the entire durable candidate is verified.
       const authorityCurrent = () => model.root === connectedRoot &&
@@ -3617,6 +3617,14 @@
   }
 
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true, layoutOverride = null) {
+    // CSI exports identify scoring responses but do not authenticate their
+    // originating dealership. Manual intent is required even with matching
+    // advisor codes and validated export dates.
+    if (kind === "csi" && candidate.location !== "picked")
+      throw new Error("Needs Review: unsigned CSI cannot be imported unattended; use manual file selection and confirm the originating dealership.");
+    if (kind === "csi" && !window.confirm(
+      `Verify CSI source: ${candidate.name}\n\nConfirm the original Dealer Dashboard export is for ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}), and verify its report date range. This export cannot prove its source dealership automatically. Continue?`))
+      throw new Error("Needs Review: CSI dealership and source period were not confirmed; source retained.");
     if (kind === "performance" && candidate.location !== "picked") throw new Error("Needs Review: SAPR source dealership is not verified. Confirm the original workbook using explicit Import Performance.");
     if (kind === "open-ro-docx" && candidate.location !== "picked") throw new Error("Needs Review: DOCX source is not yet authorized for hands-off roster replacement.");
     if (kind === "open-ro" && !["picked","inbox"].includes(candidate.location)) throw new Error("Needs Review: only the dedicated Inbox may automatically replace Open ROs.");
@@ -4078,6 +4086,22 @@
         // SAPR sheet headings, periods and matching advisor codes do not
         // prove which dealership produced this unsigned XLSX. Never let an
         // unattended watch poll promote another store's performance metrics.
+        if(kind==="csi"&&candidate.location==="inbox"){
+          await addHistory("csi-review-required",
+            "Unsigned CSI retained pending explicit dealership and reporting-period review",
+            {fileName:candidate.name,sourceFamily:kind,
+              sourceStoreConfidence:"configured-destination-only",sourcePreserved:true});
+          if(!scanEligible())return null;
+          reviewRequired.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={
+            fileName:candidate.name,relativePath:candidate.relativePath,
+            kind,manualImportRequired:true,queuedAt:now(),
+            sourceStoreConfidence:"configured-destination-only"
+          };
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX","Unsigned CSI retained for explicit manual dealership/source review");
+          continue;
+        }
         if(kind==="performance"&&candidate.location==="inbox"){
           await addHistory("performance-review-required",
             "Unsigned SAPR retained pending explicit dealership and report-period review",
