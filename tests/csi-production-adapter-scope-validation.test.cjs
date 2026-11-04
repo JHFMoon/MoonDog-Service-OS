@@ -104,3 +104,26 @@ test("verified observation remains usable when scope verification was not claime
 test("missing CSI import stays missing", () => {
   assert.equal(evaluate(null).status, "missing");
 });
+
+test("explicitly verified CSI observation with invalid or future date cannot borrow valid scope", () => {
+  for (const date of [undefined, null, "", "2026-02-30", "2026-10-08"]) {
+    const item = {
+      scopeVerified: true, scopeStart: "2026-10-01", scopeEnd: "2026-10-06",
+      reportObservationVerified: true, rows: 0
+    };
+    if (date !== undefined) item.reportObservationDate = date;
+    const before = JSON.stringify(item);
+    const evidence = evaluate(item);
+    assert.equal(evidence.status, "invalid", "observation " + String(date));
+    assert.equal(evidence.safeForCurrent, false);
+    assert.equal(evidence.safeForPurpose, false);
+    assert.equal(freshness.evaluateMetric([evidence]).verified, false);
+    assert.equal(JSON.stringify(item), before, "never change retained CSI source lineage");
+  }
+  const valid = evaluate({
+    scopeVerified: true, scopeStart: "2026-10-01", scopeEnd: "2026-10-06",
+    reportObservationVerified: true, reportObservationDate: "2026-10-06", rows: 0
+  });
+  assert.equal(valid.status, "current");
+  assert.equal(valid.reportPeriodVerified, true);
+});
