@@ -7382,7 +7382,24 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   }
   // A whole-state restore replaces settings as well as KPIs and history.
   // Never let a configured dealership silently become another dealership.
-  function verifyBackupStoreOwnership(currentSettings,restoredSettings){
+  // A blank store form is not evidence of an empty Workspace: reject adoption
+  // when verified operational state already exists, even if setup was reset.
+  function hasExistingOperationalStateForRestore(){
+    const state=model.state||{},performance=model.performance||{},
+      appointments=model.appointments||{},assignNext=model.assignNext||{};
+    const hasSnapshot=group=>group&&typeof group==="object"&&(
+      Object.keys(group.snapshots||{}).length>0||
+      Object.keys(group.dailySnapshots||{}).length>0||
+      Object.keys(group.surveys||{}).length>0||
+      (Array.isArray(group.imports)&&group.imports.length>0));
+    return Boolean((Array.isArray(state.records)&&state.records.length)||
+      (Array.isArray(state.closedRecords)&&state.closedRecords.length)||
+      state.source||Object.keys(performance.snapshots||{}).length||
+      Object.keys(appointments.days||{}).length||
+      Object.keys(assignNext.days||{}).length||
+      Object.values(model.operationalMetrics||{}).some(hasSnapshot));
+  }
+  function verifyBackupStoreOwnership(currentSettings,restoredSettings,hasExistingState=false){
     const nameOf=settings=>String(settings?.store?.name||settings?.storeName||"").trim().replace(/\s+/g," ").toLowerCase();
     const codeOf=settings=>String(settings?.store?.code||"").trim();
     const brandOf=settings=>String(settings?.store?.brand||"").trim().replace(/\s+/g," ").toLowerCase();
@@ -7391,6 +7408,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const backupCode=codeOf(restoredSettings),backupName=nameOf(restoredSettings),
       backupBrand=brandOf(restoredSettings);
     if(!currentCode&&!currentName){
+      if(hasExistingState)
+        throw new Error("Needs Review: existing operational data has no configured dealership identity. Restore is blocked until the Workspace identity is reconciled.");
       // Fresh-install recovery may adopt a verified backup identity, never an
       // unidentified legacy payload that could contain another store’s data.
       if(!backupCode||!backupName)
@@ -7407,7 +7426,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     const name=ui.restoreBackupSelect.value;
     if(!name)throw new Error("Choose a validated backup first.");
     const selected=await validateBackupBytes(await readFileBytes(["backups",name]));
-    verifyBackupStoreOwnership(model.settings,selected.values["data/settings.json"]);
+    verifyBackupStoreOwnership(model.settings,selected.values["data/settings.json"],hasExistingOperationalStateForRestore());
     if(!confirm(`Restore the complete Service Operations Dashboard state from ${new Date(selected.manifest.createdAt).toLocaleString()}?\n\nVersion: ${selected.manifest.appVersion}\n\nA safety backup of the current state will be created first.`))return;
     model.recovery.status="Creating restore safety backup";
     renderRecovery();
