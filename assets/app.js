@@ -3904,10 +3904,13 @@
   function candidateNeedsImport(candidate) {
     if(candidate.readError)return false;
     const seen=model.autoImport.seen?.[candidate.signature];
-    if(candidate.location==="inbox")
-      // Previous Betas queued Open RO workbooks for manual review. Reconsider
-      // those unchanged files now that strict grouped intake is authorized.
+    if(candidate.location==="inbox"){
+      // Keep unverified unsigned grouped reports in manager review until the
+      // source changes or an explicitly authorized manual import completes.
+      // A completed manual import can still be rechecked for safe cleanup.
+      if(seen?.manualImportRequired)return false;
       return Boolean(seen?.cleanupPending || seen?.cleanupReviewRequired || seen?.cleanupNeedsReview) || !(seen?.kind==="appointments"&&seen.importedAt);
+    }
     return !seen||Boolean(seen.movedAt);
   }
   function transientWorkspaceState(error){return ["AbortError","InvalidStateError","NotReadableError","UnknownError","TimeoutError"].includes(error?.name)||/state cached in an interface object|state had changed since it was read from disk|changed since it was read from disk/i.test(error?.message||"");}

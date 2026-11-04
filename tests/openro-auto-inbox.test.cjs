@@ -268,8 +268,10 @@ test("a roster committed before a dependent write failure is retained, not moved
   vm.runInNewContext(code,ctx);
   const outcome=await ctx.autoSurveyFolder();
   assert.equal(moved,0);
-  assert.equal(outcome.retained.length,1);
+  assert.equal(outcome.reviewRequired.length,1,
+    "An unsigned report is placed in manual origin review before any state mutation");
   assert.equal(outcome.learned.length,0);
+  assert.equal(model.state.source.sha256,"old");
 });
 
 test("a committed Open RO write with a lost read-back is recovered from disk without reimport",async()=>{
