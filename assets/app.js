@@ -3685,6 +3685,37 @@
       }
     }
   }
+  async function completeExactReviewedInboxSource(name,kind,selectedBytes,requestedRoot) {
+    // A Daily-picked external file is NOT an Inbox file merely because its
+    // filename matches. Only the original file's exact bytes + durable source
+    // import + explicit manager-approved report family may clear a review hold.
+    if (!["performance","csi","vir","next-appointments","supplemental-csv"].includes(kind) ||
+        !requestedRoot || model.root!==requestedRoot) return false;
+    let originalFile;
+    try { originalFile=await (await(await reportInbox(false)).getFileHandle(name)).getFile(); }
+    catch (error) { if(error?.name==="NotFoundError")return false; throw error; }
+    if(model.root!==requestedRoot)return false;
+    const signature=`${REPORT_INBOX}/${name}|${originalFile.size}|${originalFile.lastModified}`;
+    const pending=model.autoImport.seen?.[signature];
+    if(!pending?.manualImportRequired || pending.kind!==kind) return false;
+    const originalBytes=await originalFile.arrayBuffer();
+    if(model.root!==requestedRoot || !sameByteContent(selectedBytes,originalBytes))return false;
+    // A persisted marker belongs to this exact immutable Inbox source. We do
+    // not delete the source or grant it unattended import authority.
+    const acceptedAt=now();
+    const updated={...model.autoImport,seen:{...model.autoImport.seen,
+      [signature]:{...pending,manualImportRequired:false,importedAt:acceptedAt,
+        manualImportCompletedAt:acceptedAt,
+        sourceStoreConfidence:"configured-destination-only"}}};
+    if(model.root!==requestedRoot)return false;
+    await writeJson(AUTO_IMPORT_PATH,updated);
+    // writeJson verifies read-back, so the previous in-memory ledger survives
+    // any rejected or mismatched write without false completion.
+    if(model.root!==requestedRoot)return false;
+    model.autoImport=updated;
+    return true;
+  }
+
   async function reconcileLearnedFiles(parserRevision=LEARNED_PARSER_REVISION) {
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)return {deferred:true};
     let failures=0,attempts=0,recovered=0,unsupported=0,skipped=0;
@@ -3942,7 +3973,10 @@
       // Unsigned store-unverified reports must not replay during each poll.
       // A reviewed SAPR left in the Inbox is never silently imported again.
       if(seen?.manualImportRequired)return false;
-      if(seen?.kind==="performance"&&seen.importedAt&&!seen.cleanupPending&&!seen.cleanupReviewRequired&&!seen.cleanupNeedsReview)return false;
+      // A manager-reviewed, durably accepted unsigned report left in Inbox
+      // is not a new unattended import on the next poll. Keep its original.
+      if(["performance","csi","vir","next-appointments","supplemental-csv"].includes(seen?.kind) &&
+         seen.importedAt&&!seen.cleanupPending&&!seen.cleanupReviewRequired&&!seen.cleanupNeedsReview)return false;
       return Boolean(seen?.cleanupPending || seen?.cleanupReviewRequired || seen?.cleanupNeedsReview) || !(seen?.kind==="appointments"&&seen.importedAt);
     }
     return !seen||Boolean(seen.movedAt);
@@ -8661,6 +8695,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     importFile: async function(file) {
       if (!model.root) throw new Error('Connect your Service Operations Dashboard folder first.');
       if (folderWatch.busy || dailyImportBusy || appointmentImportBusy) throw new Error('Service Operations Dashboard is finishing another import. Try again in a moment.');
+      const requestedRoot=model.root;
       dailyImportBusy=true; const watchEnabled=folderWatchEnabled(); stopFolderWatch();
       try {
         const bytes=await file.arrayBuffer(), kind=await classifyImportFile(file.name,file,bytes);
@@ -8668,6 +8703,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         // Use a transient handle, never copy over or delete the selected source.
         dailyPickedSources.set(file.name,{getFile:async()=>file});
         await processClassifiedCandidate({name:file.name,location:'picked'},kind,bytes,false);
+        try { await completeExactReviewedInboxSource(file.name,kind,bytes,requestedRoot); }
+        catch(error) {
+          // A successful report import must not be misreported as failed if
+          // only this optional review-ledger reconciliation cannot be saved.
+          // The Inbox source is preserved and its review marker remains.
+          recordDiagnostic("REPORT INBOX",`Completed report import but source review marker was retained (${error.name||"Error"})`);
+        }
         dailyNotify('moondog-imported',{kind});
         return kind;
       } catch(error){if(/\.pdf$/i.test(file.name)){status(`PDF intake failed: ${error.message||error}. Source kept; retry or review Files To Learn.`,"error");recordDiagnostic("PDF INTAKE",error.name+": "+(error.message||error));}throw error;} finally { dailyPickedSources.clear(); dailyImportBusy=false; if(watchEnabled)startFolderWatch(); }
