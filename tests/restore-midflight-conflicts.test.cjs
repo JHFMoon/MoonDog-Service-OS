@@ -295,7 +295,7 @@ test("permission revoked between canonical restore writes keeps later bytes and 
   await assert.rejects(f.restore(),/synthetic permission revoked between writes/);
   assert.deepEqual(f.actions.filter(([action])=>action==="write").map(([,p])=>p),[keys[0],keys[1]],"the second write attempt must fail before replacing its target");
   assert.equal(JSON.parse(decode(f.files.get(keys[0]))).records[0].id,"restored","the first verified write remains recorded for controlled recovery");
-  assert.equal(JSON.parse(decode(f.files.get(keys[1]))).store.name,"old","permission loss must preserve the untouched later file");
+  assert.equal(JSON.parse(decode(f.files.get(keys[1]))).store.name,"Synthetic Store","permission loss must preserve the untouched later file");
   assert.equal(f.files.has("data/restore-in-progress.json"),true,"the persistent recovery hold stays in place");
   assert.equal(f.safetyExists,true,"the original-state safety package remains available");
   assert.equal(f.disabled,1,"the interrupted restore disables further editing");
