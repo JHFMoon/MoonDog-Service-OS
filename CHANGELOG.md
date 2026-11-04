@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.327 — current Beta
+
+- guard: preserve explicitly missing report source selections. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.326 — current Beta
 
 - guard: stage CSI report lineage until verified durable storage. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
