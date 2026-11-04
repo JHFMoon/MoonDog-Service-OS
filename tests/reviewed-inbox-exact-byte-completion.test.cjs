@@ -107,3 +107,19 @@ test("Daily importer runs approved source persistence before optional exact-byte
   assert.match(code,/finally \{ dailyPickedSources\.clear\(\); dailyImportBusy=false/);
   new vm.Script(app);
 });
+
+test("completed unsigned Inbox review does not replay on the next watcher poll",async()=>{
+  for(const kind of ["performance","csi","vir","next-appointments","supplemental-csv"]){
+    const f=fixture({kind});
+    assert.equal(await f.run(),true);
+    const a=app.indexOf("  function candidateNeedsImport(");
+    const b=app.indexOf("  function transientWorkspaceState(",a);
+    assert.ok(a>=0&&b>a);
+    const ctx=vm.createContext({model:f.model});
+    vm.runInContext(app.slice(a,b)+"\nthis.needs=candidateNeedsImport;",ctx);
+    assert.equal(ctx.needs({signature:f.signature,location:"inbox"}),false,
+      kind+" already reviewed Inbox must not be auto-imported");
+    assert.equal(ctx.needs({signature:f.signature+"-modified",location:"inbox"}),true,
+      kind+" changed original must be re-reviewed");
+  }
+});
