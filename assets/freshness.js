@@ -110,7 +110,14 @@
     // observation. A verified export scope is separate coverage evidence.
     // Never manufacture report observation dates from a recent local import.
     const saved=imports.filter(item=>item && typeof item==="object"),
-      importDates=[...new Set(saved.map(item=>item.refreshDate||(item.importedAt ? dateKey(item.importedAt) : "")).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort(),
+      verifiedImportDate=item=>{
+        if(item.refreshDate)return validDateKey(item.refreshDate)?item.refreshDate:"";
+        const stamp=item.importedAt;
+        // Date.parse may normalize an impossible ISO civil day; do not turn
+        // corrupted local import metadata into a real observed import day.
+        return typeof stamp==="string"&&validDateKey(stamp.slice(0,10))?dateKey(stamp):"";
+      },
+      importDates=[...new Set(saved.map(verifiedImportDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort(),
       reportDates=[...new Set(saved.filter(item=>item.reportObservationVerified===true).map(item=>item.reportObservationDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const responseDates=[...new Set(Object.values(surveys).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const advisorResponseDates=[...new Set(Object.values(surveys).filter(item=>item.advisorCode).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
