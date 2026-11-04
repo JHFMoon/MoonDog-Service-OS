@@ -150,16 +150,57 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
       management:{status:"Being Repaired",owner:"",ownerAssignmentSource:"manager-cleared",nextAction:"Recheck synthetic delivery",reviewDate:"2026-10-27",communication:"Updated",note:"Synthetic backed-up plan",manualAnnotation:"Synthetic manager recovery marker",updatedAt:"2026-10-26T08:55:00.000Z"}}],
     closedRecords:[],source:{fileName:"synthetic-open-ro-live.xlsx",importedAt:"2026-10-26T09:58:00.000Z"}
   };
-  const valuesFor=state=>({
-    "data/current-state.json":copy(state),
-    "data/settings.json":{schemaVersion:4,store:{name:"Synthetic Store",code:"9001"},advisors:{}},
-    "data/appointments.json":{days:{}},
-    "data/advisor-performance.json":{snapshots:{}},
-    "data/assign-next.json":{days:{}},
-    "data/auto-import.json":{seen:{}},
-    "data/operational-metrics.json":{vir:{snapshots:{}},menu:{snapshots:{}},csi:{surveys:{},imports:[]}},
-    "data/meeting-cycle.json":{}
+  // Genuine restoreSelectedBackup() multi-file state, not a selector-only
+  // mock: distinct live and selected-source reports detect partial hydration.
+  const report=(family,value)=>({
+    sourceFile:"synthetic-"+family+".xlsx",importedAt:"2026-10-26T08:00:00.000Z",
+    periodStart:"2026-10-01",periodEnd:"2026-10-26",
+    store:{syntheticMetric:value}
   });
+  const operationalFor=version=>{
+    const v=version==="selected"?17:91;
+    return {
+      csi:{imports:[{scopeVerified:true,scopeStart:"2026-10-01",scopeEnd:"2026-10-26",
+        importedAt:"2026-10-26T08:00:00.000Z",sourceFile:"synthetic-csi-"+version+".csv",
+        rows:v}],surveys:{"synthetic-01":{id:"synthetic-01",surveyDate:"2026-10-26",
+        advisorCode:"SYN",score:v}}},
+      vir:{snapshots:{"2026-10-26":{...report("vir",v),reportDate:"2026-10-26"}}},
+      menu:{snapshots:{"2026-10-26":{...report("menu",v),releaseWeek:"2026-10-26"}}},
+      nextAppointments:{snapshots:{"2026-10-26":report("next-appointments",v)}},
+      sor:{snapshots:{"2026-10":{...report("sor",v),period:"2026-10"}}},
+      appointmentActivity:{snapshots:{"2026-10":report("appointment-activity",v)}},
+      efficiency:{snapshots:{"2026-10":report("efficiency",v)}},
+      mediaAsr:{snapshots:{"2026-10-26":{...report("media-asr-advisor",v),sourceScope:"advisor"}}},
+      mediaAsrTech:{snapshots:{"2026-10-26":{...report("media-asr-technician",v),sourceScope:"technician"}}},
+      openRoSummary:{snapshots:{"2026-10-26":report("open-ro-summary",v)}}
+    };
+  };
+  const selectedOperational=operationalFor("selected");
+  const liveOperational=operationalFor("live");
+  const performanceFor=version=>({snapshots:{"2026-10-26":{
+    ...report("sapr",version==="selected"?17:91),periodStart:"2026-10-01",
+    periodEnd:"2026-10-26",sourceFile:"synthetic-sapr-"+version+".xlsx"
+  }}});
+  const appointmentsFor=version=>({days:{"2026-10-26":{
+    date:"2026-10-26",importedAt:"2026-10-26T08:00:00.000Z",
+    sourceFile:"synthetic-appointments-"+version+".xlsx",
+    records:[{id:"SYN-APPT",kind:version}]
+  }}});
+  const selectedPerformance=performanceFor("selected"),livePerformance=performanceFor("live");
+  const selectedAppointments=appointmentsFor("selected"),liveAppointments=appointmentsFor("live");
+  const valuesFor=state=>{
+    const chosen=state===manualState;
+    return {
+      "data/current-state.json":copy(state),
+      "data/settings.json":{schemaVersion:4,store:{name:"Synthetic Store",code:"9001",brand:"Dodge"},advisors:{}},
+      "data/appointments.json":copy(chosen?selectedAppointments:liveAppointments),
+      "data/advisor-performance.json":copy(chosen?selectedPerformance:livePerformance),
+      "data/assign-next.json":{days:{}},
+      "data/auto-import.json":{seen:{}},
+      "data/operational-metrics.json":copy(chosen?selectedOperational:liveOperational),
+      "data/meeting-cycle.json":{}
+    };
+  };
   const makeBackup=async(values,createdAt)=>{
     const payloads=new Map(),entries=[];
     for(const path of canonicalPaths){
@@ -235,6 +276,26 @@ test("verified backup restore keeps manager-owned RO lineage authoritative throu
   assert.equal(restored.source.fileName,"synthetic-open-ro-backup.xlsx");
   assert.equal(restored.records[0].management.ownerAssignmentSource,"manager-cleared",
     "durable restore retains explicit manager-cleared owner authority");
+  // The production backup restore must replace ALL canonical report families,
+  // not just the Open RO roster, and must verify the saved bytes before
+  // revealing them in Home, Meeting, Performance or source history.
+  assert.deepEqual(copy(model.operationalMetrics),selectedOperational,
+    "all ten operational report families are hydrated from the selected backup");
+  assert.deepEqual(copy(model.performance),selectedPerformance,
+    "SAPR authoritative source is rehydrated rather than retaining newer live values");
+  assert.deepEqual(copy(model.appointments),selectedAppointments,
+    "appointments remain their own restored source, not current Open RO work");
+  assert.deepEqual(await readJson(["data","operational-metrics.json"]),selectedOperational,
+    "the physical operational metrics file matches the restored in-memory sources");
+  assert.deepEqual(await readJson(["data","advisor-performance.json"]),selectedPerformance,
+    "the durable SAPR file matches the restored Performance authority");
+  assert.deepEqual(await readJson(["data","appointments.json"]),selectedAppointments,
+    "the durable appointment file matches the restored operational authority");
+  assert.equal(model.operationalMetrics.csi.imports[0].scopeEnd,"2026-10-26",
+    "verified CSI export coverage remains distinct from response and import dates");
+  assert.equal(model.operationalMetrics.efficiency.snapshots["2026-10"].store.syntheticMetric,17,
+    "older chosen verified Efficiency value takes precedence over live source after restore");
+
   assert.equal(files.has("data/restore-in-progress.json"),false,
     "the restore marker is removed only after verified completion");
   assert.ok(events.some(event=>event.startsWith("history:full-restore-complete:1")),
