@@ -8108,7 +8108,22 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         "Browser storage unavailable; Manager Home remains the fallback.";
     });
   }
-  ui.refreshPerformanceFiles.addEventListener("click", () => run(scanPerformanceFiles)); ui.performanceSourceSelect.addEventListener("change", () => { ui.importPerformance.disabled = !ui.performanceSourceSelect.value; }); ui.importPerformance.addEventListener("click", () => run(importPerformanceFile)); ui.performanceAdvisor.addEventListener("change", renderPerformance); ui.performanceMetric.addEventListener("change", renderPerformance); ui.assignAdvisorGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-assign-availability]"); if (button) run(() => toggleAssignAvailability(button.dataset.assignAvailability)); }); ui.meetingSapr.addEventListener("click", () => showMeetingPanel("sapr")); ui.meetingCsi.addEventListener("click", () => showMeetingPanel("csi")); ui.meetingFullscreen.addEventListener("click", () => run(toggleMeetingFullscreen)); document.addEventListener("fullscreenchange", () => { const active = Boolean(document.fullscreenElement); /* The Arena goes fullscreen on its own element. Do not toggle a BODY class and reflow every other dashboard view. The legacy whole-document fullscreen path still uses its existing body rules. */ const arenaIsPresenting=Boolean(document.querySelector("#view-meeting.meeting-scoreboard.presentation-active.active")); document.body.classList.toggle("meeting-fullscreen", document.fullscreenElement === document.documentElement && !arenaIsPresenting); ui.meetingFullscreen.textContent = active ? "Exit full screen" : "Enter full screen"; });
+  ui.refreshPerformanceFiles.addEventListener("click", () => run(scanPerformanceFiles)); ui.performanceSourceSelect.addEventListener("change", () => { ui.importPerformance.disabled = !ui.performanceSourceSelect.value; }); ui.importPerformance.addEventListener("click", () => run(async () => {
+    // A direct SAPR button import is a durable Workspace mutation, just like
+    // a Daily-picked report. Take the same exclusion before any file await:
+    // reconnect may not replace model.root halfway through SAPR readback.
+    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||workspaceConnectionBusy)
+      throw new Error("Another Workspace import or connection is in progress. Retry Import Performance when it finishes.");
+    const resumeWatch=folderWatchEnabled();
+    dailyImportBusy=true;
+    try{
+      stopFolderWatch();
+      await importPerformanceFile();
+    }finally{
+      dailyImportBusy=false;
+      if(resumeWatch)startFolderWatch();
+    }
+  })); ui.performanceAdvisor.addEventListener("change", renderPerformance); ui.performanceMetric.addEventListener("change", renderPerformance); ui.assignAdvisorGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-assign-availability]"); if (button) run(() => toggleAssignAvailability(button.dataset.assignAvailability)); }); ui.meetingSapr.addEventListener("click", () => showMeetingPanel("sapr")); ui.meetingCsi.addEventListener("click", () => showMeetingPanel("csi")); ui.meetingFullscreen.addEventListener("click", () => run(toggleMeetingFullscreen)); document.addEventListener("fullscreenchange", () => { const active = Boolean(document.fullscreenElement); /* The Arena goes fullscreen on its own element. Do not toggle a BODY class and reflow every other dashboard view. The legacy whole-document fullscreen path still uses its existing body rules. */ const arenaIsPresenting=Boolean(document.querySelector("#view-meeting.meeting-scoreboard.presentation-active.active")); document.body.classList.toggle("meeting-fullscreen", document.fullscreenElement === document.documentElement && !arenaIsPresenting); ui.meetingFullscreen.textContent = active ? "Exit full screen" : "Enter full screen"; });
   ensureOpenRoRetrievalUi();ensureAdvisorHandoffUi();
   // These controls do not save to the connected Workspace or change RO records.
   const storedOpenRoView=globalThis.MoonDogDevicePreferences?.readOpenRo()||{sort:"priority",density:"comfortable",attention:""};
