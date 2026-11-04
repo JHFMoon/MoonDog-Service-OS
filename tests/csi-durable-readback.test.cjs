@@ -137,7 +137,7 @@ test("a failed CSI reimport preserves the prior verified state and leaves its so
   const firstDurable = structuredClone(f.persisted());
   f.setMode("write-denied");
   await assert.rejects(f.run(true), /synthetic write denied/);
-  assert.deepEqual(f.model.operationalMetrics, firstVerified);
+  assert.deepEqual(structuredClone(f.model.operationalMetrics), firstVerified);
   assert.deepEqual(f.persisted(), firstDurable);
   assert.equal(f.events.filter(event => event === "history:csi-import").length, 1,
     "failed reimport must not create a success history event");
@@ -197,7 +197,7 @@ test("CSI source period and survey metrics stay unchanged throughout a delayed v
   await pending;
   assert.strictEqual(f.model.operationalMetrics, original);
   assert.strictEqual(f.model.operationalMetrics.csi, csi);
-  assert.deepEqual(f.model.operationalMetrics, f.persisted());
+  assert.deepEqual(structuredClone(f.model.operationalMetrics), f.persisted());
   assert.equal(csi.imports.length, 2);
   assert.equal(f.events.includes("source-deleted"), true);
 });
