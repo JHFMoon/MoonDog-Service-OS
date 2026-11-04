@@ -101,3 +101,51 @@ test("VIR manual hold cannot replay and dashboard remains syntax-valid",()=>{
   assert.equal(ctx.candidateNeedsImport({signature:signature+"-changed",location:"inbox"}),true);
   new vm.Script(app);
 });
+
+test("VIR fails closed when Guided Setup does not identify the destination store",async()=>{
+  let prompted=0,imported=0;
+  const ctx=vm.createContext({
+    model:{settings:{store:{name:"",code:""}}},
+    window:{confirm:()=>{prompted++;return true;}},sourceLocations:new Map(),
+    importVirFile:async()=>{imported++;},ensurePreviousMonthSummary:async()=>{},renderAll:()=>{}
+  });
+  vm.runInContext(dispatch+"\nthis.dispatch=processClassifiedCandidate;",ctx);
+  await assert.rejects(
+    ctx.dispatch({name:"synthetic-vir.csv",location:"picked"},"vir",new ArrayBuffer(1),false),
+    /complete Guided Setup dealership name and code/
+  );
+  assert.equal(prompted,0);
+  assert.equal(imported,0);
+});
+
+test("VIR history includes reviewed origin only after the durable point observation is verified",async()=>{
+  const source=production("  async function saveVirSnapshot(","  async function importVirFile(");
+  let durable=null,hist=null;
+  const clone=value=>JSON.parse(JSON.stringify(value));
+  const model={operationalMetrics:{vir:{snapshots:{},pending:{}},updatedAt:"before"}};
+  const ctx=vm.createContext({
+    model,structuredClone:clone,now:()=>"2026-11-04T12:00:00Z",
+    virObservationResolution:()=>({}),virObservationKey:()=>"synthetic-vir-observation",
+    applyVirResolution:()=>{},virConflictDate:()=>"2026-11-04",
+    virObservationDate:()=>"2026-11-04",comparableVirSnapshot:()=>"",
+    pruneDatedSnapshots:value=>value,
+    OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
+    writeJson:async(_path,value)=>{durable=clone(value);},
+    readJson:async()=>clone(durable),
+    addHistory:async(type,_description,details)=>{
+      assert.equal(type,"vir-import");
+      assert.ok(durable?.vir?.snapshots?.["synthetic-vir-observation"]);
+      hist=clone(details);
+    },
+    recordDiagnostic:()=>{},renderOverviewIntelligence:()=>{}
+  });
+  vm.runInContext(source+"\nthis.persist=saveVirSnapshot;",ctx);
+  const result=await ctx.persist({
+    sourceFile:"synthetic-vir.csv",reportDate:"2026-11-04",
+    sourceStoreConfidence:"configured-destination-only",
+    store:{totalROs:3,used:2,utilization:66.67},advisors:{}
+  });
+  assert.equal(result.resolved,true);
+  assert.equal(durable.vir.snapshots["synthetic-vir-observation"].sourceStoreConfidence,"configured-destination-only");
+  assert.equal(hist.sourceStoreConfidence,"configured-destination-only");
+});
