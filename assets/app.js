@@ -4086,9 +4086,9 @@
         // SAPR sheet headings, periods and matching advisor codes do not
         // prove which dealership produced this unsigned XLSX. Never let an
         // unattended watch poll promote another store's performance metrics.
-        if(kind==="performance"&&candidate.location==="inbox"){
-          await addHistory("performance-review-required",
-            "Unsigned SAPR retained pending explicit dealership and report-period review",
+        if(kind==="csi"&&candidate.location==="inbox"){
+          await addHistory("csi-review-required",
+            "Unsigned CSI retained pending explicit dealership and reporting-period review",
             {fileName:candidate.name,sourceFamily:kind,
               sourceStoreConfidence:"configured-destination-only",sourcePreserved:true});
           if(!scanEligible())return null;
@@ -4099,9 +4099,10 @@
             sourceStoreConfidence:"configured-destination-only"
           };
           ledgerChanged=true;
-          recordDiagnostic("REPORT INBOX","Unsigned SAPR retained for explicit Import Performance review");
+          recordDiagnostic("REPORT INBOX","Unsigned CSI retained for explicit manual dealership/source review");
           continue;
         }
+        if(kind==="performance"&&candidate.location==="inbox"){
           await addHistory("performance-review-required",
             "Unsigned SAPR retained pending explicit dealership and report-period review",
             {fileName:candidate.name,sourceFamily:kind,
