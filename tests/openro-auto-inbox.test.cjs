@@ -246,30 +246,30 @@ test("matching RO duplicate never deletes if Assign Next repair fails after curr
   assert.equal(removed,0);assert.equal(moved,0);assert.equal(result.retained.length,1);
 });
 
-test("a roster committed before a dependent write failure is retained, not moved to Files To Learn",async()=>{
+test("an uncommitted unsigned grouped Open RO is held for review without invoking the importer or losing its source",async()=>{
   const code=section("  async function autoSurveyFolder(","  async function importReturnedWorkbook(");
-  const digest=await sha256(bytes),name="synthetic-projection-repair.xlsx";
+  const name="synthetic-unsigned-grouped.xlsx";
   const item={name,location:"inbox",relativePath:"01 - DROP REPORTS HERE/"+name,
     signature:"inbox|3|100",file:{lastModified:100,arrayBuffer:async()=>bytes}};
-  const model={state:{source:{sha256:"old"},records:[{ro:"prior"}]},autoImport:{seen:{}}};
-  let moved=0;
+  const state={source:{sha256:"old"},records:[{ro:"prior"}]};
+  const model={state,autoImport:{seen:{}}};
+  let moved=0,imported=0;
   const ctx={model,sourceLocations:new Map(),watchCandidates:async()=>[item],
     candidateNeedsImport:()=>true,classifyImportFile:async()=> "open-ro",
-    readJson:async()=>({source:{sha256:"old"},records:[{ro:"prior"}]}),
-    processClassifiedCandidate:async()=>{
-      model.state.source.sha256=digest; // production importer completed STATE_PATH write
-      throw new Error("Synthetic post-state projection write failed");
-    },
-    moveToLearn:async()=>{moved++;},
+    readJson:async()=>JSON.parse(JSON.stringify(state)),
+    processClassifiedCandidate:async()=>{imported++;throw Error("Must not replace roster");},
+    addHistory:async()=>{},moveToLearn:async()=>{moved++;},
     transientIntakeError:()=>false,sha256,now:()=> "2026-10-29",
     recordDiagnostic:()=>{},status:()=>{},writeJson:async()=>{},
     AUTO_IMPORT_PATH:["data","auto-import.json"],STATE_PATH:["data","state.json"],
     scanFiles:async()=>{},TextDecoder,Uint8Array,Map,Set,JSON};
   vm.runInNewContext(code,ctx);
-  const outcome=await ctx.autoSurveyFolder();
-  assert.equal(moved,0);
-  assert.equal(outcome.retained.length,1);
-  assert.equal(outcome.learned.length,0);
+  const result=await ctx.autoSurveyFolder();
+  assert.equal(imported,0);assert.equal(moved,0);
+  assert.equal(result.reviewRequired.length,1);
+  assert.equal(result.imported.length,0);
+  assert.equal(model.state.source.sha256,"old");
+  assert.equal(model.autoImport.seen[item.signature].manualImportRequired,true);
 });
 
 test("a committed Open RO write with a lost read-back is recovered from disk without reimport",async()=>{
@@ -413,25 +413,32 @@ test("automatic cleanup records its digest hold before discovering changed Inbox
   assert.equal(model.autoImport.seen[signature].cleanupSha256,await sha256(original));
 });
 
-test("post-import cleanup failure takes priority over generic saved-roster handling",async()=>{
+test("verified already-committed Open RO cleanup failure retains digest and pending retry without replacing roster",async()=>{
   const code=section("  async function autoSurveyFolder(","  async function importReturnedWorkbook(");
   const digest=await sha256(bytes),name="synthetic-cleanup.xlsx";
   const entry={name,location:"inbox",relativePath:"01 - DROP REPORTS HERE/"+name,
     signature:"inbox|3|100",file:{lastModified:100,arrayBuffer:async()=>bytes}};
-  const model={state:{source:{sha256:digest},records:[]},autoImport:{seen:{}}};
-  let moved=0;
+  const state={source:{sha256:digest,importedAt:"2026-10-29"},records:[],closedRecords:[],updatedAt:"synthetic"};
+  const model={state,autoImport:{seen:{}}};
+  let moved=0,imported=0;
   const ctx={model,sourceLocations:new Map(),watchCandidates:async()=>[entry],
     candidateNeedsImport:()=>true,classifyImportFile:async()=> "open-ro",
-    readJson:async()=>({source:{sha256:"older"}}),STATE_PATH:["data","state.json"],
-    processClassifiedCandidate:async()=>{throw Object.assign(Error("source replaced"),{sourceCleanupFailure:true});},
+    readJson:async()=>JSON.parse(JSON.stringify(state)),
+    STATE_PATH:["data","state.json"],AUTO_IMPORT_PATH:["data","auto-import.json"],
+    prepareXlsxWorkbook:async()=>({SheetNames:["Synthetic"],Sheets:{Synthetic:{}}}),
+    legacyReport:()=>({verification:"group totals and global rows returned reconciled",workloadRecords:[]}),
+    retainDailyReport:async()=>{},saveOpenRoWorkload:async()=>{},
+    openRoWorkloadSnapshot:()=>({}),ensureDailyFocus:async()=>{},
+    coverageTimestamp:()=> "2026-10-29",
+    processClassifiedCandidate:async()=>{imported++;throw Error("Already committed roster must never be reimported");},
+    removeSourceEntryWithByteGuard:async()=>{throw Object.assign(Error("source cleanup deferred"),{sourceCleanupFailure:true});},
     moveToLearn:async()=>{moved++;},sha256,writeJson:async()=>{},
-    AUTO_IMPORT_PATH:["data","auto-import.json"],now:()=> "2026-10-29",
-    recordDiagnostic:()=>{},status:()=>{},scanFiles:async()=>{},
+    now:()=> "2026-10-29",recordDiagnostic:()=>{},status:()=>{},scanFiles:async()=>{},
     TextDecoder,Uint8Array,Map,Set,JSON};
   vm.runInNewContext(code,ctx);
   const result=await ctx.autoSurveyFolder();
   assert.equal(result.cleanupPending.length,1);
-  assert.equal(moved,0);
+  assert.equal(moved,0);assert.equal(imported,0);
   assert.equal(model.autoImport.seen[entry.signature].cleanupSha256,digest);
   assert.equal(model.autoImport.seen[entry.signature].cleanupPending,true);
 });
