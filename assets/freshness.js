@@ -229,13 +229,25 @@
       // actually covers the required completed operating day.
       const start = input.periodStart;
       const startKnown = start !== undefined && start !== null && start !== "";
-      const startCoversExpected = !startKnown || (validDateKey(start) && start <= expected);
+      // SAPR and Next Appointments need actual prior-operating-day coverage.
+      // VIR is a point-in-time trend and may legitimately be observed today.
+      // Keep that existing VIR freshness contract while preventing end-only
+      // production reports from manufacturing an unstated prior-day interval.
+      const requiresPriorDayCoverage = input.key === "sapr" || input.key === "nextAppointments";
+      const coversExpected = startKnown
+        ? validDateKey(start) && start <= expected && input.periodEnd >= expected
+        : requiresPriorDayCoverage ? input.periodEnd === expected : input.periodEnd >= expected;
       current = validDateKey(expected) && validDateKey(input.periodEnd) &&
-        input.periodEnd >= expected && input.periodEnd <= today && startCoversExpected;
-      reason = current ? `Reporting period covers the prior completed operating day (${expected}).` :
-        startKnown && (!validDateKey(start) || start > expected)
+        input.periodEnd <= today && coversExpected;
+      reason = current
+        ? startKnown || !requiresPriorDayCoverage
+          ? `Reporting period covers the prior completed operating day (${expected}).`
+          : `The report observation is dated for the prior completed operating day (${expected}).`
+        : startKnown && (!validDateKey(start) || start > expected)
           ? `Report starts ${String(start)} and does not establish coverage of ${expected}.`
-          : `Report ends ${input.periodEnd || "on an unknown date"}; expected coverage through ${expected}.`;
+          : requiresPriorDayCoverage && !startKnown && validDateKey(input.periodEnd) && input.periodEnd > expected
+            ? `Report has no verified start date; the observation on ${input.periodEnd} cannot establish coverage of ${expected}.`
+            : `Report ends ${input.periodEnd || "on an unknown date"}; expected coverage through ${expected}.`;
     } else if (cadence === "weekly-monday") {
       const expected = mondayFor(today), represented = input.releaseWeek || input.periodEnd; expectedPeriod = expected; current = validDateKey(represented) && represented === expected;
       reason = current ? `Current Monday release (${expected}) is loaded.` : `Loaded release is ${represented || "unknown"}; expected Monday ${expected}.`;
