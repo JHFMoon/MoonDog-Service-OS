@@ -19,8 +19,8 @@ const params=[
 const cdjr="AutoNation CDJR Exampletown";
 const other="Different Brand Exampletown";
 function prepare({name="AutoNation Chrysler Dodge Jeep Ram Exampletown",
-  code="9001",ids=[],rows=[],parameters=params,reportConfig={}}={}){
-  const model={settings:{store:{name,code},storeName:name}};
+  code="9001",brand="",ids=[],rows=[],parameters=params,reportConfig={}}={}){
+  const model={settings:{store:{name,code,brand},storeName:name}};
   const sourceAdapter={reports:reportConfig};
   const XLSX={read:()=>({Sheets:{"HyperBi Report":{rows:[header,...rows]},Parameters:{rows:parameters}}}),
     utils:{sheet_to_json:(sheet)=>sheet.rows}};
@@ -83,6 +83,18 @@ test("an explicit vendor account alias must be bound to Guided Setup name and co
   const selected=good.parseMenuSalesWorkbook([],"synthetic-menu.xlsx");
   assert.equal(selected.account,cdjr);
   assert.equal(selected.validation.storeIdentityMethod,"configured-store-name");
+});
+test("Menu Sales vendor account aliases reject branded dealership identity drift",()=>{
+  const alias={accountName:cdjr,storeIdentityVerified:true,
+    guidedSetupStoreName:"Exampletown Motors",guidedSetupStoreCode:"9001",guidedSetupStoreBrand:"Dodge"};
+  const setup=brand=>prepare({name:"Exampletown Motors",code:"9001",brand,
+    ids:["3001"],rows:reportRows(),reportConfig:{menuSales:alias}});
+  assert.equal(setup("dODGE").parseMenuSalesWorkbook([],"synthetic-menu.xlsx").account,cdjr);
+  assert.throws(()=>setup("BMW").parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
+  assert.throws(()=>setup("").parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
+  const missingBrand=prepare({name:"Exampletown Motors",code:"9001",brand:"Dodge",
+    ids:["3001"],rows:reportRows(),reportConfig:{menuSales:{...alias,guidedSetupStoreBrand:""}}});
+  assert.throws(()=>missingBrand.parseMenuSalesWorkbook([],"synthetic-menu.xlsx"),/alias is not verified/);
 });
 test("same workbook does not select another dealership's rows on a fresh store",()=>{
   const dodge=prepare({name:"AutoNation Chrysler Dodge Jeep Ram Exampletown",code:"9001",ids:["3001"],rows:reportRows()});
