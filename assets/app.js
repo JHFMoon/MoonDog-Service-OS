@@ -1102,7 +1102,8 @@
         legacyUnsafe=key==='efficiency'&&Boolean(item)&&item.validation?.parser!=='efficiency-v2-role-hierarchy';
       // Record a successful import independently from verified report scope.
       // Do not re-request the same CSI export during this business date.
-      if(key==='csi'&&sourceExpectation(key)==='recommended'&&evidence.status!=='invalid'&&
+      if(key==='csi'&&sourceExpectation(key)==='recommended'&&
+         evidence.loaded&&['current','stale','historical-valid'].includes(evidence.status)&&
          model.operationalMetrics?.csi?.lastSuccessfulRefreshDate===todayKey&&
          (model.operationalMetrics.csi.imports||[]).length){
         out[key]={key,label:'CSI',state:'RECEIVED',actionable:false,actions:[],
@@ -1117,6 +1118,7 @@
       // Monday Menu Sales is expected, but without verified publication
       // evidence the dashboard cannot claim the release is already overdue.
       if(key==='menu'&&freshness.dayOfWeek(todayKey)===1&&
+          ['missing','stale'].includes(evidence.status)&&
           !evidence.safeForCurrent&&out[key].state==='NEED NOW'){
         out[key]={...out[key],state:'AWAITING RELEASE',actionable:false,actions:[],
           reason:'Monday release expected. Confirm it is published before importing; earlier weekly gaps remain in history.'};
@@ -1127,7 +1129,8 @@
       // current report even when normal source publication cadence is unknown.
       if(!['openRo','appointments'].includes(key)&&
           ['NEED NOW','NEED SOON'].includes(out[key].state)&&
-          !activeFeature&&!soonFeature&&evidence.status!=='invalid'&&!reportCadenceDue(key,todayKey)){
+          !activeFeature&&!soonFeature&&['missing','stale'].includes(evidence.status)&&
+          !reportCadenceDue(key,todayKey)){
         out[key]={...out[key],state:'AWAITING RELEASE',actionable:false,
           actions:[],reason:'Report is not scheduled as available yet. Missing dates remain unfilled.'};
       }
