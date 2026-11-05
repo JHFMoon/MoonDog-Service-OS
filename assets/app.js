@@ -4354,18 +4354,6 @@
         // competing manual import claimed authority. Its completion must not
         // mutate the new Workspace's intake ledger or report a false success.
         if(!scanEligible())return null;
-        if (kind==="appointments" && outcome?.saved && outcome.deleted===false) {
-          // Import is already verified and durable; do not re-import, do not
-          // claim removal, and do not discard the cleanup retry on next poll.
-          const cleanupDigest=await sha256(new Uint8Array(bytes));
-          if(!scanEligible())return null;
-          model.autoImport.seen[candidate.signature]={fileName:candidate.name,relativePath:candidate.relativePath,
-            importedAt:now(),kind,cleanupPending:true,cleanupSha256:cleanupDigest,
-            cleanupReason:outcome.retainedReason||"Deletion not verified"};
-          ledgerChanged=true;retained.push(candidate.name);cleanupPending.push(candidate.name);
-          recordDiagnostic("REPORT INBOX CLEANUP","Appointment snapshot saved; source removal pending retry");
-          continue;
-        }
         if(outcome?.retired)retired.push(candidate.name);else imported.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, relativePath:candidate.relativePath, importedAt: now(), kind, retired:Boolean(outcome?.retired) }; ledgerChanged = true;recordDiagnostic("REPORT INBOX",outcome?.retired?`${kind} recognized and retired outside Service OS`:`${kind} recognized and imported or safely deduplicated`);
       } catch (error) {
         // A delayed importer failure has no authority to update the replacement
