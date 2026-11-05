@@ -1379,6 +1379,8 @@
   // the source Workspace while a workbook save/import is awaiting the lock.
   let supervisorWorkbookInFlight = 0;
   async function withSupervisorWorkbookLock(operation,options={}) {
+    if(typeof workspaceRecoveryBusy!=="undefined"&&workspaceRecoveryBusy)
+      throw new Error("A Workspace recovery operation is in progress. Retry the workbook operation when it finishes.");
     const locks=globalThis.navigator?.locks;
     if(!locks?.request)throw new Error("This browser cannot safely serialize Supervisor Workbook operations. Use an up-to-date browser and retry.");
     const requestedRoot=model.root;
@@ -7141,8 +7143,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function withWorkspaceRecoveryHold(operation){
     if(typeof maintenanceEngine!=="undefined"&&maintenanceEngine?.running)
       throw new Error("Workspace housekeeping is in progress. Retry backup or recovery when it finishes.");
-    if(workspaceConnectionBusy||workspaceRecoveryBusy)
-      throw new Error("A Workspace connection or recovery operation is in progress. Retry when it finishes.");
+    if(workspaceConnectionBusy||workspaceRecoveryBusy||supervisorWorkbookInFlight>0)
+      throw new Error("A Workspace connection, workbook, or recovery operation is in progress. Retry when it finishes.");
     workspaceRecoveryBusy=true;
     try{return await operation();}
     finally{workspaceRecoveryBusy=false;}
