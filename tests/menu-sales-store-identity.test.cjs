@@ -228,3 +228,90 @@ test("Menu Sales keeps source scope and report period aligned across history, ba
   assert.equal(metric.period,"2026-10-19");
   assert.equal(metric.status,"verified");
 });
+
+test("overlapping synthetic stores retain separate Menu Sales and manager state through backup and reopen", async () => {
+  const rows=reportRows();
+  rows.splice(3,0,row(other,"3001","Overlapping Synthetic Advisor",10,.25,0,0));
+  const installs=[
+    prepare({name:"AutoNation Chrysler Dodge Jeep Ram Exampletown",code:"9001",brand:"Dodge",
+      ids:["3001"],rows}),
+    prepare({name:other,code:"7007",brand:"BMW",ids:["3001","1001"],rows})
+  ];
+  async function importAndRestore(context,index){
+    const model=context.model;
+    model.settings.schemaVersion=4;
+    Object.assign(model,{
+      root:{},state:{records:[{id:"shared-ro",ro:"SYN-301",advisorCode:"SYN-101",
+        management:{owner:"Synthetic Manager "+index,status:"Waiting Parts",
+          note:"Synthetic follow-up "+index,updatedAt:"2026-10-20T12:00:00Z"}}],closedRecords:[]},
+      appointments:{days:{}},performance:{snapshots:{}},assignNext:{days:{}},
+      autoImport:{seen:{}},operationalMetrics:{csi:{},menu:{snapshots:{}}},
+      meetingCycle:{metrics:{}}
+    });
+    const durable=new Map(),history=[];
+    Object.assign(context,{
+      structuredClone,freshness,localDateKey:()=>"2026-10-20",
+      OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
+      pruneDatedSnapshots:value=>value,
+      writeJson:async(file,value)=>durable.set(file.join("/"),JSON.stringify(value)),
+      readJson:async file=>{
+        const saved=durable.get(file.join("/"));
+        return saved===undefined?null:JSON.parse(saved);
+      },
+      addHistory:async(type,summary,details)=>history.push({type,summary,details}),
+      renderOverviewIntelligence:()=>{},sourceExpectation:()=>"recommended",
+      businessTimeZone:()=>"America/Los_Angeles",expectedMenuWeek:()=>"2026-10-19",
+      metricEvidence:value=>value
+    });
+    const importSource=app.slice(
+      app.indexOf("  async function importMenuSalesFile("),
+      app.indexOf("  const CSI_ADVISOR_CODES =",app.indexOf("  async function importMenuSalesFile("))
+    );
+    const importMenu=vm.runInNewContext(importSource+"\nimportMenuSalesFile",context);
+    await importMenu("synthetic-menu.xlsx",false,new Uint8Array([1]));
+    const archive=backupFunctions(app,model,"2026-10-20");
+    const {bytes}=await archive.createBackupBytes("Synthetic store "+index);
+    const {values}=await archive.validateBackupBytes(bytes);
+    const files=new Map(Object.entries(values).map(([name,value])=>[name,JSON.stringify(value)]));
+    const restored=await hydrateWorkspace(app,files,{});
+    return {model,restored,values,archive,history};
+  }
+  const [first,second]=await Promise.all(installs.map(importAndRestore));
+  const firstSnapshot=first.restored.operationalMetrics.menu.snapshots["2026-10-19"];
+  const secondSnapshot=second.restored.operationalMetrics.menu.snapshots["2026-10-19"];
+  assert.equal(firstSnapshot.account,cdjr);
+  assert.equal(secondSnapshot.account,other);
+  assert.equal(firstSnapshot.advisors["3001"].roCount,20);
+  assert.equal(firstSnapshot.advisors["3001"].sold,4);
+  assert.equal(secondSnapshot.advisors["3001"].roCount,10);
+  assert.equal(secondSnapshot.advisors["3001"].sold,0,
+    "a verified zero remains zero in the second store's saved source");
+  assert.equal(secondSnapshot.advisors["3001"].penetration,0);
+  assert.equal(first.values["data/settings.json"].store.brand,"Dodge");
+  assert.equal(second.values["data/settings.json"].store.brand,"BMW");
+  assert.equal(first.restored.state.records[0].management.note,"Synthetic follow-up 0");
+  assert.equal(second.restored.state.records[0].management.note,"Synthetic follow-up 1");
+  assert.equal(first.history.length,1);
+  assert.equal(second.history.length,1);
+  const liveStateBeforeRejectedRestore=JSON.stringify(first.restored.state);
+  assert.throws(()=>first.archive.verifyBackupStoreOwnership(
+    first.model.settings,second.values["data/settings.json"],true),/Needs Review/);
+  assert.equal(JSON.stringify(first.restored.state),liveStateBeforeRejectedRestore);
+  assert.equal(first.archive.verifyBackupStoreOwnership(
+    first.model.settings,first.values["data/settings.json"],true),true);
+
+  const sourceFreshness=app.slice(
+    app.indexOf("  function sourceFreshness("),
+    app.indexOf("  function metricDependencyEvidence(",app.indexOf("  function sourceFreshness("))
+  );
+  const evidenceContext=vm.createContext({
+    freshness,model:first.restored,sourceExpectation:()=>"recommended",
+    businessTimeZone:()=>"America/Los_Angeles",localDateKey:()=>"2026-10-20"
+  });
+  const missing=vm.runInContext(sourceFreshness+
+    "\nsourceFreshness('menu',{item:null,today:'2026-10-20'})",evidenceContext);
+  assert.equal(missing.status,"missing");
+  assert.equal(missing.loaded,false);
+  assert.equal(missing.reportPeriodVerified,false,
+    "an absent source in an independently reopened store cannot become verified zero");
+});
