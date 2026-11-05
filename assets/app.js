@@ -1293,7 +1293,30 @@
     return summary;
   }
   function monthEndCorrectionCandidate(month=priorMonthKey()){const existing=model.operationalMetrics.monthlySummaries?.[month],candidate=buildMonthEndSummary(month);if(existing?.status!=="locked"||candidate.status!=="locked")return null;const basis=(value)=>JSON.stringify(value?.basis||{});return existing.schemaVersion<2||basis(existing)!==basis(candidate)||JSON.stringify(existing.store)!==JSON.stringify(candidate.store)||JSON.stringify(existing.advisors)!==JSON.stringify(candidate.advisors)?candidate:null;}
-  async function applyMonthEndCorrection(month=priorMonthKey()){const candidate=monthEndCorrectionCandidate(month);if(!candidate)throw new Error("No verified month-end correction is ready.");if(!window.confirm(`Apply the verified ${month} late month-end correction? The existing locked summary will be backed up first.`))return;const previousSummary=model.operationalMetrics.monthlySummaries[month],previousUpdatedAt=model.operationalMetrics.updatedAt,backupSnapshot=JSON.parse(JSON.stringify(model.operationalMetrics));await writeJson(["backups",`${stamp()}-before-${month}-month-end-correction.json`],backupSnapshot);candidate.correctedAt=now();candidate.correctionOf=previousSummary?.lockedAt||"";model.operationalMetrics.monthlySummaries[month]=candidate;model.operationalMetrics.updatedAt=now();try{await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);const check=await readJson(OPERATIONAL_METRICS_PATH,null);if(JSON.stringify(check?.monthlySummaries?.[month])!==JSON.stringify(candidate))throw new Error("Month-end correction could not be verified after saving.");}catch(error){model.operationalMetrics.monthlySummaries[month]=previousSummary;if(previousUpdatedAt===undefined)delete model.operationalMetrics.updatedAt;else model.operationalMetrics.updatedAt=previousUpdatedAt;throw error;}await addHistory("month-end-correction",`Applied verified late month-end sources for ${month}`,{month,basis:candidate.basis});renderAll();}
+  async function applyMonthEndCorrection(month=priorMonthKey()){
+    const candidate=monthEndCorrectionCandidate(month);
+    if(!candidate)throw new Error("No verified month-end correction is ready.");
+    if(!window.confirm(`Apply the verified ${month} late month-end correction? The existing locked summary will be backed up first.`))return;
+    const connectedRoot=model.root,originalMetrics=model.operationalMetrics;
+    const original=JSON.stringify(originalMetrics);
+    const authorityCurrent=()=>model.root===connectedRoot&&model.operationalMetrics===originalMetrics&&
+      JSON.stringify(model.operationalMetrics)===original;
+    const backupSnapshot=JSON.parse(original),updated=JSON.parse(original);
+    candidate.correctedAt=now();
+    candidate.correctionOf=updated.monthlySummaries[month]?.lockedAt||"";
+    updated.monthlySummaries[month]=candidate;
+    updated.updatedAt=now();
+    await writeJson(["backups",`${stamp()}-before-${month}-month-end-correction.json`],backupSnapshot);
+    if(!authorityCurrent())throw new Error("Month-end source data changed during backup. Reconnect and retry.");
+    await writeJson(OPERATIONAL_METRICS_PATH,updated);
+    const check=await readJson(OPERATIONAL_METRICS_PATH,null);
+    if(JSON.stringify(check)!==JSON.stringify(updated))
+      throw new Error("Month-end correction could not be verified after saving.");
+    if(!authorityCurrent())throw new Error("Month-end Workspace changed during durable verification. Reconnect and review before retry.");
+    model.operationalMetrics=updated;
+    await addHistory("month-end-correction",`Applied verified late month-end sources for ${month}`,{month,basis:candidate.basis});
+    renderAll();
+  }
   function syncArrivalDate() { const date = localDateKey(); ui.appointmentDate.value = date; ui.currentArrivalDate.textContent = new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { timeZone:"UTC",weekday: "long", month: "long", day: "numeric" }); return date; }
   const stamp = () => now().replace(/[:.]/g, "-");
   const slug = (v) => String(v).replace(/[^a-z0-9_-]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || "record";
