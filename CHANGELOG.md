@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.361 — current Beta
+
+- guard(59-03): coordinate housekeeping with reconnect and recovery. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.360 — current Beta
 
 - guard(59-03): exclude workbook and manager recovery operations. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
