@@ -2843,7 +2843,7 @@
       const offset=rows.slice(from,to).findIndex(row=>{
         const label=text(row[0]).trim();
         return norm(label)==='grand total'||(!label.includes(',')&&Number.isFinite(performanceNumber(row[1]))&&
-          /^[a-z0-9]+(?:[-_.][a-z0-9]+)*(?:\s+-\s*|-\s+)\S/i.test(label));
+          /^[a-z0-9]+(?:[-_.][a-z0-9]+)*\s*-\s*\S/i.test(label));
       });
       return offset<0?to:from+offset;
     };

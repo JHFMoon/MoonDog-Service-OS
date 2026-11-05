@@ -52,13 +52,13 @@ const multiStoreRows = [
   ['SYN01 - Local Store', 1, 80, 81, 100, 110, 110, 120],
   ['Master Technician', null, null, null, 100, 110],
   ['Local, Technician', null, null, null, 100, 110],
-  ['SYN02 - Other Store', 1, 80, 81, 700, 740, 106, 120],
+  ['SYN02-Other Store', 1, 80, 81, 700, 740, 106, 120],
   ['Master Technician', null, null, null, 700, 740],
   ['Foreign, Technician', null, null, null, 700, 740],
   nonProductive,
   ['SYN01 - Local Store', 1, 1, 100, 40],
   ['Local, Advisor', null, null, null, 40],
-  ['SYN02 - Other Store', 1, 1, 100, 90],
+  ['SYN02-Other Store', 1, 1, 100, 90],
   ['Foreign, Advisor', null, null, null, 90],
 ];
 
