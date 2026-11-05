@@ -6,6 +6,7 @@ const path=require("node:path");
 const vm=require("node:vm");
 const crypto=require("node:crypto").webcrypto;
 const freshness=require("../assets/freshness.js");
+const { hydrateWorkspace, backupFunctions }=require("./helpers/workspace-source-roundtrip.cjs");
 
 const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
 function extract(first,last,label){
@@ -31,7 +32,7 @@ function textContent(value){
   return String(value.textContent||"")+" "+(value.children||[]).map(textContent).join(" ");
 }
 
-test("synthetic CSI import keeps period and lineage aligned through durable storage, Home, Meeting, and history",async()=>{
+test("synthetic CSI import keeps period and lineage aligned through durable storage, verified backup, hydration, Home, Meeting, and history",async()=>{
   const csv=[
     "From,2026-10-01","To,2026-10-06",
     ["Invite_ID","_recordId","SURVEY_STATUS","INCLUDE_IN_SCORING","Date of Survey (-04:00 GMT)",
@@ -39,7 +40,12 @@ test("synthetic CSI import keeps period and lineage aligned through durable stor
     ["synthetic-survey-01","synthetic-pulse-01","Pulse Completed","Yes","2026-10-06",
       "Demo Advisor","10","Promoter","10","Promoter"].join(",")
   ].join("\n")+"\n";
-  const model={settings:{csiPeriodStart:"2026-10-01"},operationalMetrics:{csi:{surveys:{},imports:[]}}};
+  const model={
+    root:{},state:{records:[{id:"shared-ro"}],closedRecords:[]},
+    settings:{schemaVersion:4,store:{code:"9001",name:"Synthetic Dodge"},csiPeriodStart:"2026-10-01"},
+    appointments:{days:{}},performance:{snapshots:{}},assignNext:{days:{}},
+    autoImport:{seen:{}},operationalMetrics:{csi:{surveys:{},imports:[]}},meetingCycle:{metrics:{}},
+  };
   const ui=Object.fromEntries(["moondogNeeds","nextAppointmentsSummary","nextAppointmentsCoverage","virSummary",
     "virCoverage","menuSummary","menuCoverage","csiSummary","csiCoverage"].map(key=>[key,node()]));
   let durable=null;
@@ -92,8 +98,20 @@ test("synthetic CSI import keeps period and lineage aligned through durable stor
   assert.equal(history[0].details.fileName,"synthetic-csi.csv");
   assert.equal(history[0].details.scoringSurveys,1);
 
+  const archive=backupFunctions(app,model,"2026-10-07");
+  const {bytes}=await archive.createBackupBytes("Synthetic CSI");
+  const {values}=await archive.validateBackupBytes(bytes);
+  assert.equal(JSON.stringify(values["data/operational-metrics.json"]),JSON.stringify(durable));
+  assert.throws(()=>archive.verifyBackupStoreOwnership(
+    {store:{code:"1002",name:"Synthetic BMW"}},values["data/settings.json"],true
+  ),/does not match Guided Setup/);
+  const files=new Map(Object.entries(values).map(([name,value])=>[name,JSON.stringify(value)]));
+  const restored=await hydrateWorkspace(app,files,{});
+  assert.equal(restored.operationalMetrics.csi.surveys["synthetic-survey-01"].surveyDate,"2026-10-06");
+  Object.assign(model,restored);
+
   context.renderHome();
-  const summary=context.npsSummary(durable.csi.surveys);
+  const summary=context.npsSummary(model.operationalMetrics.csi.surveys);
   const lineage=context.csiMetricEvidence(summary);
   const homeCoverage=ui.csiCoverage.textContent;
   const homeSummary=textContent(ui.csiSummary);

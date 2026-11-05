@@ -2208,7 +2208,14 @@
   }
   function pruneDatedSnapshots(snapshots, limit = 730) { const dates = Object.keys(snapshots).sort(); return Object.fromEntries(dates.slice(-limit).map((date) => [date, snapshots[date]])); }
   async function importNextAppointmentsFile(name, deleteAfterSuccess = false, allowInteractiveReplacement = false) {
-    const file = await (await sourceFileHandle(name)).getFile(), source = await file.text(), snapshot = parseNextAppointmentsCsv(source, name), key=snapshot.periodEnd||`observation-${snapshot.observationDate}`,existingSnapshot=model.operationalMetrics.nextAppointments.snapshots[key],replacing=Boolean(existingSnapshot),prior=structuredClone(model.operationalMetrics);
+    const connectedRoot = model.root, original = model.operationalMetrics;
+    const originalBytes = JSON.stringify(original);
+    const authorityCurrent = () => model.root === connectedRoot && model.operationalMetrics === original &&
+      JSON.stringify(original) === originalBytes;
+    const file = await (await sourceFileHandle(name)).getFile(), source = await file.text();
+    if (!authorityCurrent()) throw new Error("Workspace source data changed during Next Appointments preparation. Reconnect and retry.");
+    const snapshot = parseNextAppointmentsCsv(source, name), key = snapshot.periodEnd || `observation-${snapshot.observationDate}`;
+    const existingSnapshot = original.nextAppointments.snapshots[key], replacing = Boolean(existingSnapshot);
     snapshot.sourceStoreConfidence="configured-destination-only";
     const comparable = value => {
       const volatile = new Set(["sourceFile", "importedAt", "sourceModifiedAt", "sourceStoreConfidence", "validation"]);
@@ -2248,29 +2255,41 @@
       const check = await readJson(OPERATIONAL_METRICS_PATH, null);
       if (comparable(check?.nextAppointments?.snapshots?.[key]) !== comparable(existingSnapshot) || supplemental && comparable(check?.supplementalReports?.snapshots?.[supplementalKey]) !== comparable(existingSupplemental))
         throw new Error("The existing Appointments snapshots could not be verified from durable storage; the source was retained.");
+      if (!authorityCurrent()) throw new Error("Workspace source data changed during Next Appointments verification. Reconnect and review before retry.");
       await addHistory("next-appointments-duplicate", `Verified duplicate Next Appointments source for ${snapshot.periodEnd || "unverified period"}; saved snapshot was unchanged`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, sourceStoreConfidence:existingSnapshot?.sourceStoreConfidence||"unknown" });
-      if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted verified duplicate Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
+      if (deleteAfterSuccess) {
+        if (model.root !== connectedRoot) throw new Error("Workspace changed before Next Appointments cleanup. The source was retained.");
+        await removeSourceEntry(name);
+        await addHistory("source-deleted", `Deleted verified duplicate Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true });
+      }
       renderOverviewIntelligence();
       return;
     }
-    const priorSnapshot = existingSnapshot;
+    const candidate = structuredClone(original);
     if (!snapshotDuplicate) {
-      model.operationalMetrics.nextAppointments.snapshots[key] = snapshot;
-      model.operationalMetrics.nextAppointments.snapshots = pruneDatedSnapshots(model.operationalMetrics.nextAppointments.snapshots);
+      candidate.nextAppointments.snapshots[key] = snapshot;
+      candidate.nextAppointments.snapshots = pruneDatedSnapshots(candidate.nextAppointments.snapshots);
     }
-    model.operationalMetrics.updatedAt = now();
-    if (supplemental) { model.operationalMetrics.supplementalReports ||= { snapshots: {} }; model.operationalMetrics.supplementalReports.snapshots[supplementalKey] = supplemental; model.operationalMetrics.supplementalReports.snapshots = pruneSupplementalSnapshots(model.operationalMetrics.supplementalReports.snapshots); }
-    try {
-      await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics);
-      const check = await readJson(OPERATIONAL_METRICS_PATH, null);
-      const expectedSnapshot = snapshotDuplicate ? priorSnapshot : snapshot;
-      if (comparable(check?.nextAppointments?.snapshots?.[key]) !== comparable(expectedSnapshot) || supplemental && comparable(check?.supplementalReports?.snapshots?.[supplementalKey]) !== comparable(supplemental))
-        throw new Error("The Appointments Created snapshots could not be verified after saving.");
-    } catch(error) { model.operationalMetrics = prior; throw error; }
+    candidate.updatedAt = now();
+    if (supplemental) {
+      candidate.supplementalReports ||= { snapshots: {} };
+      candidate.supplementalReports.snapshots[supplementalKey] = supplemental;
+      candidate.supplementalReports.snapshots = pruneSupplementalSnapshots(candidate.supplementalReports.snapshots);
+    }
+    await writeJson(OPERATIONAL_METRICS_PATH, candidate);
+    const check = await readJson(OPERATIONAL_METRICS_PATH, null);
+    if (JSON.stringify(check) !== JSON.stringify(candidate))
+      throw new Error("The Appointments Created snapshots could not be verified after saving.");
+    if (!authorityCurrent()) throw new Error("Workspace source data changed during Next Appointments verification. Reconnect and review before retry.");
+    model.operationalMetrics = candidate;
     if (!snapshotDuplicate)
       await addHistory("next-appointments-import", `${replacing ? "Replaced" : "Added"} Next Appointments ${snapshot.periodEnd ? `snapshot through ${snapshot.periodEnd}` : "import observation; period unverified"}`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, identityConflicts: snapshot.identityConflicts.length, sourceStoreConfidence:snapshot.sourceStoreConfidence||"unknown" });
     if (supplemental) await addHistory("supplemental-report-import", `${existingSupplemental ? "Replaced" : "Retained"} Appointments Created service summary from the same report`, { fileName: name, family: supplemental.family, supplementalOnly: true, sourceStoreConfidence:supplemental.sourceStoreConfidence||"unknown" });
-    if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
+    if (deleteAfterSuccess) {
+      if (model.root !== connectedRoot) throw new Error("Workspace changed before Next Appointments cleanup. The source was retained.");
+      await removeSourceEntry(name);
+      await addHistory("source-deleted", `Deleted imported Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true });
+    }
     renderOverviewIntelligence();
   }
   const VIR_NAME_CODES = {};
