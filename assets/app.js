@@ -2326,6 +2326,10 @@
   function shouldStoreVir(candidate, existing) { return !existing||newerVirSnapshot(candidate,existing); }
   function applyVirResolution(snapshot,resolution){snapshot.observationTimestamp=resolution.observationTimestamp;snapshot.coverageMethod="vir-point-in-time";snapshot.validation.coverageMethod="vir-point-in-time";snapshot.validation.coverageBasis=resolution.basis;delete snapshot.effectiveDataThrough;}
   async function saveVirSnapshot(snapshot) {
+    const connectedRoot=model.root,original=model.operationalMetrics;
+    const originalBytes=JSON.stringify(original);
+    const authorityCurrent=()=>model.root===connectedRoot&&model.operationalMetrics===original&&
+      JSON.stringify(original)===originalBytes;
     const resolution=virObservationResolution(snapshot),key=virObservationKey(snapshot);
     applyVirResolution(snapshot,resolution);
     const reportDate=virConflictDate(snapshot);
@@ -2336,24 +2340,19 @@
         throw new Error(`Conflicting VIR report for observation date ${reportDate} is already saved. The existing observation was retained; review the source conflict before importing.`);
       return{resolved:true,date:virObservationDate(snapshot),key:sameDate[0][0],idempotent:true};
     }
-    const priorMetrics=structuredClone(model.operationalMetrics);
-    model.operationalMetrics.vir.pending||={};
-    model.operationalMetrics.vir.snapshots||={};
-    model.operationalMetrics.vir.snapshots[key]=snapshot;
-    model.operationalMetrics.vir.snapshots=pruneDatedSnapshots(model.operationalMetrics.vir.snapshots);
-    model.operationalMetrics.updatedAt=now();
-    try {
-      await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);
-      const check=await readJson(OPERATIONAL_METRICS_PATH,null);
-      const retained=check?.vir?.snapshots?.[key];
-      if(JSON.stringify(retained)!==JSON.stringify(snapshot))
-        throw new Error("The VIR observation could not be verified after saving.");
-    } catch(error) {
-      // A failed write or partial/mismatched read-back cannot become runtime
-      // authority. importVirFile will also leave the original source in place.
-      model.operationalMetrics=priorMetrics;
-      throw error;
-    }
+    const candidate=structuredClone(original);
+    candidate.vir.pending||={};
+    candidate.vir.snapshots||={};
+    candidate.vir.snapshots[key]=snapshot;
+    candidate.vir.snapshots=pruneDatedSnapshots(candidate.vir.snapshots);
+    candidate.updatedAt=now();
+    await writeJson(OPERATIONAL_METRICS_PATH,candidate);
+    const check=await readJson(OPERATIONAL_METRICS_PATH,null);
+    if(JSON.stringify(check)!==JSON.stringify(candidate))
+      throw new Error("The VIR observation could not be verified after saving.");
+    if(!authorityCurrent())
+      throw new Error("Workspace source data changed during VIR verification. Reconnect and review before retry.");
+    model.operationalMetrics=candidate;
     try {
       await addHistory("vir-import","Added independent VIR point-in-time observation",{
         fileName:snapshot.sourceFile,
@@ -2373,7 +2372,19 @@
     return{resolved:true,date:virObservationDate(snapshot),key};
   }
   async function importVirFile(name, deleteAfterSuccess = false) {
-    const file = await (await sourceFileHandle(name)).getFile(), snapshot = parseVirCsv(await file.text(), name); snapshot.sourceStoreConfidence="configured-destination-only"; snapshot.sourceModifiedAt = new Date(file.lastModified).toISOString(); snapshot.observationTimestamp=snapshot.reportDate?`${snapshot.reportDate}T12:00:00-07:00`:snapshot.sourceModifiedAt||snapshot.importedAt;snapshot.sourceLocation=sourceLocations.get(name)||"root"; const result = await saveVirSnapshot(snapshot);
+    const connectedRoot=model.root,original=model.operationalMetrics;
+    const originalBytes=JSON.stringify(original);
+    const file=await(await sourceFileHandle(name)).getFile(),source=await file.text();
+    if(model.root!==connectedRoot||model.operationalMetrics!==original||JSON.stringify(original)!==originalBytes)
+      throw new Error("Workspace source data changed during VIR preparation. Reconnect and retry.");
+    const snapshot=parseVirCsv(source,name);
+    snapshot.sourceStoreConfidence="configured-destination-only";
+    snapshot.sourceModifiedAt=new Date(file.lastModified).toISOString();
+    snapshot.observationTimestamp=snapshot.reportDate?`${snapshot.reportDate}T12:00:00-07:00`:snapshot.sourceModifiedAt||snapshot.importedAt;
+    snapshot.sourceLocation=sourceLocations.get(name)||"root";
+    const result=await saveVirSnapshot(snapshot);
+    if (deleteAfterSuccess && model.root !== connectedRoot)
+      throw new Error("Workspace changed before VIR cleanup. The source was retained.");
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported VIR source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
     return result.resolved;
   }
