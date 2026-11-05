@@ -17,6 +17,7 @@ function extract(startToken, endToken, label) {
   return app.slice(start, end);
 }
 
+const saprParser = extract("  function performanceNumber(", "  function prunePerformanceSnapshots(", "SAPR parser");
 const historyWriter = extract("  async function addHistory(", "  function migrateOpenRoFieldIdentity(", "SAPR production history writer");
 const importer = extract("  async function importPerformanceFile(", "  function performanceFormat(", "SAPR importer");
 const entity = extract("  function performanceEntity(", "  function performanceDelta(", "SAPR entity selector");
@@ -41,26 +42,28 @@ function node() {
     before() {}
   };
 }
-const syntheticSnapshot = {
-  date: "2026-10-21",
-  periodStart: "2026-10-01",
-  periodEnd: "2026-10-21",
-  sourceFile: "synthetic-sapr.xlsx",
-  sourceStoreConfidence: "configured-destination-only",
-  saprDaysCompleted: 8,
-  saprTotalDays: 22,
-  validation: { advisorDetailSheets: 1, saprDaysVerified: true, finalTotalsVerified: true },
-  store: {
-    name: "Synthetic Store", totalGross: 2437, totalRO: 10, grossPerRo: 243.7, open: 2, aged: 1
-  },
-  advisors: {
-    "SYN-01": {
-      code: "SYN-01", name: "Synthetic Advisor", totalGross: 2437,
-      totalRO: 10, grossPerRo: 243.7,
-      laborMargin: 10, partsMargin: 20, open: 2, aged: 1
-    }
-  }
-};
+const filename = "synthetic-sapr.xlsx";
+function saprWorkbook() {
+  const metrics = [
+    ["Days Completed 8 out of 22"],
+    ["Total Gross", 1600, null, null, null, null, 2437],
+    ["Total Revenue", 4000, null, null, null, null, 6000],
+    ["RO Count", 8, null, null, null, null, 10],
+    ["Hours per RO", 2],
+    ["ELR", 200],
+  ];
+  const benchmark = label => [label, ...Array.from({ length: 7 }, () =>
+    [25, 30, 40, null, null]).flat()];
+  return {
+    SheetNames: ["Store", "Advisor", "Controllables"],
+    Sheets: {
+      Store: [["Service Advisor Performance From 10/01/2026 to 10/21/2026"], ...metrics],
+      Advisor: [["Synthetic Advisor [SYN-01]"], ...metrics],
+      Controllables: [[], ["Tires", "Brakes"], [], [], [],
+        benchmark("Synthetic Store"), benchmark("Synthetic Advisor [SYN-01]")],
+    },
+  };
+}
 
 test("one synthetic SAPR snapshot keeps its period and working-day basis across import, backup, hydration, Performance, Meeting, and production history", async () => {
   const model = {
@@ -87,7 +90,11 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
     PERFORMANCE_PATH: ["data", "advisor-performance.json"],
     dailyPickedSources: new Set(["synthetic-sapr.xlsx"]),
     now: () => "2026-10-22T12:00:00Z",
-    parsePerformanceWorkbook: () => structuredClone(syntheticSnapshot),
+    XLSX: { read: saprWorkbook, utils: { sheet_to_json: rows => rows } },
+    ADVISOR_NAMES: { "SYN-01": "Synthetic Advisor" },
+    text: value => String(value ?? ""),
+    norm: value => String(value ?? "").trim().toLowerCase(),
+    storeRowPattern: () => /^Synthetic Store$/,
     prunePerformanceSnapshots: snapshots => snapshots,
     stamp: () => "2026-10-22T12-00-00Z",
     slug: value => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
@@ -127,7 +134,7 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
     lastDayOfMonth: month => month + "-31",
     localDateKey: () => "2026-10-22",
     businessTimeZone: () => "America/Los_Angeles",
-    freshness: { timeParts: () => ({ hour: 12 }) },
+    freshness: { ...require("../assets/freshness.js"), timeParts: () => ({ hour: 12 }) },
     standard: key => key === "cpElr" ? 150 : key === "cpHoursPerRo" ? 1.8 : key === "mediaViewed" ? 80 : key === "texting" ? 90 : 0,
     shortDate: value => value === "2026-10-21" ? "Oct 21" : String(value || ""),
     compactMoney: value => "$" + Math.round(value / 1000) + "K",
@@ -143,14 +150,19 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
     console
   });
   vm.runInContext([
-    historyWriter, importer, entity, delta, plan, saprSnapshotSelector, performanceView, meeting,
+    saprParser, historyWriter, importer, entity, delta, plan, saprSnapshotSelector, performanceView, meeting,
     "this.api = { importPerformanceFile, performanceEntity, performancePlan, renderPerformance, meetingAdvisorTv };"
   ].join("\n"), context);
 
-  await context.api.importPerformanceFile("synthetic-sapr.xlsx", false, new ArrayBuffer(8));
+  await context.api.importPerformanceFile(filename, false, new ArrayBuffer(8));
 
-  assert.equal(JSON.stringify(durable.snapshots["2026-10-21"]), JSON.stringify(syntheticSnapshot),
-    "the verified SAPR snapshot and its source period must survive durable read-back");
+  const saved = durable.snapshots["2026-10-21"];
+  assert.equal(saved.periodStart, "2026-10-01");
+  assert.equal(saved.periodEnd, "2026-10-21");
+  assert.equal(saved.sourceStoreConfidence, "configured-destination-only");
+  assert.equal(saved.store.totalGross, 2437);
+  assert.equal(saved.controllables.advisors["SYN-01"].tires.eligibleVins, 8);
+  assert.equal(saved.controllables.advisors["SYN-01"].tires.soldVins, 2);
   assert.deepEqual(persistenceEvents, ["write", "readback", "history"],
     "a SAPR import must enter durable audit history only after its snapshot is verified");
   assert.deepEqual(JSON.parse(JSON.stringify(history)), [{
