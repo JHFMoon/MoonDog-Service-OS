@@ -72,6 +72,7 @@ test("manual VIR importer persists only destination-reviewed source ownership",a
   const source=production("  async function importVirFile(","  function normalizeOperationalCoverage(");
   let recorded=null;
   const ctx=vm.createContext({
+    model:{root:{},operationalMetrics:{vir:{snapshots:{}}}},
     sourceFileHandle:async()=>({getFile:async()=>({
       lastModified:Date.UTC(2026,10,4,12),
       text:async()=>"synthetic"
