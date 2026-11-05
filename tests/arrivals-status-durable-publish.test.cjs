@@ -34,10 +34,10 @@ function harness(options = {}) {
       }
     }
   };
-  const model = { appointments: clone(initial) };
+  const model = { root: {}, appointments: clone(initial) };
   const events = [], writes = [], history = [], statuses = [];
   const ctx = vm.createContext({
-    model, appointmentImportBusy: false, ui: { appointmentDate: { value: day } },
+    model, workspaceConnectionBusy: false, workspaceRecoveryBusy: false, appointmentImportBusy: false, ui: { appointmentDate: { value: day } },
     APPOINTMENTS_PATH: ["data", "appointments.json"],
     stamp: () => "synthetic-stamp",
     now: () => "2026-10-31T16:00:00.000Z",
@@ -141,7 +141,7 @@ test("overlapping same-tab Arrivals status changes cannot overwrite one another"
   await started.promise;
   await assert.rejects(
     h.ctx.saveArrival("synthetic-appointment-1", "No Show"),
-    /Arrivals status save or import is already in progress/
+    /Workspace operation or Arrivals save is already in progress/
   );
   assert.equal(h.model.appointments.days[day].appointments[0].arrivalStatus, "Scheduled");
   gate.resolve();
@@ -170,7 +170,7 @@ test("status changes refuse concurrent appointment import before writing", async
   h.ctx.appointmentImportBusy = true;
   await assert.rejects(
     h.ctx.saveArrival("synthetic-appointment-1", "Arrived"),
-    /Arrivals status save or import is already in progress/
+    /Workspace operation or Arrivals save is already in progress/
   );
   assert.deepEqual(h.model.appointments, h.initial);
   assert.deepEqual(h.events, ["render"]);
@@ -219,4 +219,26 @@ test("clone failure releases local Arrivals save exclusion and restores selectio
   await h.ctx.saveArrival("synthetic-appointment-1", "Arrived");
   assert.equal(h.model.appointments.days[day].appointments[0].arrivalStatus, "Arrived");
   assert.equal(h.history.length, 1);
+});
+
+test("root replacement during the status backup cannot publish into another Workspace", async () => {
+  const h = harness({ onWrite: async (name, model) => {
+    if (name.startsWith("backups/")) model.root = {};
+  }});
+  await assert.rejects(h.ctx.saveArrival("synthetic-appointment-1", "Arrived"), /changed while the status backup/);
+  assert.equal(h.writes.length, 1);
+  assert.deepEqual(h.model.appointments, h.initial);
+  assert.deepEqual(h.history, []);
+});
+
+test("Arrivals status edit defers before backup while recovery or reconnect holds the Workspace", async () => {
+  for (const flag of ["workspaceConnectionBusy", "workspaceRecoveryBusy"]) {
+    const h = harness();
+    h.ctx[flag] = true;
+    await assert.rejects(h.ctx.saveArrival("synthetic-appointment-1", "Arrived"), /already in progress/);
+    assert.deepEqual(h.writes, []);
+    h.ctx[flag] = false;
+    await h.ctx.saveArrival("synthetic-appointment-1", "Arrived");
+    assert.equal(h.model.appointments.days[day].appointments[0].arrivalStatus, "Arrived");
+  }
 });

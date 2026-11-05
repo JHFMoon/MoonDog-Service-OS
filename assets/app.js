@@ -1610,6 +1610,7 @@
   let workspaceRecoveryBusy=false;
   function workspaceConnectionBlockReason(){
     return folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||workspaceRecoveryBusy||
+      (typeof arrivalStatusWriteBusy!=="undefined"&&arrivalStatusWriteBusy)||
       (typeof supervisorWorkbookInFlight!=="undefined"&&supervisorWorkbookInFlight>0)||
       (typeof maintenanceEngine!=="undefined"&&maintenanceEngine?.running)
       ? "Service Operations Dashboard is finishing another workspace operation. Reconnect after it finishes."
@@ -4634,12 +4635,12 @@
   }
   let arrivalStatusWriteBusy = false;
   async function updateArrivalStatus(id, value) {
-    const date = ui.appointmentDate.value, prior = model.appointments,
+    const connectedRoot = model.root, date = ui.appointmentDate.value, prior = model.appointments,
       appointment = prior.days[date]?.appointments.find(item => item.id === id);
     if (!appointment) return;
-    if (arrivalStatusWriteBusy || appointmentImportBusy) {
+    if (workspaceConnectionBusy || workspaceRecoveryBusy || arrivalStatusWriteBusy || appointmentImportBusy) {
       renderArrivals(); // Never leave a rejected selection showing an unsaved status.
-      throw new Error("An Arrivals status save or import is already in progress. Retry after it finishes.");
+      throw new Error("A Workspace operation or Arrivals save is already in progress. Retry after it finishes.");
     }
     arrivalStatusWriteBusy = true;
     try {
@@ -4648,13 +4649,13 @@
         edited = candidate.days[date].appointments.find(item => item.id === id),
         before = appointment.arrivalStatus;
       await writeJson(["backups", `${stamp()}-appointments-status.json`], prior);
-      if (model.appointments !== prior)
+      if (model.root !== connectedRoot || model.appointments !== prior)
         throw new Error("Appointments changed while the status backup was being saved. Refresh and retry.");
       edited.arrivalStatus = value;
       edited.statusUpdatedAt = now();
       candidate.updatedAt = now();
       await writeJson(APPOINTMENTS_PATH, candidate);
-      if (model.appointments !== prior)
+      if (model.root !== connectedRoot || model.appointments !== prior)
         throw new Error("Appointments changed while the status save was being verified. Refresh and reconcile the saved source before retrying.");
       model.appointments = candidate; // Published only after verified durable write.
       renderArrivals();
