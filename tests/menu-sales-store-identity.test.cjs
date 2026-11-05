@@ -136,7 +136,7 @@ test("bundle remains syntactically valid and menu identity is not hardcoded to o
   assert.doesNotMatch(parser,/ROSEVILLE|HAYWARD|FREMONT|SAN JOSE/i);
 });
 
-test("Menu Sales keeps reviewed store scope from import through backup, hydration and Meeting evidence", async () => {
+test("Menu Sales keeps source scope and report period aligned across history, backup, Home and Meeting", async () => {
   const context=prepare({ids:["1001","3001"],rows:reportRows()});
   const model=context.model;
   model.settings.schemaVersion=4;
@@ -146,13 +146,14 @@ test("Menu Sales keeps reviewed store scope from import through backup, hydratio
     autoImport:{seen:{}},operationalMetrics:{csi:{},menu:{snapshots:{}}},meetingCycle:{metrics:{}},
   });
   let durable;
+  const history=[];
   Object.assign(context,{
     structuredClone,freshness,localDateKey:()=>"2026-10-20",
     OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
     pruneDatedSnapshots:value=>value,
     writeJson:async(_path,value)=>{durable=JSON.stringify(value);},
     readJson:async()=>JSON.parse(durable),
-    addHistory:async()=>{},renderOverviewIntelligence:()=>{},
+    addHistory:async(type,summary,details)=>history.push({type,summary,details}),renderOverviewIntelligence:()=>{},
     sourceExpectation:()=>"recommended",businessTimeZone:()=>"America/Los_Angeles",
     expectedMenuWeek:()=>"2026-10-19",metricEvidence:value=>value,
   });
@@ -164,6 +165,10 @@ test("Menu Sales keeps reviewed store scope from import through backup, hydratio
   const importMenu=vm.runInNewContext(
     section("  async function importMenuSalesFile(","  const CSI_ADVISOR_CODES =")+"\nimportMenuSalesFile",context);
   await importMenu("synthetic-menu.xlsx",false,new Uint8Array([1]));
+  assert.deepEqual(history.map(entry=>entry.type),["menu-sales-import"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(history[0].details)),{fileName:"synthetic-menu.xlsx",periodStart:"2026-10-01",
+    periodEnd:"2026-10-18",advisors:1},
+  "import history attributes the saved source to the same validated report interval");
   const archive=backupFunctions(app,model,"2026-10-20");
   const {bytes}=await archive.createBackupBytes("Synthetic Menu Sales");
   const {values}=await archive.validateBackupBytes(bytes);
@@ -174,8 +179,45 @@ test("Menu Sales keeps reviewed store scope from import through backup, hydratio
   assert.equal(snapshot.account,cdjr);
   assert.equal(snapshot.advisors["1001"],undefined);
   assert.equal(snapshot.advisors["3001"].roCount,20);
+  restored.settings={csiPeriodStart:"2026-10-01",setup:{sourceExpectations:{}}};
   context.model=restored;
   context.latestOperationalSnapshot=()=>snapshot;
+  const homeUi=Object.fromEntries([
+    "moondogNeeds","nextAppointmentsSummary","nextAppointmentsCoverage",
+    "virSummary","virCoverage","menuSummary","menuCoverage","csiSummary","csiCoverage"
+  ].map(name=>[name,{textContent:"",children:[],append(...items){this.children.push(...items);},
+    replaceChildren(...items){this.children=[...items];}}]));
+  const homeContext=vm.createContext({
+    ui:homeUi,model:restored,freshness,localDateKey:()=>"2026-10-20",
+    businessTimeZone:()=>"America/Los_Angeles",expectedMenuWeek:()=>"2026-10-19",
+    sourceExpectation:()=>"recommended",text:value=>String(value??""),
+    document:{createElement:()=>({textContent:"",children:[],append(...items){this.children.push(...items);},
+      replaceChildren(...items){this.children=[...items];}})},
+    latestNextAppointmentsSnapshot:()=>null,latestVirObservation:()=>null,
+    renderAdminCloseoutAttention:()=>{},renderTrendCoverageSummary:()=>{},
+    renderPreviousMonthTotals:()=>{},managerAttentionRequests:()=>[],
+    trendCoverageAudit:()=>({}),currentCsiSurveys:()=>({}),latestCsiRefreshDate:()=>"",
+    npsSummary:()=>({responses:0}),reportNeeds:()=>({}),sourceLineageLabel:()=>"synthetic lineage",
+    standard:()=>NaN,performanceFormat:value=>String(value),shortDate:value=>String(value||"—")
+  });
+  const freshnessHelpers=section("  function sourceFreshness(","  function metricDependencyEvidence(");
+  const metricHelpers=section("  function metricEvidence({","  function metricEvidenceText(");
+  const snapshotHelpers=section("  function latestOperationalSnapshot(","  function csiReportedPeriod(");
+  const menuHelpers=section("  function verifiedMenuTrendReleases(","  function trendCoverageAudit(")+
+    section("  function menuMeetingEvidence(metric)","  function csiMetricEvidence(");
+  const homeRenderer=section("  function renderOverviewIntelligence() {",
+    "  const renderOverviewIntelligenceBase=renderOverviewIntelligence;");
+  vm.runInContext(freshnessHelpers+metricHelpers+snapshotHelpers+menuHelpers+homeRenderer+
+    "\nthis.renderActualHome=renderOverviewIntelligence;",homeContext);
+  homeContext.renderActualHome();
+  const nodeText=node=>[node.textContent,...(node.children||[]).map(nodeText)].filter(Boolean).join(" ");
+  const homeMenuText=nodeText(homeUi.menuSummary);
+  assert.match(homeMenuText,/Presentation/);
+  assert.match(homeMenuText,/70\.0%/,"Home must render the retained configured-store total");
+  assert.match(homeUi.menuCoverage.textContent,/2026-10-01 through 2026-10-18 · release week 2026-10-19/,
+    "Home must use the same report period and release week saved by the importer");
+  assert.equal(JSON.stringify(restored.operationalMetrics.menu.snapshots["2026-10-19"]),JSON.stringify(snapshot),
+    "rendering Home leaves the hydrated source authority unchanged");
   const meeting=vm.runInNewContext(
     section("  function verifiedMenuTrendReleases(","\n  function ")+
     section("  function sourceFreshness(","  function metricDependencyEvidence(")+
