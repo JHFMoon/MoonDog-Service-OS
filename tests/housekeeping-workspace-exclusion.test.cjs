@@ -12,6 +12,7 @@ function extract(first, last) {
   return app.slice(start, end);
 }
 const reconnect = extract('  function workspaceConnectionBlockReason()', '  async function finishConnection(');
+const recovery = extract('  async function withWorkspaceRecoveryHold(', '  async function createBackupNow(');
 const maintenance = extract('      busy:()=>!writeAuthority.canWrite', '\n      references:').trim();
 
 function fixture() {
@@ -31,7 +32,8 @@ function fixture() {
   });
   const reconnectReason = vm.runInContext(reconnect + '\nworkspaceConnectionBlockReason', context);
   const maintenanceBusy = vm.runInContext('({' + maintenance + '}).busy', context);
-  return { context, reconnectReason, maintenanceBusy };
+  const recoveryHold = vm.runInContext(recovery + '\nwithWorkspaceRecoveryHold', context);
+  return { context, reconnectReason, maintenanceBusy, recoveryHold };
 }
 
 test('running housekeeping excludes Workspace replacement and releases it once finished', () => {
@@ -48,5 +50,20 @@ test('housekeeping defers while Workspace reconnection is active', () => {
   context.workspaceConnectionBusy = true;
   assert.equal(maintenanceBusy(), true);
   context.workspaceConnectionBusy = false;
+  assert.equal(maintenanceBusy(), false);
+});
+
+test('recovery and housekeeping exclude one another before writes', async () => {
+  const { context, maintenanceBusy, recoveryHold } = fixture();
+  context.maintenanceEngine.running = true;
+  let calls = 0;
+  await assert.rejects(recoveryHold(() => { calls++; }), /housekeeping is in progress/);
+  assert.equal(calls, 0);
+  context.maintenanceEngine.running = false;
+  await recoveryHold(() => {
+    calls++;
+    assert.equal(maintenanceBusy(), true);
+  });
+  assert.equal(calls, 1);
   assert.equal(maintenanceBusy(), false);
 });
