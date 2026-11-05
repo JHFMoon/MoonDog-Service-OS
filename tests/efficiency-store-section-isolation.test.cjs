@@ -9,7 +9,15 @@ const start = app.indexOf('  function parseEfficiencyWorkbook(');
 const end = app.indexOf('\n  function parseOpenRoSummaryWorkbook(', start);
 assert.ok(start >= 0 && end > start);
 
-function parse(rows) {
+const identityStart = app.indexOf('  function reportStoreCode(family)');
+const identityEnd = app.indexOf('  const LEGACY_PARTICIPATION', identityStart);
+assert.ok(identityStart >= 0 && identityEnd > identityStart);
+const storeIdentity = app.slice(identityStart, identityEnd);
+
+const dodge = { code: 'SYN01', name: 'Synthetic Dodge', brand: 'Dodge' };
+const bmw = { code: 'SYN02', name: 'Synthetic BMW', brand: 'BMW' };
+
+function parse(rows, store = dodge) {
   const context = vm.createContext({
     XLSX: {
       read: () => ({ SheetNames: ['Fixture'], Sheets: { Fixture: { A1: { v: 'Efficiency Tracking Report' } } } }),
@@ -17,18 +25,17 @@ function parse(rows) {
     },
     text: value => String(value ?? ''),
     norm: value => String(value ?? '').trim().toLowerCase(),
-    storeRowPattern: () => /^SYN01\s*-/i,
     validCoverageDate: value => /^20\d\d-\d\d-\d\d$/.test(value),
     performanceNumber: value => typeof value === 'number' ? value : null,
     sourcePercent: (_book, _sheet, _row, _column, value) => value ?? null,
     resolveTechnicianName: () => '9001',
     serviceAdvisorNumber: () => '9901',
     advisorDisplayName: () => 'Synthetic Advisor',
-    model: { settings: { advisors: { 9901: {} } } },
-    reportStoreCode: () => 'SYN01',
+    model: { settings: { store, advisors: { 9901: {} } } },
+    sourceAdapter: { reports: {} },
     now: () => '2026-10-31T12:00:00Z',
   });
-  return vm.runInContext(app.slice(start, end) + '\nparseEfficiencyWorkbook', context)([], 'synthetic-efficiency.xlsx');
+  return vm.runInContext(storeIdentity + app.slice(start, end) + '\nparseEfficiencyWorkbook', context)([], 'synthetic-efficiency.xlsx');
 }
 
 const productive = ['productive', 'bay/tech ratio', 'bay utilization %', 'bic%', 'clock hours', 'flag hours', 'efficiency%', 'bic%'];
@@ -36,7 +43,7 @@ const nonProductive = ['non productive', 'tech count', 'asm count', 'asm/tech ra
   'avg. tech count saturday', 'avg. asm count saturday', 'asm/tech ratio % saturday'];
 
 test('Efficiency isolates the selected dealership in both sections even with reused advisor codes', () => {
-  const result = parse([
+  const rows = [
     ['Efficiency Tracking Report'],
     ['Date Range: 2026-10-01 - 2026-10-31'],
     productive,
@@ -51,7 +58,15 @@ test('Efficiency isolates the selected dealership in both sections even with reu
     ['Local, Advisor', null, null, null, 40],
     ['SYN02 - Other Store', 1, 1, 100, 90],
     ['Foreign, Advisor', null, null, null, 90],
-  ]);
+  ];
+  const result = parse(rows);
+  const otherStore = parse(rows, bmw);
+  assert.equal(result.storeCode, 'SYN01');
+  assert.equal(otherStore.storeCode, 'SYN02');
+  assert.equal(otherStore.store.clockHours, 700);
+  assert.equal(otherStore.technicians.length, 1);
+  assert.equal(otherStore.technicians[0].name, 'Foreign, Technician');
+  assert.equal(otherStore.advisors['9901'].asmHours, 90);
   assert.equal(result.store.clockHours, 100);
   assert.equal(result.groups.length, 1);
   assert.equal(result.technicians.length, 1);
