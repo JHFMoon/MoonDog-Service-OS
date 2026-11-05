@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.364 — current Beta
+
+- guard(59-03): coordinate source intake with manager recovery. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.363 — current Beta
 
 - guard(59-01): require dealership review for unsigned Arrivals reports. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
