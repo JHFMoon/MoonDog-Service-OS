@@ -22,7 +22,7 @@ test("a failed post-connect task releases the scan slot and does not starve late
   let context;
   const writeAuthority={canWrite:true};
   context=vm.createContext({
-    model,writeAuthority,workspaceConnectionBusy:false,postConnectionScanBusy:false,
+    model,writeAuthority,workspaceConnectionBusy:false,workspaceRecoveryBusy:false,postConnectionScanBusy:false,
     permissionWasPending:false,folderWatch:{busy:false},
     dailyImportBusy:false,appointmentImportBusy:false,
     folderWatchScan:async reason=>{

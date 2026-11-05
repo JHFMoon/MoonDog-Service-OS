@@ -139,6 +139,7 @@ test("post-connection maintenance yields between serialized jobs and continues a
     model: { root },
     permissionWasPending: false,
     workspaceConnectionBusy: false,
+    workspaceRecoveryBusy: false,
     postConnectionScanBusy: false,
     folderWatch: { busy: false },
     dailyImportBusy: false,

@@ -31,6 +31,7 @@ function harness({pauseAt="",permissionState="granted",watchError=null}={}){
   };
   const context=vm.createContext({
     model,folderWatch,writeAuthority,
+    workspaceRecoveryBusy:false,
     get workspaceConnectionBusy(){return state.workspaceConnectionBusy;},
     get postConnectionScanBusy(){return state.postConnectionScanBusy;},
     get dailyImportBusy(){return state.dailyImportBusy;},

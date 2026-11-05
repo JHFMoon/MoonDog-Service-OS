@@ -40,7 +40,7 @@ function fixture(backupPromise, recordHistory = async () => {}) {
 test('backup cannot begin or write while a Workspace connection is active', async () => {
   const { context, createBackupNow, calls } = fixture(Promise.resolve(null));
   context.workspaceConnectionBusy = true;
-  await assert.rejects(createBackupNow(), /Workspace connection, workbook, or recovery operation is in progress/);
+  await assert.rejects(createBackupNow(), /Workspace operation is in progress/);
   assert.equal(context.model.recovery.status, 'Ready');
   assert.deepEqual(calls, []);
 });
@@ -52,7 +52,7 @@ test('an active backup excludes reconnect and releases its hold after failure', 
   const result = createBackupNow();
   try {
     assert.match(workspaceConnectionBlockReason(), /another workspace operation/);
-    await assert.rejects(createBackupNow(), /Workspace connection, workbook, or recovery operation is in progress/);
+    await assert.rejects(createBackupNow(), /Workspace operation is in progress/);
     assert.deepEqual(calls, ['render', 'backup']);
   } finally {
     rejectBackup(new Error('synthetic backup failure'));

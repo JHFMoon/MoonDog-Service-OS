@@ -22,7 +22,7 @@ function harness(){
   const folderWatch={timer:null,busy:false,pending:new Map(),lastChecked:"",state:"OFF",message:""};
   const model={root:{name:"synthetic-root"},autoImport:{}};
   const context=vm.createContext({
-    model,folderWatch,writeAuthority:{canWrite:true},workspaceConnectionBusy:false,postConnectionScanBusy:false,dailyImportBusy:false,appointmentImportBusy:false,
+    model,folderWatch,writeAuthority:{canWrite:true},workspaceConnectionBusy:false,workspaceRecoveryBusy:false,postConnectionScanBusy:false,dailyImportBusy:false,appointmentImportBusy:false,
     REPORT_INBOX:"Report Inbox",AUTO_IMPORT_PATH:["data","auto-import.json"],
     folderWatchEnabled:()=>true,permission:async()=> "granted",watchStatus:()=>{},
     watchCandidates:async()=>{calls.watchCandidates++;markReadStarted();return readGate;},

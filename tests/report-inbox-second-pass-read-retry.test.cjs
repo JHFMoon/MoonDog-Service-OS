@@ -53,7 +53,7 @@ function harness({onlyUnreadable = false, csvPreview = false, unexpectedPreviewE
     model, folderWatch, Map, Set, Object, Array, Promise, Boolean, JSON, Date,
     Uint8Array, Error, console,
     writeAuthority: {canWrite: true},
-    workspaceConnectionBusy: false, postConnectionScanBusy: false,
+    workspaceConnectionBusy: false, workspaceRecoveryBusy: false, postConnectionScanBusy: false,
     dailyImportBusy: false, appointmentImportBusy: false,
     AUTO_IMPORT_PATH: ["data", "auto-import.json"],
     window: {scrollX: 0, scrollY: 0, scrollTo() {}},

@@ -37,6 +37,7 @@ for (const busyImport of ["dailyImportBusy", "appointmentImportBusy"]) {
       folderWatch,
       writeAuthority: { canWrite: true },
       workspaceConnectionBusy: false,
+      workspaceRecoveryBusy: false,
       postConnectionScanBusy: false,
       get dailyImportBusy() { return dailyImportBusy; },
       get appointmentImportBusy() { return appointmentImportBusy; },
