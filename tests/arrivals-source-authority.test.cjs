@@ -4,6 +4,7 @@ const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const freshness = require('../assets/freshness.js');
+const { hydrateWorkspace, backupFunctions } = require('./helpers/workspace-source-roundtrip.cjs');
 
 const app = readFileSync(path.join(__dirname, '../assets/app.js'), 'utf8');
 function extract(first, last) {
@@ -123,4 +124,39 @@ test('reviewed SDL rows survive durable reload while the same advisor ID cannot 
   assert.equal(selected.reportPeriodVerified, true);
   assert.equal(selected.periodEnd, date);
   assert.equal(selected.safeForCurrent, true);
+});
+
+test('reviewed Arrivals import survives backup validation and production Workspace hydration', async () => {
+  const local = fixture({ approved: true, picked: true, format: 'xlsx', realParser: true });
+  await local.run(false);
+  const durable = {
+    ...local.model, state: { records: [{ id: 'shared-ro' }], closedRecords: [] },
+    settings: { ...local.model.settings, schemaVersion: 4 },
+    appointments: local.durable(), performance: { snapshots: {} },
+    assignNext: { days: {} }, autoImport: { seen: {} },
+    operationalMetrics: { csi: {} }, meetingCycle: { metrics: {} },
+  };
+  const backup = backupFunctions(app, durable, date);
+  const { bytes } = await backup.createBackupBytes('Synthetic reviewed Arrivals');
+  const { values } = await backup.validateBackupBytes(bytes);
+  assert.equal(backup.verifyBackupStoreOwnership(durable.settings, values['data/settings.json'], true), true);
+  assert.throws(() => backup.verifyBackupStoreOwnership(
+    { store: { code: 'SYN-A', name: 'Synthetic Dodge' } }, values['data/settings.json'], true
+  ), /does not match Guided Setup/);
+
+  const files = new Map(Object.entries(values).map(([path, value]) => [path, JSON.stringify(value)]));
+  const model = await hydrateWorkspace(app, files, { appointments: { days: {} } });
+  assert.deepEqual(model.appointments, local.durable());
+  assert.equal(model.appointments.days[date].sourceStoreConfidence, 'configured-destination-only');
+  const context = vm.createContext({
+    model, freshness, sourceExpectation: () => 'recommended', businessTimeZone: () => 'America/Los_Angeles',
+  });
+  const selected = vm.runInContext(selector + '\nsourceFreshness', context)('appointments', { today: date });
+  assert.equal(selected.safeForCurrent, true);
+  assert.equal(selected.periodEnd, date);
+
+  const prior = model.appointments;
+  files.set('data/meeting-cycle.json', '{');
+  await assert.rejects(hydrateWorkspace(app, files, model), /JSON/);
+  assert.equal(model.appointments, prior, 'a corrupt companion file cannot publish partial hydration');
 });

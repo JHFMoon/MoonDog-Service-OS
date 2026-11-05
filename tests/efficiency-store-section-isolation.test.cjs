@@ -3,6 +3,7 @@ const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const { hydrateWorkspace, backupFunctions } = require('./helpers/workspace-source-roundtrip.cjs');
 
 const app = readFileSync(path.join(__dirname, '../assets/app.js'), 'utf8');
 const start = app.indexOf('  function parseEfficiencyWorkbook(');
@@ -126,4 +127,58 @@ test('Arrivals reconnect rejection and retry leave Efficiency scoped to the acti
   assert.equal(after.storeCode, 'SYN02');
   assert.equal(after.advisors['9901'].asmHours, 90);
   assert.equal(before.advisors['9901'].asmHours, 40);
+});
+
+async function importAndReloadEfficiency(store) {
+  const context = parserContext(multiStoreRows, store);
+  const model = context.model;
+  model.settings.schemaVersion = 4;
+  Object.assign(model, {
+    state: { records: [{ id: 'shared-ro' }], closedRecords: [] },
+    appointments: { days: {} }, performance: { snapshots: {} }, assignNext: { days: {} },
+    autoImport: { seen: {} }, operationalMetrics: { csi: {} }, meetingCycle: { metrics: {} },
+  });
+  let persisted;
+  Object.assign(context, {
+    structuredClone,
+    parseSorWorkbook() {}, parseAppointmentActivityWorkbook() {}, parseMediaAsrAdvisorWorkbook() {},
+    parseMediaAsrTechWorkbook() {}, parseOpenRoSummaryWorkbook() {},
+    sourceFileHandle: async () => ({ getFile: async () => ({ lastModified: Date.parse('2026-10-31T12:00:00Z') }) }),
+    workbookGrid: () => ({ rows: multiStoreRows }),
+    dailyEvidenceDate: (_family, snapshot) => snapshot.periodEnd,
+    managerConflictObservationDate: (_family, snapshot) => snapshot.periodEnd,
+    pruneDatedSnapshots: snapshots => snapshots,
+    localDateKey: () => '2026-10-31',
+    OPERATIONAL_METRICS_PATH: ['data', 'operational-metrics.json'],
+    writeJson: async (_path, payload) => { persisted = JSON.stringify(payload); },
+    readJson: async () => JSON.parse(persisted),
+    addHistory: async () => {},
+  });
+  const importerStart = app.indexOf('  async function importManagerSource(');
+  const importerEnd = app.indexOf('  async function classifyImportFile(', importerStart);
+  assert.ok(importerStart >= 0 && importerEnd > importerStart);
+  const importReport = vm.runInContext(storeIdentity + app.slice(start, end) +
+    app.slice(importerStart, importerEnd) + '\nimportManagerSource', context);
+  await importReport('synthetic-efficiency.xlsx', 'efficiency', []);
+  const archive = backupFunctions(app, model, '2026-10-31');
+  const { bytes } = await archive.createBackupBytes('Synthetic Efficiency');
+  const { values } = await archive.validateBackupBytes(bytes);
+  assert.equal(JSON.stringify(values['data/operational-metrics.json']), persisted);
+  const files = new Map(Object.entries(values).map(([path, value]) => [path, JSON.stringify(value)]));
+  return { model: await hydrateWorkspace(app, files, {}), archive, settings: values['data/settings.json'] };
+}
+
+test('Efficiency import, backup and hydration preserve separate source values for overlapping advisor IDs', async () => {
+  const first = await importAndReloadEfficiency(dodge);
+  const second = await importAndReloadEfficiency(bmw);
+  const firstSource = first.model.operationalMetrics.efficiency.snapshots['2026-10-31'];
+  const secondSource = second.model.operationalMetrics.efficiency.snapshots['2026-10-31'];
+  assert.equal(firstSource.storeCode, dodge.code);
+  assert.equal(firstSource.advisors['9901'].asmHours, 40);
+  assert.equal(secondSource.storeCode, bmw.code);
+  assert.equal(secondSource.advisors['9901'].asmHours, 90);
+  assert.equal(firstSource.periodStart, '2026-10-01');
+  assert.equal(secondSource.periodEnd, '2026-10-31');
+  assert.throws(() => first.archive.verifyBackupStoreOwnership(second.settings, first.settings, true),
+    /does not match Guided Setup/);
 });
