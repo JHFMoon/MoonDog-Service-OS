@@ -2536,27 +2536,28 @@
         storeSummaryVerified:true,presentationAndPenetrationSeparate:true}};
   }
   async function importMenuSalesFile(name, deleteAfterSuccess = false, providedBytes = null, layoutOverride=null) {
+    const connectedRoot = model.root, original = model.operationalMetrics;
+    const originalBytes = JSON.stringify(original);
+    const authorityCurrent = () => model.root === connectedRoot && model.operationalMetrics === original &&
+      JSON.stringify(original) === originalBytes;
     const bytes = providedBytes || await (await (await sourceFileHandle(name)).getFile()).arrayBuffer();
     if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true });
+    if (!authorityCurrent()) throw new Error("Workspace source data changed during Menu Sales preparation. Reconnect and retry.");
     const snapshot = parseMenuSalesWorkbook(bytes, name,layoutOverride);
-    const priorSnapshot = model.operationalMetrics.menu.snapshots?.[snapshot.releaseWeek];
+    const priorSnapshot = original.menu.snapshots?.[snapshot.releaseWeek];
     if (priorSnapshot && comparableManagerSnapshot(priorSnapshot, "menu") !== comparableManagerSnapshot(snapshot, "menu"))
       throw new Error(`Conflicting Menu Sales report for release week ${snapshot.releaseWeek} is already saved. The existing snapshot was retained; review the source conflict before importing.`);
-    const priorMetrics = structuredClone(model.operationalMetrics);
-    model.operationalMetrics.menu.snapshots[snapshot.releaseWeek] = snapshot;
-    model.operationalMetrics.menu.snapshots = pruneDatedSnapshots(model.operationalMetrics.menu.snapshots, 156);
-    model.operationalMetrics.updatedAt = now();
-    try {
-      await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics);
-      const check = await readJson(OPERATIONAL_METRICS_PATH, null);
-      if (JSON.stringify(check?.menu?.snapshots?.[snapshot.releaseWeek]) !== JSON.stringify(snapshot))
-        throw new Error("The Menu Sales snapshot could not be verified after saving.");
-    } catch (error) {
-      // A failed or mismatched read-back is never evidence of a durable save.
-      // Restore in-memory state; leave any uncertain on-disk bytes for review.
-      model.operationalMetrics = priorMetrics;
-      throw error;
-    }
+    const candidate = structuredClone(original);
+    candidate.menu.snapshots[snapshot.releaseWeek] = snapshot;
+    candidate.menu.snapshots = pruneDatedSnapshots(candidate.menu.snapshots, 156);
+    candidate.updatedAt = now();
+    await writeJson(OPERATIONAL_METRICS_PATH, candidate);
+    const check = await readJson(OPERATIONAL_METRICS_PATH, null);
+    if (JSON.stringify(check) !== JSON.stringify(candidate))
+      throw new Error("The Menu Sales snapshot could not be verified after saving.");
+    if (!authorityCurrent())
+      throw new Error("Workspace source data changed during Menu Sales verification. Reconnect and review before retry.");
+    model.operationalMetrics = candidate;
     await addHistory("menu-sales-import", `Saved Menu Sales report for release week ${snapshot.releaseWeek}`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, advisors: Object.keys(snapshot.advisors).length });
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported Menu Sales source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
     renderOverviewIntelligence();
