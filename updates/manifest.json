@@ -10,9 +10,9 @@
   "beta": {
     "version": "0.10.18-beta.353",
     "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.353.json",
-    "sha256": "430ed6dd05eff4116c060cb879ca0678ba4bf445c789e6a12ec9e597d087f69c",
+    "sha256": "7c35713d9cdc53b741c8a62729ec987ea32867e99b561062796ee268842bd8d4",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "guard(59-03): exclude Daily import during Workspace reconnection. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged."
+    "releaseNotes": "fix(59-01): close exact-byte-reviewed Inbox source without replaying the original. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged."
   }
 }
