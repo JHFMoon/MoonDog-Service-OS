@@ -2834,8 +2834,8 @@
     const matches=confirmed.length?confirmed:Object.values(directory).filter(item=>[item.sourceName,item.displayName,...(item.sourceAliases||[])].filter(Boolean).some(alias=>normalizedPerson(alias)===key));
     return matches.length===1?String(matches[0].number):null;
   }
-  function learnTechnicians(snapshot) {
-    const family=model.operationalMetrics.mediaAsrTech||={snapshots:{}},directory=family.directory||={};
+  function learnTechnicians(snapshot, metrics) {
+    const family=metrics.mediaAsrTech||={snapshots:{}},directory=family.directory||={};
     for(const row of snapshot.technicians||[]){const number=String(row.id);if(!validTechnicianIdentity(number,row.name))continue;const prior=directory[number]||{},latest=!prior.lastSourceDate||snapshot.periodEnd>=prior.lastSourceDate;
       directory[number]={...prior,number,sourceName:latest?row.name:prior.sourceName,normalizedName:latest?normalizedPerson(row.name):prior.normalizedName,displayName:prior.displayName||model.settings.technicians?.[number]?.displayName||row.name,firstSeen:prior.firstSeen||snapshot.importedAt,lastSeen:snapshot.importedAt,lastSourceDate:latest?snapshot.periodEnd:prior.lastSourceDate,sourceAliases:[...new Set([...(prior.sourceAliases||[]),row.name])].slice(-30)};
     }
@@ -2913,7 +2913,89 @@
     if(family==="sor")return internalObservationDate(rows)||snapshot.coverageDate||dailyEvidenceDate(family,snapshot)||snapshot.periodEnd||snapshot.date||"";
     return snapshot.period||snapshot.periodEnd||snapshot.date||"";
   }
-  async function importManagerSource(name, kind, bytes, deleteAfterSuccess = false, layoutOverride = null) { const parseOptions = ["efficiency", "media-asr", "media-asr-tech"].includes(kind) ? { type: "array", raw: true, cellDates: true, cellNF: true } : { type: "array", raw: true, cellDates: true }; if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, parseOptions); const parsers = { sor: parseSorWorkbook, "appointment-activity": parseAppointmentActivityWorkbook, efficiency: parseEfficiencyWorkbook, "media-asr": parseMediaAsrAdvisorWorkbook, "media-asr-tech":parseMediaAsrTechWorkbook, "open-ro-summary": parseOpenRoSummaryWorkbook }, families = { sor: "sor", "appointment-activity": "appointmentActivity", efficiency: "efficiency", "media-asr": "mediaAsr", "media-asr-tech":"mediaAsrTech", "open-ro-summary": "openRoSummary" }, snapshot = kind === "appointment-activity" ? parsers[kind](bytes, name, layoutOverride) : parsers[kind](bytes, name), family = families[kind], key = snapshot.period || snapshot.periodEnd || snapshot.date; const sourceFile=await (await sourceFileHandle(name)).getFile(); snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString(); snapshot.coverageDate=family==="appointmentActivity"?snapshot.periodEnd:["sor"].includes(family)?internalObservationDate(workbookGrid(bytes).rows)||dailyEvidenceDate(family,snapshot):dailyEvidenceDate(family,snapshot); const observationDate=managerConflictObservationDate(family,snapshot,workbookGrid(bytes).rows),priorDailySnapshot=family==="sor"?model.operationalMetrics[family]?.dailySnapshots?.[observationDate]:null,priorMonthlySnapshot=family==="sor"?model.operationalMetrics[family]?.snapshots?.[key]:null,priorMonthlyObservationDate=priorMonthlySnapshot?managerConflictObservationDate("sor",priorMonthlySnapshot,[]):"",priorSnapshot=family==="sor"?(priorDailySnapshot||(observationDate&&priorMonthlyObservationDate===observationDate?priorMonthlySnapshot:null)):model.operationalMetrics[family]?.snapshots?.[key]; if(priorSnapshot){if(comparableManagerSnapshot(priorSnapshot,family)!==comparableManagerSnapshot(snapshot,family))throw new Error(`Conflicting ${kind} report for period ${observationDate||key} is already saved. The existing snapshot was retained; review the source conflict before importing.`);} const priorMetrics=structuredClone(model.operationalMetrics); if(family==="mediaAsrTech")learnTechnicians(snapshot); if(family==="efficiency"){const directory=model.operationalMetrics.mediaAsrTech?.directory;for(const row of snapshot.technicians||[]){if(row.number&&directory?.[row.number])directory[row.number].sourceAliases=[...new Set([...(directory[row.number].sourceAliases||[]),row.name])].slice(-30);}} model.operationalMetrics[family] ||= { snapshots: {} }; model.operationalMetrics[family].snapshots[key] = snapshot; if(family==="appointmentActivity"||(snapshot.coverageDate&&snapshot.coverageDate<=localDateKey())){model.operationalMetrics[family].dailySnapshots||={};if(family==="appointmentActivity"){const {dailyCounts,...overall}=snapshot;for(const [day,metrics] of Object.entries(dailyCounts||{})){if(day>localDateKey()||!Number.isInteger(metrics.rowCount)||metrics.rowCount<1)continue;model.operationalMetrics[family].dailySnapshots[day]={...structuredClone(overall),periodStart:day,periodEnd:day,coverageDate:day,rowCount:metrics.rowCount,byInteraction:structuredClone(metrics.byInteraction),byCreationDate:{[day]:metrics.rowCount},leadTimeBuckets:structuredClone(metrics.leadTimeBuckets),validLeadTimes:metrics.validLeadTimes,validation:{...snapshot.validation,dailyScope:true}};}}else model.operationalMetrics[family].dailySnapshots[snapshot.coverageDate]=structuredClone(snapshot);model.operationalMetrics[family].dailySnapshots=pruneDatedSnapshots(model.operationalMetrics[family].dailySnapshots);} model.operationalMetrics[family].snapshots = pruneDatedSnapshots(model.operationalMetrics[family].snapshots); model.operationalMetrics.updatedAt = now(); try{await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics); const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (JSON.stringify(check?.[family])!==JSON.stringify(model.operationalMetrics[family])) throw new Error(`${kind} snapshot could not be verified after saving.`);}catch(error){model.operationalMetrics=priorMetrics;throw error;} await addHistory(`${kind}-import`, `Saved verified ${kind} snapshot`, { fileName: name, periodStart: snapshot.periodStart || snapshot.period, periodEnd: snapshot.periodEnd || snapshot.period, compact: true }); if (deleteAfterSuccess) await removeSourceEntry(name); }
+  async function importManagerSource(name, kind, bytes, deleteAfterSuccess = false, layoutOverride = null) {
+    const root = model.root, original = model.operationalMetrics;
+    const originalBytes = JSON.stringify(original);
+    const authorityCurrent = () => model.root === root && model.operationalMetrics === original &&
+      JSON.stringify(original) === originalBytes;
+    const parseOptions = ["efficiency", "media-asr", "media-asr-tech"].includes(kind)
+      ? { type: "array", raw: true, cellDates: true, cellNF: true }
+      : { type: "array", raw: true, cellDates: true };
+    if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, parseOptions);
+    if (!authorityCurrent()) throw new Error("Workspace source data changed during report preparation. Reconnect and retry.");
+    const parsers = {
+      sor: parseSorWorkbook, "appointment-activity": parseAppointmentActivityWorkbook,
+      efficiency: parseEfficiencyWorkbook, "media-asr": parseMediaAsrAdvisorWorkbook,
+      "media-asr-tech": parseMediaAsrTechWorkbook, "open-ro-summary": parseOpenRoSummaryWorkbook,
+    };
+    const families = {
+      sor: "sor", "appointment-activity": "appointmentActivity", efficiency: "efficiency",
+      "media-asr": "mediaAsr", "media-asr-tech": "mediaAsrTech", "open-ro-summary": "openRoSummary",
+    };
+    const snapshot = kind === "appointment-activity" ? parsers[kind](bytes, name, layoutOverride) : parsers[kind](bytes, name);
+    const family = families[kind], key = snapshot.period || snapshot.periodEnd || snapshot.date;
+    const sourceFile = await (await sourceFileHandle(name)).getFile();
+    if (!authorityCurrent()) throw new Error("Workspace source data changed during report preparation. Reconnect and retry.");
+    snapshot.sourceModifiedAt = new Date(sourceFile.lastModified).toISOString();
+    const rows = workbookGrid(bytes).rows;
+    snapshot.coverageDate = family === "appointmentActivity" ? snapshot.periodEnd
+      : family === "sor" ? internalObservationDate(rows) || dailyEvidenceDate(family, snapshot)
+      : dailyEvidenceDate(family, snapshot);
+    const observationDate = managerConflictObservationDate(family, snapshot, rows);
+    const priorDaily = family === "sor" ? original[family]?.dailySnapshots?.[observationDate] : null;
+    const priorMonthly = original[family]?.snapshots?.[key];
+    const priorObservation = family === "sor" && priorMonthly ? managerConflictObservationDate("sor", priorMonthly, []) : "";
+    const prior = family === "sor"
+      ? priorDaily || (observationDate && priorObservation === observationDate ? priorMonthly : null)
+      : priorMonthly;
+    if (prior && comparableManagerSnapshot(prior, family) !== comparableManagerSnapshot(snapshot, family))
+      throw new Error(`Conflicting ${kind} report for period ${observationDate || key} is already saved. The existing snapshot was retained; review the source conflict before importing.`);
+
+    const candidate = structuredClone(original);
+    if (family === "mediaAsrTech") learnTechnicians(snapshot, candidate);
+    if (family === "efficiency") {
+      const directory = candidate.mediaAsrTech?.directory;
+      for (const row of snapshot.technicians || []) {
+        if (row.number && directory?.[row.number])
+          directory[row.number].sourceAliases = [...new Set([...(directory[row.number].sourceAliases || []), row.name])].slice(-30);
+      }
+    }
+    const retained = candidate[family] ||= { snapshots: {} };
+    retained.snapshots[key] = snapshot;
+    if (family === "appointmentActivity" || (snapshot.coverageDate && snapshot.coverageDate <= localDateKey())) {
+      retained.dailySnapshots ||= {};
+      if (family === "appointmentActivity") {
+        const { dailyCounts, ...overall } = snapshot;
+        for (const [day, metrics] of Object.entries(dailyCounts || {})) {
+          if (day > localDateKey() || !Number.isInteger(metrics.rowCount) || metrics.rowCount < 1) continue;
+          retained.dailySnapshots[day] = {
+            ...structuredClone(overall), periodStart: day, periodEnd: day, coverageDate: day,
+            rowCount: metrics.rowCount, byInteraction: structuredClone(metrics.byInteraction),
+            byCreationDate: { [day]: metrics.rowCount }, leadTimeBuckets: structuredClone(metrics.leadTimeBuckets),
+            validLeadTimes: metrics.validLeadTimes, validation: { ...snapshot.validation, dailyScope: true },
+          };
+        }
+      } else {
+        retained.dailySnapshots[snapshot.coverageDate] = structuredClone(snapshot);
+      }
+      retained.dailySnapshots = pruneDatedSnapshots(retained.dailySnapshots);
+    }
+    retained.snapshots = pruneDatedSnapshots(retained.snapshots);
+    candidate.updatedAt = now();
+
+    await writeJson(OPERATIONAL_METRICS_PATH, candidate);
+    const check = await readJson(OPERATIONAL_METRICS_PATH, null);
+    if (JSON.stringify(check) !== JSON.stringify(candidate))
+      throw new Error(`${kind} snapshot could not be verified after saving.`);
+    if (!authorityCurrent())
+      throw new Error("Workspace source data changed during report verification. Reconnect and review before retry.");
+    model.operationalMetrics = candidate;
+    await addHistory(`${kind}-import`, `Saved verified ${kind} snapshot`, {
+      fileName: name, periodStart: snapshot.periodStart || snapshot.period,
+      periodEnd: snapshot.periodEnd || snapshot.period, compact: true,
+    });
+    if (deleteAfterSuccess) await removeSourceEntry(name);
+  }
   async function classifyImportFile(name, file, bytes) {
     if (/\.csv$/i.test(name)) { const source = await file.text(); try { parseNextAppointmentsCsv(source, name); return "next-appointments"; } catch (_) {} try { parseAppointmentsCreatedSummaryCsv(source,name); return "supplemental-csv"; } catch (_) {} try { parseVirCsv(source, name); return "vir"; } catch (_) {} try { parseCsiCsv(source, name); return "csi"; } catch (_) { return null; } }
     if (/\.pdf$/i.test(name)) {const signature=await pdfSignatureText(bytes);if(await isMoonDogGreeterOutput(bytes,signature))return "disposable-greeter";if(isAppointmentPdf(signature))return"appointments";if(supplementalPdfFamily(signature,name))return"supplemental-pdf";return referenceOnlyDocumentType(name,signature)?"known-non-service":null;}

@@ -3,6 +3,7 @@ const vm = require('node:vm');
 const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const freshness = require('../assets/freshness.js');
 
 const app = readFileSync(path.join(__dirname, '../assets/app.js'), 'utf8');
 function extract(first, last) {
@@ -14,12 +15,21 @@ function extract(first, last) {
 const source = extract('  function isAppointmentPdf(signature)', '\n') +
   '\n' + extract('  async function importAppointmentFile(', '\n  let arrivalStatusWriteBusy');
 
-function fixture({ approved, picked = false, format = 'pdf' } = {}) {
+const sdlParser = extract('  function parseAppointments(bytes, date)', '  async function importAppointmentFile(');
+const selector = extract('  function sourceFreshness(', '  function metricDependencyEvidence(');
+const date = '2026-11-04';
+const sdlRows = [
+  ['Report Date', date],
+  ['Time', 'Customer', 'SA', 'Customer #', 'Year', 'Model', 'Service Request'],
+  ['08:00', 'Synthetic Guest', 'SHARED', 'SYN-CUSTOMER', '2025', 'Synthetic', 'Synthetic visit'],
+];
+
+function fixture({ approved, picked = false, format = 'pdf', realParser = false, storeCode = 'SYN-B' } = {}) {
   const payload = new TextEncoder().encode(format === 'pdf' ? '%PDF-SYNTHETIC' : 'SYNTHETIC-XLSX');
   const original = { days: {} };
   const model = {
     root: {},
-    settings: { store: { code: 'SYN-B', name: 'Synthetic BMW' } },
+    settings: { store: { code: storeCode, name: storeCode === 'SYN-B' ? 'Synthetic BMW' : 'Synthetic Dodge' } },
     appointments: original,
   };
   const name = 'synthetic.' + format;
@@ -37,10 +47,18 @@ function fixture({ approved, picked = false, format = 'pdf' } = {}) {
       return { getFile: async () => ({ size: payload.length, lastModified: 1 }) };
     },
     pdfSignatureText: async () => 'PRE-WORKORDER SERVICE ADVISOR: SYNTHETIC 11/04/2026 08:00',
-    strictReportDate: () => '2026-11-04', localDateKey: () => '2026-11-04',
+    strictReportDate: () => date, localDateKey: () => date,
+    workbookGrid: () => ({ rows: sdlRows }),
+    internalObservationDate: rows => rows[0][1],
+    XLSX: {
+      read: () => ({ Sheets: { 'Service Daily Log': {} } }),
+      utils: { sheet_to_json: () => sdlRows },
+    },
+    text: value => String(value ?? ''), ARRIVAL_ADVISOR_NAMES: { SHARED: 'Synthetic Advisor' },
+    visitSummary: value => value, timeMinutes: () => 480,
     parseAppointmentSource: async () => [{ id: 'synthetic-id', advisorCode: 'SHARED' }],
     window: { confirm: message => { prompts.push(message); return prompts.length === 1 && approved; } },
-    structuredClone, stamp: () => 'synthetic', slug: value => value, now: () => 'synthetic-time',
+    structuredClone, stamp: () => 'synthetic', slug: value => value, now: () => '2026-11-04T16:00:00Z',
     APPOINTMENTS_PATH: ['data', 'appointments.json'],
     writeBytes: async () => calls.push('audit copy'),
     writeJson: async (target, value) => {
@@ -54,8 +72,9 @@ function fixture({ approved, picked = false, format = 'pdf' } = {}) {
     recordDiagnostic: () => {},
     removeSourceEntry: async () => calls.push('delete'),
   });
+  if (realParser) context.parseAppointmentSource = vm.runInContext(sdlParser + '\nparseAppointments', context);
   const importFile = vm.runInContext(source + '\nimportAppointmentFile', context);
-  return { model, original, calls, prompts, run: automatic => importFile(name, automatic, payload) };
+  return { model, original, calls, prompts, durable: () => durable, run: automatic => importFile(name, automatic, payload) };
 }
 
 for (const format of ['pdf', 'xlsx']) {
@@ -82,4 +101,26 @@ test('explicit review saves destination-only provenance before reconciling the I
   assert.match(f.prompts[0], /Synthetic BMW \(SYN-B\)/);
   assert.equal(f.model.appointments.days['2026-11-04'].sourceStoreConfidence, 'configured-destination-only');
   assert.deepEqual(f.calls, ['read', 'backup', 'audit copy', 'snapshot', 'appointments-import', 'ledger']);
+});
+
+test('reviewed SDL rows survive durable reload while the same advisor ID cannot authorize another store', async () => {
+  const local = fixture({ approved: true, picked: true, format: 'xlsx', realParser: true });
+  const other = fixture({ approved: false, picked: true, format: 'xlsx', realParser: true, storeCode: 'SYN-A' });
+  await local.run(false);
+  await assert.rejects(other.run(false), /were not confirmed/);
+  assert.equal(other.durable(), undefined);
+  assert.deepEqual(other.model.appointments.days, {});
+
+  const appointments = JSON.parse(JSON.stringify(local.durable()));
+  const retained = appointments.days[date];
+  assert.equal(retained.appointments[0].advisorCode, 'SHARED');
+  assert.equal(retained.sourceStoreConfidence, 'configured-destination-only');
+  const context = vm.createContext({
+    model: { appointments }, freshness,
+    sourceExpectation: () => 'recommended', businessTimeZone: () => 'America/Los_Angeles',
+  });
+  const selected = vm.runInContext(selector + '\nsourceFreshness', context)('appointments', { today: date });
+  assert.equal(selected.reportPeriodVerified, true);
+  assert.equal(selected.periodEnd, date);
+  assert.equal(selected.safeForCurrent, true);
 });
