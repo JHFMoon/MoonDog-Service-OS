@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.18-beta.358 — current Beta
+
+- guard(59): isolate Efficiency store rows and direct Arrivals import. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.357 — current Beta
+
+- guard(59): isolate Efficiency store rows and direct Arrivals import. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.356 — current Beta
+
+- guard(59): isolate Efficiency store rows and direct Arrivals import. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.355 — current Beta
 
 - guard(59-03): serialize manager backup with Workspace reconnection. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
