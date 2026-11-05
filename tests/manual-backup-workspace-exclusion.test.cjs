@@ -14,7 +14,7 @@ function extract(startMarker, endMarker) {
 const backup = extract('  async function createBackupNow()', '  async function scanRecoveryBackups()');
 const connect = extract('  let postConnectionScanBusy=false;', '  async function finishConnection(');
 
-function fixture(backupPromise) {
+function fixture(backupPromise, recordHistory = async () => {}) {
   const calls = [];
   const context = vm.createContext({
     workspaceConnectionBusy: false,
@@ -27,7 +27,7 @@ function fixture(backupPromise) {
     renderRecovery: () => calls.push('render'),
     writeValidatedBackup: () => { calls.push('backup'); return backupPromise; },
     writeJson: async () => calls.push('write'),
-    addHistory: async () => calls.push('history'),
+    addHistory: async () => { calls.push('history'); await recordHistory(); },
     scanRecoveryBackups: async () => {},
     status: () => {},
     recordDiagnostic: () => {},
@@ -58,4 +58,30 @@ test('an active backup excludes reconnect and releases its hold after failure', 
     await assert.rejects(result, /synthetic backup failure/);
   }
   assert.equal(workspaceConnectionBlockReason(), '');
+});
+
+test('successful backup excludes reconnect until recovery history is saved', async () => {
+  let finishHistory;
+  let historyStarted;
+  const started = new Promise(resolve => { historyStarted = resolve; });
+  const pending = new Promise(resolve => { finishHistory = resolve; });
+  const manifest = { createdAt: '2026-11-04T12:00:00Z', recordCounts: { openRos: 0 } };
+  const { context, createBackupNow, workspaceConnectionBlockReason, calls } = fixture(
+    Promise.resolve({ name: 'Synthetic backup.zip', manifest }),
+    () => { historyStarted(); return pending; }
+  );
+  const originalRecovery = context.model.recovery;
+  const result = createBackupNow();
+  await started;
+  try {
+    assert.equal(context.model.recovery.status, 'Backup ready');
+    assert.equal(context.model.recovery.lastBackup.fileName, 'Synthetic backup.zip');
+    assert.match(workspaceConnectionBlockReason(), /another workspace operation/);
+  } finally {
+    finishHistory();
+    await result;
+  }
+  assert.equal(context.model.recovery, originalRecovery);
+  assert.equal(workspaceConnectionBlockReason(), '');
+  assert.deepEqual(calls, ['render', 'backup', 'write', 'history', 'render']);
 });
