@@ -109,7 +109,7 @@ test("Daily importer runs approved source persistence before optional exact-byte
 });
 
 test("completed unsigned Inbox review does not replay on the next watcher poll",async()=>{
-  for(const kind of ["performance","csi","vir","next-appointments","supplemental-csv"]){
+  for(const kind of ["performance","csi","vir","next-appointments","supplemental-csv","appointments"]){
     const f=fixture({kind});
     assert.equal(await f.run(),true);
     const a=app.indexOf("  function candidateNeedsImport(");
