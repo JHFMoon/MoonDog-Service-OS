@@ -1,3 +1,4 @@
+const { hydrateWorkspace, backupFunctions } = require("./helpers/workspace-source-roundtrip.cjs");
 "use strict";
 const test=require("node:test"),assert=require("node:assert/strict");
 const fs=require("node:fs"),vm=require("node:vm"),path=require("node:path");
@@ -363,14 +364,27 @@ test("overlapping Appointment Activity exports keep one daily projection per dat
 });
 
 
-test("verified Appointment Activity period and aggregate remain aligned in the Home source card after durable reload",async()=>{
+test("verified Appointment Activity period and aggregate remain aligned in the Home source card after verified backup and Workspace hydration",async()=>{
   const f=fixture([
     row("9001","2026-10-19","2026-10-20","SERVICE_REMINDER"),
     row("9001","2026-10-20","2026-10-21","REPAIR_BOOKING"),
     row("1002","2026-10-19","2026-10-19")
   ]);
   await f.import();
-  const durable=structuredClone(f.durable());
+  const backupModel = {
+    state: { records: [{ id: "shared-ro" }], closedRecords: [] },
+    settings: { schemaVersion: 4, store: { code: "9001", name: "Synthetic Dodge", brand: "Dodge" } },
+    appointments: { days: {} }, performance: { snapshots: {} }, assignNext: { days: {} },
+    autoImport: { seen: {} }, operationalMetrics: { csi: {}, ...f.durable() }, meetingCycle: { metrics: {} },
+  };
+  const archive = backupFunctions(app, backupModel, "2026-10-20");
+  const { bytes } = await archive.createBackupBytes("Synthetic Appointment Activity");
+  const { values } = await archive.validateBackupBytes(bytes);
+  assert.throws(() => archive.verifyBackupStoreOwnership(
+    { store: { code: "1002", name: "Synthetic BMW", brand: "BMW" } }, values["data/settings.json"], true
+  ), /does not match Guided Setup/);
+  const files = new Map(Object.entries(values).map(([name, value]) => [name, JSON.stringify(value)]));
+  const { operationalMetrics: durable } = await hydrateWorkspace(app, files, {});
   assert.equal(durable.appointmentActivity.snapshots["2026-10-20"].rowCount,2);
 
   const grid={children:[],replaceChildren(...items){this.children=[...items];},append(item){this.children.push(item);}};
