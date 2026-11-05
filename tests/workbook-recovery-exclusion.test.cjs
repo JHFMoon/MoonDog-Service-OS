@@ -12,6 +12,7 @@ function extract(first, last) {
   return app.slice(start, end);
 }
 const workbook = extract('  let supervisorWorkbookOperationTail', '  const dailyPickedSources');
+const admission = extract('  function workspaceConnectionBlockReason()', '  async function finishConnection(');
 const recovery = extract('  async function withWorkspaceRecoveryHold(', '  async function createBackupNow(');
 
 function fixture() {
@@ -23,12 +24,14 @@ function fixture() {
     model: { root: {}, state },
     workspaceConnectionBusy: false,
     workspaceRecoveryBusy: false,
+    folderWatch: { busy: false }, dailyImportBusy: false,
+    appointmentImportBusy: false, postConnectionScanBusy: false,
     navigator: { locks: { request: (_name, _options, action) => { calls.push('lock'); return action(); } } },
     STATE_PATH: ['data', 'state.json'],
     RECOVERY_PATH: ['data', 'recovery.json'],
     readJson: async key => key.at(-1) === 'state.json' ? structuredClone(state) : null,
   });
-  const operations = vm.runInContext(workbook + recovery +
+  const operations = vm.runInContext(workbook + admission + recovery +
     '\n({ withSupervisorWorkbookLock, withWorkspaceRecoveryHold })', context);
   return { ...operations, active, finish, calls };
 }
@@ -50,7 +53,7 @@ test('queued workbook work excludes recovery before preflight and permits safe r
   const f = fixture();
   const pending = f.withSupervisorWorkbookLock(() => f.active);
   try {
-    await assert.rejects(f.withWorkspaceRecoveryHold(() => {}), /workbook, or recovery operation is in progress/);
+    await assert.rejects(f.withWorkspaceRecoveryHold(() => {}), /Workspace operation is in progress/);
   } finally {
     f.finish();
     await pending;

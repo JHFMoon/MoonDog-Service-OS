@@ -25,6 +25,7 @@ test("post-connection jobs cancel before starting when the Workspace changes dur
     model,
     writeAuthority: { canWrite: true },
     workspaceConnectionBusy: false,
+    workspaceRecoveryBusy: false,
     postConnectionScanBusy: false,
     permissionWasPending: false,
     folderWatchScan: async () => calls.push("Report inbox"),

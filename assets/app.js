@@ -1778,7 +1778,7 @@
         if(!queueIsCurrent())break;
         do {
           await sleepBetweenChecks();
-        } while(queueIsCurrent()&&(folderWatch.busy||dailyImportBusy||appointmentImportBusy));
+        } while(queueIsCurrent()&&(folderWatch.busy||dailyImportBusy||appointmentImportBusy||workspaceRecoveryBusy));
         if(!queueIsCurrent())break;
         postConnectionScanBusy=true;
         try{await run();}
@@ -4031,7 +4031,7 @@
     // candidate observed under an earlier source-operation authority.
     const scanRoot=model.root;
     const eligible=()=>model.root===scanRoot&&Boolean(scanRoot)&&
-      writeAuthority.canWrite&&!workspaceConnectionBusy&&
+      writeAuthority.canWrite&&!workspaceConnectionBusy&&!workspaceRecoveryBusy&&
       !(postConnectionScanBusy&&reason!=="connection")&&
       !dailyImportBusy&&!appointmentImportBusy&&folderWatchEnabled();
     if(folderWatch.busy||!eligible())return;
@@ -7142,8 +7142,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function withWorkspaceRecoveryHold(operation){
     if(typeof maintenanceEngine!=="undefined"&&maintenanceEngine?.running)
       throw new Error("Workspace housekeeping is in progress. Retry backup or recovery when it finishes.");
-    if(workspaceConnectionBusy||workspaceRecoveryBusy||supervisorWorkbookInFlight>0)
-      throw new Error("A Workspace connection, workbook, or recovery operation is in progress. Retry when it finishes.");
+    if(workspaceConnectionBusy||workspaceConnectionBlockReason())
+      throw new Error("A Workspace operation is in progress. Retry backup or recovery when it finishes.");
     workspaceRecoveryBusy=true;
     try{return await operation();}
     finally{workspaceRecoveryBusy=false;}
@@ -8284,8 +8284,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     // A direct SAPR button import is a durable Workspace mutation, just like
     // a Daily-picked report. Take the same exclusion before any file await:
     // reconnect may not replace model.root halfway through SAPR readback.
-    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||workspaceConnectionBusy)
-      throw new Error("Another Workspace import or connection is in progress. Retry Import Performance when it finishes.");
+    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||workspaceConnectionBusy||workspaceRecoveryBusy)
+      throw new Error("Another Workspace operation is in progress. Retry Import Performance when it finishes.");
     const resumeWatch=folderWatchEnabled();
     dailyImportBusy=true;
     try{
@@ -8334,8 +8334,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     applyRoDensity();saveRoDeviceView();renderTable();
   });
   ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", handleWorkspaceRecoveryAction); ui.homeConnect.addEventListener("click", () => run(connect)); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input",renderTable); [["advisor",ui.advisorFilter],["sourceStatus",ui.sourceStatusFilter],["managementStatus",ui.managementStatusFilter]].forEach(([field,select])=>select.addEventListener("change",()=>{saveOpenRoFilter(field,select);renderTable();})); ui.attentionFilter.addEventListener("change",renderTable); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; clearSavedOpenRoFilters(); saveRoDeviceView(); renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",markEditDraftDirty); ui.editForm.addEventListener("change",markEditDraftDirty); ui.editOwner.addEventListener("input",()=>{ui.editOwner.dataset.ownerAssignmentExplicit="true";}); window.addEventListener("beforeunload",guardUnsavedEditUnload); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(async () => {
-    if(workspaceConnectionBusy||postConnectionScanBusy)
-      throw new Error("A Workspace connection or scan is in progress. Retry the appointment import when it finishes.");
+    if(workspaceConnectionBusy||postConnectionScanBusy||workspaceRecoveryBusy)
+      throw new Error("Another Workspace operation is in progress. Retry the appointment import when it finishes.");
     await importAppointmentFile();
   })); ui.appointmentDate.addEventListener("change", renderArrivals); ui.arrivalSearch.addEventListener("input", renderArrivals); ui.printArrivals.addEventListener("click", () => run(printPorterList)); ui.arrivalTimeline.addEventListener("change", (event) => { const select = event.target.closest("select[data-appointment-id]"); if (select) run(() => updateArrivalStatus(select.dataset.appointmentId, select.value)); }); ui.saveSettings.addEventListener("click", () => run(saveSettings)); const saveMeetingVoiceDraft=()=>{syncMeetingVoiceDraftSettings();queueSettingsAutosave();renderVoiceControlVisibility();};ui.meetingVoiceSurvey.addEventListener("change",()=>{previewMeetingVoiceSelection();saveMeetingVoiceDraft();});ui.meetingVoiceMode.addEventListener("change",saveMeetingVoiceDraft);ui.meetingVoiceSourceMethod.addEventListener("change",()=>{if(ui.meetingVoiceSourceMethod.value==="saved")previewMeetingVoiceSelection();else ui.meetingVoiceExcerpt.value=ui.meetingVoicePastedSource.value;saveMeetingVoiceDraft();});[ui.meetingVoicePastedSource,ui.meetingVoiceExcerpt,ui.meetingTeamMessage].forEach((field)=>field.addEventListener("input",saveMeetingVoiceDraft));ui.meetingVoiceUseFull.addEventListener("click",()=>{useFullMeetingVoice();saveMeetingVoiceDraft();}); ui.pinMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(true))); ui.clearMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(false)));
   ui.editDialog.addEventListener("cancel",(event)=>{if(model.openRoSaveInFlight){event.preventDefault();status("An Open RO save is waiting for the shared Workspace lock. Wait for it to finish before closing this editor.","error");return;}});
@@ -8767,8 +8767,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     },
     importFile: async function(file) {
       if (!model.root) throw new Error('Connect your Service Operations Dashboard folder first.');
-      if (folderWatch.busy || dailyImportBusy || appointmentImportBusy || workspaceConnectionBusy || postConnectionScanBusy)
-        throw new Error('Another Workspace import or connection is in progress. Retry the Daily import when it finishes.');
+      if (folderWatch.busy || dailyImportBusy || appointmentImportBusy || workspaceConnectionBusy || postConnectionScanBusy || workspaceRecoveryBusy)
+        throw new Error('Another Workspace operation is in progress. Retry the Daily import when it finishes.');
       const requestedRoot=model.root;
       dailyImportBusy=true; const watchEnabled=folderWatchEnabled(); stopFolderWatch();
       try {

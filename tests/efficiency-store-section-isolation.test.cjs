@@ -105,6 +105,7 @@ test('Arrivals reconnect rejection and retry leave Efficiency scoped to the acti
   Object.assign(context, {
     ui: { importAppointments: { addEventListener: (_event, callback) => { click = callback; } } },
     workspaceConnectionBusy: true,
+    workspaceRecoveryBusy: false,
     postConnectionScanBusy: false,
     run: action => action(),
     importAppointmentFile: async () => arrivalStores.push(context.model.settings.store.code),
@@ -113,7 +114,7 @@ test('Arrivals reconnect rejection and retry leave Efficiency scoped to the acti
   vm.runInContext(app.slice(clickStart, clickEnd + 1), context);
 
   const before = readEfficiency([], 'synthetic-efficiency.xlsx');
-  await assert.rejects(click(), /Workspace connection or scan is in progress/);
+  await assert.rejects(click(), /Workspace operation is in progress/);
   assert.deepEqual(arrivalStores, []);
   assert.equal(before.advisors['9901'].asmHours, 40);
 

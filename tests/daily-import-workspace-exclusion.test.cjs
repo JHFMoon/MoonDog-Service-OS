@@ -10,7 +10,7 @@ const end = source.indexOf('\n  });', start);
 assert.ok(start >= 0 && end > start);
 const picker = source.slice(start, end);
 
-for (const flag of ['workspaceConnectionBusy', 'postConnectionScanBusy']) {
+for (const flag of ['workspaceConnectionBusy', 'postConnectionScanBusy', 'workspaceRecoveryBusy']) {
   test('Daily import is blocked before touching the source during ' + flag, async () => {
     const calls = [];
     const context = vm.createContext({
@@ -18,7 +18,7 @@ for (const flag of ['workspaceConnectionBusy', 'postConnectionScanBusy']) {
       folderWatch: { busy: false },
       dailyImportBusy: false,
       appointmentImportBusy: false,
-      workspaceConnectionBusy: false,
+      workspaceConnectionBusy: false, workspaceRecoveryBusy: false,
       postConnectionScanBusy: false,
       dailyPickedSources: new Map(),
       folderWatchEnabled: () => true,
@@ -32,7 +32,7 @@ for (const flag of ['workspaceConnectionBusy', 'postConnectionScanBusy']) {
     });
     const importFile = vm.runInContext('({' + picker + '}).importFile', context);
     const file = { name: 'synthetic.csv', arrayBuffer: async () => calls.push('read') };
-    await assert.rejects(importFile(file), /Workspace import or connection is in progress/);
+    await assert.rejects(importFile(file), /Workspace operation is in progress/);
     assert.deepEqual(calls, []);
     assert.equal(context.dailyImportBusy, false);
     assert.equal(context.dailyPickedSources.size, 0);
@@ -56,7 +56,7 @@ function queueFixture() {
   const context = vm.createContext({
     model: { root: initialRoot },
     writeAuthority: { canWrite: true },
-    workspaceConnectionBusy: false,
+    workspaceConnectionBusy: false, workspaceRecoveryBusy: false,
     postConnectionScanBusy: false,
     folderWatch: { busy: false },
     dailyImportBusy: false,

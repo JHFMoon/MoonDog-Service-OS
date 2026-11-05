@@ -49,7 +49,7 @@ test("direct SAPR button holds actual production Workspace reconnect gate throug
   assert.equal(f.ctx.dailyImportBusy,true);
   assert.match(f.ctx.workspaceBlock(),/finishing another workspace operation/);
   assert.deepEqual(f.events,["stop","start-import"]);
-  await assert.rejects(f.click(),/Another Workspace import or connection is in progress/);
+  await assert.rejects(f.click(),/Another Workspace operation is in progress/);
   assert.deepEqual(f.events,["stop","start-import"],"second click must not stop or release original lock");
   f.resolveImport();
   await inFlight;
@@ -84,7 +84,7 @@ for(const [option,label] of [
 ]){
   test("direct SAPR button refuses while "+label+" has operational authority",async()=>{
     const f=fixture({[option]:true});
-    await assert.rejects(f.click(),/Another Workspace import or connection is in progress/);
+    await assert.rejects(f.click(),/Another Workspace operation is in progress/);
     assert.deepEqual(f.events,[],"refusal cannot alter watch state or other lock");
     assert.equal(f.ctx.dailyImportBusy,Boolean(option==="importBusy"));
   });
