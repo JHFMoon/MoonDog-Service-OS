@@ -1608,7 +1608,8 @@
   let workspaceRecoveryBusy=false;
   function workspaceConnectionBlockReason(){
     return folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||workspaceRecoveryBusy||
-      (typeof supervisorWorkbookInFlight!=="undefined"&&supervisorWorkbookInFlight>0)
+      (typeof supervisorWorkbookInFlight!=="undefined"&&supervisorWorkbookInFlight>0)||
+      (typeof maintenanceEngine!=="undefined"&&maintenanceEngine?.running)
       ? "Service Operations Dashboard is finishing another workspace operation. Reconnect after it finishes."
       : "";
   }
@@ -8825,7 +8826,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function initializeHousekeeping(){
     maintenanceEngine=MoonDogMaintenance.create(maintenanceIO,{
       recovery:()=>model.recovery,day:storeDateKey,inventoryComplete:true,
-      busy:()=>!writeAuthority.canWrite||!model.root||model.connectionState!=='CONNECTED'||maintenanceOperations>0||folderWatch.busy||dailyImportBusy||Boolean(document.fullscreenElement)||/Creating|Restoring/i.test(model.recovery.status||''),
+      busy:()=>!writeAuthority.canWrite||!model.root||model.connectionState!=='CONNECTED'||workspaceConnectionBusy||maintenanceOperations>0||folderWatch.busy||dailyImportBusy||Boolean(document.fullscreenElement)||/Creating|Restoring/i.test(model.recovery.status||''),
       references:maintenanceReferences,currentWorkbook:()=>`exports/${model.settings.supervisorWorkbook?.filename||model.settings.exportName}`,
       ensureFolders:initializeFolders,
       checkpoint:async events=>{model.recovery.housekeeping={...(model.recovery.housekeeping||{}),events};await MoonDogMaintenance.safeWrite(maintenanceIO,'data/recovery.json',utf8(JSON.stringify(model.recovery,null,2)));},
