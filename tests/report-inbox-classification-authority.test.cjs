@@ -86,7 +86,7 @@ test("write authority revoked during classification blocks rejected-source reloc
 });
 
 test("unchanged eligible source still classifies and imports once",async()=>{
-  const h=harness({pauseAt:"none",classification:"appointments"});
+  const h=harness({pauseAt:"none",classification:"sor"});
   const result=await h.scan();
   assert.equal(h.calls.classified,1);
   assert.equal(h.calls.processed,1);

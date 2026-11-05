@@ -13,7 +13,7 @@ const end=source.indexOf("  async function importReturnedWorkbook(",start);
 assert.ok(start>=0&&end>start,"production automatic intake exists");
 const production=source.slice(start,end);
 
-function harness({failImport=false,cleanupPending=false,cleanupFailure=false,pauseDigest=false,pauseMove=false}={}){
+function harness({failImport=false,cleanupFailure=false,pauseDigest=false,pauseMove=false,reviewOnly=false}={}){
   const initial={name:"Synthetic first Workspace"},newRoot={name:"Synthetic new Workspace"};
   const state={root:initial,manualImport:false,write:true},events=[];
   const item={name:"synthetic-dated-appointments.xlsx",
@@ -35,8 +35,9 @@ function harness({failImport=false,cleanupPending=false,cleanupFailure=false,pau
     model,Map,Set,JSON,Object,Promise,Uint8Array,console,
     sourceLocations:new Map(),AUTO_IMPORT_PATH:["data","auto-import.json"],
     watchCandidates:async()=>[item],candidateNeedsImport:()=>true,
-    classifyImportFile:async()=>"appointments",
-    processClassifiedCandidate:async()=>{events.push("import-entered");entered();await gate;events.push("import-returned");if(failImport)throw Object.assign(Error("Synthetic importer rejected"),cleanupFailure?{sourceCleanupFailure:true}:{});return{saved:true,deleted:!cleanupPending};},
+    classifyImportFile:async()=>reviewOnly?"appointments":"sor",
+    addHistory:async()=>{events.push("review-entered");entered();await gate;},
+    processClassifiedCandidate:async()=>{events.push("import-entered");entered();await gate;events.push("import-returned");if(failImport)throw Object.assign(Error("Synthetic importer rejected"),cleanupFailure?{sourceCleanupFailure:true}:{});return{saved:true,deleted:true};},
     writeJson:async()=>{events.push("ledger-write");},
     sha256:async()=>{events.push("digest-entered");if(pauseDigest){digestEntered();await digestGate;}return"digest";},
     status:()=>events.push("status"),recordDiagnostic(){},scanFiles:async()=>{},
@@ -78,35 +79,31 @@ test("unchanged eligible import still updates its ledger once",async()=>{
   const result=await running;
   assert.equal(result.imported.length,1);
   assert.deepEqual(h.events,["import-entered","import-returned","ledger-write","status"]);
-  assert.equal(h.model.autoImport.seen[h.item.signature].kind,"appointments");
+  assert.equal(h.model.autoImport.seen[h.item.signature].kind,"sor");
 });
 
-for(const mode of ["saved-appointment-cleanup","import-error-cleanup"]){
-  test("stale Workspace during "+mode+" digest cannot publish a replacement-root ledger entry",async()=>{
-    const h=harness({failImport:mode==="import-error-cleanup",
-      cleanupPending:mode==="saved-appointment-cleanup",
-      cleanupFailure:mode==="import-error-cleanup",pauseDigest:true});
-    const running=h.scan();
-    await h.reached;
-    h.release();
-    await h.digestReached;
-    h.model.root=h.newRoot;
-    h.digestRelease();
-    assert.equal(await running,null);
-    assert.equal(h.events.includes("ledger-write"),false);
-    assert.equal(h.events.includes("status"),false);
-    assert.equal(h.model.autoImport.seen[h.item.signature],undefined);
-  });
-}
+test("stale Workspace during import-error cleanup digest cannot publish a replacement-root ledger entry",async()=>{
+  const h=harness({failImport:true,cleanupFailure:true,pauseDigest:true});
+  const running=h.scan();
+  await h.reached;
+  h.release();
+  await h.digestReached;
+  h.model.root=h.newRoot;
+  h.digestRelease();
+  assert.equal(await running,null);
+  assert.equal(h.events.includes("ledger-write"),false);
+  assert.equal(h.events.includes("status"),false);
+  assert.equal(h.model.autoImport.seen[h.item.signature],undefined);
+});
 
-test("valid retained appointment persists exact cleanup digest for retry",async()=>{
-  const h=harness({cleanupPending:true}),running=h.scan();
-  await h.reached;h.release();
-  const result=await running;
-  assert.equal(result.cleanupPending.length,1);
-  assert.equal(h.model.autoImport.seen[h.item.signature].cleanupSha256,"digest");
-  assert.equal(h.model.autoImport.seen[h.item.signature].cleanupPending,true);
-  assert.equal(h.events.includes("ledger-write"),true);
+test("stale Workspace during unsigned Arrivals review cannot publish a replacement-root ledger entry",async()=>{
+  const h=harness({reviewOnly:true}),running=h.scan();
+  await h.reached;
+  h.model.root=h.newRoot;
+  h.release();
+  assert.equal(await running,null);
+  assert.deepEqual(h.events,["review-entered"]);
+  assert.equal(h.model.autoImport.seen[h.item.signature],undefined);
 });
 
 for(const pauseAt of ["move","digest"]){

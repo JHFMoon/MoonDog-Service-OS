@@ -65,7 +65,7 @@ function harness({onlyUnreadable = false, csvPreview = false, unexpectedPreviewE
     },
     candidateNeedsImport: item => !model.autoImport.seen?.[item.signature],
     transientIntakeError: error => error?.name === "NotReadableError",
-    classifyImportFile: async () => "appointments",
+    classifyImportFile: async () => "sor",
     processClassifiedCandidate: async item => {
       imports.push(item.name);
       return {saved: true, deleted: true};
@@ -84,7 +84,7 @@ test("an unreadable second-pass source cannot abort a healthy confirmed Report I
   const h = harness();
   await h.run();
   assert.deepEqual(h.imports, [h.good.name], "healthy report must import exactly once");
-  assert.equal(h.model.autoImport.seen[h.good.signature].kind, "appointments");
+  assert.equal(h.model.autoImport.seen[h.good.signature].kind, "sor");
   assert.equal(h.model.autoImport.seen[h.bad.signature], undefined, "unreadable report cannot be marked imported");
   assert.equal(h.folderWatch.pending.has(h.good.relativePath), false, "verified healthy marker clears");
   assert.equal(h.folderWatch.pending.get(h.bad.relativePath).confirmations, 2,
@@ -96,7 +96,7 @@ test("an unreadable second-pass source cannot abort a healthy confirmed Report I
   assert.deepEqual(h.imports, [h.good.name, h.bad.name],
     "recovered file imports on next confirmed pass without repeating healthy import");
   assert.equal(h.folderWatch.pending.has(h.bad.relativePath), false);
-  assert.equal(h.model.autoImport.seen[h.bad.signature].kind, "appointments");
+  assert.equal(h.model.autoImport.seen[h.bad.signature].kind, "sor");
   assert.equal(h.folderWatch.busy, false);
 });
 
