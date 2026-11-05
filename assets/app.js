@@ -1582,8 +1582,9 @@
   // active Workspace until that one task has settled; do not start another
   // queued task while a connection is already in progress.
   let postConnectionScanBusy=false;
+  let manualBackupBusy=false;
   function workspaceConnectionBlockReason(){
-    return folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||
+    return folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||manualBackupBusy||
       (typeof supervisorWorkbookInFlight!=="undefined"&&supervisorWorkbookInFlight>0)
       ? "Service Operations Dashboard is finishing another workspace operation. Reconnect after it finishes."
       : "";
@@ -7100,7 +7101,31 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     return verified.length;
   }
   async function writeValidatedBackup(label="Manager backup",prefix="MoonDog Full Backup"){const packageData=await createBackupBytes(label,prefix==="MoonDog Restore Safety"?"restore-safety":"full");const name=backupFileName(prefix),path=["backups",name];await writeBytes(path,packageData.bytes);const verified=await validateBackupBytes(await readFileBytes(path));if(verified.manifest.createdAt!==packageData.manifest.createdAt)throw new Error("Backup read-back verification failed.");return{name,path:path.join("/"),manifest:verified.manifest};}
-  async function createBackupNow(){model.recovery.status="Creating backup";renderRecovery();try{const result=await writeValidatedBackup("Manager-created whole-state backup");model.recovery.lastBackup={fileName:result.name,createdAt:result.manifest.createdAt,appVersion:VERSION,validationStatus:"Validated",recordCounts:result.manifest.recordCounts};model.recovery.status="Backup ready";await writeJson(RECOVERY_PATH,model.recovery);await addHistory("full-backup-created","Created and validated a whole-state MoonDog backup",{fileName:result.name,createdAt:result.manifest.createdAt,openRos:result.manifest.recordCounts.openRos});await scanRecoveryBackups();renderRecovery();status("Full backup created and validated.","success");}catch(error){model.recovery.status="Backup failed validation";await writeJson(RECOVERY_PATH,model.recovery);recordDiagnostic("BACKUP FAILED",`Whole-state backup failed (${error.name||"Error"})`);renderRecovery();throw error;}}
+  async function createBackupNow(){
+    if(workspaceConnectionBusy||manualBackupBusy)
+      throw new Error("A Workspace connection or backup is in progress. Retry the backup when it finishes.");
+    manualBackupBusy=true;
+    try{
+      model.recovery.status="Creating backup";
+      renderRecovery();
+      try{
+        const result=await writeValidatedBackup("Manager-created whole-state backup");
+        model.recovery.lastBackup={fileName:result.name,createdAt:result.manifest.createdAt,appVersion:VERSION,validationStatus:"Validated",recordCounts:result.manifest.recordCounts};
+        model.recovery.status="Backup ready";
+        await writeJson(RECOVERY_PATH,model.recovery);
+        await addHistory("full-backup-created","Created and validated a whole-state MoonDog backup",{fileName:result.name,createdAt:result.manifest.createdAt,openRos:result.manifest.recordCounts.openRos});
+        await scanRecoveryBackups();
+        renderRecovery();
+        status("Full backup created and validated.","success");
+      }catch(error){
+        model.recovery.status="Backup failed validation";
+        await writeJson(RECOVERY_PATH,model.recovery);
+        recordDiagnostic("BACKUP FAILED",`Whole-state backup failed (${error.name||"Error"})`);
+        renderRecovery();
+        throw error;
+      }
+    }finally{manualBackupBusy=false;}
+  }
   async function scanRecoveryBackups(){if(!model.root)return;const dir=await directory(["backups"],true),found=[];for await(const[name,handle]of dir.entries())if(handle.kind==="file"&&name.endsWith(".zip")&&/MoonDog (Full Backup|Restore Safety)/.test(name)){try{const bytes=new Uint8Array(await(await handle.getFile()).arrayBuffer()),validated=await validateBackupBytes(bytes);found.push({name,createdAt:validated.manifest.createdAt,label:validated.manifest.label,version:validated.manifest.appVersion});}catch(_){found.push({name,invalid:true});}}found.sort((a,b)=>String(b.createdAt||b.name).localeCompare(String(a.createdAt||a.name)));ui.restoreBackupSelect.replaceChildren(new Option("Select a validated backup",""));for(const item of found){const option=new Option(item.invalid?`${item.name} · INVALID`:`${new Date(item.createdAt).toLocaleString()} · ${item.label}`,item.name);option.disabled=Boolean(item.invalid);ui.restoreBackupSelect.append(option);}ui.restoreBackup.disabled=true;}
   // A validated backup can become stale while its safety package is being
   // written. Check every live durable object and history record against the
