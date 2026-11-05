@@ -1,6 +1,8 @@
 "use strict";
 const test=require("node:test"),assert=require("node:assert/strict");
 const fs=require("node:fs"),path=require("node:path"),vm=require("node:vm");
+const freshness=require("../assets/freshness.js");
+const { hydrateWorkspace, backupFunctions }=require("./helpers/workspace-source-roundtrip.cjs");
 const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
 const start=app.indexOf("  function menuSalesAccountKey(");
 const end=app.indexOf("  async function importMenuSalesFile(",start);
@@ -132,4 +134,55 @@ test("bundle remains syntactically valid and menu identity is not hardcoded to o
   assert.match(app,/menu-sales-v3-local-layout-store-identity/);
   assert.match(app,/strict-report-recognition-2026-11-04-efficiency-store-sections-v12/);
   assert.doesNotMatch(parser,/ROSEVILLE|HAYWARD|FREMONT|SAN JOSE/i);
+});
+
+test("Menu Sales keeps reviewed store scope from import through backup, hydration and Meeting evidence", async () => {
+  const context=prepare({ids:["1001","3001"],rows:reportRows()});
+  const model=context.model;
+  model.settings.schemaVersion=4;
+  Object.assign(model,{
+    root:{},state:{records:[{id:"shared-ro"}],closedRecords:[]},
+    appointments:{days:{}},performance:{snapshots:{}},assignNext:{days:{}},
+    autoImport:{seen:{}},operationalMetrics:{csi:{},menu:{snapshots:{}}},meetingCycle:{metrics:{}},
+  });
+  let durable;
+  Object.assign(context,{
+    structuredClone,freshness,localDateKey:()=>"2026-10-20",
+    OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
+    pruneDatedSnapshots:value=>value,
+    writeJson:async(_path,value)=>{durable=JSON.stringify(value);},
+    readJson:async()=>JSON.parse(durable),
+    addHistory:async()=>{},renderOverviewIntelligence:()=>{},
+    sourceExpectation:()=>"recommended",businessTimeZone:()=>"America/Los_Angeles",
+    expectedMenuWeek:()=>"2026-10-19",metricEvidence:value=>value,
+  });
+  const section=(first,last)=>{
+    const start=app.indexOf(first),end=app.indexOf(last,start+first.length);
+    assert.ok(start>=0&&end>start,first);
+    return app.slice(start,end);
+  };
+  const importMenu=vm.runInNewContext(
+    section("  async function importMenuSalesFile(","  const CSI_ADVISOR_CODES =")+"\nimportMenuSalesFile",context);
+  await importMenu("synthetic-menu.xlsx",false,new Uint8Array([1]));
+  const archive=backupFunctions(app,model,"2026-10-20");
+  const {bytes}=await archive.createBackupBytes("Synthetic Menu Sales");
+  const {values}=await archive.validateBackupBytes(bytes);
+  assert.equal(JSON.stringify(values["data/operational-metrics.json"]),durable);
+  const files=new Map(Object.entries(values).map(([name,value])=>[name,JSON.stringify(value)]));
+  const restored=await hydrateWorkspace(app,files,{});
+  const snapshot=restored.operationalMetrics.menu.snapshots["2026-10-19"];
+  assert.equal(snapshot.account,cdjr);
+  assert.equal(snapshot.advisors["1001"],undefined);
+  assert.equal(snapshot.advisors["3001"].roCount,20);
+  context.model=restored;
+  context.latestOperationalSnapshot=()=>snapshot;
+  const meeting=vm.runInNewContext(
+    section("  function verifiedMenuTrendReleases(","\n  function ")+
+    section("  function sourceFreshness(","  function metricDependencyEvidence(")+
+    section("  function menuMeetingEvidence(","  function csiMetricEvidence(")+
+    "\nmenuMeetingEvidence",context);
+  const metric=meeting("presentation");
+  assert.equal(metric.value,70);
+  assert.equal(metric.period,"2026-10-19");
+  assert.equal(metric.status,"verified");
 });
