@@ -27,6 +27,7 @@ for (const name of ['restoreBackup', 'interruptedRecoveryButton']) {
     const context = vm.createContext({
       ui: { restoreBackup: button('restoreBackup'), interruptedRecoveryButton: button('interruptedRecoveryButton') },
       workspaceConnectionBusy: true,
+      supervisorWorkbookInFlight: 0,
       folderWatch: { busy: false },
       dailyImportBusy: false,
       appointmentImportBusy: false,
@@ -35,7 +36,7 @@ for (const name of ['restoreBackup', 'interruptedRecoveryButton']) {
       run: action => action(),
     });
     const blockReconnect = vm.runInContext(connection + hold + buttons + '\nworkspaceConnectionBlockReason', context);
-    await assert.rejects(handlers[name](), /connection or recovery operation/);
+    await assert.rejects(handlers[name](), /connection, workbook, or recovery operation/);
     assert.equal(calls, 0);
 
     context.workspaceConnectionBusy = false;
@@ -43,8 +44,8 @@ for (const name of ['restoreBackup', 'interruptedRecoveryButton']) {
     try {
       assert.equal(calls, 1);
       assert.match(blockReconnect(), /another workspace operation/);
-      await assert.rejects(handlers.interruptedRecoveryButton(), /connection or recovery operation/);
-      await assert.rejects(handlers.restoreBackup(), /connection or recovery operation/);
+      await assert.rejects(handlers.interruptedRecoveryButton(), /connection, workbook, or recovery operation/);
+      await assert.rejects(handlers.restoreBackup(), /connection, workbook, or recovery operation/);
     } finally {
       rejectPreflight(new Error('synthetic preflight failure'));
       await assert.rejects(attempt, /synthetic preflight failure/);
