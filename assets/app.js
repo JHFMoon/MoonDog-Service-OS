@@ -1746,10 +1746,13 @@
       // The potentially large Files To Learn reconciliation is deliberately
       // excluded from automatic reconnection. User-triggered import remains
       // available; do not repeatedly parse historical learning files.
+      const queueIsCurrent=()=>model.root===connectedRoot&&writeAuthority.canWrite&&!workspaceConnectionBusy;
       for(const [label,run] of jobs){
-        if(model.root!==connectedRoot||!writeAuthority.canWrite||workspaceConnectionBusy)break;
-        await sleepBetweenChecks();
-        if(model.root!==connectedRoot||!writeAuthority.canWrite||workspaceConnectionBusy)break;
+        if(!queueIsCurrent())break;
+        do {
+          await sleepBetweenChecks();
+        } while(queueIsCurrent()&&(folderWatch.busy||dailyImportBusy||appointmentImportBusy));
+        if(!queueIsCurrent())break;
         postConnectionScanBusy=true;
         try{await run();}
         catch(error){recordDiagnostic('POST-CONNECTION SCAN',label+': '+String(error?.message||error));}
@@ -8694,7 +8697,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     },
     importFile: async function(file) {
       if (!model.root) throw new Error('Connect your Service Operations Dashboard folder first.');
-      if (folderWatch.busy || dailyImportBusy || appointmentImportBusy) throw new Error('Service Operations Dashboard is finishing another import. Try again in a moment.');
+      if (folderWatch.busy || dailyImportBusy || appointmentImportBusy || workspaceConnectionBusy || postConnectionScanBusy)
+        throw new Error('Another Workspace import or connection is in progress. Retry the Daily import when it finishes.');
       const requestedRoot=model.root;
       dailyImportBusy=true; const watchEnabled=folderWatchEnabled(); stopFolderWatch();
       try {
