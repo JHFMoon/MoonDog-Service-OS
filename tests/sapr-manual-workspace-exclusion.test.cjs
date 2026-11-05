@@ -25,6 +25,7 @@ function fixture(options={}){
     dailyImportBusy:Boolean(options.importBusy),
     appointmentImportBusy:Boolean(options.appointmentsBusy),
     postConnectionScanBusy:Boolean(options.scanBusy),
+    manualBackupBusy:false,
     workspaceConnectionBusy:Boolean(options.connectionBusy),
     supervisorWorkbookInFlight:0,
     folderWatchEnabled:()=>options.watchEnabled!==false,
