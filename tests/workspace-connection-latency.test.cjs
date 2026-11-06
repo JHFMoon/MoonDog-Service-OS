@@ -1,11 +1,11 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
+const readSource = require("./helpers/read-source.cjs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+const app = readSource(path.join(__dirname, "..", "assets", "app.js"));
 function extract(text, first, last) {
   const start = text.indexOf(first);
   assert.ok(start >= 0, "Missing production entry: " + first);

@@ -1,10 +1,10 @@
 const assert = require('node:assert/strict');
-const { readFileSync } = require('node:fs');
+const readSource = require('./helpers/read-source.cjs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const source = readFileSync(path.join(__dirname, '../assets/app.js'), 'utf8');
+const source = readSource(path.join(__dirname, '../assets/app.js'));
 const start = source.indexOf('    importFile: async function(file) {');
 const end = source.indexOf('\n  });', start);
 assert.ok(start >= 0 && end > start);
