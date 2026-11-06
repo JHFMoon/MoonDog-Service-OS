@@ -4,10 +4,10 @@
 // synthetic, out-of-order and finalized reports; no Workspace files are read.
 const test=require("node:test");
 const assert=require("node:assert/strict");
-const fs=require("node:fs");
+const readSource=require("./helpers/read-source.cjs");
 const path=require("node:path");
 const vm=require("node:vm");
-const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+const app=readSource(path.join(__dirname,"..","assets","app.js"));
 
 function slice(first,last){
   const start=app.indexOf(first),end=app.indexOf(last,start+first.length);

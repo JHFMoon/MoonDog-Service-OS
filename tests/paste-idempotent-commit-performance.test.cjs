@@ -2,10 +2,10 @@
 const test=require("node:test");
 const assert=require("node:assert/strict");
 const vm=require("node:vm");
-const fs=require("node:fs");
+const readSource=require("./helpers/read-source.cjs");
 const path=require("node:path");
 const {performance}=require("node:perf_hooks");
-const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+const app=readSource(path.join(__dirname,"..","assets","app.js"));
 const diffStart=app.indexOf("  function pasteDiff(");
 const diffEnd=app.indexOf("  async function analyzePasteLearning(",diffStart);
 const commitStart=app.indexOf("  async function commitPasteLearning(");
