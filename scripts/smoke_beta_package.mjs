@@ -89,8 +89,8 @@ function directoryHandle(folderPath) {
 // never fabricate the compatibility page that the installed updater requires.
 const compatibilityIndex = path.join(installRoot, "index.html");
 const stableHtml = fs.readFileSync(path.join(appRoot, "index.html"), "utf8");
-if (!/<!doctype html>\\s*<html\\s+lang="en"><head>/i.test(stableHtml) ||
-    stableHtml.toLowerCase().split("<head>").length !== 2 || /<base\\b/i.test(stableHtml)) {
+if (!/<!doctype html>\s*<html\s+lang="en"><head>/i.test(stableHtml) ||
+    stableHtml.toLowerCase().split("<head>").length !== 2 || /<base\b/i.test(stableHtml)) {
   throw new Error("Clean-install HTML cannot produce a safe origin compatibility page.");
 }
 const expectedCompatibility = stableHtml.replace("<head>", '<head><base href="System Files/">');
