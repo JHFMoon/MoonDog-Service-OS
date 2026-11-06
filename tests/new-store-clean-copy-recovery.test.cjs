@@ -132,7 +132,7 @@ test("locked source creates an independent verified empty-store application with
   assert.equal(await readText(h.source,"System Files/Workspace/data/.moondog-txn-locked.json"),"prior journal must survive");
   assert.equal(await readText(h.source,"System Files/Workspace/data/settings.json"),"synthetic source settings");
   assert.equal(await readText(h.source,"System Files/Workspace/backups/prior.zip"),"synthetic backup bytes");
-  assert.match(await readText(h.destination,"00 - OPEN DASHBOARD.html"),/System Files\/index.html/);
+  assert.match(await readText(h.destination,"00 - OPEN DASHBOARD.html"),/System Files\/index\.html\?moondog-new-store=1/);
   assert.equal(await readText(h.destination,"System Files/assets/app.js"),"production-runtime");
   assert.deepEqual(JSON.parse(await readText(h.destination,"System Files/Workspace/data/current-state.json")),h.fresh["data/current-state.json"]);
   assert.deepEqual(JSON.parse(await readText(h.destination,"System Files/Workspace/data/settings.json")),h.fresh["data/settings.json"]);
@@ -201,4 +201,21 @@ test("the runtime source stays pinned if the connection changes during the picke
   h.ctx.writeAuthority.reason="INTERRUPTED_RESTORE";
   await h.ctx.prepareForNewStore();
   assert.match(h.ui.handoffResult.textContent,/CLEAN NEW STORE READY/);
+});
+
+test("the new launcher keeps its saved handle separate from existing file installations",()=>{
+  const keyStart=app.indexOf("  const newStoreLauncher =");
+  const keyEnd=app.indexOf(";",app.indexOf("  const HANDLE_KEY =",keyStart))+1;
+  assert.ok(keyStart>0&&keyEnd>keyStart);
+  function key(pathname,search){
+    const context=vm.createContext({URLSearchParams,location:{protocol:"file:",pathname,search}});
+    return vm.runInContext(app.slice(keyStart,keyEnd)+"\nHANDLE_KEY;",context);
+  }
+  const oldPath="/old/System%20Files/index.html";
+  const firstNewPath="/new/System%20Files/index.html";
+  const secondNewPath="/another/System%20Files/index.html";
+  const launch="?moondog-new-store=1";
+  assert.equal(key(oldPath,""),"working-folder");
+  assert.notEqual(key(firstNewPath,launch),key(oldPath,""));
+  assert.notEqual(key(firstNewPath,launch),key(secondNewPath,launch));
 });

@@ -379,7 +379,11 @@
   }catch(_){/* Unsupported observers never affect startup. */}
   const BUILD_DATE = "2026-10-07";
   const DB_NAME = "moondog-operations-local";
-  const HANDLE_KEY = "working-folder";
+  // Chromium shares IndexedDB across file URLs. Keep the newly prepared
+  // launcher separate from the legacy saved folder and other new stores.
+  const newStoreLauncher = globalThis.location?.protocol === "file:" &&
+    new URLSearchParams(globalThis.location.search).get("moondog-new-store") === "1";
+  const HANDLE_KEY = newStoreLauncher ? "working-folder:" + globalThis.location.pathname : "working-folder";
   const STATE_PATH = ["data", "current-state.json"];
   const SETTINGS_PATH = ["data", "settings.json"];
   const SOURCE_ADAPTER_BOOTSTRAP_PATH = ["data", "source-adapter-bootstrap.json"];
@@ -8391,7 +8395,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       await writeWorkspaceFile("README.txt",utf8("PRIVATE LOCAL WORKSPACE\nThis independent new-store Workspace contains no prior-store operational records.\n"));
       await writeWorkspaceFile("PROJECT_CONTEXT.md",utf8(portableContext()));
       await writeWorkspaceFile("NEW_STORE_HANDOFF_REPORT.md",utf8("# Independent New-Store Installation\nCreated: "+now()+"\nVersion: "+VERSION+"\nThis is a fresh, separate installation. No files were copied from the prior store Workspace. Its recovery journals and records were preserved unchanged in the source copy.\n"));
-      const launcher='<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=System%20Files/index.html"><title>Service Operations Dashboard</title></head><body><p>Opening Service Operations Dashboard… <a href="System%20Files/index.html">Continue</a></p><script>location.replace("System Files/index.html");</script></body></html>\n';
+      const launcher='<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=System%20Files/index.html?moondog-new-store=1"><title>Service Operations Dashboard</title></head><body><p>Opening Service Operations Dashboard… <a href="System%20Files/index.html?moondog-new-store=1">Continue</a></p><script>location.replace("System Files/index.html?moondog-new-store=1");</script></body></html>\n';
       await writeNewFile("00 - OPEN DASHBOARD.html",utf8(launcher));
       await writeNewFile("START HERE.txt",utf8("CLEAN NEW STORE - MOONDOG\nOpen 00 - OPEN DASHBOARD.html in Microsoft Edge.\nConnect THIS new folder, then complete Guided Setup for the new dealership.\nThe recovery-locked source copy was not changed.\n"));
       const runtimeAfter=await runtimeIntegrity(source);
