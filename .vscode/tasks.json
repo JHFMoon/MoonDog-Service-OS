@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "MoonDog: Publish Beta",
+      "type": "process",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-NonInteractive",
+        "-File",
+        "${workspaceFolder}/.vscode/publish-moondog-beta.ps1",
+        "-RepositoryRoot",
+        "${workspaceFolder}",
+        "-Publish"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "MoonDog: Update main",
+      "type": "process",
+      "command": "pwsh.exe",
+      "args": [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$r = (git remote get-url origin).Trim(); if ($r -ne 'https://github.com/JHFMoon/MoonDog-Service-OS.git') { Write-Host 'Skipped: wrong remote'; exit 1 }; if ((git branch --show-current).Trim() -ne 'main') { Write-Host 'Skipped: not on main'; exit 0 }; if (git status --porcelain) { Write-Host 'Skipped: local changes'; exit 0 }; git fetch --quiet origin main; if ($LASTEXITCODE -ne 0) { exit 1 }; if ([int](git rev-list --count origin/main..HEAD) -gt 0) { Write-Host 'Skipped: local commits exist'; exit 0 }; git merge --ff-only origin/main; if ($LASTEXITCODE -ne 0) { exit 1 }; git status -sb"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
