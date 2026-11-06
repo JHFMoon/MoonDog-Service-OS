@@ -8,11 +8,11 @@
     "releaseNotes": "Removes the local owner-editing designation requirement. A connected dashboard folder can edit when the browser has read/write access. Removes owner recovery controls and keeps existing file, update, revision, and workspace protections. No workspace migration."
   },
   "beta": {
-    "version": "0.10.18-beta.368",
-    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.368.json",
-    "sha256": "2d29c78f98452cd83bd49bb533f89bbd9d71585b6fe2dde22955f04b78461ebf",
+    "version": "0.10.18-beta.369",
+    "packageUrl": "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-0.10.18-beta.369.json",
+    "sha256": "b4d86e2087e5a602e6e817d3989f21783ed1ec65cf7694db12fdec8c6efcbe11",
     "minimumCompatibleVersion": "0.10.9",
     "migrationRequired": false,
-    "releaseNotes": "Guard Next Appointments durability and prove CSI restore lineage. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged."
+    "releaseNotes": "Show new-store preparation failures in the handoff panel. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged."
   }
 }
