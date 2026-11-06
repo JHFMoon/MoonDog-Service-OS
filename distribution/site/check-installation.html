@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Check installation files — Service Operations Dashboard</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#13252d;background:#eef3f5}
+*{box-sizing:border-box}body{margin:0}.wrap{max-width:820px;margin:auto;padding:40px 20px 80px}
+.card{background:#fff;border:1px solid #d8e2e6;border-radius:18px;padding:28px;margin:16px 0}
+h1{font-size:clamp(28px,5vw,44px);letter-spacing:-.035em}p,li{line-height:1.6}
+a{color:#123d4b}button,.button{display:inline-block;background:#123d4b;color:#fff;border:0;border-radius:10px;padding:13px 18px;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}
+.button.secondary{background:#e9f1f3;color:#173b46}
+.actions{display:flex;gap:12px;flex-wrap:wrap}.muted{color:#51646c}
+.result{border-left:4px solid #66818a;padding:12px 16px;background:#f1f6f7;margin-top:16px}
+.result.error{border-color:#ae6424;background:#fff5e9}.result.ok{border-color:#217457;background:#ecf8f1}
+pre{white-space:pre-wrap;overflow-wrap:anywhere}
+</style>
+</head>
+<body><main class="wrap">
+<p><a href="./">← Dashboard downloads</a></p>
+<h1>Check installation files</h1>
+<p class="muted">For a fresh installation or an update that says <strong>index.html is missing</strong>. This check only reads filenames from a folder you explicitly select. It does not upload files, change any file, or access dealership reports.</p>
+<section class="card">
+<h2>1 · Check the extracted folder</h2>
+<p>Select the <strong>Service Operations Dashboard</strong> folder that contains <strong>00 - OPEN DASHBOARD.html</strong> and <strong>System Files</strong>. Use Microsoft Edge on Windows.</p>
+<div class="actions"><button id="check" type="button">Choose folder and check</button></div>
+<div id="result" class="result" role="status" aria-live="polite">No folder selected. Nothing has been changed.</div>
+</section>
+<section class="card">
+<h2>2 · Fix a missing application file</h2>
+<ol>
+<li>Close all Dashboard tabs. <strong>Do not delete or overwrite</strong> your current folder, especially <strong>System Files/Workspace</strong>.</li>
+<li>Download the official <a href="https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip">Stable clean-install ZIP</a>.</li>
+<li>In File Explorer, right-click the ZIP and choose <strong>Extract All</strong> into a <strong>new, empty folder</strong>. Do not open the launcher from inside the ZIP.</li>
+<li>Open the newly extracted <strong>Service Operations Dashboard</strong> folder and run the checker above. Then open <strong>00 - OPEN DASHBOARD.html</strong> in Edge and complete Guided Setup for a genuinely new store.</li>
+</ol>
+<p><strong>Existing store?</strong> Do not import or copy a prior Workspace into the new installation or replace old files based only on this checker. Preserve the original folder and backups; use the Dashboard's verified update/recovery process or get an installation-specific recovery plan.</p>
+</section>
+<section class="card">
+<h2>Expected layout</h2>
+<pre>Service Operations Dashboard/
+├── 00 - OPEN DASHBOARD.html
+├── INSTALLATION-MANIFEST.json
+└── System Files/
+    ├── index.html
+    ├── assets/
+    │   └── app.js
+    └── Workspace/  (protected local data)</pre>
+<p class="muted">An updater checking the application root needs <strong>System Files</strong>, not the outer Dashboard folder and never the Workspace. A missing index can also mean the installer selected the wrong folder—not that the BMW SAPR report needs setup.</p>
+</section>
+</main>
+<script>
+"use strict";
+const button=document.getElementById("check"), result=document.getElementById("result");
+async function has(parent,name,kind){
+  try {const handle=kind==="directory"?await parent.getDirectoryHandle(name,{create:false}):await parent.getFileHandle(name,{create:false});return handle.kind===kind}
+  catch(error){if(error&&error.name==="NotFoundError")return false;throw error}
+}
+button.addEventListener("click",async()=>{
+  if(typeof window.showDirectoryPicker!=="function"){
+    result.className="result error";result.textContent="This browser does not support local folder checks. Use Microsoft Edge on Windows, or follow the manual steps below.";return;
+  }
+  try{
+    const root=await window.showDirectoryPicker({mode:"read"});
+    const isSystemFiles=await has(root,"assets","directory")&&await has(root,"index.html","file");
+    if(isSystemFiles){
+      result.className="result error";result.textContent="You selected System Files. The application entry and assets folder exist here. For a clean-install layout check, select the parent Service Operations Dashboard folder. For in-app updates, System Files is the application root.";return;
+    }
+    const launcher=await has(root,"00 - OPEN DASHBOARD.html","file");
+    const manifest=await has(root,"INSTALLATION-MANIFEST.json","file");
+    const system=await has(root,"System Files","directory");
+    let index=false,assets=false,app=false,workspace=false;
+    if(system){
+      const folder=await root.getDirectoryHandle("System Files",{create:false});
+      index=await has(folder,"index.html","file");
+      assets=await has(folder,"assets","directory");
+      workspace=await has(folder,"Workspace","directory");
+      if(assets)app=await has(await folder.getDirectoryHandle("assets",{create:false}),"app.js","file");
+    }
+    const items=[["Launcher",launcher],["Installation manifest",manifest],["System Files folder",system],["System Files/index.html",index],["System Files/assets/app.js",app],["Workspace folder",workspace]];
+    const complete=items.every(item=>item[1]);
+    result.className="result "+(complete?"ok":"error");
+    result.textContent=(complete?"Expected core paths were found. This does not verify file contents or updater permissions.":"Some expected paths are missing. Keep the original folder intact; use the safe fresh-extraction steps below.")+"\n"+items.map(item=>(item[1]?"FOUND: ":"MISSING: ")+item[0]).join("\n");
+    result.style.whiteSpace="pre-line";
+  }catch(error){
+    if(error&&error.name==="AbortError"){result.className="result";result.textContent="Folder selection cancelled. No changes made.";return}
+    result.className="result error";result.textContent="Could not complete the read-only folder check: "+(error?.message||"Folder access was unavailable")+". No changes made.";
+  }
+});
+</script>
+</body></html>
