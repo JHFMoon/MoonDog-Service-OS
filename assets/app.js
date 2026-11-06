@@ -8311,12 +8311,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function restoreHandoffSnapshot(snapshot){for(const dirName of HANDOFF_CLEAR_DIRS)await removeTreeContents(await directory([dirName],true));await removeTreeContents(await directory(["data","history"],true));for(const path of [...Object.keys(BACKUP_FILES),"data/recovery.json","MOONDOG_DIAGNOSTICS.md","PROJECT_CONTEXT.md","README.txt","TEST_STATUS.md","NEW_STORE_HANDOFF_REPORT.md"])await removePath(path.split("/"));for await(const[name,handle]of model.root.entries())if(handle.kind==="file"&&HANDOFF_ROOT_SOURCE_PATTERN.test(name))await model.root.removeEntry(name);for(const item of snapshot)await writeBytes(item.path.split("/"),item.bytes);}
   async function resetConnectedCopy(at){for(const dirName of HANDOFF_CLEAR_DIRS){const dir=await directory([dirName],true);await removeTreeContents(dir);}try{const learn=await directory(["Files To Learn"],false);await removeTreeContents(learn,(path,isDir)=>!isDir&&HANDOFF_LEARN_PATTERN.test(path));}catch(_){}for await(const[name,handle]of model.root.entries())if(handle.kind==="file"&&HANDOFF_ROOT_SOURCE_PATTERN.test(name))await model.root.removeEntry(name);const history=await directory(["data","history"],true);await removeTreeContents(history);const fresh=freshProductState();for(const[path,value]of Object.entries(fresh))await writeJson(path.split("/"),value);model.recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,lastRestore:null,status:"New-store preparation complete"};await writeJson(RECOVERY_PATH,model.recovery);/* No automatic diagnostics report on new-store setup. */await writeText(["PROJECT_CONTEXT.md"],portableContext());await writeText(["README.txt"],portableReadme());await writeText(["TEST_STATUS.md"],portableTestStatus());await writeText(["NEW_STORE_HANDOFF_REPORT.md"],handoffReport(at));[model.state,model.settings,model.appointments,model.performance,model.assignNext,model.autoImport,model.operationalMetrics,model.meetingCycle]=Object.values(fresh);}
   const HANDOFF_RUNTIME_PATHS=["assets/app.js","assets/arrivals.css","assets/assign-next-controls.css","assets/assign-next.css","assets/clarity.css","assets/daily-engine.js","assets/daily-ops.css","assets/daily-ops.js","assets/developer-center.css","assets/freshness.js","assets/maintenance.js","assets/meeting.css","assets/moondog-update-check.js","assets/moondog-update-install.js","assets/moondog-update-model.js","assets/moondog-update-plan.js","assets/moondog-update-settings.js","assets/moondog-update-verify.js","assets/moondog-write-authority.js","assets/operational.css","assets/performance.css","assets/product-settings.css","assets/queue.css","assets/styles.css","assets/worklist.css","index.html","vendor/JSZIP-LICENSE.txt","vendor/PDFJS-LICENSE.txt","vendor/SHEETJS-LICENSE.txt","vendor/THIRD_PARTY_NOTICES.md","vendor/jszip.min.js","vendor/pdf.min.js","vendor/pdf.worker.min.js","vendor/xlsx.full.min.js"];
-  async function runtimeFileBytes(path){let dir=await connectedNativeRoot.getDirectoryHandle("System Files");const parts=path.split("/");for(const part of parts.slice(0,-1))dir=await dir.getDirectoryHandle(part);return new Uint8Array(await(await(await dir.getFileHandle(parts.at(-1))).getFile()).arrayBuffer());}
-  async function runtimeIntegrity(){const result={};for(const path of HANDOFF_RUNTIME_PATHS){const bytes=await runtimeFileBytes(path);if(!bytes.byteLength)throw new Error(`Required product file is missing: ${path}.`);result[path]=await sha256(bytes);}return result;}
+  async function runtimeFileBytes(path,root=connectedNativeRoot){let dir=await root.getDirectoryHandle("System Files");const parts=path.split("/");for(const part of parts.slice(0,-1))dir=await dir.getDirectoryHandle(part);return new Uint8Array(await(await(await dir.getFileHandle(parts.at(-1))).getFile()).arrayBuffer());}
+  async function runtimeIntegrity(root=connectedNativeRoot){const result={};for(const path of HANDOFF_RUNTIME_PATHS){const bytes=await runtimeFileBytes(path,root);if(!bytes.byteLength)throw new Error(`Required product file is missing: ${path}.`);result[path]=await sha256(bytes);}return result;}
   async function validatePreparedCopy(expectedRuntime){const expected=freshProductState();for(const[path,value]of Object.entries(expected)){const actual=await readJson(path.split("/"),null);if(!actual||JSON.stringify(actual)!==JSON.stringify(value))throw new Error(`New-store validation failed for ${path}.`);}for(const dirName of HANDOFF_CLEAR_DIRS)if((await walkFiles(await directory([dirName],true),dirName)).length)throw new Error(`${dirName} was not cleared.`);if((await walkFiles(await directory(["data","history"],true),"data/history")).length)throw new Error("Operational history was not cleared.");const actualRuntime=await runtimeIntegrity();for(const[path,hash]of Object.entries(expectedRuntime||{}))if(actualRuntime[path]!==hash)throw new Error(`Application/runtime integrity changed during reset: ${path}.`);for(const name of ["PROJECT_CONTEXT.md","NEW_STORE_HANDOFF_REPORT.md"])if(!(await readFileBytes(name.split("/"))).byteLength)throw new Error(`Required product file is missing: ${name}.`);const combined=decodeUtf8(await readFileBytes(["PROJECT_CONTEXT.md"]))+decodeUtf8(await readFileBytes(["NEW_STORE_HANDOFF_REPORT.md"]));if([sourceAdapter.storeName,sourceAdapter.storeCode,...Object.keys(sourceAdapter.legacyAdvisors||{}),...Object.values(sourceAdapter.legacyAdvisors||{})].filter(value=>String(value||"").length>2).some(value=>combined.toLowerCase().includes(String(value).toLowerCase())))throw new Error("Portable documentation retained a source-store identifier.");return true;}
   // Never bypass an unprovable transaction hold. Create a separate installation.
-  async function createCleanNewStoreCopy(destination){
-    const source=connectedNativeRoot;
+  async function createCleanNewStoreCopy(destination, source=connectedNativeRoot){
     if(!source||!destination||typeof source.resolve!=="function"||typeof destination.resolve!=="function")
       throw new Error("The old installation and new destination cannot be independently identified.");
     const withinSource=await source.resolve(destination),containsSource=await destination.resolve(source);
@@ -8326,50 +8325,76 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       throw new Error("Grant write permission to the separate new-store destination.");
     for await(const _ of destination.entries())
       throw new Error("Choose a completely empty folder for the new store. No existing files were changed.");
-    const runtimeBefore=await runtimeIntegrity();
-    const writeNewFile=async(root,path,bytes)=>{
-      const parts=path.split("/");
-      if(parts.some(part=>!part||part==="."||part===".."))throw new Error("Invalid new-store output path.");
-      let parent=root;
-      for(const part of parts.slice(0,-1))parent=await parent.getDirectoryHandle(part,{create:true});
-      const handle=await parent.getFileHandle(parts.at(-1),{create:true}),stream=await handle.createWritable();
+    ui.handoffResult.textContent="Verifying the application files in the copied installation…";
+    const runtimeBefore=await runtimeIntegrity(source);
+    for await(const _ of destination.entries())
+      throw new Error("The destination is no longer empty. Choose a separate empty folder.");
+    const created=[];
+    const directories=new Map([["",destination]]);
+    const createEntry=async(parent,name,kind)=>{
+      // Recheck immediately before creating each entry. Cleanup only removes
+      // entries made by this attempt, and never recursively removes a directory.
+      for await(const [existingName] of parent.entries()){
+        if(existingName.toLowerCase()===name.toLowerCase())
+          throw new Error("The destination changed while preparing the new store. Choose another empty folder.");
+      }
+      const handle=kind==="directory"
+        ?await parent.getDirectoryHandle(name,{create:true})
+        :await parent.getFileHandle(name,{create:true});
+      created.push({parent,name});
+      return handle;
+    };
+    const newDirectory=async(path)=>{
+      let current=destination,key="";
+      for(const part of path.split("/").filter(Boolean)){
+        key=key?key+"/"+part:part;
+        if(!directories.has(key))directories.set(key,await createEntry(current,part,"directory"));
+        current=directories.get(key);
+      }
+      return current;
+    };
+    const writeNewFile=async(path,bytes)=>{
+      const parts=path.split("/"),name=parts.pop();
+      const parent=await newDirectory(parts.join("/"));
+      const handle=await createEntry(parent,name,"file"),stream=await handle.createWritable();
       try{await stream.write(bytes);await stream.close();}
       catch(error){try{await stream.abort();}catch(_){}throw error;}
       const readback=new Uint8Array(await(await handle.getFile()).arrayBuffer());
       if(await sha256(readback)!==await sha256(bytes))
-        throw new Error("New-store file readback failed; the destination is incomplete.");
+        throw new Error("New-store file readback failed for "+path+".");
     };
-    const newDirectory=async(root,path)=>{
-      let current=root;
-      for(const part of path.split("/"))current=await current.getDirectoryHandle(part,{create:true});
-      return current;
-    };
-    let outputStarted=false;
     try{
-      outputStarted=true;
-      const system=await destination.getDirectoryHandle("System Files",{create:true});
+      ui.handoffResult.textContent="Copying and verifying application files in "+destination.name+"…";
       for(const path of HANDOFF_RUNTIME_PATHS){
-        const bytes=await runtimeFileBytes(path);
+        const bytes=await runtimeFileBytes(path,source);
         if(await sha256(bytes)!==runtimeBefore[path])
           throw new Error("Installed application changed while preparing the new-store copy.");
-        await writeNewFile(system,path,bytes);
+        await writeNewFile("System Files/"+path,bytes);
       }
-      const workspace=await system.getDirectoryHandle("Workspace",{create:true});
+      ui.handoffResult.textContent="Initializing a clean Workspace for Guided Setup…";
+      const workspacePath="System Files/Workspace";
+      const workspace=await newDirectory(workspacePath);
+      const writeWorkspaceFile=(path,bytes)=>writeNewFile(workspacePath+"/"+path,bytes);
       for(const dir of ["data/history","backups","imports","exports","support","01 - DROP REPORTS HERE","Files To Learn"])
-        await newDirectory(workspace,dir);
+        await newDirectory(workspacePath+"/"+dir);
       const fresh=freshProductState();
+      // The legacy in-place reset marker clears settings on reconnect. A new
+      // Workspace has no legacy settings to clear and starts with a blank adapter.
+      const settings=fresh["data/settings.json"];
+      delete settings.setup.newStorePrepared;
+      settings.sourceAdapters={schemaVersion:1};
       for(const [path,value] of Object.entries(fresh))
-        await writeNewFile(workspace,path,utf8(JSON.stringify(value,null,2)+"\n"));
+        await writeWorkspaceFile(path,utf8(JSON.stringify(value,null,2)+"\n"));
       const recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,lastRestore:null,status:"New-store copy created; first-time setup required"};
-      await writeNewFile(workspace,"data/recovery.json",utf8(JSON.stringify(recovery,null,2)+"\n"));
-      await writeNewFile(workspace,"data/store-revision.json",utf8(JSON.stringify({schemaVersion:1,revision:0},null,2)+"\n"));
-      await writeNewFile(workspace,"README.txt",utf8("PRIVATE LOCAL WORKSPACE\nThis independent new-store Workspace contains no prior-store operational records.\n"));
-      await writeNewFile(workspace,"PROJECT_CONTEXT.md",utf8(portableContext()));
-      await writeNewFile(workspace,"NEW_STORE_HANDOFF_REPORT.md",utf8("# Independent New-Store Installation\nCreated: "+now()+"\nVersion: "+VERSION+"\nThis is a fresh, separate installation. No files were copied from the prior store Workspace. Its recovery journals and records were preserved unchanged in the source copy.\n"));
+      await writeWorkspaceFile("data/recovery.json",utf8(JSON.stringify(recovery,null,2)+"\n"));
+      await writeWorkspaceFile("data/store-revision.json",utf8(JSON.stringify({schemaVersion:1,revision:0},null,2)+"\n"));
+      await writeWorkspaceFile("README.txt",utf8("PRIVATE LOCAL WORKSPACE\nThis independent new-store Workspace contains no prior-store operational records.\n"));
+      await writeWorkspaceFile("PROJECT_CONTEXT.md",utf8(portableContext()));
+      await writeWorkspaceFile("NEW_STORE_HANDOFF_REPORT.md",utf8("# Independent New-Store Installation\nCreated: "+now()+"\nVersion: "+VERSION+"\nThis is a fresh, separate installation. No files were copied from the prior store Workspace. Its recovery journals and records were preserved unchanged in the source copy.\n"));
       const launcher='<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=System%20Files/index.html"><title>Service Operations Dashboard</title></head><body><p>Opening Service Operations Dashboard… <a href="System%20Files/index.html">Continue</a></p><script>location.replace("System Files/index.html");</script></body></html>\n';
-      await writeNewFile(destination,"00 - OPEN DASHBOARD.html",utf8(launcher));
-      await writeNewFile(destination,"START HERE.txt",utf8("CLEAN NEW STORE - MOONDOG\nOpen 00 - OPEN DASHBOARD.html in Microsoft Edge.\nConnect THIS new folder, then complete Guided Setup for the new dealership.\nThe recovery-locked source copy was not changed.\n"));
-      const runtimeAfter=await runtimeIntegrity();
+      await writeNewFile("00 - OPEN DASHBOARD.html",utf8(launcher));
+      await writeNewFile("START HERE.txt",utf8("CLEAN NEW STORE - MOONDOG\nOpen 00 - OPEN DASHBOARD.html in Microsoft Edge.\nConnect THIS new folder, then complete Guided Setup for the new dealership.\nThe recovery-locked source copy was not changed.\n"));
+      const runtimeAfter=await runtimeIntegrity(source);
       if(HANDOFF_RUNTIME_PATHS.some(path=>runtimeBefore[path]!==runtimeAfter[path]))
         throw new Error("Installed application changed during the new-store export.");
       for(const [path,value] of Object.entries(fresh)){
@@ -8379,20 +8404,66 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         if(JSON.stringify(saved)!==JSON.stringify(value))
           throw new Error("New-store defaults failed verification: "+path);
       }
-      ui.handoffResult.textContent="CLEAN NEW STORE READY · "+destination.name+" · Open 00 - OPEN DASHBOARD.html in that empty destination folder, then complete Guided Setup. The old recovery-locked copy was not changed.";
+      ui.handoffResult.textContent="CLEAN NEW STORE READY · "+destination.name+" · Open 00 - OPEN DASHBOARD.html in that folder, connect the new folder, then complete Guided Setup. The old recovery-locked copy was not changed.";
       ui.handoffResult.className="handoff-result success";
     }catch(error){
-      if(outputStarted){
-        for(const name of ["00 - OPEN DASHBOARD.html","START HERE.txt","System Files"]){
-          try{await destination.removeEntry(name,{recursive:true});}catch(_){}
-        }
+      let cleanupIncomplete=false;
+      for(const {parent,name} of created.reverse()){
+        try{await parent.removeEntry(name);}
+        catch(cleanupError){if(cleanupError?.name!=="NotFoundError")cleanupIncomplete=true;}
       }
+      if(cleanupIncomplete)
+        throw new Error((error?.message||String(error))+" Some destination files remain. Use another empty folder to retry.");
       throw error;
     }
   }
-  async function prepareForNewStore(){if(!model.root||!connectedNativeRoot)throw new Error("Connect the copied installation first.");if(!ui.handoffCopyConfirm.checked||!ui.handoffEraseConfirm.checked||ui.handoffPhrase.value.trim().toUpperCase()!=="PREPARE NEW STORE")throw new Error("Complete both confirmations and type PREPARE NEW STORE exactly.");if(!writeAuthority.canWrite&&["PENDING_TRANSACTION","INTERRUPTED_RESTORE"].includes(writeAuthority.reason)){if(!window.showDirectoryPicker)throw new Error("This Edge version cannot select a separate new-store folder.");const destination=await window.showDirectoryPicker({id:"moondog-new-store",mode:"readwrite"});return createCleanNewStoreCopy(destination);}writeAuthority.requireWrite();if(!model.root)throw new Error("Connect the Service Operations Dashboard copy intended for handoff first.");if(!ui.handoffCopyConfirm.checked||!ui.handoffEraseConfirm.checked||ui.handoffPhrase.value.trim().toUpperCase()!=="PREPARE NEW STORE")throw new Error("Complete both confirmations and type PREPARE NEW STORE exactly.");if(!window.showSaveFilePicker)throw new Error("This Edge version cannot create the required external safety backup.");const runtimeBefore=await runtimeIntegrity(),snapshot=await handoffTargets(),externalBytes=await createExternalHandoffBackup(snapshot),externalHandle=await window.showSaveFilePicker({suggestedName:`Service Operations Dashboard Private Pre-Handoff Recovery - ${stamp()}.zip`,types:[{description:"Service Operations Dashboard recovery archive",accept:{"application/zip":[".zip"]}}]});if(typeof connectedNativeRoot?.resolve!=="function")throw new Error("Service Operations Dashboard cannot prove that the safety backup is outside this copy. Reset aborted.");const inside=await connectedNativeRoot.resolve(externalHandle);if(inside)throw new Error("Choose a safety-backup location outside the Service Operations Dashboard copy being prepared.");const writable=await externalHandle.createWritable();await writable.write(externalBytes);await writable.close();const externalReadback=new Uint8Array(await(await externalHandle.getFile()).arrayBuffer());await validateExternalHandoffBackup(externalReadback);if(!confirm(`FINAL WARNING\n\nPermanently remove all store-specific data from the connected folder “${model.root.name}”?\n\nThe external safety backup has been created and validated.`))return;const at=now();try{await resetConnectedCopy(at);await validatePreparedCopy(runtimeBefore);clearSourceAdapter();ui.handoffResult.textContent=`PREPARATION COMPLETE · ${new Date(at).toLocaleString()} · This connected copy is ready for first-time Setup.`;ui.handoffResult.className="handoff-result success";renderAll();renderSettings();navigateTo("setup");}catch(error){await restoreHandoffSnapshot(snapshot);await validateExternalHandoffBackup(externalReadback);ui.handoffResult.textContent="Preparation failed. The connected copy was restored from the pre-reset snapshot.";ui.handoffResult.className="handoff-result error";throw error;}}
-  function ensureNewStoreUi(){if(ui.newStoreSection)return;const section=document.createElement("section");section.id="newStoreSection";section.className="card destructive-card";section.innerHTML='<p class="eyebrow">Destructive action</p><h2>PREPARE SERVICE OPERATIONS DASHBOARD FOR A NEW STORE</h2><p>This permanently removes all store-specific data from the currently connected Service Operations Dashboard copy and returns it to clean product defaults. Only the currently connected folder is affected.</p><div class="target-identity"><span>CURRENTLY CONNECTED TARGET</span><strong id="handoffTargetIdentity">Not connected</strong></div><details><summary>Review removal preflight</summary><ul id="handoffPreflight"></ul></details><label class="destructive-check"><input id="handoffCopyConfirm" type="checkbox"> This is the copied Service Operations Dashboard folder intended for handoff.</label><label class="destructive-check"><input id="handoffEraseConfirm" type="checkbox"> I understand all store-specific data in this connected copy will be permanently removed.</label><label>Type <strong>PREPARE NEW STORE</strong><input id="handoffPhrase" autocomplete="off"></label><button id="prepareNewStore" type="button" class="danger">Create External Safety Backup &amp; Prepare Copy</button><p id="handoffResult" class="handoff-result"></p>';ui["view-settings"].append(section);for(const id of ["newStoreSection","handoffTargetIdentity","handoffPreflight","handoffCopyConfirm","handoffEraseConfirm","handoffPhrase","prepareNewStore","handoffResult"])ui[id]=document.getElementById(id);ui.prepareNewStore.addEventListener("click",async()=>{ui.handoffResult.textContent="Checking connected Workspace and external-backup prerequisites…";ui.handoffResult.className="handoff-result";ui.prepareNewStore.disabled=true;try{await prepareForNewStore();}catch(error){const recoveryBlocked=writeAuthority.reason==="PENDING_TRANSACTION"||writeAuthority.reason==="INTERRUPTED_RESTORE";ui.handoffResult.textContent=`${recoveryBlocked?"Clean new-store creation":"Preparation"} did not complete: ${error?.message||"Unknown error"}. The existing Workspace and recovery journal were not intentionally reset.`;ui.handoffResult.className="handoff-result error";console.error("New-store preparation blocked",error);}finally{ui.prepareNewStore.disabled=!model.root;}});}
-  function renderNewStore(){ensureNewStoreUi();const locked=!writeAuthority.canWrite&&["PENDING_TRANSACTION","INTERRUPTED_RESTORE"].includes(writeAuthority.reason);const description=ui.newStoreSection.querySelector("p:not(.eyebrow)");if(description)description.textContent=locked?"The copied Workspace has an unresolved recovery hold. This option creates an independent clean installation in a separate empty folder. It does not reset or delete files from the locked copy.":"This permanently removes store-specific data from the connected copy, after an external safety backup is verified.";ui.handoffTargetIdentity.textContent=model.applicationRoot?.name||connectedNativeRoot?.name||model.root?.name||"Not connected";ui.prepareNewStore.disabled=!model.root;ui.prepareNewStore.textContent=locked?"Create Clean New-Store Folder":"Create External Safety Backup & Prepare Copy";ui.handoffEraseConfirm.parentNode.lastChild.textContent=locked?" I understand this creates a separate clean installation in an empty folder; the recovery-locked copy stays unchanged.":" I understand all store-specific data in this connected copy will be permanently removed.";const categories=locked?["Select a separate empty destination outside the copied installation","Copy verified application files only","Initialize a fresh Workspace with no prior dealership data or journals","Keep the original copied Workspace and pending transaction untouched","Open the new launcher and complete Guided Setup"]:["Store identity and configuration","Advisor roster and participation","SAPR and performance snapshots","Open RO and Daily Walk state","Appointments and Assign Next state","Meeting cycle and CSI / Customer Voice","Operational metrics and source ledgers","Operational history and internal backups","Imports, exports, revisions, diagnostics, and support artifacts","Setup-complete state","Store-specific reports in the target root and Files To Learn"];ui.handoffPreflight.innerHTML=categories.map(item=>"<li>"+item+"</li>").join("");}
+  function newStoreRecoveryLocked(){
+    return !writeAuthority.canWrite&&["PENDING_TRANSACTION","INTERRUPTED_RESTORE"].includes(writeAuthority.reason);
+  }
+  async function prepareForNewStore(){
+    const source=connectedNativeRoot;
+    if(!model.root||!source)throw new Error("Connect the copied installation first.");
+    if(!ui.handoffCopyConfirm.checked||!ui.handoffEraseConfirm.checked||ui.handoffPhrase.value.trim().toUpperCase()!=="PREPARE NEW STORE")
+      throw new Error("Complete both confirmations and type PREPARE NEW STORE exactly.");
+    if(newStoreRecoveryLocked()){
+      if(!window.showDirectoryPicker)throw new Error("This Edge version cannot select a separate new-store folder.");
+      ui.handoffResult.textContent="Choose a separate empty folder for the new dealership.";
+      const destination=await window.showDirectoryPicker({id:"moondog-new-store",mode:"readwrite"});
+      return createCleanNewStoreCopy(destination,source);
+    }
+    writeAuthority.requireWrite();
+    if(!window.showSaveFilePicker)throw new Error("This Edge version cannot create the required external safety backup.");const runtimeBefore=await runtimeIntegrity(),snapshot=await handoffTargets(),externalBytes=await createExternalHandoffBackup(snapshot),externalHandle=await window.showSaveFilePicker({suggestedName:`Service Operations Dashboard Private Pre-Handoff Recovery - ${stamp()}.zip`,types:[{description:"Service Operations Dashboard recovery archive",accept:{"application/zip":[".zip"]}}]});if(typeof connectedNativeRoot?.resolve!=="function")throw new Error("Service Operations Dashboard cannot prove that the safety backup is outside this copy. Reset aborted.");const inside=await connectedNativeRoot.resolve(externalHandle);if(inside)throw new Error("Choose a safety-backup location outside the Service Operations Dashboard copy being prepared.");const writable=await externalHandle.createWritable();await writable.write(externalBytes);await writable.close();const externalReadback=new Uint8Array(await(await externalHandle.getFile()).arrayBuffer());await validateExternalHandoffBackup(externalReadback);if(!confirm(`FINAL WARNING\n\nPermanently remove all store-specific data from the connected folder “${model.root.name}”?\n\nThe external safety backup has been created and validated.`))return;const at=now();try{await resetConnectedCopy(at);await validatePreparedCopy(runtimeBefore);clearSourceAdapter();ui.handoffResult.textContent=`PREPARATION COMPLETE · ${new Date(at).toLocaleString()} · This connected copy is ready for first-time Setup.`;ui.handoffResult.className="handoff-result success";renderAll();renderSettings();navigateTo("setup");}catch(error){await restoreHandoffSnapshot(snapshot);await validateExternalHandoffBackup(externalReadback);ui.handoffResult.textContent="Preparation failed. The connected copy was restored from the pre-reset snapshot.";ui.handoffResult.className="handoff-result error";throw error;}}
+  let newStoreBusy=false, newStoreRenderedRoot, newStoreRenderedLocked;
+  function ensureNewStoreUi(){if(ui.newStoreSection)return;const section=document.createElement("section");section.id="newStoreSection";section.className="card destructive-card";section.innerHTML='<p class="eyebrow">Destructive action</p><h2>PREPARE SERVICE OPERATIONS DASHBOARD FOR A NEW STORE</h2><p>This permanently removes all store-specific data from the currently connected Service Operations Dashboard copy and returns it to clean product defaults. Only the currently connected folder is affected.</p><div class="target-identity"><span>CURRENTLY CONNECTED TARGET</span><strong id="handoffTargetIdentity">Not connected</strong></div><details><summary>Review removal preflight</summary><ul id="handoffPreflight"></ul></details><label class="destructive-check"><input id="handoffCopyConfirm" type="checkbox"> This is the copied Service Operations Dashboard folder intended for handoff.</label><label class="destructive-check"><input id="handoffEraseConfirm" type="checkbox"> I understand all store-specific data in this connected copy will be permanently removed.</label><label>Type <strong>PREPARE NEW STORE</strong><input id="handoffPhrase" autocomplete="off"></label><button id="prepareNewStore" type="button" class="danger">Create External Safety Backup &amp; Prepare Copy</button><p id="handoffResult" class="handoff-result" role="status"></p>';ui["view-settings"].append(section);for(const id of ["newStoreSection","handoffTargetIdentity","handoffPreflight","handoffCopyConfirm","handoffEraseConfirm","handoffPhrase","prepareNewStore","handoffResult"])ui[id]=document.getElementById(id);ui.prepareNewStore.addEventListener("click",async()=>{
+      if(newStoreBusy)return;
+      const recoveryLocked=newStoreRecoveryLocked();
+      if(newStoreRenderedRoot!==model.applicationRoot||newStoreRenderedLocked!==recoveryLocked){
+        renderNewStore();
+        ui.handoffResult.textContent="The connected folder or recovery state changed. Review the instructions and confirm again.";
+        ui.handoffResult.className="handoff-result error";
+        return;
+      }
+      newStoreBusy=true;
+      ui.handoffResult.textContent="Checking new-store preparation requirements…";
+      ui.handoffResult.className="handoff-result";
+      ui.prepareNewStore.disabled=true;
+      try{await prepareForNewStore();}
+      catch(error){
+        const operation=recoveryLocked?"Clean new-store creation":"Preparation";
+        ui.handoffResult.textContent=error?.name==="AbortError"?operation+" canceled.":operation+" did not complete: "+(error?.message||"Unknown error");
+        ui.handoffResult.className="handoff-result error";
+        if(error?.name!=="AbortError")console.error("New-store preparation blocked",error);
+      }finally{newStoreBusy=false;ui.prepareNewStore.disabled=!model.root;}
+    });}
+  function renderNewStore(){ensureNewStoreUi();const locked=newStoreRecoveryLocked();
+    if(newStoreRenderedRoot!==model.applicationRoot||newStoreRenderedLocked!==locked){
+      ui.handoffCopyConfirm.checked=false;
+      ui.handoffEraseConfirm.checked=false;
+      ui.handoffPhrase.value="";
+      newStoreRenderedRoot=model.applicationRoot;
+      newStoreRenderedLocked=locked;
+    }
+    const description=ui.newStoreSection.querySelector("p:not(.eyebrow)");if(description)description.textContent=locked?"The copied Workspace has an unresolved recovery hold. This option creates an independent clean installation in a separate empty folder. It does not reset or delete files from the locked copy.":"This permanently removes store-specific data from the connected copy, after an external safety backup is verified.";ui.handoffTargetIdentity.textContent=model.applicationRoot?.name||connectedNativeRoot?.name||model.root?.name||"Not connected";ui.prepareNewStore.disabled=newStoreBusy||!model.root;ui.prepareNewStore.textContent=locked?"Create Clean New-Store Folder":"Create External Safety Backup & Prepare Copy";ui.handoffEraseConfirm.parentNode.lastChild.textContent=locked?" I understand this creates a separate clean installation in an empty folder; the recovery-locked copy stays unchanged.":" I understand all store-specific data in this connected copy will be permanently removed.";const categories=locked?["Select a separate empty destination outside the copied installation","Copy verified application files only","Initialize a fresh Workspace with no prior dealership data or journals","Keep the original copied Workspace and pending transaction untouched","Open the new launcher and complete Guided Setup"]:["Store identity and configuration","Advisor roster and participation","SAPR and performance snapshots","Open RO and Daily Walk state","Appointments and Assign Next state","Meeting cycle and CSI / Customer Voice","Operational metrics and source ledgers","Operational history and internal backups","Imports, exports, revisions, diagnostics, and support artifacts","Setup-complete state","Store-specific reports in the target root and Files To Learn"];ui.handoffPreflight.innerHTML=categories.map(item=>"<li>"+item+"</li>").join("");}
   const renderSettingsPhase1=renderSettings;renderSettings=function(){renderSettingsPhase1();renderPhase2Settings();ensureFolderWatchUi();ui.folderWatchEnabled.checked=folderWatchEnabled();watchStatus(folderWatch.state,folderWatch.message);renderSetup();renderRecovery();renderNewStore();if(!ui.editDialog.open)populateSelect(ui.editStatus,managementStatuses());};
   const renderDailyFocusPhase1=renderDailyFocus;renderDailyFocus=function(){renderDailyFocusPhase1();const heading=ui["view-open-ro"]?.querySelector(".daily-focus-head h2");if(heading)heading.textContent=`${dailyWalkCount()} ROs per advisor`;ui.dailyFocusGrid.querySelectorAll(".focus-advisor header span").forEach((node)=>{node.textContent=node.textContent.replace(/^([0-9]+)\/3\s·/,`$1/${dailyWalkCount()} ·`);});};
   const readSettingsInputsPhase1=readSettingsInputs;readSettingsInputs=function(){readSettingsInputsPhase1();const filename=ui.exportName.value.trim();if(!filename||/[\\/:*?"<>|]/.test(filename))throw new Error("Choose a valid supervisor workbook filename.");const completeName=/\.xlsx$/i.test(filename)?filename:`${filename}.xlsx`;const count=Number(ui.dailyWalkCount.value);if(!Number.isInteger(count)||count<1||count>10)throw new Error("Daily Walk ROs per advisor must be a whole number from 1 to 10.");model.settings.dailyWalk={rosPerAdvisor:count};model.settings.supervisorWorkbook.filename=completeName;model.settings.exportName=completeName;model.settings.supervisorWorkbook.worksheetOrder=supervisorAdvisorCodes();};

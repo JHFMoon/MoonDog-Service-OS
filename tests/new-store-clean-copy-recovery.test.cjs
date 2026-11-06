@@ -7,7 +7,7 @@ const vm = require("node:vm");
 const crypto = require("node:crypto");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
-const start = app.indexOf("  async function createCleanNewStoreCopy(destination){");
+const start = app.indexOf("  async function createCleanNewStoreCopy(");
 const end = app.indexOf("  function ensureNewStoreUi(){", start);
 assert.ok(start > 0 && end > start, "production new-store functions must be available");
 const productionFunctions = app.slice(start, end);
@@ -38,7 +38,9 @@ function folder(name, parent=null) {
       return item;
     },
     removeEntry:async(name)=>{
-      if(!entries.has(name))throw missing();
+      const item=entries.get(name);
+      if(!item)throw missing();
+      if(item.kind==="directory"&&item.entriesMap.size)throw Error("Directory is not empty");
       entries.delete(name);
     }
   };
@@ -78,7 +80,7 @@ function harness(){
     ["assets/app.js",Buffer.from("production-runtime")],
     ["vendor/xlsx.full.min.js",Buffer.from("vendor-bundle")]
   ]);
-  const fresh={
+  const productDefaults={
     "data/current-state.json":{schemaVersion:1,records:[],closedRecords:[]},
     "data/settings.json":{schemaVersion:5,store:{name:"",code:""},setup:{newStorePrepared:true}}
   };
@@ -95,7 +97,7 @@ function harness(){
     },
     sha256:hash,
     utf8:value=>new TextEncoder().encode(value),
-    freshProductState:()=>structuredClone(fresh),
+    freshProductState:()=>structuredClone(productDefaults),
     portableContext:()=>"# Portable synthetic application context\n",
     now:()=> "2026-11-06T20:00:00Z",
     writeAuthority:{canWrite:false,reason:"PENDING_TRANSACTION",
@@ -104,6 +106,9 @@ function harness(){
     console
   });
   vm.runInContext(productionFunctions+"\nglobalThis.prepareForNewStore=prepareForNewStore;globalThis.createCleanNewStoreCopy=createCleanNewStoreCopy;",ctx);
+  const fresh=structuredClone(productDefaults);
+  delete fresh["data/settings.json"].setup.newStorePrepared;
+  fresh["data/settings.json"].sourceAdapters={schemaVersion:1};
   return {ctx,source,destination,ui,runtime,fresh};
 }
 
@@ -112,12 +117,21 @@ test("locked source creates an independent verified empty-store application with
   const old=await h.source.getDirectoryHandle("System Files",{create:true});
   const ws=await old.getDirectoryHandle("Workspace",{create:true});
   const data=await ws.getDirectoryHandle("data",{create:true});
-  const prior=await data.getFileHandle(".moondog-txn-locked.json",{create:true});
-  const writer=await prior.createWritable();await writer.write("prior journal must survive");await writer.close();
+  const backups=await ws.getDirectoryHandle("backups",{create:true});
+  for(const [root,name,contents] of [
+    [data,".moondog-txn-locked.json","prior journal must survive"],
+    [data,"settings.json","synthetic source settings"],
+    [backups,"prior.zip","synthetic backup bytes"]
+  ]){
+    const file=await root.getFileHandle(name,{create:true});
+    const writer=await file.createWritable();await writer.write(contents);await writer.close();
+  }
   await h.ctx.prepareForNewStore();
   assert.equal(h.ui.handoffResult.className,"handoff-result success");
   assert.match(h.ui.handoffResult.textContent,/CLEAN NEW STORE READY/);
   assert.equal(await readText(h.source,"System Files/Workspace/data/.moondog-txn-locked.json"),"prior journal must survive");
+  assert.equal(await readText(h.source,"System Files/Workspace/data/settings.json"),"synthetic source settings");
+  assert.equal(await readText(h.source,"System Files/Workspace/backups/prior.zip"),"synthetic backup bytes");
   assert.match(await readText(h.destination,"00 - OPEN DASHBOARD.html"),/System Files\/index.html/);
   assert.equal(await readText(h.destination,"System Files/assets/app.js"),"production-runtime");
   assert.deepEqual(JSON.parse(await readText(h.destination,"System Files/Workspace/data/current-state.json")),h.fresh["data/current-state.json"]);
@@ -148,4 +162,43 @@ test("an unfinished export is rolled back in the new destination, not the source
   await assert.rejects(h.ctx.createCleanNewStoreCopy(h.destination),/changed while preparing/);
   assert.equal(h.destination.entriesMap.size,0);
   assert.equal(h.runtime.get("index.html").toString(),baseline);
+});
+
+test("a concurrent destination file is preserved when the export fails",async()=>{
+  const h=harness();
+  h.ctx.runtimeFileBytes=async location=>{
+    if(location==="assets/app.js"){
+      const system=await h.destination.getDirectoryHandle("System Files");
+      const incoming=await system.getFileHandle("other-work.txt",{create:true});
+      const writer=await incoming.createWritable();
+      await writer.write("preserve independently created content");
+      await writer.close();
+      return Buffer.from("runtime changed");
+    }
+    return h.runtime.get(location);
+  };
+  await assert.rejects(h.ctx.createCleanNewStoreCopy(h.destination),/Some destination files remain/);
+  assert.equal(await readText(h.destination,"System Files/other-work.txt"),"preserve independently created content");
+  await assert.rejects(findFile(h.destination,"System Files/index.html"),{name:"NotFoundError"});
+});
+
+test("the runtime source stays pinned if the connection changes during the picker",async()=>{
+  const h=harness();
+  const replacement=folder("another-connection");
+  h.ctx.window.showDirectoryPicker=async()=>{
+    h.ctx.connectedNativeRoot=replacement;
+    return h.destination;
+  };
+  const originalIntegrity=h.ctx.runtimeIntegrity;
+  h.ctx.runtimeIntegrity=async root=>{
+    assert.equal(root,h.source);
+    return originalIntegrity();
+  };
+  h.ctx.runtimeFileBytes=async (location,root)=>{
+    assert.equal(root,h.source);
+    return h.runtime.get(location);
+  };
+  h.ctx.writeAuthority.reason="INTERRUPTED_RESTORE";
+  await h.ctx.prepareForNewStore();
+  assert.match(h.ui.handoffResult.textContent,/CLEAN NEW STORE READY/);
 });
