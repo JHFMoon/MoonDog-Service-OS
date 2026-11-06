@@ -85,13 +85,20 @@ function directoryHandle(folderPath) {
   };
 }
 
+// This is an untouched extracted clean-install layout. The smoke test must
+// never fabricate the compatibility page that the installed updater requires.
 const compatibilityIndex = path.join(installRoot, "index.html");
+const stableHtml = fs.readFileSync(path.join(appRoot, "index.html"), "utf8");
+if (!/<!doctype html>\\s*<html\\s+lang="en"><head>/i.test(stableHtml) ||
+    stableHtml.toLowerCase().split("<head>").length !== 2 || /<base\\b/i.test(stableHtml)) {
+  throw new Error("Clean-install HTML cannot produce a safe origin compatibility page.");
+}
+const expectedCompatibility = stableHtml.replace("<head>", '<head><base href="System Files/">');
 if (!fs.existsSync(compatibilityIndex)) {
-  const stableHtml = fs.readFileSync(path.join(appRoot, "index.html"), "utf8");
-  if (!stableHtml.includes("<head>") || stableHtml.toLowerCase().includes("<base")) {
-    throw new Error("Clean-install HTML cannot create the updater compatibility bridge.");
-  }
-  fs.writeFileSync(compatibilityIndex, stableHtml.replace("<head>", '<head><base href="System Files/">'));
+  throw new Error("Unmodified clean-install ZIP has no root index.html; fresh-install update is not safe.");
+}
+if (fs.readFileSync(compatibilityIndex, "utf8") !== expectedCompatibility) {
+  throw new Error("Clean-install root index.html does not match the bundled application.");
 }
 const syntheticState = path.join(appRoot, "Workspace", "data", "current-state.json");
 fs.mkdirSync(path.dirname(syntheticState), { recursive: true });
