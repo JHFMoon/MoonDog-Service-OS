@@ -28,7 +28,8 @@
     lastCheck: saved.lastCheck || null, lastAutomatic: saved.lastAutomatic || "",
     dismissed: saved.dismissed || null, check: null, checkFor: null,
     recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false,
-    recoveryScanPending: false, recoveryScanFailed: false, busy: false, progress: null };
+    recoveryScanPending: false, recoveryScanFailed: false, busy: false, progress: null,
+    progressChangedAt: 0, progressStalled: false };
   const appRoot = () => global.__moondogSettingsModel?.applicationRoot || null;
   const applicationFiles = async () => {
     const workspace = appRoot();
@@ -126,7 +127,8 @@
     '<button type="button" id="installMoonDogUpdate" class="primary" disabled>Install Update</button>' +
     '<button type="button" id="recoverMoonDogUpdate" hidden>Recover interrupted update</button></div>' +
     '<p id="updateFolders" class="settings-note">Connect Service Operations Dashboard before installation. Update rollback backups are saved in System Files/Workspace/backups/system-updates/ inside the connected workspace.</p>' +
-    '<div id="updateProgress" class="update-progress" hidden aria-live="polite"><div class="update-progress-head"><strong id="updateProgressLabel">Preparing update</strong><span id="updateProgressPercent">0%</span></div><div id="updateProgressTrack" class="update-progress-track" role="progressbar" aria-label="Update progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="updateProgressBar"></span></div><small id="updateProgressDetail">Please keep this window open.</small></div>' +
+    '<div id="updateProgress" class="update-progress" aria-live="polite"><div class="update-progress-head"><strong id="updateProgressLabel">Ready for updates</strong><span id="updateProgressPercent">Ready</span></div><div id="updateProgressTrack" class="update-progress-track" role="progressbar" aria-label="Update progress" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Idle"><span id="updateProgressBar"></span></div><small id="updateProgressDetail">Select Check for Updates to begin.</small><small id="updateProgressState" role="status">IDLE</small></div>' +
+    '<style>.update-progress #updateProgressState{display:block;margin-top:5px;font-weight:600}.update-progress.stalled #updateProgressState{color:#9a4b15}.update-progress-track #updateProgressBar.indeterminate{width:38%!important;animation:moondog-update-working 1.7s ease-in-out infinite alternate}@keyframes moondog-update-working{from{transform:translateX(0)}to{transform:translateX(145%)}}@media(prefers-reduced-motion:reduce){.update-progress-track #updateProgressBar.indeterminate{animation:none}}</style>' +
     '<pre id="updatePlan" hidden></pre><p id="updateStatus" role="status" aria-live="polite"></p>';
   const settingsSections = host.querySelector(".settings-sections");
   if (!settingsSections) return;
@@ -206,21 +208,59 @@
       if (typeof global.requestAnimationFrame === "function") global.requestAnimationFrame(() => global.requestAnimationFrame(finish));
     });
   }
+  function paintUpdateProgress() {
+    const progress = state.progress, box = field("updateProgress");
+    // Keep the bar visible at rest. Unknown duration must not appear as zero percent.
+    box.hidden = false;
+    const measurable = progress && progress.percent !== null;
+    field("updateProgressLabel").textContent = progress?.label || "Ready for updates";
+    field("updateProgressPercent").textContent = measurable ? progress.percent + "%" : progress ? "Working" : "Ready";
+    field("updateProgressDetail").textContent = progress?.detail || "Select Check for Updates to begin.";
+    const bar = field("updateProgressBar");
+    bar.style.width = measurable ? progress.percent + "%" : progress ? "38%" : "0%";
+    bar.className = progress && !measurable ? "indeterminate" : "";
+    const track = field("updateProgressTrack");
+    if (measurable) track.setAttribute("aria-valuenow", String(progress.percent));
+    else track.removeAttribute?.("aria-valuenow");
+    track.setAttribute("aria-valuetext", state.progressStalled ? "Stalled: no progress for 30 seconds" :
+      measurable ? progress.percent + " percent" : progress ? "Working, duration unknown" : "Idle");
+    const phase = progress?.phase || "idle";
+    const finished = ["complete", "rolled-back", "error"].includes(phase);
+    field("updateProgressState").textContent = state.progressStalled ? "STALLED · No progress for 30 seconds" :
+      phase === "error" ? "STOPPED · Action needed" :
+      finished ? phase === "rolled-back" ? "ROLLBACK VERIFIED" : "COMPLETE" :
+      progress ? "WORKING · " + (progress.label || "Processing") : "IDLE";
+    box.className = "update-progress" + (state.progressStalled ? " stalled warning" :
+      phase === "rollback" || phase === "rolled-back" ? " warning" :
+      phase === "error" ? " error" : phase === "complete" ? " complete" : "");
+  }
   async function setProgress(value) {
-    state.progress = value ? { ...value, percent: Math.max(0, Math.min(100, Math.round(Number(value.percent) || 0))) } : null;
-    const box = field("updateProgress"), progress = state.progress;
-    box.hidden = !progress;
-    if (progress) {
-      field("updateProgressLabel").textContent = progress.label || "Installing update";
-      field("updateProgressPercent").textContent = progress.percent + "%";
-      field("updateProgressDetail").textContent = progress.detail || "Please keep this window open.";
-      field("updateProgressBar").style.width = progress.percent + "%";
-      field("updateProgressTrack").setAttribute("aria-valuenow", String(progress.percent));
-      box.className = "update-progress" + (progress.phase === "rollback" || progress.phase === "rolled-back" ? " warning" : progress.phase === "error" ? " error" : progress.phase === "complete" ? " complete" : "");
+    const pct = value?.percent;
+    const percent = pct !== null && pct !== undefined && Number.isFinite(Number(pct))
+      ? Math.max(0, Math.min(100, Math.round(Number(pct)))) : null;
+    const next = value ? { ...value, percent } : null;
+    if (next?.phase !== state.progress?.phase || next?.label !== state.progress?.label ||
+      next?.detail !== state.progress?.detail || next?.percent !== state.progress?.percent) {
+      state.progressChangedAt = Date.now();
+      state.progressStalled = false;
     }
+    state.progress = next;
+    paintUpdateProgress();
     await flushUi();
   }
-  function clearProgress() { state.progress = null; const box = field("updateProgress"); box.hidden = true; box.className = "update-progress"; }
+  function clearProgress() {
+    state.progress = null;
+    state.progressStalled = false;
+    state.progressChangedAt = 0;
+    paintUpdateProgress();
+  }
+  function checkProgressStall() {
+    const active = state.busy && state.progress && !["complete", "rolled-back", "error"].includes(state.progress.phase);
+    if (!active || !state.progressChangedAt || Date.now() - state.progressChangedAt < 30000 ||
+        state.progressStalled) return;
+    state.progressStalled = true;
+    paintUpdateProgress();
+  }
   function render() {
     field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
     field("updateChannelNote").textContent = (state.channel === "beta" ?
@@ -258,7 +298,11 @@
     clearPlan();
     clearProgress();
     state.busy = true;
-    if (manual) render(); // Automatic manifest checks never display checking state.
+    if (manual) {
+      render(); // Automatic manifest checks never display checking state.
+      await setProgress({ phase: "check", percent: null, label: "Checking for updates",
+        detail: "Reading the verified update manifest" });
+    }
     try {
       const result = await global.MoonDogUpdateCheck.check({ currentVersion: checkedVersion,
         channel: checkedChannel, manual });
@@ -275,6 +319,17 @@
       if (manual && result.status === "unavailable") status.textContent = "Could not reach GitHub. Try again later.";
       else if (manual && result.status === "invalid-input") status.textContent = "The installed version cannot be compared.";
       else if (manual) status.textContent = "Update check complete.";
+      if (manual) await setProgress({ phase: result.status === "unavailable" || result.status === "invalid-input" ? "error" : "complete",
+        percent: result.status === "unavailable" ? null : 100,
+        label: result.status === "unavailable" ? "Update check unavailable" : "Update check complete",
+        detail: result.status === "newer-version" ? "Verified update available. Choose an installation option." :
+          result.status === "unavailable" ? "GitHub unavailable; retry when connected." : "Manifest check finished." });
+    } catch (error) {
+      if (manual) {
+        status.textContent = "Update check stopped: " + (error?.message || "Unknown error");
+        await setProgress({ phase: "error", percent: null, label: "Update check stopped",
+          detail: error?.message || "Check could not finish." });
+      }
     } finally { state.busy = false; render(); }
   }
 
@@ -444,6 +499,8 @@
     const timer = global.setTimeout?.(() => { checkInBackground(); scheduleNextCheck(); }, AUTOMATIC_RETRY_MS);
     timer?.unref?.(); // Node UI tests must not remain open; browsers use normal timers.
   }
+  paintUpdateProgress();
+  global.setInterval?.(checkProgressStall, 5000);
   render();
   document.addEventListener("moondog-data", () => { render(); inspectInstalledTestVersion(); refreshRecovery(); global.setTimeout?.(checkInBackground, 1500); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) global.setTimeout?.(checkInBackground, 1500); });
