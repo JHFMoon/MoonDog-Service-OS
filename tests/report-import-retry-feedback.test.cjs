@@ -1,10 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const readSource = require('./helpers/read-source.cjs');
 
-const read = name => fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
+const read = name => readSource(path.join(__dirname, '..', name));
 const ops = read('assets/daily-ops.js');
 
 function productionFunction(startMarker, endMarker) {
