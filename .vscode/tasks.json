@@ -22,7 +22,7 @@
     {
       "label": "MoonDog: Update main",
       "type": "process",
-      "command": "pwsh.exe",
+      "command": "pwsh",
       "args": [
         "-NoProfile",
         "-NonInteractive",

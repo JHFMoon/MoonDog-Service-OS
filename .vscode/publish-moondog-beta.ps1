@@ -4,7 +4,9 @@ param(
   [switch]$Publish,
   [switch]$DryRun,
   [switch]$RecoverMergedPR,
+  [switch]$VerifyOutgoingHistory,
   [int]$PullRequestNumber,
+  [string]$ExpectedHeadSha,
   [switch]$SelfTest,
   [ValidateRange(1, 60)]
   [int]$TimeoutMinutes = 25
@@ -213,6 +215,147 @@ function Assert-Repository {
   return $branch
 }
 
+function Get-GitConfigValues {
+  param([Parameter(Mandatory)][string]$Key)
+  $values = @(& git -C $script:Root config --get-all $Key 2>$null)
+  $code = $LASTEXITCODE
+  if ($code -eq 1) { return @() }
+  if ($code -ne 0) { throw "Could not read effective Git configuration for $Key." }
+  return ,$values
+}
+
+function Get-PushConfigurationFingerprint {
+  $pattern = "^(remote\..*\.(url|pushurl|push|mirror)|remote\.pushdefault|branch\..*\.(remote|pushremote|merge)|url\..*\.(insteadof|pushinsteadof)|push\.(default|followtags|pushoption))$"
+  $entries = @(& git -C $script:Root config --null --get-regexp $pattern 2>$null)
+  $code = $LASTEXITCODE
+  if ($code -notin @(0, 1)) { throw "Could not snapshot Git push-routing configuration." }
+  $payload = [Text.Encoding]::UTF8.GetBytes(($entries -join "`n"))
+  return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($payload)).ToLowerInvariant()
+}
+
+function Assert-PushAuthority {
+  param(
+    [Parameter(Mandatory)][string]$ExpectedSha,
+    [Parameter(Mandatory)][string]$DestinationBranch
+  )
+  $remotes = @(Invoke-Git -Arguments @("remote"))
+  if ($remotes.Count -ne 1 -or $remotes[0].Trim() -ne "origin") {
+    throw "Git must have exactly one remote named origin; refusing ambiguous push authority."
+  }
+  $rawUrls = @(Get-GitConfigValues -Key "remote.origin.url")
+  if ($rawUrls.Count -ne 1 -or $rawUrls[0].Trim() -ne $script:Origin) {
+    throw "origin must have exactly the approved fetch URL."
+  }
+  if (@(Get-GitConfigValues -Key "remote.origin.pushurl").Count) {
+    throw "Explicit push URLs are not permitted; refusing alternate or ambiguous push destinations."
+  }
+  $pushUrls = @(Invoke-Git -Arguments @("remote", "get-url", "--push", "--all", "origin") |
+    ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+  if ($pushUrls.Count -ne 1 -or $pushUrls[0] -ne $script:Origin) {
+    throw "Effective origin push destination is not the single approved repository URL."
+  }
+  foreach ($key in @("remote.origin.mirror", "remote.pushDefault", "branch.$DestinationBranch.pushRemote")) {
+    $values = @(Get-GitConfigValues -Key $key)
+    if ($values.Count -and ($key -ne "remote.origin.mirror" -or
+        @($values | Where-Object { $_ -match "^(?i:true|yes|on|1)$" }).Count)) {
+      throw "Git push routing configuration is not permitted: $key."
+    }
+  }
+  foreach ($pattern in @(
+      "^remote\..*\.push$",
+      "^remote\..*\.mirror$",
+      "^url\..*\.pushinsteadof$",
+      "^push\.pushoption$"
+    )) {
+    $configEntries = @(& git -C $script:Root config --get-regexp $pattern 2>$null)
+    $code = $LASTEXITCODE
+    if ($code -notin @(0, 1)) { throw "Could not validate Git push configuration." }
+    if ($configEntries.Count) {
+      $trueMirror = @($configEntries | Where-Object {
+        $_ -match "(?i)\s+(true|yes|on|1)$"
+      })
+      if ($pattern -eq "^remote\..*\.mirror$" -and -not $trueMirror.Count) { continue }
+      throw "Git push refspec, mirror, URL rewrite, or push-option configuration is not permitted."
+    }
+  }
+  $followTags = @(Get-GitConfigValues -Key "push.followTags")
+  if (@($followTags | Where-Object { $_ -match "^(?i:true|yes|on|1)$" }).Count) {
+    throw "Automatic tag pushing is not permitted."
+  }
+  $currentBranch = (Invoke-Git -Arguments @("branch", "--show-current") | Select-Object -First 1).Trim()
+  $currentHead = (Invoke-Git -Arguments @("rev-parse", "HEAD") | Select-Object -First 1).Trim()
+  $branchHead = (Invoke-Git -Arguments @("rev-parse", "--verify", "refs/heads/$DestinationBranch^{commit}") |
+    Select-Object -First 1).Trim()
+  $commit = (Invoke-Git -Arguments @("rev-parse", "--verify", "$ExpectedSha^{commit}") |
+    Select-Object -First 1).Trim()
+  if ($currentBranch -ne $DestinationBranch -or $currentHead -ne $ExpectedSha -or
+      $branchHead -ne $ExpectedSha -or $commit -ne $ExpectedSha) {
+    throw "The active branch or commit changed after publication verification."
+  }
+  Assert-CleanWorktree
+  return $script:Origin
+}
+
+function Get-TrustedBaselineScript {
+  param(
+    [Parameter(Mandatory)][string]$Path,
+    [Parameter(Mandatory)][string]$Destination
+  )
+  $content = Invoke-Git -Arguments @("show", "$script:Base`:$Path")
+  [IO.File]::WriteAllText($Destination, ($content -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+  return $Destination
+}
+
+function Invoke-OutgoingHistoryAudit {
+  if (-not $script:Base -or -not $script:Head) {
+    throw "Verified base and candidate commits are required for outgoing history audit."
+  }
+  $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("moondog-outgoing-history-" + [guid]::NewGuid())
+  if (Test-Path -LiteralPath $tempRoot) { throw "Temporary history-audit path already exists." }
+  New-Item -ItemType Directory -Path $tempRoot | Out-Null
+  $gitRoot = Join-Path $tempRoot "repository"
+  $trustedScripts = Join-Path $gitRoot "scripts"
+  New-Item -ItemType Directory -Path $gitRoot, $trustedScripts | Out-Null
+  try {
+    & git -C $gitRoot init --quiet
+    if ($LASTEXITCODE -ne 0) { throw "Could not initialize isolated outgoing-history audit." }
+    $fetch = @(& git -C $gitRoot fetch --quiet --no-tags --no-recurse-submodules `
+      $script:Root "$($script:Base):refs/heads/main" "$($script:Head):refs/heads/candidate" 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "Could not create the isolated outgoing-history object set." }
+    $refs = @(& git -C $gitRoot for-each-ref --format="%(refname):%(objectname)" refs)
+    if ($LASTEXITCODE -ne 0 -or $refs.Count -ne 2 -or
+        @($refs | Where-Object { $_ -notmatch "^refs/heads/(main|candidate):[0-9a-f]{40,64}$" }).Count) {
+      throw "Isolated history audit did not contain exactly the trusted baseline and candidate refs."
+    }
+    Push-Location $gitRoot
+    try {
+      foreach ($trustedScript in @(
+          "scripts/check_publication.py",
+          "scripts/audit_git_history.py",
+          "scripts/audit_public_git_history.py"
+        )) {
+        Get-TrustedBaselineScript -Path $trustedScript `
+          -Destination (Join-Path $trustedScripts ([IO.Path]::GetFileName($trustedScript))) | Out-Null
+      }
+      foreach ($scanner in @("scripts/audit_git_history.py", "scripts/audit_public_git_history.py")) {
+        $scannerPath = Join-Path $gitRoot $scanner
+        $output = @(& python -B $scannerPath 2>&1)
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+          throw "Trusted baseline history scanner '$scanner' rejected the outgoing public history (exit $exitCode)."
+        }
+        Write-Host "Outgoing-history scanner passed: $scanner"
+      }
+    } finally {
+      Pop-Location
+    }
+  } finally {
+    if (Test-Path -LiteralPath $tempRoot) {
+      Remove-Item -LiteralPath $tempRoot -Recurse -Force
+    }
+  }
+}
+
 function Assert-SafeChangedPaths {
   $lines = Invoke-Git -Arguments @(
     "diff", "--name-status", "--find-renames", "$script:Base...$script:Head"
@@ -238,14 +381,17 @@ function Assert-SafeChangedPaths {
     $changes.Add(@{ filename = $path; status = $status; patch = $patch })
   }
   $jsonPath = Join-Path ([IO.Path]::GetTempPath()) ("moondog-pr-risk-" + [guid]::NewGuid() + ".json")
+  $policyPath = Join-Path ([IO.Path]::GetTempPath()) ("moondog-beta-risk-policy-" + [guid]::NewGuid() + ".py")
   try {
     [IO.File]::WriteAllText($jsonPath, (ConvertTo-Json -InputObject $changes.ToArray() -Depth 20))
+    Get-TrustedBaselineScript -Path "scripts/beta_change_risk.py" -Destination $policyPath | Out-Null
     $decision = (Invoke-Python -Arguments @(
-      (Join-Path $script:Root "scripts/beta_change_risk.py"),
+      $policyPath,
       $jsonPath, "--decision", "--expected", "$($changes.Count)"
     ) | Select-Object -Last 1).Trim()
   } finally {
     if (Test-Path -LiteralPath $jsonPath) { Remove-Item -LiteralPath $jsonPath -Force }
+    if (Test-Path -LiteralPath $policyPath) { Remove-Item -LiteralPath $policyPath -Force }
   }
   if ($decision -eq "protected") {
     throw "Repository policy classifies this change as protected; no push or PR was made."
@@ -297,7 +443,12 @@ function Get-ExactChecks {
 }
 
 function Test-PullRequestMerged {
-  param([object]$PullRequest)
+  param(
+    [Parameter(Mandatory)][object]$PullRequest,
+    [Parameter(Mandatory)][int]$ExpectedNumber,
+    [Parameter(Mandatory)][string]$ExpectedSha
+  )
+  Assert-PullRequestIdentity -PullRequest $PullRequest -ExpectedNumber $ExpectedNumber -ExpectedSha $ExpectedSha
   return ($null -ne $PullRequest -and $PullRequest.merged -eq $true)
 }
 
@@ -305,9 +456,13 @@ function Resolve-GuardedMergeTimeout {
   param(
     [Parameter(Mandatory)][object]$PullRequest,
     [Parameter(Mandatory)][string]$LastState,
-    [Parameter(Mandatory)][string]$ChangeRisk
+    [Parameter(Mandatory)][string]$ChangeRisk,
+    [Parameter(Mandatory)][int]$ExpectedNumber,
+    [Parameter(Mandatory)][string]$ExpectedSha
   )
-  if (Test-PullRequestMerged -PullRequest $PullRequest) { return "merged" }
+  if (Test-PullRequestMerged -PullRequest $PullRequest -ExpectedNumber $ExpectedNumber -ExpectedSha $ExpectedSha) {
+    return "merged"
+  }
   if ($PullRequest.state -ne "open") { throw "PR was closed without a guarded merge." }
   if ($LastState -eq "success,success" -and $ChangeRisk -ne "automatic") {
     throw "Timed out waiting for guarded owner review/merge. Required owner action: review this exact PR head and submit an authorized review containing 'MoonDog-Owner-Review: approved'."
@@ -334,6 +489,7 @@ function Get-PostMergeCheckStates {
   foreach ($spec in $specs) {
     $matching = @($Runs | Where-Object {
       $_.head_sha -eq $Sha -and $_.event -eq "push" -and
+      $_.head_branch -eq "main" -and $_.head_repository.full_name -eq $script:Repository -and
       $_.name -eq $spec.Name -and $_.path -eq $spec.File
     } | Sort-Object created_at -Descending)
     if (-not $matching.Count) { continue }
@@ -344,23 +500,235 @@ function Get-PostMergeCheckStates {
   return $states
 }
 
+function Resolve-PostMergeCheckTimeout {
+  param([Parameter(Mandatory)][object[]]$Runs, [Parameter(Mandatory)][string]$Sha)
+  $states = Get-PostMergeCheckStates -Runs $Runs -Sha $Sha
+  if ($states.Values -contains "failure") {
+    throw "Post-merge verification failed at timeout boundary: Publication=$($states.Publication), HistorySafety=$($states.HistorySafety)."
+  }
+  if ($states.Publication -eq "success" -and $states.HistorySafety -eq "success") { return $true }
+  throw "Timed out waiting for post-merge checks at the exact merge commit: Publication=$($states.Publication), HistorySafety=$($states.HistorySafety)."
+}
+
+function ConvertTo-CanonicalJson {
+  param([Parameter(Mandatory)][object]$Value)
+  if ($Value -is [System.Collections.IDictionary]) {
+    $ordered = [ordered]@{}
+    foreach ($key in @($Value.Keys | Sort-Object -CaseSensitive)) {
+      $ordered[$key] = ConvertTo-CanonicalValue -Value $Value[$key]
+    }
+    return ConvertTo-Json -InputObject $ordered -Depth 100 -Compress
+  }
+  return ConvertTo-Json -InputObject (ConvertTo-CanonicalValue -Value $Value) -Depth 100 -Compress
+}
+
+function ConvertTo-CanonicalValue {
+  param([AllowNull()][object]$Value)
+  if ($null -eq $Value -or $Value -is [string] -or $Value -is [ValueType]) { return $Value }
+  if ($Value -is [System.Collections.IDictionary]) {
+    $ordered = [ordered]@{}
+    foreach ($key in @($Value.Keys | Sort-Object -CaseSensitive)) {
+      $ordered[$key] = ConvertTo-CanonicalValue -Value $Value[$key]
+    }
+    return $ordered
+  }
+  if ($Value -is [System.Collections.IEnumerable]) {
+    return ,@($Value | ForEach-Object { ConvertTo-CanonicalValue -Value $_ })
+  }
+  return $Value
+}
+
+function Test-GuardedMergeJob {
+  param([Parameter(Mandatory)][object[]]$Jobs)
+  foreach ($job in $Jobs) {
+    if ($job.name -ne "merge" -or $job.status -ne "completed" -or $job.conclusion -ne "success") { continue }
+    $mergeStep = @($job.steps | Where-Object { $_.name -eq "Squash merge verified current PR" })
+    if ($mergeStep.Count -eq 1 -and $mergeStep[0].status -eq "completed" -and
+        $mergeStep[0].conclusion -eq "success") { return $true }
+  }
+  return $false
+}
+
+function Get-GuardedMergeJobEvidence {
+  param(
+    [Parameter(Mandatory)][int]$Number,
+    [Parameter(Mandatory)][string]$ExpectedSha,
+    [Parameter(Mandatory)][string]$MergedAt
+  )
+  $candidates = [System.Collections.Generic.List[object]]::new()
+  for ($page = 1; $page -le 10; $page++) {
+    $response = Invoke-GitHub -Method GET -Path "repos/$script:Repository/actions/runs?per_page=100&page=$page"
+    $pageRuns = @($response.workflow_runs)
+    foreach ($run in $pageRuns) {
+      $associatedPRs = @($run.pull_requests | Where-Object { $_.number -eq $Number })
+      if ($run.name -eq "Guarded PR Merge" -and
+          $run.path -eq ".github/workflows/guarded-pr-merge.yml" -and
+          $run.event -in @("workflow_run", "pull_request_review", "issue_comment", "pull_request_target") -and
+          $associatedPRs.Count -eq 1 -and $associatedPRs[0].head.sha -eq $ExpectedSha -and
+          $run.status -eq "completed" -and $run.conclusion -eq "success" -and
+          $run.created_at -and $run.created_at -le $MergedAt) {
+        $candidates.Add($run)
+      }
+    }
+    if ($pageRuns.Count -lt 100) { break }
+  }
+  foreach ($run in @($candidates | Sort-Object created_at -Descending)) {
+    $jobs = Invoke-GitHub -Method GET -Path "repos/$script:Repository/actions/runs/$($run.id)/jobs?per_page=100"
+    if (Test-GuardedMergeJob -Jobs @($jobs.jobs)) { return $run }
+    if ($candidates.Count -ge 1000) {
+      throw "Guarded merge history exceeded the verification limit; cannot prove the merge run."
+    }
+  }
+  throw "No successful Guarded PR Merge run proves the actual merge for this PR before its merge event."
+}
+
+function Get-GitHubFileBytesAtRef {
+  param(
+    [Parameter(Mandatory)][string]$Path,
+    [Parameter(Mandatory)][string]$Ref
+  )
+  $escapedPath = ($Path -split "/" | ForEach-Object { [Uri]::EscapeDataString($_) }) -join "/"
+  $file = Invoke-GitHub -Method GET -Path "repos/$script:Repository/contents/$escapedPath?ref=$Ref"
+  if ($file.type -ne "file" -or -not $file.content) {
+    throw "Required release file is missing at verified commit $Ref."
+  }
+  try { return ,([Convert]::FromBase64String(($file.content -replace "\s", ""))) }
+  catch { throw "Required release file has invalid encoded content at verified commit $Ref." }
+}
+
+function Get-ManifestAtCommit {
+  param([Parameter(Mandatory)][string]$Commit)
+  $bytes = Get-GitHubFileBytesAtRef -Path "updates/manifest.json" -Ref $Commit
+  try { return [Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json -AsHashtable }
+  catch { throw "Release manifest is invalid at verified commit $Commit." }
+}
+
+function Assert-BetaPackageIdentity {
+  param(
+    [Parameter(Mandatory)][System.Collections.IDictionary]$Manifest,
+    [Parameter(Mandatory)][string]$Commit
+  )
+  $beta = $Manifest.beta
+  if (-not $beta.version -or $beta.version -notmatch "^0\.\d+\.\d+-beta\.\d+$" -or
+      -not $beta.sha256 -or $beta.sha256 -notmatch "^[0-9a-f]{64}$") {
+    throw "Beta manifest identity is incomplete at verified commit $Commit."
+  }
+  $packageName = "moondog-$($beta.version).json"
+  $expectedUrl = "https://raw.githubusercontent.com/$script:Repository/main/updates/packages/$packageName"
+  if ($beta.packageUrl -ne $expectedUrl) {
+    throw "Beta manifest package URL does not identify its versioned package at verified commit $Commit."
+  }
+  $packageBytes = Get-GitHubFileBytesAtRef -Path "updates/packages/$packageName" -Ref $Commit
+  $sha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($packageBytes)).ToLowerInvariant()
+  if ($sha -ne $beta.sha256) { throw "Beta package digest does not match the manifest at verified commit $Commit." }
+  try { $package = [Text.Encoding]::UTF8.GetString($packageBytes) | ConvertFrom-Json -AsHashtable }
+  catch { throw "Beta package is invalid at verified commit $Commit." }
+  if ($package.version -ne $beta.version) {
+    throw "Beta package version does not match the manifest at verified commit $Commit."
+  }
+}
+
+function Assert-MergedPRIdentity {
+  param(
+    [Parameter(Mandatory)][object]$PullRequest,
+    [Parameter(Mandatory)][int]$ExpectedNumber,
+    [Parameter(Mandatory)][string]$ExpectedSha
+  )
+  Assert-PullRequestIdentity -PullRequest $PullRequest -ExpectedNumber $ExpectedNumber -ExpectedSha $ExpectedSha
+  if ($PullRequest.state -ne "closed" -or $PullRequest.merged -ne $true -or
+      -not $PullRequest.merged_at -or
+      $PullRequest.merge_commit_sha -notmatch "^[0-9a-f]{40,64}$") {
+    throw "GitHub has not recorded an actual merge event for the verified PR head."
+  }
+}
+
+function Assert-VerifiedMergeEvent {
+  param(
+    [Parameter(Mandatory)][object]$PullRequest,
+    [Parameter(Mandatory)][int]$Number,
+    [Parameter(Mandatory)][string]$ExpectedSha,
+    [Parameter(Mandatory)][string]$ExpectedBaseSha
+  )
+  Assert-MergedPRIdentity -PullRequest $PullRequest -ExpectedNumber $Number -ExpectedSha $ExpectedSha
+  $prCommits = @(Get-GitHubCollection -Path "repos/$script:Repository/pulls/$Number/commits")
+  if (-not @($prCommits | Where-Object { $_.sha -eq $ExpectedSha }).Count) {
+    throw "Merged PR commit list does not contain the exact reviewed head."
+  }
+  $null = Get-GuardedMergeJobEvidence -Number $Number -ExpectedSha $ExpectedSha `
+    -MergedAt $PullRequest.merged_at
+  $states = Get-ExactChecks -Sha $ExpectedSha
+  Assert-RequiredCheckStates -States $states -Context "Exact-head Publication Check and Clean Install Proof"
+  $merge = Invoke-GitHub -Method GET -Path "repos/$script:Repository/commits/$($PullRequest.merge_commit_sha)"
+  if (@($merge.parents).Count -lt 1) { throw "Recorded merge commit has no verified parent." }
+  $parentSha = $merge.parents[0].sha
+  if ($ExpectedBaseSha) {
+    $baseToParent = Invoke-GitHub -Method GET -Path "repos/$script:Repository/compare/$ExpectedBaseSha...$parentSha"
+    $parentToBase = Invoke-GitHub -Method GET -Path "repos/$script:Repository/compare/$parentSha...$ExpectedBaseSha"
+    if ($baseToParent.status -notin @("ahead", "identical") -and
+        $parentToBase.status -notin @("ahead", "identical")) {
+      throw "Merge parent and verified PR base do not share the expected ancestry."
+    }
+  }
+  $main = Invoke-GitHub -Method GET -Path "repos/$script:Repository/branches/main"
+  $containsMerge = Invoke-GitHub -Method GET -Path "repos/$script:Repository/compare/$($PullRequest.merge_commit_sha)...$($main.commit.sha)"
+  if ($containsMerge.status -notin @("ahead", "identical")) {
+    throw "GitHub main does not contain the exact recorded PR merge commit."
+  }
+  Wait-ForPostMergeChecks -MergeSha $PullRequest.merge_commit_sha
+  $parentManifest = Get-ManifestAtCommit -Commit $parentSha
+  $mergeManifest = Get-ManifestAtCommit -Commit $PullRequest.merge_commit_sha
+  $stableParent = ConvertTo-CanonicalJson -Value $parentManifest.stable
+  $stableMerge = ConvertTo-CanonicalJson -Value $mergeManifest.stable
+  if ($stableParent -ne $stableMerge) {
+    throw "The complete Stable manifest entry changed between the merge parent and merge commit."
+  }
+  if ($ExpectedBaseSha) {
+    $baseManifest = Get-ManifestAtCommit -Commit $ExpectedBaseSha
+    $stableBase = ConvertTo-CanonicalJson -Value $baseManifest.stable
+    if ($stableBase -ne $stableParent) {
+      throw "The complete Stable manifest entry changed between the reviewed base and merge parent."
+    }
+  }
+  Assert-BetaPackageIdentity -Manifest $parentManifest -Commit $parentSha
+  Assert-BetaPackageIdentity -Manifest $mergeManifest -Commit $PullRequest.merge_commit_sha
+  return [pscustomobject]@{
+    MergeSha = $PullRequest.merge_commit_sha
+    ParentSha = $parentSha
+    MainSha = $main.commit.sha
+    ParentManifest = $parentManifest
+    MergeManifest = $mergeManifest
+    BetaPublished = ($parentManifest.beta.version -ne $mergeManifest.beta.version) -or
+      ($parentManifest.beta.sha256 -ne $mergeManifest.beta.sha256)
+  }
+}
+
 function Get-RequestedMode {
   param(
     [bool]$PublishRequested,
     [bool]$DryRunRequested,
     [bool]$RecoveryRequested,
-    [int]$RecoveryNumber
+    [int]$RecoveryNumber,
+    [string]$ExpectedHead,
+    [bool]$HistoryAuditRequested = $false
   )
-  if ([int]$PublishRequested + [int]$DryRunRequested + [int]$RecoveryRequested -gt 1) {
-    throw "Choose only one of -Publish, -DryRun, or -RecoverMergedPR."
+  if ([int]$PublishRequested + [int]$DryRunRequested + [int]$RecoveryRequested +
+      [int]$HistoryAuditRequested -gt 1) {
+    throw "Choose only one of -Publish, -DryRun, -RecoverMergedPR, or -VerifyOutgoingHistory."
   }
   if ($RecoveryRequested -and $RecoveryNumber -lt 1) {
     throw "-RecoverMergedPR requires a positive -PullRequestNumber."
+  }
+  if ($RecoveryRequested -and $ExpectedHead -notmatch "^[0-9a-f]{40,64}$") {
+    throw "-RecoverMergedPR requires the exact reviewed -ExpectedHeadSha."
+  }
+  if (-not $RecoveryRequested -and $ExpectedHead) {
+    throw "-ExpectedHeadSha is only valid with -RecoverMergedPR."
   }
   if (-not $RecoveryRequested -and $RecoveryNumber -ne 0) {
     throw "-PullRequestNumber is only valid with -RecoverMergedPR."
   }
   if ($RecoveryRequested) { return "recover" }
+  if ($HistoryAuditRequested) { return "history-audit" }
   if ($PublishRequested) { return "publish" }
   return "dry-run"
 }
@@ -382,6 +750,7 @@ function Get-PullRequest {
 
 function Assert-PullRequest {
   param([Parameter(Mandatory)]$PullRequest, [string]$ExpectedSha = $script:Head)
+  Assert-PullRequestIdentity -PullRequest $PullRequest -ExpectedNumber $PullRequest.number -ExpectedSha $ExpectedSha
   $failures = [System.Collections.Generic.List[string]]::new()
   if ($PullRequest.state -ne "open") { $failures.Add("not open") }
   if ($PullRequest.draft -ne $false) { $failures.Add("draft") }
@@ -392,6 +761,22 @@ function Assert-PullRequest {
     $failures.Add("author association is not authorized")
   }
   if ($failures.Count) { throw "PR safety check failed: $($failures -join ', ')." }
+}
+
+function Assert-PullRequestIdentity {
+  param(
+    [Parameter(Mandatory)][object]$PullRequest,
+    [Parameter(Mandatory)][int]$ExpectedNumber,
+    [Parameter(Mandatory)][string]$ExpectedSha
+  )
+  if ($PullRequest.number -ne $ExpectedNumber -or
+      $PullRequest.base.ref -ne "main" -or
+      $PullRequest.base.repo.full_name -ne $script:Repository -or
+      $PullRequest.head.repo.full_name -ne $script:Repository -or
+      $PullRequest.head.ref -ne $script:Branch -or
+      $PullRequest.head.sha -ne $ExpectedSha) {
+    throw "GitHub PR identity or exact reviewed head changed; refusing completion."
+  }
 }
 
 function Get-PRFileList {
@@ -410,14 +795,16 @@ function Assert-ExactPRScope {
     throw "GitHub PR changed-file set differs from the committed local scope; refusing."
   }
   $riskPath = Join-Path ([IO.Path]::GetTempPath()) ("moondog-pr-api-risk-" + [guid]::NewGuid() + ".json")
+  $policyPath = Join-Path ([IO.Path]::GetTempPath()) ("moondog-pr-api-policy-" + [guid]::NewGuid() + ".py")
   try {
     [IO.File]::WriteAllText($riskPath, (ConvertTo-Json -InputObject $files -Depth 30))
     $decision = (Invoke-Python -Arguments @(
-      (Join-Path $script:Root "scripts/beta_change_risk.py"),
+      (Get-TrustedBaselineScript -Path "scripts/beta_change_risk.py" -Destination $policyPath),
       $riskPath, "--decision", "--expected", "$($files.Count)"
     ) | Select-Object -Last 1).Trim()
   } finally {
     if (Test-Path -LiteralPath $riskPath) { Remove-Item -LiteralPath $riskPath -Force }
+    if (Test-Path -LiteralPath $policyPath) { Remove-Item -LiteralPath $policyPath -Force }
   }
   if ($decision -eq "protected") {
     throw "The exact GitHub PR scope is protected by repository policy."
@@ -499,7 +886,7 @@ function Wait-ForGuardedMerge {
   $lastState = ""
   while ([DateTime]::UtcNow -lt $deadline) {
     $pr = Invoke-GitHub -Method GET -Path "repos/$script:Repository/pulls/$Number"
-    if (Test-PullRequestMerged -PullRequest $pr) { return $pr }
+    if (Test-PullRequestMerged -PullRequest $pr -ExpectedNumber $Number -ExpectedSha $script:Head) { return $pr }
     if ($pr.state -ne "open") { throw "PR was closed without a guarded merge." }
     Assert-PullRequest -PullRequest $pr
     $states = Get-ExactChecks -Sha $script:Head
@@ -522,7 +909,17 @@ function Wait-ForGuardedMerge {
     Start-Sleep -Seconds 30
   }
   $finalPr = Invoke-GitHub -Method GET -Path "repos/$script:Repository/pulls/$Number"
-  $decision = Resolve-GuardedMergeTimeout -PullRequest $finalPr -LastState $lastState -ChangeRisk $script:Risk
+  if ($finalPr.state -eq "open" -and $finalPr.merged -ne $true) {
+    Assert-PullRequest -PullRequest $finalPr
+    $finalStates = Get-ExactChecks -Sha $script:Head
+    $finalState = $finalStates -join ","
+    if ($finalState -ne $lastState) {
+      Write-Host "Timeout-boundary exact-head CI: $finalState"
+    }
+    $lastState = $finalState
+  }
+  $decision = Resolve-GuardedMergeTimeout -PullRequest $finalPr -LastState $lastState `
+    -ChangeRisk $script:Risk -ExpectedNumber $Number -ExpectedSha $script:Head
   if ($decision -eq "merged") { return $finalPr }
 }
 
@@ -545,13 +942,7 @@ function Wait-ForPostMergeChecks {
     Start-Sleep -Seconds 30
   }
   $finalRuns = Invoke-GitHub -Method GET -Path "repos/$script:Repository/actions/runs?head_sha=$MergeSha&per_page=100"
-  $finalStates = Get-PostMergeCheckStates -Runs $finalRuns.workflow_runs -Sha $MergeSha
-  $finalState = "Publication=$($finalStates.Publication), HistorySafety=$($finalStates.HistorySafety)"
-  if ($finalStates.Values -contains "failure") {
-    throw "Post-merge verification failed at timeout boundary: $finalState."
-  }
-  if ($finalStates.Publication -eq "success" -and $finalStates.HistorySafety -eq "success") { return }
-  throw "Timed out waiting for post-merge Publication and History Safety checks: $finalState."
+  Resolve-PostMergeCheckTimeout -Runs $finalRuns.workflow_runs -Sha $MergeSha | Out-Null
 }
 
 function Sync-Main {
@@ -599,6 +990,7 @@ function Invoke-DryRun {
   $script:Report.Status = "DRY RUN"
   $script:Report.PR = "NOT CREATED"
   Assert-SafeChangedPaths
+  Invoke-OutgoingHistoryAudit
   & $LocalChecks
   Write-Host "Dry run passed. No push, PR, approval, merge, or release operation was performed."
   Write-Host "Change classification: $script:Risk"
@@ -607,6 +999,7 @@ function Invoke-DryRun {
 function Invoke-Publish {
   Assert-SafeChangedPaths
   Invoke-LocalChecks
+  Invoke-OutgoingHistoryAudit
   Initialize-GitHub
   $repo = Invoke-GitHub -Method GET -Path "repos/$script:Repository"
   if ($repo.full_name -ne $script:Repository -or $repo.permissions.push -ne $true) {
@@ -619,7 +1012,33 @@ function Invoke-Publish {
   $mainBefore = Get-ManifestVersions -Ref $script:Base
   $script:Report.Stable = $mainBefore.stable.version
   $script:Report.Beta = $mainBefore.beta.version
-  Invoke-Git -Arguments @("push", "--set-upstream", "origin", $script:Branch) | Out-Null
+  $destination = Assert-PushAuthority -ExpectedSha $script:Head -DestinationBranch $script:Branch
+  $pushConfiguration = Get-PushConfigurationFingerprint
+  $remoteBranch = @(& git -C $script:Root ls-remote --heads $destination "refs/heads/$script:Branch" 2>&1)
+  if ($LASTEXITCODE -ne 0) { throw "Could not verify the current explicit push destination branch." }
+  if ($remoteBranch.Count) {
+    $remoteSha = "$($remoteBranch[0])".Split("`t")[0]
+    & git -C $script:Root merge-base --is-ancestor $remoteSha $script:Head 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      throw "The approved remote branch is not an ancestor of the verified commit; refusing non-fast-forward publication."
+    }
+  }
+  Assert-PushAuthority -ExpectedSha $script:Head -DestinationBranch $script:Branch | Out-Null
+  if ((Get-PushConfigurationFingerprint) -ne $pushConfiguration) {
+    throw "Git push-routing configuration changed after destination verification."
+  }
+  & git -C $script:Root push --repo=$destination --no-follow-tags `
+    "$($script:Head):refs/heads/$($script:Branch)"
+  if ($LASTEXITCODE -ne 0) { throw "Normal fast-forward push to the verified branch failed." }
+  if ((Get-PushConfigurationFingerprint) -ne $pushConfiguration) {
+    throw "Git push-routing configuration changed during publication; remote result requires owner verification."
+  }
+  Assert-PushAuthority -ExpectedSha $script:Head -DestinationBranch $script:Branch | Out-Null
+  $pushed = @(& git -C $script:Root ls-remote --heads $destination "refs/heads/$script:Branch" 2>&1)
+  if ($LASTEXITCODE -ne 0 -or $pushed.Count -ne 1 -or
+      "$($pushed[0])".Split("`t")[0] -ne $script:Head) {
+    throw "The approved remote ref does not equal the verified commit after push."
+  }
   $pr = Ensure-PullRequest
   Assert-PullRequest -PullRequest $pr
   $script:Report.PR = "#$($pr.number)"
@@ -631,32 +1050,22 @@ function Invoke-Publish {
   $script:Report.Status = "PUBLISHED — WAITING FOR GUARDED REVIEW"
   Write-Report -Status $script:Report.Status -OwnerAction "Waiting for the repository's exact-head checks and guarded review; no review or merge is performed by this script."
   $mergedPr = Wait-ForGuardedMerge -Number $pr.number
-  $mergeSha = $mergedPr.merge_commit_sha
-  if (-not $mergeSha) { throw "Merged PR has no recorded merge commit SHA." }
-  $main = Invoke-GitHub -Method GET -Path "repos/$script:Repository/branches/main"
-  $comparison = Invoke-GitHub -Method GET -Path "repos/$script:Repository/compare/$mergeSha...$($main.commit.sha)"
-  if ($comparison.status -notin @("ahead", "identical")) {
-    throw "GitHub main does not contain the guarded merge commit."
-  }
-  Wait-ForPostMergeChecks -MergeSha $main.commit.sha
-  $mainAfter = Get-ManifestVersions -Ref $main.commit.sha
-  if ($mainAfter.stable.version -ne $mainBefore.stable.version) {
-    throw "Stable version changed during Beta publication; manual owner investigation is required."
-  }
-  $script:Report.SHA = $mergeSha
-  $script:Report.Stable = $mainAfter.stable.version
-  $script:Report.Beta = $mainAfter.beta.version
-  if ($mainAfter.beta.version -ne $mainBefore.beta.version) {
-    $script:Report.Beta = "$($mainAfter.beta.version) (published)"
+  $verified = Assert-VerifiedMergeEvent -PullRequest $mergedPr -Number $pr.number `
+    -ExpectedSha $script:Head -ExpectedBaseSha $script:Base
+  $script:Report.SHA = $verified.MergeSha
+  $script:Report.Stable = $verified.MergeManifest.stable.version
+  $script:Report.Beta = $verified.MergeManifest.beta.version
+  if ($verified.BetaPublished) {
+    $script:Report.Beta = "$($verified.MergeManifest.beta.version) (published)"
   } else {
-    $script:Report.Beta = "$($mainAfter.beta.version) (NOT APPLICABLE; no runtime package change)"
+    $script:Report.Beta = "$($verified.MergeManifest.beta.version) (NOT APPLICABLE; no runtime package change)"
   }
   Sync-Main
   Write-Report -Status "VERIFIED"
 }
 
 function Invoke-RecoverMergedPR {
-  param([Parameter(Mandatory)][int]$Number)
+  param([Parameter(Mandatory)][int]$Number, [Parameter(Mandatory)][string]$ExpectedHead)
   $actualRoot = (& git -C $script:Root rev-parse --show-toplevel 2>&1 | Select-Object -First 1).Trim()
   if ($LASTEXITCODE -ne 0 -or [IO.Path]::GetFullPath($actualRoot) -ne [IO.Path]::GetFullPath($script:Root)) {
     throw "RepositoryRoot must name the current Git worktree."
@@ -665,45 +1074,21 @@ function Invoke-RecoverMergedPR {
   if ($LASTEXITCODE -ne 0 -or $origin -ne $script:Origin) { throw "Unexpected origin remote; refusing recovery." }
   Initialize-GitHub
   $pr = Invoke-GitHub -Method GET -Path "repos/$script:Repository/pulls/$Number"
-  if ($pr.merged -ne $true -or $pr.base.ref -ne "main" -or
-      $pr.base.repo.full_name -ne $script:Repository -or
-      $pr.head.repo.full_name -ne $script:Repository) {
-    throw "Recovery requires an already-merged same-repository PR targeting main."
-  }
-  if (-not $pr.merge_commit_sha -or -not $pr.base.sha) {
-    throw "Merged PR is missing its merge or base SHA; recovery cannot verify manifests."
-  }
-  $main = Invoke-GitHub -Method GET -Path "repos/$script:Repository/branches/main"
-  $comparison = Invoke-GitHub -Method GET -Path "repos/$script:Repository/compare/$($pr.merge_commit_sha)...$($main.commit.sha)"
-  if ($comparison.status -notin @("ahead", "identical")) {
-    throw "GitHub main does not contain the guarded PR merge commit."
-  }
   $script:Branch = $pr.head.ref
-  $script:Head = $pr.head.sha
+  $script:Head = $ExpectedHead
+  Assert-MergedPRIdentity -PullRequest $pr -ExpectedNumber $Number -ExpectedSha $ExpectedHead
+  $script:Branch = $pr.head.ref
   $script:Base = $pr.base.sha
-  $exactStates = Get-ExactChecks -Sha $script:Head
-  Assert-RequiredCheckStates -States $exactStates -Context "Exact-head Publication Check and Clean Install Proof"
-  $guardRuns = Invoke-GitHub -Method GET -Path "repos/$script:Repository/actions/runs?head_sha=$($script:Head)&per_page=100"
-  $guard = @($guardRuns.workflow_runs | Where-Object {
-    $_.name -eq "Guarded PR Merge" -and $_.path -eq ".github/workflows/guarded-pr-merge.yml" -and
-    $_.event -eq "pull_request_target" -and $_.head_sha -eq $script:Head -and
-    $_.status -eq "completed" -and $_.conclusion -eq "success"
-  } | Sort-Object created_at -Descending | Select-Object -First 1)
-  if (-not $guard.Count) { throw "No successful exact-head Guarded PR Merge workflow was found." }
-  Wait-ForPostMergeChecks -MergeSha $main.commit.sha
-  $baseManifest = Get-ManifestVersions -Ref $pr.base.sha
-  $mainManifest = Get-ManifestVersions -Ref $main.commit.sha
-  if ($baseManifest.stable.version -ne $mainManifest.stable.version) {
-    throw "Stable version changed since the PR base; recovery stopped for owner investigation."
-  }
+  $verified = Assert-VerifiedMergeEvent -PullRequest $pr -Number $Number `
+    -ExpectedSha $ExpectedHead -ExpectedBaseSha ""
   $script:Report.PR = "#$Number"
-  $script:Report.SHA = $pr.merge_commit_sha
+  $script:Report.SHA = $verified.MergeSha
   $script:Report.Tests = "PASS (verified guarded merge and post-merge checks)"
-  $script:Report.Stable = $mainManifest.stable.version
-  if ($baseManifest.beta.version -eq $mainManifest.beta.version) {
-    $script:Report.Beta = "$($mainManifest.beta.version) (NOT APPLICABLE; no runtime package change)"
+  $script:Report.Stable = $verified.MergeManifest.stable.version
+  if ($verified.BetaPublished) {
+    $script:Report.Beta = "$($verified.MergeManifest.beta.version) (published)"
   } else {
-    $script:Report.Beta = "$($mainManifest.beta.version) (published)"
+    $script:Report.Beta = "$($verified.MergeManifest.beta.version) (NOT APPLICABLE; no runtime package change)"
   }
   Sync-Main
   Write-Report -Status "VERIFIED (RECOVERED)"
@@ -720,14 +1105,28 @@ function Invoke-SelfTest {
   $script:SelfTestAssertions = 0
   try {
     $script:Root = $tempRoot
+    $trustedCommit = (& git -C $originalRoot rev-parse origin/main 2>&1 | Select-Object -First 1).Trim()
+    if ($trustedCommit -notmatch "^[0-9a-f]{40,64}$") {
+      throw "Could not resolve trusted main for synthetic scanner regression tests."
+    }
     & git -C $tempRoot init --initial-branch main | Out-Null
     & git -C $tempRoot config user.name "Publisher Self-Test"
     & git -C $tempRoot config user.email "publisher-self-test@example.com"
     New-Item -ItemType Directory -Path (Join-Path $tempRoot "tests") | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $tempRoot ".vscode") | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $tempRoot "scripts") | Out-Null
-    Copy-Item -LiteralPath (Join-Path $originalRoot "scripts/beta_change_risk.py") `
-      -Destination (Join-Path $tempRoot "scripts/beta_change_risk.py")
+    $trustedScripts = @(
+      "scripts/beta_change_risk.py",
+      "scripts/check_publication.py",
+      "scripts/audit_git_history.py",
+      "scripts/audit_public_git_history.py"
+    )
+    foreach ($path in $trustedScripts) {
+      $content = @(& git -C $originalRoot show "$trustedCommit`:$path" 2>&1)
+      if ($LASTEXITCODE -ne 0) { throw "Could not load a trusted scanner fixture." }
+      [IO.File]::WriteAllText((Join-Path $tempRoot $path), ($content -join "`n") + "`n",
+        [Text.UTF8Encoding]::new($false))
+    }
     [IO.File]::WriteAllText((Join-Path $tempRoot "README.md"), "synthetic`n")
     $publishTask = [ordered]@{
       label = "MoonDog: Publish Beta"
@@ -747,7 +1146,7 @@ function Invoke-SelfTest {
     }
     [IO.File]::WriteAllText((Join-Path $tempRoot ".vscode/tasks.json"),
       (ConvertTo-Json -InputObject ([ordered]@{ version = "2.0.0"; tasks = @($publishTask, $updateTask) }) -Depth 20 -Compress))
-    & git -C $tempRoot add README.md .vscode/tasks.json scripts/beta_change_risk.py
+    & git -C $tempRoot add README.md .vscode/tasks.json scripts
     & git -C $tempRoot commit -m "test: create publisher fixture" | Out-Null
     $base = (Invoke-Git -Arguments @("rev-parse", "HEAD") | Select-Object -First 1).Trim()
     Assert-CleanWorktree
@@ -757,6 +1156,9 @@ function Invoke-SelfTest {
       -RecoveryRequested $false -RecoveryNumber 0) -eq "dry-run") "default mode is dry run"
     Assert-Test ((Get-RequestedMode -PublishRequested $true -DryRunRequested $false `
       -RecoveryRequested $false -RecoveryNumber 0) -eq "publish") "publish requires an explicit switch"
+    Assert-Test ((Get-RequestedMode -PublishRequested $false -DryRunRequested $false `
+      -RecoveryRequested $false -RecoveryNumber 0 -HistoryAuditRequested $true) -eq "history-audit") `
+      "outgoing history verification is a separate read-only mode"
     $invalidModes = $false
     try { Get-RequestedMode -PublishRequested $true -DryRunRequested $true `
         -RecoveryRequested $false -RecoveryNumber 0 | Out-Null }
@@ -768,6 +1170,7 @@ function Invoke-SelfTest {
     catch { $missingRecoveryNumber = $true }
     Assert-Test $missingRecoveryNumber "recovery requires an explicit PR number"
     & git -C $tempRoot switch -c "test/publisher-self-test" | Out-Null
+    $script:Branch = "test/publisher-self-test"
     [IO.File]::WriteAllText((Join-Path $tempRoot "tests/publisher-self-test.test.cjs"), "test('synthetic',()=>{});`n")
     & git -C $tempRoot add tests/publisher-self-test.test.cjs
     & git -C $tempRoot commit -m "test: add synthetic publisher fixture" | Out-Null
@@ -776,6 +1179,39 @@ function Invoke-SelfTest {
     Assert-SafeChangedPaths
     Assert-Test ($script:Risk -eq "automatic") "eligible synthetic test scope"
     Assert-CleanWorktree
+    $script:Head = $base
+    Invoke-OutgoingHistoryAudit
+    Assert-Test $true "trusted history scanners pass on synthetic clean baseline refs"
+    $script:Head = (Invoke-Git -Arguments @("rev-parse", "HEAD") | Select-Object -First 1).Trim()
+    $script:Origin = "https://github.com/JHFMoon/MoonDog-Service-OS.git"
+    & git -C $tempRoot remote add origin $script:Origin
+    Assert-PushAuthority -ExpectedSha $script:Head -DestinationBranch $script:Branch | Out-Null
+    Assert-Test $true "single explicit remote and SHA-bound branch are accepted"
+    $cleanPushFingerprint = Get-PushConfigurationFingerprint
+    & git -C $tempRoot config remote.origin.pushurl "https://example.org/alternate.git"
+    Assert-Test ((Get-PushConfigurationFingerprint) -ne $cleanPushFingerprint) `
+      "push-routing configuration mutations change the verified fingerprint"
+    $alternatePushRejected = $false
+    try { Assert-PushAuthority -ExpectedSha $script:Head -DestinationBranch $script:Branch | Out-Null }
+    catch { $alternatePushRejected = $true }
+    Assert-Test $alternatePushRejected "alternate effective push URL is rejected"
+    & git -C $tempRoot config --unset-all remote.origin.pushurl
+    & git -C $tempRoot config remote.origin.push "HEAD:refs/heads/main"
+    $pushRefspecRejected = $false
+    try { Assert-PushAuthority -ExpectedSha $script:Head -DestinationBranch $script:Branch | Out-Null }
+    catch { $pushRefspecRejected = $true }
+    Assert-Test $pushRefspecRejected "configured push refspec is rejected"
+    & git -C $tempRoot config --unset-all remote.origin.push
+    & git -C $tempRoot config remote.origin.mirror true
+    $mirrorRejected = $false
+    try { Assert-PushAuthority -ExpectedSha $script:Head -DestinationBranch $script:Branch | Out-Null }
+    catch { $mirrorRejected = $true }
+    Assert-Test $mirrorRejected "mirror push configuration is rejected"
+    & git -C $tempRoot config --unset-all remote.origin.mirror
+    $wrongBranchRejected = $false
+    try { Assert-PushAuthority -ExpectedSha $script:Head -DestinationBranch "test/other" | Out-Null }
+    catch { $wrongBranchRejected = $true }
+    Assert-Test $wrongBranchRejected "unexpected push destination branch is rejected"
     $script:SelfTestDryRunChecks = 0
     Invoke-DryRun -LocalChecks {
       $script:SelfTestDryRunChecks++
@@ -786,26 +1222,47 @@ function Invoke-SelfTest {
     Assert-Test ($script:Origin -eq "https://github.com/JHFMoon/MoonDog-Service-OS.git") "expected origin"
     Assert-Test ($script:Repository -eq "JHFMoon/MoonDog-Service-OS") "expected repository"
     Assert-Test ("MoonDog-Auto-Merge: yes".Contains("MoonDog-Auto-Merge: yes")) "template authorization marker"
-    Assert-Test (Test-PullRequestMerged -PullRequest @{ merged = $true }) "externally completed PR is recognized"
-    Assert-Test (-not (Test-PullRequestMerged -PullRequest @{ merged = $false })) "unmerged PR is not treated as complete"
-    Assert-Test ((Resolve-GuardedMergeTimeout -PullRequest @{ merged = $true; state = "closed" } `
-      -LastState "success,success" -ChangeRisk "automatic") -eq "merged") `
+    $syntheticPR = @{
+      number = 59; merged = $true; state = "closed"; base = @{
+        ref = "main"; repo = @{ full_name = $script:Repository }
+      }; head = @{ ref = $script:Branch; sha = $script:Head; repo = @{ full_name = $script:Repository } }
+    }
+    Assert-Test (Test-PullRequestMerged -PullRequest $syntheticPR -ExpectedNumber 59 `
+      -ExpectedSha $script:Head) "externally completed exact-head PR is recognized"
+    $wrongHeadPR = @{} + $syntheticPR
+    $wrongHeadPR.head = @{} + $syntheticPR.head
+    $wrongHeadPR.head.sha = "b" * 40
+    $wrongHeadRejected = $false
+    try { Test-PullRequestMerged -PullRequest $wrongHeadPR -ExpectedNumber 59 `
+        -ExpectedSha $script:Head | Out-Null }
+    catch { $wrongHeadRejected = $true }
+    Assert-Test $wrongHeadRejected "already-merged wrong-head PR is rejected"
+    $unmergedPR = @{} + $syntheticPR
+    $unmergedPR.merged = $false
+    $unmergedPR.state = "open"
+    Assert-Test (-not (Test-PullRequestMerged -PullRequest $unmergedPR -ExpectedNumber 59 `
+      -ExpectedSha $script:Head)) "unmerged PR is not treated as complete"
+    Assert-Test ((Resolve-GuardedMergeTimeout -PullRequest $syntheticPR `
+      -LastState "success,success" -ChangeRisk "automatic" -ExpectedNumber 59 `
+      -ExpectedSha $script:Head) -eq "merged") `
       "timeout-boundary recheck recognizes an already merged PR"
     $pendingTimeout = $false
-    try { Resolve-GuardedMergeTimeout -PullRequest @{ merged = $false; state = "open" } `
-        -LastState "pending,success" -ChangeRisk "automatic" | Out-Null }
+    try { Resolve-GuardedMergeTimeout -PullRequest $unmergedPR `
+        -LastState "pending,success" -ChangeRisk "automatic" -ExpectedNumber 59 `
+        -ExpectedSha $script:Head | Out-Null }
     catch { $pendingTimeout = $_.Exception.Message -like "*pending required check*" }
     Assert-Test $pendingTimeout "pending exact-head checks produce an actionable timeout"
     $reviewTimeout = $false
-    try { Resolve-GuardedMergeTimeout -PullRequest @{ merged = $false; state = "open" } `
-        -LastState "success,success" -ChangeRisk "review-required" | Out-Null }
+    try { Resolve-GuardedMergeTimeout -PullRequest $unmergedPR `
+        -LastState "success,success" -ChangeRisk "review-required" -ExpectedNumber 59 `
+        -ExpectedSha $script:Head | Out-Null }
     catch { $reviewTimeout = $_.Exception.Message -like "*owner review*" }
     Assert-Test $reviewTimeout "review-required changes are never auto-approved"
     $syntheticSha = "a" * 40
     $pendingRuns = @(
-      @{ head_sha = $syntheticSha; event = "push"; name = "Publication check"; path = ".github/workflows/publication-check.yml"; status = "completed"; conclusion = "success"; created_at = "2026-01-01T00:00:00Z" },
-      @{ head_sha = $syntheticSha; event = "push"; name = "Publication check"; path = ".github/workflows/publication-check.yml"; status = "in_progress"; conclusion = $null; created_at = "2026-01-01T00:01:00Z" },
-      @{ head_sha = $syntheticSha; event = "push"; name = "Public Repository History Safety Audit"; path = ".github/workflows/public-history-safety-audit.yml"; status = "completed"; conclusion = "success"; created_at = "2026-01-01T00:01:00Z" }
+      @{ head_sha = $syntheticSha; head_branch = "main"; head_repository = @{ full_name = $script:Repository }; event = "push"; name = "Publication check"; path = ".github/workflows/publication-check.yml"; status = "completed"; conclusion = "success"; created_at = "2026-01-01T00:00:00Z" },
+      @{ head_sha = $syntheticSha; head_branch = "main"; head_repository = @{ full_name = $script:Repository }; event = "push"; name = "Publication check"; path = ".github/workflows/publication-check.yml"; status = "in_progress"; conclusion = $null; created_at = "2026-01-01T00:01:00Z" },
+      @{ head_sha = $syntheticSha; head_branch = "main"; head_repository = @{ full_name = $script:Repository }; event = "push"; name = "Public Repository History Safety Audit"; path = ".github/workflows/public-history-safety-audit.yml"; status = "completed"; conclusion = "success"; created_at = "2026-01-01T00:01:00Z" }
     )
     $pendingStates = Get-PostMergeCheckStates -Runs $pendingRuns -Sha $syntheticSha
     Assert-Test ($pendingStates.Publication -eq "pending" -and $pendingStates.HistorySafety -eq "success") `
@@ -826,6 +1283,16 @@ function Invoke-SelfTest {
     $successStates = Get-PostMergeCheckStates -Runs $successfulRuns -Sha $syntheticSha
     Assert-Test ($successStates.Publication -eq "success" -and $successStates.HistorySafety -eq "success") `
       "completed post-merge checks are recognized"
+    Assert-Test (Resolve-PostMergeCheckTimeout -Runs $successfulRuns -Sha $syntheticSha) `
+      "timeout-boundary refresh recognizes checks completed for the exact merge commit"
+    $laterMainSha = "c" * 40
+    $laterMainRuns = @($successfulRuns) + @(
+      @{ head_sha = $laterMainSha; head_branch = "main"; head_repository = @{ full_name = $script:Repository }; event = "push"; name = "Publication check"; path = ".github/workflows/publication-check.yml"; status = "completed"; conclusion = "success"; created_at = "2026-01-02T00:00:00Z" },
+      @{ head_sha = $laterMainSha; head_branch = "main"; head_repository = @{ full_name = $script:Repository }; event = "push"; name = "Public Repository History Safety Audit"; path = ".github/workflows/public-history-safety-audit.yml"; status = "completed"; conclusion = "success"; created_at = "2026-01-02T00:00:00Z" }
+    )
+    $exactMergeStates = Get-PostMergeCheckStates -Runs $laterMainRuns -Sha $syntheticSha
+    Assert-Test ($exactMergeStates.Publication -eq "success" -and $exactMergeStates.HistorySafety -eq "success") `
+      "later-main workflows cannot replace exact merge-commit check results"
     $failedRuns = @($successfulRuns | ForEach-Object {
       if ($_.name -eq "Public Repository History Safety Audit") {
         $copy = @{} + $_
@@ -836,6 +1303,33 @@ function Invoke-SelfTest {
     $failedStates = Get-PostMergeCheckStates -Runs $failedRuns -Sha $syntheticSha
     Assert-Test ($failedStates.Publication -eq "success" -and $failedStates.HistorySafety -eq "failure") `
       "failed post-merge checks remain failures"
+    $failedTimeout = $false
+    try { Resolve-PostMergeCheckTimeout -Runs $failedRuns -Sha $syntheticSha | Out-Null }
+    catch { $failedTimeout = $_.Exception.Message -like "*failed at timeout boundary*" }
+    Assert-Test $failedTimeout "timeout-boundary check refresh preserves failures"
+    $missingExpectedRecoveryHead = $false
+    try { Get-RequestedMode -PublishRequested $false -DryRunRequested $false `
+        -RecoveryRequested $true -RecoveryNumber 59 -ExpectedHead "" | Out-Null }
+    catch { $missingExpectedRecoveryHead = $_.Exception.Message -like "*ExpectedHeadSha*" }
+    Assert-Test $missingExpectedRecoveryHead "recovery requires the explicitly reviewed head SHA"
+    Assert-Test ((Get-RequestedMode -PublishRequested $false -DryRunRequested $false `
+      -RecoveryRequested $true -RecoveryNumber 59 -ExpectedHead $script:Head) -eq "recover") `
+      "recovery accepts an explicit exact head"
+    New-Item -ItemType Directory -Path (Join-Path $tempRoot "workspace") | Out-Null
+    [IO.File]::WriteAllText((Join-Path $tempRoot "workspace/synthetic-boundary.json"), '{"fixture":"synthetic"}')
+    & git -C $tempRoot add workspace/synthetic-boundary.json
+    & git -C $tempRoot commit -m "test: add synthetic intermediate private path" | Out-Null
+    Remove-Item -LiteralPath (Join-Path $tempRoot "workspace/synthetic-boundary.json") -Force
+    & git -C $tempRoot add -u workspace/synthetic-boundary.json
+    & git -C $tempRoot commit -m "test: remove synthetic intermediate private path" | Out-Null
+    $script:Head = (Invoke-Git -Arguments @("rev-parse", "HEAD") | Select-Object -First 1).Trim()
+    $finalPaths = @(Invoke-Git -Arguments @("diff", "--name-only", "$script:Base...$script:Head"))
+    Assert-Test ("workspace/synthetic-boundary.json" -notin $finalPaths) `
+      "add-then-remove synthetic path is absent from the final tree diff"
+    $historyRejected = $false
+    try { Invoke-OutgoingHistoryAudit }
+    catch { $historyRejected = $_.Exception.Message -like "*rejected the outgoing public history*" }
+    Assert-Test $historyRejected "trusted history scanners reject restricted content removed by a later commit"
     [IO.File]::WriteAllText((Join-Path $tempRoot "private-local.txt"), "synthetic")
     $blocked = $false
     try { Assert-CleanWorktree } catch { $blocked = $true }
@@ -867,10 +1361,16 @@ try {
   }
   $mode = Get-RequestedMode -PublishRequested $Publish.IsPresent `
     -DryRunRequested $DryRun.IsPresent -RecoveryRequested $RecoverMergedPR.IsPresent `
-    -RecoveryNumber $PullRequestNumber
+    -RecoveryNumber $PullRequestNumber -ExpectedHead $ExpectedHeadSha `
+    -HistoryAuditRequested $VerifyOutgoingHistory.IsPresent
   Assert-PortableTaskConfiguration
   switch ($mode) {
-    "recover" { Invoke-RecoverMergedPR -Number $PullRequestNumber }
+    "recover" { Invoke-RecoverMergedPR -Number $PullRequestNumber -ExpectedHead $ExpectedHeadSha }
+    "history-audit" {
+      Assert-Repository | Out-Null
+      Invoke-OutgoingHistoryAudit
+      Write-Host "Outgoing-history validation passed for exact candidate $script:Head."
+    }
     "dry-run" {
       Assert-Repository | Out-Null
       Invoke-DryRun

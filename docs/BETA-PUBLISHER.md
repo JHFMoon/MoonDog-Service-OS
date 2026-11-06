@@ -20,6 +20,14 @@ pwsh -NoProfile -NonInteractive -File ./.vscode/publish-moondog-beta.ps1 -Reposi
 
 Omitting both `-Publish` and `-DryRun` also selects dry-run mode. A dry run performs repository, scope, classification, test, source/package integrity, and publication-boundary checks, but does not push, create a PR, approve, merge, or release anything.
 
+For a focused, read-only outgoing-history check that can also be used for protected publisher changes, run:
+
+```powershell
+pwsh -NoProfile -NonInteractive -File ./.vscode/publish-moondog-beta.ps1 -RepositoryRoot . -VerifyOutgoingHistory
+```
+
+This scans all objects reachable from the verified `origin/main` base and current candidate using both history scanners sourced from that base. It does not publish or change refs.
+
 ## Publish explicitly
 
 First review and commit only the intended changes. Confirm the branch scope and run the dry run. Then either:
@@ -33,7 +41,7 @@ First review and commit only the intended changes. Confirm the branch scope and 
 
 The task has no save/startup trigger. Its `-Publish` argument runs only when a person explicitly selects the task. The separate **MoonDog: Update main** task retains its existing safe folder-open synchronization behavior and never publishes.
 
-The publisher requires a clean worktree, correct repository and remote, a committed feature branch based on `origin/main`, and a trusted-policy classification that permits the candidate. It runs Python and Node tests, source/package integrity checks, and the publication-boundary check in the exact-byte temporary worktree. It pushes only the named branch using normal Git authentication, creates or reuses the PR using the repository template, verifies the exact PR file list/head and required exact-head checks, and then waits for the repository's guarded merge. It never approves or merges itself.
+The publisher requires a clean worktree, correct repository and remote, a committed feature branch based on `origin/main`, and a trusted-policy classification that permits the candidate. It runs trusted-main change classification and full outgoing-history scans, Python and Node tests, source/package integrity checks, and the publication-boundary check in an exact-byte temporary worktree. Before pushing, it rejects ambiguous remotes, alternate push URLs, mirrors, push refspecs, push options, tag pushes, changed source commits, and unexpected destination branches. The push names the verified commit SHA and one explicit branch ref; the remote ref is read back and checked against that SHA. It creates or reuses the PR using the repository template, verifies the exact PR file list/head and required exact-head checks, and then waits for the repository's guarded merge. It never approves or merges itself.
 
 Protected automation, policy, workflow, security-scanner, critical preservation-test, or unknown paths must remain blocked unless the trusted repository policy explicitly permits them. Owner review does not override a `protected` classification. Do not edit the classifier or guarded workflow as part of a publisher PR to make that PR eligible.
 
@@ -48,13 +56,13 @@ The CI and post-merge waits are bounded by `-TimeoutMinutes` (1–60; default 25
 
 1. Inspect the printed PR number and exact SHA on GitHub. Do not start another publish until the PR status and exact-head checks are known.
 2. If the PR is still open, let the guarded review/check process proceed; the publisher will not approve or merge.
-3. If GitHub already merged it, use the read-only verification/recovery mode:
+3. If GitHub already merged it, obtain the exact reviewed PR head SHA from the PR's commit history and use recovery mode:
 
    ```powershell
-   pwsh -NoProfile -NonInteractive -File ./.vscode/publish-moondog-beta.ps1 -RepositoryRoot . -RecoverMergedPR -PullRequestNumber 123
+   pwsh -NoProfile -NonInteractive -File ./.vscode/publish-moondog-beta.ps1 -RepositoryRoot . -RecoverMergedPR -PullRequestNumber 123 -ExpectedHeadSha 0123456789abcdef0123456789abcdef01234567
    ```
 
-   Recovery requires an already-merged same-repository PR targeting `main`; it verifies that GitHub `main` contains the merge, waits for successful post-merge Publication Check and Public Repository History Safety Audit, verifies Stable did not change from the PR base, reads Beta/Stable versions, and safely fast-forwards only a clean local `main` worktree. It performs no push, PR creation, approval, merge, package build, or release.
+   Recovery requires an already-merged same-repository PR targeting `main`, and refuses a PR whose current head differs from `-ExpectedHeadSha`. It verifies the actual GitHub merge event, a successful Guarded PR Merge job that completed its merge step for that PR, successful exact-head Publication Check and Clean Install Proof, and successful post-merge Publication Check and Public Repository History Safety Audit on the exact merge commit. It verifies the complete Stable manifest entry and the Beta package identity/digest at the merge parent and merge commit; later `main` commits are not treated as this PR's release evidence. Recovery performs no push, PR creation, approval, merge, package build, or release, but it can fast-forward a clean local `main` worktree after verification.
 4. If local `main` is dirty or has local-only commits, recovery stops without modifying it. Preserve and resolve that work explicitly before syncing.
 5. If checks failed, do not rerun an unchanged candidate. Follow the workflow failure details and repository review policy.
 
