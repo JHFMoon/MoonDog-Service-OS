@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.374 — current Beta
+
+- Fix new-store reset backup picker blocked by lost user activation. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.373 — current Beta
 
 - Enable clean new-store setup when a copied Workspace is recovery-locked. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
