@@ -1,9 +1,18 @@
 # James-approved MoonDog release contract
 
-**Standing authorization:** James authorizes automatic merging of all existing and future same-repository pull requests after the exact-head Publication Check, Clean Install Proof, an exact-head Codex review **or an owner-attested GitHub PR review**, applicable tests, and GitHub protections pass. This includes previously gated PRs and Stable release-related PRs. Do not ask for per-PR merge approval. The repository PR template carries the standalone `MoonDog-Auto-Merge: yes` directive; the trusted main-branch policy is the source of the standing authorization.
+**Standing authorization:** James authorizes automatic merging of all existing and future same-repository pull requests after the exact-head Publication Check, Clean Install Proof, an exact-head Codex review **or an owner-attested GitHub PR review**, applicable tests, and GitHub protections pass. Stable promotion requires separate owner authorization. Do not ask for per-PR merge approval. The repository PR template carries the standalone `MoonDog-Auto-Merge: yes` directive; the trusted main-branch policy is the source of the standing authorization.
 
 
-Merging a Stable promotion PR is authorized by this standing instruction. Publication still runs only through the existing `.github/workflows/stable-release.yml` workflow after protected merge and successful main Publication Check; never install it or dispatch a separate manual deployment merely because a PR merged.
+A Stable promotion PR requires separate owner authorization before merge. Publication still runs only through the existing `.github/workflows/stable-release.yml` workflow after protected merge and successful main Publication Check; never install it or dispatch a separate manual deployment merely because a PR merged.
+
+## Permanent engineering review policy
+
+Routine engineering and Beta work operate under standing owner authorization. An independent human or AI reviewer is optional. Record the AI-assisted inspection against the exact PR head, including the scope, findings and how they were resolved, and any verification limits. Refresh the record when the head changes.
+
+- Routine changes and data-affecting changes with accepted scoped preservation proof follow the existing automated path. Data-affecting changes without that proof use the existing authenticated exact-head owner attestation.
+- Protected changes, including this policy and its workflow, require the existing separate manual or bootstrap route. For future protected PRs, record a formal exact-head owner-attested GitHub review that explicitly identifies the protected scope and evidence. An authorized maintainer verifies the review, any findings veto, the current base and mandatory checks before using the ordinary GitHub PR merge route. The guarded workflow continues refusing automatic merges for protected changes.
+- Required automated tests, Publication Check, Clean Install Proof, security scans, applicable package integrity verification, and GitHub branch protections continue to apply. Resolve authenticated findings before merging.
+- Stable promotion, real-store deployment, and destructive actions on actual dealership data each require separate owner authorization.
 
 ## Beta delivery (default)
 - Base feature work on the active Beta line. Run Publication Check and relevant regression/security/update-package compatibility tests.
@@ -13,7 +22,7 @@ Merging a Stable promotion PR is authorized by this standing instruction. Public
 - GitHub does not autonomously interpret issues as instructions or execute an agent. A live execution agent or configured bot must create/test/merge changes. Issue #34 tracks infrastructure to remove remaining manual steps.
 
 ## Stable promotion
-- Stable changes may be proposed in a reviewed main PR under the standing authorization above; no separate PR merge approval is required.
+- Stable changes may be proposed in a reviewed main PR under the standing authorization above; separate owner authorization is required before promotion.
 - The existing Stable release workflow remains the only publication path. It validates the current main commit, complete synthetic test suite, publication and history audits, manifest/package version, tagged package URL, and SHA-256 before creating or repairing a formal release.
 - Do not install a Stable release. A merged PR is source integration, not installation.
 - The GitHub Stable workflow checks a successful post-merge main Publication Check against the Stable manifest version authorized by the reviewed PR. It only publishes when the matching formal non-prerelease GitHub Release, SHA-256-verified asset, or Latest designation is missing. Completed Stable releases are not republished on ordinary changes.
@@ -36,7 +45,7 @@ At James's direction, trusted release workflows must **not automatically summon 
 
 The trusted policy and workflows themselves remain protected automation files. A change to them requires a separately reviewed bootstrap PR using ordinary GitHub-authorized merge permissions; the automatic merger does not merge its own policy changes. This mode does not constitute independent human review or device validation.
 
-## Owner-attested manual review when Codex review is unavailable
+## Exact-head owner-attested inspection
 
 James explicitly permits a review submitted through the connected ChatGPT GitHub account to satisfy the *repository automation review gate*, including a self-attested PR by `JHFMoon`. This is **not an independent Codex or third-party review**. The reviewer must actually inspect the current PR diff and the exact SHA, report findings, and submit a **GitHub pull-request review** using the authenticated `JHFMoon` account, with these two standalone lines:
 
