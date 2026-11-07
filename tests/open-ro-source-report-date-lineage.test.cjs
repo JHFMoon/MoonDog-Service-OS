@@ -2,11 +2,11 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
+const readSource = require("./helpers/read-source.cjs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+const app = readSource(path.join(__dirname, "..", "assets", "app.js"));
 const importStart = app.indexOf("  async function importSourceUnlocked(");
 const importEnd = app.indexOf("\n\n  const timeMinutes", importStart);
 const dateStart = app.indexOf("  function internalObservationDate(rows) {");

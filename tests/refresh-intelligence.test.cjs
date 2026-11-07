@@ -3,7 +3,8 @@ const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
 const vm=require("node:vm");
-const source=fs.readFileSync(path.join(__dirname,"..","assets","freshness.js"),"utf8");
+const readSource = require("./helpers/read-source.cjs");
+const source=readSource(path.join(__dirname,"..","assets","freshness.js"));
 const context=vm.createContext({Date,Intl});
 vm.runInContext(source,context);
 const R=context.ServiceRefreshIntelligence;
@@ -88,9 +89,9 @@ test("Home picks at most five non-duplicate actionable tasks and excludes report
   assert.equal(got.some(t=>t.id==="task:1"),false);
 });
 test("New presentation and refresh logic is included in runtime",()=>{
-  const index=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
-  const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
-  const daily=fs.readFileSync(path.join(__dirname,"..","assets","daily-ops.js"),"utf8");
+  const index=readSource(path.join(__dirname,"..","index.html"));
+  const app=readSource(path.join(__dirname,"..","assets","app.js"));
+  const daily=readSource(path.join(__dirname,"..","assets","daily-ops.js"));
   const presenter=daily;
   assert.match(index,/assets\/freshness.js/);
   assert.match(index,/assets\/daily-ops.js/);
@@ -105,19 +106,58 @@ test("New presentation and refresh logic is included in runtime",()=>{
   assert.match(presenter,/meeting-v3-advisor/);
 });
 
-test("Packaged modules stay byte-for-byte synchronized with canonical source",()=>{
+test("Packaged modules remain byte-for-byte synchronized with canonical source",()=>{
   const rootDir=path.join(__dirname,"..");
-  const freshness=fs.readFileSync(path.join(rootDir,"assets/freshness.js"),"utf8");
-  const daily=fs.readFileSync(path.join(rootDir,"assets/daily-ops.js"),"utf8");
-  const meeting=fs.readFileSync(path.join(rootDir,"assets/meeting.css"),"utf8");
-  const src=name=>fs.readFileSync(path.join(rootDir,"src",name),"utf8").trimEnd();
-  const between=(text,start,end)=>text.split(start)[1]?.split(end)[0]?.trim();
-  assert.equal(between(freshness,"// BEGIN GENERATED REFRESH INTELLIGENCE (see src/refresh-intelligence.js)","// END GENERATED REFRESH INTELLIGENCE"),
-    src("refresh-intelligence.js").replace('  if(typeof module!=="undefined")module.exports=api;\n',"").trim());
-  assert.equal(between(daily,"// BEGIN GENERATED MEETING PRESENTER (see src/meeting-presenter.js)","// END GENERATED MEETING PRESENTER"),
-    src("meeting-presenter.js").trim());
-  assert.equal(between(meeting,"/* BEGIN GENERATED MEETING LAYOUT (see src/meeting-presenter.css) */","/* END GENERATED MEETING LAYOUT */"),
-    src("meeting-presenter.css").trim());
+  const bytes=name=>fs.readFileSync(path.join(rootDir,name));
+  const withoutFinalLineEnding=content=>{
+    if(content.at(-2)===13&&content.at(-1)===10)return content.subarray(0,-2);
+    if(content.at(-1)===10)return content.subarray(0,-1);
+    return content;
+  };
+  const sourceContent=name=>withoutFinalLineEnding(bytes(name));
+  const exactContent=(container,start,end)=>{
+    const text=container.toString("latin1");
+    const contentStart=text.indexOf(start);
+    const contentEnd=text.indexOf(end,contentStart+start.length);
+    assert.ok(contentStart>=0&&contentEnd>contentStart,`generated source markers exist: ${start}`);
+    let content=text.slice(contentStart+start.length,contentEnd);
+    if(content.startsWith("\r\n"))content=content.slice(2);
+    else if(content.startsWith("\n"))content=content.slice(1);
+    if(content.endsWith("\r\n"))content=content.slice(0,-2);
+    else if(content.endsWith("\n"))content=content.slice(0,-1);
+    return Buffer.from(content,"latin1");
+  };
+  const sourceWithoutExport=bytes("src/refresh-intelligence.js");
+  const sourceText=sourceWithoutExport.toString("latin1");
+  const exportLine='  if(typeof module!=="undefined")module.exports=api;';
+  const exportIndex=sourceText.indexOf(exportLine);
+  assert.ok(exportIndex>=0,"canonical source contains the expected source-only CommonJS export");
+  const exportEnd=exportIndex+exportLine.length+(sourceText[exportIndex+exportLine.length]==="\r"?2:1);
+  const refreshSource=withoutFinalLineEnding(Buffer.concat([
+    sourceWithoutExport.subarray(0,exportIndex),
+    sourceWithoutExport.subarray(exportEnd)
+  ]));
+  assert.deepEqual(
+    exactContent(bytes("assets/freshness.js"),
+      "// BEGIN GENERATED REFRESH INTELLIGENCE (see src/refresh-intelligence.js)",
+      "// END GENERATED REFRESH INTELLIGENCE"),
+    refreshSource,
+    "generated refresh module bytes must exactly match canonical source bytes"
+  );
+  assert.deepEqual(
+    exactContent(bytes("assets/daily-ops.js"),
+      "// BEGIN GENERATED MEETING PRESENTER (see src/meeting-presenter.js)",
+      "// END GENERATED MEETING PRESENTER"),
+    sourceContent("src/meeting-presenter.js"),
+    "generated presenter bytes must exactly match canonical source bytes"
+  );
+  assert.deepEqual(
+    exactContent(bytes("assets/meeting.css"),
+      "/* BEGIN GENERATED MEETING LAYOUT (see src/meeting-presenter.css) */",
+      "/* END GENERATED MEETING LAYOUT */"),
+    sourceContent("src/meeting-presenter.css"),
+    "generated meeting layout bytes must exactly match canonical source bytes"
+  );
 });
 
 

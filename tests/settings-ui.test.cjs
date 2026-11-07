@@ -46,11 +46,13 @@ test("connected workspace resolves System Files without a second app-folder pick
   assert.equal(field("updateInstalledChannel").textContent, "Beta");
   assert.equal(card.innerHTML.includes("selectUpdateApp"), false);
   assert.equal(card.innerHTML.includes("selectUpdateBackup"), false);
-  assert.equal(source.includes("showDirectoryPicker"), false);
+  // Ordinary updates do not reselect an app root; destructive Fresh requires an exact matching-folder picker.
+  assert.match(source, /showDirectoryPicker\(\{id:"moondog-fresh-selected-copy",mode:"readwrite"\}\)/);
   assert.equal(source.includes("backupDirectoryHandle"), false);
   assert.match(field("updateFolders").textContent, /System Files\/Workspace\/backups\/system-updates\//);
-  assert.match(field("updateFolders").textContent, /Connected workspace: Test-Workspace/);
-  assert.match(field("updateFolders").textContent, /Application files: System Files\//);
+  assert.match(field("updateFolders").textContent, /Selected installation folder \(parent of System Files\): Test-Workspace/);
+  assert.match(field("updateFolders").textContent, /Runtime: System Files\//);
+  assert.match(field("updateFolders").textContent, /Dealership data: System Files\/Workspace\//);
   await listeners.get("checkMoonDogUpdate:click")();
   assert.equal(checks.at(-1).currentVersion, "0.10.7-beta.1");
   assert.equal(checks.at(-1).channel, "beta");

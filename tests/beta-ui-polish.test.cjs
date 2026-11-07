@@ -12,7 +12,16 @@ assert.ok(app.includes(`const VERSION = "${manifest.stable.version}"`));
 assert.match(app, /SERVICE OPERATIONS DASHBOARD CONNECTED/);
 assert.match(app, /RECONNECTING\|RESTORING\|FOLDER ACCESS REQUIRED/);
 assert.match(updates, /Last update check:/);
-assert.match(updates, /state\.channel === "beta" \? "Install Beta" : "Install Update"/);
+// The Update UI explicitly names the data-preserving option, and the
+// destructive choice is gated to the connected Beta with its own confirmations.
+assert.match(updates, /Update Current Installation/);
+assert.match(updates, /Update to Fresh Installation/);
+assert.match(updates, /Selected installation folder \(parent of System Files\)/);
+assert.match(app, /model\.applicationRoot = handle;/);
+assert.match(updates, /freshButton\.disabled = !freshAvailable\(\)/);
+assert.match(updates, /freshButton\.addEventListener\("click"/);
+assert.match(updates, /resetSelectedFreshInstallation/);
+assert.match(app, /Are you really sure\?/);
 assert.match(updates, /Installed \$\{installedChannel === "beta" \? "Beta" : "Stable"\} \$\{installedVersion\}; check for newer builds/);
 assert.match(settingsCss, /#settings-update\{grid-column:1\/-1;max-width:760px;width:100%\}/);
 

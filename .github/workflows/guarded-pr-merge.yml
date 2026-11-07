@@ -287,8 +287,12 @@ jobs:
             gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.' > /tmp/pr-comments.json
             gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/pr-reviews.json
             REVIEW_STATE="$(python3 scripts/guarded_merge_policy.py merge-review-state /tmp/pr-comments.json /tmp/pr-reviews.json "$HEAD_SHA" --policy .github/guarded-merge-policy.json)"
-            if [ "$REVIEW_STATE" = "findings" ] || [ "$DECISION" = "protected" ]; then
-              echo "Protected change or unresolved authenticated finding; refusing merge." >&2
+            if [ "$REVIEW_STATE" = "findings" ]; then
+              echo "Unresolved authenticated finding; refusing merge." >&2
+              exit 1
+            fi
+            if [ "$DECISION" = "protected" ]; then
+              echo "Protected change requires the manual merge route in docs/RELEASE-AUTHORIZATION.md." >&2
               exit 1
             fi
             REVIEW_MODE="$(jq -r '.beta_review_mode // "review-required"' .github/guarded-merge-policy.json)"
@@ -387,8 +391,12 @@ jobs:
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --jq '.[]' | jq -s '.' > /tmp/final-pr-reviews.json
           FINAL_REVIEW="$(python3 scripts/guarded_merge_policy.py merge-review-state /tmp/final-pr-comments.json /tmp/final-pr-reviews.json "$HEAD_SHA" --policy .github/guarded-merge-policy.json)"
           REVIEW_MODE="$(jq -r '.beta_review_mode // "review-required"' .github/guarded-merge-policy.json)"
-          if [ "$FINAL_DECISION" = "protected" ] || [ "$FINAL_REVIEW" = "findings" ]; then
-            echo "Final guarded merge refused: protected change or unresolved findings." >&2
+          if [ "$FINAL_REVIEW" = "findings" ]; then
+            echo "Final guarded merge refused: unresolved authenticated findings." >&2
+            exit 1
+          fi
+          if [ "$FINAL_DECISION" = "protected" ]; then
+            echo "Final guarded merge refused: protected change requires the manual merge route." >&2
             exit 1
           fi
           if [ "$FINAL_REVIEW" != "clean" ] && { [ "$REVIEW_MODE" != "automated-data-proofs" ] || [ "$FINAL_DECISION" != "automatic" ]; }; then
