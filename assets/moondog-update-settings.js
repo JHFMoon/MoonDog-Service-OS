@@ -32,9 +32,11 @@
     progressChangedAt: 0, progressStalled: false };
   const appRoot = () => global.__moondogSettingsModel?.applicationRoot || null;
   const applicationFiles = async () => {
-    const workspace = appRoot();
-    if (!workspace) throw new Error("Connect the Service Operations Dashboard workspace first.");
-    return workspace.getDirectoryHandle("System Files", { create: false });
+    // applicationRoot is the selected top-level installation folder, which
+    // contains System Files; Workspace is nested below and is NOT the target.
+    const installation = appRoot();
+    if (!installation) throw new Error("Connect the Service Operations Dashboard installation first.");
+    return installation.getDirectoryHandle("System Files", { create: false });
   };
   function clearPlan() { planText.textContent = ""; planText.hidden = true; }
   function currentOffer() {
@@ -282,7 +284,7 @@
       result?.status === "unavailable" ? "GitHub unavailable" :
       result?.status === "invalid-input" ? "Installed version cannot be compared" :
       installedChannel === state.channel ? `Installed ${installedChannel === "beta" ? "Beta" : "Stable"} ${installedVersion}; check for newer builds` : "Not checked";
-    field("updateFolders").textContent = `Connected workspace: ${appRoot()?.name || "not connected"}. Application files: System Files/. Update rollback backups: System Files/Workspace/backups/system-updates/.`;
+    field("updateFolders").textContent = `Selected installation folder (parent of System Files): ${appRoot()?.name || "not connected"}. Runtime: System Files/. Dealership data: System Files/Workspace/. Update rollback backups: System Files/Workspace/backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
       "Update Current Installation";
     installButton.disabled = state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer();
@@ -293,7 +295,7 @@
     freshButton.disabled = true;
     field("updateChoiceNote").textContent = freshButton.hidden
       ? "Current Installation keeps all existing dealership information."
-      : "Fresh Installation removes data from only the selected installation. The destructive option is not enabled in this staged build; protected isolation proof and additional confirmations are required.";
+      : "Fresh Installation targets the selected top-level installation folder (parent of System Files), not another copy. Store data inside that installation will be erased only after explicit confirmations and protected isolation proof. This staged build cannot delete data.";
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
     field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable && !state.recoveryScanFailed;
