@@ -472,10 +472,15 @@
         // This receipt is written ONLY after the installer has verified the new
         // runtime. The next version's connected app may then run local follow-up.
         // No Workspace contents or source files are included in this marker.
-        try {
-          global.localStorage?.setItem("moondog-verified-update-followup-v1",
-            JSON.stringify({ version: outcome.version, verifiedAt: new Date().toISOString() }));
-        } catch (_) { /* Browser storage may be restricted; manual source retry remains available. */ }
+        // A Fresh reset cleared the selected Workspace, including learned sources.
+        // Never publish its update receipt into a browser-profile-wide key:
+        // another installation sharing this origin must remain independent.
+        if(freshOutcomeStatus!=="fresh") {
+          try {
+            global.localStorage?.setItem("moondog-verified-update-followup-v1",
+              JSON.stringify({ version: outcome.version, verifiedAt: new Date().toISOString() }));
+          } catch (_) { /* Browser storage may be restricted; manual source retry remains available. */ }
+        }
         state.check = null;
         state.checkFor = null;
         state.dismissed = null;
