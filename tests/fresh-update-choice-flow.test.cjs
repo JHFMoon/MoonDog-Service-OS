@@ -21,6 +21,7 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
   const context=vm.createContext({
     MoonDogInstalledVersion:"0.10.18-beta.381",
     __moondogSettingsModel:{applicationRoot:root},
+    showDirectoryPicker:async()=>root,
     __moondogMaintenance:{runtimePaths:["assets/app.js"]},
     __moondogFreshInstallation:{resetSelectedFreshInstallation:async options=>{
       events.push(["fresh",options.selectedRoot,options.verifiedInstall.version]);return {status:"fresh"};
@@ -89,4 +90,20 @@ test("preserving an installation retains ordinary verified-update follow-up",asy
   const h=harness();await h.check();await h.preserve();
   assert.deepEqual(h.events.map(e=>e[0]),["verify","plan","apply"]);
   assert.equal(h.storageWrites.includes("moondog-verified-update-followup-v1"),true);
+});
+
+test("wrong-folder picker selection rejects Fresh before verifying or installing",async()=>{
+  const h=harness();await h.check();
+  h.context.showDirectoryPicker=async()=>({name:"Unrelated-Synthetic-Copy",
+    isSameEntry:async()=>false});
+  await h.fresh();
+  assert.deepEqual(h.events.map(e=>e[0]),[]);
+  assert.match(h.field("updateStatus").textContent,/does not match the connected installation/);
+});
+test("Fresh picker unavailability refuses safely without running installer",async()=>{
+  const h=harness();await h.check();
+  h.context.showDirectoryPicker=undefined;
+  await h.fresh();
+  assert.deepEqual(h.events.map(e=>e[0]),[]);
+  assert.match(h.field("updateStatus").textContent,/requires an Edge folder picker/);
 });

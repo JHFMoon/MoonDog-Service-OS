@@ -372,12 +372,39 @@
     global.setTimeout?.(checkInBackground, 1500);
   });
   field("checkMoonDogUpdate").addEventListener("click", () => check(true));
-  freshButton.addEventListener("click", () => installUpdate(true));
+  freshButton.addEventListener("click", async () => {
+    if(!freshAvailable())return;
+    // Chromium may share a saved IndexedDB handle between file launchers.
+    // The user must explicitly choose THIS installation, before any awaits
+    // that would lose Edge's transient folder-picker activation.
+    const current=appRoot();
+    if(typeof global.showDirectoryPicker!=="function"){
+      status.textContent="Fresh Installation requires an Edge folder picker; no update was started.";
+      return;
+    }
+    let chosen;
+    try{chosen=await global.showDirectoryPicker({id:"moondog-fresh-selected-copy",mode:"readwrite"});}
+    catch(error){
+      if(error?.name!=="AbortError")
+        status.textContent="Fresh Installation folder selection failed. No update was started.";
+      return;
+    }
+    if(current!==appRoot()||!chosen||typeof chosen.isSameEntry!=="function"||
+        !(await chosen.isSameEntry(current))){
+      status.textContent="Selected folder does not match the connected installation. No update or deletion was performed.";
+      return;
+    }
+    return installUpdate(true,chosen);
+  });
   installButton.addEventListener("click", () => installUpdate(false));
-  async function installUpdate(fresh = false) {
-    if (fresh && !freshAvailable()) return;
+  async function installUpdate(fresh = false, confirmedRoot = null) {
+    if (fresh && (!freshAvailable()||!confirmedRoot)) return;
     // Never reconstruct a destructive choice or installation identity from shared storage.
     const selectedRoot = appRoot();
+    if(fresh && !(await confirmedRoot.isSameEntry(selectedRoot))){
+      status.textContent="Selected folder no longer matches the connected installation. No update was started.";
+      return;
+    }
     if (state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer()) return;
     const offered = state.check, offeredFor = state.checkFor;
     let verifiedReloadVersion = null, freshOutcomeStatus = null, freshPostInstall = false;
