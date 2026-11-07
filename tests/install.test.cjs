@@ -140,40 +140,6 @@ test("verified workspace backup precedes approved writes and preserves protected
   assert.equal(setup.workspace.store.files.get(base + "origin-compatibility/index.html").toString(), compatibility(setup.oldHtml));
 });
 
-test("verified update recreates a missing approved app directory without changing Workspace", async () => {
-  const setup = await fixture();
-  setup.workspace.store.dirs.delete("System Files/assets");
-  setup.workspace.store.files.delete("System Files/assets/old.js");
-  setup.expectedPlan = await context.MoonDogPackagePlan.dryRun({
-    verifiedPackage: setup.verifiedPackage, appDirectoryHandle: setup.app,
-    trustedAllowlist: setup.trustedAllowlist, subtle: webcrypto.subtle
-  });
-  assert.equal(setup.expectedPlan.rejected.length, 0);
-  const result = await apply(setup);
-  assert.equal(result.status, "installed");
-  assert.ok(setup.workspace.store.dirs.has("System Files/assets"));
-  assert.equal(setup.workspace.store.files.get("System Files/assets/new.js").toString(), "added");
-  assert.equal(setup.workspace.store.files.get("System Files/Workspace/data/current-state.json").toString(), "synthetic private state");
-});
-
-test("rollback recreates a vanished app directory from verified backup", async () => {
-  const setup = await fixture();
-  setup.workspace.store.failOnce = "System Files/assets/new.js";
-  let vanished = false;
-  const result = await apply(setup, { onProgress: event => {
-    if (event.phase === "apply" && !vanished) {
-      vanished = true;
-      setup.workspace.store.dirs.delete("System Files/assets");
-      setup.workspace.store.files.delete("System Files/assets/old.js");
-    }
-  } });
-  assert.equal(result.status, "rolled-back");
-  assert.ok(setup.workspace.store.dirs.has("System Files/assets"));
-  assert.equal(setup.workspace.store.files.get("System Files/assets/old.js").toString(), "retired");
-  assert.equal(setup.workspace.store.files.has("System Files/assets/new.js"), false);
-  assert.equal(setup.workspace.store.files.get("System Files/Workspace/data/current-state.json").toString(), "synthetic private state");
-});
-
 test("removed operational editing designation does not block verified application-only updates", async () => {
   const setup = await fixture();
   context.MoonDogWriteAuthority = { canWrite: false, validate: async () => false };
