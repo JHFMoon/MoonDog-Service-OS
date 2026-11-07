@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.399 — current Beta
+
+- Add installation health verification and safe application repair. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.398 — current Beta
 
 - fix(#797): rebuild missing approved app directories during Beta update. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
