@@ -184,3 +184,30 @@ test("missing required app.js fails closed if verified package cannot replace it
   assert.deepEqual(fixture.state.files,before,
     "failed repair must not modify application or private Workspace files");
 });
+
+test("unfinished prior update blocks another update without modifying the store", async () => {
+  const fixture=await setup({includeScript:true});
+  const backup="System Files/Workspace/backups/system-updates/MoonDog-Update-Backup-SYNTHETIC";
+  fixture.state.dirs.add(backup);
+  fixture.state.files.set(backup+"/journal.json",Buffer.from(JSON.stringify({
+    status:"applying", inventory:[]
+  })));
+  const before=new Map([...fixture.state.files].map(([key,value])=>[key,Buffer.from(value)]));
+  const result=await fixture.run();
+  assert.equal(result.status,"recovery-required");
+  assert.match(result.reason,/earlier application update needs recovery/);
+  assert.equal(result.backupName,"MoonDog-Update-Backup-SYNTHETIC");
+  assert.deepEqual(fixture.state.files,before);
+});
+
+test("corrupted prior update journal fails closed without creating a new update", async () => {
+  const fixture=await setup({includeScript:true});
+  const backup="System Files/Workspace/backups/system-updates/MoonDog-Update-Backup-CORRUPT";
+  fixture.state.dirs.add(backup);
+  fixture.state.files.set(backup+"/journal.json",Buffer.from("{bad-json"));
+  const before=new Map([...fixture.state.files].map(([key,value])=>[key,Buffer.from(value)]));
+  const result=await fixture.run();
+  assert.equal(result.status,"stopped");
+  assert.match(result.reason,/recovery journal is unreadable/);
+  assert.deepEqual(fixture.state.files,before);
+});
