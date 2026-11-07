@@ -67,3 +67,17 @@ test("root change after install blocks Fresh without a reset call",async()=>{
   assert.deepEqual(h.events.map(e=>e[0]),["verify","plan","apply"]);
   assert.match(h.field("updateStatus").textContent,/selected installation changed/);
 });
+
+test("failed Fresh cleanup after verified install blocks further updates in this tab",async()=>{
+  const h=harness();await h.check();
+  h.context.__moondogFreshInstallation.resetSelectedFreshInstallation=async()=>{
+    h.events.push(["fresh-failed"]);
+    throw new Error("synthetic interrupted cleanup");
+  };
+  await h.fresh();
+  assert.deepEqual(h.events.map(e=>e[0]),["verify","plan","apply","fresh-failed"]);
+  assert.equal(h.field("installMoonDogUpdate").disabled,true);
+  assert.equal(h.field("freshMoonDogUpdate").disabled,true);
+  assert.match(h.field("updateStatus").textContent,/Fresh Installation incomplete/);
+  assert.match(h.field("updateChoiceNote").textContent,/durable recovery hold/);
+});

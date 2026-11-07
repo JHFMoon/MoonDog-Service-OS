@@ -29,7 +29,7 @@
     dismissed: saved.dismissed || null, check: null, checkFor: null,
     recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false,
     recoveryScanPending: false, recoveryScanFailed: false, busy: false, progress: null,
-    progressChangedAt: 0, progressStalled: false };
+    progressChangedAt: 0, progressStalled: false, freshResetUnresolved: false };
   const appRoot = () => global.__moondogSettingsModel?.applicationRoot || null;
   const applicationFiles = async () => {
     // applicationRoot is the selected top-level installation folder, which
@@ -45,7 +45,7 @@
     // The verified new runtime supplies this hook after automatic reload.
     return Boolean(target && declaredBetaVersion && installedChannel==="beta" &&
       state.channel==="beta" && currentOffer() && state.check?.status==="newer-version" &&
-      !state.busy && !state.recoveryRequired && !state.hasRecoverable &&
+      !state.busy && !state.recoveryRequired && !state.freshResetUnresolved && !state.hasRecoverable &&
       !state.recoveryScanPending && !state.recoveryScanFailed &&
       typeof target.isSameEntry==="function" &&
       typeof target.resolve==="function" &&
@@ -299,7 +299,7 @@
     field("updateFolders").textContent = `Selected installation folder (parent of System Files): ${appRoot()?.name || "not connected"}. Runtime: System Files/. Dealership data: System Files/Workspace/. Update rollback backups: System Files/Workspace/backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
       "Update Current Installation";
-    installButton.disabled = state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer();
+    installButton.disabled = state.busy || state.recoveryRequired || state.freshResetUnresolved || state.hasRecoverable || state.recoveryScanPending || !currentOffer();
     freshButton.hidden = state.channel !== "beta" || result?.status === "channel-switch";
     freshButton.disabled = !freshAvailable();
     field("updateChoiceNote").textContent = freshButton.hidden ?
@@ -307,6 +307,8 @@
       freshAvailable() ?
         "Ready: the selected parent installation folder is shown above. Fresh permanently erases only its Workspace, including reports, settings, history and internal backups. Two separate warnings require your approval; the launcher and app runtime remain." :
         "Fresh requires a newer verified Beta offer, a supported existing Beta installation with a connected writable folder, and no pending recovery. Older Betas must first install a Beta that supports this choice. No files are deleted automatically.";
+    if(state.freshResetUnresolved)
+      field("updateChoiceNote").textContent="Fresh Installation is unresolved in this tab after a verified update. Do not retry updates or use this copy until its durable recovery hold is reviewed. Other installations are unaffected.";
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
     field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable && !state.recoveryScanFailed;
@@ -378,7 +380,7 @@
     const selectedRoot = appRoot();
     if (state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer()) return;
     const offered = state.check, offeredFor = state.checkFor;
-    let verifiedReloadVersion = null, freshOutcomeStatus = null;
+    let verifiedReloadVersion = null, freshOutcomeStatus = null, freshPostInstall = false;
     state.busy = true; render();
     clearPlan();
     await setProgress({ phase: "verify-package", percent: 5, label: "Verifying update package", detail: "Downloading and checking the selected update" });
@@ -436,6 +438,7 @@
       else if (outcome.status !== "installed") await setProgress({ phase: "error", percent: state.progress?.percent || 25, label: "Update stopped", detail: outcome.reason || "Installation did not complete." });
       if (outcome.status === "installed") {
         if (fresh) {
+          freshPostInstall = true;
           // The selected root, channel and exact package receipt must match
           // after the verified install and before any deletion request.
           if (selectedRoot !== appRoot() || selectedRoot !== offeredFor.root ||
@@ -490,7 +493,14 @@
         verifiedReloadVersion = outcome.version;
       }
     } catch (error) {
-      status.textContent = error.message || "Update stopped before installation.";
+      // If a verified install was followed by a failed destructive phase, do
+      // not let this live tab offer a second update over an uncertain Workspace.
+      // This flag is intentionally NEVER persisted in shared browser storage:
+      // the installation-specific on-disk hold guards its next connection.
+      if(fresh && freshPostInstall) state.freshResetUnresolved=true;
+      status.textContent = (fresh && freshPostInstall
+        ? "Fresh Installation incomplete; updates in this tab are blocked. "
+        : "")+(error.message || "Update stopped before installation.");
       await setProgress({ phase: "error", percent: state.progress?.percent || 5, label: "Update stopped", detail: error.message || "Installation could not continue." });
     } finally {
       state.busy = false;
