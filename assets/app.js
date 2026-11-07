@@ -8424,6 +8424,122 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function newStoreRecoveryLocked(){
     return !writeAuthority.canWrite&&["PENDING_TRANSACTION","INTERRUPTED_RESTORE"].includes(writeAuthority.reason);
   }
+
+  // Fresh Beta reset is intentionally restricted to the connected installation's
+  // System Files/Workspace child. Neither the install root nor System Files is
+  // ever passed to a recursive remover. Never infer a target from browser storage.
+  async function resetSelectedFreshInstallation({selectedRoot,expectedRoot,onProgress=()=>{}}={}){
+    const installation=connectedNativeRoot,activeWorkspace=model.root;
+    const assertSameInstallation=async()=>{
+      if(!installation||!activeWorkspace||installation!==expectedRoot||
+          model.applicationRoot!==installation||connectedNativeRoot!==installation||
+          model.root!==activeWorkspace||!selectedRoot||
+          typeof selectedRoot.isSameEntry!=="function"||
+          typeof installation.resolve!=="function"||
+          !(await selectedRoot.isSameEntry(installation)))
+        throw new Error("Fresh Installation cannot verify the selected installation. No data was removed.");
+      if(await installation.queryPermission({mode:"readwrite"})!=="granted"||!writeAuthority.canWrite)
+        throw new Error("Fresh Installation requires current write access to the selected installation.");
+      writeAuthority.requireWrite();
+      const system=await installation.getDirectoryHandle("System Files",{create:false});
+      // An unrelated folder with the same name is never an acceptable target.
+      await system.getFileHandle("index.html",{create:false});
+      const workspace=await system.getDirectoryHandle("Workspace",{create:false});
+      const relative=await installation.resolve(workspace);
+      if(!Array.isArray(relative)||relative.length!==2||
+          relative[0]!=="System Files"||relative[1]!=="Workspace")
+        throw new Error("Fresh Installation cannot establish the exact Workspace boundary.");
+      return workspace;
+    };
+    if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation is active. Fresh Installation did not start.");
+    const workspace=await assertSameInstallation();
+    // Refuse an installation nested inside the Workspace rather than wiping
+    // a second copy accidentally. This scan reads names, never report contents.
+    let scanned=0;
+    async function inspectForNestedCopies(dir){
+      for await(const [name,item] of dir.entries()){
+        if(++scanned>100000)throw new Error("Fresh Installation cannot verify this unusually large Workspace.");
+        if(name==="00 - OPEN DASHBOARD.html")
+          throw new Error("Another MoonDog launcher exists inside this Workspace. Fresh reset blocked.");
+        if(item.kind==="directory"){
+          if(name==="System Files")
+            throw new Error("A nested System Files folder may contain another installation. Fresh reset blocked.");
+          await inspectForNestedCopies(item);
+        }
+      }
+    }
+    await inspectForNestedCopies(workspace);
+    if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation started. Fresh Installation did not start.");
+    await assertSameInstallation();
+    // Only the verified Workspace is destructively cleared. The runtime,
+    // launcher, other directories and every other installed copy remain outside.
+    newStoreBusy=true;
+    workspaceRecoveryBusy=true;
+    stopFolderWatch("WATCH OFF");
+    let mutated=false;
+    try{
+      const entries=[];
+      for await(const [name] of workspace.entries())entries.push(name);
+      onProgress({phase:"fresh",percent:null,label:"Removing selected store data",
+        detail:"Clearing only the verified System Files/Workspace folder"});
+      for(const name of entries){
+        if(model.applicationRoot!==installation||connectedNativeRoot!==installation||
+            model.root!==activeWorkspace||!writeAuthority.canWrite)
+          throw new Error("The installation identity or write authority changed during deletion.");
+        mutated=true;
+        await workspace.removeEntry(name,{recursive:true});
+        onProgress({phase:"fresh",percent:null,label:"Removing selected store data",
+          detail:"Deleting selected Workspace entries; keep this window open"});
+      }
+      for await(const _ of workspace.entries())
+        throw new Error("Workspace was modified during deletion. Fresh reset cannot be verified.");
+      const data=await workspace.getDirectoryHandle("data",{create:true});
+      const fresh=freshProductState();
+      const recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,lastRestore:null,
+        status:"Fresh installation requires Guided Setup"};
+      const records={...fresh,"data/recovery.json":recovery};
+      for(const [path,value] of Object.entries(records)){
+        const parts=path.split("/");
+        if(parts.length!==2||parts[0]!=="data")throw new Error("Invalid fresh state path.");
+        const file=await data.getFileHandle(parts[1],{create:true});
+        const content=JSON.stringify(value,null,2)+"\\n";
+        const stream=await file.createWritable();
+        try{await stream.write(content);await stream.close();}
+        catch(error){try{await stream.abort();}catch(_){}throw error;}
+        const readback=JSON.parse(await(await file.getFile()).text());
+        if(JSON.stringify(readback)!==JSON.stringify(value))
+          throw new Error("Fresh installation durable readback failed for "+path+".");
+      }
+      // Fail closed on concurrent writes, residual reports, backups or history.
+      const rootNames=[];
+      for await(const [name] of workspace.entries())rootNames.push(name);
+      if(rootNames.length!==1||rootNames[0]!=="data")
+        throw new Error("Fresh Workspace contains unexpected residual data.");
+      const dataNames=[];
+      for await(const [name] of data.entries())dataNames.push(name);
+      const expectedNames=Object.keys(records).map(path=>path.split("/")[1]).sort();
+      if(JSON.stringify(dataNames.sort())!==JSON.stringify(expectedNames))
+        throw new Error("Fresh Workspace contains unexpected data or missing state files.");
+      [model.state,model.settings,model.appointments,model.performance,model.assignNext,
+        model.autoImport,model.operationalMetrics,model.meetingCycle]=Object.values(fresh);
+      model.recovery=recovery;
+      clearSourceAdapter();
+      onProgress({phase:"complete",percent:100,label:"Fresh Installation complete",
+        detail:"Workspace removal and empty state readback verified"});
+      renderAll();renderSettings();navigateTo("setup");
+      return {status:"fresh",installationName:installation.name};
+    }catch(error){
+      if(mutated)throw new Error("Fresh Installation stopped after deletion began. The selected copy may be partially cleared; do not use it until the issue is resolved. "+(error?.message||String(error)));
+      throw error;
+    }finally{
+      workspaceRecoveryBusy=false;
+      newStoreBusy=false;
+    }
+  }
+  globalThis.__moondogFreshInstallation={resetSelectedFreshInstallation};
+
   async function prepareForNewStore(){
     const source=connectedNativeRoot;
     if(!model.root||!source)throw new Error("Connect the copied installation first.");
