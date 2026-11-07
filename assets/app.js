@@ -8790,8 +8790,27 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       error.freshMutationStarted=false;
       return error;
     };
-    if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
-      throw preflightBusy("Another Workspace operation is active. Fresh Installation did not start.");
+    // Initial preflight only: allow routine report scans or maintenance to
+    // finish before asking the user to confirm permanent deletion. Never wait
+    // after the final confirmation, when a newly active writer must fail closed.
+    const idle=()=>!newStoreBusy&&!workspaceConnectionBusy&&!workspaceConnectionBlockReason();
+    if(!idle()){
+      onProgress({phase:"fresh-check",percent:null,label:"Waiting for MoonDog to finish",
+        detail:"Finishing another Workspace task before Fresh; nothing is being deleted"});
+      const originalRoot=installation,originalWorkspace=activeWorkspace;
+      for(let attempt=0;attempt<40&&!idle();attempt++){
+        if(connectedNativeRoot!==originalRoot||model.applicationRoot!==originalRoot||
+          model.root!==originalWorkspace)
+          throw new Error("The connected installation changed while waiting. No data was deleted.");
+        // At most 20 seconds. A stalled task must never trigger an unbounded
+        // retry loop or begin deleting after the user's confirmation expires.
+        if(typeof globalThis.setTimeout!=="function")break;
+        await new Promise(resolve=>globalThis.setTimeout(resolve,500));
+      }
+      if(!idle())
+        throw preflightBusy("Another Workspace operation is still active. Fresh Installation did not start. Keep the window open and retry when the task finishes.");
+      await assertSameInstallation();
+    }
     const workspace=await assertSameInstallation();
     const system=await installation.getDirectoryHandle("System Files",{create:false});
     try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
