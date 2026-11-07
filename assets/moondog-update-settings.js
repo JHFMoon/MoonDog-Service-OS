@@ -47,12 +47,12 @@
   }
   function freshAvailable() {
     const target=appRoot();
+    const newerOffer=currentOffer() && state.check?.status==="newer-version";
+    const verifiedFollowup=postUpdateReady() && !state.postUpdateScanPending && !state.postUpdateScanFailed;
     return Boolean(target && declaredBetaVersion && installedChannel==="beta" &&
-      state.channel==="beta" &&
-      ((currentOffer() && state.check?.status==="newer-version") || postUpdateReady()) &&
+      state.channel==="beta" && (newerOffer || verifiedFollowup) &&
       !state.busy && !state.recoveryRequired && !state.freshResetUnresolved && !state.hasRecoverable &&
       !state.recoveryScanPending && !state.recoveryScanFailed &&
-      !state.postUpdateScanPending && !state.postUpdateScanFailed &&
       typeof target.isSameEntry==="function" && typeof target.resolve==="function" &&
       typeof global.__moondogFreshInstallation?.resetSelectedFreshInstallation==="function");
   }
