@@ -48,7 +48,7 @@ START_HERE = """SERVICE OPERATIONS DASHBOARD — START HERE
 1. Extract this ZIP to a normal folder you control. Do not run it from inside the ZIP.
 2. Open "00 - OPEN DASHBOARD.html" in Microsoft Edge.
 3. When asked for the working folder, choose THIS extracted "Service Operations Dashboard" folder.
-4. Choose "Designate this computer for store editing" when the Dashboard offers it.
+4. Grant Edge read/write access when prompted. Your store data stays on this computer.
 5. Complete Guided Setup. Your store identity, reports, settings, history, and backups remain in System Files/Workspace on this computer.
 6. Use Settings > System Updates to check for verified application updates.
 
@@ -101,6 +101,16 @@ def load_contract() -> tuple[str, list[str]]:
     return version, runtime_paths
 
 
+def compatibility_html(application_html: bytes) -> bytes:
+    """Create the root-origin bridge from the exact bundled application HTML."""
+    source = application_html.decode("utf-8")
+    if (not re.search(r'<!doctype html>\s*<html\s+lang="en"><head>', source, re.I)
+            or source.lower().count("<head>") != 1
+            or re.search(r"<base\b", source, re.I)):
+        raise SystemExit("Application HTML cannot produce a safe origin compatibility page")
+    return source.replace("<head>", '<head><base href="System Files/">', 1).encode("utf-8")
+
+
 def source_bytes(path: str, vendor_dir: Path | None) -> bytes:
     source = ROOT / path
     if source.is_file():
@@ -149,6 +159,12 @@ def build(output: Path, vendor_dir: Path) -> dict:
             validate_vendor(runtime, data)
         entries[f"{package_root}/System Files/{runtime}"] = data
 
+    # The installed updater requires this root-origin compatibility document.
+    # Never rely on a test or a customer's manual setup to synthesize it.
+    entries[f"{package_root}/index.html"] = compatibility_html(
+        entries[f"{package_root}/System Files/index.html"]
+    )
+
     inventory = [
         {"path": name[len(package_root) + 1 :], "size": len(data), "sha256": sha256(data)}
         for name, data in sorted(entries.items())
@@ -180,6 +196,7 @@ def build(output: Path, vendor_dir: Path) -> dict:
         names = archive.namelist()
         required = {
             f"{package_root}/00 - OPEN DASHBOARD.html",
+            f"{package_root}/index.html",
             f"{package_root}/System Files/index.html",
             f"{package_root}/System Files/Workspace/data/",
             *{f"{package_root}/System Files/{path}" for path in runtime_paths},
