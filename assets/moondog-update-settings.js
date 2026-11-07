@@ -124,8 +124,10 @@
     '<div><strong>Availability:</strong> <span id="updateAvailability" role="status"></span></div>' +
     '<p id="updateChannelNote" class="settings-note"></p>' +
     '<div class="button-row"><button type="button" id="checkMoonDogUpdate">Check for Updates</button>' +
-    '<button type="button" id="installMoonDogUpdate" class="primary" disabled>Install Update</button>' +
+    '<button type="button" id="installMoonDogUpdate" class="primary" disabled>Update Current Installation</button>' +
+    '<button type="button" id="freshMoonDogUpdate" class="danger" disabled>Update to Fresh Installation</button>' +
     '<button type="button" id="recoverMoonDogUpdate" hidden>Recover interrupted update</button></div>' +
+    '<p id="updateChoiceNote" class="settings-note">Update Current Installation preserves all dealership data. Fresh Installation permanently removes data only from the selected copy, after verified installation and additional confirmations. Fresh is unavailable until the isolated reset passes safety verification.</p>' +
     '<p id="updateFolders" class="settings-note">Connect Service Operations Dashboard before installation. Update rollback backups are saved in System Files/Workspace/backups/system-updates/ inside the connected workspace.</p>' +
     '<div id="updateProgress" class="update-progress" aria-live="polite"><div class="update-progress-head"><strong id="updateProgressLabel">Ready for updates</strong><span id="updateProgressPercent">Ready</span></div><div id="updateProgressTrack" class="update-progress-track" role="progressbar" aria-label="Update progress" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Idle"><span id="updateProgressBar"></span></div><small id="updateProgressDetail">Select Check for Updates to begin.</small><small id="updateProgressState" role="status">IDLE</small></div>' +
     '<style>.update-progress #updateProgressState{display:block;margin-top:5px;font-weight:600}.update-progress.stalled #updateProgressState{color:#9a4b15}.update-progress-track #updateProgressBar.indeterminate{width:38%!important;animation:moondog-update-working 1.7s ease-in-out infinite alternate}@keyframes moondog-update-working{from{transform:translateX(0)}to{transform:translateX(145%)}}@media(prefers-reduced-motion:reduce){.update-progress-track #updateProgressBar.indeterminate{animation:none}}</style>' +
@@ -139,6 +141,7 @@
   const status = field("updateStatus");
   const planText = field("updatePlan");
   const installButton = field("installMoonDogUpdate");
+  const freshButton = field("freshMoonDogUpdate");
   channel.value = state.channel;
   field("updateInstalledVersion").textContent = installedVersion || "Unknown";
   field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
@@ -179,7 +182,7 @@
     notice.hidden = !offered || dismissed || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending;
     if (notice.hidden) return;
     notice.querySelector("[data-update-title]").textContent = (value.status === "channel-switch" ? "Return to Stable " : value.channel === "beta" ? "Beta " : "Stable ") + value.version + " available";
-    notice.querySelector("[data-update-install]").textContent = value.status === "channel-switch" ? "Return to Stable" : "Install Update";
+    notice.querySelector("[data-update-install]").textContent = value.status === "channel-switch" ? "Return to Stable" : "Update Current Installation";
     note.textContent = value.releaseNotes || "No release notes were provided for this update.";
   }
   let reloadScheduled = false;
@@ -281,8 +284,16 @@
       installedChannel === state.channel ? `Installed ${installedChannel === "beta" ? "Beta" : "Stable"} ${installedVersion}; check for newer builds` : "Not checked";
     field("updateFolders").textContent = `Connected workspace: ${appRoot()?.name || "not connected"}. Application files: System Files/. Update rollback backups: System Files/Workspace/backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
-      state.channel === "beta" ? "Install Beta" : "Install Update";
+      "Update Current Installation";
     installButton.disabled = state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer();
+    // Never expose the destructive operation before its implementation and
+    // exact-installation proof are accepted. This is a real fail-closed gate,
+    // not a cosmetic disabled button: there is no reset listener here.
+    freshButton.hidden = state.channel !== "beta" || result?.status === "channel-switch";
+    freshButton.disabled = true;
+    field("updateChoiceNote").textContent = freshButton.hidden
+      ? "Current Installation keeps all existing dealership information."
+      : "Fresh Installation removes data from only the selected installation. The destructive option is not enabled in this staged build; protected isolation proof and additional confirmations are required.";
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
     field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable && !state.recoveryScanFailed;
