@@ -60,7 +60,7 @@ function memoryRoot() {
   const root = handle("");
   return { root, state, old, next };
 }
-async function setup() {
+async function setup({ includeScript = false } = {}) {
   const synthetic = memoryRoot();
   const app = await synthetic.root.getDirectoryHandle("System Files");
   const entries = [
@@ -70,6 +70,11 @@ async function setup() {
       contentBase64:Buffer.from("new").toString("base64")},
     {path:"assets/old.js", action:"delete", sha256:digest(Buffer.from("original"))}
   ];
+  if (includeScript) {
+    const script=Buffer.from("verified replacement application script");
+    entries.push({path:"assets/app.js",action:"put",sha256:digest(script),
+      contentBase64:script.toString("base64")});
+  }
   const bytes=Buffer.from(JSON.stringify({formatVersion:1,version:"1.1.0",
     approvedFiles:entries.map(x=>x.path), files:entries}));
   const verifiedPackage={status:"verified", version:"1.1.0",channel:"beta",
@@ -113,4 +118,24 @@ test("rollback reconstructs vanished application folder while preserving Workspa
   assert.equal(fixture.state.files.get("System Files/assets/old.js").toString(),"original");
   assert.equal(fixture.state.files.has("System Files/assets/new.js"),false);
   assert.equal(fixture.state.files.get("System Files/Workspace/data/current-state.json").toString(),"synthetic private data");
+});
+
+test("verified package restores a missing approved app.js but never invents a missing entry page", async () => {
+  const fixture=await setup({includeScript:true});
+  assert.equal(fixture.state.files.has("System Files/assets/app.js"),false);
+  const result=await fixture.run();
+  assert.equal(result.status,"installed",result.reason);
+  assert.equal(fixture.state.files.get("System Files/assets/app.js").toString(),
+    "verified replacement application script");
+  assert.equal(fixture.state.files.get("System Files/Workspace/data/current-state.json").toString(),
+    "synthetic private data");
+
+  const unrecognized=await setup({includeScript:true});
+  unrecognized.state.files.delete("System Files/index.html");
+  const rejected=await unrecognized.run();
+  assert.notEqual(rejected.status,"installed");
+  assert.match(String(rejected.reason),/index\.html/);
+  assert.equal(unrecognized.state.files.has("System Files/assets/app.js"),false);
+  assert.equal(unrecognized.state.files.get("System Files/Workspace/data/current-state.json").toString(),
+    "synthetic private data");
 });
