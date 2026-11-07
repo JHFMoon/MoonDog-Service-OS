@@ -159,7 +159,22 @@ test("Fresh deletes every synthetic store-B Workspace item, restores clean setup
   assert.equal(steps.at(-1).percent,100);
   assert.equal(h.confirmationPrompts.length,2);
   assert.match(h.confirmationPrompts[0],/Are you sure\?/);
-  assert.match(h.confirmationPrompts[1],/Are you really sure\?/);
+  assert.match(h.confirmationPrompts[1],/Are you really sure\\?/);
+  // Simulated browser reopen must see only the clean selected Workspace.
+  const system=await h.storeB.getDirectoryHandle("System Files");
+  await assert.rejects(system.getFileHandle("MOONDOG_FRESH_RESET_PENDING.json"),
+    error=>error.name==="NotFoundError");
+  const begin=app.indexOf("  async function operationalRoot(handle) {");
+  const stop=app.indexOf("  function wrapOperationalRoot",begin);
+  assert.ok(begin>0&&stop>begin);
+  const reopened=vm.createContext({WORKSPACE_PREFIX:["System Files","Workspace"],
+    FRESH_RESET_MARKER:"MOONDOG_FRESH_RESET_PENDING.json"});
+  vm.runInContext(app.slice(begin,stop)+"\\nglobalThis.open=operationalRoot;",reopened);
+  assert.equal(await reopened.open(h.storeB),h.wsB);
+  const freshSettings=JSON.parse(await get(h.storeB,prefix+"data/settings.json"));
+  assert.equal(freshSettings.setup.newStorePrepared,true);
+  assert.equal(JSON.parse(await get(h.storeB,prefix+"data/current-state.json")).appVersion,
+    VERIFIED_INSTALL.version);
 });
 test("identical folder name does not authorize deletion of a different store",async()=>{
   const h=await harness();
@@ -232,5 +247,15 @@ test("interrupted Fresh creates persistent hold and reconnect refuses partial co
     FRESH_RESET_MARKER:"MOONDOG_FRESH_RESET_PENDING.json"});
   vm.runInContext(app.slice(start,end)+"\nglobalThis.reconnect=operationalRoot;",ctx);
   await assert.rejects(ctx.reconnect(h.storeB),/cleanup is incomplete/);
+  assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
+});
+
+test("a pre-existing interrupted-reset marker refuses a second deletion before warnings",async()=>{
+  const h=await harness();
+  await put(h.storeB,"System Files/MOONDOG_FRESH_RESET_PENDING.json",
+    JSON.stringify({schemaVersion:1,status:"incomplete"}));
+  await assert.rejects(h.reset(),/interrupted Fresh Installation hold already exists/);
+  assert.equal(h.confirmationPrompts.length,0);
+  assert.equal(await get(h.storeB,prefix+"backups/internal.zip"),"synthetic-private-backup");
   assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
 });
