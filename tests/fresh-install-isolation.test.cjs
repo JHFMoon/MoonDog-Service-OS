@@ -159,7 +159,7 @@ test("Fresh deletes every synthetic store-B Workspace item, restores clean setup
   assert.equal(steps.at(-1).percent,100);
   assert.equal(h.confirmationPrompts.length,2);
   assert.match(h.confirmationPrompts[0],/Are you sure\?/);
-  assert.match(h.confirmationPrompts[1],/Are you really sure\\?/);
+  assert.match(h.confirmationPrompts[1],/Are you really sure\?/);
   // Simulated browser reopen must see only the clean selected Workspace.
   const system=await h.storeB.getDirectoryHandle("System Files");
   await assert.rejects(system.getFileHandle("MOONDOG_FRESH_RESET_PENDING.json"),
@@ -169,7 +169,7 @@ test("Fresh deletes every synthetic store-B Workspace item, restores clean setup
   assert.ok(begin>0&&stop>begin);
   const reopened=vm.createContext({WORKSPACE_PREFIX:["System Files","Workspace"],
     FRESH_RESET_MARKER:"MOONDOG_FRESH_RESET_PENDING.json"});
-  vm.runInContext(app.slice(begin,stop)+"\\nglobalThis.open=operationalRoot;",reopened);
+  vm.runInContext(app.slice(begin,stop)+"\nglobalThis.open=operationalRoot;",reopened);
   assert.equal(await reopened.open(h.storeB),h.wsB);
   const freshSettings=JSON.parse(await get(h.storeB,prefix+"data/settings.json"));
   assert.equal(freshSettings.setup.newStorePrepared,true);
