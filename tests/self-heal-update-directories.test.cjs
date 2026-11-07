@@ -390,3 +390,10 @@ test('failed rollback retains a valid journal and a fresh runtime can recover th
   assert.equal(h.state.files.has('System Files/assets/new.js'),false);
   assert.equal(h.state.files.get('System Files/Workspace/data/current-state.json').toString(),'synthetic private data');
 });
+
+test('unavailable native folder identity cannot be treated as a verified selected installation',async()=>{
+  const h=await setup();const original=h.root.getDirectoryHandle;
+  h.root.getDirectoryHandle=async(...args)=>{const handle=await original(...args);delete handle.isSameEntry;return handle;};
+  const before=copyFiles(h);const result=await h.run();
+  assert.equal(result.status,'stopped');assert.deepEqual(h.state.files,before);
+});

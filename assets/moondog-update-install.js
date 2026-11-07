@@ -127,7 +127,7 @@
   async function assertTarget(app, workspace, identity = null) {
     await assertAuthority(workspace);
     const system = await workspace.getDirectoryHandle("System Files", { create: false });
-    if (typeof system.isSameEntry === "function" && !(await system.isSameEntry(app)))
+    if (typeof system.isSameEntry !== "function" || !(await system.isSameEntry(app)))
       throw new Error("Application folder does not belong to the selected installation.");
     await system.getDirectoryHandle("Workspace", { create: false });
     if (await read(system, "MOONDOG_FRESH_RESET_PENDING.json") !== null)
@@ -307,7 +307,7 @@
       // Never invent a missing private Workspace or cross an interrupted Fresh
       // boundary. Both checks are read-only and precede all new update writes.
       const selectedSystem = await workspace.getDirectoryHandle("System Files", { create: false });
-      if (typeof selectedSystem.isSameEntry === "function" && !(await selectedSystem.isSameEntry(app)))
+      if (typeof selectedSystem.isSameEntry !== "function" || !(await selectedSystem.isSameEntry(app)))
         throw new Error("Application folder does not belong to the selected installation.");
       await selectedSystem.getDirectoryHandle("Workspace", { create: false });
       if (await read(selectedSystem, "MOONDOG_FRESH_RESET_PENDING.json") !== null)
