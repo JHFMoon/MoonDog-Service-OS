@@ -244,7 +244,7 @@ class SecurityWorkflowTests(unittest.TestCase):
 
     def test_guarded_merge_is_event_driven_and_does_not_poll(self):
         merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
-        proof = merge.split("      - name: Evaluate exact-head Publication, Clean Install, and Codex proof", 1)[1]
+        proof = merge.split("      - name: Evaluate exact-head verification and authorization evidence", 1)[1]
         proof = proof.split("      - name: Additively refresh this PR if main advanced", 1)[0]
         self.assertIn("commits/$HEAD_SHA/check-runs", proof)
         self.assertIn("ready=false", proof)
@@ -263,7 +263,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         candidate = merge.index("      - name: Check out verified PR candidate as untrusted data")
         stable = merge.index("      - name: Refuse Stable manifest changes")
         parity = merge.index("      - name: Verify Beta package matches the exact PR runtime")
-        proof = merge.index("      - name: Evaluate exact-head Publication, Clean Install, and Codex proof")
+        proof = merge.index("      - name: Evaluate exact-head verification and authorization evidence")
         self.assertLess(app_token, refresh)
         self.assertLess(refresh, candidate)
         self.assertLess(refresh, stable)
@@ -278,8 +278,8 @@ class SecurityWorkflowTests(unittest.TestCase):
         for step, next_step in (
             ("      - name: Check out verified PR candidate as untrusted data", "      - name: Refuse Stable manifest changes"),
             ("      - name: Refuse Stable manifest changes", "      - name: Verify Beta package matches the exact PR runtime"),
-            ("      - name: Verify Beta package matches the exact PR runtime", "      - name: Evaluate exact-head Publication, Clean Install, and Codex proof"),
-            ("      - name: Evaluate exact-head Publication, Clean Install, and Codex proof", "      - name: Squash merge verified current PR"),
+            ("      - name: Verify Beta package matches the exact PR runtime", "      - name: Evaluate exact-head verification and authorization evidence"),
+            ("      - name: Evaluate exact-head verification and authorization evidence", "      - name: Squash merge verified current PR"),
         ):
             start = merge.index(step)
             section = merge[start:merge.index(next_step, start + 1)]
