@@ -211,3 +211,16 @@ test("corrupted prior update journal fails closed without creating a new update"
   assert.match(result.reason,/recovery journal is unreadable/);
   assert.deepEqual(fixture.state.files,before);
 });
+
+test("unrecognized existing update journal state blocks new updates", async () => {
+  const fixture=await setup({includeScript:true});
+  const backup="System Files/Workspace/backups/system-updates/MoonDog-Update-Backup-UNKNOWN";
+  fixture.state.dirs.add(backup);
+  fixture.state.files.set(backup+"/journal.json",
+    Buffer.from(JSON.stringify({status:"unknown",inventory:[]})));
+  const before=new Map([...fixture.state.files].map(([key,value])=>[key,Buffer.from(value)]));
+  const result=await fixture.run();
+  assert.equal(result.status,"stopped");
+  assert.match(result.reason,/recovery journal is invalid/);
+  assert.deepEqual(fixture.state.files,before);
+});
