@@ -155,7 +155,7 @@
       else {
         const bytes = await read(backup, backupPath(item));
         if (!bytes || await digest(bytes, subtle) !== item.sha256) throw new Error("Backup verification failed: " + item.path);
-        await write(fileRoot(item, app, workspace), item.path, bytes);
+        await write(fileRoot(item, app, workspace), item.path, bytes, item.scope !== "workspace");
       }
     }
     for (let index = 0; index < inventory.length; index += 1) {
@@ -266,7 +266,7 @@
           await progress(onProgress, { phase: "apply", percent: Math.round(55 + 25 * ((index + 1) / Math.max(targets.length, 1))),
             label: "Applying update", detail: "Updating " + (index + 1) + " of " + targets.length + " changed files" });
           await assertAuthority(workspace);
-          if (entry.action === "put") await write(app, entry.path, Uint8Array.from(global.atob(entry.contentBase64), c => c.charCodeAt(0)));
+          if (entry.action === "put") await write(app, entry.path, Uint8Array.from(global.atob(entry.contentBase64), c => c.charCodeAt(0)), true);
           else await remove(app, entry.path);
         }
         if (compatibility) {
