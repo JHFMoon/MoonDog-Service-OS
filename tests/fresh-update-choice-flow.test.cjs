@@ -7,10 +7,30 @@ const vm = require("node:vm");
 
 const source=fs.readFileSync(path.join(__dirname,"..","assets","moondog-update-settings.js"),"utf8");
 
-function harness(installerResult={status:"installed",version:"0.10.18-beta.382",backupName:"MoonDog-Update-Backup-synthetic"}) {
+function harness(installerResult={status:"installed",version:"0.10.18-beta.382",backupName:"MoonDog-Update-Backup-synthetic"},options={}) {
   const listeners=new Map(),fields=new Map(),events=[],storageWrites=[];
+  let record=options.journal??null,reads=0;
+  const missing=()=>Object.assign(new Error("Missing synthetic directory"),{name:"NotFoundError"});
+  const journalFolder={kind:"directory",getFileHandle:async name=>{
+    assert.equal(name,"journal.json");reads++;
+    return {getFile:async()=>({text:async()=>JSON.stringify(record)})};
+  }};
+  const updateFolder={entries:async function*(){
+    if(record)yield ["MoonDog-Update-Backup-synthetic",journalFolder];
+  }};
+  const backupFolder={getDirectoryHandle:async name=>{
+    if(name!=="system-updates")throw missing();return updateFolder;
+  }};
+  const workspace={getDirectoryHandle:async name=>{
+    if(name!=="backups")throw missing();return backupFolder;
+  }};
+  const system={getDirectoryHandle:async name=>{
+    if(name!=="Workspace")throw missing();return workspace;
+  }};
   const root={name:"Synthetic-Installation",isSameEntry:async other=>other===root,
-    resolve:async()=>["System Files","Workspace"],getDirectoryHandle:async()=>({})};
+    resolve:async()=>["System Files","Workspace"],getDirectoryHandle:async name=>{
+      if(name!=="System Files")throw missing();return system;
+    }};
   function field(name) {
     if(!fields.has(name))fields.set(name,{name,textContent:"",disabled:false,hidden:false,value:"",
       style:{},className:"",setAttribute(){},removeAttribute(){},
@@ -19,14 +39,14 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
   }
   const card={innerHTML:"",querySelector:selector=>field(selector.slice(1))};
   const context=vm.createContext({
-    MoonDogInstalledVersion:"0.10.18-beta.381",
+    MoonDogInstalledVersion:options.installedVersion||"0.10.18-beta.381",
     __moondogSettingsModel:{applicationRoot:root},
     showDirectoryPicker:async()=>root,
     __moondogMaintenance:{runtimePaths:["assets/app.js"]},
     __moondogFreshInstallation:{resetSelectedFreshInstallation:async options=>{
       events.push(["fresh",options.selectedRoot,options.verifiedInstall.version]);return {status:"fresh"};
     }},
-    MoonDogUpdateCheck:{check:async()=>({status:"newer-version",version:"0.10.18-beta.382",
+    MoonDogUpdateCheck:{check:async()=>options.checkResult||({status:"newer-version",version:"0.10.18-beta.382",
       channel:"beta",packageUrl:"https://example.test/beta.json",sha256:"b".repeat(64)})},
     MoonDogPackageVerification:{verify:async()=>{events.push(["verify"]);return {status:"verified",
       version:"0.10.18-beta.382",channel:"beta",sha256:"b".repeat(64),
@@ -40,7 +60,10 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
     confirm:()=>true,Date,setTimeout(){},requestAnimationFrame:fn=>fn()
   });
   vm.runInContext(source,context);
-  return {root,events,storageWrites,field,listeners,context,async check(){await listeners.get("checkMoonDogUpdate:click")();},
+  return {root,events,storageWrites,field,listeners,context,
+    setJournal:next=>{record=next;},journalReads:()=>reads,
+    async settle(){for(let n=0;n<40;n++)await Promise.resolve();},
+    async check(){await listeners.get("checkMoonDogUpdate:click")();},
     async fresh(){await listeners.get("freshMoonDogUpdate:click")();},
     async preserve(){await listeners.get("installMoonDogUpdate:click")();}};
 }
@@ -141,4 +164,74 @@ test("preview and install always use the same selected root and runtime handle",
   };
   await h.fresh();
   assert.deepEqual(h.events.map(e=>e[0]),["verify","plan","apply","fresh"]);
+});
+
+const VERIFIED_RELOAD_JOURNAL={status:"verified",verifiedUpdate:{
+  version:"0.10.18-beta.382",channel:"beta",sha256:"b".repeat(64),
+  verifiedAt:"2026-11-06T23:00:00.000Z"}};
+
+test("legacy Beta can preserve-update, reload, then deliberately finish Fresh without another Beta",async()=>{
+  // The legacy runtime cannot offer Fresh itself; it can only update normally.
+  const legacy=harness(undefined,{installedVersion:"0.10.18-beta.374"});
+  await legacy.check();await legacy.preserve();
+  assert.deepEqual(legacy.events.map(e=>e[0]),["verify","plan","apply"]);
+  // Simulate the new runtime after reload, with the installer's durable
+  // exact-version receipt on this same synthetic installation.
+  const reopened=harness(undefined,{installedVersion:"0.10.18-beta.382",
+    checkResult:{status:"up-to-date",version:"0.10.18-beta.382",channel:"beta"},
+    journal:VERIFIED_RELOAD_JOURNAL});
+  await reopened.check();await reopened.settle();
+  assert.equal(reopened.field("freshMoonDogUpdate").disabled,false);
+  assert.match(reopened.field("freshMoonDogUpdate").textContent,/Finish Fresh After Verified Update/);
+  await reopened.fresh();
+  assert.deepEqual(reopened.events.map(e=>e[0]),["fresh"],
+    "the second stage must not download/reapply the update");
+  assert.ok(reopened.journalReads()>=2,"the exact local journal must be re-read before reset");
+  assert.equal(reopened.storageWrites.includes("moondog-verified-update-followup-v1"),false);
+});
+
+test("post-reload Fresh rejects a stale version journal without reapplying or deleting",async()=>{
+  const mismatched={status:"verified",verifiedUpdate:{...VERIFIED_RELOAD_JOURNAL.verifiedUpdate,
+    version:"0.10.18-beta.381"}};
+  const h=harness(undefined,{installedVersion:"0.10.18-beta.382",
+    checkResult:{status:"up-to-date"},journal:mismatched});
+  await h.check();await h.settle();
+  assert.equal(h.field("freshMoonDogUpdate").disabled,true);
+  await h.fresh();
+  assert.deepEqual(h.events,[]);
+});
+
+test("post-reload Fresh checks journal again and blocks a changed receipt",async()=>{
+  const h=harness(undefined,{installedVersion:"0.10.18-beta.382",
+    checkResult:{status:"up-to-date"},journal:VERIFIED_RELOAD_JOURNAL});
+  await h.check();await h.settle();
+  assert.equal(h.field("freshMoonDogUpdate").disabled,false);
+  h.setJournal({status:"verified",verifiedUpdate:{...VERIFIED_RELOAD_JOURNAL.verifiedUpdate,
+    sha256:"a".repeat(64)}});
+  await h.fresh();
+  assert.deepEqual(h.events,[]);
+  assert.match(h.field("updateStatus").textContent,/receipt changed/);
+});
+
+test("post-reload Fresh rejects wrong-store picker even with a matching journal",async()=>{
+  const h=harness(undefined,{installedVersion:"0.10.18-beta.382",
+    checkResult:{status:"up-to-date"},journal:VERIFIED_RELOAD_JOURNAL});
+  await h.check();await h.settle();
+  h.context.showDirectoryPicker=async()=>({name:"Other-Store",isSameEntry:async()=>false});
+  await h.fresh();
+  assert.deepEqual(h.events,[]);
+  assert.match(h.field("updateStatus").textContent,/does not match the connected installation/);
+});
+
+test("post-reload Fresh cancellation never deletes or writes a shared follow-up",async()=>{
+  const h=harness(undefined,{installedVersion:"0.10.18-beta.382",
+    checkResult:{status:"up-to-date"},journal:VERIFIED_RELOAD_JOURNAL});
+  await h.check();await h.settle();
+  h.context.__moondogFreshInstallation.resetSelectedFreshInstallation=async()=>{
+    h.events.push(["fresh-cancelled"]);return {status:"cancelled"};
+  };
+  await h.fresh();
+  assert.deepEqual(h.events.map(e=>e[0]),["fresh-cancelled"]);
+  assert.match(h.field("updateStatus").textContent,/cancelled/);
+  assert.equal(h.storageWrites.includes("moondog-verified-update-followup-v1"),false);
 });
