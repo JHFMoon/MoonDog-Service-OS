@@ -5131,7 +5131,7 @@
   function additionalVinsNeeded(sold, eligible, target) { if (![sold, eligible, target].every(Number.isFinite) || target <= 0 || target >= 100) return null; const rate = target / 100; if (eligible > 0 && sold / eligible * 100 >= target) return 0; if (eligible === 0 && sold === 0) return 1; return Math.max(0, Math.ceil((rate * eligible - sold) / (1 - rate) - 1e-9)); }
   function parsePerformanceWorkbook(bytes, fileName) { const book = XLSX.read(bytes, { type: "array", raw: true }), storeSheet = book.Sheets[book.SheetNames[0]]; if (!storeSheet) throw new Error("The workbook has no readable worksheets."); const storeRows = performanceRows(storeSheet), heading = storeRows.slice(0, 4).flat().map(text).find((value) => /Service Advisor Performance/i.test(value)); if (!heading) throw new Error("This is not a Service Advisor Performance report."); const dates = heading.match(/From\s+(\d{1,2}\/\d{1,2}\/20\d{2})\s+to\s+(\d{1,2}\/\d{1,2}\/20\d{2})/i); if (!dates) throw new Error("The performance reporting period could not be read."); const periodStart = usDateToIso(dates[1]), periodEnd = usDateToIso(dates[2]); if (!freshness.validDateKey(periodStart) || !freshness.validDateKey(periodEnd) || periodStart > periodEnd || periodStart.slice(0, 7) !== periodEnd.slice(0, 7)) throw new Error("The SAPR reporting period must have valid, ordered month-to-date dates. The report was not saved."); const sourceDays = performanceDays(storeRows); if (!sourceDays) throw new Error("SAPR Days Completed and total days could not be verified."); const advisors = {}; for (const sheetName of book.SheetNames.slice(1)) { const rows = performanceRows(book.Sheets[sheetName]), code = performanceDetailCode(rows); if (!ADVISOR_NAMES[code]) continue; if (advisors[code]) throw new Error(`Advisor ${code} appears on more than one SAPR detail worksheet. The report was not saved.`); const sheetDays = performanceDays(rows); if (!sheetDays || sheetDays.completed !== sourceDays.completed || sheetDays.total !== sourceDays.total) throw new Error(`SAPR Days Completed does not reconcile for advisor ${code}.`); const metrics = performanceMetrics(rows); validateAdvisorPerformance(metrics, code, sheetName); advisors[code] = { code, name: ADVISOR_NAMES[code], sourceSheet: sheetName, ...metrics }; } if (!Object.keys(advisors).length) throw new Error("No configured advisor detail worksheets were found in this performance report."); const store = { code: "store", name: "Store total", sourceSheet: book.SheetNames[0], ...performanceMetrics(storeRows) }, controllables = parseControllableBenchmarks(book, store, advisors); return { date: periodEnd, periodStart, periodEnd, saprDaysCompleted: sourceDays.completed, saprTotalDays: sourceDays.total, sourceFile: fileName, importedAt: now(), validation: { advisorDetailSheets: Object.keys(advisors).length, parser: "strict-detail-v8-cp-ro-vin-denominator", finalTotalsVerified: true, saprDaysVerified: true, controllables: CONTROLLABLES.length,controllableVinDenominator:"cp-ro" }, store, advisors, controllables }; }
   function prunePerformanceSnapshots(snapshots) { const dates = Object.keys(snapshots).sort(); if (!dates.length) return snapshots; const cutoff=freshness.addDays(dates.at(-1),-PERFORMANCE_RETENTION_DAYS),kept={};dates.forEach((date)=>{if(date>=cutoff)kept[date]=snapshots[date];});return kept; }
-  async function importPerformanceFile(selectedName = null, deleteAfterSuccess = false, providedBytes = null) {
+  async function importPerformanceFile(selectedName = null, deleteAfterSuccess = false, providedBytes = null, keepOriginalOnSuccess = false) {
     const name = selectedName || ui.performanceSourceSelect.value;
     if (!name) throw new Error("Choose a Service Advisor Performance XLSX.");
     status(`Reading advisor performance from ${name}…`, "working");
@@ -5180,7 +5180,7 @@
     await addHistory("performance-import", `${replacing ? "Replaced" : "Added"} performance snapshot for ${snapshot.date}`, { date: snapshot.date, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, fileName: name, advisors: Object.keys(snapshot.advisors).length, rawCopyRetained: false });
     renderPerformance();
     let deleted = false;
-    if (deleteAfterSuccess || (!dailyPickedSources.has(name) && window.confirm(`Performance import complete and verified.\n\nDelete the original source file "${name}" from the Report Inbox?\n\nThe compact daily metrics are saved; no extra workbook copy was created.`))) {
+    if (deleteAfterSuccess || (!keepOriginalOnSuccess && !dailyPickedSources.has(name) && window.confirm(`Performance import complete and verified.\n\nDelete the original source file "${name}" from the Report Inbox?\n\nThe compact daily metrics are saved; no extra workbook copy was created.`))) {
       try {
         if (typeof removeSourceEntryWithByteGuard === "function") await removeSourceEntryWithByteGuard(name, bytes); else await removeSourceEntry(name);
         deleted = true;
@@ -7274,9 +7274,201 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if(view==="setup")renderSetup();
     if(anchor)setTimeout(()=>document.getElementById(anchor)?.scrollIntoView({behavior:"smooth",block:"start"}),0);
   }
-  function ensurePhase3Ui(){if(ui["view-setup"])return;const nav=document.querySelector("nav[aria-label='Main navigation']"),settingsNav=nav.querySelector('[data-view="settings"]'),button=document.createElement("button");button.className="nav-item";button.dataset.view="setup";button.textContent="Setup";nav.insertBefore(button,settingsNav);const view=document.createElement("section");view.id="view-setup";view.className="view setup-view";view.innerHTML='<header class="setup-heading"><div><p class="eyebrow">Guided first-time setup</p><h2>Set up Service Operations Dashboard</h2><p>Complete the two required foundations first, then review each recommended operating source and workflow.</p></div><strong id="setupOverallStatus" class="badge muted">NOT STARTED</strong></header><div id="setupChecklist" class="setup-checklist"></div><div class="setup-actions"><p id="setupCompletionNote"></p><button id="completeSetup" type="button" class="primary">Complete setup</button></div>';ui["view-settings"].before(view);ui["view-setup"]=view;ui.setupNav=button;["setupOverallStatus","setupChecklist","setupCompletionNote","completeSetup"].forEach((id)=>ui[id]=document.getElementById(id));const settingsSections=ui["view-settings"].querySelectorAll(".settings-card:not(#settings-device-start-page)");settingsSections[0].id="settings-store";settingsSections[1].id="settings-advisors";settingsSections[2].id="settings-meeting";settingsSections[3].id="settings-standards";ui.dailyWalkCount.closest("section").id="settings-daily-walk";ui.worksheetOrderSettings.closest("section").id="settings-workbook";ui.meetingVoiceSurvey.closest(".customer-voice-manager").id="settings-csi-voice";const summary=document.createElement("section");summary.id="setupSettingsSummary";summary.className="card settings-card setup-settings-summary";ui["view-settings"].querySelector(".settings-sections").prepend(summary);button.addEventListener("click",()=>navigateTo("setup"));ui.setupChecklist.addEventListener("click",(event)=>{const action=event.target.closest("button[data-setup-view]");if(action)navigateTo(action.dataset.setupView,action.dataset.setupAnchor||"");});ui.setupChecklist.addEventListener("change",(event)=>{const choice=event.target.closest("select[data-source-expectation]");if(!choice)return;model.settings.setup.sourceExpectations[choice.dataset.sourceExpectation]=choice.value;queueSettingsAutosave();renderSetup();});ui.completeSetup.addEventListener("click",()=>run(completeGuidedSetup));summary.addEventListener("click",(event)=>{if(event.target.closest("button[data-reopen-setup]"))run(reopenGuidedSetup);});}
-  function setupStep(number,title,description,state,actionView="",actionLabel="Review",anchor="",extra=""){const article=document.createElement("article");article.className=`setup-step ${state.toLowerCase().replace(/\s+/g,"-")}`;article.innerHTML=`<b>${number}</b><div><h3>${title}</h3><p>${description}</p>${extra}</div><span>${state}</span>${actionView?`<button type="button" data-setup-view="${actionView}" data-setup-anchor="${anchor}">${actionLabel}</button>`:""}`;return article;}
-  function renderSetup(){ensurePhase3Ui();const sapr=verifiedSaprSnapshot(),identity=storeIdentityReady(),advisorCount=Object.values(model.settings.advisors||{}).filter((advisor)=>advisor.active&&!advisor.removed).length,participationReviewed=advisorCount>0&&!Object.values(model.settings.advisors||{}).some((advisor)=>advisor.setupRequired),complete=Boolean(model.settings.setup?.completedAt),open=!complete||model.settings.setup?.reopened;ui.setupNav.hidden=!open;ui.setupOverallStatus.textContent=complete&&!model.settings.setup.reopened?"SETUP COMPLETE":setupRequiredReady()?"READY TO COMPLETE":"SETUP REQUIRED";ui.setupChecklist.replaceChildren();ui.setupChecklist.append(setupStep(1,"Store identity","Store name, code, and time zone identify this installation.",identity?"COMPLETE":"REQUIRED","settings","Open Store settings","settings-store"));ui.setupChecklist.append(setupStep(2,"Import SAPR","SAPR discovers advisors and establishes authoritative reporting days and production structure.",sapr?`COMPLETE · THROUGH ${sapr.periodEnd}`:"REQUIRED","performance","Import SAPR"));ui.setupChecklist.append(setupStep(3,"Review discovered advisors",advisorCount?`${advisorCount} active advisor${advisorCount===1?"":"s"} discovered from SAPR.`:"Available after SAPR is imported.",sapr?(participationReviewed?"COMPLETE":"ACTION NEEDED"):"WAITING","settings","Review advisors","settings-advisors"));ui.setupChecklist.append(setupStep(4,"Configure participation","Choose each advisor's independent Open RO Control, Assign Next, Daily Walk, Performance, Advisor Meeting, and workbook visibility.",sapr?"REVIEW":"WAITING","settings","Review participation","settings-advisors"));ui.setupChecklist.append(setupStep(5,"Advisor Meeting","Review meeting schedule, reset time, and Gross targets.",sapr?"RECOMMENDED":"WAITING","settings","Review meeting","settings-meeting"));ui.setupChecklist.append(setupStep(6,"Performance standards","Review VIR, Menu Presentation, Menu Penetration, and Media Viewed standards. Controllables remain SAPR-owned.",sapr?"RECOMMENDED":"WAITING","settings","Review standards","settings-standards"));ui.setupChecklist.append(setupStep(7,"Daily Walk","Review ROs per advisor. Participation stays independent.",sapr?"RECOMMENDED":"WAITING","settings","Review Daily Walk","settings-daily-walk"));ui.setupChecklist.append(setupStep(8,"Supervisor Workbook","Review filename, advisor inclusion, and worksheet order.",sapr?"RECOMMENDED":"WAITING","settings","Review workbook","settings-workbook"));ui.setupChecklist.append(setupStep(9,"CSI period and Customer Voice","Review the scoring-period start and private meeting quote controls.",sapr?"RECOMMENDED":"WAITING","settings","Review CSI settings","settings-csi-voice"));const sourceMarkup=Object.entries(SETUP_SOURCES).map(([key,[name,purpose]])=>{const availability=sourceExpectation(key),state=availability==="temporarily-unavailable"?"TEMPORARILY UNAVAILABLE":availability==="not-used"?"NOT USED":hasSourceFamily(key)?"LOADED":"AVAILABLE · NOT YET LOADED";return `<label><span><strong>${name}</strong><small>${purpose}</small></span><select data-source-expectation="${key}"><option value="recommended"${availability==="recommended"?" selected":""}>Available</option><option value="temporarily-unavailable"${availability==="temporarily-unavailable"?" selected":""}>Temporarily unavailable</option><option value="not-used"${availability==="not-used"?" selected":""}>Not used at this store</option></select><em>${state}</em></label>`;}).join("");ui.setupChecklist.append(setupStep(10,"Supported operating sources","Choose Available for normal reporting, Temporarily unavailable during a source outage, or Not used only for a permanent store decision.","REVIEW","","","",`<div class="setup-source-list">${sourceMarkup}</div>`));ui.completeSetup.disabled=!setupRequiredReady();ui.setupCompletionNote.textContent=setupRequiredReady()?"Required foundation is ready. Optional sources may be added later.":"Complete Store identity and import a valid SAPR before finishing setup.";const summary=ui.setupSettingsSummary;if(summary)summary.innerHTML=complete&&!model.settings.setup.reopened?'<div><p class="eyebrow">Product setup</p><h2>SETUP COMPLETE</h2><p>Service Operations Dashboard is configured. Reopen the guided checklist whenever store needs change.</p></div><button type="button" data-reopen-setup>Reopen setup</button>':'<div><p class="eyebrow">Product setup</p><h2>SETUP REQUIRED</h2><p>Finish the guided checklist. Operational pages remain available.</p></div><button type="button" data-reopen-setup>Open setup</button>';renderSetupGates();}
+  // One-page onboarding: required identity and SAPR only, not ten navigation jumps.
+  let setupIdentityDirty=false,setupIdentityRevision=0,setupSaprOptionsSignature="";
+  function ensurePhase3Ui(){
+    if(ui["view-setup"])return;
+    const nav=document.querySelector("nav[aria-label='Main navigation']");
+    const settingsNav=nav.querySelector('[data-view="settings"]');
+    const button=document.createElement("button");
+    button.className="nav-item";button.dataset.view="setup";button.textContent="Setup";
+    nav.insertBefore(button,settingsNav);
+    const view=document.createElement("section");
+    view.id="view-setup";view.className="view setup-view setup-one-page";
+    view.innerHTML="\n<header class=\"setup-heading\"><div><p class=\"eyebrow\">First-time setup</p><h2>Get MoonDog ready</h2>\n<p>Just two things to get started. Everything else can be adjusted later.</p></div>\n<strong id=\"setupOverallStatus\" class=\"badge muted\">SETUP REQUIRED</strong></header>\n<div id=\"setupChecklist\" class=\"setup-simple-grid\">\n<section class=\"setup-simple-card\" aria-labelledby=\"setupIdentityHeading\">\n<div class=\"setup-simple-heading\"><div><span class=\"setup-simple-number\">1</span><h3 id=\"setupIdentityHeading\">Your dealership</h3></div><strong id=\"setupStoreState\">Required</strong></div>\n<p>Enter the same store name and number shown on your reports.</p>\n<div class=\"setup-simple-fields\">\n<label for=\"setupStoreName\">Dealership name <span>(required)</span><input id=\"setupStoreName\" type=\"text\" maxlength=\"120\" autocomplete=\"organization\" placeholder=\"Example Motors\"></label>\n<label for=\"setupStoreCode\">Store number <span>(required)</span><input id=\"setupStoreCode\" type=\"text\" maxlength=\"40\" placeholder=\"Example: 12345\"></label>\n<label for=\"setupStoreBrand\">Brand <span>(optional)</span><input id=\"setupStoreBrand\" type=\"text\" maxlength=\"80\" placeholder=\"Example: Ford\"></label>\n<label for=\"setupStoreTimeZone\">Time zone <span>(required)</span><select id=\"setupStoreTimeZone\"></select></label>\n</div><div class=\"setup-simple-actions\"><button id=\"setupStoreSave\" type=\"button\" class=\"primary\">Save dealership</button>\n<p id=\"setupStoreFeedback\" class=\"setup-simple-feedback\" role=\"status\" aria-live=\"polite\"></p></div>\n</section>\n<section class=\"setup-simple-card\" aria-labelledby=\"setupSaprHeading\">\n<div class=\"setup-simple-heading\"><div><span class=\"setup-simple-number\">2</span><h3 id=\"setupSaprHeading\">Add your SAPR report</h3></div><strong id=\"setupSaprState\">Required</strong></div>\n<p>Copy your Service Advisor Performance Report <strong>(.xlsx)</strong> into <strong>01 - DROP REPORTS HERE</strong>, then click <strong>Find report</strong>. No other screen needed.</p>\n<div class=\"setup-simple-fields setup-simple-import\"><label for=\"setupSaprSource\">Report file <span>(required)</span>\n<select id=\"setupSaprSource\"><option value=\"\">Click Find report to look for Excel files</option></select></label></div>\n<div class=\"setup-simple-actions\"><button id=\"setupSaprRefresh\" type=\"button\">Find report</button>\n<button id=\"setupSaprImport\" type=\"button\" class=\"primary\" disabled>Import selected report</button>\n<p id=\"setupSaprFeedback\" class=\"setup-simple-feedback\" role=\"status\" aria-live=\"polite\"></p></div>\n<p id=\"setupAdvisorSummary\" class=\"setup-simple-secondary\"></p>\n</section></div>\n<div class=\"setup-actions setup-simple-finish\"><div>\n<strong>That's all you need to get started.</strong><p id=\"setupCompletionNote\"></p>\n<small>Advisor participation, meeting targets and other reports can be configured later in Settings.</small>\n</div><button id=\"completeSetup\" type=\"button\" class=\"primary\">Start using MoonDog</button></div>";
+    ui["view-settings"].before(view);
+    ui["view-setup"]=view;ui.setupNav=button;
+    for(const id of ["setupOverallStatus","setupChecklist","setupCompletionNote","completeSetup",
+      "setupStoreState","setupStoreName","setupStoreCode","setupStoreBrand","setupStoreTimeZone",
+      "setupStoreSave","setupStoreFeedback","setupSaprState","setupSaprSource","setupSaprRefresh",
+      "setupSaprImport","setupSaprFeedback","setupAdvisorSummary"])
+      ui[id]=document.getElementById(id);
+    for(const option of ui.storeTimeZone.options)
+      ui.setupStoreTimeZone.add(new Option(option.textContent,option.value));
+    const sections=ui["view-settings"].querySelectorAll(".settings-card:not(#settings-device-start-page)");
+    sections[0].id="settings-store";sections[1].id="settings-advisors";
+    sections[2].id="settings-meeting";sections[3].id="settings-standards";
+    ui.dailyWalkCount.closest("section").id="settings-daily-walk";
+    ui.worksheetOrderSettings.closest("section").id="settings-workbook";
+    ui.meetingVoiceSurvey.closest(".customer-voice-manager").id="settings-csi-voice";
+    const summary=document.createElement("section");
+    summary.id="setupSettingsSummary";summary.className="card settings-card setup-settings-summary";
+    ui["view-settings"].querySelector(".settings-sections").prepend(summary);
+    button.addEventListener("click",()=>navigateTo("setup"));
+    for(const field of [ui.setupStoreName,ui.setupStoreCode,ui.setupStoreBrand,ui.setupStoreTimeZone]){
+      field.addEventListener("input",()=>{
+        setupIdentityDirty=true;setupIdentityRevision++;
+        ui.setupStoreFeedback.textContent="Unsaved changes. Select Save dealership.";
+      });
+    }
+    ui.setupStoreSave.addEventListener("click",()=>run(saveSetupStoreIdentity));
+    ui.setupSaprRefresh.addEventListener("click",()=>run(async()=>{
+      ui.setupSaprFeedback.textContent="Looking in 01 - DROP REPORTS HERE…";
+      try{
+        await scanPerformanceFiles();syncSetupSaprOptions();
+        ui.setupSaprFeedback.textContent=ui.setupSaprSource.options.length>1
+          ?"Choose the SAPR workbook above, then select Import."
+          :"No Excel report found. Copy SAPR .xlsx into 01 - DROP REPORTS HERE and try again.";
+      }catch(error){
+        ui.setupSaprFeedback.textContent="Could not read the report folder. Restore folder access and try again: "+
+          String(error?.message||error);throw error;
+      }
+      renderSetup();
+    }));
+    ui.setupSaprSource.addEventListener("change",renderSetup);
+    ui.setupSaprImport.addEventListener("click",()=>run(importSetupSapr));
+    ui.completeSetup.addEventListener("click",()=>run(completeGuidedSetup));
+    summary.addEventListener("click",event=>{
+      if(event.target.closest("button[data-reopen-setup]"))run(reopenGuidedSetup);
+    });
+  }
+
+  // Mirror only the existing verified Inbox source choices; never infer a
+  // SAPR workbook from filename alone or treat an unsigned report as verified.
+  function syncSetupSaprOptions(){
+    const files=[...ui.performanceSourceSelect.options].filter(option=>option.value);
+    const signature=files.map(option=>option.value).join("\u0000");
+    if(signature===setupSaprOptionsSignature)return;
+    setupSaprOptionsSignature=signature;
+    const previous=ui.setupSaprSource.value;
+    ui.setupSaprSource.replaceChildren(new Option(files.length?
+      "Choose the SAPR .xlsx report":"Click Find report to look for Excel files",""));
+    for(const option of files)ui.setupSaprSource.add(new Option(option.textContent,option.value));
+    if(files.some(option=>option.value===previous))ui.setupSaprSource.value=previous;
+  }
+  async function saveSetupStoreIdentity(){
+    const name=ui.setupStoreName.value.trim(),code=ui.setupStoreCode.value.trim(),
+      brand=ui.setupStoreBrand.value.trim(),timeZone=ui.setupStoreTimeZone.value;
+    const error=!name?"Enter your dealership name.":!code?"Enter your store number.":
+      ![...ui.storeTimeZone.options].some(option=>option.value===timeZone)?
+        "Choose a valid time zone.":"";
+    if(error){
+      ui.setupStoreFeedback.textContent=error;
+      (!name?ui.setupStoreName:!code?ui.setupStoreCode:ui.setupStoreTimeZone).focus();
+      return;
+    }
+    if(!model.root||!writeAuthority.canWrite){
+      ui.setupStoreFeedback.textContent="Restore folder access before saving your dealership.";return;
+    }
+    const prior=model.settings.store||{};
+    if(verifiedSaprSnapshot()&&prior.code&&
+      (prior.code!==code||String(prior.name||"").trim()!==name)){
+      ui.setupStoreFeedback.textContent=
+        "This store already has SAPR data. Changing its identity needs a separate verified store review.";
+      return;
+    }
+    const revision=setupIdentityRevision,updatedAt=now();
+    ui.setupStoreSave.disabled=true;ui.setupStoreFeedback.textContent="Saving and verifying…";
+    let committed=false;
+    try{
+      await persistSettingsSnapshot(snapshot=>{
+        const proposal={...(snapshot.store||{}),name,code,brand,timeZone,
+          confirmed:{name:true,code:true,brand:Boolean(brand),timeZone:true}};
+        snapshot.store=proposal;snapshot.storeName=name;snapshot.updatedAt=updatedAt;
+        return()=>{model.settings.store=proposal;model.settings.storeName=name;
+          model.settings.updatedAt=updatedAt;};
+      });
+      committed=true;
+      ui.storeName.value=name;ui.storeCode.value=code;
+      ui.storeBrand.value=brand;ui.storeTimeZone.value=timeZone;
+      if(revision===setupIdentityRevision)setupIdentityDirty=false;
+      ui.setupStoreFeedback.textContent="Dealership saved and verified.";
+      renderSetup();renderSetupGates();
+      await addHistory("settings-update","Saved dealership identity during setup",
+        {schemaVersion:model.settings.schemaVersion});
+    }catch(error){
+      ui.setupStoreFeedback.textContent=(committed?
+        "Dealership was saved, but history needs attention. ":
+        "Could not save. Your changes are still here. ")+String(error?.message||error);
+      throw error;
+    }finally{ui.setupStoreSave.disabled=false;}
+  }
+  let setupImportBusy=false;
+  async function importSetupSapr(){
+    const name=ui.setupSaprSource.value;
+    if(!storeIdentityReady()){
+      ui.setupSaprFeedback.textContent="First save your dealership in section 1.";
+      ui.setupStoreName.focus();return;
+    }
+    if(!name){
+      ui.setupSaprFeedback.textContent="Click Find report, then choose the SAPR Excel file.";
+      ui.setupSaprSource.focus();return;
+    }
+    if(!model.root||!writeAuthority.canWrite){
+      ui.setupSaprFeedback.textContent="Restore folder access before importing a report.";return;
+    }
+    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy||
+      postConnectionScanBusy||workspaceConnectionBusy||workspaceRecoveryBusy)
+      throw new Error("Another Workspace task is finishing. Retry SAPR import when it finishes.");
+    const resumeWatch=folderWatchEnabled();
+    dailyImportBusy=true;setupImportBusy=true;ui.setupSaprImport.disabled=true;
+    ui.setupSaprFeedback.textContent="Verifying and saving your SAPR report…";
+    try{
+      stopFolderWatch();
+      // Reuse the production SAPR parser, dealership confirmation, durable
+      // readback, import lineage and operation exclusion. Retain the original.
+      await importPerformanceFile(name,false,null,true);
+      ui.setupSaprFeedback.textContent=
+        "SAPR imported and verified. You can now start using MoonDog.";
+      renderSetup();
+    }catch(error){
+      ui.setupSaprFeedback.textContent="SAPR wasn't saved. Verify the correct report for this store, then retry. "+
+        String(error?.message||error);
+      throw error;
+    }finally{
+      dailyImportBusy=false;setupImportBusy=false;
+      if(resumeWatch)startFolderWatch();
+      renderSetup();
+    }
+  }
+  function renderSetup(){
+    ensurePhase3Ui();
+    const sapr=verifiedSaprSnapshot(),identity=storeIdentityReady(),
+      advisorCount=Object.values(model.settings.advisors||{}).filter(a=>a.active&&!a.removed).length,
+      complete=Boolean(model.settings.setup?.completedAt),
+      open=!complete||model.settings.setup?.reopened;
+    ui.setupNav.hidden=!open;
+    ui.setupOverallStatus.textContent=complete&&!model.settings.setup?.reopened?
+      "SETUP COMPLETE":setupRequiredReady()?"READY TO START":"TWO QUICK STEPS";
+    // Autosaves/imports frequently call renderAll. Never overwrite a half-
+    // entered store name, code or brand while the user is typing.
+    if(!setupIdentityDirty){
+      ui.setupStoreName.value=model.settings.store?.name==="MoonDog"&&!model.settings.store?.code?
+        "":model.settings.store?.name||"";
+      ui.setupStoreCode.value=model.settings.store?.code||"";
+      ui.setupStoreBrand.value=model.settings.store?.brand||"";
+      ui.setupStoreTimeZone.value=model.settings.store?.timeZone||DEFAULTS.store.timeZone;
+    }
+    ui.setupStoreState.textContent=identity?"Saved":"Required";
+    ui.setupSaprState.textContent=sapr?"Imported":"Required";
+    syncSetupSaprOptions();
+    ui.setupSaprImport.disabled=setupImportBusy||setupIdentityDirty||!ui.setupSaprSource.value||!identity||
+      !model.root||!writeAuthority.canWrite;
+    ui.setupAdvisorSummary.textContent=sapr?
+      "Report through "+sapr.periodEnd+" verified. "+advisorCount+
+      " advisor"+(advisorCount===1?"":"s")+" found. Review individual settings later.":
+      "MoonDog discovers your advisors automatically from SAPR.";
+    ui.completeSetup.disabled=setupIdentityDirty||!setupRequiredReady()||!model.root||!writeAuthority.canWrite;
+    ui.setupCompletionNote.textContent=setupIdentityDirty?"Save your dealership changes before continuing.":setupRequiredReady()?
+      "Dealership saved. SAPR imported. Select Start using MoonDog.":
+      !identity?"Save your dealership, then add your SAPR report.":
+      "Dealership saved. Add your SAPR report to finish.";
+    const summary=ui.setupSettingsSummary;
+    if(summary)summary.innerHTML=complete&&!model.settings.setup?.reopened?
+      '<div><p class="eyebrow">Product setup</p><h2>SETUP COMPLETE</h2><p>MoonDog is ready. Optional settings may be changed later.</p></div><button type="button" data-reopen-setup>Reopen setup</button>':
+      '<div><p class="eyebrow">Product setup</p><h2>SETUP REQUIRED</h2><p>Only dealership identity and SAPR are required.</p></div><button type="button" data-reopen-setup>Open setup</button>';
+    renderSetupGates();
+  }
   async function completeGuidedSetup(){
     if(!setupRequiredReady())throw new Error("Store identity and a valid SAPR are required before setup can be completed.");
     await persistSettingsSnapshot(snapshot=>{
