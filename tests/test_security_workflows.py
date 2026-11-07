@@ -217,6 +217,24 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("'head': pr.get('head',{}).get('sha')==expected", merge)
         self.assertIn("Final guarded merge refused", merge)
 
+    def test_draft_guard_is_a_safe_skip_before_merge_credentials(self):
+        merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
+        guard = merge.split("      - name: Verify automation authorization and PR safety", 1)[1]
+        guard = guard.split("      - name: Create scoped MoonDog release App token", 1)[0]
+        closed = """if [ "$(jq -r '.state' /tmp/pr.json)" != "open" ]; then"""
+        draft = """if [ "$(jq -r '.draft == true' /tmp/pr.json)" = "true" ]; then"""
+        stale = 'if [ "$CURRENT_PR_HEAD" != "$HEAD_SHA" ]; then'
+        authorization = "python3 scripts/guarded_merge_policy.py check-authorization"
+        self.assertLess(guard.index(stale), guard.index(closed))
+        self.assertLess(guard.index(closed), guard.index(draft))
+        self.assertLess(guard.index(draft), guard.index(authorization))
+        body = guard.split(draft, 1)[1].split("          fi", 1)[0]
+        self.assertIn('echo "skip=true" >> "$GITHUB_OUTPUT"', body)
+        self.assertIn("exit 0", body)
+        # Invalid draft flags still fail the existing structured authorization gate.
+        self.assertIn("'draft': pr.get('draft') is False", guard)
+        self.assertIn("ready_for_review", merge)
+
     def test_beta_candidate_is_not_dispatched_or_merged_by_the_packager(self):
         workflow = (ROOT / ".github/workflows/prepare-beta-package.yml").read_text(encoding="utf-8")
         self.assertIn("Push package commit to the same reviewed PR", workflow)
