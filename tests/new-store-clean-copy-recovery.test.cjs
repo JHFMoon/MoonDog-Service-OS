@@ -203,19 +203,20 @@ test("the runtime source stays pinned if the connection changes during the picke
   assert.match(h.ui.handoffResult.textContent,/CLEAN NEW STORE READY/);
 });
 
-test("the new launcher keeps its saved handle separate from existing file installations",()=>{
-  const keyStart=app.indexOf("  const newStoreLauncher =");
-  const keyEnd=app.indexOf(";",app.indexOf("  const HANDLE_KEY =",keyStart))+1;
+test("every local launcher keeps its own saved handle across a shared browser profile",()=>{
+  const keyStart=app.indexOf("  const HANDLE_KEY =");
+  const keyEnd=app.indexOf(";",keyStart)+1;
   assert.ok(keyStart>0&&keyEnd>keyStart);
   function key(pathname,search){
-    const context=vm.createContext({URLSearchParams,location:{protocol:"file:",pathname,search}});
+    const context=vm.createContext({location:{protocol:"file:",pathname,search}});
     return vm.runInContext(app.slice(keyStart,keyEnd)+"\nHANDLE_KEY;",context);
   }
   const oldPath="/old/System%20Files/index.html";
   const firstNewPath="/new/System%20Files/index.html";
   const secondNewPath="/another/System%20Files/index.html";
   const launch="?moondog-new-store=1";
-  assert.equal(key(oldPath,""),"working-folder");
+  assert.equal(key(oldPath,""),"working-folder:"+oldPath);
   assert.notEqual(key(firstNewPath,launch),key(oldPath,""));
   assert.notEqual(key(firstNewPath,launch),key(secondNewPath,launch));
+  assert.equal(key(firstNewPath,launch),key(firstNewPath,""));
 });
