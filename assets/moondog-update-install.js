@@ -81,7 +81,11 @@
           if (error instanceof SyntaxError) throw new Error("Existing update recovery journal is unreadable.");
           throw error;
         }
-        return ["applying", "prepared"].includes(record?.status) ? name : null;
+        if (!record || !["prepared", "applying", "verified", "restored"].includes(record.status) ||
+            !Array.isArray(record.inventory)) {
+          throw new Error("Existing update recovery journal is invalid.");
+        }
+        return ["applying", "prepared"].includes(record.status) ? name : null;
       }));
       for (const name of batch) if (name) names.push(name);
     }
