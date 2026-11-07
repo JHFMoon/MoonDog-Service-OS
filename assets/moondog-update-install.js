@@ -5,6 +5,10 @@
   const decoder = new TextDecoder();
   const BACKUP_PREFIX = "MoonDog-Update-Backup-";
   const COMPATIBILITY_BACKUP = "origin-compatibility/index.html";
+  const LAUNCHER_PATH = "00 - OPEN DASHBOARD.html";
+  const LAUNCHER_BYTES = encoder.encode("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"refresh\" content=\"0; url=index.html\"><title>Service Operations Dashboard</title></head>\n<body><p>Opening Service Operations Dashboard\u2026 <a href=\"index.html\">Continue</a></p><script>location.replace(\"index.html\");</script></body></html>\n");
+  const ORIGIN_BACKUPS = { "index.html": COMPATIBILITY_BACKUP,
+    "00 - OPEN DASHBOARD.html": "origin-compatibility/launcher.html" };
   // Reviewed dependency authority: distribution/dependencies.json, schema 1.
   const DEPENDENCY_HASHES = {
     "vendor/jszip.min.js": "acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e",
@@ -101,7 +105,7 @@
   }
 
   function fileRoot(item, app, workspace) { return item.scope === "workspace" ? workspace : app; }
-  function backupPath(item) { return item.scope === "workspace" ? COMPATIBILITY_BACKUP : item.path; }
+  function backupPath(item) { return item.scope === "workspace" ? ORIGIN_BACKUPS[item.path] : item.path; }
 
   async function digest(bytes, subtle) {
     const value = await subtle.digest("SHA-256", bytes);
@@ -209,7 +213,17 @@
   async function write(root, relative, bytes, createDirectories = false) {
     const { folder, name } = await parent(root, relative, createDirectories);
     const handle = await folder.getFileHandle(name, { create: true });
-    const writable = await handle.createWritable();
+    let writable;
+    // Retry only opening a stream, before bytes have been written. A failed
+    // write or close has uncertain persistence and must go through rollback.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { writable = await handle.createWritable(); break; }
+      catch (error) {
+        if (!["NotReadableError", "AbortError"].includes(error?.name) || attempt === 2) throw error;
+        if (typeof global.setTimeout === "function")
+          await new Promise(resolve => global.setTimeout(resolve, 100 * (attempt + 1)));
+      }
+    }
     try { await writable.write(bytes); await writable.close(); }
     catch (error) { try { await writable.abort(); } catch (_) {} throw error; }
     const actual = await read(root, relative);
@@ -342,6 +356,13 @@
           throw new Error("The origin compatibility page is missing or unrecognized.");
         compatibility = compatibilityBytes(Uint8Array.from(global.atob(htmlEntry.contentBase64), c => c.charCodeAt(0)));
       }
+      // The named root launcher is software authority from reviewed source,
+      // not inferred from dealership data. Unknown/custom contents are retained
+      // and block automatic repair rather than being overwritten.
+      const launcher = await read(workspace, LAUNCHER_PATH);
+      const launcherHash = await digest(LAUNCHER_BYTES, subtle);
+      if (launcher !== null && await digest(launcher, subtle) !== launcherHash)
+        throw new Error("The named application launcher is unrecognized; preserve it for local review.");
       const targets = contents.files.filter(entry => !plan.unchanged.includes(entry.path));
       inventory = [];
       for (let index = 0; index < trustedAllowlist.length; index += 1) {
@@ -357,6 +378,8 @@
         inventory.push({ path: "index.html", scope: "workspace", existed: original !== null,
           sha256: original === null ? null : await digest(original, subtle), bytes: original });
       }
+      inventory.push({ path: LAUNCHER_PATH, scope: "workspace", existed: launcher !== null,
+        sha256: launcher === null ? null : launcherHash, bytes: launcher });
       identity = await installationId(app, true);
       const backupName = BACKUP_PREFIX + new Date().toISOString().replace(/[:.]/g, "-") + "-" + global.crypto.randomUUID();
       await assertTarget(app, workspace, identity);
@@ -405,6 +428,10 @@
           await assertTarget(app, workspace, identity);
           await write(workspace, "index.html", compatibility);
         }
+        if (launcher === null) {
+          await assertTarget(app, workspace, identity);
+          await write(workspace, LAUNCHER_PATH, LAUNCHER_BYTES);
+        }
         for (let index = 0; index < contents.files.length; index += 1) {
           const entry = contents.files[index];
           await progress(onProgress, { phase: "verify-install", percent: Math.round(80 + 18 * ((index + 1) / Math.max(contents.files.length, 1))),
@@ -416,12 +443,15 @@
         }
         if (compatibility && await digest(await read(workspace, "index.html"), subtle) !== await digest(compatibility, subtle))
           throw new Error("Origin compatibility verification failed.");
+        if (await digest(await read(workspace, LAUNCHER_PATH), subtle) !== launcherHash)
+          throw new Error("Application launcher verification failed.");
         await verifyStructure(app, definition, subtle);
         if (await installationId(app) !== identity) throw new Error("Application recovery identity changed.");
         await assertTarget(app, workspace, identity);
         await journal(backup, { status: "verified", installationId: identity, inventory: record,
           structure: { schemaVersion: definition.schemaVersion, layout: definition.layout,
-            packageSha256: definition.packageSha256, requiredFileCount: definition.requiredFiles.length },
+            packageSha256: definition.packageSha256, requiredFileCount: definition.requiredFiles.length,
+            launcherSha256: launcherHash },
           verifiedUpdate: { version: verifiedPackage.version, channel: verifiedPackage.channel,
             sha256: verifiedPackage.sha256.toLowerCase(), verifiedAt: new Date().toISOString() } });
         await progress(onProgress, { phase: "complete", percent: 100, label: "Ready", detail: "Application structure and installed package bytes verified" });
@@ -464,7 +494,7 @@
       const record = JSON.parse(decoder.decode(bytes));
       if (!record || !["applying", "prepared", "restored"].includes(record.status) ||
           !Array.isArray(record.inventory) ||
-          ![trustedAllowlist.length, trustedAllowlist.length + 1].includes(record.inventory.length)) {
+          ![trustedAllowlist.length, trustedAllowlist.length + 1, trustedAllowlist.length + 2].includes(record.inventory.length)) {
         throw new Error("Backup journal cannot be used for recovery.");
       }
       if (!IDENTITY.test(record.installationId || "") ||
@@ -472,12 +502,12 @@
         throw new Error("Backup belongs to another or unverified installation; local recovery review is required.");
       identity = record.installationId;
       const expected = new Set(trustedAllowlist.map(path => global.MoonDogApplyDesignModel.canonicalPath(path)));
-      let compatibilitySeen = false;
+      const originSeen = new Set();
       for (const item of record.inventory) {
-        if (item?.scope === "workspace" && item.path === "index.html" && !compatibilitySeen &&
+        if (item?.scope === "workspace" && Object.hasOwn(ORIGIN_BACKUPS, item.path) && !originSeen.has(item.path) &&
             workspace !== app && typeof item.existed === "boolean" &&
             (item.existed ? /^[0-9a-f]{64}$/.test(item.sha256) : item.sha256 === null)) {
-          compatibilitySeen = true;
+          originSeen.add(item.path);
           continue;
         }
         if (!item || typeof item.path !== "string" || !expected.delete(global.MoonDogApplyDesignModel.canonicalPath(item.path)) ||
@@ -487,7 +517,7 @@
           throw new Error("Backup journal contains an unapproved file.");
         }
       }
-      if (expected.size || record.inventory.length !== trustedAllowlist.length + Number(compatibilitySeen))
+      if (expected.size || record.inventory.length !== trustedAllowlist.length + originSeen.size)
         throw new Error("Backup journal is incomplete.");
       await progress(onProgress, { phase: "recovery", percent: 15, label: "Restoring previous version", detail: "Backup verified" });
       await restore(app, workspace, backup, record.inventory, subtle, onProgress, 15, 95, identity);

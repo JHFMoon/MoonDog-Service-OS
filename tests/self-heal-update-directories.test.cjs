@@ -22,7 +22,7 @@ function memoryRoot() {
     "System Files/assets/old.js": "original",
     "System Files/Workspace/data/current-state.json": "synthetic private data"
   }).map(([k,v]) => [k,Buffer.from(v)]));
-  const state = { dirs, files, failOnce: null };
+  const state = { dirs, files, failOnce: null, failOpenKey: null, openFailures: 0, targetOpenAttempts: 0 };
   function handle(prefix) { return {
     _prefix: prefix, _state: state,
     isSameEntry: async other => other?._prefix === prefix && other?._state === state,
@@ -43,6 +43,11 @@ function memoryRoot() {
           return { arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) };
         },
         createWritable: async () => {
+          if (state.failOpenKey === key) {
+            state.targetOpenAttempts++;
+            if (state.openFailures-- > 0)
+              throw Object.assign(new Error("synthetic synchronization stream lock"), {name:"NotReadableError"});
+          }
           let data;
           return { write: async bytes => {data = Buffer.from(bytes);},
             close: async () => { if(state.failOnce === key) {state.failOnce = null; throw new Error("forced write failure");}
@@ -396,4 +401,49 @@ test('unavailable native folder identity cannot be treated as a verified selecte
   h.root.getDirectoryHandle=async(...args)=>{const handle=await original(...args);delete handle.isSameEntry;return handle;};
   const before=copyFiles(h);const result=await h.run();
   assert.equal(result.status,'stopped');assert.deepEqual(h.state.files,before);
+});
+
+test('missing named launcher is restored byte-for-byte from reviewed software authority',async()=>{
+  const h=await setup({includeScript:true});const before=privateFiles(h);
+  const result=await h.run();assert.equal(result.status,'installed',result.reason);
+  assert.deepEqual(h.state.files.get('00 - OPEN DASHBOARD.html'),
+    fs.readFileSync(path.join(__dirname,'..','00 - OPEN DASHBOARD.html')));
+  assert.deepEqual(privateFiles(h),before);
+});
+
+test('unknown contents at the named launcher are preserved and block automatic software repair',async()=>{
+  const h=await setup();h.state.files.set('00 - OPEN DASHBOARD.html',Buffer.from('unknown custom launcher'));
+  const before=copyFiles(h);const result=await h.run();
+  assert.equal(result.status,'stopped');assert.match(result.reason,/launcher is unrecognized/);
+  assert.deepEqual(h.state.files,before);
+});
+
+test('restart rollback removes a newly repaired launcher when it was absent in the verified original inventory',async()=>{
+  const h=await setup();const result=await h.run();assert.equal(result.status,'installed');
+  const key='System Files/Workspace/backups/system-updates/'+result.backupName+'/journal.json';
+  const record=JSON.parse(h.state.files.get(key));record.status='applying';h.state.files.set(key,Buffer.from(JSON.stringify(record)));
+  const recovered=await context.MoonDogUpdateInstall.recover({appDirectoryHandle:h.app,
+    workspaceDirectoryHandle:h.root,backupName:result.backupName,trustedAllowlist:h.trustedAllowlist,confirmed:true});
+  assert.equal(recovered.status,'restored',recovered.reason);
+  assert.equal(h.state.files.has('00 - OPEN DASHBOARD.html'),false);
+  assert.equal(h.state.files.get('System Files/index.html').toString(),h.old);
+});
+
+test('transient synchronization stream-opening locks retry with a strict bound before writing bytes',async()=>{
+  const h=await setup();const before=privateFiles(h);
+  h.state.failOpenKey='System Files/assets/new.js';h.state.openFailures=2;
+  const result=await h.run();assert.equal(result.status,'installed',result.reason);
+  assert.equal(h.state.targetOpenAttempts,3);
+  assert.equal(h.state.files.get('System Files/assets/new.js').toString(),'new');
+  assert.deepEqual(privateFiles(h),before);
+});
+
+test('persistent stream-opening lock exhausts three attempts and verifies rollback without resetting data',async()=>{
+  const h=await setup();const before=privateFiles(h);
+  h.state.failOpenKey='System Files/assets/new.js';h.state.openFailures=10;
+  const result=await h.run();assert.equal(result.status,'rolled-back',result.reason);
+  assert.equal(h.state.targetOpenAttempts,3);
+  assert.equal(h.state.files.get('System Files/index.html').toString(),h.old);
+  assert.equal(h.state.files.has('System Files/assets/new.js'),false);
+  assert.deepEqual(privateFiles(h),before);
 });
