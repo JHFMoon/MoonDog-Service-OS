@@ -107,3 +107,38 @@ test("Fresh picker unavailability refuses safely without running installer",asyn
   assert.deepEqual(h.events.map(e=>e[0]),[]);
   assert.match(h.field("updateStatus").textContent,/requires an Edge folder picker/);
 });
+
+test("changing the connected root during preview never mixes two installation handles",async()=>{
+  const h=harness();await h.check();
+  h.context.MoonDogPackagePlan.dryRun=async()=>{
+    h.events.push(["plan"]);
+    h.context.__moondogSettingsModel.applicationRoot={name:"Unrelated-Synthetic-Store",
+      getDirectoryHandle:async()=>({})};
+    return {add:[],replace:[],delete:[],unchanged:[],rejected:[]};
+  };
+  await h.fresh();
+  assert.deepEqual(h.events.map(e=>e[0]),["verify","plan"]);
+  assert.match(h.field("updateStatus").textContent,/Selected installation changed during update preview/);
+});
+test("preview and install always use the same selected root and runtime handle",async()=>{
+  const h=harness();await h.check();
+  const runtime={name:"Selected-Synthetic-System"};
+  h.root.getDirectoryHandle=async(name,opts)=>{
+    assert.equal(name,"System Files");
+    assert.equal(opts.create,false);
+    return runtime;
+  };
+  const previous=h.context.MoonDogPackagePlan.dryRun;
+  h.context.MoonDogPackagePlan.dryRun=async options=>{
+    assert.equal(options.appDirectoryHandle,runtime);
+    return previous(options);
+  };
+  h.context.MoonDogUpdateInstall.apply=async options=>{
+    assert.equal(options.appDirectoryHandle,runtime);
+    assert.equal(options.workspaceDirectoryHandle,h.root);
+    h.events.push(["apply"]);
+    return {status:"installed",version:"0.10.18-beta.382",backupName:"MoonDog-Update-Backup-synthetic"};
+  };
+  await h.fresh();
+  assert.deepEqual(h.events.map(e=>e[0]),["verify","plan","apply","fresh"]);
+});

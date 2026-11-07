@@ -429,8 +429,17 @@
       }
       await setProgress({ phase: "verify-package", percent: 15, label: "Update package verified", detail: "Package integrity confirmed" });
       await setProgress({ phase: "plan", percent: 20, label: "Preparing file changes", detail: "Building a safe installation plan" });
+      // Use the selected installation as the authority for both the runtime
+      // and rollback Workspace; a concurrent reconnect must not mix stores.
+      if (!selectedRoot || typeof selectedRoot.getDirectoryHandle !== "function" || selectedRoot !== appRoot())
+        throw new Error("Selected installation changed before update preview; no files were modified.");
+      const selectedSystem = await selectedRoot.getDirectoryHandle("System Files", { create: false });
+      if (selectedRoot !== appRoot())
+        throw new Error("Selected installation changed while opening runtime; no files were modified.");
       const plan = await global.MoonDogPackagePlan.dryRun({ verifiedPackage: verified,
-        appDirectoryHandle: await applicationFiles(), trustedAllowlist: catalog });
+        appDirectoryHandle: selectedSystem, trustedAllowlist: catalog });
+      if (selectedRoot !== appRoot())
+        throw new Error("Selected installation changed during update preview; no files were modified.");
       await setProgress({ phase: "plan", percent: 25, label: "File changes ready", detail: "Review the planned application changes" });
       const summary = ["Add", "Replace", "Delete", "Unchanged", "Rejected"].map(label =>
         `${label}: ${plan[label.toLowerCase()].length ? plan[label.toLowerCase()].map(item =>
@@ -451,8 +460,10 @@
         throw new Error("Update recovery backups are unresolved or cannot be verified. Check folder access and resolve recovery before installing.");
       }
       await setProgress({ phase: "install", percent: 28, label: "Starting installation", detail: "Please keep this window open" });
+      if (selectedRoot !== appRoot())
+        throw new Error("Selected installation changed before update installation; no files were modified.");
       const outcome = await global.MoonDogUpdateInstall.apply({ verifiedPackage: verified,
-        appDirectoryHandle: await applicationFiles(), workspaceDirectoryHandle: appRoot(),
+        appDirectoryHandle: selectedSystem, workspaceDirectoryHandle: selectedRoot,
         trustedAllowlist: catalog, expectedPlan: plan, confirmed: true,
         onProgress: event => setProgress({ ...event, percent: Math.round(28 + (Math.max(0, Math.min(100, Number(event.percent) || 0)) * .72)) }) });
       status.textContent = outcome.status === "installed" ?
