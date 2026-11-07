@@ -651,3 +651,16 @@ test('a failed vendor repair restores corrupt original bytes and removes partial
  assert.deepEqual(privateFiles(h),before);
  assert.equal((await h.run()).status,'installed','a new authorized attempt repairs after the identified transient failure');
 });
+
+test('permission loss during read-only recovery inspection never requests permission or changes files',async()=>{
+ const h=await setup();const installed=await h.run();
+ const journalPath='System Files/Workspace/backups/system-updates/'+installed.backupName+'/journal.json';
+ const record=JSON.parse(h.state.files.get(journalPath));record.status='applying';h.state.files.set(journalPath,Buffer.from(JSON.stringify(record)));
+ let checks=0,requests=0;h.root.queryPermission=async()=>++checks===1?'granted':'prompt';
+ h.root.requestPermission=async()=>{requests++;return 'granted';};
+ const before=copyFiles(h),dirs=new Set(h.state.dirs);
+ const result=await context.MoonDogUpdateInstall.inspectRecovery({appDirectoryHandle:h.app,
+  workspaceDirectoryHandle:h.root,backupName:installed.backupName,trustedAllowlist:h.trustedAllowlist});
+ assert.equal(result.status,'recovery-required');assert.equal(requests,0);
+ assert.deepEqual(h.state.files,before);assert.deepEqual(h.state.dirs,dirs);
+});

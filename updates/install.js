@@ -188,24 +188,24 @@
     return Array.from(new Uint8Array(value), byte => byte.toString(16).padStart(2, "0")).join("");
   }
 
-  async function permission(handle) {
+  async function permission(handle, allowRequest = true) {
     if (!handle || typeof handle.queryPermission !== "function") throw new Error("Folder access is unavailable.");
     let result = await handle.queryPermission({ mode: "readwrite" });
-    if (result !== "granted" && typeof handle.requestPermission === "function") {
+    if (result !== "granted" && allowRequest && typeof handle.requestPermission === "function") {
       result = await handle.requestPermission({ mode: "readwrite" });
     }
     if (result !== "granted") throw new Error("Folder write permission was not granted.");
   }
-  async function assertAuthority(app) {
+  async function assertAuthority(app, allowRequest = true) {
     // Application updates are authorized by explicit browser folder permission,
     // verified package hashes, the approved path plan, rollback backup, and
     // read-back verification. Operational editing policy must not block updates.
-    try { await permission(app); }
+    try { await permission(app, allowRequest); }
     catch (_) { throw new Error("Folder write permission was lost; application files were not changed further."); }
   }
 
-  async function assertTarget(app, workspace, identity = null) {
-    await assertAuthority(workspace);
+  async function assertTarget(app, workspace, identity = null, allowRequest = true) {
+    await assertAuthority(workspace, allowRequest);
     const system = await workspace.getDirectoryHandle("System Files", { create: false });
     if (typeof system.isSameEntry !== "function" || !(await system.isSameEntry(app)))
       throw new Error("Application folder does not belong to the selected installation.");
@@ -618,8 +618,8 @@
           !/^[A-Za-z0-9-]+$/.test(backupName)) throw new Error("Invalid update backup name.");
       if (inspectOnly && await workspace.queryPermission({mode:"readwrite"}) !== "granted")
         throw new Error("Local read/write permission is required before recovery can be verified.");
-      await permission(workspace);
-      await assertTarget(app, workspace, identity);
+      await permission(workspace, !inspectOnly);
+      await assertTarget(app, workspace, identity, !inspectOnly);
       const root = await backupRoot(workspace);
       const backup = await root.getDirectoryHandle(backupName, { create: false });
       const bytes = await read(backup, "journal.json");
@@ -658,7 +658,7 @@
         if (!["prepared", "applying"].includes(record.status))
           throw new Error("This journal is not an unfinished application update.");
         for (const item of record.inventory) {
-          await assertTarget(app, workspace, identity);
+          await assertTarget(app, workspace, identity, !inspectOnly);
           if (!item.existed) continue;
           const original = await read(backup, backupPath(item));
           if (original === null || await digest(original, subtle) !== item.sha256)
@@ -668,7 +668,7 @@
       }
       await progress(onProgress, { phase: "recovery", percent: 15, label: "Restoring previous version", detail: "Backup verified" });
       await restore(app, workspace, backup, record.inventory, subtle, onProgress, 15, 95, identity);
-      await assertTarget(app, workspace, identity);
+      await assertTarget(app, workspace, identity, !inspectOnly);
       await journal(backup, { status: "restored", installationId: record.installationId, inventory: record.inventory });
       await progress(onProgress, { phase: "complete", percent: 100, label: "Recovery complete", detail: "Original application files were verified restored" });
       return { status: "restored" };
