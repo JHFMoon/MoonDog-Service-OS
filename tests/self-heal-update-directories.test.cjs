@@ -139,3 +139,36 @@ test("verified package restores a missing approved app.js but never invents a mi
   assert.equal(unrecognized.state.files.get("System Files/Workspace/data/current-state.json").toString(),
     "synthetic private data");
 });
+
+test("a repaired installation cannot mutate a separate synthetic store", async () => {
+  const first=await setup({includeScript:true});
+  const second=await setup({includeScript:true});
+  first.state.dirs.delete("System Files/assets");
+  first.state.files.delete("System Files/assets/old.js");
+  const otherFiles=new Map([...second.state.files].map(([key,value])=>[key,Buffer.from(value)]));
+  const otherDirs=new Set(second.state.dirs);
+  const result=await first.run();
+  assert.equal(result.status,"installed",result.reason);
+  assert.deepEqual(second.state.dirs,otherDirs);
+  assert.deepEqual(second.state.files,otherFiles);
+  assert.equal(first.state.files.get("System Files/Workspace/data/current-state.json").toString(),
+    "synthetic private data");
+});
+
+test("repeat verified update is safe and preserves store-specific bytes", async () => {
+  const fixture=await setup({includeScript:true});
+  fixture.state.dirs.delete("System Files/assets");
+  fixture.state.files.delete("System Files/assets/old.js");
+  assert.equal((await fixture.run()).status,"installed");
+  const originals=new Map([...fixture.state.files].filter(([key])=>
+    key==="System Files/Workspace/data/current-state.json"
+  ).map(([key,value])=>[key,Buffer.from(value)]));
+  const second=await fixture.run();
+  assert.equal(second.status,"installed",second.reason);
+  assert.deepEqual(
+    new Map([...fixture.state.files].filter(([key])=>originals.has(key))),
+    originals);
+  assert.equal(fixture.state.files.get("System Files/assets/new.js").toString(),"new");
+  assert.equal(fixture.state.files.get("System Files/assets/app.js").toString(),
+    "verified replacement application script");
+});
