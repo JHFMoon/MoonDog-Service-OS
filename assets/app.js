@@ -8473,6 +8473,18 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
       throw new Error("Another Workspace operation started. Fresh Installation did not start.");
     await assertSameInstallation();
+    // Confirmations live in the production reset itself, not just the caller:
+    // a direct invocation of the exported method cannot silently erase data.
+    const targetName=installation.name || "selected MoonDog installation";
+    const confirmedOnce=typeof globalThis.confirm==="function" &&
+      globalThis.confirm(`Are you sure?\\n\\nFresh Installation will permanently erase every store-specific file, report, history entry and internal backup inside “${targetName}/System Files/Workspace”.\\n\\nOther installations and application files must remain untouched.`);
+    if(!confirmedOnce)return {status:"cancelled"};
+    const confirmedTwice=typeof globalThis.confirm==="function" &&
+      globalThis.confirm(`Are you really sure?\\n\\nThis permanently removes ALL dealership information from the selected installation “${targetName}” with NO safety backup. This cannot be undone.`);
+    if(!confirmedTwice)return {status:"cancelled"};
+    await assertSameInstallation();
+    if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation started before final confirmation. No files were deleted.");
     // Only the verified Workspace is destructively cleared. The runtime,
     // launcher, other directories and every other installed copy remain outside.
     newStoreBusy=true;
