@@ -29,7 +29,8 @@
     dismissed: saved.dismissed || null, check: null, checkFor: null,
     recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false,
     recoveryScanPending: false, recoveryScanFailed: false, busy: false, progress: null,
-    progressChangedAt: 0, progressStalled: false, freshResetUnresolved: false };
+    progressChangedAt: 0, progressStalled: false, freshResetUnresolved: false,
+    postUpdateFresh: null, postUpdateScanPending: false, postUpdateScanFailed: false };
   const appRoot = () => global.__moondogSettingsModel?.applicationRoot || null;
   const applicationFiles = async () => {
     // applicationRoot is the selected top-level installation folder, which
@@ -39,16 +40,20 @@
     return installation.getDirectoryHandle("System Files", { create: false });
   };
   function clearPlan() { planText.textContent = ""; planText.hidden = true; }
+  function postUpdateReady() {
+    const receipt=state.postUpdateFresh;
+    return Boolean(receipt && receipt.root===appRoot() && receipt.version===declaredBetaVersion &&
+      receipt.channel==="beta" && !currentOffer());
+  }
   function freshAvailable() {
     const target=appRoot();
-    // .374 can only use its original updater to install the next Beta first.
-    // The verified new runtime supplies this hook after automatic reload.
     return Boolean(target && declaredBetaVersion && installedChannel==="beta" &&
-      state.channel==="beta" && currentOffer() && state.check?.status==="newer-version" &&
+      state.channel==="beta" &&
+      ((currentOffer() && state.check?.status==="newer-version") || postUpdateReady()) &&
       !state.busy && !state.recoveryRequired && !state.freshResetUnresolved && !state.hasRecoverable &&
       !state.recoveryScanPending && !state.recoveryScanFailed &&
-      typeof target.isSameEntry==="function" &&
-      typeof target.resolve==="function" &&
+      !state.postUpdateScanPending && !state.postUpdateScanFailed &&
+      typeof target.isSameEntry==="function" && typeof target.resolve==="function" &&
       typeof global.__moondogFreshInstallation?.resetSelectedFreshInstallation==="function");
   }
   function currentOffer() {
@@ -57,6 +62,55 @@
       stamp?.channel === state.channel && stamp.version === comparisonVersion &&
       stamp.root === appRoot() && /^https:\/\//.test(result.packageUrl || "") &&
       /^[0-9a-f]{64}$/.test(result.sha256 || "");
+  }
+  // A legacy Beta can only install the new runtime first. After reload, a
+  // *new* manual Fresh choice is possible only when this exact installation
+  // contains a verified installer journal for the version currently running.
+  // Shared localStorage and folder names never provide reset authorization.
+  async function readVerifiedPostUpdate(root, version) {
+    if (!root || !/^\d+\.\d+\.\d+-beta\.\d+$/.test(version)) return null;
+    let backups;
+    try {
+      const system=await root.getDirectoryHandle("System Files",{create:false});
+      const workspace=await system.getDirectoryHandle("Workspace",{create:false});
+      const backupRoot=await workspace.getDirectoryHandle("backups",{create:false});
+      backups=await backupRoot.getDirectoryHandle("system-updates",{create:false});
+    } catch(error) {
+      if(error?.name==="NotFoundError")return null;
+      throw error;
+    }
+    let receipt=null,checked=0;
+    for await (const [name,folder] of backups.entries()) {
+      if(folder.kind!=="directory" || !/^MoonDog-Update-Backup-[A-Za-z0-9-]+$/.test(name))continue;
+      if(++checked>5000)throw new Error("Too many update journals to verify Fresh safely.");
+      let journal;
+      try {journal=await folder.getFileHandle("journal.json",{create:false});}
+      catch(error){if(error?.name==="NotFoundError")continue;throw error;}
+      let record;
+      try {record=JSON.parse(await (await journal.getFile()).text());}
+      catch(_) {throw new Error("An update journal could not be verified; Fresh is blocked.");}
+      if(record?.status!=="verified" || record.verifiedUpdate?.version!==version)continue;
+      const update=record.verifiedUpdate;
+      if(update.channel!=="beta" || !/^[a-f0-9]{64}$/.test(update.sha256||"") ||
+          !Number.isFinite(Date.parse(update.verifiedAt||"")))
+        throw new Error("The current Beta update journal is incomplete; Fresh is blocked.");
+      if(receipt)throw new Error("Multiple matching Beta update journals require manual review.");
+      receipt={root,status:"installed",channel:"beta",version,sha256:update.sha256,backupName:name};
+    }
+    return receipt;
+  }
+  async function inspectPostUpdateFresh() {
+    const root=appRoot();
+    state.postUpdateFresh=null;
+    if(!root || !declaredBetaVersion){state.postUpdateScanPending=false;render();return;}
+    state.postUpdateScanPending=true;
+    state.postUpdateScanFailed=false;
+    render();
+    try{
+      const receipt=await readVerifiedPostUpdate(root,declaredBetaVersion);
+      if(root===appRoot())state.postUpdateFresh=receipt;
+    }catch(_){if(root===appRoot())state.postUpdateScanFailed=true;}
+    finally{if(root===appRoot()){state.postUpdateScanPending=false;render();}}
   }
   async function refreshRecovery() {
     const root = appRoot();
@@ -126,6 +180,7 @@
       }
     } catch (_) { /* The baseline or Beta 1 marker remains authoritative. */ }
     refreshRecovery();
+    void inspectPostUpdateFresh();
   }
   const card = document.createElement("section");
   card.className = "card settings-card";
@@ -301,12 +356,17 @@
       "Update Current Installation";
     installButton.disabled = state.busy || state.recoveryRequired || state.freshResetUnresolved || state.hasRecoverable || state.recoveryScanPending || !currentOffer();
     freshButton.hidden = state.channel !== "beta" || result?.status === "channel-switch";
+    freshButton.textContent = postUpdateReady() ? "Finish Fresh After Verified Update" : "Update to Fresh Installation";
     freshButton.disabled = !freshAvailable();
     field("updateChoiceNote").textContent = freshButton.hidden ?
       "Update Current Installation preserves all dealership information." :
       freshAvailable() ?
-        "Ready: the selected parent installation folder is shown above. Fresh permanently erases only its Workspace, including reports, settings, history and internal backups. Two separate warnings require your approval; the launcher and app runtime remain." :
-        "Fresh requires a newer verified Beta offer, a supported existing Beta installation with a connected writable folder, and no pending recovery. Older Betas must first install a Beta that supports this choice. No files are deleted automatically.";
+        (postUpdateReady() ?
+          "The selected installation has a verified update journal for this running Beta. Finish Fresh requires selecting the exact installation again and two destructive confirmations. No new update is needed; this resets only its Workspace." :
+          "Ready: the selected parent installation folder is shown above. Fresh permanently erases only its Workspace, including reports, settings, history and internal backups. Two separate warnings require your approval; the launcher and app runtime remain.") :
+        state.postUpdateScanFailed ?
+          "The selected installation's update journals cannot be verified. Fresh is blocked until folder access and journals are reviewed." :
+          "Fresh requires either a newer verified Beta offer or a verified Beta update journal matching the installed version, plus connected folder access and no pending recovery. No files are deleted automatically.";
     if(state.freshResetUnresolved)
       field("updateChoiceNote").textContent="Fresh Installation is unresolved in this tab after a verified update. Do not retry updates or use this copy until its durable recovery hold is reviewed. Other installations are unaffected.";
     field("checkMoonDogUpdate").disabled = state.busy;
@@ -394,9 +454,55 @@
       status.textContent="Selected folder does not match the connected installation. No update or deletion was performed.";
       return;
     }
-    return installUpdate(true,chosen);
+    return postUpdateReady() ? finishPostUpdateFresh(chosen) : installUpdate(true,chosen);
   });
   installButton.addEventListener("click", () => installUpdate(false));
+  async function finishPostUpdateFresh(confirmedRoot) {
+    if(!freshAvailable() || !postUpdateReady() || !confirmedRoot)return;
+    const selectedRoot=appRoot(),receipt=state.postUpdateFresh;
+    let resetStarted=false,finished=false;
+    state.busy=true;render();
+    try{
+      if(selectedRoot!==appRoot() || !(await confirmedRoot.isSameEntry(selectedRoot)))
+        throw new Error("The installation folder changed. No data was deleted.");
+      await setProgress({phase:"fresh-check",percent:null,label:"Verifying completed Beta update",
+        detail:"Checking this installation's durable update journal and recovery status"});
+      await refreshRecovery();
+      if(selectedRoot!==appRoot() || state.recoveryRequired || state.hasRecoverable ||
+          state.recoveryScanPending || state.recoveryScanFailed)
+        throw new Error("Update recovery or installation identity is unresolved. Fresh is blocked.");
+      // Re-read immediately before reset. A cached or cross-store browser value
+      // can never become a destructive installer receipt.
+      const current=await readVerifiedPostUpdate(selectedRoot,declaredBetaVersion);
+      if(selectedRoot!==appRoot() || !current || current.backupName!==receipt.backupName ||
+          current.sha256!==receipt.sha256 || current.version!==installedVersion)
+        throw new Error("This installation's verified Beta update receipt changed. No data was deleted.");
+      const reset=global.__moondogFreshInstallation?.resetSelectedFreshInstallation;
+      if(typeof reset!=="function")throw new Error("Fresh reset is not available.");
+      resetStarted=true;
+      const outcome=await reset({selectedRoot,expectedRoot:selectedRoot,verifiedInstall:current,
+        onProgress:event=>setProgress({...event,percent:event.percent??null})});
+      if(outcome?.status==="cancelled"){
+        status.textContent="Fresh Installation cancelled. Existing store data is preserved.";
+        clearProgress();
+      }else if(outcome?.status==="fresh"){
+        finished=true;
+        state.postUpdateFresh=null;
+        status.textContent="Selected Workspace cleared and verified. Reloading Guided Setup.";
+        await setProgress({phase:"complete",percent:100,label:"Fresh Installation verified",
+          detail:"Only the selected installation was reset; loading Guided Setup"});
+      }else throw new Error("Fresh reset was not verified.");
+    }catch(error){
+      if(resetStarted)state.freshResetUnresolved=true;
+      status.textContent=(resetStarted?"Fresh Installation unresolved. ":"")+
+        (error?.message||"Fresh could not be verified.");
+      await setProgress({phase:"error",percent:null,label:"Fresh Installation blocked",
+        detail:error?.message||"No clean-store state can be claimed."});
+    }finally{
+      state.busy=false;render();
+      if(finished)reloadVerifiedUpdate(installedVersion);
+    }
+  }
   async function installUpdate(fresh = false, confirmedRoot = null) {
     if (fresh && (!freshAvailable()||!confirmedRoot)) return;
     // Never reconstruct a destructive choice or installation identity from shared storage.
