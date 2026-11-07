@@ -387,3 +387,56 @@ test("permission loss during resumed deletion retains hold and protects other st
   assert.match(await get(h.storeB,"System Files/MOONDOG_FRESH_RESET_PENDING.json"),/"incomplete"/);
   assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
 });
+
+
+test("busy background Workspace task returns typed preflight, without marker or deletion",async()=>{
+  const h=await harness();
+  h.context.workspaceConnectionBlockReason=()=>"Synthetic post-connection scan running";
+  const error=await h.reset().then(()=>null,e=>e);
+  assert.equal(error?.code,"MOONDOG_FRESH_PRECHECK_BUSY");
+  assert.equal(error?.freshMutationStarted,false);
+  assert.match(String(error),/Fresh Installation did not start/);
+  assert.equal(h.confirmationPrompts.length,0);
+  assert.equal(await get(h.storeB,prefix+"backups/internal.zip"),"synthetic-private-backup");
+  assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
+  await assert.rejects((await h.storeB.getDirectoryHandle("System Files"))
+    .getFileHandle("MOONDOG_FRESH_RESET_PENDING.json"),e=>e.name==="NotFoundError");
+});
+test("background task starting after both confirmations stays pre-mutation and keeps originals",async()=>{
+  const h=await harness();
+  let checks=0;
+  h.context.workspaceConnectionBlockReason=()=>++checks>=3?"Synthetic pending work":"";
+  const error=await h.reset().then(()=>null,e=>e);
+  assert.equal(error?.code,"MOONDOG_FRESH_PRECHECK_BUSY");
+  assert.equal(error?.freshMutationStarted,false);
+  assert.equal(h.confirmationPrompts.length,2);
+  assert.equal(await get(h.storeB,prefix+"data/settings.json"),
+    JSON.stringify({store:{name:"SYNTHETIC-B"}}));
+  assert.equal(await get(h.storeA,prefix+"data/settings.json"),
+    JSON.stringify({store:{name:"SYNTHETIC-A"}}));
+  await assert.rejects((await h.storeB.getDirectoryHandle("System Files"))
+    .getFileHandle("MOONDOG_FRESH_RESET_PENDING.json"),e=>e.name==="NotFoundError");
+});
+
+test("background scan clears during bounded wait and Fresh runs only after two confirmations",async()=>{
+ const h=await harness();let polls=0;
+ h.context.workspaceConnectionBlockReason=()=>polls<3?"synthetic scan busy":"";
+ h.context.setTimeout=callback=>{polls++;callback();};
+ const progress=[],result=await h.reset({onProgress:p=>progress.push(p)});
+ assert.equal(result.status,"fresh");assert.ok(polls>=3);
+ assert.equal(h.confirmationPrompts.length,2);
+ assert.ok(progress.some(p=>/Waiting for MoonDog/.test(p.label)));
+ assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
+});
+test("never starts Fresh when busy scan remains stuck after bounded wait",async()=>{
+ const h=await harness();let polls=0;
+ h.context.workspaceConnectionBlockReason=()=>"synthetic stuck task";
+ h.context.setTimeout=callback=>{polls++;callback();};
+ const e=await h.reset().then(()=>null,e=>e);
+ assert.equal(e?.code,"MOONDOG_FRESH_PRECHECK_BUSY");
+ assert.equal(e?.freshMutationStarted,false);assert.equal(polls,40);
+ assert.equal(h.confirmationPrompts.length,0);
+ assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
+ assert.equal(await get(h.storeB,prefix+"backups/internal.zip"),"synthetic-private-backup");
+ await assert.rejects((await h.storeB.getDirectoryHandle("System Files")).getFileHandle("MOONDOG_FRESH_RESET_PENDING.json"),e=>e.name==="NotFoundError");
+});
