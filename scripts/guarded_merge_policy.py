@@ -236,8 +236,12 @@ def merge_review_state(comments: list, reviews: list, expected_head: str, policy
     missing provider, stale summary or absent AI review supplies no positive
     evidence, and is not a failure for an automatically eligible change.
     """
-    comments = comments if isinstance(comments, list) else []
-    reviews = reviews if isinstance(reviews, list) else []
+    # [] is authenticated absence; malformed or unavailable input is unknown.
+    # Unknown must veto even an otherwise automatically eligible change.
+    if (not isinstance(comments, list) or not isinstance(reviews, list) or
+        any(not isinstance(item, dict) for item in comments + reviews) or
+        not isinstance(expected_head, str) or not re.fullmatch(r"[0-9a-f]{40}", expected_head)):
+        return "findings"
     legacy = codex_review_state(comments, expected_head)
     enabled = (has_standing_authorization(policy)
                and policy.get("owner_review_attestation") == "enabled"
@@ -315,6 +319,9 @@ def main() -> int:
         else:
             reviews = []
     except (OSError, ValueError):
+        if args.command == "merge-review-state":
+            print("Cannot verify authenticated review evidence", file=sys.stderr)
+            return 2
         print("pending")
         return 0
     state = (

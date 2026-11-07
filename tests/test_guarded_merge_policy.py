@@ -309,6 +309,27 @@ class ProviderIndependentResolutionTests(unittest.TestCase):
         ]:
             self.assertEqual(merge_review_state(comments, reviews, HEAD, POLICY), 'findings')
 
+    def test_unavailable_or_malformed_review_metadata_never_looks_like_absence(self):
+        for comments, reviews, head in [(None, [], HEAD), ([], {}, HEAD),
+                                        ([None], [], HEAD), ([], ["invalid"], HEAD),
+                                        ([], [], None), ([], [], "invalid")]:
+            self.assertEqual(merge_review_state(comments, reviews, head, POLICY), 'findings')
+        self.assertEqual(merge_review_state([], [], HEAD, POLICY), 'pending')
+
+    def test_unreadable_combined_review_inputs_fail_the_cli(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder/'comments.json').write_text('{invalid')
+            (folder/'reviews.json').write_text('[]')
+            (folder/'policy.json').write_text(json.dumps(POLICY))
+            result = subprocess.run([sys.executable, str(root/'scripts/guarded_merge_policy.py'),
+                'merge-review-state', str(folder/'comments.json'), str(folder/'reviews.json'),
+                HEAD, '--policy', str(folder/'policy.json')], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout, '')
+            self.assertIn('Cannot verify', result.stderr)
+
     def test_actual_workflow_decision_accepts_missing_ai_for_automatic_scope_only(self):
         import os
         root = Path(__file__).resolve().parents[1]
