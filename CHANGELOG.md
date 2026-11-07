@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.395 — current Beta
+
+- fix(fresh): do not misclassify busy preflight as interrupted reset. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.394 — current Beta
 
 - feat(onboarding): one-page setup for nontechnical managers. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
