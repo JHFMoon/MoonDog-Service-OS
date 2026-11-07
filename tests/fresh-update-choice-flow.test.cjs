@@ -53,7 +53,7 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
       minimumCompatibleVersion:"0.10.9",migrationRequired:false};}},
     MoonDogPackagePlan:{dryRun:async()=>{events.push(["plan"]);return {add:[],replace:[],
       delete:[],unchanged:[],rejected:[]};}},
-    MoonDogUpdateInstall:{listBackups:async()=>[],apply:async()=>{events.push(["apply"]);return installerResult;}},
+    MoonDogUpdateInstall:{listBackups:async()=>options.backups||[],apply:async()=>{events.push(["apply"]);return installerResult;}},
     document:{getElementById:name=>name==="view-settings"?{querySelector:()=>({append(){}})}:null,
       createElement:()=>card,querySelector:()=>null,addEventListener(){}},
     localStorage:{getItem:()=>JSON.stringify({channel:"beta",lastCheck:"2099-01-01T00:00:00.000Z"}),setItem:key=>storageWrites.push(key)},
@@ -234,4 +234,52 @@ test("post-reload Fresh cancellation never deletes or writes a shared follow-up"
   assert.deepEqual(h.events.map(e=>e[0]),["fresh-cancelled"]);
   assert.match(h.field("updateStatus").textContent,/cancelled/);
   assert.equal(h.storageWrites.includes("moondog-verified-update-followup-v1"),false);
+});
+
+test("rollback recovery refuses an async root change rather than mixing application and Workspace",async()=>{
+  const h=harness(undefined,{backups:["MoonDog-Update-Backup-synthetic"]});
+  await h.settle();
+  const other={name:"Unrelated-Synthetic-Store",getDirectoryHandle:async()=>({})};
+  h.root.getDirectoryHandle=async()=>{
+    h.context.__moondogSettingsModel.applicationRoot=other;
+    return {name:"System Files from original store"};
+  };
+  h.context.MoonDogUpdateInstall.recover=async opts=>{
+    h.events.push(["recover",opts.appDirectoryHandle,opts.workspaceDirectoryHandle]);
+    return {status:"restored"};
+  };
+  await h.listeners.get("recoverMoonDogUpdate:click")();
+  assert.deepEqual(h.events.filter(e=>e[0]==="recover"),[]);
+  assert.match(h.field("updateStatus").textContent,/Selected installation changed while opening recovery files/);
+});
+
+test("rollback recovery pins both handles to the same selected installation",async()=>{
+  const h=harness(undefined,{backups:["MoonDog-Update-Backup-synthetic"]});
+  await h.settle();
+  const system={name:"System Files selected"};
+  h.root.getDirectoryHandle=async()=>system;
+  h.context.MoonDogUpdateInstall.recover=async opts=>{
+    h.events.push(["recover",opts.appDirectoryHandle,opts.workspaceDirectoryHandle,opts.backupName]);
+    return {status:"restored"};
+  };
+  await h.listeners.get("recoverMoonDogUpdate:click")();
+  const [event]=h.events.filter(e=>e[0]==="recover");
+  assert.ok(event,"the synthetic selected-store recovery should proceed");
+  assert.equal(event[1],system);
+  assert.equal(event[2],h.root);
+  assert.equal(event[3],"MoonDog-Update-Backup-synthetic");
+});
+
+test("rollback recovery refuses a root swap during backup inventory scan",async()=>{
+  const h=harness(undefined,{backups:["MoonDog-Update-Backup-synthetic"]});
+  await h.settle();
+  const other={name:"Unrelated-Synthetic-Store"};
+  h.context.MoonDogUpdateInstall.listBackups=async()=>{
+    h.context.__moondogSettingsModel.applicationRoot=other;
+    return ["MoonDog-Update-Backup-synthetic"];
+  };
+  h.context.MoonDogUpdateInstall.recover=async()=>{h.events.push(["recover"]);return {status:"restored"};};
+  await h.listeners.get("recoverMoonDogUpdate:click")();
+  assert.deepEqual(h.events.filter(e=>e[0]==="recover"),[]);
+  assert.match(h.field("updateStatus").textContent,/Selected installation changed while checking recovery backups/);
 });
