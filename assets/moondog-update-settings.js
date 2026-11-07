@@ -677,22 +677,34 @@
           "Recovery check complete. No interrupted update backups were found.";
       return;
     }
+    // Recovery must pin the same selected installation for its rollback files
+    // and Workspace. Reconnecting another store during any await fails closed.
+    const recoveryRoot = appRoot();
     try {
-      const backups = await global.MoonDogUpdateInstall.listBackups(appRoot());
+      const backups = await global.MoonDogUpdateInstall.listBackups(recoveryRoot);
+      if (recoveryRoot !== appRoot())
+        throw new Error("Selected installation changed while checking recovery backups. Nothing was restored.");
       if (!backups.length) { status.textContent = "No update rollback backups were found in System Files/Workspace/backups/system-updates/."; return; }
       const selection = backups.length === 1 ? "1" : global.prompt(`Select an update backup number from System Files/Workspace/backups/system-updates/:\n\n${backups.map((_, index) => `Backup ${index + 1}`).join("\n")}`, "1");
       const backupName = /^\d+$/.test(selection || "") ? backups[Number(selection) - 1] : null;
       if (!backupName) { status.textContent = "Recovery cancelled or backup not found."; return; }
-      if (!global.confirm(`Restore Service Operations Dashboard application files from update backup ${selection} in System Files/Workspace/backups/system-updates/?`)) return;
+      if (!global.confirm(`Restore Service Operations Dashboard application files from update backup ${selection} in selected installation “${recoveryRoot.name || "MoonDog"}”?`)) return;
+      if (recoveryRoot !== appRoot())
+        throw new Error("Selected installation changed after recovery confirmation. Nothing was restored.");
       state.busy = true; render();
       await setProgress({ phase: "recovery", percent: 5, label: "Preparing recovery", detail: "Checking the selected rollback backup" });
       const catalog = [...new Set([...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
         "assets/moondog-update-verify.js", "assets/moondog-update-plan.js",
         "assets/moondog-update-model.js", "assets/moondog-update-install.js",
         "assets/moondog-update-settings.js"])];
-      const outcome = await global.MoonDogUpdateInstall.recover({ appDirectoryHandle: await applicationFiles(), workspaceDirectoryHandle: appRoot(),
-        backupName, trustedAllowlist: catalog, confirmed: true,
-        onProgress: event => setProgress(event) });
+      const recoverySystem = await recoveryRoot.getDirectoryHandle("System Files", { create: false });
+      if (recoveryRoot !== appRoot())
+        throw new Error("Selected installation changed while opening recovery files. Nothing was restored.");
+      const outcome = await global.MoonDogUpdateInstall.recover({ appDirectoryHandle: recoverySystem,
+        workspaceDirectoryHandle: recoveryRoot, backupName, trustedAllowlist: catalog,
+        confirmed: true, onProgress: event => setProgress(event) });
+      if (recoveryRoot !== appRoot())
+        throw new Error("Selected installation changed during recovery. Verify the original store before proceeding.");
       status.textContent = outcome.status === "restored" ?
         "Original application files were verified restored. Restart Service Operations Dashboard." :
         `Recovery could not be verified. Keep the backup intact. ${outcome.reason || ""}`;
