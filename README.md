@@ -6,6 +6,8 @@ This repository is the public source, clean-install distribution authority, and 
 
 See [Source and data boundary](docs/SOURCE-OF-TRUTH.md), [Data Boundary](docs/DATA-BOUNDARY.md), [Architecture](docs/ARCHITECTURE.md), [Offline distribution](docs/DISTRIBUTION.md), [Stable release process](docs/RELEASE-PROCESS.md), and [CHANGELOG.md](CHANGELOG.md).
 
+For an installation that cannot open, download [repair-moondog.html](repair-moondog.html) using GitHub’s **Download raw file** button, then open the downloaded page in Edge. It checks the selected installation and offers a verified Beta software repair without resetting Workspace data. Unknown layouts or missing private data require local recovery review.
+
 ## Current channels
 
 - **Stable:** `0.10.17` ([GitHub Release](https://github.com/JHFMoon/MoonDog-Service-OS/releases/tag/v0.10.17))

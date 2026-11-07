@@ -447,3 +447,18 @@ test('persistent stream-opening lock exhausts three attempts and verifies rollba
   assert.equal(h.state.files.has('System Files/assets/new.js'),false);
   assert.deepEqual(privateFiles(h),before);
 });
+
+test('recognized clean-install software manifest permits entry-page repair without inventing private data',async()=>{
+  const h=await setup({includeScript:true});const before=privateFiles(h);
+  h.state.files.delete('System Files/index.html');h.state.files.delete('index.html');
+  h.state.files.set('INSTALLATION-MANIFEST.json',Buffer.from(JSON.stringify({
+    format:'service-operations-dashboard-clean-install',formatVersion:1,version:'0.10.17',
+    applicationRoot:'System Files',workspaceRoot:'System Files/Workspace',
+    launcher:'00 - OPEN DASHBOARD.html',workspaceProtectedFromUpdates:true,
+    files:[{path:'System Files/index.html',sha256:digest(Buffer.from(h.old))}]
+  })));
+  const result=await h.run();assert.equal(result.status,'installed',result.reason);
+  assert.equal(h.state.files.get('System Files/index.html').toString(),h.next);
+  assert.equal(h.state.files.get('index.html').toString(),compat(h.next));
+  assert.deepEqual(privateFiles(h),before);
+});

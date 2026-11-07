@@ -315,8 +315,20 @@
         reason: "An earlier application update needs recovery before another update.",
         backupName: pending[0]
       };
-      if (trustedAllowlist.includes("index.html") && await read(app, "index.html") === null) {
-        throw new Error("The connected application folder has no index.html.");
+      const missingEntry = trustedAllowlist.includes("index.html") && await read(app, "index.html") === null;
+      if (missingEntry) {
+        // An unstartable clean installation can identify itself using its
+        // software-only manifest. Never infer identity from dealership files.
+        let manifest;
+        try { manifest = JSON.parse(decoder.decode(await read(workspace, "INSTALLATION-MANIFEST.json"))); }
+        catch (_) {}
+        if (manifest?.format !== "service-operations-dashboard-clean-install" || manifest.formatVersion !== 1 ||
+            manifest.applicationRoot !== "System Files" || manifest.workspaceRoot !== "System Files/Workspace" ||
+            manifest.launcher !== LAUNCHER_PATH || manifest.workspaceProtectedFromUpdates !== true ||
+            !/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(manifest.version || "") ||
+            !Array.isArray(manifest.files) || !manifest.files.some(item => item?.path === "System Files/index.html" &&
+              /^[0-9a-f]{64}$/.test(item.sha256 || "")))
+          throw new Error("The connected application folder has no index.html or recognized clean-install identity.");
       }
       // Never invent a missing private Workspace or cross an interrupted Fresh
       // boundary. Both checks are read-only and precede all new update writes.
@@ -343,6 +355,8 @@
           !contents.files.some(entry => entry.path === "assets/app.js" && entry.action === "put")) {
         throw new Error("Required application script is missing from the verified repair package.");
       }
+      if (missingEntry && !contents.files.some(entry => entry.path === "index.html" && entry.action === "put"))
+        throw new Error("Required application entry is missing from the verified repair package.");
       const definition = structure(contents, verifiedPackage, trustedAllowlist);
       await verifyExistingStructure(app, definition, subtle);
       await progress(onProgress, { phase: "health-check", percent: 14, label: "Checking",
