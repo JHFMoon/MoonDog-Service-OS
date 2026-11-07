@@ -379,11 +379,12 @@
   }catch(_){/* Unsupported observers never affect startup. */}
   const BUILD_DATE = "2026-10-07";
   const DB_NAME = "moondog-operations-local";
-  // Chromium shares IndexedDB across file URLs. Keep the newly prepared
-  // launcher separate from the legacy saved folder and other new stores.
-  const newStoreLauncher = globalThis.location?.protocol === "file:" &&
-    new URLSearchParams(globalThis.location.search).get("moondog-new-store") === "1";
-  const HANDLE_KEY = newStoreLauncher ? "working-folder:" + globalThis.location.pathname : "working-folder";
+  // Chromium can share IndexedDB across file URLs. Every local launcher
+  // needs its own saved handle, including ordinary copied installations.
+  // Do not read the old unscoped key: it may belong to another store. One
+  // explicit folder reconnect on upgraded legacy copies is safer.
+  const HANDLE_KEY = globalThis.location?.protocol === "file:"
+    ? "working-folder:" + globalThis.location.pathname : "working-folder";
   const STATE_PATH = ["data", "current-state.json"];
   const SETTINGS_PATH = ["data", "settings.json"];
   const SOURCE_ADAPTER_BOOTSTRAP_PATH = ["data", "source-adapter-bootstrap.json"];
@@ -864,7 +865,8 @@
     if (state === "SAVED HANDLE UNAVAILABLE") { ui.permissionBadge.textContent = "Folder not connected"; ui.connectButton.textContent = "Choose working folder"; ui.connectButton.disabled = false; }
     if (state === "CONNECTION ERROR") {
       ui.permissionBadge.textContent = "Connection error";
-      ui.connectButton.textContent = model.pendingRoot ? "Retry saved folder" : "Choose working folder";
+      ui.connectButton.textContent = model.pendingRoot&&model.pendingRoot===model.freshResetRecoveryRoot ?
+        "Review interrupted Fresh reset" : model.pendingRoot ? "Retry saved folder" : "Choose working folder";
       ui.connectButton.disabled = false;
     }
     if (state === "CONNECTED") {
@@ -1344,7 +1346,128 @@
   async function rememberRoot(handle) { const db = await openHandleDb(); await new Promise((resolve, reject) => { const tx = db.transaction("handles", "readwrite"); tx.objectStore("handles").put(handle, HANDLE_KEY); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); db.close(); }
   async function recallRoot() { const db = await openHandleDb(); const handle = await new Promise((resolve, reject) => { const tx = db.transaction("handles", "readonly"); const request = tx.objectStore("handles").get(HANDLE_KEY); request.onsuccess = () => resolve(request.result || null); request.onerror = () => reject(request.error); }); db.close(); return handle; }
   const WORKSPACE_PREFIX = ["System Files", "Workspace"];
-  async function operationalRoot(handle) { return (await handle.getDirectoryHandle(WORKSPACE_PREFIX[0])).getDirectoryHandle(WORKSPACE_PREFIX[1]); }
+  // This recovery hold must survive removal of System Files/Workspace itself.
+  const FRESH_RESET_MARKER="MOONDOG_FRESH_RESET_PENDING.json";
+  async function operationalRoot(handle) {
+    const system=await handle.getDirectoryHandle(WORKSPACE_PREFIX[0],{create:false});
+    try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});}
+    catch(error){
+      if(error?.name!=="NotFoundError")throw error;
+      return system.getDirectoryHandle(WORKSPACE_PREFIX[1],{create:false});
+    }
+    const error=new Error("Fresh Installation cleanup is incomplete for this copy. Normal data loading is blocked until its recovery is reviewed.");
+    error.code="FRESH_RESET_INCOMPLETE";
+    throw error;
+  }
+  // This path is only called after an explicit recovery click. Startup and
+  // saved-folder reconnection always fail closed on an interrupted reset.
+  async function resumeInterruptedFreshInstallation(){
+    const root=model.pendingRoot;
+    if(!root||root!==model.freshResetRecoveryRoot||model.root||model.applicationRoot||
+       connectedNativeRoot||newStoreBusy||workspaceConnectionBusy||workspaceRecoveryBusy||
+       workspaceConnectionBlockReason())
+      throw new Error("Finish other Workspace operations before recovering an interrupted Fresh reset.");
+    if(typeof root.isSameEntry!=="function"||typeof root.resolve!=="function")
+      throw new Error("The selected installation handle cannot be verified.");
+    let granted=await root.queryPermission({mode:"readwrite"});
+    if(granted!=="granted"&&typeof root.requestPermission==="function")
+      granted=await root.requestPermission({mode:"readwrite"});
+    if(granted!=="granted")throw new Error("Read/write access is required for interrupted Fresh recovery.");
+    const system=await root.getDirectoryHandle("System Files",{create:false});
+    await system.getFileHandle("index.html",{create:false});
+    const workspace=await system.getDirectoryHandle("Workspace",{create:false});
+    const path=await root.resolve(workspace);
+    if(!Array.isArray(path)||path.length!==2||path[0]!=="System Files"||path[1]!=="Workspace")
+      throw new Error("The exact selected Workspace boundary could not be verified.");
+    const readIntent=async()=>{
+      const marker=await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+      let value;
+      try{value=JSON.parse(await(await marker.getFile()).text());}
+      catch(_){throw new Error("Unreadable interrupted Fresh marker requires manual support review.");}
+      if(value?.schemaVersion!==1||value.status!=="incomplete"||
+        !/^\d+\.\d+\.\d+-beta\.\d+$/.test(value.version||"")||
+        !/^[a-f0-9]{64}$/.test(value.sha256||"")||
+        !/^MoonDog-Update-Backup-[A-Za-z0-9-]+$/.test(value.backupName||""))
+        throw new Error("Invalid interrupted Fresh marker requires manual support review.");
+      return value;
+    };
+    const intent=await readIntent(),expected=JSON.stringify(intent);
+    const sameTarget=async()=>{
+      if(model.pendingRoot!==root||model.freshResetRecoveryRoot!==root||
+         model.root||model.applicationRoot||connectedNativeRoot||
+         !(await root.isSameEntry(model.pendingRoot)))
+        throw new Error("The selected installation changed; incomplete Fresh remains blocked.");
+      if(await root.queryPermission({mode:"readwrite"})!=="granted")
+        throw new Error("Write access was lost; incomplete Fresh remains blocked.");
+      if(JSON.stringify(await readIntent())!==expected)
+        throw new Error("The durable reset marker changed; incomplete Fresh remains blocked.");
+    };
+    // A nested MoonDog launcher must never be deleted as a recovery shortcut.
+    let scanned=0;
+    async function scan(dir){
+      for await(const [name,item] of dir.entries()){
+        if(++scanned>100000)throw new Error("The incomplete Workspace cannot be inspected safely.");
+        if(name==="00 - OPEN DASHBOARD.html"||name==="System Files")
+          throw new Error("A nested installation requires manual support review.");
+        if(item.kind==="directory")await scan(item);
+      }
+    }
+    await scan(workspace);await sameTarget();
+    const name=root.name||"selected MoonDog installation";
+    if(typeof globalThis.confirm!=="function"||!globalThis.confirm(
+      "RESUME INTERRUPTED FRESH? The selected copy "+name+
+      " is already incomplete. Continuing permanently removes all remaining Workspace data."))
+      return {status:"cancelled"};
+    if(!globalThis.confirm("FINAL IRREVERSIBLE CONFIRMATION: finish clearing the incomplete Workspace in "+
+      name+" with no external backup? Previously deleted data cannot be restored by this step."))
+      return {status:"cancelled"};
+    await sameTarget();
+    if(newStoreBusy||workspaceConnectionBusy||workspaceRecoveryBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation started; incomplete Fresh remains blocked.");
+    newStoreBusy=true;workspaceRecoveryBusy=true;stopFolderWatch("WATCH OFF");
+    try{
+      // Existing hold stays OUTSIDE Workspace until full clean-state readback.
+      const entries=[];for await(const [entry] of workspace.entries())entries.push(entry);
+      for(const entry of entries){await sameTarget();await workspace.removeEntry(entry,{recursive:true});}
+      for await(const _ of workspace.entries())
+        throw new Error("Workspace changed during interrupted Fresh recovery.");
+      const data=await workspace.getDirectoryHandle("data",{create:true});
+      const defaults=freshProductState();
+      defaults["data/current-state.json"].appVersion=intent.version;
+      const recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,
+        lastRestore:null,status:"Fresh installation requires Guided Setup"};
+      const records={...defaults,"data/recovery.json":recovery};
+      for(const [relative,value] of Object.entries(records)){
+        await sameTarget();
+        const parts=relative.split("/");
+        if(parts.length!==2||parts[0]!=="data")throw new Error("Invalid fresh state path.");
+        const file=await data.getFileHandle(parts[1],{create:true});
+        const writable=await file.createWritable();
+        try{await writable.write(JSON.stringify(value,null,2)+"\n");await writable.close();}
+        catch(error){try{await writable.abort();}catch(_){}throw error;}
+        if(JSON.stringify(JSON.parse(await(await file.getFile()).text()))!==JSON.stringify(value))
+          throw new Error("Fresh recovery readback failed: "+relative);
+      }
+      const names=[];for await(const [entry] of workspace.entries())names.push(entry);
+      if(names.length!==1||names[0]!=="data")
+        throw new Error("Residual store data remains after interrupted Fresh recovery.");
+      const actual=[];for await(const [entry] of data.entries())actual.push(entry);
+      const allowed=Object.keys(records).map(x=>x.split("/")[1]).sort();
+      if(JSON.stringify(actual.sort())!==JSON.stringify(allowed))
+        throw new Error("Missing defaults or unexpected files after interrupted Fresh recovery.");
+      await sameTarget();
+      await system.removeEntry(FRESH_RESET_MARKER);
+      try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+        throw new Error("Fresh recovery hold removal did not verify.");}
+      catch(error){if(error?.name!=="NotFoundError")throw error;}
+      model.freshResetRecoveryRoot=null;
+      // User reconnects explicitly; normal connection revalidates new defaults.
+      return {status:"fresh",installationName:name};
+    }catch(error){
+      throw new Error("Interrupted Fresh recovery is incomplete; normal connection remains blocked. "+
+        (error?.message||String(error)));
+    }finally{workspaceRecoveryBusy=false;newStoreBusy=false;}
+  }
   function wrapOperationalRoot(handle) { return writeAuthority.wrapDirectory(handle, WORKSPACE_PREFIX.join("/")); }
   async function directory(path, create = true) { let current = model.root; for (const part of path) current = await current.getDirectoryHandle(part, { create }); return current; }
   async function fileAt(path, create = false) { const parts = [...path]; const name = parts.pop(); return (await directory(parts, create)).getFileHandle(name, { create }); }
@@ -1827,6 +1950,7 @@
         if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){
           writeAuthority.disable();
           model.pendingRoot=pendingRoot;
+          model.freshResetRecoveryRoot=error?.code==="FRESH_RESET_INCOMPLETE"?pendingRoot:null;
           if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){
             model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;
           }
@@ -1853,6 +1977,7 @@
           model.workspaceConnectionCommittedRoot=null;
         }
         model.pendingRoot=handle;
+        model.freshResetRecoveryRoot=error?.code==="FRESH_RESET_INCOMPLETE"?handle:null;
         let handleStored=true;
         try{await rememberRoot(handle);}catch(_){handleStored=false;/* in-memory retry remains available */}
         const storageNote=handleStored?"The selected handle and files are retained.":"The handle remains available in this tab, but browser storage could not persist it; after a browser restart you may need to choose this folder again.";
@@ -1909,6 +2034,13 @@
     },delay);
   }
   function handleWorkspaceRecoveryAction(){
+    if(model.pendingRoot&&model.pendingRoot===model.freshResetRecoveryRoot)
+      return run(async()=>{
+        const result=await resumeInterruptedFreshInstallation();
+        if(result.status==="fresh")
+          setConnectionState("SAVED HANDLE UNAVAILABLE",
+            "Interrupted Fresh recovery finished. Click Choose working folder to reconnect and verify Guided Setup.");
+      });
     if(["PENDING_TRANSACTION","INTERRUPTED_RESTORE"].includes(writeAuthority.reason)){
       navigateTo("settings");
       setTimeout(()=>ui.backupRecoverySection?.scrollIntoView?.({behavior:"smooth",block:"start"}),0);
@@ -1933,6 +2065,7 @@
       // An overlapping restore must not revoke authority for the active connection.
       if(error?.code==="WORKSPACE_CONNECTION_BUSY")return;
       model.pendingRoot=handle;
+      model.freshResetRecoveryRoot=error?.code==="FRESH_RESET_INCOMPLETE"?handle:null;
       if(transientWorkspaceState(error)){
         writeAuthority.disable();
         if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;}
@@ -8424,6 +8557,172 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function newStoreRecoveryLocked(){
     return !writeAuthority.canWrite&&["PENDING_TRANSACTION","INTERRUPTED_RESTORE"].includes(writeAuthority.reason);
   }
+
+  // Fresh Beta reset is intentionally restricted to the connected installation's
+  // System Files/Workspace child. Neither the install root nor System Files is
+  // ever passed to a recursive remover. Never infer a target from browser storage.
+  async function resetSelectedFreshInstallation({selectedRoot,expectedRoot,verifiedInstall,onProgress=()=>{}}={}){
+    const installation=connectedNativeRoot,activeWorkspace=model.root;
+    if(verifiedInstall?.status!=="installed"||verifiedInstall?.channel!=="beta"||
+        !/^\d+\.\d+\.\d+-beta\.\d+$/.test(verifiedInstall.version||"")||
+        !/^[a-f0-9]{64}$/.test(verifiedInstall.sha256||"")||
+        !/^MoonDog-Update-Backup-[A-Za-z0-9-]+$/.test(verifiedInstall.backupName||""))
+      throw new Error("Fresh Installation requires this session's verified Beta package receipt; no files were removed.");
+    const assertSameInstallation=async()=>{
+      if(!installation||!activeWorkspace||installation!==expectedRoot||
+          model.applicationRoot!==installation||connectedNativeRoot!==installation||
+          model.root!==activeWorkspace||!selectedRoot||
+          typeof selectedRoot.isSameEntry!=="function"||
+          typeof installation.resolve!=="function"||
+          !(await selectedRoot.isSameEntry(installation)))
+        throw new Error("Fresh Installation cannot verify the selected installation. No data was removed.");
+      if(await installation.queryPermission({mode:"readwrite"})!=="granted"||!writeAuthority.canWrite)
+        throw new Error("Fresh Installation requires current write access to the selected installation.");
+      writeAuthority.requireWrite();
+      const system=await installation.getDirectoryHandle("System Files",{create:false});
+      // An unrelated folder with the same name is never an acceptable target.
+      await system.getFileHandle("index.html",{create:false});
+      const workspace=await system.getDirectoryHandle("Workspace",{create:false});
+      const relative=await installation.resolve(workspace);
+      if(!Array.isArray(relative)||relative.length!==2||
+          relative[0]!=="System Files"||relative[1]!=="Workspace")
+        throw new Error("Fresh Installation cannot establish the exact Workspace boundary.");
+      return workspace;
+    };
+    if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation is active. Fresh Installation did not start.");
+    const workspace=await assertSameInstallation();
+    const system=await installation.getDirectoryHandle("System Files",{create:false});
+    try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+      throw new Error("An interrupted Fresh Installation hold already exists. No files were removed.");
+    }catch(error){if(error?.name!=="NotFoundError")throw error;}
+    // A browser-local receipt is never enough. Read back the verified
+    // package/backup journal from this exact selected installation.
+    const updateBackups=await workspace.getDirectoryHandle("backups",{create:false});
+    const updateRoot=await updateBackups.getDirectoryHandle("system-updates",{create:false});
+    const verifiedBackup=await updateRoot.getDirectoryHandle(verifiedInstall.backupName,{create:false});
+    const journal=await verifiedBackup.getFileHandle("journal.json",{create:false});
+    const receipt=JSON.parse(await(await journal.getFile()).text());
+    if(receipt?.status!=="verified"||receipt.verifiedUpdate?.version!==verifiedInstall.version||
+       receipt.verifiedUpdate?.channel!=="beta"||
+       receipt.verifiedUpdate?.sha256!==verifiedInstall.sha256)
+      throw new Error("Selected installation lacks the matching verified Beta journal. No data was removed.");
+    // Refuse an installation nested inside the Workspace rather than wiping
+    // a second copy accidentally. This scan reads names, never report contents.
+    let scanned=0;
+    async function inspectForNestedCopies(dir){
+      for await(const [name,item] of dir.entries()){
+        if(++scanned>100000)throw new Error("Fresh Installation cannot verify this unusually large Workspace.");
+        if(name==="00 - OPEN DASHBOARD.html")
+          throw new Error("Another MoonDog launcher exists inside this Workspace. Fresh reset blocked.");
+        if(item.kind==="directory"){
+          if(name==="System Files")
+            throw new Error("A nested System Files folder may contain another installation. Fresh reset blocked.");
+          await inspectForNestedCopies(item);
+        }
+      }
+    }
+    await inspectForNestedCopies(workspace);
+    if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation started. Fresh Installation did not start.");
+    await assertSameInstallation();
+    // Confirmations live in the production reset itself, not just the caller:
+    // a direct invocation of the exported method cannot silently erase data.
+    const targetName=installation.name || "selected MoonDog installation";
+    const confirmedOnce=typeof globalThis.confirm==="function" &&
+      globalThis.confirm(`Are you sure?\\n\\nFresh Installation will permanently erase every store-specific file, report, history entry and internal backup inside “${targetName}/System Files/Workspace”.\\n\\nOther installations and application files must remain untouched.`);
+    if(!confirmedOnce)return {status:"cancelled"};
+    const confirmedTwice=typeof globalThis.confirm==="function" &&
+      globalThis.confirm(`Are you really sure?\\n\\nThis permanently removes ALL dealership information from the selected installation “${targetName}” with NO safety backup. This cannot be undone.`);
+    if(!confirmedTwice)return {status:"cancelled"};
+    await assertSameInstallation();
+    if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation started before final confirmation. No files were deleted.");
+    // Only the verified Workspace is destructively cleared. The runtime,
+    // launcher, other directories and every other installed copy remain outside.
+    newStoreBusy=true;
+    workspaceRecoveryBusy=true;
+    stopFolderWatch("WATCH OFF");
+    let mutated=false,markerWritten=false;
+    try{
+      // A verified out-of-Workspace hold precedes the first destructive write.
+      const intent={schemaVersion:1,status:"incomplete",version:verifiedInstall.version,
+        sha256:verifiedInstall.sha256,backupName:verifiedInstall.backupName};
+      const marker=await system.getFileHandle(FRESH_RESET_MARKER,{create:true});
+      const writable=await marker.createWritable();
+      try{await writable.write(JSON.stringify(intent)+"\n");await writable.close();}
+      catch(error){try{await writable.abort();}catch(_){}throw error;}
+      if(JSON.stringify(JSON.parse(await(await marker.getFile()).text()))!==JSON.stringify(intent))
+        throw new Error("Fresh reset hold durable readback failed. No data was removed.");
+      markerWritten=true;
+      const entries=[];
+      for await(const [name] of workspace.entries())entries.push(name);
+      onProgress({phase:"fresh",percent:null,label:"Removing selected store data",
+        detail:"Clearing only the verified System Files/Workspace folder"});
+      for(const name of entries){
+        if(model.applicationRoot!==installation||connectedNativeRoot!==installation||
+            model.root!==activeWorkspace||!writeAuthority.canWrite)
+          throw new Error("The installation identity or write authority changed during deletion.");
+        mutated=true;
+        await workspace.removeEntry(name,{recursive:true});
+        onProgress({phase:"fresh",percent:null,label:"Removing selected store data",
+          detail:"Deleting selected Workspace entries; keep this window open"});
+      }
+      for await(const _ of workspace.entries())
+        throw new Error("Workspace was modified during deletion. Fresh reset cannot be verified.");
+      const data=await workspace.getDirectoryHandle("data",{create:true});
+      const fresh=freshProductState();
+      fresh["data/current-state.json"].appVersion=verifiedInstall.version;
+      const recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,lastRestore:null,
+        status:"Fresh installation requires Guided Setup"};
+      const records={...fresh,"data/recovery.json":recovery};
+      for(const [path,value] of Object.entries(records)){
+        const parts=path.split("/");
+        if(parts.length!==2||parts[0]!=="data")throw new Error("Invalid fresh state path.");
+        const file=await data.getFileHandle(parts[1],{create:true});
+        const content=JSON.stringify(value,null,2)+"\n";
+        const stream=await file.createWritable();
+        try{await stream.write(content);await stream.close();}
+        catch(error){try{await stream.abort();}catch(_){}throw error;}
+        const readback=JSON.parse(await(await file.getFile()).text());
+        if(JSON.stringify(readback)!==JSON.stringify(value))
+          throw new Error("Fresh installation durable readback failed for "+path+".");
+      }
+      // Fail closed on concurrent writes, residual reports, backups or history.
+      const rootNames=[];
+      for await(const [name] of workspace.entries())rootNames.push(name);
+      if(rootNames.length!==1||rootNames[0]!=="data")
+        throw new Error("Fresh Workspace contains unexpected residual data.");
+      const dataNames=[];
+      for await(const [name] of data.entries())dataNames.push(name);
+      const expectedNames=Object.keys(records).map(path=>path.split("/")[1]).sort();
+      if(JSON.stringify(dataNames.sort())!==JSON.stringify(expectedNames))
+        throw new Error("Fresh Workspace contains unexpected data or missing state files.");
+      [model.state,model.settings,model.appointments,model.performance,model.assignNext,
+        model.autoImport,model.operationalMetrics,model.meetingCycle]=Object.values(fresh);
+      model.recovery=recovery;
+      clearSourceAdapter();
+      // Remove the hold only after every fresh-state file is read back and
+      // every unexpected Workspace entry is rejected.
+      await system.removeEntry(FRESH_RESET_MARKER);
+      try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+        throw new Error("Fresh reset hold removal could not be verified.");
+      }catch(error){if(error?.name!=="NotFoundError")throw error;}
+      markerWritten=false;
+      onProgress({phase:"complete",percent:100,label:"Fresh Installation complete",
+        detail:"Workspace removal and empty state readback verified"});
+      renderAll();renderSettings();navigateTo("setup");
+      return {status:"fresh",installationName:installation.name};
+    }catch(error){
+      if(mutated||markerWritten)throw new Error("Fresh Installation is incomplete; a durable recovery hold blocks normal loading until reviewed. "+(error?.message||String(error)));
+      throw error;
+    }finally{
+      workspaceRecoveryBusy=false;
+      newStoreBusy=false;
+    }
+  }
+  globalThis.__moondogFreshInstallation={resetSelectedFreshInstallation};
+
   async function prepareForNewStore(){
     const source=connectedNativeRoot;
     if(!model.root||!source)throw new Error("Connect the copied installation first.");
@@ -8604,7 +8903,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.attentionFilter.value="";clearSavedOpenRoFilters();
     applyRoDensity();saveRoDeviceView();renderTable();
   });
-  ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", handleWorkspaceRecoveryAction); ui.homeConnect.addEventListener("click", () => run(connect)); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input",renderTable); [["advisor",ui.advisorFilter],["sourceStatus",ui.sourceStatusFilter],["managementStatus",ui.managementStatusFilter]].forEach(([field,select])=>select.addEventListener("change",()=>{saveOpenRoFilter(field,select);renderTable();})); ui.attentionFilter.addEventListener("change",renderTable); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; clearSavedOpenRoFilters(); saveRoDeviceView(); renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",markEditDraftDirty); ui.editForm.addEventListener("change",markEditDraftDirty); ui.editOwner.addEventListener("input",()=>{ui.editOwner.dataset.ownerAssignmentExplicit="true";}); window.addEventListener("beforeunload",guardUnsavedEditUnload); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(async () => {
+  ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", handleWorkspaceRecoveryAction); ui.homeConnect.addEventListener("click", handleWorkspaceRecoveryAction); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input",renderTable); [["advisor",ui.advisorFilter],["sourceStatus",ui.sourceStatusFilter],["managementStatus",ui.managementStatusFilter]].forEach(([field,select])=>select.addEventListener("change",()=>{saveOpenRoFilter(field,select);renderTable();})); ui.attentionFilter.addEventListener("change",renderTable); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; clearSavedOpenRoFilters(); saveRoDeviceView(); renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",markEditDraftDirty); ui.editForm.addEventListener("change",markEditDraftDirty); ui.editOwner.addEventListener("input",()=>{ui.editOwner.dataset.ownerAssignmentExplicit="true";}); window.addEventListener("beforeunload",guardUnsavedEditUnload); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(async () => {
     if(workspaceConnectionBusy||postConnectionScanBusy||workspaceRecoveryBusy)
       throw new Error("Another Workspace operation is in progress. Retry the appointment import when it finishes.");
     await importAppointmentFile();
