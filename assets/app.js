@@ -8781,8 +8781,36 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         throw new Error("Fresh Installation cannot establish the exact Workspace boundary.");
       return workspace;
     };
-    if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
-      throw new Error("Another Workspace operation is active. Fresh Installation did not start.");
+    // This error is only emitted before the durable Fresh hold or ANY delete.
+    // The updater can safely reload a verified Beta instead of claiming an
+    // interrupted destructive reset when ordinary background work was busy.
+    const preflightBusy=message=>{
+      const error=new Error(message);
+      error.code="MOONDOG_FRESH_PRECHECK_BUSY";
+      error.freshMutationStarted=false;
+      return error;
+    };
+    // Initial preflight only: allow routine report scans or maintenance to
+    // finish before asking the user to confirm permanent deletion. Never wait
+    // after the final confirmation, when a newly active writer must fail closed.
+    const idle=()=>!newStoreBusy&&!workspaceConnectionBusy&&!workspaceConnectionBlockReason();
+    if(!idle()){
+      onProgress({phase:"fresh-check",percent:null,label:"Waiting for MoonDog to finish",
+        detail:"Finishing another Workspace task before Fresh; nothing is being deleted"});
+      const originalRoot=installation,originalWorkspace=activeWorkspace;
+      for(let attempt=0;attempt<40&&!idle();attempt++){
+        if(connectedNativeRoot!==originalRoot||model.applicationRoot!==originalRoot||
+          model.root!==originalWorkspace)
+          throw new Error("The connected installation changed while waiting. No data was deleted.");
+        // At most 20 seconds. A stalled task must never trigger an unbounded
+        // retry loop or begin deleting after the user's confirmation expires.
+        if(typeof globalThis.setTimeout!=="function")break;
+        await new Promise(resolve=>globalThis.setTimeout(resolve,500));
+      }
+      if(!idle())
+        throw preflightBusy("Another Workspace operation is still active. Fresh Installation did not start. Keep the window open and retry when the task finishes.");
+      await assertSameInstallation();
+    }
     const workspace=await assertSameInstallation();
     const system=await installation.getDirectoryHandle("System Files",{create:false});
     try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
@@ -8816,7 +8844,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     await inspectForNestedCopies(workspace);
     if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
-      throw new Error("Another Workspace operation started. Fresh Installation did not start.");
+      throw preflightBusy("Another Workspace operation started. Fresh Installation did not start.");
     await assertSameInstallation();
     // Confirmations live in the production reset itself, not just the caller:
     // a direct invocation of the exported method cannot silently erase data.
@@ -8829,7 +8857,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if(!confirmedTwice)return {status:"cancelled"};
     await assertSameInstallation();
     if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
-      throw new Error("Another Workspace operation started before final confirmation. No files were deleted.");
+      throw preflightBusy("Another Workspace operation started before final confirmation. No files were deleted.");
     // Only the verified Workspace is destructively cleared. The runtime,
     // launcher, other directories and every other installed copy remain outside.
     newStoreBusy=true;
