@@ -16,8 +16,8 @@ assert.match(updates, /Last update check:/);
 // destructive choice remains unclickable until isolation proof is complete.
 assert.match(updates, /Update Current Installation/);
 assert.match(updates, /Update to Fresh Installation/);
-assert.match(updates, /Selected installation folder \\(parent of System Files\\)/);
-assert.match(app, /model\\.applicationRoot = handle;/);
+assert.match(updates, /Selected installation folder \(parent of System Files\)/);
+assert.match(app, /model\.applicationRoot = handle;/);
 assert.match(updates, /freshButton\.disabled = true/);
 assert.doesNotMatch(updates, /freshButton\.addEventListener\(/);
 assert.match(updates, /Installed \$\{installedChannel === "beta" \? "Beta" : "Stable"\} \$\{installedVersion\}; check for newer builds/);
