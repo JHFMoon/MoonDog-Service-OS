@@ -44,7 +44,7 @@
     // .374 can only use its original updater to install the next Beta first.
     // The verified new runtime supplies this hook after automatic reload.
     return Boolean(target && declaredBetaVersion && installedChannel==="beta" &&
-      state.channel==="beta" && state.check?.status==="up-to-date" &&
+      state.channel==="beta" && currentOffer() && state.check?.status==="newer-version" &&
       !state.busy && !state.recoveryRequired && !state.hasRecoverable &&
       !state.recoveryScanPending && !state.recoveryScanFailed &&
       typeof target.isSameEntry==="function" &&
@@ -306,7 +306,7 @@
       "Update Current Installation preserves all dealership information." :
       freshAvailable() ?
         "Ready: the selected parent installation folder is shown above. Fresh permanently erases only its Workspace, including reports, settings, history and internal backups. Two separate warnings require your approval; the launcher and app runtime remain." :
-        "Fresh requires a connected, writable Beta installation with no pending recovery and an up-to-date verified Beta check. If a newer Beta is available, choose Update Current Installation first, allow the automatic reload, then use Fresh. No files will be deleted automatically.";
+        "Fresh requires a newer verified Beta offer, a supported existing Beta installation with a connected writable folder, and no pending recovery. Older Betas must first install a Beta that supports this choice. No files are deleted automatically.";
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
     field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable && !state.recoveryScanFailed;
@@ -370,49 +370,15 @@
     global.setTimeout?.(checkInBackground, 1500);
   });
   field("checkMoonDogUpdate").addEventListener("click", () => check(true));
-  freshButton.addEventListener("click", async () => {
-    if(!freshAvailable()) return;
-    const selectedRoot=appRoot();
-    state.busy=true;
-    render();
-    clearPlan();
-    await setProgress({phase:"fresh-check",percent:null,label:"Verifying selected installation",
-      detail:"Checking recovery and exact folder identity before either warning"});
-    try{
-      // A previously completed check is no substitute for a fresh recovery
-      // inventory immediately before a destructive operation.
-      await refreshRecovery();
-      if(selectedRoot!==appRoot()||state.recoveryRequired||state.hasRecoverable||
-          state.recoveryScanPending||state.recoveryScanFailed)
-        throw new Error("Installation changed or update recovery is unresolved. No files were deleted.");
-      const reset=global.__moondogFreshInstallation?.resetSelectedFreshInstallation;
-      if(typeof reset!=="function")throw new Error("Fresh Installation reset is unavailable in this build.");
-      const result=await reset({selectedRoot,expectedRoot:selectedRoot,
-        onProgress:event=>setProgress({...event,percent:event.percent??null})});
-      if(result.status==="cancelled"){
-        status.textContent="Fresh Installation cancelled. No store files were deleted.";
-        clearProgress();
-        return;
-      }
-      if(result.status!=="fresh")throw new Error("Fresh Installation did not return verified completion.");
-      state.check=null;
-      state.checkFor=null;
-      status.textContent="Fresh Installation complete. The selected Workspace was cleared and verified. Guided Setup is open.";
-      await setProgress({phase:"complete",percent:100,label:"Fresh Installation complete",
-        detail:"Selected installation cleared and verified; continue with Guided Setup"});
-    }catch(error){
-      status.textContent="Fresh Installation stopped: "+(error?.message||"Unknown failure");
-      await setProgress({phase:"error",percent:null,label:"Fresh Installation stopped",
-        detail:error?.message||"Verify the selected copy before retrying"});
-    }finally{
-      state.busy=false;
-      render();
-    }
-  });
-  installButton.addEventListener("click", async () => {
+  freshButton.addEventListener("click", () => installUpdate(true));
+  installButton.addEventListener("click", () => installUpdate(false));
+  async function installUpdate(fresh = false) {
+    if (fresh && !freshAvailable()) return;
+    // Never reconstruct a destructive choice or installation identity from shared storage.
+    const selectedRoot = appRoot();
     if (state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer()) return;
     const offered = state.check, offeredFor = state.checkFor;
-    let verifiedReloadVersion = null;
+    let verifiedReloadVersion = null, freshOutcomeStatus = null;
     state.busy = true; render();
     clearPlan();
     await setProgress({ phase: "verify-package", percent: 5, label: "Verifying update package", detail: "Downloading and checking the selected update" });
@@ -469,6 +435,37 @@
       else if (outcome.status === "rolled-back") await setProgress({ phase: "rolled-back", percent: 100, label: "Previous version restored", detail: "The update failed, but rollback completed and was verified." });
       else if (outcome.status !== "installed") await setProgress({ phase: "error", percent: state.progress?.percent || 25, label: "Update stopped", detail: outcome.reason || "Installation did not complete." });
       if (outcome.status === "installed") {
+        if (fresh) {
+          // The selected root, channel and exact package receipt must match
+          // after the verified install and before any deletion request.
+          if (selectedRoot !== appRoot() || selectedRoot !== offeredFor.root ||
+              verified.channel !== "beta" || state.channel !== "beta" ||
+              verified.version !== outcome.version ||
+              !/^[0-9a-f]{64}$/.test(verified.sha256 || ""))
+            throw new Error("Fresh reset blocked: verified Beta receipt or selected installation changed.");
+          await refreshRecovery();
+          if (selectedRoot !== appRoot() || state.recoveryRequired || state.hasRecoverable ||
+              state.recoveryScanPending || state.recoveryScanFailed)
+            throw new Error("Fresh reset blocked: update recovery is unresolved.");
+          const reset = global.__moondogFreshInstallation?.resetSelectedFreshInstallation;
+          if (typeof reset !== "function")
+            throw new Error("Fresh reset unavailable in this runtime.");
+          await setProgress({phase:"fresh-check",percent:null,label:"Verifying Fresh Installation",
+            detail:"Verified Beta installed; checking the exact selected Workspace"});
+          const freshOutcome = await reset({
+            selectedRoot, expectedRoot:selectedRoot,
+            verifiedInstall:{status:"installed",version:outcome.version,
+              channel:verified.channel,sha256:verified.sha256},
+            onProgress:event=>setProgress({...event,percent:event.percent??null})
+          });
+          if (freshOutcome.status === "cancelled") {
+            freshOutcomeStatus = "cancelled";
+            status.textContent = "Beta installed and verified. Fresh deletion cancelled; existing dealership data remains.";
+          } else if (freshOutcome.status === "fresh") {
+            freshOutcomeStatus = "fresh";
+            status.textContent = "Beta installed, selected Workspace reset verified. Reloading into Guided Setup.";
+          } else throw new Error("Fresh reset returned no verified completion.");
+        }
         // This receipt is written ONLY after the installer has verified the new
         // runtime. The next version's connected app may then run local follow-up.
         // No Workspace contents or source files are included in this marker.
@@ -485,7 +482,11 @@
         installedChannel = verified.channel;
         field("updateInstalledVersion").textContent = installedVersion;
         field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
-        await setProgress({ phase: "complete", percent: 100, label: "Update installed", detail: "Installation verified. Reloading the dashboard automatically..." });
+        await setProgress({phase:"complete",percent:100,
+          label:freshOutcomeStatus==="fresh"?"Fresh Installation verified":"Update installed",
+          detail:freshOutcomeStatus==="fresh"?"Selected Workspace reset verified. Reloading into Guided Setup.":
+            freshOutcomeStatus==="cancelled"?"Deletion cancelled. Existing data preserved; reloading verified Beta.":
+              "Installation verified. Reloading the dashboard automatically..."});
         verifiedReloadVersion = outcome.version;
       }
     } catch (error) {
@@ -499,7 +500,7 @@
       // Rejected, cancelled, rolled-back and recovery-required outcomes never reload.
       if (verifiedReloadVersion) reloadVerifiedUpdate(verifiedReloadVersion);
     }
-  });
+  }
   field("recoverMoonDogUpdate").addEventListener("click", async () => {
     if (state.busy || state.recoveryScanPending) return;
     if (!appRoot()) {
