@@ -379,11 +379,12 @@
   }catch(_){/* Unsupported observers never affect startup. */}
   const BUILD_DATE = "2026-10-07";
   const DB_NAME = "moondog-operations-local";
-  // Chromium shares IndexedDB across file URLs. Keep the newly prepared
-  // launcher separate from the legacy saved folder and other new stores.
-  const newStoreLauncher = globalThis.location?.protocol === "file:" &&
-    new URLSearchParams(globalThis.location.search).get("moondog-new-store") === "1";
-  const HANDLE_KEY = newStoreLauncher ? "working-folder:" + globalThis.location.pathname : "working-folder";
+  // Chromium can share IndexedDB across file URLs. Every local launcher
+  // needs its own saved handle, including ordinary copied installations.
+  // Do not read the old unscoped key: it may belong to another store. One
+  // explicit folder reconnect on upgraded legacy copies is safer.
+  const HANDLE_KEY = globalThis.location?.protocol === "file:"
+    ? "working-folder:" + globalThis.location.pathname : "working-folder";
   const STATE_PATH = ["data", "current-state.json"];
   const SETTINGS_PATH = ["data", "settings.json"];
   const SOURCE_ADAPTER_BOOTSTRAP_PATH = ["data", "source-adapter-bootstrap.json"];
