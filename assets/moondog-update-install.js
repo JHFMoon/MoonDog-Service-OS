@@ -202,6 +202,13 @@
         return { status: "rejected", reason: "The approved file preview changed or was rejected." };
       }
       const contents = JSON.parse(decoder.decode(verifiedPackage.bytes));
+      // A missing required app script is repairable only when this exact
+      // verified package carries its approved replacement. Never report an
+      // incomplete installation as successfully updated.
+      if (trustedAllowlist.includes("assets/app.js") && await read(app, "assets/app.js") === null &&
+          !contents.files.some(entry => entry.path === "assets/app.js" && entry.action === "put")) {
+        throw new Error("Required application script is missing from the verified repair package.");
+      }
       const htmlEntry = contents.files.find(entry => entry.path === "index.html");
       if (htmlEntry?.action === "delete") throw new Error("The application entry cannot be deleted.");
       let compatibility = null;
