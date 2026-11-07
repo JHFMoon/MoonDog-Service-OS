@@ -21,10 +21,17 @@
     }
     return true;
   }
-  const key = "moondog-public-update-preferences-v1";
+  // Chromium file:// origins may share localStorage across independent local
+  // launchers. Never import an unscoped recovery hold or channel preference
+  // from another store. A verified installed Beta defaults to its own channel.
+  const localLauncher = global.location?.protocol === "file:" &&
+    typeof global.location.pathname === "string" && Boolean(global.location.pathname);
+  const key = localLauncher
+    ? "moondog-public-update-preferences-v2:" + global.location.pathname
+    : "moondog-public-update-preferences-v1";
   let saved = {};
   try { saved = JSON.parse(global.localStorage.getItem(key) || "{}"); } catch (_) {}
-  const state = { channel: saved.channel === "beta" ? "beta" : "stable",
+  const state = { channel: saved.channel === "beta" ? "beta" : saved.channel === "stable" ? "stable" : declaredBetaVersion ? "beta" : "stable",
     lastCheck: saved.lastCheck || null, lastAutomatic: saved.lastAutomatic || "",
     dismissed: saved.dismissed || null, check: null, checkFor: null,
     recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false,
