@@ -214,7 +214,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         guard = merge.split("      - name: Verify automation authorization and PR safety", 1)[1]
         guard = guard.split("      - name: Create scoped MoonDog release App token", 1)[0]
         closed = """if [ "$(jq -r '.state' /tmp/pr.json)" != "open" ]; then"""
-        draft = """if [ "$(jq -r '.draft' /tmp/pr.json)" = "true" ]; then"""
+        draft = """if [ "$(jq -r '.draft == true' /tmp/pr.json)" = "true" ]; then"""
         stale = 'if [ "$CURRENT_PR_HEAD" != "$HEAD_SHA" ]; then'
         authorization = "python3 scripts/guarded_merge_policy.py check-authorization"
         self.assertLess(guard.index(stale), guard.index(closed))

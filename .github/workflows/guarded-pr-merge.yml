@@ -95,7 +95,7 @@ jobs:
           fi
           # A draft is pending, not a failed merge. Keep malformed values
           # subject to the existing strict structured-PR authorization check.
-          if [ "$(jq -r '.draft' /tmp/pr.json)" = "true" ]; then
+          if [ "$(jq -r '.draft == true' /tmp/pr.json)" = "true" ]; then
             echo "Draft PR not eligible for merge; skipping safely."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
