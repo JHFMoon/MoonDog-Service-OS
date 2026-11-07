@@ -183,7 +183,7 @@ test("interrupted removal is not reported as a clean installation, and the other
   const h=await harness();
   const normal=h.wsB.removeEntry;
   h.wsB.removeEntry=async(name,options)=>{if(name==="backups")throw Error("synthetic deletion lock");return normal(name,options);};
-  await assert.rejects(h.reset(),/partially cleared/);
+  await assert.rejects(h.reset(),/durable recovery hold/);
   assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
   assert.equal(h.events.includes("navigate:setup"),false);
 });
