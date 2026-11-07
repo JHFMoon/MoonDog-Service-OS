@@ -20,6 +20,8 @@ function folder(name, files = {}, directories = []) {
   const handle = prefix => ({
     name: prefix.split("/").filter(Boolean).at(-1) || name,
     kind: "directory",
+    _prefix: prefix,
+    isSameEntry: async other => other?._store === store && other?._prefix === prefix,
     resolve: async other => other._store === store ? [] : null,
     _store: store,
     queryPermission: async () => "granted",

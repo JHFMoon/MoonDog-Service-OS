@@ -37,6 +37,8 @@ function directoryHandle(folderPath) {
   return {
     name: path.basename(folderPath),
     kind: "directory",
+    _path: folderPath,
+    isSameEntry: async other => other?._path === folderPath,
     queryPermission: async () => "granted",
     requestPermission: async () => "granted",
     getDirectoryHandle: async (name, options = {}) => {
