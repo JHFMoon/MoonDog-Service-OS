@@ -60,9 +60,15 @@
   }
 
   function decodeBase64(value) {
-    if (typeof value !== "string" || value.length % 4 !== 0 ||
-        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
-      throw new Error("invalid-content");
+    if (typeof value !== "string" || value.length % 4 !== 0) throw new Error("invalid-content");
+    const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+    // Repeated regex groups can exhaust the JS regex stack on valid large
+    // software bundles. Validate linearly without weakening alphabet/padding.
+    for (let index = 0; index < value.length - padding; index++) {
+      const code = value.charCodeAt(index);
+      if (!((code >= 65 && code <= 90) || (code >= 97 && code <= 122) ||
+            (code >= 48 && code <= 57) || code === 43 || code === 47))
+        throw new Error("invalid-content");
     }
     return Uint8Array.from(global.atob(value), character => character.charCodeAt(0));
   }

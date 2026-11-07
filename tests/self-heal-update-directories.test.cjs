@@ -61,6 +61,8 @@ function memoryRoot() {
       if (!files.delete(prefix + name)) throw missing();
     },
     entries: async function* () {
+      for (const file of files.keys()) if(file.startsWith(prefix) && !file.slice(prefix.length).includes("/"))
+        yield [file.slice(prefix.length),{kind:"file"}];
       for (const dir of dirs) if(dir.startsWith(prefix) && dir !== prefix &&
         !dir.slice(prefix.length).includes("/")) yield [dir.slice(prefix.length),handle(dir+"/")];
     }
@@ -215,7 +217,7 @@ test("corrupted prior update journal fails closed without creating a new update"
   fixture.state.files.set(backup+"/journal.json",Buffer.from("{bad-json"));
   const before=new Map([...fixture.state.files].map(([key,value])=>[key,Buffer.from(value)]));
   const result=await fixture.run();
-  assert.equal(result.status,"stopped");
+  assert.equal(result.status,"recovery-required");
   assert.match(result.reason,/recovery journal is unreadable/);
   assert.deepEqual(fixture.state.files,before);
 });
@@ -228,7 +230,7 @@ test("unrecognized existing update journal state blocks new updates", async () =
     Buffer.from(JSON.stringify({status:"unknown",inventory:[]})));
   const before=new Map([...fixture.state.files].map(([key,value])=>[key,Buffer.from(value)]));
   const result=await fixture.run();
-  assert.equal(result.status,"stopped");
+  assert.equal(result.status,"recovery-required");
   assert.match(result.reason,/recovery journal is invalid/);
   assert.deepEqual(fixture.state.files,before);
 });
@@ -537,10 +539,36 @@ test('both exact reviewed launcher layouts survive repeated updates without bein
  }
 });
 
+const recoveryCarriers=['arrivals','assign-next','clarity','daily-ops','developer-center','meeting','operational','performance'].map(name=>'assets/'+name+'.css');
 function reviewedRecoverySoftware(){
- const code=fs.readFileSync(path.join(__dirname,'..','updates/install.js'),'utf8');
- return JSON.parse(code.match(/const RECOVERY_SOFTWARE = Object\.freeze\(([\s\S]+?)\);\n/)[1]);
+ return JSON.parse(recoveryCarriers.map((name,index)=>fs.readFileSync(path.join(__dirname,'..',name),'utf8')
+  .split('/* BEGIN MOONDOG REVIEWED SOFTWARE DATA '+(index+1)+'/8\n')[1].split('\nEND MOONDOG REVIEWED SOFTWARE DATA */')[0]).join(''));
 }
+function addRecoveryCarriers(h,data){
+ const pkg=JSON.parse(h.verifiedPackage.bytes);const serialized=data&&JSON.stringify(data);
+ const width=serialized&&Math.ceil(serialized.length/8);
+ recoveryCarriers.forEach((name,index)=>{
+  let bytes=fs.readFileSync(path.join(__dirname,'..',name));
+  if(data){const begin='/* BEGIN MOONDOG REVIEWED SOFTWARE DATA '+(index+1)+'/8\n',end='\nEND MOONDOG REVIEWED SOFTWARE DATA */';
+   const text=bytes.toString();bytes=Buffer.from(text.slice(0,text.indexOf(begin)+begin.length)+serialized.slice(index*width,(index+1)*width)+text.slice(text.indexOf(end)));}
+  pkg.files.push({path:name,action:'put',sha256:digest(bytes),contentBase64:bytes.toString('base64')});
+  pkg.approvedFiles.push(name);h.trustedAllowlist.push(name);
+ });
+ h.verifiedPackage.bytes=Buffer.from(JSON.stringify(pkg));h.verifiedPackage.sha256=digest(h.verifiedPackage.bytes);
+}
+
+test('reviewed software carriers remain inert CSS and consumable by legacy Base64 validators',()=>{
+ const legacy=vm.createContext({});
+ for(const name of recoveryCarriers){
+  const text=fs.readFileSync(path.join(__dirname,'..',name),'utf8');
+  const fragment=text.slice(text.indexOf('/* BEGIN MOONDOG REVIEWED SOFTWARE DATA')+2,text.indexOf('END MOONDOG REVIEWED SOFTWARE DATA */'));
+  assert.equal(fragment.includes('*/'),false,name);
+  // Execute the old repeated-group validator in its own realm: a large entry
+  // overflowed this exact expression before the carrier representation.
+  legacy.value=Buffer.from(text).toString('base64');
+  assert.equal(vm.runInContext('/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)',legacy),true,name);
+ }
+});
 
 test('embedded recovery software and notices match reviewed distribution authority exactly',()=>{
  const data=reviewedRecoverySoftware();assert.equal(Object.keys(data).length,8);
@@ -560,7 +588,7 @@ test('embedded recovery software and notices match reviewed distribution authori
 
 test('a missing vendor directory and all required libraries are rebuilt from reviewed bytes with private data unchanged',async()=>{
  const h=await setup({includeScript:true}),data=reviewedRecoverySoftware(),before=privateFiles(h);
- h.trustedAllowlist.push(...Object.keys(data));
+ h.trustedAllowlist.push(...Object.keys(data));addRecoveryCarriers(h);
  const result=await h.run();assert.equal(result.status,'installed',result.reason);
  for(const [name,payload]of Object.entries(data))assert.equal(digest(h.state.files.get('System Files/'+name)),payload.sha256,name);
  assert.ok(h.state.dirs.has('System Files/vendor'));assert.deepEqual(privateFiles(h),before);
@@ -569,7 +597,7 @@ test('a missing vendor directory and all required libraries are rebuilt from rev
 });
 
 test('damaged approved vendor software is replaced while unknown vendor files and existing notices survive',async()=>{
- const h=await setup(),data=reviewedRecoverySoftware();h.trustedAllowlist.push(...Object.keys(data));
+ const h=await setup(),data=reviewedRecoverySoftware();h.trustedAllowlist.push(...Object.keys(data));addRecoveryCarriers(h);
  h.state.dirs.add('System Files/vendor');
  h.state.files.set('System Files/vendor/pdf.min.js',Buffer.from('synthetic damaged library'));
  h.state.files.set('System Files/vendor/unknown.js',Buffer.from('unknown preserved component'));
@@ -583,18 +611,43 @@ test('damaged approved vendor software is replaced while unknown vendor files an
 test('corrupt embedded repair bytes fail closed before backups or application mutations',async()=>{
  const h=await setup(),data=reviewedRecoverySoftware();h.trustedAllowlist.push('vendor/jszip.min.js');
  data['vendor/jszip.min.js'].contentBase64=Buffer.from('tampered software recovery data').toString('base64');
- const damaged=vm.createContext({TextDecoder,TextEncoder,atob,crypto:webcrypto,Uint8Array});
- for(const name of ['package-plan','apply-design-model','install']){
-  let code=fs.readFileSync(path.join(__dirname,'..','updates',name+'.js'),'utf8');
-  if(name==='install')code=code.replace(/const RECOVERY_SOFTWARE = Object\.freeze\(([\s\S]+?)\);\n/,
-   'const RECOVERY_SOFTWARE = Object.freeze('+JSON.stringify(data)+');\n');
-  vm.runInContext(code,damaged);
- }
- const expectedPlan=await damaged.MoonDogPackagePlan.dryRun({verifiedPackage:h.verifiedPackage,
+ addRecoveryCarriers(h,data);
+ const expectedPlan=await context.MoonDogPackagePlan.dryRun({verifiedPackage:h.verifiedPackage,
   appDirectoryHandle:h.app,trustedAllowlist:h.trustedAllowlist});
  const before=copyFiles(h),dirs=new Set(h.state.dirs);
- const result=await damaged.MoonDogUpdateInstall.apply({verifiedPackage:h.verifiedPackage,
+ const result=await context.MoonDogUpdateInstall.apply({verifiedPackage:h.verifiedPackage,
   appDirectoryHandle:h.app,workspaceDirectoryHandle:h.root,trustedAllowlist:h.trustedAllowlist,expectedPlan,confirmed:true});
  assert.equal(result.status,'stopped');assert.match(result.reason,/recovery bytes failed verification/);
  assert.deepEqual(h.state.files,before);assert.deepEqual(h.state.dirs,dirs);
+});
+
+test('a missing or unrecognized recovery journal blocks the next update even when legacy listing omits it',async()=>{
+ for(const suffix of ['ORPHAN','unknown copy']){
+  const h=await setup(),name='MoonDog-Update-Backup-'+suffix;
+  h.state.dirs.add('System Files/Workspace/backups/system-updates/'+name);
+  const before=copyFiles(h),dirs=new Set(h.state.dirs);const result=await h.run();
+  assert.equal(result.status,'recovery-required');assert.match(result.reason,/local recovery review/);
+  assert.deepEqual(h.state.files,before);assert.deepEqual(h.state.dirs,dirs);
+ }
+});
+
+test('pre-update diagnosis counts unknown application components without reading or altering them',async()=>{
+ const h=await setup();h.state.files.set('System Files/assets/unknown.js',Buffer.from('unrelated original'));
+ h.state.dirs.add('System Files/assets/unknown-directory');
+ const result=await h.run();assert.equal(result.status,'installed',result.reason);
+ const receipt=JSON.parse(h.state.files.get('System Files/Workspace/backups/system-updates/'+result.backupName+'/journal.json'));
+ assert.equal(receipt.structure.diagnosis.unknownPreserved,2);
+ assert.equal(h.state.files.get('System Files/assets/unknown.js').toString(),'unrelated original');
+});
+
+test('a failed vendor repair restores corrupt original bytes and removes partial new dependencies safely',async()=>{
+ const h=await setup(),data=reviewedRecoverySoftware();h.trustedAllowlist.push(...Object.keys(data));addRecoveryCarriers(h);
+ h.state.dirs.add('System Files/vendor');const original=Buffer.from('synthetic original damaged library');
+ h.state.files.set('System Files/vendor/jszip.min.js',Buffer.from(original));
+ h.state.failOnce='System Files/vendor/pdf.min.js';const before=privateFiles(h);
+ const result=await h.run();assert.equal(result.status,'rolled-back',result.reason);
+ assert.deepEqual(h.state.files.get('System Files/vendor/jszip.min.js'),original);
+ assert.equal(h.state.files.has('System Files/vendor/xlsx.full.min.js'),false);
+ assert.deepEqual(privateFiles(h),before);
+ assert.equal((await h.run()).status,'installed','a new authorized attempt repairs after the identified transient failure');
 });

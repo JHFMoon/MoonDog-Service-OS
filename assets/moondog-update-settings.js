@@ -35,7 +35,7 @@
     lastCheck: saved.lastCheck || null, lastAutomatic: saved.lastAutomatic || "",
     dismissed: saved.dismissed || null, check: null, checkFor: null,
     recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false, autoRecoverable: false,
-    recoveryScanPending: false, recoveryScanFailed: false, busy: false, progress: null,
+    recoveryScanPending: false, recoveryScanFailed: false, recoveryScanError: "", busy: false, progress: null,
     progressChangedAt: 0, progressStalled: false, freshResetUnresolved: false,
     postUpdateFresh: null, postUpdateScanPending: false, postUpdateScanFailed: false,
     postUpdateScanError: "", postUpdateScanCompleted: false };
@@ -143,16 +143,16 @@
   async function refreshRecovery() {
     const root = appRoot(), generation = ++recoveryScanGeneration;
     if (!root) {
-      state.hasRecoverable = false; state.autoRecoverable = false; state.recoveryScanFailed = false;
+      state.hasRecoverable = false; state.autoRecoverable = false; state.recoveryScanFailed = false; state.recoveryScanError = "";
       state.recoveryScanPending = false; render(); return;
     }
     state.recoveryScanPending = true; state.autoRecoverable = false;
     render();
     try {
-      const backups = await global.MoonDogUpdateInstall.listBackups(root);
+      const backups = await global.MoonDogUpdateInstall.listBackups(root, true);
       if (root !== appRoot() || generation !== recoveryScanGeneration) return;
       state.hasRecoverable = backups.length > 0;
-      state.recoveryScanFailed = false;
+      state.recoveryScanFailed = false; state.recoveryScanError = "";
       if (backups.length === 1 && typeof global.MoonDogUpdateInstall.inspectRecovery === "function") {
         const app = await root.getDirectoryHandle("System Files", {create:false});
         const catalog = [...new Set([...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
@@ -163,12 +163,13 @@
         if (root !== appRoot() || generation !== recoveryScanGeneration) return;
         state.autoRecoverable = proof.status === "recoverable";
       }
-    } catch (_) {
+    } catch (error) {
       if (root !== appRoot() || generation !== recoveryScanGeneration) return;
       // Unknown recovery inventory must fail closed. A second update could
       // overwrite an interrupted rollback while OneDrive is unreadable.
       state.hasRecoverable = true;
       state.recoveryScanFailed = true;
+      state.recoveryScanError = String(error?.message || "Recovery could not be verified.").slice(0,240);
     } finally {
       if (root === appRoot() && generation === recoveryScanGeneration) {
         state.recoveryScanPending = false;
@@ -377,7 +378,7 @@
     field("updateChannelNote").textContent = (state.channel === "beta" ?
       "Beta is the test channel. A verified return to Stable remains available." :
       "Stable is the normal operating channel.") +
-      (state.recoveryScanFailed ? " Recovery backups could not be checked. Reconnect folder access before installing another update." :
+      (state.recoveryScanFailed ? " Recovery backups could not be checked. Preserve them for local review: " + state.recoveryScanError :
         state.recoveryScanPending ? " Checking recovery backups before permitting installation." :
         state.autoRecoverable ? " A verified interrupted software update will recover when you authorize the next Beta update. Your Workspace is preserved." :
         state.hasRecoverable ? " Resolve the interrupted update recovery before installing another update." : "");
