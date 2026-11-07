@@ -105,7 +105,13 @@ async function harness(){
   const sysB=await storeB.getDirectoryHandle("System Files");
   const wsB=await sysB.getDirectoryHandle("Workspace");
   const events=[];
+  const confirmationPrompts=[];
+  let responses=[true,true];
   const context=vm.createContext({
+    confirm:prompt=>{
+      confirmationPrompts.push(prompt);
+      return responses.shift()===true;
+    },
     connectedNativeRoot:storeB,
     model:{applicationRoot:storeB,root:wsB},
     writeAuthority:{canWrite:true,requireWrite:()=>{}},
@@ -121,7 +127,8 @@ async function harness(){
   vm.runInContext(production,context);
   const reset=(args={})=>context.__moondogFreshInstallation.resetSelectedFreshInstallation({
     selectedRoot:storeB,expectedRoot:storeB,...args});
-  return {storeA,storeB,wsB,context,reset,events};
+  return {storeA,storeB,wsB,context,reset,events,confirmationPrompts,
+    setConfirmResponses:values=>{responses=[...values];}};
 }
 test("Fresh deletes every synthetic store-B Workspace item, restores clean setup, preserves store A and runtime",async()=>{
   const h=await harness();
@@ -142,6 +149,9 @@ test("Fresh deletes every synthetic store-B Workspace item, restores clean setup
   assert.deepEqual(JSON.parse(await get(h.storeB,prefix+"data/current-state.json")).records,[]);
   assert.equal(h.events.includes("navigate:setup"),true);
   assert.equal(steps.at(-1).percent,100);
+  assert.equal(h.confirmationPrompts.length,2);
+  assert.match(h.confirmationPrompts[0],/Are you sure\?/);
+  assert.match(h.confirmationPrompts[1],/Are you really sure\?/);
 });
 test("identical folder name does not authorize deletion of a different store",async()=>{
   const h=await harness();
@@ -166,6 +176,27 @@ test("interrupted removal is not reported as a clean installation, and the other
   const normal=h.wsB.removeEntry;
   h.wsB.removeEntry=async(name,options)=>{if(name==="backups")throw Error("synthetic deletion lock");return normal(name,options);};
   await assert.rejects(h.reset(),/partially cleared/);
+  assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
+  assert.equal(h.events.includes("navigate:setup"),false);
+});
+
+test("declining the first warning leaves both installations entirely untouched",async()=>{
+  const h=await harness();
+  h.setConfirmResponses([false,true]);
+  const result=await h.reset();
+  assert.equal(result.status,"cancelled");
+  assert.equal(h.confirmationPrompts.length,1);
+  assert.equal(await get(h.storeB,prefix+"backups/internal.zip"),"synthetic-private-backup");
+  assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
+  assert.equal(h.events.includes("navigate:setup"),false);
+});
+test("declining the second warning leaves both installations entirely untouched",async()=>{
+  const h=await harness();
+  h.setConfirmResponses([true,false]);
+  const result=await h.reset();
+  assert.equal(result.status,"cancelled");
+  assert.equal(h.confirmationPrompts.length,2);
+  assert.equal(await get(h.storeB,prefix+"backups/internal.zip"),"synthetic-private-backup");
   assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
   assert.equal(h.events.includes("navigate:setup"),false);
 });
