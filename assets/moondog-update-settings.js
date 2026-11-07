@@ -541,11 +541,21 @@
           detail:"Only the selected installation was reset; loading Guided Setup"});
       }else throw new Error("Fresh reset was not verified.");
     }catch(error){
-      if(resetStarted)state.freshResetUnresolved=true;
-      status.textContent=(resetStarted?"Fresh Installation unresolved. ":"")+
+      // App.js marks ONLY contention detected before creating the durable
+      // reset hold or touching Workspace data. A busy preflight is retryable;
+      // an unknown failure after reset invocation remains fail-closed.
+      const safePreflight=resetStarted && error?.code==="MOONDOG_FRESH_PRECHECK_BUSY" &&
+        error?.freshMutationStarted===false;
+      if(resetStarted&&!safePreflight)state.freshResetUnresolved=true;
+      status.textContent=safePreflight?
+        "Fresh did not start: another Workspace task was active. No Fresh data was deleted. Try again after the task finishes.":
+        (resetStarted?"Fresh Installation unresolved. ":"")+
         (error?.message||"Fresh could not be verified.");
-      await setProgress({phase:"error",percent:null,label:"Fresh Installation blocked",
-        detail:error?.message||"No clean-store state can be claimed."});
+      await setProgress({phase:"error",percent:null,
+        label:safePreflight?"Fresh postponed safely":"Fresh Installation blocked",
+        detail:safePreflight?
+          "Another Workspace task is active. No Fresh reset started. Retry after it finishes.":
+          error?.message||"No clean-store state can be claimed."});
     }finally{
       state.busy=false;render();
       if(finished)reloadVerifiedUpdate(installedVersion);
@@ -561,7 +571,8 @@
     }
     if (state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer()) return;
     const offered = state.check, offeredFor = state.checkFor;
-    let verifiedReloadVersion = null, freshOutcomeStatus = null, freshPostInstall = false;
+    let verifiedReloadVersion = null, verifiedInstalledVersion = null,
+      freshOutcomeStatus = null, freshPostInstall = false;
     state.busy = true; render();
     clearPlan();
     await setProgress({ phase: "verify-package", percent: 5, label: "Verifying update package", detail: "Downloading and checking the selected update" });
@@ -629,6 +640,7 @@
       else if (outcome.status === "rolled-back") await setProgress({ phase: "rolled-back", percent: 100, label: "Previous version restored", detail: "The update failed, but rollback completed and was verified." });
       else if (outcome.status !== "installed") await setProgress({ phase: "error", percent: state.progress?.percent || 25, label: "Update stopped", detail: outcome.reason || "Installation did not complete." });
       if (outcome.status === "installed") {
+        verifiedInstalledVersion=outcome.version;
         if (fresh) {
           freshPostInstall = true;
           // The selected root, channel and exact package receipt must match
@@ -690,15 +702,40 @@
         verifiedReloadVersion = outcome.version;
       }
     } catch (error) {
-      // If a verified install was followed by a failed destructive phase, do
-      // not let this live tab offer a second update over an uncertain Workspace.
-      // This flag is intentionally NEVER persisted in shared browser storage:
-      // the installation-specific on-disk hold guards its next connection.
-      if(fresh && freshPostInstall) state.freshResetUnresolved=true;
-      status.textContent = (fresh && freshPostInstall
-        ? "Fresh Installation incomplete; updates in this tab are blocked. "
-        : "")+(error.message || "Update stopped before installation.");
-      await setProgress({ phase: "error", percent: state.progress?.percent || 5, label: "Update stopped", detail: error.message || "Installation could not continue." });
+      // A verified Beta followed by an explicitly typed, pre-mutation busy
+      // rejection is NOT an interrupted Fresh deletion. The source reset
+      // function emits this code only before writing the durable reset marker.
+      // Reload the verified Beta so the user's next Fresh choice can be made
+      // against the exact installed journal, after background tasks settle.
+      const safePreflight=Boolean(fresh&&freshPostInstall&&verifiedInstalledVersion &&
+        error?.code==="MOONDOG_FRESH_PRECHECK_BUSY" &&
+        error?.freshMutationStarted===false);
+      if(safePreflight){
+        installedVersion=verifiedInstalledVersion;
+        comparisonVersion=verifiedInstalledVersion;
+        installedChannel="beta";
+        field("updateInstalledVersion").textContent=installedVersion;
+        field("updateInstalledChannel").textContent="Beta";
+        state.check=null;state.checkFor=null;state.dismissed=null;
+        state.postUpdateFresh=null;clearPlan();
+        // Do not automatically reload while another Workspace operation is
+        // active: that could interrupt the unrelated writer which caused this
+        // safe preflight rejection in the first place.
+        status.textContent="Beta "+verifiedInstalledVersion+
+          " installed and verified. Fresh did not start because another Workspace task was active. No data was deleted by Fresh. After the other task finishes, refresh this tab.";
+        await setProgress({phase:"complete",percent:100,
+          label:"Beta installed; Fresh safely deferred",
+          detail:"Leave the window open while Workspace work finishes. Then press Ctrl+R to load the verified Beta and choose Finish Fresh."});
+      }else{
+        // Unknown failures after an installer succeeded may involve deletion.
+        // Preserve the tab hold and any installation-specific recovery marker.
+        if(fresh && freshPostInstall) state.freshResetUnresolved=true;
+        status.textContent = (fresh && freshPostInstall
+          ? "Fresh Installation incomplete; updates in this tab are blocked. "
+          : "")+(error.message || "Update stopped before installation.");
+        await setProgress({ phase: "error", percent: state.progress?.percent || 5,
+          label: "Update stopped", detail: error.message || "Installation could not continue." });
+      }
     } finally {
       state.busy = false;
       render();
