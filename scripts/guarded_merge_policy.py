@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Trusted repository-wide authorization and exact Codex review gates."""
+"""Trusted authorization, optional review evidence, and authenticated findings gates."""
 from __future__ import annotations
 
 import argparse
@@ -187,33 +187,74 @@ def owner_review_state(reviews: list, expected_head: str, owner_login: str) -> s
     return "pending"
 
 
+def owner_resolves_findings(comments: list, reviews: list, expected_head: str, policy: dict) -> bool:
+    """Require explicit, newer exact-head owner evidence for every legacy finding.
+
+    An ordinary approval is insufficient. Privacy, CI and protected-change gates
+    remain independent; this only permits a recorded finding to be investigated
+    without requiring the original review provider to be available.
+    """
+    from datetime import datetime
+
+    if owner_review_state(reviews, expected_head, policy.get("owner_review_login", "")) != "clean":
+        return False
+    findings = [comment for comment in comments
+                if codex_review_state([comment], expected_head) == "findings"]
+    if not findings:
+        return False
+    for review in reversed(reviews):
+        if owner_review_state([review], expected_head, policy.get("owner_review_login", "")) != "clean":
+            continue
+        # Only the newest attestation counts; an older resolution cannot survive
+        # a later approval that omits the resolution evidence.
+        lines = (review.get("body") or "").splitlines()
+        markers = [line for line in lines if line.startswith("Resolved-Review-Comments: ")]
+        if len(markers) != 1:
+            return False
+        value = markers[0].removeprefix("Resolved-Review-Comments: ")
+        if not re.fullmatch(r"[1-9][0-9]*(?:,[1-9][0-9]*)*", value):
+            return False
+        resolved = {int(item) for item in value.split(",")}
+        try:
+            reviewed_at = datetime.fromisoformat(review["submitted_at"].replace("Z", "+00:00"))
+            for comment in findings:
+                if type(comment.get("id")) is not int or comment["id"] not in resolved:
+                    return False
+                found_at = datetime.fromisoformat(comment["created_at"].replace("Z", "+00:00"))
+                if reviewed_at <= found_at:
+                    return False
+        except (KeyError, ValueError, TypeError, AttributeError):
+            return False
+        return True
+    return False
+
+
 def merge_review_state(comments: list, reviews: list, expected_head: str, policy: dict) -> str:
-    """Active Codex findings veto an owner fallback; require exact-head proof."""
-    codex = codex_review_state(comments, expected_head)
-    # Only the newest authenticated exact-head summary can resolve previous
-    # findings. A stale summary still returns pending, never clean. Requiring
-    # every historical summary to be finding-free made resolution impossible.
-    if codex == "findings":
+    """Optional reviews never gate routine scoped-proof work; findings still veto.
+
+    Historical provider summaries remain readable for audit compatibility. A
+    missing provider, stale summary or absent AI review supplies no positive
+    evidence, and is not a failure for an automatically eligible change.
+    """
+    # [] is authenticated absence; malformed or unavailable input is unknown.
+    # Unknown must veto even an otherwise automatically eligible change.
+    if (not isinstance(comments, list) or not isinstance(reviews, list) or
+        any(not isinstance(item, dict) for item in comments + reviews) or
+        not isinstance(expected_head, str) or not re.fullmatch(r"[0-9a-f]{40}", expected_head)):
         return "findings"
-    # A stale, missing or incomplete newer summary does not clear an earlier
-    # verified unresolved finding for the exact commit. Only a newer
-    # authenticated completed exact-head summary explicitly reporting no
-    # unresolved findings can supersede a historical finding.
-    if codex == "pending" and any(
-        codex_review_state([comment], expected_head) == "findings"
-        for comment in comments if isinstance(comment, dict)
-    ):
-        return "findings"
-    owner = "pending"
-    if (
-        has_standing_authorization(policy)
-        and policy.get("owner_review_attestation") == "enabled"
-        and policy.get("owner_review_login") == "JHFMoon"
-    ):
-        owner = owner_review_state(reviews, expected_head, policy["owner_review_login"])
+    legacy = codex_review_state(comments, expected_head)
+    enabled = (has_standing_authorization(policy)
+               and policy.get("owner_review_attestation") == "enabled"
+               and policy.get("owner_review_login") == "JHFMoon")
+    owner = owner_review_state(reviews, expected_head, policy["owner_review_login"]) if enabled else "pending"
     if owner == "findings":
         return "findings"
-    return "clean" if codex == "clean" or owner == "clean" else "pending"
+    unresolved = legacy == "findings" or (legacy == "pending" and any(
+        codex_review_state([comment], expected_head) == "findings"
+        for comment in comments if isinstance(comment, dict)))
+    if unresolved and not (enabled and owner_resolves_findings(comments, reviews, expected_head, policy)):
+        return "findings"
+    return "clean" if legacy == "clean" or owner == "clean" else "pending"
 
 
 def main() -> int:
@@ -278,6 +319,9 @@ def main() -> int:
         else:
             reviews = []
     except (OSError, ValueError):
+        if args.command == "merge-review-state":
+            print("Cannot verify authenticated review evidence", file=sys.stderr)
+            return 2
         print("pending")
         return 0
     state = (
