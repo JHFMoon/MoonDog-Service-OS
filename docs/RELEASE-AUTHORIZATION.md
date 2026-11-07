@@ -7,9 +7,9 @@ A Stable promotion PR requires separate owner authorization before merge. Public
 
 ## Permanent engineering review policy
 
-Routine engineering and Beta work operate under standing owner authorization. An independent human or AI reviewer is optional. Record the AI-assisted inspection against the exact PR head, including the scope, findings and how they were resolved, and any verification limits. Refresh the record when the head changes.
+Routine engineering and Beta work operate under standing owner authorization. An independent human or AI reviewer is optional. Routine eligibility relies on exact-head automated evidence. Where the classification requires formal review, record the inspection against the exact PR head, including scope, findings, resolutions and verification limits. Refresh required review evidence when the head changes. No particular coding interface or model is required.
 
-- Routine changes and data-affecting changes with accepted scoped preservation proof follow the existing automated path. Data-affecting changes without that proof require either a clean authenticated exact-head Codex review already on record or an authenticated exact-head owner attestation. Owner attestation can document AI-assisted inspection without an independent reviewer.
+- Routine changes and data-affecting changes with accepted scoped preservation proof follow the existing automated path. Data-affecting changes without that proof require authenticated exact-head review evidence under the existing owner-attestation route. No AI reviewer, model, vendor, comment, or AI artifact is required. Historical optional review evidence remains readable for audit compatibility. Owner attestation can document AI-assisted inspection without an independent reviewer.
 - Protected changes, including this policy and its workflow, require the existing separate manual or bootstrap route. For future protected PRs, record a formal exact-head owner-attested GitHub review that explicitly identifies the protected scope and evidence. An authorized maintainer verifies the review, any findings veto, the current base and mandatory checks before using the ordinary GitHub PR merge route. The guarded workflow continues refusing automatic merges for protected changes.
 - Required automated tests, Publication Check, Clean Install Proof, security scans, applicable package integrity verification, and GitHub branch protections continue to apply. Resolve authenticated findings before merging.
 - Stable promotion, real-store deployment, and destructive actions on actual dealership data each require separate owner authorization.
@@ -54,6 +54,16 @@ MoonDog-Owner-Review: approved
 Reviewed-Commit: <full 40-character lowercase PR head SHA>
 ```
 
-A PR description, issue comment, review by another account, stale commit, or summary without those lines does not pass. An authenticated owner request for changes or unresolved Codex findings on the same commit vetoes the guarded merge. GitHub records the formal review in the PR audit trail. Each new head requires fresh inspection and CI, and a fresh formal review where the policy requires one. GitHub branch protections and required checks apply throughout.
+A PR description, issue comment, review by another account, stale commit, or summary without those lines does not pass. An authenticated owner request for changes or unresolved authenticated findings on the same commit vetoes the guarded merge. GitHub records the formal review in the PR audit trail. Each new head requires fresh inspection and CI, and a fresh formal review where the policy requires one. GitHub branch protections and required checks apply throughout.
 
 The trusted main-branch `.github/guarded-merge-policy.json` explicitly enables the alternative. Changes to this policy, merge workflows, guard scripts, and their tests are **protected automation changes**: propose them in a separate PR, run proof checks, and use the established protected bootstrap/manual merge path. The automatic guarded merger must continue rejecting its own protected policy files.
+
+## Provider-independent routine operation
+
+OWNER OBJECTIVE → IMPLEMENTATION → AUTOMATED TESTS → PRIVACY VERIFICATION → AUTHORIZED MERGE → VERIFIED BETA → EVIDENCE.
+
+Routine and accepted scoped-proof changes require no owner attestation, manual review, independent AI review, Codex execution, review comments or vendor-specific metadata. The trusted risk classifier still refuses protected controls; missing or failed mandatory checks block merge and publication. ChatGPT contributions use the same authenticated contributor and verification rules as any other contribution. Packaging/version reservation and queue advancement remain trusted workflow responsibilities. No Stable promotion or real-store installation is authorized by this flow.
+
+An old automated finding does not require its original provider to return. An authorized exact-head owner GitHub review may resolve it only after investigating each finding, recording fixes and verification evidence, and adding `Resolved-Review-Comments: <numeric-comment-id>,<numeric-comment-id>` as one standalone line alongside the existing owner-review and exact-commit lines. The review must be newer than every referenced finding and cover every authenticated blocking comment for that head. Missing IDs, stale reviews, missing timestamps, malformed evidence, or a later finding remain blocked. A bare approval never clears findings. This resolution does not override privacy scans, functional checks, protected classification or GitHub branch protection.
+
+Changes to these controls require separate protected bootstrap review. They must never approve or merge themselves. Read this section as proposed behavior until this protected change is reviewed and merged to main; the live main revision remains authoritative.

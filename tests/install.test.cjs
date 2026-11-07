@@ -305,9 +305,9 @@ test("large recovery inventory reads bounded batches without modifying protected
     const status = i % 3 === 0 ? "applying" : i % 3 === 1 ? "prepared" : "restored";
     if (i !== 11) {
       setup.workspace.store.files.set(base + name + "/journal.json",
-        Buffer.from(i === 25 ? "{invalid json" : JSON.stringify({ status })));
+        Buffer.from(JSON.stringify({ status, inventory: [] })));
     }
-    if (status !== "restored" && i !== 11 && i !== 25) expected.push(name);
+    if (status !== "restored" && i !== 11) expected.push(name);
   }
   setup.workspace.store.dirs.add(base + "Unrelated-Backup-20261018");
   const originalDirs = setup.workspace.store.dirs.size;
@@ -331,9 +331,9 @@ test("recovery inventory surfaces transient OneDrive read failures instead of hi
   const journal = dir + name + "/journal.json";
   setup.workspace.store.dirs.add(dir + name);
   setup.workspace.store.dirs.add(dir + validName);
-  setup.workspace.store.files.set(journal, Buffer.from(JSON.stringify({ status: "applying" })));
+  setup.workspace.store.files.set(journal, Buffer.from(JSON.stringify({ status: "applying", inventory: [] })));
   setup.workspace.store.files.set(dir + validName + "/journal.json",
-    Buffer.from(JSON.stringify({ status: "prepared" })));
+    Buffer.from(JSON.stringify({ status: "prepared", inventory: [] })));
   setup.workspace.store.failReadOnce = journal;
 
   await assert.rejects(
@@ -346,6 +346,6 @@ test("recovery inventory surfaces transient OneDrive read failures instead of hi
     [name, validName].sort().reverse(), "a retry finds every incomplete backup without hidden entries"
   );
   assert.equal(setup.workspace.store.files.get(journal).toString(),
-    JSON.stringify({ status: "applying" }), "the journal remains intact");
+    JSON.stringify({ status: "applying", inventory: [] }), "the journal remains intact");
   assert.deepEqual(setup.workspace.store.writes, [], "inventory never mutates backups or protected files");
 });

@@ -276,6 +276,66 @@ class OwnerReviewFallbackTests(unittest.TestCase):
         self.assertEqual(merge_review_state([], [owner_review()], HEAD, {**POLICY, "owner_review_attestation": "disabled"}), "pending")
         self.assertEqual(merge_review_state([summary()], [owner_review()], HEAD, {}), "clean")
 
+class ProviderIndependentResolutionTests(unittest.TestCase):
+    def evidence(self, ids="101", when="2026-11-07T18:00:00Z", sha=HEAD, user="JHFMoon"):
+        review = owner_review(sha=sha, user=user)
+        review['body'] += '\nResolved-Review-Comments: ' + ids
+        review['submitted_at'] = when
+        return review
+
+    def finding(self, number=101, when="2026-11-07T17:00:00Z"):
+        return {**summary(findings=True, unresolved=True), 'id': number, 'created_at': when}
+
+    def test_recorded_findings_can_be_verified_without_original_provider_returning(self):
+        self.assertEqual(merge_review_state([self.finding()], [self.evidence()], HEAD, POLICY), 'clean')
+
+    def test_all_findings_require_newer_authenticated_exact_head_resolution(self):
+        findings = [self.finding(), self.finding(102)]
+        self.assertEqual(merge_review_state(findings, [self.evidence('101,102')], HEAD, POLICY), 'clean')
+        for review in [self.evidence('101'), self.evidence('101,102', sha='b'*40),
+                       self.evidence('101,102', user='other'), self.evidence('101,102', when='2026-11-07T16:00:00Z'),
+                       self.evidence('101,102', when='invalid'), self.evidence('101, 102')]:
+            with self.subTest(review=review):
+                self.assertEqual(merge_review_state(findings, [review], HEAD, POLICY), 'findings')
+
+    def test_ordinary_approval_missing_metadata_later_finding_and_owner_veto_stay_blocked(self):
+        finding = self.finding()
+        for comments, reviews in [
+            ([finding], [owner_review()]),
+            ([summary(findings=True, unresolved=True)], [self.evidence()]),
+            ([self.finding(when='2026-11-07T19:00:00Z')], [self.evidence()]),
+            ([finding], [self.evidence(), owner_review()]),
+            ([finding], [self.evidence(), owner_review(state='CHANGES_REQUESTED')]),
+        ]:
+            self.assertEqual(merge_review_state(comments, reviews, HEAD, POLICY), 'findings')
+
+    def test_actual_workflow_decision_accepts_missing_ai_for_automatic_scope_only(self):
+        import os
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root/'.github/workflows/guarded-pr-merge.yml').read_text()
+        start = workflow.index('            if [ "$REVIEW_STATE" = "findings" ]; then')
+        end = workflow.index('          else\n            echo "Required exact-head checks', start)
+        code = '\n'.join(line[12:] for line in workflow[start:end].splitlines())
+        # No comments or reviews at all, and no provider invocation or artifact.
+        state = merge_review_state([], [], HEAD, POLICY)
+        self.assertEqual(state, 'pending')
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)/'output'
+            for decision, review_state, expected in [('automatic', state, 'ready=true'),
+                                                     ('review-required', state, 'ready=false'),
+                                                     ('protected', state, None),
+                                                     ('automatic', 'findings', None)]:
+                output.write_text('')
+                env = {**os.environ, 'REVIEW_STATE': review_state, 'DECISION': decision,
+                       'GITHUB_OUTPUT': str(output)}
+                result = subprocess.run(['bash','-c',code], cwd=root, env=env, capture_output=True, text=True)
+                if expected:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn(expected, output.read_text())
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn('ready=true', output.read_text())
+
 
 if __name__ == "__main__":
     unittest.main()
