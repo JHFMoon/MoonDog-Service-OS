@@ -93,6 +93,13 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # A draft is pending, not a failed merge. Keep malformed values
+          # subject to the existing strict structured-PR authorization check.
+          if [ "$(jq -r '.draft == true' /tmp/pr.json)" = "true" ]; then
+            echo "Draft PR not eligible for merge; skipping safely."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           set +e
           python3 scripts/guarded_merge_policy.py check-authorization /tmp/pr.json --policy .github/guarded-merge-policy.json
           AUTHORIZATION_STATUS=$?
