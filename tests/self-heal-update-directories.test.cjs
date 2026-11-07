@@ -60,7 +60,7 @@ function memoryRoot() {
   const root = handle("");
   return { root, state, old, next };
 }
-async function setup({ includeScript = false } = {}) {
+async function setup({ includeScript = false, requireScript = false } = {}) {
   const synthetic = memoryRoot();
   const app = await synthetic.root.getDirectoryHandle("System Files");
   const entries = [
@@ -80,6 +80,8 @@ async function setup({ includeScript = false } = {}) {
   const verifiedPackage={status:"verified", version:"1.1.0",channel:"beta",
     migrationRequired:false,bytes,sha256:digest(bytes)};
   const trustedAllowlist=entries.map(x=>x.path);
+  if (requireScript && !trustedAllowlist.includes("assets/app.js"))
+    trustedAllowlist.push("assets/app.js");
   async function run(onProgress) {
     const expectedPlan=await context.MoonDogPackagePlan.dryRun({
       verifiedPackage,appDirectoryHandle:app,trustedAllowlist,subtle:webcrypto.subtle
@@ -171,4 +173,14 @@ test("repeat verified update is safe and preserves store-specific bytes", async 
   assert.equal(fixture.state.files.get("System Files/assets/new.js").toString(),"new");
   assert.equal(fixture.state.files.get("System Files/assets/app.js").toString(),
     "verified replacement application script");
+});
+
+test("missing required app.js fails closed if verified package cannot replace it", async () => {
+  const fixture=await setup({requireScript:true});
+  const before=new Map([...fixture.state.files].map(([key,value])=>[key,Buffer.from(value)]));
+  const result=await fixture.run();
+  assert.equal(result.status,"stopped");
+  assert.match(result.reason,/Required application script is missing/);
+  assert.deepEqual(fixture.state.files,before,
+    "failed repair must not modify application or private Workspace files");
 });
