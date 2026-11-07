@@ -49,14 +49,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Check out candidate as untrusted data
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: candidate
-          fetch-depth: 0
-          persist-credentials: false
-
       - name: Verify explicit authorization and protected path boundaries
         shell: bash
         env:
@@ -68,7 +60,7 @@ jobs:
           test "$(jq -r '.head.repo.full_name' /tmp/authorized-pr.json)" = "$REPO"
           python3 trusted/scripts/guarded_merge_policy.py check-authorization /tmp/authorized-pr.json --policy trusted/.github/guarded-merge-policy.json
           python3 trusted/scripts/guarded_merge_policy.py check-pr-author /tmp/authorized-pr.json --repository "$REPO" --package-bot-login "${{ vars.MOONDOG_RELEASE_APP_LOGIN }}"
-          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename' > /tmp/pr-paths.txt
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > /tmp/pr-paths.txt
           python3 trusted/scripts/pipeline_guard.py check-paths /tmp/pr-paths.txt
 
       - name: Defer package generation until PR is based on current main
@@ -82,12 +74,23 @@ jobs:
           COMPARE="$(gh api "repos/$REPO/compare/$MAIN_SHA...$HEAD_SHA")"
           STATUS="$(jq -r .status <<<"$COMPARE")"
           MERGE_BASE="$(jq -r '.merge_base_commit.sha // empty' <<<"$COMPARE")"
-          if [ "$STATUS" != "ahead" ] || [ "$MERGE_BASE" != "$MAIN_SHA" ]; then
+          if [ "$STATUS" != "ahead" ] || [ "$MERGE_BASE" != "$MAIN_SHA" ] ||
+            [ "$(git -C trusted rev-parse HEAD)" != "$MAIN_SHA" ]; then
             echo "PR head does not descend from current main; the release queue must additively refresh it before package generation."
             echo "current=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "current=true" >> "$GITHUB_OUTPUT"
+          echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out candidate as untrusted data
+        if: steps.base.outputs.current == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Check whether the candidate runtime needs a Beta package
         id: parity
@@ -204,8 +207,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
-          permission-issues: write
-          permission-pull-requests: write
+          permission-pull-requests: read
 
       - name: Push package commit to the same reviewed PR
         if: steps.commit.outputs.generated == 'true'
@@ -214,12 +216,19 @@ jobs:
           APP_TOKEN: ${{ steps.release-app.outputs.token }}
           GH_TOKEN: ${{ steps.release-app.outputs.token }}
           APP_SLUG: ${{ steps.release-app.outputs.app-slug }}
+          EXPECTED_MAIN: ${{ steps.base.outputs.main_sha }}
           PACKAGE_BOT_LOGIN: ${{ vars.MOONDOG_RELEASE_APP_LOGIN }}
         run: |
           set -euo pipefail
           test -n "$APP_TOKEN"
           test -n "$APP_SLUG"
           test "$PACKAGE_BOT_LOGIN" = "$APP_SLUG[bot]"
+          test "$(git -C candidate rev-parse HEAD^)" = "$HEAD_SHA"
+          gh api "repos/$REPO/pulls/$PR_NUMBER" | jq -e \
+            --arg repo "$REPO" --arg head "$HEAD_SHA" --arg branch "$HEAD_BRANCH" \
+            '.state == "open" and .base.ref == "main" and
+              .head.repo.full_name == $repo and .head.sha == $head and .head.ref == $branch' >/dev/null
+          test "$(gh api "repos/$REPO/branches/main" --jq .commit.sha)" = "$EXPECTED_MAIN"
           AUTH="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
           git -C candidate -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH" push origin "HEAD:$HEAD_BRANCH"
           # Trusted merge policy decides whether scoped data proof or an

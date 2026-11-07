@@ -173,8 +173,16 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('push origin "HEAD:$HEAD_BRANCH"', prepare)
         release_app = prepare.split("id: release-app", 1)[1].split("      - name:", 1)[0]
         self.assertIn("permission-contents: write", release_app)
-        self.assertIn("permission-issues: write", release_app)
-        self.assertIn("permission-pull-requests: write", release_app)
+        self.assertNotIn("permission-issues:", release_app)
+        self.assertIn("permission-pull-requests: read", release_app)
+        auth = prepare.index("      - name: Verify explicit authorization and protected path boundaries")
+        base = prepare.index("      - name: Defer package generation until PR is based on current main")
+        checkout = prepare.index("      - name: Check out candidate as untrusted data")
+        self.assertLess(auth, base)
+        self.assertLess(base, checkout)
+        push = prepare.split("      - name: Push package commit to the same reviewed PR", 1)[1]
+        self.assertLess(push.index(".head.sha == $head"), push.index('push origin "HEAD:$HEAD_BRANCH"'))
+        self.assertLess(push.index('"$EXPECTED_MAIN"'), push.index('push origin "HEAD:$HEAD_BRANCH"'))
         self.assertNotIn("workflow_dispatch:", prepare)
         self.assertNotIn("gh workflow run", prepare)
         self.assertNotIn("statuses:", prepare)
