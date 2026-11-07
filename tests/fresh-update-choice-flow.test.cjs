@@ -40,6 +40,7 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
   const card={innerHTML:"",querySelector:selector=>field(selector.slice(1))};
   const context=vm.createContext({
     MoonDogInstalledVersion:options.installedVersion||"0.10.18-beta.381",
+    location:options.location||{},
     __moondogSettingsModel:{applicationRoot:root},
     showDirectoryPicker:async()=>root,
     __moondogMaintenance:{runtimePaths:["assets/app.js"]},
@@ -56,7 +57,7 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
     MoonDogUpdateInstall:{listBackups:async()=>options.backups||[],apply:async()=>{events.push(["apply"]);return installerResult;}},
     document:{getElementById:name=>name==="view-settings"?{querySelector:()=>({append(){}})}:null,
       createElement:()=>card,querySelector:()=>null,addEventListener(){}},
-    localStorage:{getItem:()=>JSON.stringify({channel:"beta",lastCheck:"2099-01-01T00:00:00.000Z"}),setItem:key=>storageWrites.push(key)},
+    localStorage:options.storage||{getItem:()=>JSON.stringify({channel:"beta",lastCheck:"2099-01-01T00:00:00.000Z"}),setItem:key=>storageWrites.push(key)},
     confirm:()=>true,Date,setTimeout(){},requestAnimationFrame:fn=>fn()
   });
   vm.runInContext(source,context);
@@ -282,4 +283,23 @@ test("rollback recovery refuses a root swap during backup inventory scan",async(
   await h.listeners.get("recoverMoonDogUpdate:click")();
   assert.deepEqual(h.events.filter(e=>e[0]==="recover"),[]);
   assert.match(h.field("updateStatus").textContent,/Selected installation changed while checking recovery backups/);
+});
+
+test("separate file launchers do not inherit another store's update preferences or recovery hold",async()=>{
+  const shared=new Map([["moondog-public-update-preferences-v1",
+    JSON.stringify({channel:"beta",recoveryRequired:true})]]);
+  const storage={getItem:key=>shared.get(key)||null,setItem:(key,value)=>shared.set(key,value)};
+  const first={location:{protocol:"file:",pathname:"/C:/Synthetic/A/index.html"},storage};
+  const second={location:{protocol:"file:",pathname:"/C:/Synthetic/B/index.html"},storage};
+  const a=harness(undefined,first);await a.settle();
+  a.field("updateChannel").value="stable";
+  a.listeners.get("updateChannel:change")();
+  const b=harness(undefined,second);await b.settle();await b.check();
+  assert.equal(b.field("updateChannel").value,"beta",
+    "store B must not inherit store A's saved channel");
+  assert.equal(b.field("installMoonDogUpdate").disabled,false,
+    "legacy shared recovery hold must not block store B");
+  const reopened=harness(undefined,first);
+  assert.equal(reopened.field("updateChannel").value,"stable");
+  assert.ok([...shared.keys()].some(key=>key.includes("/C:/Synthetic/A/index.html")));
 });
