@@ -8504,7 +8504,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         const parts=path.split("/");
         if(parts.length!==2||parts[0]!=="data")throw new Error("Invalid fresh state path.");
         const file=await data.getFileHandle(parts[1],{create:true});
-        const content=JSON.stringify(value,null,2)+"\\n";
+        const content=JSON.stringify(value,null,2)+"\n";
         const stream=await file.createWritable();
         try{await stream.write(content);await stream.close();}
         catch(error){try{await stream.abort();}catch(_){}throw error;}
