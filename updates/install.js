@@ -76,7 +76,9 @@
         let record;
         try { record = JSON.parse(decoder.decode(bytes)); }
         catch (error) {
-          if (error instanceof SyntaxError) return null; // Malformed journal.
+          // A damaged journal in a recognized update backup must not be
+          // treated as proof that no transaction needs recovery.
+          if (error instanceof SyntaxError) throw new Error("Existing update recovery journal is unreadable.");
           throw error;
         }
         return ["applying", "prepared"].includes(record?.status) ? name : null;
@@ -189,6 +191,14 @@
       await progress(onProgress, { phase: "permission", percent: 8, label: "Preparing installation", detail: "Confirming folder access" });
       await permission(workspace);
       await assertAuthority(workspace);
+      // Never layer a new update over an unresolved prior transaction.
+      // Inventory update journals only; do not enumerate store reports.
+      const pending = await listBackups(workspace);
+      if (pending.length) return {
+        status: "recovery-required",
+        reason: "An earlier application update needs recovery before another update.",
+        backupName: pending[0]
+      };
       if (trustedAllowlist.includes("index.html") && await read(app, "index.html") === null) {
         throw new Error("The connected application folder has no index.html.");
       }
