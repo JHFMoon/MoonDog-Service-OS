@@ -10,7 +10,7 @@ def git(*args, input=None):
     return subprocess.run(["git", *args], input=input, stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL, check=True).stdout
 
-objects = git("rev-list", "--objects", "--all").decode("utf-8", "replace").splitlines()
+object_ids = list(dict.fromkeys(git("rev-list", "--objects", "--no-object-names", "--all").decode("ascii").splitlines()))
 
 patterns = {
     "private_key": re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
@@ -101,12 +101,9 @@ def scan_payload(data, prefix="", approved_synthetic_vin_blob=False):
 
 # Strict full-history audit uses a single Git object stream. There are no
 # cross-run caches or shortcuts: every reachable object is enumerated anew.
-object_ids = list(dict.fromkeys(
-    line.partition(" ")[0] for line in objects if line.strip()
-))
 metadata_rows = git(
     "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)",
-    input=("\n".join(object_ids) + "\n").encode("ascii"),
+    input="".join(oid + "\n" for oid in object_ids).encode("ascii"),
 ).splitlines()
 if len(metadata_rows) != len(object_ids):
     raise RuntimeError("Git metadata response did not cover every reachable object")
@@ -115,7 +112,10 @@ for requested, row in zip(object_ids, metadata_rows):
     columns = row.decode("ascii").split()
     if len(columns) != 3 or columns[0] != requested:
         raise RuntimeError("Git object metadata identity or type mismatch")
-    metadata[requested] = (columns[1], int(columns[2]))
+    kind, size = columns[1], int(columns[2])
+    if kind not in {"blob", "tree", "commit", "tag"} or size < 0:
+        raise RuntimeError("Invalid Git object type or size")
+    metadata[requested] = (kind, size)
 
 object_format = git("rev-parse", "--show-object-format").strip()
 oid_bytes = {b"sha1": 20, b"sha256": 32}.get(object_format)
@@ -166,6 +166,9 @@ with subprocess.Popen(
     except BaseException:
         stream.kill()
         raise
+    stream.stdin.close()
+    if stream.wait() != 0:
+        raise RuntimeError("Git batch process failed before audit completion")
 
 # Recover every distinct historical path from ALL commit tree snapshots,
 # including deleted/renamed paths and repeated blobs under different names.

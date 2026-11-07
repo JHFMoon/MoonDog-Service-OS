@@ -169,6 +169,90 @@ class RedactedHistoryAuditTests(unittest.TestCase):
         finally:
             td.cleanup()
 
+    def test_scans_reused_subtree_under_each_prefix_and_tag_only_commit(self):
+        td, repo = self.init_repo()
+        try:
+            (repo / "README.md").write_text("Synthetic baseline.\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "Synthetic baseline")
+            primary = git(repo, "branch", "--show-current").decode().strip()
+            git(repo, "checkout", "-qb", "temporary-branch")
+            for folder in ("public", "Exports", "Workspace"):
+                nested = repo / folder / "nested"
+                nested.mkdir(parents=True)
+                (nested / "fixture.txt").write_bytes(b"Synthetic identical bytes.\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "Synthetic tagged snapshot")
+            git(repo, "tag", "-am", "Synthetic tag", "historical-snapshot")
+            git(repo, "checkout", "-q", primary)
+            git(repo, "branch", "-D", "temporary-branch")
+            result = self.audit(repo)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("restricted_path: 2", result.stdout)
+            self.assertNotIn("nested/fixture.txt", result.stdout)
+        finally:
+            td.cleanup()
+
+    def test_missing_blob_fails_closed_without_a_success_receipt(self):
+        td, repo = self.init_repo()
+        try:
+            (repo / "fixture.txt").write_bytes(b"Synthetic missing object fixture.\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "Synthetic commit")
+            oid = git(repo, "rev-parse", "HEAD:fixture.txt").decode().strip()
+            loose_object = repo / ".git" / "objects" / oid[:2] / oid[2:]
+            loose_object.rename(repo / "detached-object.fixture")
+            result = self.audit(repo)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn("No blocking candidate matches", result.stdout)
+            self.assertNotIn("Synthetic missing object fixture", result.stderr)
+        finally:
+            td.cleanup()
+
+    def test_contextual_batch_preserves_deleted_blob_and_tag_only_message_findings(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+
+        td, repo = self.init_repo()
+        try:
+            (repo / "README.md").write_text("Synthetic baseline.\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "Synthetic baseline")
+            primary = git(repo, "branch", "--show-current").decode().strip()
+            git(repo, "checkout", "-qb", "temporary-branch")
+            (repo / "fixture.txt").write_bytes(b"dealer " + b"code: " + b"987654\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "Synthetic contextual fixture")
+            git(repo, "rm", "fixture.txt")
+            git(repo, "commit", "-qm", "Synthetic multiline message",
+                "-m", "repair order" + ": " + "432109")
+            git(repo, "tag", "contextual-snapshot")
+            git(repo, "checkout", "-q", primary)
+            git(repo, "branch", "-D", "temporary-branch")
+
+            main = runpy.run_path(str(ROOT / "scripts" / "audit_git_history.py"))["main"]
+            main.__globals__["ROOT"] = repo
+            output = StringIO()
+            with redirect_stdout(output), self.assertRaises(SystemExit) as stopped:
+                main()
+            self.assertIn("2 finding(s)", str(stopped.exception))
+            self.assertIn("dealer code [", output.getvalue())
+            self.assertNotIn("fixture.txt", output.getvalue())
+            self.assertIn("commit message: repair-order number with RO context", output.getvalue())
+            self.assertNotIn("987654", output.getvalue())
+            self.assertNotIn("432109", output.getvalue())
+        finally:
+            td.cleanup()
+
+    def test_empty_repository_has_no_findings(self):
+        td, repo = self.init_repo()
+        try:
+            result = self.audit(repo)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("objects inspected: 0", result.stdout)
+        finally:
+            td.cleanup()
+
     def test_batch_stream_remains_strict_and_rechecks_reachable_data(self):
         source = HISTORY_AUDIT.read_text(encoding="utf-8")
         self.assertIn('"cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"', source)
