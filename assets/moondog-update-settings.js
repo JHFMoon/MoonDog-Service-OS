@@ -37,7 +37,9 @@
     recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false,
     recoveryScanPending: false, recoveryScanFailed: false, busy: false, progress: null,
     progressChangedAt: 0, progressStalled: false, freshResetUnresolved: false,
-    postUpdateFresh: null, postUpdateScanPending: false, postUpdateScanFailed: false };
+    postUpdateFresh: null, postUpdateScanPending: false, postUpdateScanFailed: false,
+    postUpdateScanError: "", postUpdateScanCompleted: false };
+  let postUpdateScanGeneration = 0;
   const appRoot = () => global.__moondogSettingsModel?.applicationRoot || null;
   const applicationFiles = async () => {
     // applicationRoot is the selected top-level installation folder, which
@@ -107,17 +109,34 @@
     return receipt;
   }
   async function inspectPostUpdateFresh() {
-    const root=appRoot();
+    // File:// folders can be temporarily unavailable while OneDrive syncs.
+    // An earlier failed/slow scan must not overwrite a later successful scan.
+    const root=appRoot(),generation=++postUpdateScanGeneration;
     state.postUpdateFresh=null;
+    state.postUpdateScanFailed=false;
+    state.postUpdateScanError="";
+    state.postUpdateScanCompleted=false;
     if(!root || !declaredBetaVersion){state.postUpdateScanPending=false;render();return;}
     state.postUpdateScanPending=true;
-    state.postUpdateScanFailed=false;
     render();
     try{
       const receipt=await readVerifiedPostUpdate(root,declaredBetaVersion);
-      if(root===appRoot())state.postUpdateFresh=receipt;
-    }catch(_){if(root===appRoot())state.postUpdateScanFailed=true;}
-    finally{if(root===appRoot()){state.postUpdateScanPending=false;render();}}
+      if(root===appRoot() && generation===postUpdateScanGeneration){
+        state.postUpdateFresh=receipt;
+        state.postUpdateScanCompleted=true;
+      }
+    }catch(error){
+      if(root===appRoot() && generation===postUpdateScanGeneration){
+        // Do not auto-authorize Fresh or invent a missing verified receipt.
+        state.postUpdateScanFailed=true;
+        state.postUpdateScanError=String(error?.message||error?.name||"Journal read failed.").slice(0,240);
+      }
+    }finally{
+      if(root===appRoot() && generation===postUpdateScanGeneration){
+        state.postUpdateScanPending=false;
+        render();
+      }
+    }
   }
   async function refreshRecovery() {
     const root = appRoot();
@@ -202,6 +221,7 @@
     '<div class="button-row"><button type="button" id="checkMoonDogUpdate">Check for Updates</button>' +
     '<button type="button" id="installMoonDogUpdate" class="primary" disabled>Update Current Installation</button>' +
     '<button type="button" id="freshMoonDogUpdate" class="danger" disabled>Update to Fresh Installation</button>' +
+    '<button type="button" id="retryMoonDogFreshCheck" hidden>Retry Fresh Verification</button>' +
     '<button type="button" id="recoverMoonDogUpdate" hidden>Recover interrupted update</button></div>' +
     '<p id="updateChoiceNote" class="settings-note">Update Current Installation preserves all dealership data. Fresh Installation permanently removes data only from the selected copy, after verified installation and additional confirmations. Fresh is unavailable until the isolated reset passes safety verification.</p>' +
     '<p id="updateFolders" class="settings-note">Connect Service Operations Dashboard before installation. Update rollback backups are saved in System Files/Workspace/backups/system-updates/ inside the connected workspace.</p>' +
@@ -372,8 +392,15 @@
           "The selected installation has a verified update journal for this running Beta. Finish Fresh requires selecting the exact installation again and two destructive confirmations. No new update is needed; this resets only its Workspace." :
           "Ready: the selected parent installation folder is shown above. Fresh permanently erases only its Workspace, including reports, settings, history and internal backups. Two separate warnings require your approval; the launcher and app runtime remain.") :
         state.postUpdateScanFailed ?
-          "The selected installation's update journals cannot be verified. Fresh is blocked until folder access and journals are reviewed." :
+          "Fresh verification could not read the selected installation's update journal: " + state.postUpdateScanError +
+          " Reconnect the correct working folder if needed, then select Retry Fresh Verification. No files were deleted." :
+        state.postUpdateScanCompleted && !state.postUpdateFresh && !currentOffer() ?
+          "No verified update journal matches the running Beta in this installation. Fresh is blocked; a ZIP copy alone is not proof of an in-app update. Reconnect the original updated folder or select Retry Fresh Verification. No data was deleted." :
           "Fresh requires either a newer verified Beta offer or a verified Beta update journal matching the installed version, plus connected folder access and no pending recovery. No files are deleted automatically.";
+    const retryFresh=field("retryMoonDogFreshCheck");
+    retryFresh.hidden = state.channel!=="beta" || !declaredBetaVersion || !appRoot() ||
+      (!state.postUpdateScanFailed && (state.postUpdateScanPending || postUpdateReady() || !state.postUpdateScanCompleted));
+    retryFresh.disabled=state.busy || state.postUpdateScanPending || state.recoveryScanPending;
     if(state.freshResetUnresolved)
       field("updateChoiceNote").textContent="Fresh Installation is unresolved in this tab after a verified update. Do not retry updates or use this copy until its durable recovery hold is reviewed. Other installations are unaffected.";
     field("checkMoonDogUpdate").disabled = state.busy;
@@ -438,7 +465,21 @@
     save(); render();
     global.setTimeout?.(checkInBackground, 1500);
   });
-  field("checkMoonDogUpdate").addEventListener("click", () => check(true));
+  field("checkMoonDogUpdate").addEventListener("click", async () => {
+    await check(true);
+    // A manual update check must also recheck a previously failed Fresh journal,
+    // otherwise the button can remain stuck after OneDrive read access returns.
+    if(declaredBetaVersion && appRoot())await inspectPostUpdateFresh();
+  });
+  field("retryMoonDogFreshCheck").addEventListener("click", async () => {
+    if(state.busy || state.postUpdateScanPending || !appRoot())return;
+    await inspectPostUpdateFresh();
+    if(state.postUpdateScanFailed)
+      status.textContent="Fresh verification still blocked: "+state.postUpdateScanError;
+    else if(!state.postUpdateFresh)
+      status.textContent="No matching verified Beta update journal in this selected installation. No files were deleted.";
+    else status.textContent="Verified Beta journal found in the selected installation. Fresh may now be selected with explicit confirmations.";
+  });
   freshButton.addEventListener("click", async () => {
     if(!freshAvailable())return;
     // Chromium may share a saved IndexedDB handle between file launchers.

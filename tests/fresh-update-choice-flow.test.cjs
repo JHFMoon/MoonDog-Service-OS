@@ -9,10 +9,11 @@ const source=fs.readFileSync(path.join(__dirname,"..","assets","moondog-update-s
 
 function harness(installerResult={status:"installed",version:"0.10.18-beta.382",backupName:"MoonDog-Update-Backup-synthetic"},options={}) {
   const listeners=new Map(),fields=new Map(),events=[],storageWrites=[];
-  let record=options.journal??null,reads=0;
+  let record=options.journal??null,reads=0,journalFailure=options.journalFailure??null;
   const missing=()=>Object.assign(new Error("Missing synthetic directory"),{name:"NotFoundError"});
   const journalFolder={kind:"directory",getFileHandle:async name=>{
     assert.equal(name,"journal.json");reads++;
+    if(journalFailure)throw journalFailure;
     return {getFile:async()=>({text:async()=>JSON.stringify(record)})};
   }};
   const updateFolder={entries:async function*(){
@@ -62,7 +63,8 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
   });
   vm.runInContext(source,context);
   return {root,events,storageWrites,field,listeners,context,
-    setJournal:next=>{record=next;},journalReads:()=>reads,
+    setJournal:next=>{record=next;},setJournalFailure:error=>{journalFailure=error;},
+    journalReads:()=>reads,
     async settle(){for(let n=0;n<40;n++)await Promise.resolve();},
     async check(){await listeners.get("checkMoonDogUpdate:click")();},
     async fresh(){await listeners.get("freshMoonDogUpdate:click")();},
@@ -302,4 +304,48 @@ test("separate file launchers do not inherit another store's update preferences 
   const reopened=harness(undefined,first);
   assert.equal(reopened.field("updateChannel").value,"stable");
   assert.ok([...shared.keys()].some(key=>key.includes("/C:/Synthetic/A/index.html")));
+});
+
+
+test("a transient journal read failure explains the blocker and a manual update check retries it safely",async()=>{
+  const locked=Object.assign(new Error("Synthetic OneDrive journal temporarily unavailable"),{name:"NotAllowedError"});
+  const h=harness(undefined,{installedVersion:"0.10.18-beta.382",journal:VERIFIED_RELOAD_JOURNAL,
+    journalFailure:locked,checkResult:{status:"up-to-date",channel:"beta"}});
+  await h.settle();
+  assert.equal(h.field("freshMoonDogUpdate").disabled,true);
+  assert.equal(h.field("retryMoonDogFreshCheck").hidden,false);
+  assert.match(h.field("updateChoiceNote").textContent,/Synthetic OneDrive journal temporarily unavailable/);
+  h.setJournalFailure(null);
+  await h.check();
+  await h.settle();
+  assert.equal(h.field("freshMoonDogUpdate").disabled,false);
+  assert.equal(h.field("retryMoonDogFreshCheck").hidden,true);
+  assert.deepEqual(h.events,[],"a retry never installs or deletes files");
+});
+test("Retry Fresh Verification re-reads matching journal and never assumes a receipt",async()=>{
+  const h=harness(undefined,{installedVersion:"0.10.18-beta.382",
+    journal:VERIFIED_RELOAD_JOURNAL,checkResult:{status:"up-to-date"}});
+  await h.settle();
+  assert.equal(h.field("freshMoonDogUpdate").disabled,false);
+  h.setJournalFailure(new Error("Synthetic cloud lock"));
+  await h.listeners.get("retryMoonDogFreshCheck:click")();
+  assert.equal(h.field("freshMoonDogUpdate").disabled,true);
+  assert.equal(h.field("retryMoonDogFreshCheck").hidden,false);
+  h.setJournalFailure(null);
+  await h.listeners.get("retryMoonDogFreshCheck:click")();
+  assert.equal(h.field("freshMoonDogUpdate").disabled,false);
+  assert.match(h.field("updateStatus").textContent,/Verified Beta journal found/);
+  assert.deepEqual(h.events,[]);
+});
+test("a directly copied current Beta with no verified journal cannot use destructive Fresh",async()=>{
+  const h=harness(undefined,{installedVersion:"0.10.18-beta.382",
+    checkResult:{status:"up-to-date"},journal:null});
+  await h.settle();
+  assert.equal(h.field("freshMoonDogUpdate").disabled,true);
+  assert.match(h.field("updateChoiceNote").textContent,/No verified update journal matches/);
+  assert.equal(h.field("retryMoonDogFreshCheck").hidden,false);
+  await h.listeners.get("retryMoonDogFreshCheck:click")();
+  assert.equal(h.field("freshMoonDogUpdate").disabled,true);
+  assert.match(h.field("updateStatus").textContent,/No matching verified Beta update journal/);
+  assert.deepEqual(h.events,[]);
 });
