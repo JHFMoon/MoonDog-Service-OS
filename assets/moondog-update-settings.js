@@ -39,6 +39,18 @@
     return installation.getDirectoryHandle("System Files", { create: false });
   };
   function clearPlan() { planText.textContent = ""; planText.hidden = true; }
+  function freshAvailable() {
+    const target=appRoot();
+    // .374 can only use its original updater to install the next Beta first.
+    // The verified new runtime supplies this hook after automatic reload.
+    return Boolean(target && declaredBetaVersion && installedChannel==="beta" &&
+      state.channel==="beta" && state.check?.status==="up-to-date" &&
+      !state.busy && !state.recoveryRequired && !state.hasRecoverable &&
+      !state.recoveryScanPending && !state.recoveryScanFailed &&
+      typeof target.isSameEntry==="function" &&
+      typeof target.resolve==="function" &&
+      typeof global.__moondogFreshInstallation?.resetSelectedFreshInstallation==="function");
+  }
   function currentOffer() {
     const result = state.check, stamp = state.checkFor;
     return ["newer-version", "channel-switch"].includes(result?.status) &&
@@ -288,14 +300,13 @@
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
       "Update Current Installation";
     installButton.disabled = state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer();
-    // Never expose the destructive operation before its implementation and
-    // exact-installation proof are accepted. This is a real fail-closed gate,
-    // not a cosmetic disabled button: there is no reset listener here.
     freshButton.hidden = state.channel !== "beta" || result?.status === "channel-switch";
-    freshButton.disabled = true;
-    field("updateChoiceNote").textContent = freshButton.hidden
-      ? "Current Installation keeps all existing dealership information."
-      : "Fresh Installation targets the selected top-level installation folder (parent of System Files), not another copy. Store data inside that installation will be erased only after explicit confirmations and protected isolation proof. This staged build cannot delete data.";
+    freshButton.disabled = !freshAvailable();
+    field("updateChoiceNote").textContent = freshButton.hidden ?
+      "Update Current Installation preserves all dealership information." :
+      freshAvailable() ?
+        "Ready: the selected parent installation folder is shown above. Fresh permanently erases only its Workspace, including reports, settings, history and internal backups. Two separate warnings require your approval; the launcher and app runtime remain." :
+        "Fresh requires a connected, writable Beta installation with no pending recovery and an up-to-date verified Beta check. If a newer Beta is available, choose Update Current Installation first, allow the automatic reload, then use Fresh. No files will be deleted automatically.";
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
     field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable && !state.recoveryScanFailed;
@@ -359,6 +370,45 @@
     global.setTimeout?.(checkInBackground, 1500);
   });
   field("checkMoonDogUpdate").addEventListener("click", () => check(true));
+  freshButton.addEventListener("click", async () => {
+    if(!freshAvailable()) return;
+    const selectedRoot=appRoot();
+    state.busy=true;
+    render();
+    clearPlan();
+    await setProgress({phase:"fresh-check",percent:null,label:"Verifying selected installation",
+      detail:"Checking recovery and exact folder identity before either warning"});
+    try{
+      // A previously completed check is no substitute for a fresh recovery
+      // inventory immediately before a destructive operation.
+      await refreshRecovery();
+      if(selectedRoot!==appRoot()||state.recoveryRequired||state.hasRecoverable||
+          state.recoveryScanPending||state.recoveryScanFailed)
+        throw new Error("Installation changed or update recovery is unresolved. No files were deleted.");
+      const reset=global.__moondogFreshInstallation?.resetSelectedFreshInstallation;
+      if(typeof reset!=="function")throw new Error("Fresh Installation reset is unavailable in this build.");
+      const result=await reset({selectedRoot,expectedRoot:selectedRoot,
+        onProgress:event=>setProgress({...event,percent:event.percent??null})});
+      if(result.status==="cancelled"){
+        status.textContent="Fresh Installation cancelled. No store files were deleted.";
+        clearProgress();
+        return;
+      }
+      if(result.status!=="fresh")throw new Error("Fresh Installation did not return verified completion.");
+      state.check=null;
+      state.checkFor=null;
+      status.textContent="Fresh Installation complete. The selected Workspace was cleared and verified. Guided Setup is open.";
+      await setProgress({phase:"complete",percent:100,label:"Fresh Installation complete",
+        detail:"Selected installation cleared and verified; continue with Guided Setup"});
+    }catch(error){
+      status.textContent="Fresh Installation stopped: "+(error?.message||"Unknown failure");
+      await setProgress({phase:"error",percent:null,label:"Fresh Installation stopped",
+        detail:error?.message||"Verify the selected copy before retrying"});
+    }finally{
+      state.busy=false;
+      render();
+    }
+  });
   installButton.addEventListener("click", async () => {
     if (state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer()) return;
     const offered = state.check, offeredFor = state.checkFor;
