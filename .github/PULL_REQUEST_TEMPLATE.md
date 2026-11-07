@@ -13,6 +13,10 @@ Before merging a public change:
 Do not paste sensitive findings into this pull request. Use redacted category/count reporting only.
 
 
+## Exact-head AI-assisted inspection
+
+Record the reviewed commit, inspected scope, findings and resolutions, and verification limits. Protected changes also require the formal owner attestation and manual merge route in the release authorization policy.
+
 ## Automatic merge authorization
 
 MoonDog-Auto-Merge: yes
