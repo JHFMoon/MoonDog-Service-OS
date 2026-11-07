@@ -192,9 +192,9 @@
       if (trustedAllowlist.includes("index.html") && await read(app, "index.html") === null) {
         throw new Error("The connected application folder has no index.html.");
       }
-      if (trustedAllowlist.includes("assets/app.js") && await read(app, "assets/app.js") === null) {
-        throw new Error("The connected application folder has no application script.");
-      }
+      // A missing approved script is repairable from a verified package.
+      // Keep the index.html/root-identity check above: an unrecognized
+      // installation must never be constructed from arbitrary folder access.
       await progress(onProgress, { phase: "plan", percent: 12, label: "Preparing file changes", detail: "Rechecking the approved update plan" });
       const plan = await global.MoonDogPackagePlan.dryRun({ verifiedPackage,
         appDirectoryHandle: app, trustedAllowlist, subtle });
