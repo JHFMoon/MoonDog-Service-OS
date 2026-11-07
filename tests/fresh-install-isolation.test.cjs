@@ -73,6 +73,10 @@ async function get(root,relative){
   return (await(await dir.getFileHandle(parts.at(-1))).getFile()).text();
 }
 const prefix="System Files/Workspace/";
+const TEST_BACKUP="MoonDog-Update-Backup-synthetic";
+const TEST_SHA="b".repeat(64);
+const VERIFIED_INSTALL={status:"installed",channel:"beta",version:"0.10.18-beta.382",
+  sha256:TEST_SHA,backupName:TEST_BACKUP};
 async function installation(name,code){
   const root=folder(name);
   await put(root,"00 - OPEN DASHBOARD.html","synthetic-launcher");
@@ -80,6 +84,9 @@ async function installation(name,code){
   await put(root,prefix+"data/settings.json",JSON.stringify({store:{name:code}}));
   await put(root,prefix+"data/current-state.json",JSON.stringify({records:[{ro:"12345",advisor:"7"}]}));
   await put(root,prefix+"backups/internal.zip","synthetic-private-backup");
+  await put(root,prefix+"backups/system-updates/"+TEST_BACKUP+"/journal.json",
+    JSON.stringify({status:"verified",verifiedUpdate:{
+      version:VERIFIED_INSTALL.version,channel:"beta",sha256:TEST_SHA}}));
   await put(root,prefix+"data/history/previous.json","synthetic-history");
   await put(root,prefix+"Files To Learn/source.xlsx","synthetic-report");
   await put(root,prefix+"01 - DROP REPORTS HERE/new-report.csv","synthetic-source");
@@ -113,6 +120,7 @@ async function harness(){
       return responses.shift()===true;
     },
     connectedNativeRoot:storeB,
+    FRESH_RESET_MARKER:"MOONDOG_FRESH_RESET_PENDING.json",
     model:{applicationRoot:storeB,root:wsB},
     writeAuthority:{canWrite:true,requireWrite:()=>{}},
     workspaceConnectionBusy:false,workspaceRecoveryBusy:false,newStoreBusy:false,
@@ -126,7 +134,7 @@ async function harness(){
   });
   vm.runInContext(production,context);
   const reset=(args={})=>context.__moondogFreshInstallation.resetSelectedFreshInstallation({
-    selectedRoot:storeB,expectedRoot:storeB,...args});
+    selectedRoot:storeB,expectedRoot:storeB,verifiedInstall:VERIFIED_INSTALL,...args});
   return {storeA,storeB,wsB,context,reset,events,confirmationPrompts,
     setConfirmResponses:values=>{responses=[...values];}};
 }
@@ -199,4 +207,30 @@ test("declining the second warning leaves both installations entirely untouched"
   assert.equal(await get(h.storeB,prefix+"backups/internal.zip"),"synthetic-private-backup");
   assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
   assert.equal(h.events.includes("navigate:setup"),false);
+});
+
+test("missing verified installer receipt rejects Fresh without deleting data",async()=>{
+  const h=await harness();
+  await assert.rejects(h.reset({verifiedInstall:null}),/verified Beta package receipt/);
+  assert.equal(await get(h.storeB,prefix+"backups/internal.zip"),"synthetic-private-backup");
+});
+test("mismatched package SHA rejects Fresh before deletion",async()=>{
+  const h=await harness();
+  await assert.rejects(h.reset({verifiedInstall:{...VERIFIED_INSTALL,sha256:"a".repeat(64)}}),
+    /matching verified Beta journal/);
+  assert.equal(await get(h.storeB,prefix+"backups/internal.zip"),"synthetic-private-backup");
+});
+test("interrupted Fresh creates persistent hold and reconnect refuses partial copy",async()=>{
+  const h=await harness(),normal=h.wsB.removeEntry;
+  h.wsB.removeEntry=async(name,opts)=>{if(name==="backups")throw Error("synthetic interruption");return normal(name,opts);};
+  await assert.rejects(h.reset(),/durable recovery hold/);
+  assert.match(await get(h.storeB,"System Files/MOONDOG_FRESH_RESET_PENDING.json"),/"status":"incomplete"/);
+  const start=app.indexOf("  async function operationalRoot(handle) {");
+  const end=app.indexOf("  function wrapOperationalRoot",start);
+  assert.ok(start>=0&&end>start);
+  const ctx=vm.createContext({WORKSPACE_PREFIX:["System Files","Workspace"],
+    FRESH_RESET_MARKER:"MOONDOG_FRESH_RESET_PENDING.json"});
+  vm.runInContext(app.slice(start,end)+"\nglobalThis.reconnect=operationalRoot;",ctx);
+  await assert.rejects(ctx.reconnect(h.storeB),/cleanup is incomplete/);
+  assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
 });

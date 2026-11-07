@@ -455,7 +455,7 @@
           const freshOutcome = await reset({
             selectedRoot, expectedRoot:selectedRoot,
             verifiedInstall:{status:"installed",version:outcome.version,
-              channel:verified.channel,sha256:verified.sha256},
+              channel:verified.channel,sha256:verified.sha256,backupName:outcome.backupName},
             onProgress:event=>setProgress({...event,percent:event.percent??null})
           });
           if (freshOutcome.status === "cancelled") {

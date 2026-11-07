@@ -7,7 +7,7 @@ const vm = require("node:vm");
 
 const source=fs.readFileSync(path.join(__dirname,"..","assets","moondog-update-settings.js"),"utf8");
 
-function harness(installerResult={status:"installed",version:"0.10.18-beta.382"}) {
+function harness(installerResult={status:"installed",version:"0.10.18-beta.382",backupName:"MoonDog-Update-Backup-synthetic"}) {
   const listeners=new Map(),fields=new Map(),events=[];
   const root={name:"Synthetic-Installation",isSameEntry:async other=>other===root,
     resolve:async()=>["System Files","Workspace"],getDirectoryHandle:async()=>({})};

@@ -1344,7 +1344,17 @@
   async function rememberRoot(handle) { const db = await openHandleDb(); await new Promise((resolve, reject) => { const tx = db.transaction("handles", "readwrite"); tx.objectStore("handles").put(handle, HANDLE_KEY); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); db.close(); }
   async function recallRoot() { const db = await openHandleDb(); const handle = await new Promise((resolve, reject) => { const tx = db.transaction("handles", "readonly"); const request = tx.objectStore("handles").get(HANDLE_KEY); request.onsuccess = () => resolve(request.result || null); request.onerror = () => reject(request.error); }); db.close(); return handle; }
   const WORKSPACE_PREFIX = ["System Files", "Workspace"];
-  async function operationalRoot(handle) { return (await handle.getDirectoryHandle(WORKSPACE_PREFIX[0])).getDirectoryHandle(WORKSPACE_PREFIX[1]); }
+  // This recovery hold must survive removal of System Files/Workspace itself.
+  const FRESH_RESET_MARKER="MOONDOG_FRESH_RESET_PENDING.json";
+  async function operationalRoot(handle) {
+    const system=await handle.getDirectoryHandle(WORKSPACE_PREFIX[0],{create:false});
+    try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});}
+    catch(error){
+      if(error?.name!=="NotFoundError")throw error;
+      return system.getDirectoryHandle(WORKSPACE_PREFIX[1],{create:false});
+    }
+    throw new Error("Fresh Installation cleanup is incomplete for this copy. Normal data loading is blocked until its recovery is reviewed.");
+  }
   function wrapOperationalRoot(handle) { return writeAuthority.wrapDirectory(handle, WORKSPACE_PREFIX.join("/")); }
   async function directory(path, create = true) { let current = model.root; for (const part of path) current = await current.getDirectoryHandle(part, { create }); return current; }
   async function fileAt(path, create = false) { const parts = [...path]; const name = parts.pop(); return (await directory(parts, create)).getFileHandle(name, { create }); }
@@ -8428,8 +8438,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   // Fresh Beta reset is intentionally restricted to the connected installation's
   // System Files/Workspace child. Neither the install root nor System Files is
   // ever passed to a recursive remover. Never infer a target from browser storage.
-  async function resetSelectedFreshInstallation({selectedRoot,expectedRoot,onProgress=()=>{}}={}){
+  async function resetSelectedFreshInstallation({selectedRoot,expectedRoot,verifiedInstall,onProgress=()=>{}}={}){
     const installation=connectedNativeRoot,activeWorkspace=model.root;
+    if(verifiedInstall?.status!=="installed"||verifiedInstall?.channel!=="beta"||
+        !/^\d+\.\d+\.\d+-beta\.\d+$/.test(verifiedInstall.version||"")||
+        !/^[a-f0-9]{64}$/.test(verifiedInstall.sha256||"")||
+        !/^MoonDog-Update-Backup-[A-Za-z0-9-]+$/.test(verifiedInstall.backupName||""))
+      throw new Error("Fresh Installation requires this session's verified Beta package receipt; no files were removed.");
     const assertSameInstallation=async()=>{
       if(!installation||!activeWorkspace||installation!==expectedRoot||
           model.applicationRoot!==installation||connectedNativeRoot!==installation||
@@ -8454,6 +8469,21 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
       throw new Error("Another Workspace operation is active. Fresh Installation did not start.");
     const workspace=await assertSameInstallation();
+    const system=await installation.getDirectoryHandle("System Files",{create:false});
+    try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+      throw new Error("An interrupted Fresh Installation hold already exists. No files were removed.");
+    }catch(error){if(error?.name!=="NotFoundError")throw error;}
+    // A browser-local receipt is never enough. Read back the verified
+    // package/backup journal from this exact selected installation.
+    const updateBackups=await workspace.getDirectoryHandle("backups",{create:false});
+    const updateRoot=await updateBackups.getDirectoryHandle("system-updates",{create:false});
+    const verifiedBackup=await updateRoot.getDirectoryHandle(verifiedInstall.backupName,{create:false});
+    const journal=await verifiedBackup.getFileHandle("journal.json",{create:false});
+    const receipt=JSON.parse(await(await journal.getFile()).text());
+    if(receipt?.status!=="verified"||receipt.verifiedUpdate?.version!==verifiedInstall.version||
+       receipt.verifiedUpdate?.channel!=="beta"||
+       receipt.verifiedUpdate?.sha256!==verifiedInstall.sha256)
+      throw new Error("Selected installation lacks the matching verified Beta journal. No data was removed.");
     // Refuse an installation nested inside the Workspace rather than wiping
     // a second copy accidentally. This scan reads names, never report contents.
     let scanned=0;
@@ -8490,8 +8520,18 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     newStoreBusy=true;
     workspaceRecoveryBusy=true;
     stopFolderWatch("WATCH OFF");
-    let mutated=false;
+    let mutated=false,markerWritten=false;
     try{
+      // A verified out-of-Workspace hold precedes the first destructive write.
+      const intent={schemaVersion:1,status:"incomplete",version:verifiedInstall.version,
+        sha256:verifiedInstall.sha256,backupName:verifiedInstall.backupName};
+      const marker=await system.getFileHandle(FRESH_RESET_MARKER,{create:true});
+      const writable=await marker.createWritable();
+      try{await writable.write(JSON.stringify(intent)+"\n");await writable.close();}
+      catch(error){try{await writable.abort();}catch(_){}throw error;}
+      if(JSON.stringify(JSON.parse(await(await marker.getFile()).text()))!==JSON.stringify(intent))
+        throw new Error("Fresh reset hold durable readback failed. No data was removed.");
+      markerWritten=true;
       const entries=[];
       for await(const [name] of workspace.entries())entries.push(name);
       onProgress({phase:"fresh",percent:null,label:"Removing selected store data",
@@ -8509,6 +8549,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         throw new Error("Workspace was modified during deletion. Fresh reset cannot be verified.");
       const data=await workspace.getDirectoryHandle("data",{create:true});
       const fresh=freshProductState();
+      fresh["data/current-state.json"].appVersion=verifiedInstall.version;
       const recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,lastRestore:null,
         status:"Fresh installation requires Guided Setup"};
       const records={...fresh,"data/recovery.json":recovery};
@@ -8538,12 +8579,19 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         model.autoImport,model.operationalMetrics,model.meetingCycle]=Object.values(fresh);
       model.recovery=recovery;
       clearSourceAdapter();
+      // Remove the hold only after every fresh-state file is read back and
+      // every unexpected Workspace entry is rejected.
+      await system.removeEntry(FRESH_RESET_MARKER);
+      try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+        throw new Error("Fresh reset hold removal could not be verified.");
+      }catch(error){if(error?.name!=="NotFoundError")throw error;}
+      markerWritten=false;
       onProgress({phase:"complete",percent:100,label:"Fresh Installation complete",
         detail:"Workspace removal and empty state readback verified"});
       renderAll();renderSettings();navigateTo("setup");
       return {status:"fresh",installationName:installation.name};
     }catch(error){
-      if(mutated)throw new Error("Fresh Installation stopped after deletion began. The selected copy may be partially cleared; do not use it until the issue is resolved. "+(error?.message||String(error)));
+      if(mutated||markerWritten)throw new Error("Fresh Installation is incomplete; a durable recovery hold blocks normal loading until reviewed. "+(error?.message||String(error)));
       throw error;
     }finally{
       workspaceRecoveryBusy=false;
