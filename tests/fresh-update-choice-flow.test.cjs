@@ -55,7 +55,9 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
       minimumCompatibleVersion:"0.10.9",migrationRequired:false};}},
     MoonDogPackagePlan:{dryRun:async()=>{events.push(["plan"]);return {add:[],replace:[],
       delete:[],unchanged:[],rejected:[]};}},
-    MoonDogUpdateInstall:{listBackups:async()=>options.backups||[],apply:async()=>{events.push(["apply"]);return installerResult;}},
+    MoonDogUpdateInstall:{listBackups:async()=>options.backups||[],
+      ...(options.recoveryProof?{inspectRecovery:async()=>({status:options.recoveryProof})}:{}),
+      apply:async()=>{events.push(["apply"]);return installerResult;}},
     document:{getElementById:name=>name==="view-settings"?{querySelector:()=>({append(){}})}:null,
       createElement:()=>card,querySelector:()=>null,addEventListener(){}},
     localStorage:options.storage||{getItem:()=>JSON.stringify({channel:"beta",lastCheck:"2099-01-01T00:00:00.000Z"}),setItem:key=>storageWrites.push(key)},
@@ -393,4 +395,24 @@ test("unclassified busy-looking failure after reset invocation retains recovery 
   await h.fresh();
   assert.match(h.field("updateChoiceNote").textContent,/unresolved in this tab/);
   assert.equal(h.field("freshMoonDogUpdate").disabled,true);
+});
+
+test('a proven interrupted transaction enables the ordinary authorized Beta action without enabling Fresh',async()=>{
+ const options={backups:['MoonDog-Update-Backup-synthetic'],recoveryProof:'recoverable'};
+ const h=harness(undefined,options);await h.check();await h.settle();
+ assert.equal(h.field('installMoonDogUpdate').disabled,false);
+ assert.equal(h.field('freshMoonDogUpdate').disabled,true);
+ assert.match(h.field('updateChannelNote').textContent,/verified interrupted software update will recover/);
+ const confirmations=[];h.context.confirm=message=>{confirmations.push(message);return true;};
+ h.context.MoonDogUpdateInstall.apply=async()=>{h.events.push(['apply']);options.backups.length=0;return {status:'installed',version:'0.10.18-beta.382'};};
+ await h.preserve();
+ assert.deepEqual(h.events.map(event=>event[0]),['verify','plan','apply']);
+ assert.equal(confirmations.length,1);assert.match(confirmations[0],/interrupted software update will be safely recovered first/);
+ assert.doesNotMatch(h.field('updateChoiceNote').textContent,/Fresh Installation is unresolved/);
+});
+
+test('an unverified pending transaction keeps the update disabled and performs no automatic restore',async()=>{
+ const h=harness(undefined,{backups:['MoonDog-Update-Backup-synthetic'],recoveryProof:'recovery-required'});
+ await h.check();await h.settle();assert.equal(h.field('installMoonDogUpdate').disabled,true);
+ await h.preserve();assert.deepEqual(h.events,[]);
 });

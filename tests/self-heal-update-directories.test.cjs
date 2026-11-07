@@ -9,6 +9,7 @@ const context = vm.createContext({ TextDecoder, TextEncoder, atob, crypto: webcr
 for (const name of ["package-plan", "apply-design-model", "install"]) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "updates", name + ".js"), "utf8"), context);
 }
+const distributionLauncher=Buffer.from(fs.readFileSync(path.join(__dirname,'..','scripts/build_distribution.py'),'utf8').match(/LAUNCHER = """([\s\S]*?)"""/)[1]);
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const missing = () => Object.assign(new Error("synthetic missing"), { name: "NotFoundError" });
 const html = title => '<!doctype html><html lang="en"><head><title>' + title + '</title></head><body></body></html>';
@@ -318,6 +319,9 @@ test('a browser tab lock denial fails closed without calling the write path',asy
 
 test('copied rollback journal from a second synthetic dealership is refused before restoration',async()=>{
   const first=await setup({includeScript:true}),second=await setup({includeScript:true});
+  const shared=Buffer.from(JSON.stringify({records:[{ro:'SYNTHETIC-SHARED',advisor:'SYNTHETIC-ADVISOR',manualOverride:'preserve'}]}));
+  first.state.files.set('System Files/Workspace/data/current-state.json',Buffer.from(shared));
+  second.state.files.set('System Files/Workspace/data/current-state.json',Buffer.from(shared));
   const updateA=await first.run();assert.equal(updateA.status,'installed');
   assert.equal((await second.run()).status,'installed');
   const prefix='System Files/Workspace/backups/system-updates/'+updateA.backupName;
@@ -344,7 +348,7 @@ test('tampered package and hash mismatch cannot change application or private da
 });
 
 test('missing required dependency outside the package cannot be reported as a successful repair',async()=>{
-  const h=await setup({includeScript:true});h.trustedAllowlist.push('vendor/jszip.min.js');
+  const h=await setup({includeScript:true});h.trustedAllowlist.push('vendor/unsupported.js');
   const before=copyFiles(h),dirs=new Set(h.state.dirs);
   const result=await h.run();assert.equal(result.status,'stopped');
   assert.match(result.reason,/outside this repair package is missing or damaged/);
@@ -407,7 +411,7 @@ test('missing named launcher is restored byte-for-byte from reviewed software au
   const h=await setup({includeScript:true});const before=privateFiles(h);
   const result=await h.run();assert.equal(result.status,'installed',result.reason);
   assert.deepEqual(h.state.files.get('00 - OPEN DASHBOARD.html'),
-    fs.readFileSync(path.join(__dirname,'..','00 - OPEN DASHBOARD.html')));
+    distributionLauncher);
   assert.deepEqual(privateFiles(h),before);
 });
 
@@ -461,4 +465,136 @@ test('recognized clean-install software manifest permits entry-page repair witho
   assert.equal(h.state.files.get('System Files/index.html').toString(),h.next);
   assert.equal(h.state.files.get('index.html').toString(),compat(h.next));
   assert.deepEqual(privateFiles(h),before);
+});
+
+async function pendingIdentityBound(h){
+ const update=await h.run();assert.equal(update.status,'installed',update.reason);
+ const prefix='System Files/Workspace/backups/system-updates/'+update.backupName;
+ const record=JSON.parse(h.state.files.get(prefix+'/journal.json'));
+ record.status='applying';h.state.files.set(prefix+'/journal.json',Buffer.from(JSON.stringify(record)));
+ return {...update,prefix};
+}
+
+test('read-only recovery inspection verifies every saved software byte without changing files or asking permission',async()=>{
+ const h=await setup({includeScript:true}),pending=await pendingIdentityBound(h);const before=copyFiles(h);let prompts=0;
+ h.root.requestPermission=async()=>{prompts++;return 'granted';};
+ const result=await context.MoonDogUpdateInstall.inspectRecovery({appDirectoryHandle:h.app,
+  workspaceDirectoryHandle:h.root,backupName:pending.backupName,trustedAllowlist:h.trustedAllowlist});
+ assert.equal(result.status,'recoverable',result.reason);assert.equal(prompts,0);assert.deepEqual(h.state.files,before);
+ h.root.queryPermission=async()=> 'denied';
+ assert.equal((await context.MoonDogUpdateInstall.inspectRecovery({appDirectoryHandle:h.app,
+  workspaceDirectoryHandle:h.root,backupName:pending.backupName,trustedAllowlist:h.trustedAllowlist})).status,'recovery-required');
+ assert.equal(prompts,0,'inspection never upgrades local permission');assert.deepEqual(h.state.files,before);
+});
+
+test('an authorized Beta update automatically reconciles one verified interrupted transaction before installing',async()=>{
+ const h=await setup({includeScript:true}),pending=await pendingIdentityBound(h);const before=privateFiles(h);
+ h.state.files.set('System Files/assets/new.js',Buffer.from('synthetic partial application write'));
+ const progress=[],result=await h.run(event=>progress.push(event));
+ assert.equal(result.status,'installed',result.reason);assert.notEqual(result.backupName,pending.backupName);
+ assert.equal(JSON.parse(h.state.files.get(pending.prefix+'/journal.json')).status,'restored');
+ assert.equal(h.state.files.get('System Files/assets/new.js').toString(),'new');assert.deepEqual(privateFiles(h),before);
+ assert.ok(progress.some(event=>event.phase==='repair-recovery'&&event.label==='Repairing'));
+ assert.equal(progress.filter(event=>event.phase==='complete').length,1,'Ready is only reported after the full new update');
+});
+
+test('automatic reconciliation refuses tampered originals before changing any application file',async()=>{
+ const h=await setup({includeScript:true}),pending=await pendingIdentityBound(h);
+ h.state.files.set(pending.prefix+'/index.html',Buffer.from('tampered saved original'));
+ const before=copyFiles(h),result=await h.run();assert.equal(result.status,'recovery-required');
+ assert.match(result.reason,/Backup verification failed/);assert.deepEqual(h.state.files,before);
+});
+
+test('multiple unfinished journals, a Stable update, and a changed preview cannot authorize automatic restore',async()=>{
+ for(const mode of ['multiple','stable','preview']){
+  const h=await setup({includeScript:true}),pending=await pendingIdentityBound(h);
+  if(mode==='multiple'){
+   const other=pending.prefix+'-SECOND';h.state.dirs.add(other);
+   h.state.files.set(other+'/journal.json',Buffer.from(h.state.files.get(pending.prefix+'/journal.json')));
+  }
+  if(mode==='stable')h.verifiedPackage.channel='stable';
+  const before=copyFiles(h);
+  const result=mode==='preview'?await context.MoonDogUpdateInstall.apply({verifiedPackage:h.verifiedPackage,
+   appDirectoryHandle:h.app,workspaceDirectoryHandle:h.root,trustedAllowlist:h.trustedAllowlist,
+   expectedPlan:{},confirmed:true}):await h.run();
+  assert.equal(result.status,mode==='preview'?'rejected':'recovery-required');assert.deepEqual(h.state.files,before);
+ }
+});
+
+test('failed interrupted recovery retains its journal and never starts a second application transaction',async()=>{
+ const h=await setup({includeScript:true}),pending=await pendingIdentityBound(h);
+ const before=privateFiles(h),beforeDirs=new Set(h.state.dirs);h.state.failOnce='System Files/index.html';
+ const result=await h.run();assert.equal(result.status,'recovery-required');
+ assert.equal(JSON.parse(h.state.files.get(pending.prefix+'/journal.json')).status,'applying');
+ assert.deepEqual(h.state.dirs,beforeDirs);assert.deepEqual(privateFiles(h),before);
+});
+
+test('both exact reviewed launcher layouts survive repeated updates without being rewritten',async()=>{
+ for(const original of [distributionLauncher,fs.readFileSync(path.join(__dirname,'..','00 - OPEN DASHBOARD.html'))]){
+  const h=await setup({includeScript:true});h.state.files.set('00 - OPEN DASHBOARD.html',Buffer.from(original));
+  assert.equal((await h.run()).status,'installed');assert.deepEqual(h.state.files.get('00 - OPEN DASHBOARD.html'),original);
+  assert.equal((await h.run()).status,'installed');assert.deepEqual(h.state.files.get('00 - OPEN DASHBOARD.html'),original);
+ }
+});
+
+function reviewedRecoverySoftware(){
+ const code=fs.readFileSync(path.join(__dirname,'..','updates/install.js'),'utf8');
+ return JSON.parse(code.match(/const RECOVERY_SOFTWARE = Object\.freeze\(([\s\S]+?)\);\n/)[1]);
+}
+
+test('embedded recovery software and notices match reviewed distribution authority exactly',()=>{
+ const data=reviewedRecoverySoftware();assert.equal(Object.keys(data).length,8);
+ const dependencies=JSON.parse(fs.readFileSync(path.join(__dirname,'..','distribution/dependencies.json'),'utf8')).runtimeLibraries;
+ const expected={
+  [dependencies.jszip.destination]:dependencies.jszip.outputSha256,
+  [dependencies.sheetjs.destination]:dependencies.sheetjs.outputSha256,
+  [dependencies.pdfjs.mainDestination]:dependencies.pdfjs.mainOutputSha256,
+  [dependencies.pdfjs.workerDestination]:dependencies.pdfjs.workerOutputSha256
+ };
+ for(const [name,payload]of Object.entries(data)){
+  const bytes=Buffer.from(payload.contentBase64,'base64');assert.equal(digest(bytes),payload.sha256,name);
+  if(payload.required)assert.equal(payload.sha256,expected[name],name);
+  else assert.deepEqual(bytes,fs.readFileSync(path.join(__dirname,'..',name)),name);
+ }
+});
+
+test('a missing vendor directory and all required libraries are rebuilt from reviewed bytes with private data unchanged',async()=>{
+ const h=await setup({includeScript:true}),data=reviewedRecoverySoftware(),before=privateFiles(h);
+ h.trustedAllowlist.push(...Object.keys(data));
+ const result=await h.run();assert.equal(result.status,'installed',result.reason);
+ for(const [name,payload]of Object.entries(data))assert.equal(digest(h.state.files.get('System Files/'+name)),payload.sha256,name);
+ assert.ok(h.state.dirs.has('System Files/vendor'));assert.deepEqual(privateFiles(h),before);
+ assert.equal(JSON.parse(h.state.files.get('System Files/Workspace/backups/system-updates/'+result.backupName+'/journal.json')).structure.dependencyRepairs,8);
+ assert.equal((await h.run()).status,'installed','repeated repairs remain idempotent');
+});
+
+test('damaged approved vendor software is replaced while unknown vendor files and existing notices survive',async()=>{
+ const h=await setup(),data=reviewedRecoverySoftware();h.trustedAllowlist.push(...Object.keys(data));
+ h.state.dirs.add('System Files/vendor');
+ h.state.files.set('System Files/vendor/pdf.min.js',Buffer.from('synthetic damaged library'));
+ h.state.files.set('System Files/vendor/unknown.js',Buffer.from('unknown preserved component'));
+ h.state.files.set('System Files/vendor/THIRD_PARTY_NOTICES.md',Buffer.from('existing annotated notice'));
+ const result=await h.run();assert.equal(result.status,'installed',result.reason);
+ assert.equal(digest(h.state.files.get('System Files/vendor/pdf.min.js')),data['vendor/pdf.min.js'].sha256);
+ assert.equal(h.state.files.get('System Files/vendor/unknown.js').toString(),'unknown preserved component');
+ assert.equal(h.state.files.get('System Files/vendor/THIRD_PARTY_NOTICES.md').toString(),'existing annotated notice');
+});
+
+test('corrupt embedded repair bytes fail closed before backups or application mutations',async()=>{
+ const h=await setup(),data=reviewedRecoverySoftware();h.trustedAllowlist.push('vendor/jszip.min.js');
+ data['vendor/jszip.min.js'].contentBase64=Buffer.from('tampered software recovery data').toString('base64');
+ const damaged=vm.createContext({TextDecoder,TextEncoder,atob,crypto:webcrypto,Uint8Array});
+ for(const name of ['package-plan','apply-design-model','install']){
+  let code=fs.readFileSync(path.join(__dirname,'..','updates',name+'.js'),'utf8');
+  if(name==='install')code=code.replace(/const RECOVERY_SOFTWARE = Object\.freeze\(([\s\S]+?)\);\n/,
+   'const RECOVERY_SOFTWARE = Object.freeze('+JSON.stringify(data)+');\n');
+  vm.runInContext(code,damaged);
+ }
+ const expectedPlan=await damaged.MoonDogPackagePlan.dryRun({verifiedPackage:h.verifiedPackage,
+  appDirectoryHandle:h.app,trustedAllowlist:h.trustedAllowlist});
+ const before=copyFiles(h),dirs=new Set(h.state.dirs);
+ const result=await damaged.MoonDogUpdateInstall.apply({verifiedPackage:h.verifiedPackage,
+  appDirectoryHandle:h.app,workspaceDirectoryHandle:h.root,trustedAllowlist:h.trustedAllowlist,expectedPlan,confirmed:true});
+ assert.equal(result.status,'stopped');assert.match(result.reason,/recovery bytes failed verification/);
+ assert.deepEqual(h.state.files,before);assert.deepEqual(h.state.dirs,dirs);
 });

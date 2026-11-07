@@ -3,6 +3,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
   path=require('node:path'),os=require('node:os'),vm=require('node:vm');
 const {createHash,webcrypto}=require('node:crypto');
 const repo=path.join(__dirname,'..');
+const distributionLauncher=Buffer.from(fs.readFileSync(path.join(__dirname,'..','scripts/build_distribution.py'),'utf8').match(/LAUNCHER = """([\s\S]*?)"""/)[1]);
 const html=fs.readFileSync(path.join(repo,'repair-moondog.html'),'utf8');
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const scripts=[...html.matchAll(/<script([^>]*)>\n([\s\S]*?)<\/script>/g)];
@@ -88,7 +89,7 @@ test('standalone page repairs an unstartable synthetic installation and preserve
   assert.deepEqual(h.writes,[]);assert.deepEqual(h.requests,[],'folder diagnosis never uploads or downloads private data');
   await h.repair();assert.match(h.field('status').textContent,/^Ready\. Beta/);
   assert.deepEqual(fs.readFileSync(h.privatePath),h.privateBefore);
-  assert.deepEqual(fs.readFileSync(path.join(h.rootPath,'00 - OPEN DASHBOARD.html')),fs.readFileSync(path.join(repo,'00 - OPEN DASHBOARD.html')));
+  assert.deepEqual(fs.readFileSync(path.join(h.rootPath,'00 - OPEN DASHBOARD.html')),distributionLauncher);
   assert.ok(fs.existsSync(path.join(h.rootPath,'System Files','assets','app.js')));
   assert.ok(h.reads.every(name=>!name.startsWith('System Files/Workspace/data/')),'repair never reads operational records');
   assert.ok(h.writes.every(name=>!name.startsWith('System Files/Workspace/data/')));

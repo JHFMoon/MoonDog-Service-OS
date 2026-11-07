@@ -34,12 +34,12 @@
   const state = { channel: saved.channel === "beta" ? "beta" : saved.channel === "stable" ? "stable" : declaredBetaVersion ? "beta" : "stable",
     lastCheck: saved.lastCheck || null, lastAutomatic: saved.lastAutomatic || "",
     dismissed: saved.dismissed || null, check: null, checkFor: null,
-    recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false,
+    recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false, autoRecoverable: false,
     recoveryScanPending: false, recoveryScanFailed: false, busy: false, progress: null,
     progressChangedAt: 0, progressStalled: false, freshResetUnresolved: false,
     postUpdateFresh: null, postUpdateScanPending: false, postUpdateScanFailed: false,
     postUpdateScanError: "", postUpdateScanCompleted: false };
-  let postUpdateScanGeneration = 0;
+  let postUpdateScanGeneration = 0, recoveryScanGeneration = 0;
   const appRoot = () => global.__moondogSettingsModel?.applicationRoot || null;
   const applicationFiles = async () => {
     // applicationRoot is the selected top-level installation folder, which
@@ -138,27 +138,39 @@
       }
     }
   }
+  const recoveryHold = () => state.recoveryScanPending || state.recoveryScanFailed ||
+    ((state.recoveryRequired || state.hasRecoverable) && !state.autoRecoverable);
   async function refreshRecovery() {
-    const root = appRoot();
+    const root = appRoot(), generation = ++recoveryScanGeneration;
     if (!root) {
-      state.hasRecoverable = false; state.recoveryScanFailed = false;
+      state.hasRecoverable = false; state.autoRecoverable = false; state.recoveryScanFailed = false;
       state.recoveryScanPending = false; render(); return;
     }
-    state.recoveryScanPending = true;
+    state.recoveryScanPending = true; state.autoRecoverable = false;
     render();
     try {
       const backups = await global.MoonDogUpdateInstall.listBackups(root);
-      if (root !== appRoot()) return;
+      if (root !== appRoot() || generation !== recoveryScanGeneration) return;
       state.hasRecoverable = backups.length > 0;
       state.recoveryScanFailed = false;
+      if (backups.length === 1 && typeof global.MoonDogUpdateInstall.inspectRecovery === "function") {
+        const app = await root.getDirectoryHandle("System Files", {create:false});
+        const catalog = [...new Set([...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
+          "assets/moondog-update-verify.js", "assets/moondog-update-plan.js", "assets/moondog-update-model.js",
+          "assets/moondog-update-install.js", "assets/moondog-update-settings.js"])];
+        const proof = await global.MoonDogUpdateInstall.inspectRecovery({appDirectoryHandle:app,
+          workspaceDirectoryHandle:root,backupName:backups[0],trustedAllowlist:catalog});
+        if (root !== appRoot() || generation !== recoveryScanGeneration) return;
+        state.autoRecoverable = proof.status === "recoverable";
+      }
     } catch (_) {
-      if (root !== appRoot()) return;
+      if (root !== appRoot() || generation !== recoveryScanGeneration) return;
       // Unknown recovery inventory must fail closed. A second update could
       // overwrite an interrupted rollback while OneDrive is unreadable.
       state.hasRecoverable = true;
       state.recoveryScanFailed = true;
     } finally {
-      if (root === appRoot()) {
+      if (root === appRoot() && generation === recoveryScanGeneration) {
         state.recoveryScanPending = false;
         render();
       }
@@ -275,7 +287,7 @@
     if (!notice) return;
     const offered = currentOffer(), value = state.check;
     const dismissed = state.dismissed?.day === localDay() && state.dismissed?.channel === state.channel && state.dismissed?.version === value?.version;
-    notice.hidden = !offered || dismissed || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending;
+    notice.hidden = !offered || dismissed || recoveryHold() || (state.hasRecoverable && state.channel !== "beta");
     if (notice.hidden) return;
     notice.querySelector("[data-update-title]").textContent = (value.status === "channel-switch" ? "Return to Stable " : value.channel === "beta" ? "Beta " : "Stable ") + value.version + " available";
     notice.querySelector("[data-update-install]").textContent = value.status === "channel-switch" ? "Return to Stable" : "Update Current Installation";
@@ -367,6 +379,7 @@
       "Stable is the normal operating channel.") +
       (state.recoveryScanFailed ? " Recovery backups could not be checked. Reconnect folder access before installing another update." :
         state.recoveryScanPending ? " Checking recovery backups before permitting installation." :
+        state.autoRecoverable ? " A verified interrupted software update will recover when you authorize the next Beta update. Your Workspace is preserved." :
         state.hasRecoverable ? " Resolve the interrupted update recovery before installing another update." : "");
     field("updateLastCheck").textContent = state.lastCheck ? new Date(state.lastCheck).toLocaleString() : "Never";
     const result = state.check;
@@ -381,7 +394,8 @@
     field("updateFolders").textContent = `Selected installation folder (parent of System Files): ${appRoot()?.name || "not connected"}. Runtime: System Files/. Dealership data: System Files/Workspace/. Update rollback backups: System Files/Workspace/backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
       "Update Current Installation";
-    installButton.disabled = state.busy || state.recoveryRequired || state.freshResetUnresolved || state.hasRecoverable || state.recoveryScanPending || !currentOffer();
+    installButton.disabled = state.busy || state.freshResetUnresolved || recoveryHold() || !currentOffer() ||
+      (state.hasRecoverable && state.channel !== "beta");
     freshButton.hidden = state.channel !== "beta" || result?.status === "channel-switch";
     freshButton.textContent = postUpdateReady() ? "Finish Fresh After Verified Update" : "Update to Fresh Installation";
     freshButton.disabled = !freshAvailable();
@@ -569,7 +583,7 @@
       status.textContent="Selected folder no longer matches the connected installation. No update was started.";
       return;
     }
-    if (state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer()) return;
+    if (state.busy || recoveryHold() || !currentOffer() || (state.hasRecoverable && state.channel !== "beta")) return;
     const offered = state.check, offeredFor = state.checkFor;
     let verifiedReloadVersion = null, verifiedInstalledVersion = null,
       freshOutcomeStatus = null, freshPostInstall = false;
@@ -613,7 +627,7 @@
       planText.hidden = false;
       if (plan.rejected.length) throw new Error("Update rejected. No application files changed.");
       status.textContent = "Review the file changes before confirming.";
-      if (!global.confirm(`Install Service Operations Dashboard ${verified.version}?\n\n${summary}\n\nA rollback backup in System Files/Workspace/backups/system-updates/ will be verified before any application file is changed.`)) {
+      if (!global.confirm(`Install Service Operations Dashboard ${verified.version}?\n\n${summary}\n\n${state.autoRecoverable ? "The verified interrupted software update will be safely recovered first. Your Workspace is preserved.\n\n" : ""}A rollback backup in System Files/Workspace/backups/system-updates/ will be verified before any application file is changed.`)) {
         status.textContent = "Installation cancelled. No application files changed.";
         clearProgress();
         return;
@@ -621,7 +635,7 @@
       // Always verify recovery immediately before the first install mutation,
       // even if the initial connection event has not completed its scan.
       await refreshRecovery();
-      if (state.hasRecoverable || state.recoveryScanPending || offeredFor.root !== appRoot()) {
+      if (recoveryHold() || (state.hasRecoverable && verified.channel !== "beta") || offeredFor.root !== appRoot()) {
         throw new Error("Update recovery backups are unresolved or cannot be verified. Check folder access and resolve recovery before installing.");
       }
       await setProgress({ phase: "install", percent: 28, label: "Starting installation", detail: "Please keep this window open" });
@@ -640,6 +654,7 @@
       else if (outcome.status === "rolled-back") await setProgress({ phase: "rolled-back", percent: 100, label: "Previous version restored", detail: "The update failed, but rollback completed and was verified." });
       else if (outcome.status !== "installed") await setProgress({ phase: "error", percent: state.progress?.percent || 25, label: "Update stopped", detail: outcome.reason || "Installation did not complete." });
       if (outcome.status === "installed") {
+        state.recoveryRequired=false;state.autoRecoverable=false;state.hasRecoverable=false;save();
         verifiedInstalledVersion=outcome.version;
         if (fresh) {
           freshPostInstall = true;
