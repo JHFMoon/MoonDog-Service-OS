@@ -2,11 +2,11 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
+const readSource = require("./helpers/read-source.cjs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+const app = readSource(path.join(__dirname, "..", "assets", "app.js"));
 const start = app.indexOf("    const connectedRoot=model.root;");
 const end = app.indexOf("\n  }\n  async function postConnectReconciliation", start);
 assert.ok(start >= 0 && end > start, "production post-connection scheduler is present");
@@ -25,6 +25,7 @@ test("post-connection jobs cancel before starting when the Workspace changes dur
     model,
     writeAuthority: { canWrite: true },
     workspaceConnectionBusy: false,
+    workspaceRecoveryBusy: false,
     postConnectionScanBusy: false,
     permissionWasPending: false,
     folderWatchScan: async () => calls.push("Report inbox"),

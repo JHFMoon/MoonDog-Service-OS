@@ -22,7 +22,16 @@ function setup({ mode = "appointment-removal-failed" } = {}) {
   const name = "synthetic-appointments.xlsx";
   const relativePath = "01 - DROP REPORTS HERE/" + name;
   const signature = relativePath + "|3|12345";
+  const legacy = mode === "appointment-removal-failed";
   const model = { autoImport: { seen: {} } };
+  if (legacy) {
+    state.imports = 1;
+    model.autoImport.seen[signature] = {
+      fileName: name, relativePath, kind: "appointments", importedAt: "2026-10-29T15:00:00Z",
+      cleanupPending: true, cleanupSha256: crypto.createHash("sha256").update(state.bytes).digest("hex"),
+    };
+  }
+  let firstLegacyCleanup = legacy;
   const item = {
     name, location: "inbox", relativePath, signature,
     file: { lastModified: 12345, arrayBuffer: async () => state.bytes.slice().buffer }
@@ -32,7 +41,7 @@ function setup({ mode = "appointment-removal-failed" } = {}) {
     now: () => "2026-10-29T15:00:00Z",
     watchCandidates: async () => state.present ? [item] : [],
     sha256: digest,
-    classifyImportFile: async () => "appointments",
+    classifyImportFile: async () => legacy || mode === "unsigned-appointments" ? "appointments" : "sor",
     processClassifiedCandidate: async (_candidate, _kind, bytes, deletion) => {
       assert.equal(deletion, true);
       assert.equal((await digest(bytes)), (await digest(state.bytes)));
@@ -40,12 +49,14 @@ function setup({ mode = "appointment-removal-failed" } = {}) {
       if (mode === "import-fails") throw Object.assign(new Error("Source not readable"), { name: "NotReadableError" });
       if (mode === "cleanup-throws" && state.imports === 1)
         throw Object.assign(new Error("Synthetic delete permission lost"), { name: "NotAllowedError", sourceCleanupFailure: true });
-      if (mode === "appointment-removal-failed" && state.imports === 1)
-        return { saved: true, deleted: false, retainedReason: "Synthetic permission loss" };
       state.removals++; state.present = false;
       return { saved: true, deleted: true };
     },
     removeSourceEntryWithByteGuard: async (_name, expected) => {
+      if (firstLegacyCleanup) {
+        firstLegacyCleanup = false;
+        throw Object.assign(new Error("Synthetic permission loss"), { name: "NotAllowedError" });
+      }
       state.removals++;
       assert.equal(await digest(expected), await digest(state.bytes), "cleanup checks current bytes");
       state.present = false;
@@ -69,6 +80,16 @@ function setup({ mode = "appointment-removal-failed" } = {}) {
   vm.runInContext(candidateNeedsImport + autoSurveyFolder + "\nthis.scan = autoSurveyFolder;", context);
   return {state, model, name, signature, item, context, scan: () => context.scan()};
 }
+
+test("unsigned appointments remain in Inbox pending manager review", async () => {
+  const h = setup({mode:"unsigned-appointments"});
+  const result = await h.scan();
+  assert.equal(h.state.imports, 0);
+  assert.equal(h.state.removals, 0);
+  assert.equal(h.state.present, true);
+  assert.equal(h.model.autoImport.seen[h.signature].manualImportRequired, true);
+  assert.deepEqual(Array.from(result.reviewRequired), [h.name]);
+});
 
 test("verified auto-import removes a report and records it as imported", async () => {
   const h = setup({mode:"success"});

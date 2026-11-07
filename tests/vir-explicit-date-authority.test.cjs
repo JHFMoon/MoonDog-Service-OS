@@ -27,6 +27,7 @@ function virCsv(metadata = "") {
 function harness(source) {
   const writes = [];
   const ctx = vm.createContext({
+    model: { root: {}, operationalMetrics: { vir: { snapshots: {} } } },
     text: value => String(value ?? ""),
     norm: value => String(value ?? "").trim().toLowerCase(),
     parseCsv: value => String(value).trimEnd().split(/\r?\n/).map(row => row.split(",")),

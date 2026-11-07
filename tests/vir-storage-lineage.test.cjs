@@ -114,8 +114,8 @@ test("synthetic VIR observation keeps its source date through durable storage an
   assert.deepEqual(history.map(([type, message, metadata]) => [type, message, { ...metadata }]), [[
     "vir-import",
     "Added independent VIR point-in-time observation",
-    { fileName: "synthetic-vir.csv", observationDate: "2026-10-22", totalROs: 4 }
-  ]], "VIR history must retain only the synthetic source, observation date, and calculation input");
+    { fileName: "synthetic-vir.csv", observationDate: "2026-10-22", totalROs: 4, sourceStoreConfidence: "unknown" }
+  ]], "VIR history must retain the source, observation date, calculation input, and explicit unknown store confidence");
 
   assert.equal(Object.hasOwn(stored, "effectiveDataThrough"), false);
   assert.equal(context.latestVirObservation().reportDate, "2026-10-22");

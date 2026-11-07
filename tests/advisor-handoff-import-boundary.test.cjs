@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const readSource = require('./helpers/read-source.cjs');
 const vm = require('node:vm');
-const app = fs.readFileSync(require('node:path').join(__dirname, '../assets/app.js'), 'utf8');
+const app = readSource(require('node:path').join(__dirname, '../assets/app.js'));
 function extract(start, end) { const a=app.indexOf(start), b=app.indexOf(end,a+start.length); assert.ok(a>=0&&b>a,start); return app.slice(a,b); }
 const helpers=extract('  function workbookIsHandoff(', '  function workbookDate(');
 const issuance=extract('  function workbookIssuanceId(', '  async function markSupervisorWorkbookStale(');

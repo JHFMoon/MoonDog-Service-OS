@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { hydrateWorkspace, backupFunctions } = require("./helpers/workspace-source-roundtrip.cjs");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
 function extract(startToken, endToken, label) {
@@ -127,4 +128,50 @@ test("month-only SOR with an out-of-period file timestamp does not fabricate dai
   assert.deepEqual(Object.keys(f.durable().sor.dailySnapshots || {}), []);
   assert.equal(f.context.api.dailyEvidenceDate("sor", saved), "");
   assert.equal(f.history.length, 1);
+});
+
+test("actual SOR parser rejects a foreign store and preserves known zero through backup and hydration", async () => {
+  const labels = ["CP Labor Rev", "CP Labor Gross", "CP GM %", "CP RO Count", "CP ELR", "CP Hours p/RO"];
+  const rows = [
+    ["After-Sales SOR - October 2026 / 9001 - Synthetic Dodge"],
+    ["Report Date", "2026-10-23"],
+    ["Metric", "", "Actual", "Prior Year", "", "Actual"],
+    ...labels.map((label, index) => [label, "", 100, 99, "", index === 3 ? 0 : 20, 10]),
+  ];
+  const run = code => {
+    const f = fixture(null, { rows, sourceModifiedAt: "2026-10-24T18:00:00Z" });
+    Object.assign(f.context, {
+      norm: value => String(value ?? "").trim().toLowerCase(),
+      performanceNumber: value => typeof value === "number" ? value : null,
+      reportStoreCode: () => code,
+    });
+    f.context.parseSorWorkbook = vm.runInContext(
+      extract("  function parseSorWorkbook(", "  function parseAppointmentActivityWorkbook(", "SOR parser") +
+      "\nparseSorWorkbook", f.context);
+    return f;
+  };
+  const local = run("9001");
+  const foreign = run("1002");
+  await assert.rejects(foreign.context.api.importManagerSource("synthetic-sor.xlsx", "sor", [], false),
+    /not the configured store/);
+  assert.deepEqual(foreign.durable(), {});
+  await local.context.api.importManagerSource("synthetic-sor.xlsx", "sor", [], false);
+
+  const model = {
+    state: { records: [{ id: "shared-ro" }], closedRecords: [] },
+    settings: { schemaVersion: 4, store: { code: "9001", name: "Synthetic Dodge" } },
+    appointments: { days: {} }, performance: { snapshots: {} }, assignNext: { days: {} },
+    autoImport: { seen: {} }, operationalMetrics: { csi: {}, ...local.durable() }, meetingCycle: { metrics: {} },
+  };
+  const archive = backupFunctions(app, model, "2026-10-24");
+  const { bytes } = await archive.createBackupBytes("Synthetic SOR");
+  const { values } = await archive.validateBackupBytes(bytes);
+  const files = new Map(Object.entries(values).map(([name, value]) => [name, JSON.stringify(value)]));
+  const restored = await hydrateWorkspace(app, files, {});
+  const retained = restored.operationalMetrics.sor.dailySnapshots["2026-10-23"];
+  assert.equal(retained.storeCode, "9001");
+  assert.equal(retained.period, "2026-10");
+  assert.equal(retained.coverageDate, "2026-10-23");
+  assert.equal(retained.metrics["CP RO Count"].currentActual, 0);
+  assert.equal(retained.metrics["CP RO Count"].priorMonthActual, null);
 });

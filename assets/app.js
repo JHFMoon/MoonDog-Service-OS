@@ -379,7 +379,12 @@
   }catch(_){/* Unsupported observers never affect startup. */}
   const BUILD_DATE = "2026-10-07";
   const DB_NAME = "moondog-operations-local";
-  const HANDLE_KEY = "working-folder";
+  // Chromium can share IndexedDB across file URLs. Every local launcher
+  // needs its own saved handle, including ordinary copied installations.
+  // Do not read the old unscoped key: it may belong to another store. One
+  // explicit folder reconnect on upgraded legacy copies is safer.
+  const HANDLE_KEY = globalThis.location?.protocol === "file:"
+    ? "working-folder:" + globalThis.location.pathname : "working-folder";
   const STATE_PATH = ["data", "current-state.json"];
   const SETTINGS_PATH = ["data", "settings.json"];
   const SOURCE_ADAPTER_BOOTSTRAP_PATH = ["data", "source-adapter-bootstrap.json"];
@@ -388,7 +393,7 @@
   const ASSIGN_NEXT_PATH = ["data", "assign-next.json"];
   const AUTO_IMPORT_PATH = ["data", "auto-import.json"];
   // Bump only for verified source-recognition rule changes, not UI updates.
-  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-11-04-store-brand-v11";
+  const LEARNED_PARSER_REVISION = "strict-report-recognition-2026-11-04-efficiency-store-sections-v12";
   const OPERATIONAL_METRICS_PATH = ["data", "operational-metrics.json"];
   const MEETING_CYCLE_PATH = ["data", "meeting-cycle.json"];
   const RECOVERY_PATH = ["data", "recovery.json"];
@@ -860,7 +865,8 @@
     if (state === "SAVED HANDLE UNAVAILABLE") { ui.permissionBadge.textContent = "Folder not connected"; ui.connectButton.textContent = "Choose working folder"; ui.connectButton.disabled = false; }
     if (state === "CONNECTION ERROR") {
       ui.permissionBadge.textContent = "Connection error";
-      ui.connectButton.textContent = model.pendingRoot ? "Retry saved folder" : "Choose working folder";
+      ui.connectButton.textContent = model.pendingRoot&&model.pendingRoot===model.freshResetRecoveryRoot ?
+        "Review interrupted Fresh reset" : model.pendingRoot ? "Retry saved folder" : "Choose working folder";
       ui.connectButton.disabled = false;
     }
     if (state === "CONNECTED") {
@@ -1293,7 +1299,30 @@
     return summary;
   }
   function monthEndCorrectionCandidate(month=priorMonthKey()){const existing=model.operationalMetrics.monthlySummaries?.[month],candidate=buildMonthEndSummary(month);if(existing?.status!=="locked"||candidate.status!=="locked")return null;const basis=(value)=>JSON.stringify(value?.basis||{});return existing.schemaVersion<2||basis(existing)!==basis(candidate)||JSON.stringify(existing.store)!==JSON.stringify(candidate.store)||JSON.stringify(existing.advisors)!==JSON.stringify(candidate.advisors)?candidate:null;}
-  async function applyMonthEndCorrection(month=priorMonthKey()){const candidate=monthEndCorrectionCandidate(month);if(!candidate)throw new Error("No verified month-end correction is ready.");if(!window.confirm(`Apply the verified ${month} late month-end correction? The existing locked summary will be backed up first.`))return;const previousSummary=model.operationalMetrics.monthlySummaries[month],previousUpdatedAt=model.operationalMetrics.updatedAt,backupSnapshot=JSON.parse(JSON.stringify(model.operationalMetrics));await writeJson(["backups",`${stamp()}-before-${month}-month-end-correction.json`],backupSnapshot);candidate.correctedAt=now();candidate.correctionOf=previousSummary?.lockedAt||"";model.operationalMetrics.monthlySummaries[month]=candidate;model.operationalMetrics.updatedAt=now();try{await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);const check=await readJson(OPERATIONAL_METRICS_PATH,null);if(JSON.stringify(check?.monthlySummaries?.[month])!==JSON.stringify(candidate))throw new Error("Month-end correction could not be verified after saving.");}catch(error){model.operationalMetrics.monthlySummaries[month]=previousSummary;if(previousUpdatedAt===undefined)delete model.operationalMetrics.updatedAt;else model.operationalMetrics.updatedAt=previousUpdatedAt;throw error;}await addHistory("month-end-correction",`Applied verified late month-end sources for ${month}`,{month,basis:candidate.basis});renderAll();}
+  async function applyMonthEndCorrection(month=priorMonthKey()){
+    const candidate=monthEndCorrectionCandidate(month);
+    if(!candidate)throw new Error("No verified month-end correction is ready.");
+    if(!window.confirm(`Apply the verified ${month} late month-end correction? The existing locked summary will be backed up first.`))return;
+    const connectedRoot=model.root,originalMetrics=model.operationalMetrics;
+    const original=JSON.stringify(originalMetrics);
+    const authorityCurrent=()=>model.root===connectedRoot&&model.operationalMetrics===originalMetrics&&
+      JSON.stringify(model.operationalMetrics)===original;
+    const backupSnapshot=JSON.parse(original),updated=JSON.parse(original);
+    candidate.correctedAt=now();
+    candidate.correctionOf=updated.monthlySummaries[month]?.lockedAt||"";
+    updated.monthlySummaries[month]=candidate;
+    updated.updatedAt=now();
+    await writeJson(["backups",`${stamp()}-before-${month}-month-end-correction.json`],backupSnapshot);
+    if(!authorityCurrent())throw new Error("Month-end source data changed during backup. Reconnect and retry.");
+    await writeJson(OPERATIONAL_METRICS_PATH,updated);
+    const check=await readJson(OPERATIONAL_METRICS_PATH,null);
+    if(JSON.stringify(check)!==JSON.stringify(updated))
+      throw new Error("Month-end correction could not be verified after saving.");
+    if(!authorityCurrent())throw new Error("Month-end Workspace changed during durable verification. Reconnect and review before retry.");
+    model.operationalMetrics=updated;
+    await addHistory("month-end-correction",`Applied verified late month-end sources for ${month}`,{month,basis:candidate.basis});
+    renderAll();
+  }
   function syncArrivalDate() { const date = localDateKey(); ui.appointmentDate.value = date; ui.currentArrivalDate.textContent = new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { timeZone:"UTC",weekday: "long", month: "long", day: "numeric" }); return date; }
   const stamp = () => now().replace(/[:.]/g, "-");
   const slug = (v) => String(v).replace(/[^a-z0-9_-]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || "record";
@@ -1317,7 +1346,128 @@
   async function rememberRoot(handle) { const db = await openHandleDb(); await new Promise((resolve, reject) => { const tx = db.transaction("handles", "readwrite"); tx.objectStore("handles").put(handle, HANDLE_KEY); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); db.close(); }
   async function recallRoot() { const db = await openHandleDb(); const handle = await new Promise((resolve, reject) => { const tx = db.transaction("handles", "readonly"); const request = tx.objectStore("handles").get(HANDLE_KEY); request.onsuccess = () => resolve(request.result || null); request.onerror = () => reject(request.error); }); db.close(); return handle; }
   const WORKSPACE_PREFIX = ["System Files", "Workspace"];
-  async function operationalRoot(handle) { return (await handle.getDirectoryHandle(WORKSPACE_PREFIX[0])).getDirectoryHandle(WORKSPACE_PREFIX[1]); }
+  // This recovery hold must survive removal of System Files/Workspace itself.
+  const FRESH_RESET_MARKER="MOONDOG_FRESH_RESET_PENDING.json";
+  async function operationalRoot(handle) {
+    const system=await handle.getDirectoryHandle(WORKSPACE_PREFIX[0],{create:false});
+    try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});}
+    catch(error){
+      if(error?.name!=="NotFoundError")throw error;
+      return system.getDirectoryHandle(WORKSPACE_PREFIX[1],{create:false});
+    }
+    const error=new Error("Fresh Installation cleanup is incomplete for this copy. Normal data loading is blocked until its recovery is reviewed.");
+    error.code="FRESH_RESET_INCOMPLETE";
+    throw error;
+  }
+  // This path is only called after an explicit recovery click. Startup and
+  // saved-folder reconnection always fail closed on an interrupted reset.
+  async function resumeInterruptedFreshInstallation(){
+    const root=model.pendingRoot;
+    if(!root||root!==model.freshResetRecoveryRoot||model.root||model.applicationRoot||
+       connectedNativeRoot||newStoreBusy||workspaceConnectionBusy||workspaceRecoveryBusy||
+       workspaceConnectionBlockReason())
+      throw new Error("Finish other Workspace operations before recovering an interrupted Fresh reset.");
+    if(typeof root.isSameEntry!=="function"||typeof root.resolve!=="function")
+      throw new Error("The selected installation handle cannot be verified.");
+    let granted=await root.queryPermission({mode:"readwrite"});
+    if(granted!=="granted"&&typeof root.requestPermission==="function")
+      granted=await root.requestPermission({mode:"readwrite"});
+    if(granted!=="granted")throw new Error("Read/write access is required for interrupted Fresh recovery.");
+    const system=await root.getDirectoryHandle("System Files",{create:false});
+    await system.getFileHandle("index.html",{create:false});
+    const workspace=await system.getDirectoryHandle("Workspace",{create:false});
+    const path=await root.resolve(workspace);
+    if(!Array.isArray(path)||path.length!==2||path[0]!=="System Files"||path[1]!=="Workspace")
+      throw new Error("The exact selected Workspace boundary could not be verified.");
+    const readIntent=async()=>{
+      const marker=await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+      let value;
+      try{value=JSON.parse(await(await marker.getFile()).text());}
+      catch(_){throw new Error("Unreadable interrupted Fresh marker requires manual support review.");}
+      if(value?.schemaVersion!==1||value.status!=="incomplete"||
+        !/^\d+\.\d+\.\d+-beta\.\d+$/.test(value.version||"")||
+        !/^[a-f0-9]{64}$/.test(value.sha256||"")||
+        !/^MoonDog-Update-Backup-[A-Za-z0-9-]+$/.test(value.backupName||""))
+        throw new Error("Invalid interrupted Fresh marker requires manual support review.");
+      return value;
+    };
+    const intent=await readIntent(),expected=JSON.stringify(intent);
+    const sameTarget=async()=>{
+      if(model.pendingRoot!==root||model.freshResetRecoveryRoot!==root||
+         model.root||model.applicationRoot||connectedNativeRoot||
+         !(await root.isSameEntry(model.pendingRoot)))
+        throw new Error("The selected installation changed; incomplete Fresh remains blocked.");
+      if(await root.queryPermission({mode:"readwrite"})!=="granted")
+        throw new Error("Write access was lost; incomplete Fresh remains blocked.");
+      if(JSON.stringify(await readIntent())!==expected)
+        throw new Error("The durable reset marker changed; incomplete Fresh remains blocked.");
+    };
+    // A nested MoonDog launcher must never be deleted as a recovery shortcut.
+    let scanned=0;
+    async function scan(dir){
+      for await(const [name,item] of dir.entries()){
+        if(++scanned>100000)throw new Error("The incomplete Workspace cannot be inspected safely.");
+        if(name==="00 - OPEN DASHBOARD.html"||name==="System Files")
+          throw new Error("A nested installation requires manual support review.");
+        if(item.kind==="directory")await scan(item);
+      }
+    }
+    await scan(workspace);await sameTarget();
+    const name=root.name||"selected MoonDog installation";
+    if(typeof globalThis.confirm!=="function"||!globalThis.confirm(
+      "RESUME INTERRUPTED FRESH? The selected copy "+name+
+      " is already incomplete. Continuing permanently removes all remaining Workspace data."))
+      return {status:"cancelled"};
+    if(!globalThis.confirm("FINAL IRREVERSIBLE CONFIRMATION: finish clearing the incomplete Workspace in "+
+      name+" with no external backup? Previously deleted data cannot be restored by this step."))
+      return {status:"cancelled"};
+    await sameTarget();
+    if(newStoreBusy||workspaceConnectionBusy||workspaceRecoveryBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation started; incomplete Fresh remains blocked.");
+    newStoreBusy=true;workspaceRecoveryBusy=true;stopFolderWatch("WATCH OFF");
+    try{
+      // Existing hold stays OUTSIDE Workspace until full clean-state readback.
+      const entries=[];for await(const [entry] of workspace.entries())entries.push(entry);
+      for(const entry of entries){await sameTarget();await workspace.removeEntry(entry,{recursive:true});}
+      for await(const _ of workspace.entries())
+        throw new Error("Workspace changed during interrupted Fresh recovery.");
+      const data=await workspace.getDirectoryHandle("data",{create:true});
+      const defaults=freshProductState();
+      defaults["data/current-state.json"].appVersion=intent.version;
+      const recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,
+        lastRestore:null,status:"Fresh installation requires Guided Setup"};
+      const records={...defaults,"data/recovery.json":recovery};
+      for(const [relative,value] of Object.entries(records)){
+        await sameTarget();
+        const parts=relative.split("/");
+        if(parts.length!==2||parts[0]!=="data")throw new Error("Invalid fresh state path.");
+        const file=await data.getFileHandle(parts[1],{create:true});
+        const writable=await file.createWritable();
+        try{await writable.write(JSON.stringify(value,null,2)+"\n");await writable.close();}
+        catch(error){try{await writable.abort();}catch(_){}throw error;}
+        if(JSON.stringify(JSON.parse(await(await file.getFile()).text()))!==JSON.stringify(value))
+          throw new Error("Fresh recovery readback failed: "+relative);
+      }
+      const names=[];for await(const [entry] of workspace.entries())names.push(entry);
+      if(names.length!==1||names[0]!=="data")
+        throw new Error("Residual store data remains after interrupted Fresh recovery.");
+      const actual=[];for await(const [entry] of data.entries())actual.push(entry);
+      const allowed=Object.keys(records).map(x=>x.split("/")[1]).sort();
+      if(JSON.stringify(actual.sort())!==JSON.stringify(allowed))
+        throw new Error("Missing defaults or unexpected files after interrupted Fresh recovery.");
+      await sameTarget();
+      await system.removeEntry(FRESH_RESET_MARKER);
+      try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+        throw new Error("Fresh recovery hold removal did not verify.");}
+      catch(error){if(error?.name!=="NotFoundError")throw error;}
+      model.freshResetRecoveryRoot=null;
+      // User reconnects explicitly; normal connection revalidates new defaults.
+      return {status:"fresh",installationName:name};
+    }catch(error){
+      throw new Error("Interrupted Fresh recovery is incomplete; normal connection remains blocked. "+
+        (error?.message||String(error)));
+    }finally{workspaceRecoveryBusy=false;newStoreBusy=false;}
+  }
   function wrapOperationalRoot(handle) { return writeAuthority.wrapDirectory(handle, WORKSPACE_PREFIX.join("/")); }
   async function directory(path, create = true) { let current = model.root; for (const part of path) current = await current.getDirectoryHandle(part, { create }); return current; }
   async function fileAt(path, create = false) { const parts = [...path]; const name = parts.pop(); return (await directory(parts, create)).getFileHandle(name, { create }); }
@@ -1356,6 +1506,8 @@
   // the source Workspace while a workbook save/import is awaiting the lock.
   let supervisorWorkbookInFlight = 0;
   async function withSupervisorWorkbookLock(operation,options={}) {
+    if(typeof workspaceRecoveryBusy!=="undefined"&&workspaceRecoveryBusy)
+      throw new Error("A Workspace recovery operation is in progress. Retry the workbook operation when it finishes.");
     const locks=globalThis.navigator?.locks;
     if(!locks?.request)throw new Error("This browser cannot safely serialize Supervisor Workbook operations. Use an up-to-date browser and retry.");
     const requestedRoot=model.root;
@@ -1582,9 +1734,11 @@
   // active Workspace until that one task has settled; do not start another
   // queued task while a connection is already in progress.
   let postConnectionScanBusy=false;
+  let workspaceRecoveryBusy=false;
   function workspaceConnectionBlockReason(){
-    return folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||
-      (typeof supervisorWorkbookInFlight!=="undefined"&&supervisorWorkbookInFlight>0)
+    return folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||workspaceRecoveryBusy||
+      (typeof supervisorWorkbookInFlight!=="undefined"&&supervisorWorkbookInFlight>0)||
+      (typeof maintenanceEngine!=="undefined"&&maintenanceEngine?.running)
       ? "Service Operations Dashboard is finishing another workspace operation. Reconnect after it finishes."
       : "";
   }
@@ -1746,10 +1900,13 @@
       // The potentially large Files To Learn reconciliation is deliberately
       // excluded from automatic reconnection. User-triggered import remains
       // available; do not repeatedly parse historical learning files.
+      const queueIsCurrent=()=>model.root===connectedRoot&&writeAuthority.canWrite&&!workspaceConnectionBusy;
       for(const [label,run] of jobs){
-        if(model.root!==connectedRoot||!writeAuthority.canWrite||workspaceConnectionBusy)break;
-        await sleepBetweenChecks();
-        if(model.root!==connectedRoot||!writeAuthority.canWrite||workspaceConnectionBusy)break;
+        if(!queueIsCurrent())break;
+        do {
+          await sleepBetweenChecks();
+        } while(queueIsCurrent()&&(folderWatch.busy||dailyImportBusy||appointmentImportBusy||workspaceRecoveryBusy));
+        if(!queueIsCurrent())break;
         postConnectionScanBusy=true;
         try{await run();}
         catch(error){recordDiagnostic('POST-CONNECTION SCAN',label+': '+String(error?.message||error));}
@@ -1793,6 +1950,7 @@
         if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){
           writeAuthority.disable();
           model.pendingRoot=pendingRoot;
+          model.freshResetRecoveryRoot=error?.code==="FRESH_RESET_INCOMPLETE"?pendingRoot:null;
           if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){
             model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;
           }
@@ -1819,6 +1977,7 @@
           model.workspaceConnectionCommittedRoot=null;
         }
         model.pendingRoot=handle;
+        model.freshResetRecoveryRoot=error?.code==="FRESH_RESET_INCOMPLETE"?handle:null;
         let handleStored=true;
         try{await rememberRoot(handle);}catch(_){handleStored=false;/* in-memory retry remains available */}
         const storageNote=handleStored?"The selected handle and files are retained.":"The handle remains available in this tab, but browser storage could not persist it; after a browser restart you may need to choose this folder again.";
@@ -1875,6 +2034,13 @@
     },delay);
   }
   function handleWorkspaceRecoveryAction(){
+    if(model.pendingRoot&&model.pendingRoot===model.freshResetRecoveryRoot)
+      return run(async()=>{
+        const result=await resumeInterruptedFreshInstallation();
+        if(result.status==="fresh")
+          setConnectionState("SAVED HANDLE UNAVAILABLE",
+            "Interrupted Fresh recovery finished. Click Choose working folder to reconnect and verify Guided Setup.");
+      });
     if(["PENDING_TRANSACTION","INTERRUPTED_RESTORE"].includes(writeAuthority.reason)){
       navigateTo("settings");
       setTimeout(()=>ui.backupRecoverySection?.scrollIntoView?.({behavior:"smooth",block:"start"}),0);
@@ -1899,6 +2065,7 @@
       // An overlapping restore must not revoke authority for the active connection.
       if(error?.code==="WORKSPACE_CONNECTION_BUSY")return;
       model.pendingRoot=handle;
+      model.freshResetRecoveryRoot=error?.code==="FRESH_RESET_INCOMPLETE"?handle:null;
       if(transientWorkspaceState(error)){
         writeAuthority.disable();
         if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;}
@@ -2178,9 +2345,17 @@
   }
   function pruneDatedSnapshots(snapshots, limit = 730) { const dates = Object.keys(snapshots).sort(); return Object.fromEntries(dates.slice(-limit).map((date) => [date, snapshots[date]])); }
   async function importNextAppointmentsFile(name, deleteAfterSuccess = false, allowInteractiveReplacement = false) {
-    const file = await (await sourceFileHandle(name)).getFile(), source = await file.text(), snapshot = parseNextAppointmentsCsv(source, name), key=snapshot.periodEnd||`observation-${snapshot.observationDate}`,existingSnapshot=model.operationalMetrics.nextAppointments.snapshots[key],replacing=Boolean(existingSnapshot),prior=structuredClone(model.operationalMetrics);
+    const connectedRoot = model.root, original = model.operationalMetrics;
+    const originalBytes = JSON.stringify(original);
+    const authorityCurrent = () => model.root === connectedRoot && model.operationalMetrics === original &&
+      JSON.stringify(original) === originalBytes;
+    const file = await (await sourceFileHandle(name)).getFile(), source = await file.text();
+    if (!authorityCurrent()) throw new Error("Workspace source data changed during Next Appointments preparation. Reconnect and retry.");
+    const snapshot = parseNextAppointmentsCsv(source, name), key = snapshot.periodEnd || `observation-${snapshot.observationDate}`;
+    const existingSnapshot = original.nextAppointments.snapshots[key], replacing = Boolean(existingSnapshot);
+    snapshot.sourceStoreConfidence="configured-destination-only";
     const comparable = value => {
-      const volatile = new Set(["sourceFile", "importedAt", "sourceModifiedAt", "validation"]);
+      const volatile = new Set(["sourceFile", "importedAt", "sourceModifiedAt", "sourceStoreConfidence", "validation"]);
       const normalize = (item, root = false) => {
         if (Array.isArray(item)) return item.map(value => normalize(value));
         if (item && typeof item === "object") {
@@ -2196,6 +2371,7 @@
     let supplemental = null;
     try {
       supplemental = parseAppointmentsCreatedSummaryCsv(source, name);
+      supplemental.sourceStoreConfidence="configured-destination-only";
       supplemental.sourceModifiedAt = new Date(file.lastModified).toISOString();
       // The paired summary's filter end may remain month-wide while NSA coverage advances daily.
       supplemental.coverageDate = snapshot.periodEnd || supplemental.periodEnd || supplemental.asOfDate || "";
@@ -2216,29 +2392,41 @@
       const check = await readJson(OPERATIONAL_METRICS_PATH, null);
       if (comparable(check?.nextAppointments?.snapshots?.[key]) !== comparable(existingSnapshot) || supplemental && comparable(check?.supplementalReports?.snapshots?.[supplementalKey]) !== comparable(existingSupplemental))
         throw new Error("The existing Appointments snapshots could not be verified from durable storage; the source was retained.");
-      await addHistory("next-appointments-duplicate", `Verified duplicate Next Appointments source for ${snapshot.periodEnd || "unverified period"}; saved snapshot was unchanged`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd });
-      if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted verified duplicate Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
+      if (!authorityCurrent()) throw new Error("Workspace source data changed during Next Appointments verification. Reconnect and review before retry.");
+      await addHistory("next-appointments-duplicate", `Verified duplicate Next Appointments source for ${snapshot.periodEnd || "unverified period"}; saved snapshot was unchanged`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, sourceStoreConfidence:existingSnapshot?.sourceStoreConfidence||"unknown" });
+      if (deleteAfterSuccess) {
+        if (model.root !== connectedRoot) throw new Error("Workspace changed before Next Appointments cleanup. The source was retained.");
+        await removeSourceEntry(name);
+        await addHistory("source-deleted", `Deleted verified duplicate Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true });
+      }
       renderOverviewIntelligence();
       return;
     }
-    const priorSnapshot = existingSnapshot;
+    const candidate = structuredClone(original);
     if (!snapshotDuplicate) {
-      model.operationalMetrics.nextAppointments.snapshots[key] = snapshot;
-      model.operationalMetrics.nextAppointments.snapshots = pruneDatedSnapshots(model.operationalMetrics.nextAppointments.snapshots);
+      candidate.nextAppointments.snapshots[key] = snapshot;
+      candidate.nextAppointments.snapshots = pruneDatedSnapshots(candidate.nextAppointments.snapshots);
     }
-    model.operationalMetrics.updatedAt = now();
-    if (supplemental) { model.operationalMetrics.supplementalReports ||= { snapshots: {} }; model.operationalMetrics.supplementalReports.snapshots[supplementalKey] = supplemental; model.operationalMetrics.supplementalReports.snapshots = pruneSupplementalSnapshots(model.operationalMetrics.supplementalReports.snapshots); }
-    try {
-      await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics);
-      const check = await readJson(OPERATIONAL_METRICS_PATH, null);
-      const expectedSnapshot = snapshotDuplicate ? priorSnapshot : snapshot;
-      if (comparable(check?.nextAppointments?.snapshots?.[key]) !== comparable(expectedSnapshot) || supplemental && comparable(check?.supplementalReports?.snapshots?.[supplementalKey]) !== comparable(supplemental))
-        throw new Error("The Appointments Created snapshots could not be verified after saving.");
-    } catch(error) { model.operationalMetrics = prior; throw error; }
+    candidate.updatedAt = now();
+    if (supplemental) {
+      candidate.supplementalReports ||= { snapshots: {} };
+      candidate.supplementalReports.snapshots[supplementalKey] = supplemental;
+      candidate.supplementalReports.snapshots = pruneSupplementalSnapshots(candidate.supplementalReports.snapshots);
+    }
+    await writeJson(OPERATIONAL_METRICS_PATH, candidate);
+    const check = await readJson(OPERATIONAL_METRICS_PATH, null);
+    if (JSON.stringify(check) !== JSON.stringify(candidate))
+      throw new Error("The Appointments Created snapshots could not be verified after saving.");
+    if (!authorityCurrent()) throw new Error("Workspace source data changed during Next Appointments verification. Reconnect and review before retry.");
+    model.operationalMetrics = candidate;
     if (!snapshotDuplicate)
-      await addHistory("next-appointments-import", `${replacing ? "Replaced" : "Added"} Next Appointments ${snapshot.periodEnd ? `snapshot through ${snapshot.periodEnd}` : "import observation; period unverified"}`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, identityConflicts: snapshot.identityConflicts.length });
-    if (supplemental) await addHistory("supplemental-report-import", `${existingSupplemental ? "Replaced" : "Retained"} Appointments Created service summary from the same report`, { fileName: name, family: supplemental.family, supplementalOnly: true });
-    if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
+      await addHistory("next-appointments-import", `${replacing ? "Replaced" : "Added"} Next Appointments ${snapshot.periodEnd ? `snapshot through ${snapshot.periodEnd}` : "import observation; period unverified"}`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, identityConflicts: snapshot.identityConflicts.length, sourceStoreConfidence:snapshot.sourceStoreConfidence||"unknown" });
+    if (supplemental) await addHistory("supplemental-report-import", `${existingSupplemental ? "Replaced" : "Retained"} Appointments Created service summary from the same report`, { fileName: name, family: supplemental.family, supplementalOnly: true, sourceStoreConfidence:supplemental.sourceStoreConfidence||"unknown" });
+    if (deleteAfterSuccess) {
+      if (model.root !== connectedRoot) throw new Error("Workspace changed before Next Appointments cleanup. The source was retained.");
+      await removeSourceEntry(name);
+      await addHistory("source-deleted", `Deleted imported Next Appointments source file ${name}`, { fileName: name, compactSnapshotRetained: true });
+    }
     renderOverviewIntelligence();
   }
   const VIR_NAME_CODES = {};
@@ -2294,6 +2482,10 @@
   function shouldStoreVir(candidate, existing) { return !existing||newerVirSnapshot(candidate,existing); }
   function applyVirResolution(snapshot,resolution){snapshot.observationTimestamp=resolution.observationTimestamp;snapshot.coverageMethod="vir-point-in-time";snapshot.validation.coverageMethod="vir-point-in-time";snapshot.validation.coverageBasis=resolution.basis;delete snapshot.effectiveDataThrough;}
   async function saveVirSnapshot(snapshot) {
+    const connectedRoot=model.root,original=model.operationalMetrics;
+    const originalBytes=JSON.stringify(original);
+    const authorityCurrent=()=>model.root===connectedRoot&&model.operationalMetrics===original&&
+      JSON.stringify(original)===originalBytes;
     const resolution=virObservationResolution(snapshot),key=virObservationKey(snapshot);
     applyVirResolution(snapshot,resolution);
     const reportDate=virConflictDate(snapshot);
@@ -2304,29 +2496,25 @@
         throw new Error(`Conflicting VIR report for observation date ${reportDate} is already saved. The existing observation was retained; review the source conflict before importing.`);
       return{resolved:true,date:virObservationDate(snapshot),key:sameDate[0][0],idempotent:true};
     }
-    const priorMetrics=structuredClone(model.operationalMetrics);
-    model.operationalMetrics.vir.pending||={};
-    model.operationalMetrics.vir.snapshots||={};
-    model.operationalMetrics.vir.snapshots[key]=snapshot;
-    model.operationalMetrics.vir.snapshots=pruneDatedSnapshots(model.operationalMetrics.vir.snapshots);
-    model.operationalMetrics.updatedAt=now();
-    try {
-      await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);
-      const check=await readJson(OPERATIONAL_METRICS_PATH,null);
-      const retained=check?.vir?.snapshots?.[key];
-      if(JSON.stringify(retained)!==JSON.stringify(snapshot))
-        throw new Error("The VIR observation could not be verified after saving.");
-    } catch(error) {
-      // A failed write or partial/mismatched read-back cannot become runtime
-      // authority. importVirFile will also leave the original source in place.
-      model.operationalMetrics=priorMetrics;
-      throw error;
-    }
+    const candidate=structuredClone(original);
+    candidate.vir.pending||={};
+    candidate.vir.snapshots||={};
+    candidate.vir.snapshots[key]=snapshot;
+    candidate.vir.snapshots=pruneDatedSnapshots(candidate.vir.snapshots);
+    candidate.updatedAt=now();
+    await writeJson(OPERATIONAL_METRICS_PATH,candidate);
+    const check=await readJson(OPERATIONAL_METRICS_PATH,null);
+    if(JSON.stringify(check)!==JSON.stringify(candidate))
+      throw new Error("The VIR observation could not be verified after saving.");
+    if(!authorityCurrent())
+      throw new Error("Workspace source data changed during VIR verification. Reconnect and review before retry.");
+    model.operationalMetrics=candidate;
     try {
       await addHistory("vir-import","Added independent VIR point-in-time observation",{
         fileName:snapshot.sourceFile,
         observationDate:virObservationDate(snapshot),
-        totalROs:snapshot.store.totalROs
+        totalROs:snapshot.store.totalROs,
+        sourceStoreConfidence:snapshot.sourceStoreConfidence||"unknown"
       });
     } catch(error) {
       recordDiagnostic("VIR INTAKE",`VIR was durably saved but its history summary was deferred (${error.name||"Error"})`);
@@ -2340,7 +2528,19 @@
     return{resolved:true,date:virObservationDate(snapshot),key};
   }
   async function importVirFile(name, deleteAfterSuccess = false) {
-    const file = await (await sourceFileHandle(name)).getFile(), snapshot = parseVirCsv(await file.text(), name); snapshot.sourceModifiedAt = new Date(file.lastModified).toISOString(); snapshot.observationTimestamp=snapshot.reportDate?`${snapshot.reportDate}T12:00:00-07:00`:snapshot.sourceModifiedAt||snapshot.importedAt;snapshot.sourceLocation=sourceLocations.get(name)||"root"; const result = await saveVirSnapshot(snapshot);
+    const connectedRoot=model.root,original=model.operationalMetrics;
+    const originalBytes=JSON.stringify(original);
+    const file=await(await sourceFileHandle(name)).getFile(),source=await file.text();
+    if(model.root!==connectedRoot||model.operationalMetrics!==original||JSON.stringify(original)!==originalBytes)
+      throw new Error("Workspace source data changed during VIR preparation. Reconnect and retry.");
+    const snapshot=parseVirCsv(source,name);
+    snapshot.sourceStoreConfidence="configured-destination-only";
+    snapshot.sourceModifiedAt=new Date(file.lastModified).toISOString();
+    snapshot.observationTimestamp=snapshot.reportDate?`${snapshot.reportDate}T12:00:00-07:00`:snapshot.sourceModifiedAt||snapshot.importedAt;
+    snapshot.sourceLocation=sourceLocations.get(name)||"root";
+    const result=await saveVirSnapshot(snapshot);
+    if (deleteAfterSuccess && model.root !== connectedRoot)
+      throw new Error("Workspace changed before VIR cleanup. The source was retained.");
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported VIR source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
     return result.resolved;
   }
@@ -2503,27 +2703,28 @@
         storeSummaryVerified:true,presentationAndPenetrationSeparate:true}};
   }
   async function importMenuSalesFile(name, deleteAfterSuccess = false, providedBytes = null, layoutOverride=null) {
+    const connectedRoot = model.root, original = model.operationalMetrics;
+    const originalBytes = JSON.stringify(original);
+    const authorityCurrent = () => model.root === connectedRoot && model.operationalMetrics === original &&
+      JSON.stringify(original) === originalBytes;
     const bytes = providedBytes || await (await (await sourceFileHandle(name)).getFile()).arrayBuffer();
     if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true });
+    if (!authorityCurrent()) throw new Error("Workspace source data changed during Menu Sales preparation. Reconnect and retry.");
     const snapshot = parseMenuSalesWorkbook(bytes, name,layoutOverride);
-    const priorSnapshot = model.operationalMetrics.menu.snapshots?.[snapshot.releaseWeek];
+    const priorSnapshot = original.menu.snapshots?.[snapshot.releaseWeek];
     if (priorSnapshot && comparableManagerSnapshot(priorSnapshot, "menu") !== comparableManagerSnapshot(snapshot, "menu"))
       throw new Error(`Conflicting Menu Sales report for release week ${snapshot.releaseWeek} is already saved. The existing snapshot was retained; review the source conflict before importing.`);
-    const priorMetrics = structuredClone(model.operationalMetrics);
-    model.operationalMetrics.menu.snapshots[snapshot.releaseWeek] = snapshot;
-    model.operationalMetrics.menu.snapshots = pruneDatedSnapshots(model.operationalMetrics.menu.snapshots, 156);
-    model.operationalMetrics.updatedAt = now();
-    try {
-      await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics);
-      const check = await readJson(OPERATIONAL_METRICS_PATH, null);
-      if (JSON.stringify(check?.menu?.snapshots?.[snapshot.releaseWeek]) !== JSON.stringify(snapshot))
-        throw new Error("The Menu Sales snapshot could not be verified after saving.");
-    } catch (error) {
-      // A failed or mismatched read-back is never evidence of a durable save.
-      // Restore in-memory state; leave any uncertain on-disk bytes for review.
-      model.operationalMetrics = priorMetrics;
-      throw error;
-    }
+    const candidate = structuredClone(original);
+    candidate.menu.snapshots[snapshot.releaseWeek] = snapshot;
+    candidate.menu.snapshots = pruneDatedSnapshots(candidate.menu.snapshots, 156);
+    candidate.updatedAt = now();
+    await writeJson(OPERATIONAL_METRICS_PATH, candidate);
+    const check = await readJson(OPERATIONAL_METRICS_PATH, null);
+    if (JSON.stringify(check) !== JSON.stringify(candidate))
+      throw new Error("The Menu Sales snapshot could not be verified after saving.");
+    if (!authorityCurrent())
+      throw new Error("Workspace source data changed during Menu Sales verification. Reconnect and review before retry.");
+    model.operationalMetrics = candidate;
     await addHistory("menu-sales-import", `Saved Menu Sales report for release week ${snapshot.releaseWeek}`, { fileName: name, periodStart: snapshot.periodStart, periodEnd: snapshot.periodEnd, advisors: Object.keys(snapshot.advisors).length });
     if (deleteAfterSuccess) { await removeSourceEntry(name); await addHistory("source-deleted", `Deleted imported Menu Sales source file ${name}`, { fileName: name, compactSnapshotRetained: true }); }
     renderOverviewIntelligence();
@@ -2801,8 +3002,8 @@
     const matches=confirmed.length?confirmed:Object.values(directory).filter(item=>[item.sourceName,item.displayName,...(item.sourceAliases||[])].filter(Boolean).some(alias=>normalizedPerson(alias)===key));
     return matches.length===1?String(matches[0].number):null;
   }
-  function learnTechnicians(snapshot) {
-    const family=model.operationalMetrics.mediaAsrTech||={snapshots:{}},directory=family.directory||={};
+  function learnTechnicians(snapshot, metrics) {
+    const family=metrics.mediaAsrTech||={snapshots:{}},directory=family.directory||={};
     for(const row of snapshot.technicians||[]){const number=String(row.id);if(!validTechnicianIdentity(number,row.name))continue;const prior=directory[number]||{},latest=!prior.lastSourceDate||snapshot.periodEnd>=prior.lastSourceDate;
       directory[number]={...prior,number,sourceName:latest?row.name:prior.sourceName,normalizedName:latest?normalizedPerson(row.name):prior.normalizedName,displayName:prior.displayName||model.settings.technicians?.[number]?.displayName||row.name,firstSeen:prior.firstSeen||snapshot.importedAt,lastSeen:snapshot.importedAt,lastSourceDate:latest?snapshot.periodEnd:prior.lastSourceDate,sourceAliases:[...new Set([...(prior.sourceAliases||[]),row.name])].slice(-30)};
     }
@@ -2831,12 +3032,22 @@
     const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:null,raw:true}),period=text(rows[1]?.[0]).match(/Date Range:\s*(20\d{2}-\d{2}-\d{2})\s*-\s*(20\d{2}-\d{2}-\d{2})/i),start=rows.findIndex(row=>norm(row[0])==='productive'),boundary=rows.findIndex(row=>norm(row[0])==='non productive'),storeIndex=rows.findIndex((row,i)=>i<boundary&&storeRowPattern('efficiency').test(text(row[0])));
     const productiveHeaders=['productive','bay/tech ratio','bay utilization %','bic%','clock hours','flag hours','efficiency%','bic%'],nonHeaders=['non productive','tech count','asm count','asm/tech ratio %','asm hours','avg. tech count saturday','avg. asm count saturday','asm/tech ratio % saturday'];if(productiveHeaders.some((value,index)=>norm(rows[start]?.[index])!==value)||nonHeaders.some((value,index)=>norm(rows[boundary]?.[index])!==value))throw new Error('Efficiency metric header order changed.');
     if(!period||!validCoverageDate(period[1])||!validCoverageDate(period[2])||period[1]>period[2]||storeIndex<0||boundary<0)throw new Error('Efficiency dates or productive/non-productive hierarchy missing.');
+    // Stop at another dealership or the report total before collecting details.
+    const nextStoreBoundary=(from,to)=>{
+      const offset=rows.slice(from,to).findIndex(row=>{
+        const label=text(row[0]).trim();
+        return norm(label)==='grand total'||(!label.includes(',')&&Number.isFinite(performanceNumber(row[1]))&&
+          /^[a-z0-9]+(?:[-_.][a-z0-9]+)*\s*-\s*\S/i.test(label));
+      });
+      return offset<0?to:from+offset;
+    };
+    const productiveEnd=nextStoreBoundary(storeIndex+1,boundary);
     const read=(row,i)=>({clockHours:performanceNumber(row[4]),flagHours:performanceNumber(row[5]),efficiency:sourcePercent(book,sheetName,i,6,row[6]),bic:sourcePercent(book,sheetName,i,7,row[7])}),groups=[],technicians=[],unresolved=[];let group='';
     const classes=new Set(['advanced flex tech','advanced technician','base technician','certified technician','entry level technician','master technician','senior flex tech','senior technician','skilled technician','house technician','other']);
-    for(let i=storeIndex+1;i<boundary;i++){const row=rows[i],name=text(row[0]).trim();if(!name||norm(name)==='grand total')continue;if(classes.has(norm(name))||!name.includes(',')){group=name;groups.push({name,...read(row,i)});continue;}const number=resolveTechnicianName(name);const item={name,classification:group,number,...read(row,i)};technicians.push(item);if(!number)unresolved.push({sourceName:name,reason:'No unique learned technician number'});}
+    for(let i=storeIndex+1;i<productiveEnd;i++){const row=rows[i],name=text(row[0]).trim();if(!name||norm(name)==='grand total')continue;if(classes.has(norm(name))||!name.includes(',')){group=name;groups.push({name,...read(row,i)});continue;}const number=resolveTechnicianName(name);const item={name,classification:group,number,...read(row,i)};technicians.push(item);if(!number)unresolved.push({sourceName:name,reason:'No unique learned technician number'});}
     const row=rows[storeIndex],store={bayTechRatio:performanceNumber(row[1]),bayUtilization:sourcePercent(book,sheetName,storeIndex,2,row[2]),bayUtilizationBic:sourcePercent(book,sheetName,storeIndex,3,row[3]),...read(row,storeIndex)};store.efficiencyBic=store.bic;
     const nonStore=rows.findIndex((row,i)=>i>boundary&&storeRowPattern('efficiency').test(text(row[0]))),advisors={};
-    if(nonStore>=0){const n=rows[nonStore];Object.assign(store,{techCount:performanceNumber(n[1]),asmCount:performanceNumber(n[2]),asmTechRatio:sourcePercent(book,sheetName,nonStore,3,n[3]),asmHours:performanceNumber(n[4]),saturdayTechCount:performanceNumber(n[5]),saturdayAsmCount:performanceNumber(n[6]),saturdayAsmTechRatio:sourcePercent(book,sheetName,nonStore,7,n[7])});for(let i=nonStore+1;i<rows.length;i++){const n=rows[i],code=serviceAdvisorNumber(n[0]);if(!code||!model.settings.advisors?.[code])continue;if(advisors[code])throw new Error('Duplicate Efficiency advisor.');advisors[code]={code,name:advisorDisplayName(code),sourceName:text(n[0]).trim(),asmHours:performanceNumber(n[4])};}}
+    if(nonStore>=0){const n=rows[nonStore];Object.assign(store,{techCount:performanceNumber(n[1]),asmCount:performanceNumber(n[2]),asmTechRatio:sourcePercent(book,sheetName,nonStore,3,n[3]),asmHours:performanceNumber(n[4]),saturdayTechCount:performanceNumber(n[5]),saturdayAsmCount:performanceNumber(n[6]),saturdayAsmTechRatio:sourcePercent(book,sheetName,nonStore,7,n[7])});const nonProductiveEnd=nextStoreBoundary(nonStore+1,rows.length);for(let i=nonStore+1;i<nonProductiveEnd;i++){const n=rows[i],code=serviceAdvisorNumber(n[0]);if(!code||!model.settings.advisors?.[code])continue;if(advisors[code])throw new Error('Duplicate Efficiency advisor.');advisors[code]={code,name:advisorDisplayName(code),sourceName:text(n[0]).trim(),asmHours:performanceNumber(n[4])};}}
     if(!groups.length||!Number.isFinite(store.clockHours))throw new Error('Efficiency aggregates could not be verified.');
     return {periodStart:period[1],periodEnd:period[2],sourceFile:fileName,importedAt:now(),storeCode:reportStoreCode('efficiency'),store,groups,technicians,advisors,unresolved,validation:{parser:'efficiency-v2-role-hierarchy',classificationRows:groups.length,technicianRows:technicians.length,advisorMetric:'ASM Hours only'}};
   }
@@ -2870,7 +3081,89 @@
     if(family==="sor")return internalObservationDate(rows)||snapshot.coverageDate||dailyEvidenceDate(family,snapshot)||snapshot.periodEnd||snapshot.date||"";
     return snapshot.period||snapshot.periodEnd||snapshot.date||"";
   }
-  async function importManagerSource(name, kind, bytes, deleteAfterSuccess = false, layoutOverride = null) { const parseOptions = ["efficiency", "media-asr", "media-asr-tech"].includes(kind) ? { type: "array", raw: true, cellDates: true, cellNF: true } : { type: "array", raw: true, cellDates: true }; if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, parseOptions); const parsers = { sor: parseSorWorkbook, "appointment-activity": parseAppointmentActivityWorkbook, efficiency: parseEfficiencyWorkbook, "media-asr": parseMediaAsrAdvisorWorkbook, "media-asr-tech":parseMediaAsrTechWorkbook, "open-ro-summary": parseOpenRoSummaryWorkbook }, families = { sor: "sor", "appointment-activity": "appointmentActivity", efficiency: "efficiency", "media-asr": "mediaAsr", "media-asr-tech":"mediaAsrTech", "open-ro-summary": "openRoSummary" }, snapshot = kind === "appointment-activity" ? parsers[kind](bytes, name, layoutOverride) : parsers[kind](bytes, name), family = families[kind], key = snapshot.period || snapshot.periodEnd || snapshot.date; const sourceFile=await (await sourceFileHandle(name)).getFile(); snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString(); snapshot.coverageDate=family==="appointmentActivity"?snapshot.periodEnd:["sor"].includes(family)?internalObservationDate(workbookGrid(bytes).rows)||dailyEvidenceDate(family,snapshot):dailyEvidenceDate(family,snapshot); const observationDate=managerConflictObservationDate(family,snapshot,workbookGrid(bytes).rows),priorDailySnapshot=family==="sor"?model.operationalMetrics[family]?.dailySnapshots?.[observationDate]:null,priorMonthlySnapshot=family==="sor"?model.operationalMetrics[family]?.snapshots?.[key]:null,priorMonthlyObservationDate=priorMonthlySnapshot?managerConflictObservationDate("sor",priorMonthlySnapshot,[]):"",priorSnapshot=family==="sor"?(priorDailySnapshot||(observationDate&&priorMonthlyObservationDate===observationDate?priorMonthlySnapshot:null)):model.operationalMetrics[family]?.snapshots?.[key]; if(priorSnapshot){if(comparableManagerSnapshot(priorSnapshot,family)!==comparableManagerSnapshot(snapshot,family))throw new Error(`Conflicting ${kind} report for period ${observationDate||key} is already saved. The existing snapshot was retained; review the source conflict before importing.`);} const priorMetrics=structuredClone(model.operationalMetrics); if(family==="mediaAsrTech")learnTechnicians(snapshot); if(family==="efficiency"){const directory=model.operationalMetrics.mediaAsrTech?.directory;for(const row of snapshot.technicians||[]){if(row.number&&directory?.[row.number])directory[row.number].sourceAliases=[...new Set([...(directory[row.number].sourceAliases||[]),row.name])].slice(-30);}} model.operationalMetrics[family] ||= { snapshots: {} }; model.operationalMetrics[family].snapshots[key] = snapshot; if(family==="appointmentActivity"||(snapshot.coverageDate&&snapshot.coverageDate<=localDateKey())){model.operationalMetrics[family].dailySnapshots||={};if(family==="appointmentActivity"){const {dailyCounts,...overall}=snapshot;for(const [day,metrics] of Object.entries(dailyCounts||{})){if(day>localDateKey()||!Number.isInteger(metrics.rowCount)||metrics.rowCount<1)continue;model.operationalMetrics[family].dailySnapshots[day]={...structuredClone(overall),periodStart:day,periodEnd:day,coverageDate:day,rowCount:metrics.rowCount,byInteraction:structuredClone(metrics.byInteraction),byCreationDate:{[day]:metrics.rowCount},leadTimeBuckets:structuredClone(metrics.leadTimeBuckets),validLeadTimes:metrics.validLeadTimes,validation:{...snapshot.validation,dailyScope:true}};}}else model.operationalMetrics[family].dailySnapshots[snapshot.coverageDate]=structuredClone(snapshot);model.operationalMetrics[family].dailySnapshots=pruneDatedSnapshots(model.operationalMetrics[family].dailySnapshots);} model.operationalMetrics[family].snapshots = pruneDatedSnapshots(model.operationalMetrics[family].snapshots); model.operationalMetrics.updatedAt = now(); try{await writeJson(OPERATIONAL_METRICS_PATH, model.operationalMetrics); const check = await readJson(OPERATIONAL_METRICS_PATH, null); if (JSON.stringify(check?.[family])!==JSON.stringify(model.operationalMetrics[family])) throw new Error(`${kind} snapshot could not be verified after saving.`);}catch(error){model.operationalMetrics=priorMetrics;throw error;} await addHistory(`${kind}-import`, `Saved verified ${kind} snapshot`, { fileName: name, periodStart: snapshot.periodStart || snapshot.period, periodEnd: snapshot.periodEnd || snapshot.period, compact: true }); if (deleteAfterSuccess) await removeSourceEntry(name); }
+  async function importManagerSource(name, kind, bytes, deleteAfterSuccess = false, layoutOverride = null) {
+    const root = model.root, original = model.operationalMetrics;
+    const originalBytes = JSON.stringify(original);
+    const authorityCurrent = () => model.root === root && model.operationalMetrics === original &&
+      JSON.stringify(original) === originalBytes;
+    const parseOptions = ["efficiency", "media-asr", "media-asr-tech"].includes(kind)
+      ? { type: "array", raw: true, cellDates: true, cellNF: true }
+      : { type: "array", raw: true, cellDates: true };
+    if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, parseOptions);
+    if (!authorityCurrent()) throw new Error("Workspace source data changed during report preparation. Reconnect and retry.");
+    const parsers = {
+      sor: parseSorWorkbook, "appointment-activity": parseAppointmentActivityWorkbook,
+      efficiency: parseEfficiencyWorkbook, "media-asr": parseMediaAsrAdvisorWorkbook,
+      "media-asr-tech": parseMediaAsrTechWorkbook, "open-ro-summary": parseOpenRoSummaryWorkbook,
+    };
+    const families = {
+      sor: "sor", "appointment-activity": "appointmentActivity", efficiency: "efficiency",
+      "media-asr": "mediaAsr", "media-asr-tech": "mediaAsrTech", "open-ro-summary": "openRoSummary",
+    };
+    const snapshot = kind === "appointment-activity" ? parsers[kind](bytes, name, layoutOverride) : parsers[kind](bytes, name);
+    const family = families[kind], key = snapshot.period || snapshot.periodEnd || snapshot.date;
+    const sourceFile = await (await sourceFileHandle(name)).getFile();
+    if (!authorityCurrent()) throw new Error("Workspace source data changed during report preparation. Reconnect and retry.");
+    snapshot.sourceModifiedAt = new Date(sourceFile.lastModified).toISOString();
+    const rows = workbookGrid(bytes).rows;
+    snapshot.coverageDate = family === "appointmentActivity" ? snapshot.periodEnd
+      : family === "sor" ? internalObservationDate(rows) || dailyEvidenceDate(family, snapshot)
+      : dailyEvidenceDate(family, snapshot);
+    const observationDate = managerConflictObservationDate(family, snapshot, rows);
+    const priorDaily = family === "sor" ? original[family]?.dailySnapshots?.[observationDate] : null;
+    const priorMonthly = original[family]?.snapshots?.[key];
+    const priorObservation = family === "sor" && priorMonthly ? managerConflictObservationDate("sor", priorMonthly, []) : "";
+    const prior = family === "sor"
+      ? priorDaily || (observationDate && priorObservation === observationDate ? priorMonthly : null)
+      : priorMonthly;
+    if (prior && comparableManagerSnapshot(prior, family) !== comparableManagerSnapshot(snapshot, family))
+      throw new Error(`Conflicting ${kind} report for period ${observationDate || key} is already saved. The existing snapshot was retained; review the source conflict before importing.`);
+
+    const candidate = structuredClone(original);
+    if (family === "mediaAsrTech") learnTechnicians(snapshot, candidate);
+    if (family === "efficiency") {
+      const directory = candidate.mediaAsrTech?.directory;
+      for (const row of snapshot.technicians || []) {
+        if (row.number && directory?.[row.number])
+          directory[row.number].sourceAliases = [...new Set([...(directory[row.number].sourceAliases || []), row.name])].slice(-30);
+      }
+    }
+    const retained = candidate[family] ||= { snapshots: {} };
+    retained.snapshots[key] = snapshot;
+    if (family === "appointmentActivity" || (snapshot.coverageDate && snapshot.coverageDate <= localDateKey())) {
+      retained.dailySnapshots ||= {};
+      if (family === "appointmentActivity") {
+        const { dailyCounts, ...overall } = snapshot;
+        for (const [day, metrics] of Object.entries(dailyCounts || {})) {
+          if (day > localDateKey() || !Number.isInteger(metrics.rowCount) || metrics.rowCount < 1) continue;
+          retained.dailySnapshots[day] = {
+            ...structuredClone(overall), periodStart: day, periodEnd: day, coverageDate: day,
+            rowCount: metrics.rowCount, byInteraction: structuredClone(metrics.byInteraction),
+            byCreationDate: { [day]: metrics.rowCount }, leadTimeBuckets: structuredClone(metrics.leadTimeBuckets),
+            validLeadTimes: metrics.validLeadTimes, validation: { ...snapshot.validation, dailyScope: true },
+          };
+        }
+      } else {
+        retained.dailySnapshots[snapshot.coverageDate] = structuredClone(snapshot);
+      }
+      retained.dailySnapshots = pruneDatedSnapshots(retained.dailySnapshots);
+    }
+    retained.snapshots = pruneDatedSnapshots(retained.snapshots);
+    candidate.updatedAt = now();
+
+    await writeJson(OPERATIONAL_METRICS_PATH, candidate);
+    const check = await readJson(OPERATIONAL_METRICS_PATH, null);
+    if (JSON.stringify(check) !== JSON.stringify(candidate))
+      throw new Error(`${kind} snapshot could not be verified after saving.`);
+    if (!authorityCurrent())
+      throw new Error("Workspace source data changed during report verification. Reconnect and review before retry.");
+    model.operationalMetrics = candidate;
+    await addHistory(`${kind}-import`, `Saved verified ${kind} snapshot`, {
+      fileName: name, periodStart: snapshot.periodStart || snapshot.period,
+      periodEnd: snapshot.periodEnd || snapshot.period, compact: true,
+    });
+    if (deleteAfterSuccess) await removeSourceEntry(name);
+  }
   async function classifyImportFile(name, file, bytes) {
     if (/\.csv$/i.test(name)) { const source = await file.text(); try { parseNextAppointmentsCsv(source, name); return "next-appointments"; } catch (_) {} try { parseAppointmentsCreatedSummaryCsv(source,name); return "supplemental-csv"; } catch (_) {} try { parseVirCsv(source, name); return "vir"; } catch (_) {} try { parseCsiCsv(source, name); return "csi"; } catch (_) { return null; } }
     if (/\.pdf$/i.test(name)) {const signature=await pdfSignatureText(bytes);if(await isMoonDogGreeterOutput(bytes,signature))return "disposable-greeter";if(isAppointmentPdf(signature))return"appointments";if(supplementalPdfFamily(signature,name))return"supplemental-pdf";return referenceOnlyDocumentType(name,signature)?"known-non-service":null;}
@@ -3607,16 +3900,34 @@
   async function importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess=false,layoutOverride=null) {
     if(kind==="supplemental-workbook")if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes, { type: "array", raw: true, cellDates: true });
     let snapshot;if(kind==="supplemental-pdf"){const signature=await pdfSignatureText(bytes),family=supplementalPdfFamily(signature,candidate.name),pages=family==="controllable-ranking"?80:family==="service-consulting-audit"?20:4;snapshot=parseSupplementalPdfReport(await pdfReportText(bytes,pages),candidate.name,{storeCode:model.settings.store?.code||""});}
-    else if(kind==="supplemental-csv")snapshot=parseAppointmentsCreatedSummaryCsv(new TextDecoder().decode(new Uint8Array(bytes)),candidate.name);
+    else if(kind==="supplemental-csv"){snapshot=parseAppointmentsCreatedSummaryCsv(new TextDecoder().decode(new Uint8Array(bytes)),candidate.name);snapshot.sourceStoreConfidence="configured-destination-only";}
     else if(kind==="supplemental-workbook")snapshot=parseSupplementalWorkbook(bytes,candidate.name,layoutOverride);
     else if(kind==="supplemental-docx")snapshot=parseSupplementalDocxReport(await docxText(bytes),candidate.name);
     if(!snapshot)throw new Error("The supplemental report structure could not be verified.");sourceLocations.set(candidate.name,candidate.location);const sourceFile=await(await sourceFileHandle(candidate.name)).getFile();snapshot.sourceModifiedAt=new Date(sourceFile.lastModified).toISOString();model.operationalMetrics.supplementalReports||={snapshots:{}};const key=supplementalSnapshotKey(snapshot),replacing=Boolean(model.operationalMetrics.supplementalReports.snapshots[key]),prior=structuredClone(model.operationalMetrics.supplementalReports);model.operationalMetrics.supplementalReports.snapshots[key]=snapshot;model.operationalMetrics.supplementalReports.snapshots=pruneSupplementalSnapshots(model.operationalMetrics.supplementalReports.snapshots);model.operationalMetrics.updatedAt=now();
     try{await writeJson(OPERATIONAL_METRICS_PATH,model.operationalMetrics);const check=await readJson(OPERATIONAL_METRICS_PATH,null);if(JSON.stringify(check?.supplementalReports?.snapshots?.[key])!==JSON.stringify(snapshot))throw new Error("The supplemental report snapshot could not be verified after saving.");}catch(error){model.operationalMetrics.supplementalReports=prior;throw error;}
     if(snapshot.family==="ato-task-performance"){invalidateNavigationRenders();if(ui["view-performance"]?.classList.contains("active"))renderAtoTaskPerformance();}
-    await addHistory("supplemental-report-import",(replacing?"Replaced ":"Added ")+snapshot.family+" supplemental report",{fileName:candidate.name,family:snapshot.family,periodStart:snapshot.periodStart,periodEnd:snapshot.periodEnd,asOfDate:snapshot.asOfDate||"",supplementalOnly:true});if(deleteAfterSuccess)await removeSourceEntry(candidate.name);
+    await addHistory("supplemental-report-import",(replacing?"Replaced ":"Added ")+snapshot.family+" supplemental report",{fileName:candidate.name,family:snapshot.family,periodStart:snapshot.periodStart,periodEnd:snapshot.periodEnd,asOfDate:snapshot.asOfDate||"",supplementalOnly:true,sourceStoreConfidence:snapshot.sourceStoreConfidence||"unknown"});if(deleteAfterSuccess)await removeSourceEntry(candidate.name);
   }
 
   async function processClassifiedCandidate(candidate, kind, bytes, deleteAfterSuccess = true, layoutOverride = null) {
+    // Destination identity is required before any local approval can assign
+    // an unsigned report to this Workspace. A generic store prompt is unsafe.
+    if (["vir","next-appointments","supplemental-csv"].includes(kind) &&
+        (!String(model.settings?.store?.name||"").trim() ||
+         !String(model.settings?.store?.code||"").trim()))
+      throw new Error("Needs Review: complete Guided Setup dealership name and code before reviewing the unsigned source.");
+    // Neither VIR nor Next Appointments exports attest the issuing dealership.
+    // Identical advisor populations at two stores must not grant auto-import.
+    if (kind === "vir" && candidate.location !== "picked")
+      throw new Error("Needs Review: unsigned VIR cannot be imported unattended; select the original manually and confirm the dealership.");
+    if (["next-appointments","supplemental-csv"].includes(kind) && candidate.location !== "picked")
+      throw new Error("Needs Review: unsigned Next Appointments cannot be imported unattended; select the original manually and verify the dealership.");
+    if (kind === "vir" && !window.confirm(
+      `Verify VIR source: ${candidate.name}\n\nConfirm the original VIR export belongs to ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}) and check its observation date. This export has no authenticated source-store identifier. Continue?`))
+      throw new Error("Needs Review: VIR dealership and source observation were not confirmed; original retained.");
+    if (["next-appointments","supplemental-csv"].includes(kind) && !window.confirm(
+      `Verify Next Appointments source: ${candidate.name}\n\nConfirm the original report belongs to ${model.settings?.store?.name||"this dealership"} (${model.settings?.store?.code||"configured store"}) and its reporting date range. Matching advisor identities do not establish its source dealership. Continue?`))
+      throw new Error("Needs Review: Next Appointments source dealership and date range were not confirmed; original retained.");
     // CSI exports identify scoring responses but do not authenticate their
     // originating dealership. Manual intent is required even with matching
     // advisor codes and validated export dates.
@@ -3664,6 +3975,37 @@
       }
     }
   }
+  async function completeExactReviewedInboxSource(name,kind,selectedBytes,requestedRoot) {
+    // A Daily-picked external file is NOT an Inbox file merely because its
+    // filename matches. Only the original file's exact bytes + durable source
+    // import + explicit manager-approved report family may clear a review hold.
+    if (!["performance","csi","vir","next-appointments","supplemental-csv","appointments"].includes(kind) ||
+        !requestedRoot || model.root!==requestedRoot) return false;
+    let originalFile;
+    try { originalFile=await (await(await reportInbox(false)).getFileHandle(name)).getFile(); }
+    catch (error) { if(error?.name==="NotFoundError")return false; throw error; }
+    if(model.root!==requestedRoot)return false;
+    const signature=`${REPORT_INBOX}/${name}|${originalFile.size}|${originalFile.lastModified}`;
+    const pending=model.autoImport.seen?.[signature];
+    if(!pending?.manualImportRequired || pending.kind!==kind) return false;
+    const originalBytes=await originalFile.arrayBuffer();
+    if(model.root!==requestedRoot || !sameByteContent(selectedBytes,originalBytes))return false;
+    // A persisted marker belongs to this exact immutable Inbox source. We do
+    // not delete the source or grant it unattended import authority.
+    const acceptedAt=now();
+    const updated={...model.autoImport,seen:{...model.autoImport.seen,
+      [signature]:{...pending,manualImportRequired:false,importedAt:acceptedAt,
+        manualImportCompletedAt:acceptedAt,
+        sourceStoreConfidence:"configured-destination-only"}}};
+    if(model.root!==requestedRoot)return false;
+    await writeJson(AUTO_IMPORT_PATH,updated);
+    // writeJson verifies read-back, so the previous in-memory ledger survives
+    // any rejected or mismatched write without false completion.
+    if(model.root!==requestedRoot)return false;
+    model.autoImport=updated;
+    return true;
+  }
+
   async function reconcileLearnedFiles(parserRevision=LEARNED_PARSER_REVISION) {
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)return {deferred:true};
     let failures=0,attempts=0,recovered=0,unsupported=0,skipped=0;
@@ -3921,7 +4263,10 @@
       // Unsigned store-unverified reports must not replay during each poll.
       // A reviewed SAPR left in the Inbox is never silently imported again.
       if(seen?.manualImportRequired)return false;
-      if(seen?.kind==="performance"&&seen.importedAt&&!seen.cleanupPending&&!seen.cleanupReviewRequired&&!seen.cleanupNeedsReview)return false;
+      // A manager-reviewed, durably accepted unsigned report left in Inbox
+      // is not a new unattended import on the next poll. Keep its original.
+      if(["performance","csi","vir","next-appointments","supplemental-csv"].includes(seen?.kind) &&
+         seen.importedAt&&!seen.cleanupPending&&!seen.cleanupReviewRequired&&!seen.cleanupNeedsReview)return false;
       return Boolean(seen?.cleanupPending || seen?.cleanupReviewRequired || seen?.cleanupNeedsReview) || !(seen?.kind==="appointments"&&seen.importedAt);
     }
     return !seen||Boolean(seen.movedAt);
@@ -3936,7 +4281,7 @@
     // candidate observed under an earlier source-operation authority.
     const scanRoot=model.root;
     const eligible=()=>model.root===scanRoot&&Boolean(scanRoot)&&
-      writeAuthority.canWrite&&!workspaceConnectionBusy&&
+      writeAuthority.canWrite&&!workspaceConnectionBusy&&!workspaceRecoveryBusy&&
       !(postConnectionScanBusy&&reason!=="connection")&&
       !dailyImportBusy&&!appointmentImportBusy&&folderWatchEnabled();
     if(folderWatch.busy||!eligible())return;
@@ -4102,6 +4447,24 @@
           recordDiagnostic("REPORT INBOX","Unsigned CSI retained for explicit manual dealership/source review");
           continue;
         }
+        if(["vir","next-appointments","supplemental-csv","appointments"].includes(kind)&&candidate.location==="inbox"){
+          // The original is retained and marked for deliberate manager review.
+          // A matching advisor identity is not proof of source-store ownership.
+          await addHistory(kind+"-review-required",
+            "Unsigned "+kind+" retained pending manager dealership and report-period review",
+            {fileName:candidate.name,sourceFamily:kind,sourcePreserved:true,
+              sourceStoreConfidence:"configured-destination-only"});
+          if(!scanEligible())return null;
+          reviewRequired.push(candidate.name);
+          model.autoImport.seen[candidate.signature]={
+            fileName:candidate.name,relativePath:candidate.relativePath,
+            kind,manualImportRequired:true,queuedAt:now(),
+            sourceStoreConfidence:"configured-destination-only"
+          };
+          ledgerChanged=true;
+          recordDiagnostic("REPORT INBOX","Unsigned "+kind+" retained for explicit source-store review");
+          continue;
+        }
         if(kind==="performance"&&candidate.location==="inbox"){
           await addHistory("performance-review-required",
             "Unsigned SAPR retained pending explicit dealership and report-period review",
@@ -4241,18 +4604,6 @@
         // competing manual import claimed authority. Its completion must not
         // mutate the new Workspace's intake ledger or report a false success.
         if(!scanEligible())return null;
-        if (kind==="appointments" && outcome?.saved && outcome.deleted===false) {
-          // Import is already verified and durable; do not re-import, do not
-          // claim removal, and do not discard the cleanup retry on next poll.
-          const cleanupDigest=await sha256(new Uint8Array(bytes));
-          if(!scanEligible())return null;
-          model.autoImport.seen[candidate.signature]={fileName:candidate.name,relativePath:candidate.relativePath,
-            importedAt:now(),kind,cleanupPending:true,cleanupSha256:cleanupDigest,
-            cleanupReason:outcome.retainedReason||"Deletion not verified"};
-          ledgerChanged=true;retained.push(candidate.name);cleanupPending.push(candidate.name);
-          recordDiagnostic("REPORT INBOX CLEANUP","Appointment snapshot saved; source removal pending retry");
-          continue;
-        }
         if(outcome?.retired)retired.push(candidate.name);else imported.push(candidate.name); model.autoImport.seen[candidate.signature] = { fileName: candidate.name, relativePath:candidate.relativePath, importedAt: now(), kind, retired:Boolean(outcome?.retired) }; ledgerChanged = true;recordDiagnostic("REPORT INBOX",outcome?.retired?`${kind} recognized and retired outside Service OS`:`${kind} recognized and imported or safely deduplicated`);
       } catch (error) {
         // A delayed importer failure has no authority to update the replacement
@@ -4420,20 +4771,31 @@
   function parseAppointments(bytes, date) { const book = XLSX.read(bytes, { type: "array", cellDates: true }); const sheet = book.Sheets["Service Daily Log"] || book.Sheets[book.SheetNames[0]]; if (!sheet) throw new Error("No Service Daily Log worksheet was found."); const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false }); const headerIndex = rows.findIndex((row) => row.some((value) => text(value).trim() === "Time") && row.some((value) => text(value).trim() === "Customer") && row.some((value) => text(value).trim() === "SA")); if (headerIndex < 0) throw new Error("Could not find Time, Customer, and SA columns in this workbook."); const headers = rows[headerIndex].map((value) => text(value).trim()); const column = (name) => headers.indexOf(name); const prior = new Map((model.appointments.days[date]?.appointments || []).map((item) => [item.id, item])); const appointments = rows.slice(headerIndex + 1).map((row) => { const time = text(row[column("Time")]).trim(), advisorCode = text(row[column("SA")]).trim(), guest = text(row[column("Customer")]).trim(), customerNumber = text(row[column("Customer #")]).trim(), vehicle = `${text(row[column("Year")]).trim()} ${text(row[column("Model")]).trim()}`.trim(), request = text(row[column("Service Request")]).trim(); const id = `appt-${slug(date)}-${slug(time)}-${slug(customerNumber || guest)}-${slug(advisorCode || "unassigned")}`; return { id, time, customerNumber, guest, advisorCode, advisor: ARRIVAL_ADVISOR_NAMES[advisorCode] || "", vehicle, created: text(row[column("Create Date/Time")]).trim(), request, summary: visitSummary(request), arrivalStatus: prior.get(id)?.arrivalStatus || "Scheduled", statusUpdatedAt: prior.get(id)?.statusUpdatedAt || null }; }).filter((item) => /^\d{1,2}:\d{2}/.test(item.time) && item.guest && item.advisor).sort((a, b) => timeMinutes(a.time) - timeMinutes(b.time)); if (!appointments.length) throw new Error("No appointments for the configured advisors were found in this Service Daily Log."); return appointments; }
 
   async function importAppointmentFile(selectedName=null,deleteAfterSuccess=false,providedBytes=null){
+    if(deleteAfterSuccess)throw new Error("Needs Review: unsigned Arrivals sources require explicit dealership and report-date review.");
+    const requestedRoot=model.root,store=model.settings?.store;
+    if(!String(store?.name||"").trim()||!String(store?.code||"").trim())
+      throw new Error("Needs Review: configure dealership identity before importing an Arrivals source.");
     const name=selectedName||ui.appointmentSource.value;syncArrivalDate();if(!name)throw new Error("Choose an appointment source file.");
-    if(appointmentImportBusy||arrivalStatusWriteBusy||(!deleteAfterSuccess&&!dailyPickedSources.has(name)&&(folderWatch.busy||dailyImportBusy)))throw new DOMException("Service Operations Dashboard is finishing another import. Try again in a moment.","InvalidStateError");
+    if(appointmentImportBusy||arrivalStatusWriteBusy||(!dailyPickedSources.has(name)&&(folderWatch.busy||dailyImportBusy)))throw new DOMException("Service Operations Dashboard is finishing another import. Try again in a moment.","InvalidStateError");
     appointmentImportBusy=true;const reading=`Reading today’s appointments from ${name}…`,prior=model.appointments;let saved=false;status(reading,"working");
     try{
       const file=await boundedPdfRead(async()=> (await sourceFileHandle(name)).getFile(),"Appointment source read"),bytes=providedBytes||await boundedPdfRead(()=>file.arrayBuffer(),"Appointment source bytes"),isPdf=String.fromCharCode(...new Uint8Array(bytes).slice(0,4))==="%PDF",signature=isPdf?await pdfSignatureText(bytes):""; if(/\.xlsx$/i.test(name))if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes,{type:"array",cellDates:true});
       if(isPdf&&!isAppointmentPdf(signature))throw new Error("This PDF is not a verified PreRO appointment report. Keep it in Files To Learn for review.");
       if (!isPdf) if (typeof prepareXlsxWorkbook === "function") await prepareXlsxWorkbook(bytes,{type:"array",raw:true,cellDates:true}); const date=isPdf?strictReportDate(signature.match(/(\d{1,2}\/\d{1,2}\/20\d{2})\s+\d{1,2}:\d{2}\s*(?:AM|PM)/i)?.[1]):internalObservationDate(workbookGrid(bytes).rows)||coverageTimestamp(new Date(file.lastModified).toISOString());
       if(!date||date>localDateKey())throw new Error("The appointment report needs a verified non-future report/observation date.");
+      if(!window.confirm(`Confirm the original Arrivals source is for ${store.name} (${store.code}) and verify its report date (${date}). This export does not authenticate its originating dealership. Continue?`))
+        throw new Error("Needs Review: Arrivals dealership and report date were not confirmed.");
       const appointments=await parseAppointmentSource(bytes,date),candidate=structuredClone(prior);await writeJson(["backups",`${stamp()}-appointments-before-import.json`],prior);
       const sourceExtension=name.toLowerCase().endsWith(".pdf")?".pdf":".xlsx",auditName=`${stamp()}-appointments-${slug(name.replace(/\.(xlsx|pdf)$/i,""))}${sourceExtension}`;
-      if(!deleteAfterSuccess)await writeBytes(["imports",auditName],new Uint8Array(bytes));candidate.days[date]={date,sourceFile:name,importedAt:now(),appointments};candidate.updatedAt=now();await writeJson(APPOINTMENTS_PATH,candidate);
+      await writeBytes(["imports",auditName],new Uint8Array(bytes));candidate.days[date]={date,sourceFile:name,sourceStoreConfidence:"configured-destination-only",importedAt:now(),appointments};candidate.updatedAt=now();await writeJson(APPOINTMENTS_PATH,candidate);
       const verified=await readJson(APPOINTMENTS_PATH,null);if(JSON.stringify(verified)!==JSON.stringify(candidate))throw new Error("Appointment read-back verification failed; keep the source and retry.");model.appointments=verified;saved=true;
-      await addHistory("appointments-import",`Imported ${appointments.length} appointments for ${date}`,{date,fileName:name,auditName:deleteAfterSuccess?null:auditName,rawCopyRetained:!deleteAfterSuccess});renderArrivals();let deleted=false,retainedReason="";
-      if(deleteAfterSuccess||(!dailyPickedSources.has(name)&&window.confirm(`Appointment import complete and verified.\n\nDelete the original source file "${name}" from the Report Inbox?\n\nA timestamped audit copy remains in imports.`))){try{const current=await(await sourceFileHandle(name)).getFile();if(current.size!==file.size||current.lastModified!==file.lastModified)throw new Error("The source changed during intake and was retained for the next scan.");if (typeof removeSourceEntryWithByteGuard === "function") await removeSourceEntryWithByteGuard(name, bytes); else await removeSourceEntry(name);deleted=true;await addHistory("source-deleted",`Deleted imported appointment source file ${name}`,{fileName:name,retainedAuditCopy:!deleteAfterSuccess});await scanFiles();await scanAppointmentFiles();}catch(error){if(/changed while/i.test(error.message||""))throw error;retainedReason=error.message||String(error);await recordDiagnostic("APPOINTMENT INTAKE",`Verified save; source retained: ${error.name}: ${retainedReason}`);}}
+      await addHistory("appointments-import",`Imported ${appointments.length} appointments for ${date}`,{date,fileName:name,auditName,rawCopyRetained:true,sourceStoreConfidence:"configured-destination-only"});
+      if(!dailyPickedSources.has(name)){
+        try{await completeExactReviewedInboxSource(name,"appointments",bytes,requestedRoot);}
+        catch(error){recordDiagnostic("REPORT INBOX",`Completed appointment import but source review marker was retained (${error.name||"Error"})`);}
+      }
+      renderArrivals();let deleted=false,retainedReason="";
+      if(!dailyPickedSources.has(name)&&window.confirm(`Appointment import complete and verified.\n\nDelete the original source file "${name}" from the Report Inbox?\n\nA timestamped audit copy remains in imports.`)){try{const current=await(await sourceFileHandle(name)).getFile();if(current.size!==file.size||current.lastModified!==file.lastModified)throw new Error("The source changed during intake and was retained for the next scan.");if (typeof removeSourceEntryWithByteGuard === "function") await removeSourceEntryWithByteGuard(name, bytes); else await removeSourceEntry(name);deleted=true;await addHistory("source-deleted",`Deleted imported appointment source file ${name}`,{fileName:name,retainedAuditCopy:true});await scanFiles();await scanAppointmentFiles();}catch(error){if(/changed while/i.test(error.message||""))throw error;retainedReason=error.message||String(error);await recordDiagnostic("APPOINTMENT INTAKE",`Verified save; source retained: ${error.name}: ${retainedReason}`);}}
       status(`${appointments.length} appointments are ready for ${date}. ${deleted?"Source removed after verification.":"Source retained."}${retainedReason?" Removal failed: "+retainedReason:""}`,retainedReason?"info":"success");return {saved:true,deleted,retainedReason,date};
     }catch(error){if(!saved)model.appointments=prior;status(`Appointments were ${saved?"saved; follow-up failed":"not imported"}: ${error.message||error}. Source kept for retry/review.`,"error");recordDiagnostic("APPOINTMENT INTAKE",error.name+": "+(error.message||error));try{await addHistory("appointments-import-failed","Appointment intake failed; source preserved",{fileName:name,saved,errorName:error.name,reason:error.message||String(error)});}catch(historyError){console.error("Appointment failure history could not be saved:",historyError);}throw error;}
     finally{appointmentImportBusy=false;if(ui.status.textContent===reading)status("Appointment intake stopped. Source kept; check diagnostics and retry.","error");}
@@ -7027,7 +7389,37 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     return verified.length;
   }
   async function writeValidatedBackup(label="Manager backup",prefix="MoonDog Full Backup"){const packageData=await createBackupBytes(label,prefix==="MoonDog Restore Safety"?"restore-safety":"full");const name=backupFileName(prefix),path=["backups",name];await writeBytes(path,packageData.bytes);const verified=await validateBackupBytes(await readFileBytes(path));if(verified.manifest.createdAt!==packageData.manifest.createdAt)throw new Error("Backup read-back verification failed.");return{name,path:path.join("/"),manifest:verified.manifest};}
-  async function createBackupNow(){model.recovery.status="Creating backup";renderRecovery();try{const result=await writeValidatedBackup("Manager-created whole-state backup");model.recovery.lastBackup={fileName:result.name,createdAt:result.manifest.createdAt,appVersion:VERSION,validationStatus:"Validated",recordCounts:result.manifest.recordCounts};model.recovery.status="Backup ready";await writeJson(RECOVERY_PATH,model.recovery);await addHistory("full-backup-created","Created and validated a whole-state MoonDog backup",{fileName:result.name,createdAt:result.manifest.createdAt,openRos:result.manifest.recordCounts.openRos});await scanRecoveryBackups();renderRecovery();status("Full backup created and validated.","success");}catch(error){model.recovery.status="Backup failed validation";await writeJson(RECOVERY_PATH,model.recovery);recordDiagnostic("BACKUP FAILED",`Whole-state backup failed (${error.name||"Error"})`);renderRecovery();throw error;}}
+  async function withWorkspaceRecoveryHold(operation){
+    if(typeof maintenanceEngine!=="undefined"&&maintenanceEngine?.running)
+      throw new Error("Workspace housekeeping is in progress. Retry backup or recovery when it finishes.");
+    if(workspaceConnectionBusy||workspaceConnectionBlockReason())
+      throw new Error("A Workspace operation is in progress. Retry backup or recovery when it finishes.");
+    workspaceRecoveryBusy=true;
+    try{return await operation();}
+    finally{workspaceRecoveryBusy=false;}
+  }
+  async function createBackupNow(){
+    return withWorkspaceRecoveryHold(async()=>{
+      model.recovery.status="Creating backup";
+      renderRecovery();
+      try{
+        const result=await writeValidatedBackup("Manager-created whole-state backup");
+        model.recovery.lastBackup={fileName:result.name,createdAt:result.manifest.createdAt,appVersion:VERSION,validationStatus:"Validated",recordCounts:result.manifest.recordCounts};
+        model.recovery.status="Backup ready";
+        await writeJson(RECOVERY_PATH,model.recovery);
+        await addHistory("full-backup-created","Created and validated a whole-state MoonDog backup",{fileName:result.name,createdAt:result.manifest.createdAt,openRos:result.manifest.recordCounts.openRos});
+        await scanRecoveryBackups();
+        renderRecovery();
+        status("Full backup created and validated.","success");
+      }catch(error){
+        model.recovery.status="Backup failed validation";
+        await writeJson(RECOVERY_PATH,model.recovery);
+        recordDiagnostic("BACKUP FAILED",`Whole-state backup failed (${error.name||"Error"})`);
+        renderRecovery();
+        throw error;
+      }
+    });
+  }
   async function scanRecoveryBackups(){if(!model.root)return;const dir=await directory(["backups"],true),found=[];for await(const[name,handle]of dir.entries())if(handle.kind==="file"&&name.endsWith(".zip")&&/MoonDog (Full Backup|Restore Safety)/.test(name)){try{const bytes=new Uint8Array(await(await handle.getFile()).arrayBuffer()),validated=await validateBackupBytes(bytes);found.push({name,createdAt:validated.manifest.createdAt,label:validated.manifest.label,version:validated.manifest.appVersion});}catch(_){found.push({name,invalid:true});}}found.sort((a,b)=>String(b.createdAt||b.name).localeCompare(String(a.createdAt||a.name)));ui.restoreBackupSelect.replaceChildren(new Option("Select a validated backup",""));for(const item of found){const option=new Option(item.invalid?`${item.name} · INVALID`:`${new Date(item.createdAt).toLocaleString()} · ${item.label}`,item.name);option.disabled=Boolean(item.invalid);ui.restoreBackupSelect.append(option);}ui.restoreBackup.disabled=true;}
   // A validated backup can become stale while its safety package is being
   // written. Check every live durable object and history record against the
@@ -8033,7 +8425,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     });
     ui.saveFailedLearnedPackage.addEventListener("click", () => run(createFailedLearnedSupportPackage));
   }
-  function ensureRecoveryUi(){if(ui.backupRecoverySection)return;const voice=ui["view-settings"].querySelector(".customer-voice-manager"),backup=document.createElement("section"),advanced=document.createElement("section");backup.id="backupRecoverySection";backup.className="card recovery-card";backup.innerHTML='<div class="section-head"><div><p class="eyebrow">Whole-state protection</p><h2>Backup &amp; Recovery</h2><p>Full backups recover the store. Restores always replace the complete durable state.</p></div><span id="recoveryStatus" class="badge muted">READY</span></div><div class="recovery-summary"><div><span>LAST SUCCESSFUL BACKUP</span><strong id="lastBackupDisplay">None yet</strong></div><div><span>RECOVERY STATUS</span><strong id="currentRecoveryDisplay">Ready</strong></div></div><div class="recovery-actions"><button id="createBackupNow" type="button" class="primary">Create Backup Now</button><button id="createRecoveryCopy" type="button">Create Support / Recovery Copy</button></div><label>Restore From Backup<select id="restoreBackupSelect"><option value="">Connect folder to scan backups</option></select></label><div id="restoreBackupDetails" class="recovery-detail">Choose a validated full backup to view its timestamp and version.</div><button id="restoreBackup" type="button" class="danger" disabled>Restore Complete State</button><section id="interruptedRecoveryControls" class="recovery-detail" hidden><h3>Interrupted restore recovery</h3><p id="interruptedRecoveryDetails">Review verified files before continuing.</p><label>Choose the complete state to keep<select id="interruptedRecoveryTarget"><option value="">Choose a verified state</option></select></label><button id="interruptedRecoveryButton" type="button" class="danger" disabled>Recover and verify complete state</button></section>';advanced.id="advancedDiagnosticsSection";advanced.className="card recovery-card";advanced.innerHTML='<div class="section-head"><div><p class="eyebrow">Management only</p><h2>Advanced / Diagnostics</h2><p>Readable support status without customer-level operational data.</p></div></div><div id="diagnosticsOverview" class="diagnostics-overview"></div><div class="recovery-actions"><button id="showDiagnosticsLocation" type="button">Show Diagnostics Location</button><button id="copyDiagnosticsPath" type="button">Copy Diagnostics Path</button><button id="createSupportPackage" type="button" class="primary">Create Support Package</button></div><code id="diagnosticsLocation" hidden></code><p class="settings-note">If support is needed, send the generated support package to James.</p>';voice.before(backup,advanced);for(const id of ["backupRecoverySection","recoveryStatus","lastBackupDisplay","currentRecoveryDisplay","createBackupNow","createRecoveryCopy","restoreBackupSelect","restoreBackupDetails","restoreBackup","interruptedRecoveryControls","interruptedRecoveryDetails","interruptedRecoveryTarget","interruptedRecoveryButton","advancedDiagnosticsSection","diagnosticsOverview","showDiagnosticsLocation","copyDiagnosticsPath","createSupportPackage","diagnosticsLocation"])ui[id]=document.getElementById(id);ui.createBackupNow.addEventListener("click",()=>run(createBackupNow));ui.createRecoveryCopy.addEventListener("click",()=>run(()=>createSupportPackage(true)));ui.createSupportPackage.addEventListener("click",()=>run(()=>createSupportPackage(false)));ui.restoreBackupSelect.addEventListener("change",async()=>{ui.restoreBackup.disabled=!ui.restoreBackupSelect.value;if(!ui.restoreBackupSelect.value){ui.restoreBackupDetails.textContent="Choose a validated full backup to view its timestamp and version.";return;}try{const validated=await validateBackupBytes(await readFileBytes(["backups",ui.restoreBackupSelect.value]));ui.restoreBackupDetails.textContent=`${new Date(validated.manifest.createdAt).toLocaleString()} · ${validated.manifest.appVersion} · ${validated.manifest.recordCounts.openRos} Open ROs · VALIDATED`;}catch(error){ui.restoreBackup.disabled=true;ui.restoreBackupDetails.textContent=error.message;}});ui.interruptedRecoveryTarget.addEventListener("change",refreshInterruptedRecoveryControls);ui.interruptedRecoveryButton.addEventListener("click",()=>run(recoverInterruptedRestore));ui.restoreBackup.addEventListener("click",()=>run(restoreSelectedBackup));ui.showDiagnosticsLocation.addEventListener("click",()=>{ui.diagnosticsLocation.hidden=false;ui.diagnosticsLocation.textContent=`${model.root?.name||"working folder"}\\MOONDOG_DIAGNOSTICS.md`;});ui.copyDiagnosticsPath.addEventListener("click",()=>run(copyDiagnosticsPath));}
+  function ensureRecoveryUi(){if(ui.backupRecoverySection)return;const voice=ui["view-settings"].querySelector(".customer-voice-manager"),backup=document.createElement("section"),advanced=document.createElement("section");backup.id="backupRecoverySection";backup.className="card recovery-card";backup.innerHTML='<div class="section-head"><div><p class="eyebrow">Whole-state protection</p><h2>Backup &amp; Recovery</h2><p>Full backups recover the store. Restores always replace the complete durable state.</p></div><span id="recoveryStatus" class="badge muted">READY</span></div><div class="recovery-summary"><div><span>LAST SUCCESSFUL BACKUP</span><strong id="lastBackupDisplay">None yet</strong></div><div><span>RECOVERY STATUS</span><strong id="currentRecoveryDisplay">Ready</strong></div></div><div class="recovery-actions"><button id="createBackupNow" type="button" class="primary">Create Backup Now</button><button id="createRecoveryCopy" type="button">Create Support / Recovery Copy</button></div><label>Restore From Backup<select id="restoreBackupSelect"><option value="">Connect folder to scan backups</option></select></label><div id="restoreBackupDetails" class="recovery-detail">Choose a validated full backup to view its timestamp and version.</div><button id="restoreBackup" type="button" class="danger" disabled>Restore Complete State</button><section id="interruptedRecoveryControls" class="recovery-detail" hidden><h3>Interrupted restore recovery</h3><p id="interruptedRecoveryDetails">Review verified files before continuing.</p><label>Choose the complete state to keep<select id="interruptedRecoveryTarget"><option value="">Choose a verified state</option></select></label><button id="interruptedRecoveryButton" type="button" class="danger" disabled>Recover and verify complete state</button></section>';advanced.id="advancedDiagnosticsSection";advanced.className="card recovery-card";advanced.innerHTML='<div class="section-head"><div><p class="eyebrow">Management only</p><h2>Advanced / Diagnostics</h2><p>Readable support status without customer-level operational data.</p></div></div><div id="diagnosticsOverview" class="diagnostics-overview"></div><div class="recovery-actions"><button id="showDiagnosticsLocation" type="button">Show Diagnostics Location</button><button id="copyDiagnosticsPath" type="button">Copy Diagnostics Path</button><button id="createSupportPackage" type="button" class="primary">Create Support Package</button></div><code id="diagnosticsLocation" hidden></code><p class="settings-note">If support is needed, send the generated support package to James.</p>';voice.before(backup,advanced);for(const id of ["backupRecoverySection","recoveryStatus","lastBackupDisplay","currentRecoveryDisplay","createBackupNow","createRecoveryCopy","restoreBackupSelect","restoreBackupDetails","restoreBackup","interruptedRecoveryControls","interruptedRecoveryDetails","interruptedRecoveryTarget","interruptedRecoveryButton","advancedDiagnosticsSection","diagnosticsOverview","showDiagnosticsLocation","copyDiagnosticsPath","createSupportPackage","diagnosticsLocation"])ui[id]=document.getElementById(id);ui.createBackupNow.addEventListener("click",()=>run(createBackupNow));ui.createRecoveryCopy.addEventListener("click",()=>run(()=>createSupportPackage(true)));ui.createSupportPackage.addEventListener("click",()=>run(()=>createSupportPackage(false)));ui.restoreBackupSelect.addEventListener("change",async()=>{ui.restoreBackup.disabled=!ui.restoreBackupSelect.value;if(!ui.restoreBackupSelect.value){ui.restoreBackupDetails.textContent="Choose a validated full backup to view its timestamp and version.";return;}try{const validated=await validateBackupBytes(await readFileBytes(["backups",ui.restoreBackupSelect.value]));ui.restoreBackupDetails.textContent=`${new Date(validated.manifest.createdAt).toLocaleString()} · ${validated.manifest.appVersion} · ${validated.manifest.recordCounts.openRos} Open ROs · VALIDATED`;}catch(error){ui.restoreBackup.disabled=true;ui.restoreBackupDetails.textContent=error.message;}});ui.interruptedRecoveryTarget.addEventListener("change",refreshInterruptedRecoveryControls);ui.interruptedRecoveryButton.addEventListener("click",()=>run(()=>withWorkspaceRecoveryHold(recoverInterruptedRestore)));ui.restoreBackup.addEventListener("click",()=>run(()=>withWorkspaceRecoveryHold(restoreSelectedBackup)));ui.showDiagnosticsLocation.addEventListener("click",()=>{ui.diagnosticsLocation.hidden=false;ui.diagnosticsLocation.textContent=`${model.root?.name||"working folder"}\\MOONDOG_DIAGNOSTICS.md`;});ui.copyDiagnosticsPath.addEventListener("click",()=>run(copyDiagnosticsPath));}
   function ensureFolderWatchUi(){if(ui.folderWatchStatus)return;const badge=document.createElement("span");badge.id="folderWatchStatus";badge.className="badge muted";badge.textContent="WATCH OFF";ui.permissionBadge.before(badge);const panel=document.createElement("div");panel.className="folder-watch-setting";panel.innerHTML=`<div><strong>Report Inbox</strong><small id="folderWatchDetail">Watches ${REPORT_INBOX} every 15 seconds while Service Operations Dashboard is open.</small></div><label class="switch-label"><input id="folderWatchEnabled" type="checkbox"> ON</label><span>Polling interval: 15 seconds</span><div class="button-row"><button id="showReportInboxLocation" type="button">Show Report Inbox Location</button><button id="copyReportInboxPath" type="button">Copy Report Inbox Path</button></div><code id="reportInboxLocation" hidden></code>`;ui.advancedDiagnosticsSection.querySelector(".section-head").after(panel);for(const id of ["folderWatchStatus","folderWatchDetail","folderWatchEnabled","showReportInboxLocation","copyReportInboxPath","reportInboxLocation"])ui[id]=document.getElementById(id);ui.folderWatchEnabled.addEventListener("change",()=>{model.settings.future||={};model.settings.future.folderWatch={enabled:ui.folderWatchEnabled.checked,intervalSeconds:15};queueSettingsAutosave();if(ui.folderWatchEnabled.checked){startFolderWatch();folderWatchScan("setting");}else{stopFolderWatch("WATCH OFF");recordDiagnostic("REPORT INBOX WATCH","Report Inbox watch stopped in Settings");}});ui.showReportInboxLocation.addEventListener("click",()=>{ui.reportInboxLocation.hidden=false;ui.reportInboxLocation.textContent=`${model.root?.name||"working folder"}\\${REPORT_INBOX}`;});ui.copyReportInboxPath.addEventListener("click",()=>run(copyReportInboxPath));}
   async function copyReportInboxPath(){const value=`${model.root?.name||"working folder"}\\${REPORT_INBOX}`;try{await navigator.clipboard.writeText(value);}catch(_){const area=document.createElement("textarea");area.value=value;document.body.append(area);area.select();document.execCommand("copy");area.remove();}ui.reportInboxLocation.hidden=false;ui.reportInboxLocation.textContent=`Copied: ${value}`;}
   function ensureManagerEntryCues(){if(!ui["view-imports"].querySelector(".report-inbox-cue")){const cue=document.createElement("p");cue.className="report-inbox-cue settings-note";cue.innerHTML=`For automatic imports, place supported reports in <strong>${REPORT_INBOX}</strong>.`;ui["view-imports"].prepend(cue);}if(!ui["view-setup"].querySelector(".manager-entry-cue")){const cue=document.createElement("p");cue.className="manager-entry-cue settings-note";cue.innerHTML=`Open Service Operations Dashboard: <strong>00 - OPEN DASHBOARD.html</strong> · Add reports: <strong>${REPORT_INBOX}</strong>`;ui["view-setup"].querySelector(".setup-heading").after(cue);}}
@@ -8056,12 +8448,332 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   async function restoreHandoffSnapshot(snapshot){for(const dirName of HANDOFF_CLEAR_DIRS)await removeTreeContents(await directory([dirName],true));await removeTreeContents(await directory(["data","history"],true));for(const path of [...Object.keys(BACKUP_FILES),"data/recovery.json","MOONDOG_DIAGNOSTICS.md","PROJECT_CONTEXT.md","README.txt","TEST_STATUS.md","NEW_STORE_HANDOFF_REPORT.md"])await removePath(path.split("/"));for await(const[name,handle]of model.root.entries())if(handle.kind==="file"&&HANDOFF_ROOT_SOURCE_PATTERN.test(name))await model.root.removeEntry(name);for(const item of snapshot)await writeBytes(item.path.split("/"),item.bytes);}
   async function resetConnectedCopy(at){for(const dirName of HANDOFF_CLEAR_DIRS){const dir=await directory([dirName],true);await removeTreeContents(dir);}try{const learn=await directory(["Files To Learn"],false);await removeTreeContents(learn,(path,isDir)=>!isDir&&HANDOFF_LEARN_PATTERN.test(path));}catch(_){}for await(const[name,handle]of model.root.entries())if(handle.kind==="file"&&HANDOFF_ROOT_SOURCE_PATTERN.test(name))await model.root.removeEntry(name);const history=await directory(["data","history"],true);await removeTreeContents(history);const fresh=freshProductState();for(const[path,value]of Object.entries(fresh))await writeJson(path.split("/"),value);model.recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,lastRestore:null,status:"New-store preparation complete"};await writeJson(RECOVERY_PATH,model.recovery);/* No automatic diagnostics report on new-store setup. */await writeText(["PROJECT_CONTEXT.md"],portableContext());await writeText(["README.txt"],portableReadme());await writeText(["TEST_STATUS.md"],portableTestStatus());await writeText(["NEW_STORE_HANDOFF_REPORT.md"],handoffReport(at));[model.state,model.settings,model.appointments,model.performance,model.assignNext,model.autoImport,model.operationalMetrics,model.meetingCycle]=Object.values(fresh);}
   const HANDOFF_RUNTIME_PATHS=["assets/app.js","assets/arrivals.css","assets/assign-next-controls.css","assets/assign-next.css","assets/clarity.css","assets/daily-engine.js","assets/daily-ops.css","assets/daily-ops.js","assets/developer-center.css","assets/freshness.js","assets/maintenance.js","assets/meeting.css","assets/moondog-update-check.js","assets/moondog-update-install.js","assets/moondog-update-model.js","assets/moondog-update-plan.js","assets/moondog-update-settings.js","assets/moondog-update-verify.js","assets/moondog-write-authority.js","assets/operational.css","assets/performance.css","assets/product-settings.css","assets/queue.css","assets/styles.css","assets/worklist.css","index.html","vendor/JSZIP-LICENSE.txt","vendor/PDFJS-LICENSE.txt","vendor/SHEETJS-LICENSE.txt","vendor/THIRD_PARTY_NOTICES.md","vendor/jszip.min.js","vendor/pdf.min.js","vendor/pdf.worker.min.js","vendor/xlsx.full.min.js"];
-  async function runtimeFileBytes(path){let dir=await connectedNativeRoot.getDirectoryHandle("System Files");const parts=path.split("/");for(const part of parts.slice(0,-1))dir=await dir.getDirectoryHandle(part);return new Uint8Array(await(await(await dir.getFileHandle(parts.at(-1))).getFile()).arrayBuffer());}
-  async function runtimeIntegrity(){const result={};for(const path of HANDOFF_RUNTIME_PATHS){const bytes=await runtimeFileBytes(path);if(!bytes.byteLength)throw new Error(`Required product file is missing: ${path}.`);result[path]=await sha256(bytes);}return result;}
+  async function runtimeFileBytes(path,root=connectedNativeRoot){let dir=await root.getDirectoryHandle("System Files");const parts=path.split("/");for(const part of parts.slice(0,-1))dir=await dir.getDirectoryHandle(part);return new Uint8Array(await(await(await dir.getFileHandle(parts.at(-1))).getFile()).arrayBuffer());}
+  async function runtimeIntegrity(root=connectedNativeRoot){const result={};for(const path of HANDOFF_RUNTIME_PATHS){const bytes=await runtimeFileBytes(path,root);if(!bytes.byteLength)throw new Error(`Required product file is missing: ${path}.`);result[path]=await sha256(bytes);}return result;}
   async function validatePreparedCopy(expectedRuntime){const expected=freshProductState();for(const[path,value]of Object.entries(expected)){const actual=await readJson(path.split("/"),null);if(!actual||JSON.stringify(actual)!==JSON.stringify(value))throw new Error(`New-store validation failed for ${path}.`);}for(const dirName of HANDOFF_CLEAR_DIRS)if((await walkFiles(await directory([dirName],true),dirName)).length)throw new Error(`${dirName} was not cleared.`);if((await walkFiles(await directory(["data","history"],true),"data/history")).length)throw new Error("Operational history was not cleared.");const actualRuntime=await runtimeIntegrity();for(const[path,hash]of Object.entries(expectedRuntime||{}))if(actualRuntime[path]!==hash)throw new Error(`Application/runtime integrity changed during reset: ${path}.`);for(const name of ["PROJECT_CONTEXT.md","NEW_STORE_HANDOFF_REPORT.md"])if(!(await readFileBytes(name.split("/"))).byteLength)throw new Error(`Required product file is missing: ${name}.`);const combined=decodeUtf8(await readFileBytes(["PROJECT_CONTEXT.md"]))+decodeUtf8(await readFileBytes(["NEW_STORE_HANDOFF_REPORT.md"]));if([sourceAdapter.storeName,sourceAdapter.storeCode,...Object.keys(sourceAdapter.legacyAdvisors||{}),...Object.values(sourceAdapter.legacyAdvisors||{})].filter(value=>String(value||"").length>2).some(value=>combined.toLowerCase().includes(String(value).toLowerCase())))throw new Error("Portable documentation retained a source-store identifier.");return true;}
-  async function prepareForNewStore(){writeAuthority.requireWrite();if(!model.root)throw new Error("Connect the Service Operations Dashboard copy intended for handoff first.");if(!ui.handoffCopyConfirm.checked||!ui.handoffEraseConfirm.checked||ui.handoffPhrase.value.trim().toUpperCase()!=="PREPARE NEW STORE")throw new Error("Complete both confirmations and type PREPARE NEW STORE exactly.");if(!window.showSaveFilePicker)throw new Error("This Edge version cannot create the required external safety backup.");const runtimeBefore=await runtimeIntegrity(),snapshot=await handoffTargets(),externalBytes=await createExternalHandoffBackup(snapshot),externalHandle=await window.showSaveFilePicker({suggestedName:`Service Operations Dashboard Private Pre-Handoff Recovery - ${stamp()}.zip`,types:[{description:"Service Operations Dashboard recovery archive",accept:{"application/zip":[".zip"]}}]});if(typeof connectedNativeRoot?.resolve!=="function")throw new Error("Service Operations Dashboard cannot prove that the safety backup is outside this copy. Reset aborted.");const inside=await connectedNativeRoot.resolve(externalHandle);if(inside)throw new Error("Choose a safety-backup location outside the Service Operations Dashboard copy being prepared.");const writable=await externalHandle.createWritable();await writable.write(externalBytes);await writable.close();const externalReadback=new Uint8Array(await(await externalHandle.getFile()).arrayBuffer());await validateExternalHandoffBackup(externalReadback);if(!confirm(`FINAL WARNING\n\nPermanently remove all store-specific data from the connected folder “${model.root.name}”?\n\nThe external safety backup has been created and validated.`))return;const at=now();try{await resetConnectedCopy(at);await validatePreparedCopy(runtimeBefore);clearSourceAdapter();ui.handoffResult.textContent=`PREPARATION COMPLETE · ${new Date(at).toLocaleString()} · This connected copy is ready for first-time Setup.`;ui.handoffResult.className="handoff-result success";renderAll();renderSettings();navigateTo("setup");}catch(error){await restoreHandoffSnapshot(snapshot);await validateExternalHandoffBackup(externalReadback);ui.handoffResult.textContent="Preparation failed. The connected copy was restored from the pre-reset snapshot.";ui.handoffResult.className="handoff-result error";throw error;}}
-  function ensureNewStoreUi(){if(ui.newStoreSection)return;const section=document.createElement("section");section.id="newStoreSection";section.className="card destructive-card";section.innerHTML='<p class="eyebrow">Destructive action</p><h2>PREPARE SERVICE OPERATIONS DASHBOARD FOR A NEW STORE</h2><p>This permanently removes all store-specific data from the currently connected Service Operations Dashboard copy and returns it to clean product defaults. Only the currently connected folder is affected.</p><div class="target-identity"><span>CURRENTLY CONNECTED TARGET</span><strong id="handoffTargetIdentity">Not connected</strong></div><details><summary>Review removal preflight</summary><ul id="handoffPreflight"></ul></details><label class="destructive-check"><input id="handoffCopyConfirm" type="checkbox"> This is the copied Service Operations Dashboard folder intended for handoff.</label><label class="destructive-check"><input id="handoffEraseConfirm" type="checkbox"> I understand all store-specific data in this connected copy will be permanently removed.</label><label>Type <strong>PREPARE NEW STORE</strong><input id="handoffPhrase" autocomplete="off"></label><button id="prepareNewStore" type="button" class="danger">Create External Safety Backup &amp; Prepare Copy</button><p id="handoffResult" class="handoff-result"></p>';ui["view-settings"].append(section);for(const id of ["newStoreSection","handoffTargetIdentity","handoffPreflight","handoffCopyConfirm","handoffEraseConfirm","handoffPhrase","prepareNewStore","handoffResult"])ui[id]=document.getElementById(id);ui.prepareNewStore.addEventListener("click",()=>run(prepareForNewStore));}
-  function renderNewStore(){ensureNewStoreUi();ui.handoffTargetIdentity.textContent=model.root?.name||"Not connected";ui.prepareNewStore.disabled=!model.root;const categories=["Store identity and configuration","Advisor roster and participation","SAPR and performance snapshots","Open RO and Daily Walk state","Appointments and Assign Next state","Meeting cycle and CSI / Customer Voice","Operational metrics and source ledgers","Operational history and internal backups","Imports, exports, revisions, diagnostics, and support artifacts","Setup-complete state","Store-specific reports in the target root and Files To Learn"];ui.handoffPreflight.innerHTML=categories.map((item)=>`<li>${item}</li>`).join("");}
+  // Never bypass an unprovable transaction hold. Create a separate installation.
+  async function createCleanNewStoreCopy(destination, source=connectedNativeRoot){
+    if(!source||!destination||typeof source.resolve!=="function"||typeof destination.resolve!=="function")
+      throw new Error("The old installation and new destination cannot be independently identified.");
+    const withinSource=await source.resolve(destination),containsSource=await destination.resolve(source);
+    if(withinSource!==null||containsSource!==null)
+      throw new Error("Choose an empty folder outside the copied installation and its Workspace.");
+    if(await destination.queryPermission({mode:"readwrite"})!=="granted")
+      throw new Error("Grant write permission to the separate new-store destination.");
+    for await(const _ of destination.entries())
+      throw new Error("Choose a completely empty folder for the new store. No existing files were changed.");
+    ui.handoffResult.textContent="Verifying the application files in the copied installation…";
+    const runtimeBefore=await runtimeIntegrity(source);
+    for await(const _ of destination.entries())
+      throw new Error("The destination is no longer empty. Choose a separate empty folder.");
+    const created=[];
+    const directories=new Map([["",destination]]);
+    const createEntry=async(parent,name,kind)=>{
+      // Recheck immediately before creating each entry. Cleanup only removes
+      // entries made by this attempt, and never recursively removes a directory.
+      for await(const [existingName] of parent.entries()){
+        if(existingName.toLowerCase()===name.toLowerCase())
+          throw new Error("The destination changed while preparing the new store. Choose another empty folder.");
+      }
+      const handle=kind==="directory"
+        ?await parent.getDirectoryHandle(name,{create:true})
+        :await parent.getFileHandle(name,{create:true});
+      created.push({parent,name});
+      return handle;
+    };
+    const newDirectory=async(path)=>{
+      let current=destination,key="";
+      for(const part of path.split("/").filter(Boolean)){
+        key=key?key+"/"+part:part;
+        if(!directories.has(key))directories.set(key,await createEntry(current,part,"directory"));
+        current=directories.get(key);
+      }
+      return current;
+    };
+    const writeNewFile=async(path,bytes)=>{
+      const parts=path.split("/"),name=parts.pop();
+      const parent=await newDirectory(parts.join("/"));
+      const handle=await createEntry(parent,name,"file"),stream=await handle.createWritable();
+      try{await stream.write(bytes);await stream.close();}
+      catch(error){try{await stream.abort();}catch(_){}throw error;}
+      const readback=new Uint8Array(await(await handle.getFile()).arrayBuffer());
+      if(await sha256(readback)!==await sha256(bytes))
+        throw new Error("New-store file readback failed for "+path+".");
+    };
+    try{
+      ui.handoffResult.textContent="Copying and verifying application files in "+destination.name+"…";
+      for(const path of HANDOFF_RUNTIME_PATHS){
+        const bytes=await runtimeFileBytes(path,source);
+        if(await sha256(bytes)!==runtimeBefore[path])
+          throw new Error("Installed application changed while preparing the new-store copy.");
+        await writeNewFile("System Files/"+path,bytes);
+      }
+      ui.handoffResult.textContent="Initializing a clean Workspace for Guided Setup…";
+      const workspacePath="System Files/Workspace";
+      const workspace=await newDirectory(workspacePath);
+      const writeWorkspaceFile=(path,bytes)=>writeNewFile(workspacePath+"/"+path,bytes);
+      for(const dir of ["data/history","backups","imports","exports","support","01 - DROP REPORTS HERE","Files To Learn"])
+        await newDirectory(workspacePath+"/"+dir);
+      const fresh=freshProductState();
+      // The legacy in-place reset marker clears settings on reconnect. A new
+      // Workspace has no legacy settings to clear and starts with a blank adapter.
+      const settings=fresh["data/settings.json"];
+      delete settings.setup.newStorePrepared;
+      settings.sourceAdapters={schemaVersion:1};
+      for(const [path,value] of Object.entries(fresh))
+        await writeWorkspaceFile(path,utf8(JSON.stringify(value,null,2)+"\n"));
+      const recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,lastRestore:null,status:"New-store copy created; first-time setup required"};
+      await writeWorkspaceFile("data/recovery.json",utf8(JSON.stringify(recovery,null,2)+"\n"));
+      await writeWorkspaceFile("data/store-revision.json",utf8(JSON.stringify({schemaVersion:1,revision:0},null,2)+"\n"));
+      await writeWorkspaceFile("README.txt",utf8("PRIVATE LOCAL WORKSPACE\nThis independent new-store Workspace contains no prior-store operational records.\n"));
+      await writeWorkspaceFile("PROJECT_CONTEXT.md",utf8(portableContext()));
+      await writeWorkspaceFile("NEW_STORE_HANDOFF_REPORT.md",utf8("# Independent New-Store Installation\nCreated: "+now()+"\nVersion: "+VERSION+"\nThis is a fresh, separate installation. No files were copied from the prior store Workspace. Its recovery journals and records were preserved unchanged in the source copy.\n"));
+      const launcher='<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=System%20Files/index.html?moondog-new-store=1"><title>Service Operations Dashboard</title></head><body><p>Opening Service Operations Dashboard… <a href="System%20Files/index.html?moondog-new-store=1">Continue</a></p><script>location.replace("System Files/index.html?moondog-new-store=1");</script></body></html>\n';
+      await writeNewFile("00 - OPEN DASHBOARD.html",utf8(launcher));
+      await writeNewFile("START HERE.txt",utf8("CLEAN NEW STORE - MOONDOG\nOpen 00 - OPEN DASHBOARD.html in Microsoft Edge.\nConnect THIS new folder, then complete Guided Setup for the new dealership.\nThe recovery-locked source copy was not changed.\n"));
+      const runtimeAfter=await runtimeIntegrity(source);
+      if(HANDOFF_RUNTIME_PATHS.some(path=>runtimeBefore[path]!==runtimeAfter[path]))
+        throw new Error("Installed application changed during the new-store export.");
+      for(const [path,value] of Object.entries(fresh)){
+        const parts=path.split("/");let parent=workspace;
+        for(const part of parts.slice(0,-1))parent=await parent.getDirectoryHandle(part);
+        const saved=JSON.parse(await(await parent.getFileHandle(parts.at(-1))).getFile().then(file=>file.text()));
+        if(JSON.stringify(saved)!==JSON.stringify(value))
+          throw new Error("New-store defaults failed verification: "+path);
+      }
+      ui.handoffResult.textContent="CLEAN NEW STORE READY · "+destination.name+" · Open 00 - OPEN DASHBOARD.html in that folder, connect the new folder, then complete Guided Setup. The old recovery-locked copy was not changed.";
+      ui.handoffResult.className="handoff-result success";
+    }catch(error){
+      let cleanupIncomplete=false;
+      for(const {parent,name} of created.reverse()){
+        try{await parent.removeEntry(name);}
+        catch(cleanupError){if(cleanupError?.name!=="NotFoundError")cleanupIncomplete=true;}
+      }
+      if(cleanupIncomplete)
+        throw new Error((error?.message||String(error))+" Some destination files remain. Use another empty folder to retry.");
+      throw error;
+    }
+  }
+  function newStoreRecoveryLocked(){
+    return !writeAuthority.canWrite&&["PENDING_TRANSACTION","INTERRUPTED_RESTORE"].includes(writeAuthority.reason);
+  }
+
+  // Fresh Beta reset is intentionally restricted to the connected installation's
+  // System Files/Workspace child. Neither the install root nor System Files is
+  // ever passed to a recursive remover. Never infer a target from browser storage.
+  async function resetSelectedFreshInstallation({selectedRoot,expectedRoot,verifiedInstall,onProgress=()=>{}}={}){
+    const installation=connectedNativeRoot,activeWorkspace=model.root;
+    if(verifiedInstall?.status!=="installed"||verifiedInstall?.channel!=="beta"||
+        !/^\d+\.\d+\.\d+-beta\.\d+$/.test(verifiedInstall.version||"")||
+        !/^[a-f0-9]{64}$/.test(verifiedInstall.sha256||"")||
+        !/^MoonDog-Update-Backup-[A-Za-z0-9-]+$/.test(verifiedInstall.backupName||""))
+      throw new Error("Fresh Installation requires this session's verified Beta package receipt; no files were removed.");
+    const assertSameInstallation=async()=>{
+      if(!installation||!activeWorkspace||installation!==expectedRoot||
+          model.applicationRoot!==installation||connectedNativeRoot!==installation||
+          model.root!==activeWorkspace||!selectedRoot||
+          typeof selectedRoot.isSameEntry!=="function"||
+          typeof installation.resolve!=="function"||
+          !(await selectedRoot.isSameEntry(installation)))
+        throw new Error("Fresh Installation cannot verify the selected installation. No data was removed.");
+      if(await installation.queryPermission({mode:"readwrite"})!=="granted"||!writeAuthority.canWrite)
+        throw new Error("Fresh Installation requires current write access to the selected installation.");
+      writeAuthority.requireWrite();
+      const system=await installation.getDirectoryHandle("System Files",{create:false});
+      // An unrelated folder with the same name is never an acceptable target.
+      await system.getFileHandle("index.html",{create:false});
+      const workspace=await system.getDirectoryHandle("Workspace",{create:false});
+      const relative=await installation.resolve(workspace);
+      if(!Array.isArray(relative)||relative.length!==2||
+          relative[0]!=="System Files"||relative[1]!=="Workspace")
+        throw new Error("Fresh Installation cannot establish the exact Workspace boundary.");
+      return workspace;
+    };
+    if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation is active. Fresh Installation did not start.");
+    const workspace=await assertSameInstallation();
+    const system=await installation.getDirectoryHandle("System Files",{create:false});
+    try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+      throw new Error("An interrupted Fresh Installation hold already exists. No files were removed.");
+    }catch(error){if(error?.name!=="NotFoundError")throw error;}
+    // A browser-local receipt is never enough. Read back the verified
+    // package/backup journal from this exact selected installation.
+    const updateBackups=await workspace.getDirectoryHandle("backups",{create:false});
+    const updateRoot=await updateBackups.getDirectoryHandle("system-updates",{create:false});
+    const verifiedBackup=await updateRoot.getDirectoryHandle(verifiedInstall.backupName,{create:false});
+    const journal=await verifiedBackup.getFileHandle("journal.json",{create:false});
+    const receipt=JSON.parse(await(await journal.getFile()).text());
+    if(receipt?.status!=="verified"||receipt.verifiedUpdate?.version!==verifiedInstall.version||
+       receipt.verifiedUpdate?.channel!=="beta"||
+       receipt.verifiedUpdate?.sha256!==verifiedInstall.sha256)
+      throw new Error("Selected installation lacks the matching verified Beta journal. No data was removed.");
+    // Refuse an installation nested inside the Workspace rather than wiping
+    // a second copy accidentally. This scan reads names, never report contents.
+    let scanned=0;
+    async function inspectForNestedCopies(dir){
+      for await(const [name,item] of dir.entries()){
+        if(++scanned>100000)throw new Error("Fresh Installation cannot verify this unusually large Workspace.");
+        if(name==="00 - OPEN DASHBOARD.html")
+          throw new Error("Another MoonDog launcher exists inside this Workspace. Fresh reset blocked.");
+        if(item.kind==="directory"){
+          if(name==="System Files")
+            throw new Error("A nested System Files folder may contain another installation. Fresh reset blocked.");
+          await inspectForNestedCopies(item);
+        }
+      }
+    }
+    await inspectForNestedCopies(workspace);
+    if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation started. Fresh Installation did not start.");
+    await assertSameInstallation();
+    // Confirmations live in the production reset itself, not just the caller:
+    // a direct invocation of the exported method cannot silently erase data.
+    const targetName=installation.name || "selected MoonDog installation";
+    const confirmedOnce=typeof globalThis.confirm==="function" &&
+      globalThis.confirm(`Are you sure?\\n\\nFresh Installation will permanently erase every store-specific file, report, history entry and internal backup inside “${targetName}/System Files/Workspace”.\\n\\nOther installations and application files must remain untouched.`);
+    if(!confirmedOnce)return {status:"cancelled"};
+    const confirmedTwice=typeof globalThis.confirm==="function" &&
+      globalThis.confirm(`Are you really sure?\\n\\nThis permanently removes ALL dealership information from the selected installation “${targetName}” with NO safety backup. This cannot be undone.`);
+    if(!confirmedTwice)return {status:"cancelled"};
+    await assertSameInstallation();
+    if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation started before final confirmation. No files were deleted.");
+    // Only the verified Workspace is destructively cleared. The runtime,
+    // launcher, other directories and every other installed copy remain outside.
+    newStoreBusy=true;
+    workspaceRecoveryBusy=true;
+    stopFolderWatch("WATCH OFF");
+    let mutated=false,markerWritten=false;
+    try{
+      // A verified out-of-Workspace hold precedes the first destructive write.
+      const intent={schemaVersion:1,status:"incomplete",version:verifiedInstall.version,
+        sha256:verifiedInstall.sha256,backupName:verifiedInstall.backupName};
+      const marker=await system.getFileHandle(FRESH_RESET_MARKER,{create:true});
+      const writable=await marker.createWritable();
+      try{await writable.write(JSON.stringify(intent)+"\n");await writable.close();}
+      catch(error){try{await writable.abort();}catch(_){}throw error;}
+      if(JSON.stringify(JSON.parse(await(await marker.getFile()).text()))!==JSON.stringify(intent))
+        throw new Error("Fresh reset hold durable readback failed. No data was removed.");
+      markerWritten=true;
+      const entries=[];
+      for await(const [name] of workspace.entries())entries.push(name);
+      onProgress({phase:"fresh",percent:null,label:"Removing selected store data",
+        detail:"Clearing only the verified System Files/Workspace folder"});
+      for(const name of entries){
+        if(model.applicationRoot!==installation||connectedNativeRoot!==installation||
+            model.root!==activeWorkspace||!writeAuthority.canWrite)
+          throw new Error("The installation identity or write authority changed during deletion.");
+        mutated=true;
+        await workspace.removeEntry(name,{recursive:true});
+        onProgress({phase:"fresh",percent:null,label:"Removing selected store data",
+          detail:"Deleting selected Workspace entries; keep this window open"});
+      }
+      for await(const _ of workspace.entries())
+        throw new Error("Workspace was modified during deletion. Fresh reset cannot be verified.");
+      const data=await workspace.getDirectoryHandle("data",{create:true});
+      const fresh=freshProductState();
+      fresh["data/current-state.json"].appVersion=verifiedInstall.version;
+      const recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,lastRestore:null,
+        status:"Fresh installation requires Guided Setup"};
+      const records={...fresh,"data/recovery.json":recovery};
+      for(const [path,value] of Object.entries(records)){
+        const parts=path.split("/");
+        if(parts.length!==2||parts[0]!=="data")throw new Error("Invalid fresh state path.");
+        const file=await data.getFileHandle(parts[1],{create:true});
+        const content=JSON.stringify(value,null,2)+"\n";
+        const stream=await file.createWritable();
+        try{await stream.write(content);await stream.close();}
+        catch(error){try{await stream.abort();}catch(_){}throw error;}
+        const readback=JSON.parse(await(await file.getFile()).text());
+        if(JSON.stringify(readback)!==JSON.stringify(value))
+          throw new Error("Fresh installation durable readback failed for "+path+".");
+      }
+      // Fail closed on concurrent writes, residual reports, backups or history.
+      const rootNames=[];
+      for await(const [name] of workspace.entries())rootNames.push(name);
+      if(rootNames.length!==1||rootNames[0]!=="data")
+        throw new Error("Fresh Workspace contains unexpected residual data.");
+      const dataNames=[];
+      for await(const [name] of data.entries())dataNames.push(name);
+      const expectedNames=Object.keys(records).map(path=>path.split("/")[1]).sort();
+      if(JSON.stringify(dataNames.sort())!==JSON.stringify(expectedNames))
+        throw new Error("Fresh Workspace contains unexpected data or missing state files.");
+      [model.state,model.settings,model.appointments,model.performance,model.assignNext,
+        model.autoImport,model.operationalMetrics,model.meetingCycle]=Object.values(fresh);
+      model.recovery=recovery;
+      clearSourceAdapter();
+      // Remove the hold only after every fresh-state file is read back and
+      // every unexpected Workspace entry is rejected.
+      await system.removeEntry(FRESH_RESET_MARKER);
+      try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+        throw new Error("Fresh reset hold removal could not be verified.");
+      }catch(error){if(error?.name!=="NotFoundError")throw error;}
+      markerWritten=false;
+      onProgress({phase:"complete",percent:100,label:"Fresh Installation complete",
+        detail:"Workspace removal and empty state readback verified"});
+      renderAll();renderSettings();navigateTo("setup");
+      return {status:"fresh",installationName:installation.name};
+    }catch(error){
+      if(mutated||markerWritten)throw new Error("Fresh Installation is incomplete; a durable recovery hold blocks normal loading until reviewed. "+(error?.message||String(error)));
+      throw error;
+    }finally{
+      workspaceRecoveryBusy=false;
+      newStoreBusy=false;
+    }
+  }
+  globalThis.__moondogFreshInstallation={resetSelectedFreshInstallation};
+
+  async function prepareForNewStore(){
+    const source=connectedNativeRoot;
+    if(!model.root||!source)throw new Error("Connect the copied installation first.");
+    if(!ui.handoffCopyConfirm.checked||!ui.handoffEraseConfirm.checked||ui.handoffPhrase.value.trim().toUpperCase()!=="PREPARE NEW STORE")
+      throw new Error("Complete both confirmations and type PREPARE NEW STORE exactly.");
+    if(newStoreRecoveryLocked()){
+      if(!window.showDirectoryPicker)throw new Error("This Edge version cannot select a separate new-store folder.");
+      ui.handoffResult.textContent="Choose a separate empty folder for the new dealership.";
+      const destination=await window.showDirectoryPicker({id:"moondog-new-store",mode:"readwrite"});
+      return createCleanNewStoreCopy(destination,source);
+    }
+    writeAuthority.requireWrite();
+    if(!window.showSaveFilePicker)throw new Error("This Edge version cannot create the required external safety backup.");
+    // A file picker needs the original click's transient activation. Show it before
+    // any awaited runtime integrity checks, file walks, ZIP creation, or hashing.
+    const requestedRoot=model.root;
+    const externalHandle=await window.showSaveFilePicker({suggestedName:`Service Operations Dashboard Private Pre-Handoff Recovery - ${stamp()}.zip`,types:[{description:"Service Operations Dashboard recovery archive",accept:{"application/zip":[".zip"]}}]});
+    if(connectedNativeRoot!==source||model.root!==requestedRoot||!writeAuthority.canWrite)throw new Error("The connected Workspace changed or lost edit access during backup selection. No reset was attempted.");
+    const runtimeBefore=await runtimeIntegrity(),snapshot=await handoffTargets(),externalBytes=await createExternalHandoffBackup(snapshot);
+    if(connectedNativeRoot!==source||model.root!==requestedRoot||!writeAuthority.canWrite)throw new Error("The connected Workspace changed while preparing the safety backup. No reset was attempted.");if(typeof connectedNativeRoot?.resolve!=="function")throw new Error("Service Operations Dashboard cannot prove that the safety backup is outside this copy. Reset aborted.");const inside=await connectedNativeRoot.resolve(externalHandle);if(inside)throw new Error("Choose a safety-backup location outside the Service Operations Dashboard copy being prepared.");const writable=await externalHandle.createWritable();await writable.write(externalBytes);await writable.close();const externalReadback=new Uint8Array(await(await externalHandle.getFile()).arrayBuffer());await validateExternalHandoffBackup(externalReadback);if(connectedNativeRoot!==source||model.root!==requestedRoot||!writeAuthority.canWrite)throw new Error("The connected Workspace changed before the final confirmation. No reset was attempted.");if(!confirm(`FINAL WARNING\n\nPermanently remove all store-specific data from the connected folder “${model.root.name}”?\n\nThe external safety backup has been created and validated.`))return;if(connectedNativeRoot!==source||model.root!==requestedRoot||!writeAuthority.canWrite)throw new Error("Workspace changed before the reset could begin. No reset was attempted.");const at=now();try{await resetConnectedCopy(at);await validatePreparedCopy(runtimeBefore);clearSourceAdapter();ui.handoffResult.textContent=`PREPARATION COMPLETE · ${new Date(at).toLocaleString()} · This connected copy is ready for first-time Setup.`;ui.handoffResult.className="handoff-result success";renderAll();renderSettings();navigateTo("setup");}catch(error){await restoreHandoffSnapshot(snapshot);await validateExternalHandoffBackup(externalReadback);ui.handoffResult.textContent="Preparation failed. The connected copy was restored from the pre-reset snapshot.";ui.handoffResult.className="handoff-result error";throw error;}}
+  let newStoreBusy=false, newStoreRenderedRoot, newStoreRenderedLocked;
+  function ensureNewStoreUi(){if(ui.newStoreSection)return;const section=document.createElement("section");section.id="newStoreSection";section.className="card destructive-card";section.innerHTML='<p class="eyebrow">Destructive action</p><h2>PREPARE SERVICE OPERATIONS DASHBOARD FOR A NEW STORE</h2><p>This permanently removes all store-specific data from the currently connected Service Operations Dashboard copy and returns it to clean product defaults. Only the currently connected folder is affected.</p><div class="target-identity"><span>CURRENTLY CONNECTED TARGET</span><strong id="handoffTargetIdentity">Not connected</strong></div><details><summary>Review removal preflight</summary><ul id="handoffPreflight"></ul></details><label class="destructive-check"><input id="handoffCopyConfirm" type="checkbox"> This is the copied Service Operations Dashboard folder intended for handoff.</label><label class="destructive-check"><input id="handoffEraseConfirm" type="checkbox"> I understand all store-specific data in this connected copy will be permanently removed.</label><label>Type <strong>PREPARE NEW STORE</strong><input id="handoffPhrase" autocomplete="off"></label><button id="prepareNewStore" type="button" class="danger">Create External Safety Backup &amp; Prepare Copy</button><p id="handoffResult" class="handoff-result" role="status"></p>';ui["view-settings"].append(section);for(const id of ["newStoreSection","handoffTargetIdentity","handoffPreflight","handoffCopyConfirm","handoffEraseConfirm","handoffPhrase","prepareNewStore","handoffResult"])ui[id]=document.getElementById(id);ui.prepareNewStore.addEventListener("click",async()=>{
+      if(newStoreBusy)return;
+      const recoveryLocked=newStoreRecoveryLocked();
+      if(newStoreRenderedRoot!==model.applicationRoot||newStoreRenderedLocked!==recoveryLocked){
+        renderNewStore();
+        ui.handoffResult.textContent="The connected folder or recovery state changed. Review the instructions and confirm again.";
+        ui.handoffResult.className="handoff-result error";
+        return;
+      }
+      newStoreBusy=true;
+      ui.handoffResult.textContent="Checking new-store preparation requirements…";
+      ui.handoffResult.className="handoff-result";
+      ui.prepareNewStore.disabled=true;
+      try{await prepareForNewStore();}
+      catch(error){
+        const operation=recoveryLocked?"Clean new-store creation":"Preparation";
+        ui.handoffResult.textContent=error?.name==="AbortError"?operation+" canceled.":operation+" did not complete: "+(error?.message||"Unknown error");
+        ui.handoffResult.className="handoff-result error";
+        if(error?.name!=="AbortError")console.error("New-store preparation blocked",error);
+      }finally{newStoreBusy=false;ui.prepareNewStore.disabled=!model.root;}
+    });}
+  function renderNewStore(){ensureNewStoreUi();const locked=newStoreRecoveryLocked();
+    if(newStoreRenderedRoot!==model.applicationRoot||newStoreRenderedLocked!==locked){
+      ui.handoffCopyConfirm.checked=false;
+      ui.handoffEraseConfirm.checked=false;
+      ui.handoffPhrase.value="";
+      newStoreRenderedRoot=model.applicationRoot;
+      newStoreRenderedLocked=locked;
+    }
+    const description=ui.newStoreSection.querySelector("p:not(.eyebrow)");if(description)description.textContent=locked?"The copied Workspace has an unresolved recovery hold. This option creates an independent clean installation in a separate empty folder. It does not reset or delete files from the locked copy.":"This permanently removes store-specific data from the connected copy, after an external safety backup is verified.";ui.handoffTargetIdentity.textContent=model.applicationRoot?.name||connectedNativeRoot?.name||model.root?.name||"Not connected";ui.prepareNewStore.disabled=newStoreBusy||!model.root;ui.prepareNewStore.textContent=locked?"Create Clean New-Store Folder":"Create External Safety Backup & Prepare Copy";ui.handoffEraseConfirm.parentNode.lastChild.textContent=locked?" I understand this creates a separate clean installation in an empty folder; the recovery-locked copy stays unchanged.":" I understand all store-specific data in this connected copy will be permanently removed.";const categories=locked?["Select a separate empty destination outside the copied installation","Copy verified application files only","Initialize a fresh Workspace with no prior dealership data or journals","Keep the original copied Workspace and pending transaction untouched","Open the new launcher and complete Guided Setup"]:["Store identity and configuration","Advisor roster and participation","SAPR and performance snapshots","Open RO and Daily Walk state","Appointments and Assign Next state","Meeting cycle and CSI / Customer Voice","Operational metrics and source ledgers","Operational history and internal backups","Imports, exports, revisions, diagnostics, and support artifacts","Setup-complete state","Store-specific reports in the target root and Files To Learn"];ui.handoffPreflight.innerHTML=categories.map(item=>"<li>"+item+"</li>").join("");}
   const renderSettingsPhase1=renderSettings;renderSettings=function(){renderSettingsPhase1();renderPhase2Settings();ensureFolderWatchUi();ui.folderWatchEnabled.checked=folderWatchEnabled();watchStatus(folderWatch.state,folderWatch.message);renderSetup();renderRecovery();renderNewStore();if(!ui.editDialog.open)populateSelect(ui.editStatus,managementStatuses());};
   const renderDailyFocusPhase1=renderDailyFocus;renderDailyFocus=function(){renderDailyFocusPhase1();const heading=ui["view-open-ro"]?.querySelector(".daily-focus-head h2");if(heading)heading.textContent=`${dailyWalkCount()} ROs per advisor`;ui.dailyFocusGrid.querySelectorAll(".focus-advisor header span").forEach((node)=>{node.textContent=node.textContent.replace(/^([0-9]+)\/3\s·/,`$1/${dailyWalkCount()} ·`);});};
   const readSettingsInputsPhase1=readSettingsInputs;readSettingsInputs=function(){readSettingsInputsPhase1();const filename=ui.exportName.value.trim();if(!filename||/[\\/:*?"<>|]/.test(filename))throw new Error("Choose a valid supervisor workbook filename.");const completeName=/\.xlsx$/i.test(filename)?filename:`${filename}.xlsx`;const count=Number(ui.dailyWalkCount.value);if(!Number.isInteger(count)||count<1||count>10)throw new Error("Daily Walk ROs per advisor must be a whole number from 1 to 10.");model.settings.dailyWalk={rosPerAdvisor:count};model.settings.supervisorWorkbook.filename=completeName;model.settings.exportName=completeName;model.settings.supervisorWorkbook.worksheetOrder=supervisorAdvisorCodes();};
@@ -8142,8 +8854,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     // A direct SAPR button import is a durable Workspace mutation, just like
     // a Daily-picked report. Take the same exclusion before any file await:
     // reconnect may not replace model.root halfway through SAPR readback.
-    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||workspaceConnectionBusy)
-      throw new Error("Another Workspace import or connection is in progress. Retry Import Performance when it finishes.");
+    if(folderWatch.busy||dailyImportBusy||appointmentImportBusy||postConnectionScanBusy||workspaceConnectionBusy||workspaceRecoveryBusy)
+      throw new Error("Another Workspace operation is in progress. Retry Import Performance when it finishes.");
     const resumeWatch=folderWatchEnabled();
     dailyImportBusy=true;
     try{
@@ -8191,7 +8903,11 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.attentionFilter.value="";clearSavedOpenRoFilters();
     applyRoDensity();saveRoDeviceView();renderTable();
   });
-  ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", handleWorkspaceRecoveryAction); ui.homeConnect.addEventListener("click", () => run(connect)); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input",renderTable); [["advisor",ui.advisorFilter],["sourceStatus",ui.sourceStatusFilter],["managementStatus",ui.managementStatusFilter]].forEach(([field,select])=>select.addEventListener("change",()=>{saveOpenRoFilter(field,select);renderTable();})); ui.attentionFilter.addEventListener("change",renderTable); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; clearSavedOpenRoFilters(); saveRoDeviceView(); renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",markEditDraftDirty); ui.editForm.addEventListener("change",markEditDraftDirty); ui.editOwner.addEventListener("input",()=>{ui.editOwner.dataset.ownerAssignmentExplicit="true";}); window.addEventListener("beforeunload",guardUnsavedEditUnload); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(importAppointmentFile)); ui.appointmentDate.addEventListener("change", renderArrivals); ui.arrivalSearch.addEventListener("input", renderArrivals); ui.printArrivals.addEventListener("click", () => run(printPorterList)); ui.arrivalTimeline.addEventListener("change", (event) => { const select = event.target.closest("select[data-appointment-id]"); if (select) run(() => updateArrivalStatus(select.dataset.appointmentId, select.value)); }); ui.saveSettings.addEventListener("click", () => run(saveSettings)); const saveMeetingVoiceDraft=()=>{syncMeetingVoiceDraftSettings();queueSettingsAutosave();renderVoiceControlVisibility();};ui.meetingVoiceSurvey.addEventListener("change",()=>{previewMeetingVoiceSelection();saveMeetingVoiceDraft();});ui.meetingVoiceMode.addEventListener("change",saveMeetingVoiceDraft);ui.meetingVoiceSourceMethod.addEventListener("change",()=>{if(ui.meetingVoiceSourceMethod.value==="saved")previewMeetingVoiceSelection();else ui.meetingVoiceExcerpt.value=ui.meetingVoicePastedSource.value;saveMeetingVoiceDraft();});[ui.meetingVoicePastedSource,ui.meetingVoiceExcerpt,ui.meetingTeamMessage].forEach((field)=>field.addEventListener("input",saveMeetingVoiceDraft));ui.meetingVoiceUseFull.addEventListener("click",()=>{useFullMeetingVoice();saveMeetingVoiceDraft();}); ui.pinMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(true))); ui.clearMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(false)));
+  ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", handleWorkspaceRecoveryAction); ui.homeConnect.addEventListener("click", handleWorkspaceRecoveryAction); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input",renderTable); [["advisor",ui.advisorFilter],["sourceStatus",ui.sourceStatusFilter],["managementStatus",ui.managementStatusFilter]].forEach(([field,select])=>select.addEventListener("change",()=>{saveOpenRoFilter(field,select);renderTable();})); ui.attentionFilter.addEventListener("change",renderTable); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; clearSavedOpenRoFilters(); saveRoDeviceView(); renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",markEditDraftDirty); ui.editForm.addEventListener("change",markEditDraftDirty); ui.editOwner.addEventListener("input",()=>{ui.editOwner.dataset.ownerAssignmentExplicit="true";}); window.addEventListener("beforeunload",guardUnsavedEditUnload); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(async () => {
+    if(workspaceConnectionBusy||postConnectionScanBusy||workspaceRecoveryBusy)
+      throw new Error("Another Workspace operation is in progress. Retry the appointment import when it finishes.");
+    await importAppointmentFile();
+  })); ui.appointmentDate.addEventListener("change", renderArrivals); ui.arrivalSearch.addEventListener("input", renderArrivals); ui.printArrivals.addEventListener("click", () => run(printPorterList)); ui.arrivalTimeline.addEventListener("change", (event) => { const select = event.target.closest("select[data-appointment-id]"); if (select) run(() => updateArrivalStatus(select.dataset.appointmentId, select.value)); }); ui.saveSettings.addEventListener("click", () => run(saveSettings)); const saveMeetingVoiceDraft=()=>{syncMeetingVoiceDraftSettings();queueSettingsAutosave();renderVoiceControlVisibility();};ui.meetingVoiceSurvey.addEventListener("change",()=>{previewMeetingVoiceSelection();saveMeetingVoiceDraft();});ui.meetingVoiceMode.addEventListener("change",saveMeetingVoiceDraft);ui.meetingVoiceSourceMethod.addEventListener("change",()=>{if(ui.meetingVoiceSourceMethod.value==="saved")previewMeetingVoiceSelection();else ui.meetingVoiceExcerpt.value=ui.meetingVoicePastedSource.value;saveMeetingVoiceDraft();});[ui.meetingVoicePastedSource,ui.meetingVoiceExcerpt,ui.meetingTeamMessage].forEach((field)=>field.addEventListener("input",saveMeetingVoiceDraft));ui.meetingVoiceUseFull.addEventListener("click",()=>{useFullMeetingVoice();saveMeetingVoiceDraft();}); ui.pinMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(true))); ui.clearMeetingVoice.addEventListener("click", () => run(() => saveMeetingVoice(false)));
   ui.editDialog.addEventListener("cancel",(event)=>{if(model.openRoSaveInFlight){event.preventDefault();status("An Open RO save is waiting for the shared Workspace lock. Wait for it to finish before closing this editor.","error");return;}});
   ui.recentlyReviewed.addEventListener("click",()=>{ui.recentlyReviewedPanel.hidden=!ui.recentlyReviewedPanel.hidden;ui.recentlyReviewed.setAttribute("aria-expanded",String(!ui.recentlyReviewedPanel.hidden));if(!ui.recentlyReviewedPanel.hidden)renderRecentlyReviewed();});ui.recentlyReviewedPanel.addEventListener("click",(event)=>{const button=event.target.closest("button[data-recently-reviewed-id]");if(!button)return;ui.recentlyReviewedPanel.hidden=true;ui.recentlyReviewed.setAttribute("aria-expanded","false");openEdit(button.dataset.recentlyReviewedId,"recent");});
   ui.openFirstRecord.addEventListener("click", () => { const id = visibleRecordIds()[0]; if (id) openEdit(id); });
@@ -8621,7 +9337,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     },
     importFile: async function(file) {
       if (!model.root) throw new Error('Connect your Service Operations Dashboard folder first.');
-      if (folderWatch.busy || dailyImportBusy || appointmentImportBusy) throw new Error('Service Operations Dashboard is finishing another import. Try again in a moment.');
+      if (folderWatch.busy || dailyImportBusy || appointmentImportBusy || workspaceConnectionBusy || postConnectionScanBusy || workspaceRecoveryBusy)
+        throw new Error('Another Workspace operation is in progress. Retry the Daily import when it finishes.');
+      const requestedRoot=model.root;
       dailyImportBusy=true; const watchEnabled=folderWatchEnabled(); stopFolderWatch();
       try {
         const bytes=await file.arrayBuffer(), kind=await classifyImportFile(file.name,file,bytes);
@@ -8629,6 +9347,13 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         // Use a transient handle, never copy over or delete the selected source.
         dailyPickedSources.set(file.name,{getFile:async()=>file});
         await processClassifiedCandidate({name:file.name,location:'picked'},kind,bytes,false);
+        try { await completeExactReviewedInboxSource(file.name,kind,bytes,requestedRoot); }
+        catch(error) {
+          // A successful report import must not be misreported as failed if
+          // only this optional review-ledger reconciliation cannot be saved.
+          // The Inbox source is preserved and its review marker remains.
+          recordDiagnostic("REPORT INBOX",`Completed report import but source review marker was retained (${error.name||"Error"})`);
+        }
         dailyNotify('moondog-imported',{kind});
         return kind;
       } catch(error){if(/\.pdf$/i.test(file.name)){status(`PDF intake failed: ${error.message||error}. Source kept; retry or review Files To Learn.`,"error");recordDiagnostic("PDF INTAKE",error.name+": "+(error.message||error));}throw error;} finally { dailyPickedSources.clear(); dailyImportBusy=false; if(watchEnabled)startFolderWatch(); }
@@ -8674,7 +9399,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function initializeHousekeeping(){
     maintenanceEngine=MoonDogMaintenance.create(maintenanceIO,{
       recovery:()=>model.recovery,day:storeDateKey,inventoryComplete:true,
-      busy:()=>!writeAuthority.canWrite||!model.root||model.connectionState!=='CONNECTED'||maintenanceOperations>0||folderWatch.busy||dailyImportBusy||Boolean(document.fullscreenElement)||/Creating|Restoring/i.test(model.recovery.status||''),
+      busy:()=>!writeAuthority.canWrite||!model.root||model.connectionState!=='CONNECTED'||workspaceConnectionBusy||workspaceRecoveryBusy||maintenanceOperations>0||folderWatch.busy||dailyImportBusy||Boolean(document.fullscreenElement)||/Creating|Restoring/i.test(model.recovery.status||''),
       references:maintenanceReferences,currentWorkbook:()=>`exports/${model.settings.supervisorWorkbook?.filename||model.settings.exportName}`,
       ensureFolders:initializeFolders,
       checkpoint:async events=>{model.recovery.housekeeping={...(model.recovery.housekeeping||{}),events};await MoonDogMaintenance.safeWrite(maintenanceIO,'data/recovery.json',utf8(JSON.stringify(model.recovery,null,2)));},

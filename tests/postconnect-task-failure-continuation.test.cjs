@@ -2,11 +2,11 @@
 
 const test=require("node:test");
 const assert=require("node:assert/strict");
-const fs=require("node:fs");
+const readSource=require("./helpers/read-source.cjs");
 const path=require("node:path");
 const vm=require("node:vm");
 
-const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+const app=readSource(path.join(__dirname,"..","assets","app.js"));
 const start=app.indexOf("    const connectedRoot=model.root;");
 const end=app.indexOf("\n  }\n  async function postConnectReconciliation",start);
 assert.ok(start>=0&&end>start,"production post-connection scheduler is present");
@@ -22,8 +22,9 @@ test("a failed post-connect task releases the scan slot and does not starve late
   let context;
   const writeAuthority={canWrite:true};
   context=vm.createContext({
-    model,writeAuthority,workspaceConnectionBusy:false,postConnectionScanBusy:false,
+    model,writeAuthority,workspaceConnectionBusy:false,workspaceRecoveryBusy:false,postConnectionScanBusy:false,
     permissionWasPending:false,folderWatch:{busy:false},
+    dailyImportBusy:false,appointmentImportBusy:false,
     folderWatchScan:async reason=>{
       assert.equal(reason,"connection");
       calls.push("Report inbox");

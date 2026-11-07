@@ -23,18 +23,19 @@ function fixture(mode = "verified") {
   };
   const priorSnapshot = { ...structuredClone(snapshot), importedAt: "synthetic-prior-import" };
   const old = { menu: { snapshots: { "2026-10-19": priorSnapshot } }, updatedAt: "prior-time" };
-  const model = { operationalMetrics: structuredClone(old) };
+  const model = { root: {}, operationalMetrics: structuredClone(old) };
   const events = [];
   let persisted = null;
   const ctx = {
     model, structuredClone,
     OPERATIONAL_METRICS_PATH: ["data", "operational-metrics.json"],
-    sourceFileHandle: async () => ({ getFile: async () => ({ arrayBuffer: async () => new ArrayBuffer(2) }) }),
+    sourceFileHandle: async () => ({ getFile: async () => ({ arrayBuffer: async () => { if (mode === 'stale-root') model.root = {}; return new ArrayBuffer(2); } }) }),
     parseMenuSalesWorkbook: () => structuredClone(snapshot),
     pruneDatedSnapshots: value => value,
     now: () => "2026-10-21T12:00:00Z",
     writeJson: async (file, value) => {
       events.push("write");
+      if (mode === "publication-order") assert.deepEqual(model.operationalMetrics, old);
       if (mode === "write-denied") throw new Error("synthetic write denied");
       persisted = structuredClone(value);
     },
@@ -90,8 +91,22 @@ for (const [mode, message] of [
   });
 }
 
+test("Menu Sales does not expose unverified values during the durable write", async () => {
+  const f = fixture("publication-order");
+  await f.run();
+  assert.deepEqual(f.model.operationalMetrics.menu.snapshots["2026-10-19"], f.snapshot);
+});
+
+test("Menu Sales refuses a changed root before writing or deleting the original", async () => {
+  const f = fixture("stale-root");
+  await assert.rejects(f.run(), /changed during Menu Sales preparation/);
+  assert.deepEqual(f.model.operationalMetrics, f.old);
+  assert.deepEqual(f.events, []);
+});
+
 test("Menu Sales persistence safety change stays localized and syntax-valid", () => {
   new vm.Script(app);
-  assert.match(importer, /JSON\.stringify\(check\?\.menu\?\.snapshots\?\.\[snapshot\.releaseWeek\]\)/);
-  assert.match(importer, /model\.operationalMetrics = priorMetrics/);
+  const verified = importer.indexOf("JSON.stringify(check) !== JSON.stringify(candidate)");
+  const published = importer.indexOf("model.operationalMetrics = candidate");
+  assert.ok(verified >= 0 && published > verified);
 });

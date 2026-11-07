@@ -16,11 +16,12 @@ function fixture({failBackup=false,failWrite=false,mismatchReadback=false}={}){
   const month="2026-09",original={schemaVersion:2,status:"locked",lockedAt:"original-lock",basis:{saprPeriodEnd:"2026-09-30"},advisors:{}},candidate={schemaVersion:2,status:"locked",lockedAt:"new-lock",basis:{saprPeriodEnd:"2026-09-30"},advisors:{"123":{name:"Synthetic Advisor",metrics:{syntheticValue:0.75}}}};
   const model={operationalMetrics:{updatedAt:"prior-update",monthlySummaries:{[month]:original}}};
   const events=[];
+  let durable=structuredClone(model.operationalMetrics);
   const context={
     model,window:{confirm:()=>true},OPERATIONAL_METRICS_PATH:["data","operational-metrics.json"],
     monthEndCorrectionCandidate:()=>structuredClone(candidate),stamp:()=>"2026-10-21T12-00-00-000Z",now:()=>"2026-10-21T12:00:00Z",
-    writeJson:async(parts)=>{const key=parts.join("/");events.push(["write",key]);if(key.startsWith("backups/")&&failBackup)throw Error("synthetic backup failure");if(key==="data/operational-metrics.json"&&failWrite)throw Error("synthetic operational-metrics write failure");},
-    readJson:async()=>mismatchReadback?{monthlySummaries:{[month]:{status:"locked",lockedAt:"other"}}}:structuredClone(model.operationalMetrics),
+    writeJson:async(parts,value)=>{const key=parts.join("/");events.push(["write",key]);if(key.startsWith("backups/")&&failBackup)throw Error("synthetic backup failure");if(key==="data/operational-metrics.json"&&failWrite)throw Error("synthetic operational-metrics write failure");if(key==="data/operational-metrics.json")durable=structuredClone(value);},
+    readJson:async()=>mismatchReadback?{monthlySummaries:{[month]:{status:"locked",lockedAt:"other"}}}:structuredClone(durable),
     addHistory:async(type)=>events.push(["history",type]),renderAll:()=>events.push(["render"])
   };
   const apply=vm.runInNewContext(app.slice(start,end)+"\nglobalThis.apply=applyMonthEndCorrection;",context);

@@ -1,5 +1,269 @@
 # Changelog
 
+## 0.10.18-beta.393 — current Beta
+
+- fix(789): recheck Fresh journal after transient read failure. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.392 — current Beta
+
+- feat(789): two-choice Beta updater and isolated Fresh Installation candidate. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.391 — current Beta
+
+- feat(789): two-choice Beta updater and isolated Fresh Installation candidate. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.390 — current Beta
+
+- feat(789): two-choice Beta updater and isolated Fresh Installation candidate. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.389 — current Beta
+
+- feat(789): two-choice Beta updater and isolated Fresh Installation candidate. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.388 — current Beta
+
+- feat(789): two-choice Beta updater and isolated Fresh Installation candidate. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.387 — current Beta
+
+- feat(789): two-choice Beta updater and isolated Fresh Installation candidate. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.386 — current Beta
+
+- feat(789): two-choice Beta updater and isolated Fresh Installation candidate. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.385 — current Beta
+
+- feat(789): two-choice Beta updater and isolated Fresh Installation candidate. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.384 — current Beta
+
+- feat(789): two-choice Beta updater and isolated Fresh Installation candidate. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.383 — current Beta
+
+- feat(789): two-choice Beta updater and isolated Fresh Installation candidate. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.382 — current Beta
+
+- feat(789): two-choice Beta updater and isolated Fresh Installation candidate. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.381 — current Beta
+
+- feat(789): visible update progress and stall detection (first stage). Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.380 — current Beta
+
+- feat(789): visible update progress and stall detection (first stage). Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.379 — current Beta
+
+- feat(789): visible update progress and stall detection (first stage). Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.378 — current Beta
+
+- feat(789): visible update progress and stall detection (first stage). Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.377 — current Beta
+
+- feat(789): visible update progress and stall detection (first stage). Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.376 — current Beta
+
+- feat(789): visible update progress and stall detection (first stage). Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.375 — current Beta
+
+- feat(789): visible update progress and stall detection (first stage). Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.374 — current Beta
+
+- Fix new-store reset backup picker blocked by lost user activation. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.373 — current Beta
+
+- Enable clean new-store setup when a copied Workspace is recovery-locked. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.372 — current Beta
+
+- Enable clean new-store setup when a copied Workspace is recovery-locked. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.371 — current Beta
+
+- Enable clean new-store setup when a copied Workspace is recovery-locked. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.370 — current Beta
+
+- Show new-store preparation failures in the handoff panel. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.369 — current Beta
+
+- Show new-store preparation failures in the handoff panel. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.368 — current Beta
+
+- Guard Next Appointments durability and prove CSI restore lineage. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.367 — current Beta
+
+- Guard VIR observation publication on durable Workspace readback. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.366 — current Beta
+
+- guard(59): verify Menu Sales durability and expand source roundtrip evidence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.365 — current Beta
+
+- guard(59): verify manager report persistence before publishing source values. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.364 — current Beta
+
+- guard(59-03): coordinate source intake with manager recovery. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.363 — current Beta
+
+- guard(59-01): require dealership review for unsigned Arrivals reports. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.362 — current Beta
+
+- guard(59-01): require dealership review for unsigned Arrivals reports. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.361 — current Beta
+
+- guard(59-03): coordinate housekeeping with reconnect and recovery. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.360 — current Beta
+
+- guard(59-03): exclude workbook and manager recovery operations. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.359 — current Beta
+
+- guard(59): retain Workspace authority through restore and month correction. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.358 — current Beta
+
+- guard(59): isolate Efficiency store rows and direct Arrivals import. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.357 — current Beta
+
+- guard(59): isolate Efficiency store rows and direct Arrivals import. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.356 — current Beta
+
+- guard(59): isolate Efficiency store rows and direct Arrivals import. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.355 — current Beta
+
+- guard(59-03): serialize manager backup with Workspace reconnection. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.354 — current Beta
+
+- guard(59-03): exclude Daily import during Workspace reconnection. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.353 — current Beta
+
+- fix(59-01): close exact-byte-reviewed Inbox source without replaying the original. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.352 — current Beta
+
+- guard(59-01): confirm unsigned VIR and Next Appointments source stores together. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.351 — current Beta
+
+- guard(59-01): confirm unsigned VIR and Next Appointments source stores together. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.350 — current Beta
+
+- guard(59-01): confirm unsigned VIR and Next Appointments source stores together. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.349 — current Beta
 
 - guard(59-01): require manager source confirmation for unsigned CSI imports. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

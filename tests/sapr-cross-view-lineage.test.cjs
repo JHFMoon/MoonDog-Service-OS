@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { hydrateWorkspace, backupFunctions } = require("./helpers/workspace-source-roundtrip.cjs");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
 const freshnessSource = fs.readFileSync(path.join(__dirname, "..", "assets", "freshness.js"), "utf8");
@@ -16,6 +17,7 @@ function extract(startToken, endToken, label) {
   return app.slice(start, end);
 }
 
+const saprParser = extract("  function performanceNumber(", "  function prunePerformanceSnapshots(", "SAPR parser");
 const historyWriter = extract("  async function addHistory(", "  function migrateOpenRoFieldIdentity(", "SAPR production history writer");
 const importer = extract("  async function importPerformanceFile(", "  function performanceFormat(", "SAPR importer");
 const entity = extract("  function performanceEntity(", "  function performanceDelta(", "SAPR entity selector");
@@ -40,29 +42,36 @@ function node() {
     before() {}
   };
 }
-const syntheticSnapshot = {
-  date: "2026-10-21",
-  periodStart: "2026-10-01",
-  periodEnd: "2026-10-21",
-  sourceFile: "synthetic-sapr.xlsx",
-  sourceStoreConfidence: "configured-destination-only",
-  saprDaysCompleted: 8,
-  saprTotalDays: 22,
-  validation: { advisorDetailSheets: 1, saprDaysVerified: true, finalTotalsVerified: true },
-  store: {
-    name: "Synthetic Store", totalGross: 2437, totalRO: 10, grossPerRo: 243.7, open: 2, aged: 1
-  },
-  advisors: {
-    "SYN-01": {
-      code: "SYN-01", name: "Synthetic Advisor", totalGross: 2437,
-      totalRO: 10, grossPerRo: 243.7,
-      laborMargin: 10, partsMargin: 20, open: 2, aged: 1
-    }
-  }
-};
+const filename = "synthetic-sapr.xlsx";
+function saprWorkbook() {
+  const metrics = [
+    ["Days Completed 8 out of 22"],
+    ["Total Gross", 1600, null, null, null, null, 2437],
+    ["Total Revenue", 4000, null, null, null, null, 6000],
+    ["RO Count", 8, null, null, null, null, 10],
+    ["Hours per RO", 2],
+    ["ELR", 200],
+  ];
+  const benchmark = label => [label, ...Array.from({ length: 7 }, () =>
+    [25, 30, 40, null, null]).flat()];
+  return {
+    SheetNames: ["Store", "Advisor", "Controllables"],
+    Sheets: {
+      Store: [["Service Advisor Performance From 10/01/2026 to 10/21/2026"], ...metrics],
+      Advisor: [["Synthetic Advisor [SYN-01]"], ...metrics],
+      Controllables: [[], ["Tires", "Brakes"], [], [], [],
+        benchmark("Synthetic Store"), benchmark("Synthetic Advisor [SYN-01]")],
+    },
+  };
+}
 
-test("one synthetic SAPR snapshot keeps its period and working-day basis across import, Performance, Meeting, and production history", async () => {
-  const model = { performance: { snapshots: {}, updatedAt: null } };
+test("one synthetic SAPR snapshot keeps its period and working-day basis across import, backup, hydration, Performance, Meeting, and production history", async () => {
+  const model = {
+    root: {}, state: { records: [{ id: "synthetic-sapr-ro" }], closedRecords: [] },
+    settings: { schemaVersion: 4, store: { code: "9001", name: "Synthetic Dodge" } },
+    appointments: { days: {} }, performance: { snapshots: {}, updatedAt: null }, assignNext: { days: {} },
+    autoImport: { seen: {} }, operationalMetrics: { csi: {} }, meetingCycle: { metrics: {} }
+  };
   let durable = null;
   const ui = Object.fromEntries([
     "performanceAdvisor", "performanceMetric", "performancePeriod", "performanceSource",
@@ -78,17 +87,21 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
   const context = vm.createContext({
     model, ui, structuredClone, sourceLocations: new Map(),
     window:{confirm:()=>true},
-    PERFORMANCE_PATH: ["data", "performance.json"],
+    PERFORMANCE_PATH: ["data", "advisor-performance.json"],
     dailyPickedSources: new Set(["synthetic-sapr.xlsx"]),
     now: () => "2026-10-22T12:00:00Z",
-    parsePerformanceWorkbook: () => structuredClone(syntheticSnapshot),
+    XLSX: { read: saprWorkbook, utils: { sheet_to_json: rows => rows } },
+    ADVISOR_NAMES: { "SYN-01": "Synthetic Advisor" },
+    text: value => String(value ?? ""),
+    norm: value => String(value ?? "").trim().toLowerCase(),
+    storeRowPattern: () => /^Synthetic Store$/,
     prunePerformanceSnapshots: snapshots => snapshots,
     stamp: () => "2026-10-22T12-00-00Z",
     slug: value => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
     recordDiagnostic: () => {},
     writeJson: async (targetPath, value) => {
       const destination = targetPath.join("/");
-      if (destination === "data/performance.json") {
+      if (destination === "data/advisor-performance.json") {
         persistenceEvents.push("write");
         durable = structuredClone(value);
       } else if (destination.startsWith("data/history/")) {
@@ -99,7 +112,7 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
       }
     },
     readJson: async targetPath => {
-      assert.equal(targetPath.join("/"), "data/performance.json");
+      assert.equal(targetPath.join("/"), "data/advisor-performance.json");
       persistenceEvents.push("readback");
       return structuredClone(durable);
     },
@@ -121,7 +134,7 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
     lastDayOfMonth: month => month + "-31",
     localDateKey: () => "2026-10-22",
     businessTimeZone: () => "America/Los_Angeles",
-    freshness: { timeParts: () => ({ hour: 12 }) },
+    freshness: { ...require("../assets/freshness.js"), timeParts: () => ({ hour: 12 }) },
     standard: key => key === "cpElr" ? 150 : key === "cpHoursPerRo" ? 1.8 : key === "mediaViewed" ? 80 : key === "texting" ? 90 : 0,
     shortDate: value => value === "2026-10-21" ? "Oct 21" : String(value || ""),
     compactMoney: value => "$" + Math.round(value / 1000) + "K",
@@ -137,14 +150,19 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
     console
   });
   vm.runInContext([
-    historyWriter, importer, entity, delta, plan, saprSnapshotSelector, performanceView, meeting,
+    saprParser, historyWriter, importer, entity, delta, plan, saprSnapshotSelector, performanceView, meeting,
     "this.api = { importPerformanceFile, performanceEntity, performancePlan, renderPerformance, meetingAdvisorTv };"
   ].join("\n"), context);
 
-  await context.api.importPerformanceFile("synthetic-sapr.xlsx", false, new ArrayBuffer(8));
+  await context.api.importPerformanceFile(filename, false, new ArrayBuffer(8));
 
-  assert.equal(JSON.stringify(durable.snapshots["2026-10-21"]), JSON.stringify(syntheticSnapshot),
-    "the verified SAPR snapshot and its source period must survive durable read-back");
+  const saved = durable.snapshots["2026-10-21"];
+  assert.equal(saved.periodStart, "2026-10-01");
+  assert.equal(saved.periodEnd, "2026-10-21");
+  assert.equal(saved.sourceStoreConfidence, "configured-destination-only");
+  assert.equal(saved.store.totalGross, 2437);
+  assert.equal(saved.controllables.advisors["SYN-01"].tires.eligibleVins, 8);
+  assert.equal(saved.controllables.advisors["SYN-01"].tires.soldVins, 2);
   assert.deepEqual(persistenceEvents, ["write", "readback", "history"],
     "a SAPR import must enter durable audit history only after its snapshot is verified");
   assert.deepEqual(JSON.parse(JSON.stringify(history)), [{
@@ -155,13 +173,25 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
     summary: "Added performance snapshot for 2026-10-21",
     details: { date: "2026-10-21", periodStart: "2026-10-01", periodEnd: "2026-10-21", fileName: "synthetic-sapr.xlsx", advisors: 1, rawCopyRetained: false }
   }], "the actual production history writer must persist report date, exact source period, source identity, and copy policy only after durable performance read-back");
+  const archive = backupFunctions(app, model, "2026-10-22");
+  const { bytes } = await archive.createBackupBytes("Synthetic SAPR");
+  const { values } = await archive.validateBackupBytes(bytes);
+  assert.equal(JSON.stringify(values["data/advisor-performance.json"]), JSON.stringify(durable));
+  assert.throws(() => archive.verifyBackupStoreOwnership(
+    { store: { code: "1002", name: "Synthetic BMW" } }, values["data/settings.json"], true
+  ), /does not match Guided Setup/);
+  const files = new Map(Object.entries(values).map(([name, value]) => [name, JSON.stringify(value)]));
+  const restored = await hydrateWorkspace(app, files, {});
+  model.performance = restored.performance;
+  chartPoints.length = 0;
+  context.api.renderPerformance();
   assert.equal(ui.performancePeriod.textContent, "2026-10-01 through 2026-10-21",
     "Performance must show the exact imported reporting period");
   assert.match(ui.performanceSource.textContent, /synthetic-sapr\.xlsx/);
   assert.equal(JSON.stringify(chartPoints), JSON.stringify([{ date: "2026-10-21", value: 2437 }]),
     "Performance trend must use the same imported snapshot and report-end date");
 
-  const persisted = durable.snapshots["2026-10-21"];
+  const persisted = restored.performance.snapshots["2026-10-21"];
   const storeEntity = context.api.performanceEntity(persisted, "store");
   const projection = context.api.performancePlan(persisted, storeEntity, null);
   assert.equal(projection.completed, 8);
@@ -214,7 +244,7 @@ test("one synthetic SAPR snapshot keeps its period and working-day basis across 
       meeting: {},
       advisors: {}
     },
-    performance: { snapshots: structuredClone(durable.snapshots) },
+    performance: { snapshots: structuredClone(restored.performance.snapshots) },
     appointments: { days: {} },
     operationalMetrics: {
       nextAppointments: { snapshots: {} },
