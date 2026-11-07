@@ -865,7 +865,8 @@
     if (state === "SAVED HANDLE UNAVAILABLE") { ui.permissionBadge.textContent = "Folder not connected"; ui.connectButton.textContent = "Choose working folder"; ui.connectButton.disabled = false; }
     if (state === "CONNECTION ERROR") {
       ui.permissionBadge.textContent = "Connection error";
-      ui.connectButton.textContent = model.pendingRoot ? "Retry saved folder" : "Choose working folder";
+      ui.connectButton.textContent = model.pendingRoot&&model.pendingRoot===model.freshResetRecoveryRoot ?
+        "Review interrupted Fresh reset" : model.pendingRoot ? "Retry saved folder" : "Choose working folder";
       ui.connectButton.disabled = false;
     }
     if (state === "CONNECTED") {
@@ -1354,7 +1355,118 @@
       if(error?.name!=="NotFoundError")throw error;
       return system.getDirectoryHandle(WORKSPACE_PREFIX[1],{create:false});
     }
-    throw new Error("Fresh Installation cleanup is incomplete for this copy. Normal data loading is blocked until its recovery is reviewed.");
+    const error=new Error("Fresh Installation cleanup is incomplete for this copy. Normal data loading is blocked until its recovery is reviewed.");
+    error.code="FRESH_RESET_INCOMPLETE";
+    throw error;
+  }
+  // This path is only called after an explicit recovery click. Startup and
+  // saved-folder reconnection always fail closed on an interrupted reset.
+  async function resumeInterruptedFreshInstallation(){
+    const root=model.pendingRoot;
+    if(!root||root!==model.freshResetRecoveryRoot||model.root||model.applicationRoot||
+       connectedNativeRoot||newStoreBusy||workspaceConnectionBusy||workspaceRecoveryBusy||
+       workspaceConnectionBlockReason())
+      throw new Error("Finish other Workspace operations before recovering an interrupted Fresh reset.");
+    if(typeof root.isSameEntry!=="function"||typeof root.resolve!=="function")
+      throw new Error("The selected installation handle cannot be verified.");
+    let granted=await root.queryPermission({mode:"readwrite"});
+    if(granted!=="granted"&&typeof root.requestPermission==="function")
+      granted=await root.requestPermission({mode:"readwrite"});
+    if(granted!=="granted")throw new Error("Read/write access is required for interrupted Fresh recovery.");
+    const system=await root.getDirectoryHandle("System Files",{create:false});
+    await system.getFileHandle("index.html",{create:false});
+    const workspace=await system.getDirectoryHandle("Workspace",{create:false});
+    const path=await root.resolve(workspace);
+    if(!Array.isArray(path)||path.length!==2||path[0]!=="System Files"||path[1]!=="Workspace")
+      throw new Error("The exact selected Workspace boundary could not be verified.");
+    const readIntent=async()=>{
+      const marker=await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+      let value;
+      try{value=JSON.parse(await(await marker.getFile()).text());}
+      catch(_){throw new Error("Unreadable interrupted Fresh marker requires manual support review.");}
+      if(value?.schemaVersion!==1||value.status!=="incomplete"||
+        !/^\d+\.\d+\.\d+-beta\.\d+$/.test(value.version||"")||
+        !/^[a-f0-9]{64}$/.test(value.sha256||"")||
+        !/^MoonDog-Update-Backup-[A-Za-z0-9-]+$/.test(value.backupName||""))
+        throw new Error("Invalid interrupted Fresh marker requires manual support review.");
+      return value;
+    };
+    const intent=await readIntent(),expected=JSON.stringify(intent);
+    const sameTarget=async()=>{
+      if(model.pendingRoot!==root||model.freshResetRecoveryRoot!==root||
+         model.root||model.applicationRoot||connectedNativeRoot||
+         !(await root.isSameEntry(model.pendingRoot)))
+        throw new Error("The selected installation changed; incomplete Fresh remains blocked.");
+      if(await root.queryPermission({mode:"readwrite"})!=="granted")
+        throw new Error("Write access was lost; incomplete Fresh remains blocked.");
+      if(JSON.stringify(await readIntent())!==expected)
+        throw new Error("The durable reset marker changed; incomplete Fresh remains blocked.");
+    };
+    // A nested MoonDog launcher must never be deleted as a recovery shortcut.
+    let scanned=0;
+    async function scan(dir){
+      for await(const [name,item] of dir.entries()){
+        if(++scanned>100000)throw new Error("The incomplete Workspace cannot be inspected safely.");
+        if(name==="00 - OPEN DASHBOARD.html"||name==="System Files")
+          throw new Error("A nested installation requires manual support review.");
+        if(item.kind==="directory")await scan(item);
+      }
+    }
+    await scan(workspace);await sameTarget();
+    const name=root.name||"selected MoonDog installation";
+    if(typeof globalThis.confirm!=="function"||!globalThis.confirm(
+      "RESUME INTERRUPTED FRESH? The selected copy "+name+
+      " is already incomplete. Continuing permanently removes all remaining Workspace data."))
+      return {status:"cancelled"};
+    if(!globalThis.confirm("FINAL IRREVERSIBLE CONFIRMATION: finish clearing the incomplete Workspace in "+
+      name+" with no external backup? Previously deleted data cannot be restored by this step."))
+      return {status:"cancelled"};
+    await sameTarget();
+    if(newStoreBusy||workspaceConnectionBusy||workspaceRecoveryBusy||workspaceConnectionBlockReason())
+      throw new Error("Another Workspace operation started; incomplete Fresh remains blocked.");
+    newStoreBusy=true;workspaceRecoveryBusy=true;stopFolderWatch("WATCH OFF");
+    try{
+      // Existing hold stays OUTSIDE Workspace until full clean-state readback.
+      const entries=[];for await(const [entry] of workspace.entries())entries.push(entry);
+      for(const entry of entries){await sameTarget();await workspace.removeEntry(entry,{recursive:true});}
+      for await(const _ of workspace.entries())
+        throw new Error("Workspace changed during interrupted Fresh recovery.");
+      const data=await workspace.getDirectoryHandle("data",{create:true});
+      const defaults=freshProductState();
+      defaults["data/current-state.json"].appVersion=intent.version;
+      const recovery={schemaVersion:1,lastSuccessfulConnectionAt:"",lastBackup:null,
+        lastRestore:null,status:"Fresh installation requires Guided Setup"};
+      const records={...defaults,"data/recovery.json":recovery};
+      for(const [relative,value] of Object.entries(records)){
+        await sameTarget();
+        const parts=relative.split("/");
+        if(parts.length!==2||parts[0]!=="data")throw new Error("Invalid fresh state path.");
+        const file=await data.getFileHandle(parts[1],{create:true});
+        const writable=await file.createWritable();
+        try{await writable.write(JSON.stringify(value,null,2)+"\n");await writable.close();}
+        catch(error){try{await writable.abort();}catch(_){}throw error;}
+        if(JSON.stringify(JSON.parse(await(await file.getFile()).text()))!==JSON.stringify(value))
+          throw new Error("Fresh recovery readback failed: "+relative);
+      }
+      const names=[];for await(const [entry] of workspace.entries())names.push(entry);
+      if(names.length!==1||names[0]!=="data")
+        throw new Error("Residual store data remains after interrupted Fresh recovery.");
+      const actual=[];for await(const [entry] of data.entries())actual.push(entry);
+      const allowed=Object.keys(records).map(x=>x.split("/")[1]).sort();
+      if(JSON.stringify(actual.sort())!==JSON.stringify(allowed))
+        throw new Error("Missing defaults or unexpected files after interrupted Fresh recovery.");
+      await sameTarget();
+      await system.removeEntry(FRESH_RESET_MARKER);
+      try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
+        throw new Error("Fresh recovery hold removal did not verify.");}
+      catch(error){if(error?.name!=="NotFoundError")throw error;}
+      model.freshResetRecoveryRoot=null;
+      // User reconnects explicitly; normal connection revalidates new defaults.
+      return {status:"fresh",installationName:name};
+    }catch(error){
+      throw new Error("Interrupted Fresh recovery is incomplete; normal connection remains blocked. "+
+        (error?.message||String(error)));
+    }finally{workspaceRecoveryBusy=false;newStoreBusy=false;}
   }
   function wrapOperationalRoot(handle) { return writeAuthority.wrapDirectory(handle, WORKSPACE_PREFIX.join("/")); }
   async function directory(path, create = true) { let current = model.root; for (const part of path) current = await current.getDirectoryHandle(part, { create }); return current; }
@@ -1838,6 +1950,7 @@
         if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){
           writeAuthority.disable();
           model.pendingRoot=pendingRoot;
+          model.freshResetRecoveryRoot=error?.code==="FRESH_RESET_INCOMPLETE"?pendingRoot:null;
           if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){
             model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;
           }
@@ -1864,6 +1977,7 @@
           model.workspaceConnectionCommittedRoot=null;
         }
         model.pendingRoot=handle;
+        model.freshResetRecoveryRoot=error?.code==="FRESH_RESET_INCOMPLETE"?handle:null;
         let handleStored=true;
         try{await rememberRoot(handle);}catch(_){handleStored=false;/* in-memory retry remains available */}
         const storageNote=handleStored?"The selected handle and files are retained.":"The handle remains available in this tab, but browser storage could not persist it; after a browser restart you may need to choose this folder again.";
@@ -1920,6 +2034,13 @@
     },delay);
   }
   function handleWorkspaceRecoveryAction(){
+    if(model.pendingRoot&&model.pendingRoot===model.freshResetRecoveryRoot)
+      return run(async()=>{
+        const result=await resumeInterruptedFreshInstallation();
+        if(result.status==="fresh")
+          setConnectionState("SAVED HANDLE UNAVAILABLE",
+            "Interrupted Fresh recovery finished. Click Choose working folder to reconnect and verify Guided Setup.");
+      });
     if(["PENDING_TRANSACTION","INTERRUPTED_RESTORE"].includes(writeAuthority.reason)){
       navigateTo("settings");
       setTimeout(()=>ui.backupRecoverySection?.scrollIntoView?.({behavior:"smooth",block:"start"}),0);
@@ -1944,6 +2065,7 @@
       // An overlapping restore must not revoke authority for the active connection.
       if(error?.code==="WORKSPACE_CONNECTION_BUSY")return;
       model.pendingRoot=handle;
+      model.freshResetRecoveryRoot=error?.code==="FRESH_RESET_INCOMPLETE"?handle:null;
       if(transientWorkspaceState(error)){
         writeAuthority.disable();
         if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;}
@@ -8781,7 +8903,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.attentionFilter.value="";clearSavedOpenRoFilters();
     applyRoDensity();saveRoDeviceView();renderTable();
   });
-  ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", handleWorkspaceRecoveryAction); ui.homeConnect.addEventListener("click", () => run(connect)); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input",renderTable); [["advisor",ui.advisorFilter],["sourceStatus",ui.sourceStatusFilter],["managementStatus",ui.managementStatusFilter]].forEach(([field,select])=>select.addEventListener("change",()=>{saveOpenRoFilter(field,select);renderTable();})); ui.attentionFilter.addEventListener("change",renderTable); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; clearSavedOpenRoFilters(); saveRoDeviceView(); renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",markEditDraftDirty); ui.editForm.addEventListener("change",markEditDraftDirty); ui.editOwner.addEventListener("input",()=>{ui.editOwner.dataset.ownerAssignmentExplicit="true";}); window.addEventListener("beforeunload",guardUnsavedEditUnload); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(async () => {
+  ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", handleWorkspaceRecoveryAction); ui.homeConnect.addEventListener("click", handleWorkspaceRecoveryAction); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input",renderTable); [["advisor",ui.advisorFilter],["sourceStatus",ui.sourceStatusFilter],["managementStatus",ui.managementStatusFilter]].forEach(([field,select])=>select.addEventListener("change",()=>{saveOpenRoFilter(field,select);renderTable();})); ui.attentionFilter.addEventListener("change",renderTable); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; clearSavedOpenRoFilters(); saveRoDeviceView(); renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",markEditDraftDirty); ui.editForm.addEventListener("change",markEditDraftDirty); ui.editOwner.addEventListener("input",()=>{ui.editOwner.dataset.ownerAssignmentExplicit="true";}); window.addEventListener("beforeunload",guardUnsavedEditUnload); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(async () => {
     if(workspaceConnectionBusy||postConnectionScanBusy||workspaceRecoveryBusy)
       throw new Error("Another Workspace operation is in progress. Retry the appointment import when it finishes.");
     await importAppointmentFile();

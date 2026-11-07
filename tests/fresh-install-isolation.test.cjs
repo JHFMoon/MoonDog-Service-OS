@@ -292,3 +292,98 @@ test("write authority revoked mid-delete leaves the selected copy locked and oth
   assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
   assert.equal(h.events.includes("navigate:setup"),false);
 });
+
+function reopenForInterruptedFresh(h,answers=[true,true]){
+  const prompts=[];
+  const context=vm.createContext({
+    WORKSPACE_PREFIX:["System Files","Workspace"],
+    model:{root:null,applicationRoot:null,pendingRoot:h.storeB,freshResetRecoveryRoot:h.storeB},
+    connectedNativeRoot:null,FRESH_RESET_MARKER:"MOONDOG_FRESH_RESET_PENDING.json",
+    newStoreBusy:false,workspaceConnectionBusy:false,workspaceRecoveryBusy:false,
+    workspaceConnectionBlockReason:()=>"",stopFolderWatch:()=>{},freshProductState:defaults,
+    confirm:message=>{prompts.push(message);return answers.shift()===true;}
+  });
+  const start=app.indexOf("  async function operationalRoot(handle) {");
+  const stop=app.indexOf("  function wrapOperationalRoot",start);
+  assert.ok(start>=0&&stop>start);
+  vm.runInContext(app.slice(start,stop)+
+    "\nglobalThis.resume=resumeInterruptedFreshInstallation;globalThis.reopen=operationalRoot;",context);
+  return {context,prompts,resume:()=>context.resume()};
+}
+async function interruptedCopy(){
+  const h=await harness(),original=h.wsB.removeEntry;
+  h.wsB.removeEntry=async(name,options)=>{
+    if(name==="backups")throw Error("synthetic deletion interruption");
+    return original(name,options);
+  };
+  await assert.rejects(h.reset(),/durable recovery hold/);
+  h.wsB.removeEntry=original;
+  return h;
+}
+test("new browser context resumes only interrupted copy B, reopens clean; copy A and runtime unchanged",async()=>{
+  const h=await interruptedCopy(),before=await get(h.storeA,prefix+"data/settings.json");
+  const runtime=await get(h.storeB,"System Files/index.html");
+  const r=reopenForInterruptedFresh(h),result=await r.resume();
+  assert.equal(result.status,"fresh");
+  assert.equal(r.prompts.length,2);
+  assert.equal(await get(h.storeA,prefix+"data/settings.json"),before);
+  assert.equal(await get(h.storeB,"System Files/index.html"),runtime);
+  assert.equal(JSON.parse(await get(h.storeB,prefix+"data/settings.json")).store.name,"");
+  assert.deepEqual(JSON.parse(await get(h.storeB,prefix+"data/current-state.json")).records,[]);
+  await assert.rejects(get(h.storeB,"System Files/MOONDOG_FRESH_RESET_PENDING.json"));
+  assert.equal(await r.context.reopen(h.storeB),h.wsB);
+  assert.equal(r.context.model.freshResetRecoveryRoot,null);
+});
+test("same-name wrong store is refused without any warning or writes",async()=>{
+  const h=await interruptedCopy(),r=reopenForInterruptedFresh(h);
+  r.context.model.pendingRoot=h.storeA;
+  await assert.rejects(r.resume(),/Finish other Workspace operations/);
+  assert.equal(r.prompts.length,0);
+  assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
+  assert.match(await get(h.storeB,"System Files/MOONDOG_FRESH_RESET_PENDING.json"),/"incomplete"/);
+});
+test("declining either of two recovery confirmations retains hold after browser restart",async()=>{
+  for(const first of [false,true]){
+    const h=await interruptedCopy(),r=reopenForInterruptedFresh(h,first?[true,false]:[false,true]);
+    const result=await r.resume();
+    assert.equal(result.status,"cancelled");
+    assert.equal(r.prompts.length,first?2:1);
+    assert.match(await get(h.storeB,"System Files/MOONDOG_FRESH_RESET_PENDING.json"),/"incomplete"/);
+  }
+});
+test("corrupted durable marker cannot authorize resumed deletion",async()=>{
+  const h=await interruptedCopy();
+  await put(h.storeB,"System Files/MOONDOG_FRESH_RESET_PENDING.json",
+    JSON.stringify({schemaVersion:1,status:"incomplete",sha256:"invalid"}));
+  const r=reopenForInterruptedFresh(h);
+  await assert.rejects(r.resume(),/Invalid interrupted Fresh marker/);
+  assert.equal(r.prompts.length,0);
+});
+test("concurrent report resurrection during resumed reset retains the marker",async()=>{
+  const h=await interruptedCopy(),original=h.wsB.getDirectoryHandle;
+  let injected=false;
+  h.wsB.getDirectoryHandle=async(name,opts)=>{
+    const directory=await original(name,opts);
+    if(name==="data"&&opts?.create&&!injected){
+      injected=true;
+      await put(h.wsB,"01 - DROP REPORTS HERE/late.csv","synthetic");
+    }
+    return directory;
+  };
+  const r=reopenForInterruptedFresh(h);
+  await assert.rejects(r.resume(),/incomplete/);
+  assert.equal(injected,true);
+  assert.match(await get(h.storeB,"System Files/MOONDOG_FRESH_RESET_PENDING.json"),/"incomplete"/);
+  assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
+});
+test("permission loss during resumed deletion retains hold and protects other store",async()=>{
+  const h=await interruptedCopy(),original=h.wsB.removeEntry;
+  h.wsB.removeEntry=async(name,opts)=>{
+    await original(name,opts);
+    h.storeB.queryPermission=async()=> "denied";
+  };
+  const r=reopenForInterruptedFresh(h);
+  await assert.rejects(r.resume(),/incomplete/);
+  assert.match(await get(h.storeB,"System Files/MOONDOG_FRESH_RESET_PENDING.json"),/"incomplete"/);
+  assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
+});
