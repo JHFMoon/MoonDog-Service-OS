@@ -259,3 +259,36 @@ test("a pre-existing interrupted-reset marker refuses a second deletion before w
   assert.equal(await get(h.storeB,prefix+"backups/internal.zip"),"synthetic-private-backup");
   assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
 });
+
+test("a concurrent OneDrive-like source reappearance leaves the durable hold and never claims Fresh",async()=>{
+  const h=await harness();
+  const original=h.wsB.getDirectoryHandle;
+  let injected=false;
+  h.wsB.getDirectoryHandle=async(name,opts)=>{
+    const handle=await original(name,opts);
+    if(name==="data" && opts?.create && !injected){
+      injected=true;
+      await put(h.wsB,"01 - DROP REPORTS HERE/synthetic-late-source.csv","synthetic-source");
+    }
+    return handle;
+  };
+  await assert.rejects(h.reset(),/durable recovery hold/);
+  assert.equal(injected,true);
+  assert.match(await get(h.storeB,"System Files/MOONDOG_FRESH_RESET_PENDING.json"),/"status":"incomplete"/);
+  assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
+  assert.equal(h.events.includes("navigate:setup"),false);
+});
+test("write authority revoked mid-delete leaves the selected copy locked and other copy intact",async()=>{
+  const h=await harness(),original=h.wsB.removeEntry;
+  let deleted=0;
+  h.wsB.removeEntry=async(name,opts)=>{
+    await original(name,opts);
+    deleted++;
+    h.context.writeAuthority.canWrite=false;
+  };
+  await assert.rejects(h.reset(),/durable recovery hold/);
+  assert.equal(deleted,1);
+  assert.match(await get(h.storeB,"System Files/MOONDOG_FRESH_RESET_PENDING.json"),/"status":"incomplete"/);
+  assert.equal(await get(h.storeA,prefix+"backups/internal.zip"),"synthetic-private-backup");
+  assert.equal(h.events.includes("navigate:setup"),false);
+});
