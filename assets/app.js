@@ -8781,8 +8781,17 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         throw new Error("Fresh Installation cannot establish the exact Workspace boundary.");
       return workspace;
     };
+    // This error is only emitted before the durable Fresh hold or ANY delete.
+    // The updater can safely reload a verified Beta instead of claiming an
+    // interrupted destructive reset when ordinary background work was busy.
+    const preflightBusy=message=>{
+      const error=new Error(message);
+      error.code="MOONDOG_FRESH_PRECHECK_BUSY";
+      error.freshMutationStarted=false;
+      return error;
+    };
     if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
-      throw new Error("Another Workspace operation is active. Fresh Installation did not start.");
+      throw preflightBusy("Another Workspace operation is active. Fresh Installation did not start.");
     const workspace=await assertSameInstallation();
     const system=await installation.getDirectoryHandle("System Files",{create:false});
     try{await system.getFileHandle(FRESH_RESET_MARKER,{create:false});
@@ -8816,7 +8825,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     await inspectForNestedCopies(workspace);
     if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
-      throw new Error("Another Workspace operation started. Fresh Installation did not start.");
+      throw preflightBusy("Another Workspace operation started. Fresh Installation did not start.");
     await assertSameInstallation();
     // Confirmations live in the production reset itself, not just the caller:
     // a direct invocation of the exported method cannot silently erase data.
@@ -8829,7 +8838,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if(!confirmedTwice)return {status:"cancelled"};
     await assertSameInstallation();
     if(newStoreBusy||workspaceConnectionBusy||workspaceConnectionBlockReason())
-      throw new Error("Another Workspace operation started before final confirmation. No files were deleted.");
+      throw preflightBusy("Another Workspace operation started before final confirmation. No files were deleted.");
     // Only the verified Workspace is destructively cleared. The runtime,
     // launcher, other directories and every other installed copy remain outside.
     newStoreBusy=true;

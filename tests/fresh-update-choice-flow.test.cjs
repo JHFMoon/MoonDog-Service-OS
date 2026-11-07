@@ -349,3 +349,48 @@ test("a directly copied current Beta with no verified journal cannot use destruc
   assert.match(h.field("updateStatus").textContent,/No matching verified Beta update journal/);
   assert.deepEqual(h.events,[]);
 });
+
+
+test("busy preflight after verified Beta update defers Fresh and DOES NOT reload an active Workspace",async()=>{
+  const h=harness();await h.check();
+  h.context.location.reload=()=>h.events.push(["reloaded-unsafe"]);
+  h.context.__moondogFreshInstallation.resetSelectedFreshInstallation=async()=>{
+    h.events.push(["fresh-preflight-busy"]);
+    const error=new Error("Another Workspace operation is active. Fresh Installation did not start.");
+    error.code="MOONDOG_FRESH_PRECHECK_BUSY";
+    error.freshMutationStarted=false;
+    throw error;
+  };
+  await h.fresh();
+  assert.deepEqual(h.events.map(e=>e[0]),["verify","plan","apply","fresh-preflight-busy"]);
+  assert.match(h.field("updateStatus").textContent,/installed and verified.*Fresh did not start/);
+  assert.match(h.field("updateProgressLabel").textContent,/Beta installed; Fresh safely deferred/);
+  assert.match(h.field("updateProgressDetail").textContent,/Ctrl\+R/);
+  assert.doesNotMatch(h.field("updateChoiceNote").textContent,/Fresh Installation is unresolved/);
+  assert.equal(h.field("updateInstalledVersion").textContent,"0.10.18-beta.382");
+  assert.equal(h.storageWrites.includes("moondog-verified-update-followup-v1"),false);
+});
+test("busy preflight after reload leaves verified Finish Fresh available for deliberate retry",async()=>{
+  const h=harness(undefined,{installedVersion:"0.10.18-beta.382",
+    checkResult:{status:"up-to-date",channel:"beta"},journal:VERIFIED_RELOAD_JOURNAL});
+  await h.check();await h.settle();
+  h.context.__moondogFreshInstallation.resetSelectedFreshInstallation=async()=>{
+    const error=new Error("Another Workspace operation is active. Fresh Installation did not start.");
+    error.code="MOONDOG_FRESH_PRECHECK_BUSY";error.freshMutationStarted=false;
+    throw error;
+  };
+  await h.fresh();
+  assert.match(h.field("updateStatus").textContent,/Fresh did not start.*No Fresh data was deleted/);
+  assert.equal(h.field("freshMoonDogUpdate").disabled,false);
+  assert.doesNotMatch(h.field("updateChoiceNote").textContent,/unresolved in this tab/);
+  assert.deepEqual(h.events,[],"no second update or store was touched");
+});
+test("unclassified busy-looking failure after reset invocation retains recovery hold",async()=>{
+  const h=harness();await h.check();
+  h.context.__moondogFreshInstallation.resetSelectedFreshInstallation=async()=>{
+    throw new Error("Another Workspace operation is active");
+  };
+  await h.fresh();
+  assert.match(h.field("updateChoiceNote").textContent,/unresolved in this tab/);
+  assert.equal(h.field("freshMoonDogUpdate").disabled,true);
+});
