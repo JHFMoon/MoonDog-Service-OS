@@ -553,7 +553,7 @@ jobs:
                                   f"- Failed check: {run['name']}",
                                   f"- Exact head: `{head}`",
                                   f"- Run: https://github.com/{repo}/actions/runs/{run_id}/attempts/{attempt}",
-                                  f"- PR comment NOT delivered: {error}",
+                                  f"- PR comment delivery unverified (API write failed): {error}",
                                   f"- Next: {next_step}",
                                   "",
                               ]) + "\n")
@@ -562,7 +562,7 @@ jobs:
                   print(
                       "::warning title=MoonDog CI checkpoint delivery failed::"
                       f"PR {number} head {head}, run {run_id} attempt {attempt}; "
-                      "the PR comment was not delivered. Inspect this Actions run."
+                      "PR comment delivery is unverified. Inspect this Actions run."
                   )
                   raise
               print("Posted the failed-verification checkpoint.")
