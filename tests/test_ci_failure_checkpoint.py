@@ -147,7 +147,7 @@ class FailureCheckpointTests(unittest.TestCase):
                 SystemExit("Checkpoint API POST failed (HTTP 403)."),
             ]
             with patch.dict("os.environ", GITHUB_STEP_SUMMARY=str(summary_path)):
-                with self.assertRaisesRegex(SystemExit, r"POST failed \\(HTTP 403\\)"):
+                with self.assertRaisesRegex(SystemExit, r"POST failed \(HTTP 403\)"):
                     self.run_reporter(responses)
             summary = summary_path.read_text(encoding="utf-8")
             self.assertIn("Actions-only fallback", summary)
