@@ -115,10 +115,27 @@ class FailureCheckpointTests(unittest.TestCase):
             self.assertEqual(gh.call_count, 3)
             self.assertEqual(sleep.call_args_list, [call(1), call(2)])
         with patch("subprocess.run", return_value=unavailable) as gh, patch("time.sleep") as sleep:
-            with self.assertRaisesRegex(SystemExit, "Checkpoint API POST failed"):
+            with self.assertRaisesRegex(SystemExit, r"Checkpoint API POST failed \(HTTP 503\)"):
                 namespace["api"]("POST", COMMENTS_PATH)
             self.assertEqual(gh.call_count, 1)
             sleep.assert_not_called()
+
+    def test_failed_post_emits_only_safe_status_never_api_message(self):
+        namespace = {"__name__": "test_reporter"}
+        exec(self.code, namespace)
+        for status in ("403", "422", "500"):
+            sensitive = "synthetic-secret-must-not-reach-logs"
+            failed = Mock(returncode=1, stderr=f"gh: {sensitive} (HTTP {status})")
+            with self.subTest(status=status), patch("subprocess.run", return_value=failed):
+                with self.assertRaises(SystemExit) as error:
+                    namespace["api"]("POST", COMMENTS_PATH)
+                self.assertEqual(str(error.exception), f"Checkpoint API POST failed (HTTP {status}).")
+                self.assertNotIn(sensitive, str(error.exception))
+
+        malformed = Mock(returncode=1, stderr="gh: synthetic-secret-must-not-reach-logs")
+        with patch("subprocess.run", return_value=malformed):
+            with self.assertRaisesRegex(SystemExit, r"Checkpoint API POST failed \(HTTP unknown\)"):
+                namespace["api"]("POST", COMMENTS_PATH)
 
 
 if __name__ == "__main__":
