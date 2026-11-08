@@ -546,7 +546,7 @@ jobs:
                   if summary_path:
                       try:
                           with open(summary_path, "a", encoding="utf-8") as summary:
-                              summary.write("\\n".join([
+                              summary.write("\n".join([
                                   "### NEEDS CHATGPT RESUMPTION — Actions-only fallback",
                                   "",
                                   f"- PR: [#{number}](https://github.com/{repo}/pull/{number})",
@@ -556,7 +556,7 @@ jobs:
                                   f"- PR comment NOT delivered: {error}",
                                   f"- Next: {next_step}",
                                   "",
-                              ]) + "\\n")
+                              ]) + "\n")
                       except OSError:
                           print("Actions summary unavailable; checkpoint delivery remains failed.")
                   print(
