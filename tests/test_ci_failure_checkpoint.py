@@ -34,7 +34,9 @@ class FailureCheckpointTests(unittest.TestCase):
         self.assertIn("'.base.ref'", self.job)
         self.assertIn("'.state'", self.job)
         self.assertIn("moondog-failed-proof:v1:$RUN_ID", self.job)
-        self.assertIn('grep -Fq "$MARKER"', self.job)
+        self.assertIn('COMMENTS="$(gh api --paginate', self.job)
+        self.assertIn('grep -Fq "$MARKER" <<<"$COMMENTS"', self.job)
+        self.assertNotIn('--jq \'.[].body\' | grep -Fq', self.job)
         self.assertIn("gh api -X POST", self.job)
         for forbidden in ("gh run view --log", "download-artifact", "workflow_dispatch", "secrets.", "run_attempt"):
             self.assertNotIn(forbidden, self.job)
