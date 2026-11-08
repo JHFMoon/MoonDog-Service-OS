@@ -373,6 +373,17 @@
   const dateValid = s => /^20\d\d-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(String(s||"")) &&
     !Number.isNaN(Date.parse(s+"T12:00:00Z")) && new Date(s+"T12:00:00Z").toISOString().slice(0,10)===s;
   const day = s => typeof s==="string" ? s.slice(0,10) : "";
+  // Only an exact report day or a complete ISO timestamp can certify a report
+  // observation. Truncating arbitrary text to 10 characters made malformed
+  // source dates appear valid and silently cleared user snoozes.
+  const sourceDay = value => {
+    if(typeof value!=="string") return "";
+    if(dateValid(value)) return value;
+    const iso=/^20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,9})?(?:Z|[+-](?:0\d|1[0-4]):[0-5]\d)$/;
+    if(!iso.test(value) || !Number.isFinite(Date.parse(value))) return "";
+    const date=value.slice(0,10);
+    return dateValid(date)?date:"";
+  };
   const finite = n => typeof n==="number" && Number.isFinite(n) && n>=0;
   const timeStamp = v => { const n=Date.parse(v||"");return Number.isFinite(n)?n:0; };
   const timeHour = v => new Date(v).getHours();
@@ -391,7 +402,7 @@
     const sources={...(original.sources||{})},entry=sourceRecord(original,source);
     if(kind==="imported") {
       const reported=options.periodEnd||options.observedDate||"";
-      const date=day(reported||at);
+      const date=reported?sourceDay(reported):day(at);
       // An explicitly supplied invalid report date is not an import observation.
       // Do not replace it with today's upload date or clear a pending snooze.
       if(!dateValid(date))return history||empty();
