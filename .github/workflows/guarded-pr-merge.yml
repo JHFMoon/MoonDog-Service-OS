@@ -502,11 +502,26 @@ jobs:
                   return
               number = matches[0]["number"]
               comments_path = f"{root}/issues/{number}/comments"
-              marker = f"<!-- moondog-failed-proof:v1:{run_id} -->"
+              # GitHub keeps the run ID when rerunning a workflow. A checkpoint
+              # for an older attempt must not suppress the current failure.
+              marker = f"<!-- moondog-failed-proof:v2:{run_id}:{attempt} -->"
+              legacy_marker = f"<!-- moondog-failed-proof:v1:{run_id} -->"
+              run_line = f"Run: https://github.com/{repo}/actions/runs/{run_id}/attempts/{attempt}"
+              head_line = f"The {run['name']} check failed for PR head {head}."
               comments = api("GET", comments_path, "--paginate", "--slurp", "-f", "per_page=100")
-              if any((comment.get("user") or {}).get("login") == "github-actions[bot]"
-                     and (comment.get("body") or "").partition("\n")[0] == marker
-                     for page in comments for comment in page):
+
+              def current_checkpoint(comment):
+                  if (comment.get("user") or {}).get("login") != "github-actions[bot]":
+                      return False
+                  lines = (comment.get("body") or "").splitlines()
+                  if not lines:
+                      return False
+                  # Old format remains idempotent only when its written body
+                  # identifies this exact head and attempt, not just the run ID.
+                  return (lines[0] == marker or (lines[0] == legacy_marker
+                          and run_line in lines and head_line in lines))
+
+              if any(current_checkpoint(comment) for page in comments for comment in page):
                   print("Failure checkpoint already present.")
                   return
 
@@ -532,8 +547,8 @@ jobs:
               body = "\n".join([
                   marker,
                   "**NEEDS CHATGPT RESUMPTION — verification failed.**",
-                  f"The {run['name']} check failed for PR head {head}.",
-                  f"Run: https://github.com/{repo}/actions/runs/{run_id}/attempts/{attempt}",
+                  head_line,
+                  run_line,
                   next_step,
               ])
               try:

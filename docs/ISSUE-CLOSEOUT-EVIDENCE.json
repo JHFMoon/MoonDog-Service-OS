@@ -307,7 +307,7 @@
         },
         "799-06": {
           "kind": "test",
-          "pr": 806,
+          "pr": 808,
           "tests": [
             "tests/test_ci_failure_checkpoint.py"
           ]
