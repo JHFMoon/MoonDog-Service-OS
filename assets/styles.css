@@ -18,3 +18,4 @@ main .view :is(h1,h2,h3,p,small,span,strong,button,label){
   .top-actions{min-width:0;max-width:100%}
   .top-actions button{max-width:100%;white-space:normal}
 }
+/* Beta pipeline smoke test (#799): intentionally no visual or behavioral change. */
