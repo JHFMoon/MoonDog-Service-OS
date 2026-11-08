@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.406 — current Beta
+
+- feat(arrivals): show unverified schedule before first import. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.405 — current Beta
 
 - fix(799): expose unverified Open RO data distinctly from zero. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
