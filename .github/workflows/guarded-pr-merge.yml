@@ -415,6 +415,65 @@ jobs:
           test "$(jq -r '.merge_commit_sha' /tmp/merged-pr.json)" = "$MERGED_SHA"
           echo "Protected merge verified at $MERGED_SHA. App-authenticated merge will trigger main push verification."
 
+  report-failed-proof:
+    # This is a notification only. It never edits PR source, merges, publishes,
+    # reads runner logs, or receives release credentials.
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_HEAD: ${{ github.event.workflow_run.head_sha }}
+      RUN_NAME: ${{ github.event.workflow_run.name }}
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+    steps:
+      - name: Leave safe exact-head failure checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] ||
+             [[ ! "$RUN_ID" =~ ^[1-9][0-9]*$ ]] ||
+             [[ ! "$RUN_HEAD" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "No verified PR reference for failed workflow; refusing to post."
+            exit 0
+          fi
+          case "$RUN_NAME" in
+            "Publication check"|"Clean Install Proof") ;;
+            *) echo "Unexpected workflow identity; refusing to post."; exit 0 ;;
+          esac
+          PR="$(gh api "repos/$REPO/pulls/$PR_NUMBER")"
+          if [ "$(jq -r '.state' <<<"$PR")" != "open" ] ||
+             [ "$(jq -r '.head.sha' <<<"$PR")" != "$RUN_HEAD" ] ||
+             [ "$(jq -r '.head.repo.full_name' <<<"$PR")" != "$REPO" ] ||
+             [ "$(jq -r '.base.ref' <<<"$PR")" != "main" ]; then
+            echo "Failed run does not match a current same-repo PR head; no stale checkpoint."
+            exit 0
+          fi
+          MARKER="<!-- moondog-failed-proof:v1:$RUN_ID -->"
+          if gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
+             --jq '.[].body' | grep -Fq "$MARKER"; then
+            echo "Failure checkpoint already present."
+            exit 0
+          fi
+          # Only fixed safe labels, the verified SHA, and a numeric Actions URL;
+          # never copy test logs, exception strings, filenames, or private data.
+          BODY="$(printf '%s\n' \
+            "$MARKER" \
+            "**NEEDS CHATGPT RESUMPTION — verification failed.**" \
+            "The $RUN_NAME check failed for exact PR head \`$RUN_HEAD\`." \
+            "Run: https://github.com/$REPO/actions/runs/$RUN_ID" \
+            "No automatic source correction was attempted. A new verified PR head requires fresh checks. Beta/Stable were not advanced by this failed run.")"
+          gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" -f body="$BODY" >/dev/null
+          echo "Posted an exact-head failed-verification checkpoint without source or log content."
+
   advance-beta-queue:
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
