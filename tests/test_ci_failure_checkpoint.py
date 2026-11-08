@@ -115,7 +115,7 @@ class FailureCheckpointTests(unittest.TestCase):
             self.assertEqual(gh.call_count, 3)
             self.assertEqual(sleep.call_args_list, [call(1), call(2)])
         with patch("subprocess.run", return_value=unavailable) as gh, patch("time.sleep") as sleep:
-            with self.assertRaisesRegex(SystemExit, r"Checkpoint API POST failed \\(HTTP 503\\)"):
+            with self.assertRaisesRegex(SystemExit, r"Checkpoint API POST failed \(HTTP 503\)"):
                 namespace["api"]("POST", COMMENTS_PATH)
             self.assertEqual(gh.call_count, 1)
             sleep.assert_not_called()
@@ -134,7 +134,7 @@ class FailureCheckpointTests(unittest.TestCase):
 
         malformed = Mock(returncode=1, stderr="gh: synthetic-secret-must-not-reach-logs")
         with patch("subprocess.run", return_value=malformed):
-            with self.assertRaisesRegex(SystemExit, r"Checkpoint API POST failed \\(HTTP unknown\\)"):
+            with self.assertRaisesRegex(SystemExit, r"Checkpoint API POST failed \(HTTP unknown\)"):
                 namespace["api"]("POST", COMMENTS_PATH)
 
 
