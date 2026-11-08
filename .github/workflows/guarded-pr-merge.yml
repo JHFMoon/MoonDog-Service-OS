@@ -415,6 +415,130 @@ jobs:
           test "$(jq -r '.merge_commit_sha' /tmp/merged-pr.json)" = "$MERGED_SHA"
           echo "Protected merge verified at $MERGED_SHA. App-authenticated merge will trigger main push verification."
 
+  report-failed-proof:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+      RUN_HEAD: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Leave safe exact-head failure checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import time
+
+          def api(method, path, *args):
+              for attempt in range(3):
+                  result = subprocess.run(
+                      ["gh", "api", "--method", method, path, *args],
+                      capture_output=True, text=True, encoding="utf-8",
+                  )
+                  if result.returncode == 0:
+                      return json.loads(result.stdout)
+                  # An ambiguous POST may have succeeded. A workflow rerun
+                  # checks for the authenticated marker before writing again.
+                  if (method != "GET" or attempt == 2
+                          or not re.search(r"\(HTTP (502|503|504)\)", result.stderr)):
+                      raise SystemExit(f"Checkpoint API {method} failed.")
+                  time.sleep(2 ** attempt)
+
+          def current_pr(pr, repo, branch, head):
+              return (pr["state"] == "open" and pr["base"]["ref"] == "main"
+                      and pr["head"]["sha"] == head and pr["head"]["ref"] == branch
+                      and (pr["head"]["repo"] or {}).get("full_name") == repo)
+
+          def main():
+              repo = os.environ["REPO"]
+              run_id = os.environ["RUN_ID"]
+              attempt = os.environ["RUN_ATTEMPT"]
+              head = os.environ["RUN_HEAD"]
+              if (not re.fullmatch(r"[1-9][0-9]*", run_id)
+                      or not re.fullmatch(r"[1-9][0-9]*", attempt)
+                      or not re.fullmatch(r"[0-9a-f]{40}", head)):
+                  return
+
+              root = f"repos/{repo}"
+              run_path = f"{root}/actions/runs/{run_id}"
+
+              def is_current_failure(run):
+                  return (run["status"] == "completed" and run["conclusion"] == "failure"
+                          and run["event"] == "pull_request" and run["head_sha"] == head
+                          and run["run_attempt"] == int(attempt)
+                          and run["name"] in ("Publication check", "Clean Install Proof")
+                          and (run["head_repository"] or {}).get("full_name") == repo)
+
+              run = api("GET", run_path)
+              if not is_current_failure(run) or not run["head_branch"]:
+                  return
+              branch = run["head_branch"]
+              # GitHub can omit the PR association even for same-repo runs.
+              owner = repo.split("/", 1)[0]
+              pulls = api("GET", f"{root}/pulls", "--paginate", "--slurp",
+                          "-f", "state=open", "-f", "base=main",
+                          "-f", f"head={owner}:{branch}", "-f", "per_page=100")
+              matches = [pr for page in pulls for pr in page if current_pr(pr, repo, branch, head)]
+              if len(matches) != 1:
+                  return
+              number = matches[0]["number"]
+              comments_path = f"{root}/issues/{number}/comments"
+              marker = f"<!-- moondog-failed-proof:v1:{run_id} -->"
+              comments = api("GET", comments_path, "--paginate", "--slurp", "-f", "per_page=100")
+              if any((comment.get("user") or {}).get("login") == "github-actions[bot]"
+                     and (comment.get("body") or "").partition("\n")[0] == marker
+                     for page in comments for comment in page):
+                  print("Failure checkpoint already present.")
+                  return
+
+              pages = api("GET", f"{run_path}/attempts/{attempt}/jobs",
+                          "--paginate", "--slurp", "-f", "per_page=100")
+              package_preflight_failed = any(
+                  step["name"] == "Fail fast until trusted Beta package matches runtime"
+                  and step["conclusion"] == "failure"
+                  for page in pages for job in page["jobs"] for step in job.get("steps", [])
+              )
+              if package_preflight_failed:
+                  next_step = ("The Beta package preflight failed. Check Prepare Beta Package first. "
+                               "If it advances the PR head, GitHub runs fresh verification automatically.")
+              else:
+                  next_step = "Inspect the failed job and correct the PR if the failure requires a code change."
+
+              # Refresh after pagination and job lookup. GitHub has no
+              # conditional comment write, so the body names the exact SHA.
+              if not is_current_failure(api("GET", run_path)):
+                  return
+              if not current_pr(api("GET", f"{root}/pulls/{number}"), repo, branch, head):
+                  return
+              body = "\n".join([
+                  marker,
+                  "**NEEDS CHATGPT RESUMPTION — verification failed.**",
+                  f"The {run['name']} check failed for PR head {head}.",
+                  f"Run: https://github.com/{repo}/actions/runs/{run_id}/attempts/{attempt}",
+                  next_step,
+              ])
+              api("POST", comments_path, "-f", f"body={body}")
+              print("Posted the failed-verification checkpoint.")
+
+          if __name__ == "__main__":
+              main()
+          PY
+
   advance-beta-queue:
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
