@@ -55,7 +55,9 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
       minimumCompatibleVersion:"0.10.9",migrationRequired:false};}},
     MoonDogPackagePlan:{dryRun:async()=>{events.push(["plan"]);return {add:[],replace:[],
       delete:[],unchanged:[],rejected:[]};}},
-    MoonDogUpdateInstall:{listBackups:async()=>options.backups||[],apply:async()=>{events.push(["apply"]);return installerResult;}},
+    MoonDogUpdateInstall:{listBackups:async()=>options.backups||[],
+      ...(options.recoveryProof?{inspectRecovery:async()=>({status:options.recoveryProof})}:{}),
+      apply:async()=>{events.push(["apply"]);return installerResult;}},
     document:{getElementById:name=>name==="view-settings"?{querySelector:()=>({append(){}})}:null,
       createElement:()=>card,querySelector:()=>null,addEventListener(){}},
     localStorage:options.storage||{getItem:()=>JSON.stringify({channel:"beta",lastCheck:"2099-01-01T00:00:00.000Z"}),setItem:key=>storageWrites.push(key)},
@@ -348,4 +350,69 @@ test("a directly copied current Beta with no verified journal cannot use destruc
   assert.equal(h.field("freshMoonDogUpdate").disabled,true);
   assert.match(h.field("updateStatus").textContent,/No matching verified Beta update journal/);
   assert.deepEqual(h.events,[]);
+});
+
+
+test("busy preflight after verified Beta update defers Fresh and DOES NOT reload an active Workspace",async()=>{
+  const h=harness();await h.check();
+  h.context.location.reload=()=>h.events.push(["reloaded-unsafe"]);
+  h.context.__moondogFreshInstallation.resetSelectedFreshInstallation=async()=>{
+    h.events.push(["fresh-preflight-busy"]);
+    const error=new Error("Another Workspace operation is active. Fresh Installation did not start.");
+    error.code="MOONDOG_FRESH_PRECHECK_BUSY";
+    error.freshMutationStarted=false;
+    throw error;
+  };
+  await h.fresh();
+  assert.deepEqual(h.events.map(e=>e[0]),["verify","plan","apply","fresh-preflight-busy"]);
+  assert.match(h.field("updateStatus").textContent,/installed and verified.*Fresh did not start/);
+  assert.match(h.field("updateProgressLabel").textContent,/Beta installed; Fresh safely deferred/);
+  assert.match(h.field("updateProgressDetail").textContent,/Ctrl\+R/);
+  assert.doesNotMatch(h.field("updateChoiceNote").textContent,/Fresh Installation is unresolved/);
+  assert.equal(h.field("updateInstalledVersion").textContent,"0.10.18-beta.382");
+  assert.equal(h.storageWrites.includes("moondog-verified-update-followup-v1"),false);
+});
+test("busy preflight after reload leaves verified Finish Fresh available for deliberate retry",async()=>{
+  const h=harness(undefined,{installedVersion:"0.10.18-beta.382",
+    checkResult:{status:"up-to-date",channel:"beta"},journal:VERIFIED_RELOAD_JOURNAL});
+  await h.check();await h.settle();
+  h.context.__moondogFreshInstallation.resetSelectedFreshInstallation=async()=>{
+    const error=new Error("Another Workspace operation is active. Fresh Installation did not start.");
+    error.code="MOONDOG_FRESH_PRECHECK_BUSY";error.freshMutationStarted=false;
+    throw error;
+  };
+  await h.fresh();
+  assert.match(h.field("updateStatus").textContent,/Fresh did not start.*No Fresh data was deleted/);
+  assert.equal(h.field("freshMoonDogUpdate").disabled,false);
+  assert.doesNotMatch(h.field("updateChoiceNote").textContent,/unresolved in this tab/);
+  assert.deepEqual(h.events,[],"no second update or store was touched");
+});
+test("unclassified busy-looking failure after reset invocation retains recovery hold",async()=>{
+  const h=harness();await h.check();
+  h.context.__moondogFreshInstallation.resetSelectedFreshInstallation=async()=>{
+    throw new Error("Another Workspace operation is active");
+  };
+  await h.fresh();
+  assert.match(h.field("updateChoiceNote").textContent,/unresolved in this tab/);
+  assert.equal(h.field("freshMoonDogUpdate").disabled,true);
+});
+
+test('a proven interrupted transaction enables the ordinary authorized Beta action without enabling Fresh',async()=>{
+ const options={backups:['MoonDog-Update-Backup-synthetic'],recoveryProof:'recoverable'};
+ const h=harness(undefined,options);await h.check();await h.settle();
+ assert.equal(h.field('installMoonDogUpdate').disabled,false);
+ assert.equal(h.field('freshMoonDogUpdate').disabled,true);
+ assert.match(h.field('updateChannelNote').textContent,/verified interrupted software update will recover/);
+ const confirmations=[];h.context.confirm=message=>{confirmations.push(message);return true;};
+ h.context.MoonDogUpdateInstall.apply=async()=>{h.events.push(['apply']);options.backups.length=0;return {status:'installed',version:'0.10.18-beta.382'};};
+ await h.preserve();
+ assert.deepEqual(h.events.map(event=>event[0]),['verify','plan','apply']);
+ assert.equal(confirmations.length,1);assert.match(confirmations[0],/interrupted software update will be safely recovered first/);
+ assert.doesNotMatch(h.field('updateChoiceNote').textContent,/Fresh Installation is unresolved/);
+});
+
+test('an unverified pending transaction keeps the update disabled and performs no automatic restore',async()=>{
+ const h=harness(undefined,{backups:['MoonDog-Update-Backup-synthetic'],recoveryProof:'recovery-required'});
+ await h.check();await h.settle();assert.equal(h.field('installMoonDogUpdate').disabled,true);
+ await h.preserve();assert.deepEqual(h.events,[]);
 });

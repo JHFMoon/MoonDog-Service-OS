@@ -34,12 +34,12 @@
   const state = { channel: saved.channel === "beta" ? "beta" : saved.channel === "stable" ? "stable" : declaredBetaVersion ? "beta" : "stable",
     lastCheck: saved.lastCheck || null, lastAutomatic: saved.lastAutomatic || "",
     dismissed: saved.dismissed || null, check: null, checkFor: null,
-    recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false,
-    recoveryScanPending: false, recoveryScanFailed: false, busy: false, progress: null,
+    recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false, autoRecoverable: false,
+    recoveryScanPending: false, recoveryScanFailed: false, recoveryScanError: "", busy: false, progress: null,
     progressChangedAt: 0, progressStalled: false, freshResetUnresolved: false,
     postUpdateFresh: null, postUpdateScanPending: false, postUpdateScanFailed: false,
     postUpdateScanError: "", postUpdateScanCompleted: false };
-  let postUpdateScanGeneration = 0;
+  let postUpdateScanGeneration = 0, recoveryScanGeneration = 0;
   const appRoot = () => global.__moondogSettingsModel?.applicationRoot || null;
   const applicationFiles = async () => {
     // applicationRoot is the selected top-level installation folder, which
@@ -138,27 +138,40 @@
       }
     }
   }
+  const recoveryHold = () => state.recoveryScanPending || state.recoveryScanFailed ||
+    ((state.recoveryRequired || state.hasRecoverable) && !state.autoRecoverable);
   async function refreshRecovery() {
-    const root = appRoot();
+    const root = appRoot(), generation = ++recoveryScanGeneration;
     if (!root) {
-      state.hasRecoverable = false; state.recoveryScanFailed = false;
+      state.hasRecoverable = false; state.autoRecoverable = false; state.recoveryScanFailed = false; state.recoveryScanError = "";
       state.recoveryScanPending = false; render(); return;
     }
-    state.recoveryScanPending = true;
+    state.recoveryScanPending = true; state.autoRecoverable = false;
     render();
     try {
-      const backups = await global.MoonDogUpdateInstall.listBackups(root);
-      if (root !== appRoot()) return;
+      const backups = await global.MoonDogUpdateInstall.listBackups(root, true);
+      if (root !== appRoot() || generation !== recoveryScanGeneration) return;
       state.hasRecoverable = backups.length > 0;
-      state.recoveryScanFailed = false;
-    } catch (_) {
-      if (root !== appRoot()) return;
+      state.recoveryScanFailed = false; state.recoveryScanError = "";
+      if (backups.length === 1 && typeof global.MoonDogUpdateInstall.inspectRecovery === "function") {
+        const app = await root.getDirectoryHandle("System Files", {create:false});
+        const catalog = [...new Set([...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
+          "assets/moondog-update-verify.js", "assets/moondog-update-plan.js", "assets/moondog-update-model.js",
+          "assets/moondog-update-install.js", "assets/moondog-update-settings.js"])];
+        const proof = await global.MoonDogUpdateInstall.inspectRecovery({appDirectoryHandle:app,
+          workspaceDirectoryHandle:root,backupName:backups[0],trustedAllowlist:catalog});
+        if (root !== appRoot() || generation !== recoveryScanGeneration) return;
+        state.autoRecoverable = proof.status === "recoverable";
+      }
+    } catch (error) {
+      if (root !== appRoot() || generation !== recoveryScanGeneration) return;
       // Unknown recovery inventory must fail closed. A second update could
       // overwrite an interrupted rollback while OneDrive is unreadable.
       state.hasRecoverable = true;
       state.recoveryScanFailed = true;
+      state.recoveryScanError = String(error?.message || "Recovery could not be verified.").slice(0,240);
     } finally {
-      if (root === appRoot()) {
+      if (root === appRoot() && generation === recoveryScanGeneration) {
         state.recoveryScanPending = false;
         render();
       }
@@ -275,7 +288,7 @@
     if (!notice) return;
     const offered = currentOffer(), value = state.check;
     const dismissed = state.dismissed?.day === localDay() && state.dismissed?.channel === state.channel && state.dismissed?.version === value?.version;
-    notice.hidden = !offered || dismissed || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending;
+    notice.hidden = !offered || dismissed || recoveryHold() || (state.hasRecoverable && state.channel !== "beta");
     if (notice.hidden) return;
     notice.querySelector("[data-update-title]").textContent = (value.status === "channel-switch" ? "Return to Stable " : value.channel === "beta" ? "Beta " : "Stable ") + value.version + " available";
     notice.querySelector("[data-update-install]").textContent = value.status === "channel-switch" ? "Return to Stable" : "Update Current Installation";
@@ -365,8 +378,9 @@
     field("updateChannelNote").textContent = (state.channel === "beta" ?
       "Beta is the test channel. A verified return to Stable remains available." :
       "Stable is the normal operating channel.") +
-      (state.recoveryScanFailed ? " Recovery backups could not be checked. Reconnect folder access before installing another update." :
+      (state.recoveryScanFailed ? " Recovery backups could not be checked. Preserve them for local review: " + state.recoveryScanError :
         state.recoveryScanPending ? " Checking recovery backups before permitting installation." :
+        state.autoRecoverable ? " A verified interrupted software update will recover when you authorize the next Beta update. Your Workspace is preserved." :
         state.hasRecoverable ? " Resolve the interrupted update recovery before installing another update." : "");
     field("updateLastCheck").textContent = state.lastCheck ? new Date(state.lastCheck).toLocaleString() : "Never";
     const result = state.check;
@@ -381,7 +395,8 @@
     field("updateFolders").textContent = `Selected installation folder (parent of System Files): ${appRoot()?.name || "not connected"}. Runtime: System Files/. Dealership data: System Files/Workspace/. Update rollback backups: System Files/Workspace/backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
       "Update Current Installation";
-    installButton.disabled = state.busy || state.recoveryRequired || state.freshResetUnresolved || state.hasRecoverable || state.recoveryScanPending || !currentOffer();
+    installButton.disabled = state.busy || state.freshResetUnresolved || recoveryHold() || !currentOffer() ||
+      (state.hasRecoverable && state.channel !== "beta");
     freshButton.hidden = state.channel !== "beta" || result?.status === "channel-switch";
     freshButton.textContent = postUpdateReady() ? "Finish Fresh After Verified Update" : "Update to Fresh Installation";
     freshButton.disabled = !freshAvailable();
@@ -541,11 +556,21 @@
           detail:"Only the selected installation was reset; loading Guided Setup"});
       }else throw new Error("Fresh reset was not verified.");
     }catch(error){
-      if(resetStarted)state.freshResetUnresolved=true;
-      status.textContent=(resetStarted?"Fresh Installation unresolved. ":"")+
+      // App.js marks ONLY contention detected before creating the durable
+      // reset hold or touching Workspace data. A busy preflight is retryable;
+      // an unknown failure after reset invocation remains fail-closed.
+      const safePreflight=resetStarted && error?.code==="MOONDOG_FRESH_PRECHECK_BUSY" &&
+        error?.freshMutationStarted===false;
+      if(resetStarted&&!safePreflight)state.freshResetUnresolved=true;
+      status.textContent=safePreflight?
+        "Fresh did not start: another Workspace task was active. No Fresh data was deleted. Try again after the task finishes.":
+        (resetStarted?"Fresh Installation unresolved. ":"")+
         (error?.message||"Fresh could not be verified.");
-      await setProgress({phase:"error",percent:null,label:"Fresh Installation blocked",
-        detail:error?.message||"No clean-store state can be claimed."});
+      await setProgress({phase:"error",percent:null,
+        label:safePreflight?"Fresh postponed safely":"Fresh Installation blocked",
+        detail:safePreflight?
+          "Another Workspace task is active. No Fresh reset started. Retry after it finishes.":
+          error?.message||"No clean-store state can be claimed."});
     }finally{
       state.busy=false;render();
       if(finished)reloadVerifiedUpdate(installedVersion);
@@ -559,9 +584,10 @@
       status.textContent="Selected folder no longer matches the connected installation. No update was started.";
       return;
     }
-    if (state.busy || state.recoveryRequired || state.hasRecoverable || state.recoveryScanPending || !currentOffer()) return;
+    if (state.busy || recoveryHold() || !currentOffer() || (state.hasRecoverable && state.channel !== "beta")) return;
     const offered = state.check, offeredFor = state.checkFor;
-    let verifiedReloadVersion = null, freshOutcomeStatus = null, freshPostInstall = false;
+    let verifiedReloadVersion = null, verifiedInstalledVersion = null,
+      freshOutcomeStatus = null, freshPostInstall = false;
     state.busy = true; render();
     clearPlan();
     await setProgress({ phase: "verify-package", percent: 5, label: "Verifying update package", detail: "Downloading and checking the selected update" });
@@ -602,7 +628,7 @@
       planText.hidden = false;
       if (plan.rejected.length) throw new Error("Update rejected. No application files changed.");
       status.textContent = "Review the file changes before confirming.";
-      if (!global.confirm(`Install Service Operations Dashboard ${verified.version}?\n\n${summary}\n\nA rollback backup in System Files/Workspace/backups/system-updates/ will be verified before any application file is changed.`)) {
+      if (!global.confirm(`Install Service Operations Dashboard ${verified.version}?\n\n${summary}\n\n${state.autoRecoverable ? "The verified interrupted software update will be safely recovered first. Your Workspace is preserved.\n\n" : ""}A rollback backup in System Files/Workspace/backups/system-updates/ will be verified before any application file is changed.`)) {
         status.textContent = "Installation cancelled. No application files changed.";
         clearProgress();
         return;
@@ -610,7 +636,7 @@
       // Always verify recovery immediately before the first install mutation,
       // even if the initial connection event has not completed its scan.
       await refreshRecovery();
-      if (state.hasRecoverable || state.recoveryScanPending || offeredFor.root !== appRoot()) {
+      if (recoveryHold() || (state.hasRecoverable && verified.channel !== "beta") || offeredFor.root !== appRoot()) {
         throw new Error("Update recovery backups are unresolved or cannot be verified. Check folder access and resolve recovery before installing.");
       }
       await setProgress({ phase: "install", percent: 28, label: "Starting installation", detail: "Please keep this window open" });
@@ -629,6 +655,8 @@
       else if (outcome.status === "rolled-back") await setProgress({ phase: "rolled-back", percent: 100, label: "Previous version restored", detail: "The update failed, but rollback completed and was verified." });
       else if (outcome.status !== "installed") await setProgress({ phase: "error", percent: state.progress?.percent || 25, label: "Update stopped", detail: outcome.reason || "Installation did not complete." });
       if (outcome.status === "installed") {
+        state.recoveryRequired=false;state.autoRecoverable=false;state.hasRecoverable=false;save();
+        verifiedInstalledVersion=outcome.version;
         if (fresh) {
           freshPostInstall = true;
           // The selected root, channel and exact package receipt must match
@@ -690,15 +718,40 @@
         verifiedReloadVersion = outcome.version;
       }
     } catch (error) {
-      // If a verified install was followed by a failed destructive phase, do
-      // not let this live tab offer a second update over an uncertain Workspace.
-      // This flag is intentionally NEVER persisted in shared browser storage:
-      // the installation-specific on-disk hold guards its next connection.
-      if(fresh && freshPostInstall) state.freshResetUnresolved=true;
-      status.textContent = (fresh && freshPostInstall
-        ? "Fresh Installation incomplete; updates in this tab are blocked. "
-        : "")+(error.message || "Update stopped before installation.");
-      await setProgress({ phase: "error", percent: state.progress?.percent || 5, label: "Update stopped", detail: error.message || "Installation could not continue." });
+      // A verified Beta followed by an explicitly typed, pre-mutation busy
+      // rejection is NOT an interrupted Fresh deletion. The source reset
+      // function emits this code only before writing the durable reset marker.
+      // Reload the verified Beta so the user's next Fresh choice can be made
+      // against the exact installed journal, after background tasks settle.
+      const safePreflight=Boolean(fresh&&freshPostInstall&&verifiedInstalledVersion &&
+        error?.code==="MOONDOG_FRESH_PRECHECK_BUSY" &&
+        error?.freshMutationStarted===false);
+      if(safePreflight){
+        installedVersion=verifiedInstalledVersion;
+        comparisonVersion=verifiedInstalledVersion;
+        installedChannel="beta";
+        field("updateInstalledVersion").textContent=installedVersion;
+        field("updateInstalledChannel").textContent="Beta";
+        state.check=null;state.checkFor=null;state.dismissed=null;
+        state.postUpdateFresh=null;clearPlan();
+        // Do not automatically reload while another Workspace operation is
+        // active: that could interrupt the unrelated writer which caused this
+        // safe preflight rejection in the first place.
+        status.textContent="Beta "+verifiedInstalledVersion+
+          " installed and verified. Fresh did not start because another Workspace task was active. No data was deleted by Fresh. After the other task finishes, refresh this tab.";
+        await setProgress({phase:"complete",percent:100,
+          label:"Beta installed; Fresh safely deferred",
+          detail:"Leave the window open while Workspace work finishes. Then press Ctrl+R to load the verified Beta and choose Finish Fresh."});
+      }else{
+        // Unknown failures after an installer succeeded may involve deletion.
+        // Preserve the tab hold and any installation-specific recovery marker.
+        if(fresh && freshPostInstall) state.freshResetUnresolved=true;
+        status.textContent = (fresh && freshPostInstall
+          ? "Fresh Installation incomplete; updates in this tab are blocked. "
+          : "")+(error.message || "Update stopped before installation.");
+        await setProgress({ phase: "error", percent: state.progress?.percent || 5,
+          label: "Update stopped", detail: error.message || "Installation could not continue." });
+      }
     } finally {
       state.busy = false;
       render();

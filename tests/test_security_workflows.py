@@ -35,7 +35,6 @@ class SecurityWorkflowTests(unittest.TestCase):
         clean_install = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
         duplicated_commands = (
             "python3 -m unittest discover -s tests -p 'test_*.py'",
-            "node --test tests/*.test.cjs",
             "python3 scripts/build_operating_modules.py --check",
             "python3 scripts/check_publication.py",
             "python3 scripts/build_distribution.py --check-source",
@@ -44,6 +43,7 @@ class SecurityWorkflowTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn(command, publication)
                 self.assertNotIn(command, clean_install)
+        self.assertIn("subprocess.run(['node', '--test', *files], check=True)", publication)
         self.assertNotIn("Run repository safety checks", clean_install)
         for proof_step in (
             "Recreate and verify pinned browser dependencies",
@@ -252,7 +252,7 @@ class SecurityWorkflowTests(unittest.TestCase):
 
     def test_guarded_merge_is_event_driven_and_does_not_poll(self):
         merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
-        proof = merge.split("      - name: Evaluate exact-head Publication, Clean Install, and Codex proof", 1)[1]
+        proof = merge.split("      - name: Evaluate exact-head verification and authorization evidence", 1)[1]
         proof = proof.split("      - name: Additively refresh this PR if main advanced", 1)[0]
         self.assertIn("commits/$HEAD_SHA/check-runs", proof)
         self.assertIn("ready=false", proof)
@@ -271,7 +271,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         candidate = merge.index("      - name: Check out verified PR candidate as untrusted data")
         stable = merge.index("      - name: Refuse Stable manifest changes")
         parity = merge.index("      - name: Verify Beta package matches the exact PR runtime")
-        proof = merge.index("      - name: Evaluate exact-head Publication, Clean Install, and Codex proof")
+        proof = merge.index("      - name: Evaluate exact-head verification and authorization evidence")
         self.assertLess(app_token, refresh)
         self.assertLess(refresh, candidate)
         self.assertLess(refresh, stable)
@@ -286,8 +286,8 @@ class SecurityWorkflowTests(unittest.TestCase):
         for step, next_step in (
             ("      - name: Check out verified PR candidate as untrusted data", "      - name: Refuse Stable manifest changes"),
             ("      - name: Refuse Stable manifest changes", "      - name: Verify Beta package matches the exact PR runtime"),
-            ("      - name: Verify Beta package matches the exact PR runtime", "      - name: Evaluate exact-head Publication, Clean Install, and Codex proof"),
-            ("      - name: Evaluate exact-head Publication, Clean Install, and Codex proof", "      - name: Squash merge verified current PR"),
+            ("      - name: Verify Beta package matches the exact PR runtime", "      - name: Evaluate exact-head verification and authorization evidence"),
+            ("      - name: Evaluate exact-head verification and authorization evidence", "      - name: Squash merge verified current PR"),
         ):
             start = merge.index(step)
             section = merge[start:merge.index(next_step, start + 1)]
@@ -364,7 +364,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertEqual(policy["beta_review_mode"], "automated-data-proofs")
         self.assertEqual(policy["stable_publication"], "existing-stable-release-workflow-only")
         publication = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
-        self.assertIn("node --test tests/*.test.cjs", publication)
+        self.assertIn("subprocess.run(['node', '--test', *files], check=True)", publication)
         self.assertIn("python3 scripts/audit_public_git_history.py", publication)
 
 

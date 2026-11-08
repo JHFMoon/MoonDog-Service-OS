@@ -31,30 +31,47 @@ jobs:
       - name: Classify exact pull request change scope
         id: scope
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          metadata_only=false
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] && git rev-parse --verify "${GITHUB_SHA}^2" >/dev/null 2>&1; then
-            diff_file="$(mktemp)"
-            git diff --no-renames --name-only -z "${GITHUB_SHA}^1" "${GITHUB_SHA}^2" > "$diff_file"
-            mapfile -d '' changed_paths < "$diff_file"
-            rm -f "$diff_file"
-            if ((${#changed_paths[@]})); then
-              manifest_dir="$(mktemp -d)"
-              trap 'rm -rf "$manifest_dir"' EXIT
-              git show "${GITHUB_SHA}^1:updates/manifest.json" > "$manifest_dir/base.json"
-              git show "${GITHUB_SHA}^2:updates/manifest.json" > "$manifest_dir/head.json"
-              change_scope="$(python3 scripts/beta_change_scope.py --base-manifest "$manifest_dir/base.json" --head-manifest "$manifest_dir/head.json" "${changed_paths[@]}")"
-              [[ "$change_scope" == "metadata-only" ]] && metadata_only=true
-            fi
+          base=""; head="$GITHUB_SHA"
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            base="$PR_BASE_SHA"; head="$PR_HEAD_SHA"
+            test "$(git rev-parse "${GITHUB_SHA}^1")" = "$base"
+            test "$(git rev-parse "${GITHUB_SHA}^2")" = "$head"
+          elif [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            base="$(git rev-parse "${GITHUB_SHA}^1")"
           fi
-          echo "metadata_only=$metadata_only" >> "$GITHUB_OUTPUT"
-          echo "Beta clean-install scope: $([[ "$metadata_only" == true ]] && echo metadata-only || echo full-runtime)"
+          # Only immutable base code may select reduced verification. The first
+          # protected bootstrap (or missing helper) deliberately runs everything.
+          helper="$RUNNER_TEMP/moondog-verification-plan.py"
+          if [[ -n "$base" ]] && git show "$base:scripts/verification_plan.py" > "$helper"; then
+            python3 "$helper" --base "$base" --head "$head" --output .verification-plan.json --github-output "$GITHUB_OUTPUT"
+          else
+            echo 'scope=full' >> "$GITHUB_OUTPUT"
+            printf '%s\n' '{"schemaVersion":1,"scope":"full","reason":"No trusted base classifier; full verification required."}' > .verification-plan.json
+          fi
+
+      - name: Cache pinned distribution dependency outputs
+        id: vendor-cache
+        if: steps.scope.outputs.scope != 'documentation'
+        uses: actions/cache@v4
+        with:
+          path: .distribution-vendor
+          key: distribution-vendor-v1-${{ runner.os }}-${{ hashFiles('distribution/dependencies.json', 'scripts/prepare_distribution_vendor.sh') }}
 
       - name: Recreate and verify pinned browser dependencies
+        if: steps.scope.outputs.scope != 'documentation' && steps.vendor-cache.outputs.cache-hit != 'true'
         run: bash scripts/prepare_distribution_vendor.sh .distribution-vendor
 
+      - name: Rehash cached or rebuilt distribution libraries
+        if: steps.scope.outputs.scope != 'documentation'
+        run: python3 scripts/verify_distribution_vendor.py .distribution-vendor
+
       - name: Build twice and prove deterministic output
+        if: steps.scope.outputs.scope != 'documentation'
         shell: bash
         run: |
           set -euo pipefail
@@ -67,28 +84,31 @@ jobs:
           unzip -q dist/Service-Operations-Dashboard.zip -d .clean-install-smoke
 
       - name: Install browser smoke-test dependency
+        if: steps.scope.outputs.scope != 'documentation'
         run: |
           npm install --no-save --no-package-lock playwright@1.55.0
           npx playwright install --with-deps chromium
 
       - name: Smoke-test extracted file application
+        if: steps.scope.outputs.scope != 'documentation'
         run: |
           node scripts/smoke_distribution.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
       - name: Prove 16:9 TV layouts and seven-slide rotation with synthetic data
-        if: steps.scope.outputs.metadata_only != 'true'
+        if: steps.scope.outputs.scope == 'full'
         run: |
           node scripts/smoke_overdrive.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html" ".clean-install-smoke/overdrive-proof"
 
       - name: Install the verified Beta package and launch its runtime
+        if: steps.scope.outputs.scope != 'documentation'
         run: |
           node scripts/smoke_beta_package.mjs ".clean-install-smoke/Service Operations Dashboard/00 - OPEN DASHBOARD.html"
 
       - name: Verify package/runtime integrity when reusing the UX proof
-        if: steps.scope.outputs.metadata_only == 'true'
+        if: steps.scope.outputs.scope != 'full'
         run: python3 -m unittest discover -s tests -p 'test_beta_package_runtime.py'
 
       - name: Verify synthetic navigation benchmark structure
-        if: steps.scope.outputs.metadata_only != 'true'
+        if: steps.scope.outputs.scope == 'full'
         run: |
           python3 - <<'PY'
           import json
@@ -223,7 +243,7 @@ jobs:
           PY
 
       - name: Test and validate sanitized retry traces
-        if: steps.scope.outputs.metadata_only != 'true'
+        if: steps.scope.outputs.scope == 'full'
         run: |
           python3 tests/test_ux_trace_sanitizer.py
           python3 - <<'PY'
@@ -243,6 +263,7 @@ jobs:
         with:
           name: clean-install-proof
           path: |
+            .verification-plan.json
             dist/Service-Operations-Dashboard.zip
             dist/Service-Operations-Dashboard.zip.sha256
             dist/Service-Operations-Dashboard.manifest.json

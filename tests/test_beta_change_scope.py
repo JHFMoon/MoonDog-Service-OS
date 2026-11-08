@@ -45,11 +45,9 @@ class BetaChangeScopeTests(unittest.TestCase):
 
     def test_workflow_checks_stable_manifest_and_keeps_install_integrity(self):
         workflow = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
-        self.assertIn("git diff --no-renames --name-only -z", workflow)
-        self.assertIn('git show "$' + '{GITHUB_SHA}^1:updates/manifest.json"', workflow)
-        self.assertIn('git show "$' + '{GITHUB_SHA}^2:updates/manifest.json"', workflow)
-        self.assertIn("python3 scripts/beta_change_scope.py", workflow)
-        self.assertIn("if: steps.scope.outputs.metadata_only != 'true'", workflow)
+        self.assertIn('git show "$base:scripts/verification_plan.py"', workflow)
+        self.assertIn('test "$(git rev-parse "${GITHUB_SHA}^1")" = "$base"', workflow)
+        self.assertIn("if: steps.scope.outputs.scope == 'full'", workflow)
         self.assertIn("node scripts/smoke_distribution.mjs", workflow)
         self.assertIn("node scripts/smoke_beta_package.mjs", workflow)
         self.assertIn("test_beta_package_runtime.py", workflow)

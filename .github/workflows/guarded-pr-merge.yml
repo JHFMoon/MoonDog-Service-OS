@@ -229,7 +229,7 @@ jobs:
               )
           PY
 
-      - name: Evaluate exact-head Publication, Clean Install, and Codex proof
+      - name: Evaluate exact-head verification and authorization evidence
         id: proof
         if: steps.guard.outputs.skip != 'true' && steps.current.outputs.updated != 'true'
         shell: bash
