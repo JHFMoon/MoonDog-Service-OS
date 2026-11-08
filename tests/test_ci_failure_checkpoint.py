@@ -15,7 +15,7 @@ ROOT = f"repos/{REPO}"
 RUN_PATH = f"{ROOT}/actions/runs/123"
 PULL_PATH = f"{ROOT}/pulls/456"
 COMMENTS_PATH = f"{ROOT}/issues/456/comments"
-MARKER = "<!-- moondog-failed-proof:v1:123 -->"
+MARKER = "<!-- moondog-failed-proof:v2:123:1 -->"
 
 
 class FailureCheckpointTests(unittest.TestCase):
@@ -38,12 +38,12 @@ class FailureCheckpointTests(unittest.TestCase):
             "head": {"sha": HEAD, "ref": BRANCH, "repo": {"full_name": REPO}},
         }
 
-    def run_reporter(self, responses):
+    def run_reporter(self, responses, attempt="1"):
         namespace = {"__name__": "test_reporter"}
         exec(self.code, namespace)
         api = Mock(side_effect=responses)
         namespace["api"] = api
-        with patch.dict("os.environ", REPO=REPO, RUN_ID="123", RUN_ATTEMPT="1", RUN_HEAD=HEAD):
+        with patch.dict("os.environ", REPO=REPO, RUN_ID="123", RUN_ATTEMPT=attempt, RUN_HEAD=HEAD):
             namespace["main"]()
         return api
 
@@ -73,6 +73,36 @@ class FailureCheckpointTests(unittest.TestCase):
         checkpoint = {"user": {"login": "github-actions[bot]"}, "body": f"{MARKER}\nExisting"}
         api = self.run_reporter([self.run, [[self.pr]], [[], [checkpoint]]])
         self.assertEqual(api.call_count, 3)
+
+    def test_exact_legacy_checkpoint_remains_idempotent(self):
+        body=(f"<!-- moondog-failed-proof:v1:123 -->\n"
+              f"The Publication check check failed for PR head {HEAD}.\n"
+              f"Run: https://github.com/{REPO}/actions/runs/123/attempts/1")
+        checkpoint={"user":{"login":"github-actions[bot]"},"body":body}
+        api=self.run_reporter([self.run,[[self.pr]],[[checkpoint]]])
+        self.assertEqual(api.call_count,3)
+
+    def test_prior_attempt_markers_cannot_suppress_the_current_failed_attempt(self):
+        run={**self.run,"run_attempt":2}
+        for marker in ("<!-- moondog-failed-proof:v1:123 -->",MARKER):
+            with self.subTest(marker=marker):
+                body=(f"{marker}\nThe Publication check check failed for PR head {HEAD}.\n"
+                      f"Run: https://github.com/{REPO}/actions/runs/123/attempts/1")
+                checkpoint={"user":{"login":"github-actions[bot]"},"body":body}
+                api=self.run_reporter([run,[[self.pr]],[[checkpoint]],[{"jobs":[]}],run,self.pr,{}],attempt="2")
+                self.assertEqual(api.call_args.args[:2],("POST",COMMENTS_PATH))
+                self.assertIn("<!-- moondog-failed-proof:v2:123:2 -->",api.call_args.args[-1])
+                self.assertIn("/actions/runs/123/attempts/2",api.call_args.args[-1])
+                self.assertNotIn("/attempts/1",api.call_args.args[-1])
+                self.assertEqual(sum(c.args[0]!="GET" for c in api.call_args_list),1)
+
+    def test_legacy_marker_with_ambiguous_identity_cannot_suppress_delivery(self):
+        for details in ("Existing",f"Run: https://github.com/{REPO}/actions/runs/123/attempts/1"):
+            with self.subTest(details=details):
+                checkpoint={"user":{"login":"github-actions[bot]"},
+                            "body":"<!-- moondog-failed-proof:v1:123 -->\n"+details}
+                api=self.run_reporter([self.run,[[self.pr]],[[checkpoint]],[{"jobs":[]}],self.run,self.pr,{}])
+                self.assertEqual(api.call_args.args[:2],("POST",COMMENTS_PATH))
 
     def test_stale_head_or_attempt_cannot_post(self):
         updated_run = {**self.run, "run_attempt": 2, "conclusion": "success"}
