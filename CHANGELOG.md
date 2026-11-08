@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.407 — current Beta
+
+- fix(59): reject malformed report periods before refresh learning. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.406 — current Beta
 
 - feat(arrivals): show unverified schedule before first import. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
