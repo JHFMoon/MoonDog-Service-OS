@@ -133,7 +133,7 @@ test('actual Open RO screen distinguishes an unverified source from a loaded syn
   ui.recordCount.textContent=beforeSource;
   render();
   const afterVerifiedSource=ui.recordCount.textContent;
-  assert.equal(afterVerifiedSource,'Showing 2 of 2 records');
+  assert.equal(afterVerifiedSource,'2 records · select any row to update');
   assert.equal(visibleRows(ui).length,2);
   assert.equal(JSON.stringify(records),beforeRecords,'rendering must never mutate the verified Open RO roster');
 });
