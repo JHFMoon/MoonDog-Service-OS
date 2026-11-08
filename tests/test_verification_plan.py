@@ -97,6 +97,29 @@ class VerificationPlanTests(unittest.TestCase):
         code,output=execute(head,self.base);self.assertNotEqual(code,0);self.assertEqual(output,'')
 
 
+    def test_clean_install_checkout_retains_the_ancestry_required_for_document_scope(self):
+        # Reproduce GitHub's PR merge checkout: depth two contains both parent
+        # objects, but marks them shallow and hides the head -> base edge.
+        self.write('docs/guide.md','new');head=self.commit()
+        tree=self.git('rev-parse',head+'^{tree}')
+        merge=self.git('commit-tree',tree,'-p',self.base,'-p',head,'-m','Synthetic PR merge')
+        self.git('update-ref','refs/heads/ci-merge',merge)
+        with tempfile.TemporaryDirectory()as td:
+            checkout=Path(td)
+            def git(*args):
+                return subprocess.check_output(['git','-C',str(checkout),*args],stderr=subprocess.DEVNULL).decode().strip()
+            git('init','-q');git('fetch','--depth=2',self.root.as_uri(),merge)
+            self.assertEqual(plan(checkout,self.base,head)['scope'],'full',
+                             'Missing ancestry must safely retain full verification')
+            git('fetch','--unshallow',self.root.as_uri(),merge)
+            self.assertEqual(plan(checkout,self.base,head)['scope'],'documentation')
+        import re
+        workflow=(ROOT/'.github/workflows/clean-install-proof.yml').read_text()
+        depth=re.search(r'fetch-depth:\s*(\d+)',workflow)
+        self.assertIsNotNone(depth)
+        self.assertEqual(depth.group(1),'0','A shallow checkout defeats the trusted scope fast path')
+
+
 class VerificationWorkflowTests(unittest.TestCase):
     def test_both_workflows_execute_only_base_classifier_with_bootstrap_full_fallback(self):
         for name in ['publication-check','clean-install-proof']:

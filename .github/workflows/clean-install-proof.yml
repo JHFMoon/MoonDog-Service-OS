@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-          fetch-depth: 2  # Keep PR merge parent for package-only source-parity proof
+          fetch-depth: 0  # Complete ancestry is required by the trusted scope classifier
 
       - name: Fail fast until trusted Beta package matches runtime
         if: github.event_name == 'pull_request'
