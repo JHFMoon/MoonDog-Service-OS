@@ -391,6 +391,9 @@
       global.MoonDogApplyDesignModel.plan([], trustedAllowlist);
       await progress(onProgress, { phase: "permission", percent: 8, label: "Preparing installation", detail: "Confirming folder access" });
       await permission(workspace);
+      // Require explicit browser write authority on the actual application
+      // directory too; root permission alone may not establish app access.
+      await permission(app);
       await assertTarget(app, workspace, identity);
       // Never layer a new update over an unresolved prior transaction.
       // Inventory update journals only; do not enumerate store reports.
