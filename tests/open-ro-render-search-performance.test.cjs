@@ -121,3 +121,19 @@ test('exact RO search still finds the record outside active filters and labels t
   assert.equal(ui.exactRoFilterNotice.textContent,'Found outside current filters');
   assert.equal(ui.recordCount.textContent,'Showing 1 of 80 records');
 });
+
+test('actual Open RO screen distinguishes an unverified source from a loaded synthetic roster',()=>{
+  const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+  const before=html.match(/id="recordCount">([^<]+)<\/p>/)?.[1];
+  assert.equal(before,'Open RO source not verified');
+  assert.match(html,/Verified tracker only · unavailable is not zero/);
+  assert.match(html,/Missing or stale reports are not zero workload/);
+  const records=makeRecords(2),beforeRecords=JSON.stringify(records);
+  const {ui,render}=harness(records);
+  ui.recordCount.textContent=before;
+  render();
+  const after=ui.recordCount.textContent;
+  assert.equal(after,'2 records · select any row to update');
+  assert.equal(visibleRows(ui).length,2);
+  assert.equal(JSON.stringify(records),beforeRecords,'rendering must never mutate the verified Open RO roster');
+});
