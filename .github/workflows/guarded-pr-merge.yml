@@ -536,7 +536,35 @@ jobs:
                   f"Run: https://github.com/{repo}/actions/runs/{run_id}/attempts/{attempt}",
                   next_step,
               ])
-              api("POST", comments_path, "-f", f"body={body}")
+              try:
+                  api("POST", comments_path, "-f", f"body={body}")
+              except SystemExit as error:
+                  # A GitHub 403 is a denial: never retry the POST with another
+                  # credential or imply that a PR comment was delivered.
+                  # Actions summaries are local runner output, not an API write.
+                  summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+                  if summary_path:
+                      try:
+                          with open(summary_path, "a", encoding="utf-8") as summary:
+                              summary.write("\n".join([
+                                  "### NEEDS CHATGPT RESUMPTION — Actions-only fallback",
+                                  "",
+                                  f"- PR: [#{number}](https://github.com/{repo}/pull/{number})",
+                                  f"- Failed check: {run['name']}",
+                                  f"- Exact head: `{head}`",
+                                  f"- Run: https://github.com/{repo}/actions/runs/{run_id}/attempts/{attempt}",
+                                  f"- PR comment delivery unverified (API write failed): {error}",
+                                  f"- Next: {next_step}",
+                                  "",
+                              ]) + "\n")
+                      except OSError:
+                          print("Actions summary unavailable; checkpoint delivery remains failed.")
+                  print(
+                      "::warning title=MoonDog CI checkpoint delivery failed::"
+                      f"PR {number} head {head}, run {run_id} attempt {attempt}; "
+                      "PR comment delivery is unverified. Inspect this Actions run."
+                  )
+                  raise
               print("Posted the failed-verification checkpoint.")
 
           if __name__ == "__main__":
