@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   public-boundary:
-    name: Publication Check
+    name: Functional and publication boundaries
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -58,19 +58,109 @@ jobs:
                   "MoonDog automation already uses github-actions[bot]."
               )
           PY
+      - name: Classify exact pull request change scope
+        id: scope
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          base=""; head="$GITHUB_SHA"
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            base="$PR_BASE_SHA"; head="$PR_HEAD_SHA"
+            test "$(git rev-parse "${GITHUB_SHA}^1")" = "$base"
+            test "$(git rev-parse "${GITHUB_SHA}^2")" = "$head"
+          elif [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            base="$(git rev-parse "${GITHUB_SHA}^1")"
+          fi
+          # Only immutable base code may select reduced verification. The first
+          # protected bootstrap (or missing helper) deliberately runs everything.
+          helper="$RUNNER_TEMP/moondog-verification-plan.py"
+          if [[ -n "$base" ]] && git show "$base:scripts/verification_plan.py" > "$helper"; then
+            python3 "$helper" --base "$base" --head "$head" --output .verification-plan.json --github-output "$GITHUB_OUTPUT"
+          else
+            echo 'scope=full' >> "$GITHUB_OUTPUT"
+            printf '%s\n' '{"schemaVersion":1,"scope":"full","reason":"No trusted base classifier; full verification required."}' > .verification-plan.json
+          fi
+      - name: Run focused production-path regressions
+        if: steps.scope.outputs.scope == 'full'
+        run: node --test tests/package-verification.test.cjs tests/durable-write-fault-matrix.test.cjs tests/write-authority-recovery-conflicts.test.cjs tests/workspace-history-isolation.test.cjs tests/install.test.cjs tests/source-boundary.test.cjs
+      - name: Verify scoped publication and package contracts
+        if: steps.scope.outputs.scope != 'full'
+        run: |
+          python3 -m unittest discover -s tests -p 'test_update_manifest.py'
+          python3 -m unittest discover -s tests -p 'test_beta_package_runtime.py'
+          python3 -m unittest discover -s tests -p 'test_check_publication.py'
+          node --test tests/source-boundary.test.cjs tests/local-target-boundary.test.cjs tests/package-verification.test.cjs tests/runtime-mirror.test.cjs
       - name: Run focused tests
+        if: steps.scope.outputs.scope == 'full'
         run: python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Verify updater-compatible generated runtime
         run: python3 scripts/build_operating_modules.py --check
       - name: Verify clean-install source contract
         run: python3 scripts/build_distribution.py --check-source
       - name: Test browser update check
+        if: steps.scope.outputs.scope == 'full'
         env:
           LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: node --test tests/*.test.cjs
+        run: |
+          python3 - <<'PY'
+          import glob, subprocess
+          focused = {'package-verification','durable-write-fault-matrix','write-authority-recovery-conflicts','workspace-history-isolation','install','source-boundary'}
+          files = [p for p in sorted(glob.glob('tests/*.test.cjs')) if p.split('/')[-1].removesuffix('.test.cjs') not in focused]
+          if not files:
+              raise SystemExit('Missing complete Node regression suite')
+          subprocess.run(['node', '--test', *files], check=True)
+          PY
       - name: Check tracked publication contents
         run: python3 scripts/check_publication.py
+
+  history-boundary:
+    name: Contextual history scan
+    needs: public-boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch all public refs for history audit
+        run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
       - name: Audit reachable Git history for sensitive material
         run: python3 scripts/audit_git_history.py
+
+  history-strict:
+    name: Strict history scan
+    needs: public-boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch all public refs for history audit
+        run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
       - name: Enforce strict redacted full-history VIN and credential scan
         run: python3 scripts/audit_public_git_history.py
+
+  publication-check:
+    name: Publication Check
+    if: always()
+    needs: [public-boundary, history-boundary, history-strict]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every functional and security result
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          expected = {'public-boundary', 'history-boundary', 'history-strict'}
+          if set(results) != expected or any(result.get('result') != 'success' for result in results.values()):
+              raise SystemExit('Publication blocked: every required functional and history job must succeed')
+          print('All required functional, publication-boundary and full-history checks passed')
+          PY

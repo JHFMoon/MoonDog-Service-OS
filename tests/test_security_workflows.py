@@ -35,7 +35,6 @@ class SecurityWorkflowTests(unittest.TestCase):
         clean_install = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
         duplicated_commands = (
             "python3 -m unittest discover -s tests -p 'test_*.py'",
-            "node --test tests/*.test.cjs",
             "python3 scripts/build_operating_modules.py --check",
             "python3 scripts/check_publication.py",
             "python3 scripts/build_distribution.py --check-source",
@@ -44,6 +43,7 @@ class SecurityWorkflowTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn(command, publication)
                 self.assertNotIn(command, clean_install)
+        self.assertIn("subprocess.run(['node', '--test', *files], check=True)", publication)
         self.assertNotIn("Run repository safety checks", clean_install)
         for proof_step in (
             "Recreate and verify pinned browser dependencies",
@@ -173,8 +173,16 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('push origin "HEAD:$HEAD_BRANCH"', prepare)
         release_app = prepare.split("id: release-app", 1)[1].split("      - name:", 1)[0]
         self.assertIn("permission-contents: write", release_app)
-        self.assertIn("permission-issues: write", release_app)
-        self.assertIn("permission-pull-requests: write", release_app)
+        self.assertNotIn("permission-issues:", release_app)
+        self.assertIn("permission-pull-requests: read", release_app)
+        auth = prepare.index("      - name: Verify explicit authorization and protected path boundaries")
+        base = prepare.index("      - name: Defer package generation until PR is based on current main")
+        checkout = prepare.index("      - name: Check out candidate as untrusted data")
+        self.assertLess(auth, base)
+        self.assertLess(base, checkout)
+        push = prepare.split("      - name: Push package commit to the same reviewed PR", 1)[1]
+        self.assertLess(push.index(".head.sha == $head"), push.index('push origin "HEAD:$HEAD_BRANCH"'))
+        self.assertLess(push.index('"$EXPECTED_MAIN"'), push.index('push origin "HEAD:$HEAD_BRANCH"'))
         self.assertNotIn("workflow_dispatch:", prepare)
         self.assertNotIn("gh workflow run", prepare)
         self.assertNotIn("statuses:", prepare)
@@ -356,7 +364,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertEqual(policy["beta_review_mode"], "automated-data-proofs")
         self.assertEqual(policy["stable_publication"], "existing-stable-release-workflow-only")
         publication = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
-        self.assertIn("node --test tests/*.test.cjs", publication)
+        self.assertIn("subprocess.run(['node', '--test', *files], check=True)", publication)
         self.assertIn("python3 scripts/audit_public_git_history.py", publication)
 
 

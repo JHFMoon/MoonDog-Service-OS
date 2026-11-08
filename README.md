@@ -75,3 +75,5 @@ Generated clean-install ZIP files are release artifacts, not tracked source. The
 **GitHub may contain the product. GitHub may never contain the dealership.**
 
 See [Operating Intelligence](docs/OPERATING-INTELLIGENCE.md) for Home refresh prompts, locally learned update cadence, SAPR working-day comparisons, and responsive meeting cards.
+
+For ordinary ChatGPT development, see [Direct ChatGPT engineering](docs/DIRECT-CHAT-ENGINEERING.md).
