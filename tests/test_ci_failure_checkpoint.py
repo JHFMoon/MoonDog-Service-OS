@@ -139,23 +139,27 @@ class FailureCheckpointTests(unittest.TestCase):
                 namespace["api"]("POST", COMMENTS_PATH)
 
 
-    def test_403_denial_writes_local_actions_fallback_and_remains_failed(self):
-        with TemporaryDirectory() as tmp:
-            summary_path = Path(tmp) / "summary.md"
-            responses = [
-                self.run, [[self.pr]], [[]], [{"jobs": []}], self.run, self.pr,
-                SystemExit("Checkpoint API POST failed (HTTP 403)."),
-            ]
-            with patch.dict("os.environ", GITHUB_STEP_SUMMARY=str(summary_path)):
-                with self.assertRaisesRegex(SystemExit, r"POST failed \(HTTP 403\)"):
-                    self.run_reporter(responses)
-            summary = summary_path.read_text(encoding="utf-8")
-            self.assertIn("Actions-only fallback", summary)
-            self.assertIn("PR comment NOT delivered", summary)
-            self.assertIn(HEAD, summary)
-            self.assertIn("/actions/runs/123/attempts/1", summary)
-            self.assertIn("HTTP 403", summary)
-            self.assertNotIn("gh: ", summary)
+    def test_denied_or_ambiguous_post_records_unverified_delivery_and_stays_failed(self):
+        # Both an explicit denial and an ambiguous response must stay visibly
+        # failed; never claim a comment was definitely absent or replay a POST.
+        for status in (403, 503):
+            with self.subTest(status=status), TemporaryDirectory() as tmp:
+                summary_path = Path(tmp) / "summary.md"
+                responses = [
+                    self.run, [[self.pr]], [[]], [{"jobs": []}], self.run, self.pr,
+                    SystemExit(f"Checkpoint API POST failed (HTTP {status})."),
+                ]
+                with patch.dict("os.environ", GITHUB_STEP_SUMMARY=str(summary_path)):
+                    with self.assertRaisesRegex(SystemExit, f"POST failed \\(HTTP {status}\\)"):
+                        api = self.run_reporter(responses)
+                summary = summary_path.read_text(encoding="utf-8")
+                self.assertIn("Actions-only fallback", summary)
+                self.assertIn("PR comment delivery unverified", summary)
+                self.assertIn(HEAD, summary)
+                self.assertIn("/actions/runs/123/attempts/1", summary)
+                self.assertIn(f"HTTP {status}", summary)
+                self.assertNotIn("gh: ", summary)
+                self.assertNotIn("NOT delivered", summary)
 
     def test_success_never_claims_fallback(self):
         with TemporaryDirectory() as tmp:
