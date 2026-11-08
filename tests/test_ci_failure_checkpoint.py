@@ -4,6 +4,7 @@ from pathlib import Path
 import textwrap
 import unittest
 from unittest.mock import Mock, call, patch
+from tempfile import TemporaryDirectory
 
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/guarded-pr-merge.yml"
@@ -136,6 +137,35 @@ class FailureCheckpointTests(unittest.TestCase):
         with patch("subprocess.run", return_value=malformed):
             with self.assertRaisesRegex(SystemExit, r"Checkpoint API POST failed \(HTTP unknown\)"):
                 namespace["api"]("POST", COMMENTS_PATH)
+
+
+    def test_403_denial_writes_local_actions_fallback_and_remains_failed(self):
+        with TemporaryDirectory() as tmp:
+            summary_path = Path(tmp) / "summary.md"
+            responses = [
+                self.run, [[self.pr]], [[]], [{"jobs": []}], self.run, self.pr,
+                SystemExit("Checkpoint API POST failed (HTTP 403)."),
+            ]
+            with patch.dict("os.environ", GITHUB_STEP_SUMMARY=str(summary_path)):
+                with self.assertRaisesRegex(SystemExit, r"POST failed \\(HTTP 403\\)"):
+                    self.run_reporter(responses)
+            summary = summary_path.read_text(encoding="utf-8")
+            self.assertIn("Actions-only fallback", summary)
+            self.assertIn("PR comment NOT delivered", summary)
+            self.assertIn(HEAD, summary)
+            self.assertIn("/actions/runs/123/attempts/1", summary)
+            self.assertIn("HTTP 403", summary)
+            self.assertNotIn("gh: ", summary)
+
+    def test_success_never_claims_fallback(self):
+        with TemporaryDirectory() as tmp:
+            summary_path = Path(tmp) / "summary.md"
+            responses = [
+                self.run, [[self.pr]], [[]], [{"jobs": []}], self.run, self.pr, {},
+            ]
+            with patch.dict("os.environ", GITHUB_STEP_SUMMARY=str(summary_path)):
+                self.run_reporter(responses)
+            self.assertFalse(summary_path.exists())
 
 
 if __name__ == "__main__":
