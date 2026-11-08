@@ -264,6 +264,55 @@
           ]
         }
       }
+    },
+    "799": {
+      "package_pr": 807,
+      "criteria": {
+        "799-01": {
+          "kind": "runtime",
+          "pr": 807,
+          "tests": [
+            "tests/unverified-openro-visibility.test.cjs",
+            "tests/open-ro-render-search-performance.test.cjs"
+          ]
+        },
+        "799-02": {
+          "kind": "test",
+          "pr": 800,
+          "tests": [
+            "tests/test_guarded_merge_policy.py"
+          ]
+        },
+        "799-03": {
+          "kind": "test",
+          "pr": 801,
+          "tests": [
+            "tests/test_verification_plan.py"
+          ]
+        },
+        "799-04": {
+          "kind": "test",
+          "pr": 793,
+          "tests": [
+            "tests/test_verification_plan.py",
+            "tests/test_verify_distribution_vendor.py"
+          ]
+        },
+        "799-05": {
+          "kind": "test",
+          "pr": 803,
+          "tests": [
+            "tests/test_ci_failure_checkpoint.py"
+          ]
+        },
+        "799-06": {
+          "kind": "test",
+          "pr": 806,
+          "tests": [
+            "tests/test_ci_failure_checkpoint.py"
+          ]
+        }
+      }
     }
   }
 }
