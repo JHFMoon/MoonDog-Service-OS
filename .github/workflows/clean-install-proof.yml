@@ -59,7 +59,11 @@ jobs:
         if: steps.scope.outputs.scope != 'documentation'
         uses: actions/cache@v4
         with:
-          path: .distribution-vendor
+          path: |
+            .distribution-vendor/jszip.min.js
+            .distribution-vendor/xlsx.full.min.js
+            .distribution-vendor/pdf.min.js
+            .distribution-vendor/pdf.worker.min.js
           key: distribution-vendor-v1-${{ runner.os }}-${{ hashFiles('distribution/dependencies.json', 'scripts/prepare_distribution_vendor.sh') }}
 
       - name: Recreate and verify pinned browser dependencies
