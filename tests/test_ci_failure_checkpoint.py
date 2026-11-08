@@ -151,7 +151,7 @@ class FailureCheckpointTests(unittest.TestCase):
                 ]
                 with patch.dict("os.environ", GITHUB_STEP_SUMMARY=str(summary_path)):
                     with self.assertRaisesRegex(SystemExit, rf"POST failed \(HTTP {status}\)"):
-                        api = self.run_reporter(responses)
+                        self.run_reporter(responses)
                 summary = summary_path.read_text(encoding="utf-8")
                 self.assertIn("Actions-only fallback", summary)
                 self.assertIn("PR comment delivery unverified", summary)
