@@ -37,7 +37,10 @@
     const item=history?.sources?.[source]||{};
     return { observations:Array.isArray(item.observations)?item.observations.slice(-24):[],
       deferrals:Array.isArray(item.deferrals)?item.deferrals.slice(-24):[],
-      notNowUntil:typeof item.notNowUntil==="string"?item.notNowUntil:"" };
+      notNowUntil:typeof item.notNowUntil==="string"?item.notNowUntil:"",
+      // Retain the last verified request across imports and deferrals.
+      ...(typeof item.lastRequested==="string" && Number.isFinite(Date.parse(item.lastRequested))
+        ? {lastRequested:item.lastRequested} : {}) };
   }
   function learn(history,source,kind,options={}) {
     if(!catalog[source]) return history||empty();
