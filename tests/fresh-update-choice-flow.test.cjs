@@ -114,10 +114,10 @@ test("failed Fresh cleanup after verified install blocks further updates in this
   assert.match(h.field("updateChoiceNote").textContent,/durable recovery hold/);
 });
 
-test("preserving an installation retains ordinary verified-update follow-up",async()=>{
+test("preserving an installation relies on its own durable journal, not shared browser receipt",async()=>{
   const h=harness();await h.check();await h.preserve();
   assert.deepEqual(h.events.map(e=>e[0]),["verify","plan","apply"]);
-  assert.equal(h.storageWrites.includes("moondog-verified-update-followup-v1"),true);
+  assert.equal(h.storageWrites.includes("moondog-verified-update-followup-v1"),false);
 });
 
 test("wrong-folder picker selection rejects Fresh before verifying or installing",async()=>{

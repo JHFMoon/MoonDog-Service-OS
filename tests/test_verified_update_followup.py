@@ -9,22 +9,24 @@ RECEIPT="moondog-verified-update-followup-v1"
 
 
 class VerifiedUpdateFollowupTests(unittest.TestCase):
-    def test_success_only_creates_receipt(self):
+    def test_success_only_uses_installation_bound_journal(self):
         section=UPDATER[UPDATER.index('if (outcome.status === "installed") {'):]
-        self.assertIn(RECEIPT,section)
-        self.assertIn('version: outcome.version',section)
-        self.assertIn('verifiedAt:',section)
+        self.assertNotIn(RECEIPT,section)
+        self.assertIn('installedVersion = outcome.version',section)
+        self.assertIn('MoonDogUpdateInstall.apply(',UPDATER)
 
     def test_connection_followup_gated_by_exact_installed_version(self):
         section=APP[APP.index("async function runVerifiedUpdateFollowup()"):APP.index("const folderWatch=",APP.index("async function runVerifiedUpdateFollowup()"))]
-        self.assertIn('receipt?.version!==VERSION',section)
+        self.assertIn('if(!durableReceipt&&!parserRevisionChanged)return;',section)
+        self.assertIn('await findVerifiedUpdateFollowup(model.applicationRoot)',section)
+        self.assertNotIn('localStorage.getItem',section)
         self.assertIn('!writeAuthority.canWrite',section)
         self.assertIn('parserRevisionChanged=previousParser?previousParser!==LEARNED_PARSER_REVISION:legacyImportState',section)
         self.assertIn('entry.kind||entry.importFailed||entry.recognized',section)
         self.assertIn('await reconcileLearnedFiles(LEARNED_PARSER_REVISION)',section)
         self.assertIn('model.autoImport.learnedParserRevision=LEARNED_PARSER_REVISION',section)
         self.assertIn('result?.deferred||result?.failures',section)
-        self.assertIn('localStorage.removeItem(key)',section)
+        self.assertNotIn('localStorage.removeItem',section)
 
     def test_layout_audit_is_read_only_and_preserves_legacy_origin(self):
         helper=APP[APP.index("async function auditInstalledRuntimeLayout("):APP.index("async function runVerifiedUpdateFollowup()",APP.index("async function auditInstalledRuntimeLayout("))]

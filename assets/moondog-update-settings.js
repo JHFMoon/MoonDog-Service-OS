@@ -689,18 +689,10 @@
             status.textContent = "Beta installed, selected Workspace reset verified. Reloading into Guided Setup.";
           } else throw new Error("Fresh reset returned no verified completion.");
         }
-        // This receipt is written ONLY after the installer has verified the new
-        // runtime. The next version's connected app may then run local follow-up.
-        // No Workspace contents or source files are included in this marker.
-        // A Fresh reset cleared the selected Workspace, including learned sources.
-        // Never publish its update receipt into a browser-profile-wide key:
-        // another installation sharing this origin must remain independent.
-        if(freshOutcomeStatus!=="fresh") {
-          try {
-            global.localStorage?.setItem("moondog-verified-update-followup-v1",
-              JSON.stringify({ version: outcome.version, verifiedAt: new Date().toISOString() }));
-          } catch (_) { /* Browser storage may be restricted; manual source retry remains available. */ }
-        }
+        // The verified installer already stores the update receipt and
+        // completion journal inside the selected installation's Workspace.
+        // Do not publish a profile-wide localStorage receipt: another
+        // file:// installation may share this browser origin.
         state.check = null;
         state.checkFor = null;
         state.dismissed = null;

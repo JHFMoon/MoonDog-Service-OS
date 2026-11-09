@@ -4147,10 +4147,10 @@
   }
 
   async function runVerifiedUpdateFollowup() {
-    // The updater receipt is preferred; its verified backup journal is a
-    // durable fallback when browser storage could not retain the marker.
-    const key="moondog-verified-update-followup-v1";let receipt=null;
-    try{receipt=JSON.parse(localStorage.getItem(key)||"null");}catch(_){}
+    // Browser-local storage can be shared by distinct file:// installations.
+    // It cannot authorize follow-up work in a selected dealership Workspace.
+    // Only the installation-bound verified update journal or an independently
+    // changed parser revision is sufficient.
     if(!model.root||!writeAuthority.canWrite)return;
     const previousParser=model.autoImport.learnedParserRevision;
     const legacyImportState=Object.values(model.autoImport.seen||{}).some(entry=>entry&&
@@ -4163,18 +4163,11 @@
     let durableReceipt;
     try{durableReceipt=await findVerifiedUpdateFollowup(model.applicationRoot);}
     catch(error){
-      if(receipt?.version!==VERSION){
-        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Receipt lookup deferred: "+String(error?.name||"Error")+"; no files changed.");
-        return;
-      }
-    }
-    if(durableReceipt?.completed&&!parserRevisionChanged){
-      try{localStorage.removeItem(key);}catch(error){
-        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Completed receipt cleanup deferred: "+String(error?.name||"Error")+".");
-      }
+      recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Selected installation journal lookup deferred: "+String(error?.name||"Error")+"; no files changed.");
       return;
     }
-    if(receipt?.version!==VERSION&&!durableReceipt&&!parserRevisionChanged)return;
+    if(durableReceipt?.completed&&!parserRevisionChanged)return;
+    if(!durableReceipt&&!parserRevisionChanged)return;
     const followupReceipt=durableReceipt?.version===VERSION&&!durableReceipt.completed?durableReceipt:null;
     try{
       const layout=await auditInstalledRuntimeLayout(model.applicationRoot);
@@ -4199,9 +4192,6 @@
         await writeJson(AUTO_IMPORT_PATH,model.autoImport);
       }
       if(followupReceipt)await markVerifiedUpdateFollowupComplete(followupReceipt);
-      try{localStorage.removeItem(key);}catch(_){
-        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Browser receipt cleanup unavailable; durable parser revision and import results remain verified.");
-      }
       recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Verified "+VERSION+" · attempted "+(result?.attempts||0)+" learned files · skipped "+(result?.skipped||0)+" · recovered "+(result?.recovered||0)+" · still unsupported "+(result?.unsupported||0)+". Unchanged parser revisions do not trigger reclassification.");
     }catch(error){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.name||"Error")+"; receipt retained, originals unchanged.");}
   }
