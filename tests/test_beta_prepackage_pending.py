@@ -31,7 +31,8 @@ class PendingPackageWorkflowContract(unittest.TestCase):
                 self.assertNotIn("continue-on-error", source[strict:strict + 260])
                 self.assertEqual(source.count(PRECHECK), 2)
                 self.assertIn("cancel-in-progress:", source)
-                self.assertIn("true", source.split("cancel-in-progress:", 1)[1].splitlines()[0])
+                cancel = source.split("cancel-in-progress:", 1)[1].splitlines()[0].strip()
+                self.assertIn(cancel, ("true", "${{ github.event_name == 'pull_request' }}"))
                 # A missing or compromised package must still fail the final gate.
                 self.assertIn("Fail fast until trusted Beta package matches runtime", source)
 
