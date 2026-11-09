@@ -5,6 +5,8 @@ import { createHash, webcrypto } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
 const launcher = process.argv[2];
@@ -146,6 +148,7 @@ const expectedPlan = await context.MoonDogPackagePlan.dryRun({
 if (expectedPlan.rejected.length || expectedPlan.add.length || expectedPlan.delete.length) {
   throw new Error(`Beta package plan was not a valid in-place runtime update: ${JSON.stringify(expectedPlan)}`);
 }
+const ordinaryStarted = performance.now();
 const result = await context.MoonDogUpdateInstall.apply({
   verifiedPackage, appDirectoryHandle, workspaceDirectoryHandle,
   trustedAllowlist, expectedPlan, confirmed: true, subtle: webcrypto.subtle
@@ -157,6 +160,101 @@ if (createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex") !
   throw new Error("The Beta update changed protected synthetic Workspace state.");
 }
 console.log("Verified Stable-to-Beta installation and protected synthetic Workspace invariance", beta.version);
+const ordinaryUpdateMs = performance.now() - ordinaryStarted;
+
+// Damage only this clean-install smoke fixture, after its synthetic state was
+// created and verified above. Use the real verified package and installer;
+// never manufacture repaired runtime bytes or invoke Fresh.
+const repairedPaths = ["index.html", "assets/app.js"];
+for (const relative of repairedPaths) fs.unlinkSync(path.join(appRoot, relative));
+const repairPlan = await context.MoonDogPackagePlan.dryRun({
+  verifiedPackage, appDirectoryHandle, trustedAllowlist, subtle: webcrypto.subtle
+});
+assert.equal(repairPlan.rejected.length, 0);
+const repairEvents = [];
+const repairStarted = performance.now();
+const repaired = await context.MoonDogUpdateInstall.apply({
+  verifiedPackage, appDirectoryHandle, workspaceDirectoryHandle, trustedAllowlist,
+  expectedPlan: repairPlan, confirmed: true, subtle: webcrypto.subtle,
+  onProgress: event => repairEvents.push({phase: event.phase, label: event.label})
+});
+const repairMs = performance.now() - repairStarted;
+assert.equal(repaired.status, "installed", repaired.reason);
+for (const label of ["Checking", "Repairing", "Verifying"])
+  assert.ok(repairEvents.some(event => event.label === label), `Missing installer phase: ${label}`);
+const installedHashes = () => repairedPaths.map(relative =>
+  createHash("sha256").update(fs.readFileSync(path.join(appRoot, relative))).digest("hex"));
+const repairedHashes = installedHashes();
+for (const [index, relative] of repairedPaths.entries()) {
+  const entry = JSON.parse(packageBytes).files.find(file => file.path === relative && file.action === "put");
+  assert.ok(entry, `Verified package must carry repair bytes: ${relative}`);
+  assert.equal(repairedHashes[index], entry.sha256, `Repaired bytes differ from verified package: ${relative}`);
+}
+const repeatPlan = await context.MoonDogPackagePlan.dryRun({
+  verifiedPackage, appDirectoryHandle, trustedAllowlist, subtle: webcrypto.subtle
+});
+const repeatStarted = performance.now();
+const repeated = await context.MoonDogUpdateInstall.apply({
+  verifiedPackage, appDirectoryHandle, workspaceDirectoryHandle, trustedAllowlist,
+  expectedPlan: repeatPlan, confirmed: true, subtle: webcrypto.subtle
+});
+const repeatUpdateMs = performance.now() - repeatStarted;
+assert.equal(repeated.status, "installed", repeated.reason);
+assert.deepEqual(installedHashes(), repairedHashes);
+assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"), originalStateHash);
+// Explicit denied native-folder write authority must fail closed before any
+// application write, synthetic Workspace mutation, or rollback journal change.
+const pristineAppHashes = installedHashes();
+const deniedAppHandle = {
+  ...appDirectoryHandle,
+  queryPermission: async () => "denied",
+  requestPermission: async () => "denied"
+};
+const backupFolder = path.join(appRoot, "Workspace", "backups", "system-updates");
+const beforeDeniedBackups = fs.readdirSync(backupFolder).sort();
+const denied = await context.MoonDogUpdateInstall.apply({
+  verifiedPackage, appDirectoryHandle: deniedAppHandle, workspaceDirectoryHandle,
+  trustedAllowlist, expectedPlan: repeatPlan, confirmed: true, subtle: webcrypto.subtle
+});
+assert.equal(denied.status, "stopped", denied.reason);
+assert.match(denied.reason, /Folder write permission was not granted/);
+assert.deepEqual(installedHashes(), pristineAppHashes);
+assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"), originalStateHash);
+assert.deepEqual(fs.readdirSync(backupFolder).sort(), beforeDeniedBackups);
+
+// Two synthetic installations may use overlapping record IDs. An updater
+// selected for Store A must reject Store B's root, leaving both untouched.
+const secondRootPath = fs.mkdtempSync(path.join(path.dirname(installRoot), "moondog-foreign-update-"));
+try {
+  const secondData = path.join(secondRootPath, "System Files", "Workspace", "data");
+  fs.mkdirSync(secondData, {recursive:true});
+  const secondState = path.join(secondData, "current-state.json");
+  fs.writeFileSync(secondState, '{"synthetic":true,"record":"overlapping-id","store":"B"}\n');
+  const secondOriginal = fs.readFileSync(secondState);
+  const firstOriginal = fs.readFileSync(syntheticState);
+  const wrongStore = await context.MoonDogUpdateInstall.apply({
+    verifiedPackage, appDirectoryHandle,
+    workspaceDirectoryHandle: directoryHandle(secondRootPath),
+    trustedAllowlist, expectedPlan: repeatPlan, confirmed: true, subtle: webcrypto.subtle
+  });
+  assert.equal(wrongStore.status, "stopped", wrongStore.reason);
+  assert.match(wrongStore.reason, /does not belong to the selected installation/);
+  assert.deepEqual(fs.readFileSync(secondState), secondOriginal);
+  assert.deepEqual(fs.readFileSync(syntheticState), firstOriginal);
+  assert.deepEqual(installedHashes(), pristineAppHashes);
+  assert.equal(fs.existsSync(path.join(secondRootPath,"System Files","Workspace","backups")), false);
+} finally {
+  const parent = fs.realpathSync(path.dirname(installRoot));
+  const target = fs.realpathSync(secondRootPath);
+  if (!target.startsWith(parent + path.sep) || !path.basename(target).startsWith("moondog-foreign-update-"))
+    throw Error("Unsafe synthetic test-directory cleanup target");
+  fs.rmSync(target, {recursive:true, force:true});
+}
+console.log("Verified synthetic denied-write and foreign-store root refusal; app bytes, private synthetic state, and journals unchanged.");
+console.log("Synthetic production updater repair timing", JSON.stringify({
+  scope: "single local filesystem sample per path; VM production installer; excludes browser permission, network and physical-device latency; phase callbacks are not rendered UX proof",
+  ordinaryUpdateMs, repairMs, repeatUpdateMs, repairedPaths
+}));
 
 const browser = await chromium.launch({ headless: true, channel: process.env.MOONDOG_BROWSER_CHANNEL || undefined });
 const page = await browser.newPage();
@@ -245,7 +343,96 @@ try {
     return {advisors: 9, subsets: [1, 3, 9], uiSelections: [0,1,3,9], emptyRejected, officialIssuance: "verified"};
   }, workbookHarness);
   console.log("Verified packaged Supervisor Workbook and outbound handoff XLSX round trips", workbookResult);
-  console.log("Verified Beta update installed and launched", runtime);
+
+  // Render the installed Settings update UI in the real file:// browser.
+  // The earlier smoke uses the production verified-package installer and real
+  // synthetic filesystem. This second UI-only probe substitutes explicit
+  // callbacks and never writes a local Workspace or application file.
+  const syntheticNextVersion = beta.version.replace(/beta\.(\d+)$/,
+    (_whole, number) => "beta." + (Number(number) + 1));
+  assert.notEqual(syntheticNextVersion, beta.version);
+  // First-run clean installs may collapse the Settings sidebar destination.
+  // Exercise the actual navigation handler without treating menu visibility
+  // as part of this repair-progress regression.
+  await page.evaluate(() => {
+    const settings = document.querySelector('.nav-item[data-view="settings"]');
+    if (!settings) throw Error("Installed Settings navigation is missing");
+    settings.click();
+  });
+  await page.locator("#settings-update").waitFor({state:"visible", timeout:8000});
+  await page.evaluate(nextVersion => {
+    const missing = () => Object.assign(new Error("Synthetic missing entry"), {name:"NotFoundError"});
+    const system = {name:"System Files", getDirectoryHandle:async () => {throw missing();}};
+    const root = {
+      name:"Synthetic repair UX installation",
+      getDirectoryHandle:async (name, options) => {
+        if(name==="System Files" && options?.create===false)return system;
+        throw missing();
+      }
+    };
+    globalThis.__moondogSettingsModel = {
+      ...(globalThis.__moondogSettingsModel || {}), applicationRoot:root
+    };
+    globalThis.MoonDogUpdateInstall.listBackups = async () => [];
+    globalThis.MoonDogUpdateCheck.check = async () =>
+      new Promise(resolve => {
+        globalThis.__moondogResolveCheck = () => resolve({
+          status:"newer-version", version:nextVersion, channel:"beta",
+          packageUrl:"https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/synthetic",
+          sha256:"a".repeat(64)
+        });
+      });
+    globalThis.MoonDogPackageVerification.verify = async () => ({
+      status:"verified", version:nextVersion, channel:"beta",
+      sha256:"a".repeat(64), migrationRequired:false,
+      minimumCompatibleVersion:"0.10.9"
+    });
+    globalThis.MoonDogPackagePlan.dryRun = async () => ({
+      add:[], replace:["assets/app.js"], delete:[], unchanged:[], rejected:[]
+    });
+    globalThis.MoonDogUpdateInstall.apply = async ({onProgress}) =>
+      new Promise(resolve => {
+        globalThis.__moondogEmitRepairPhase = event => onProgress(event);
+        globalThis.__moondogFinishRepair = () => resolve({
+          status:"stopped",reason:"Synthetic permission denied; no files changed."
+        });
+      });
+    globalThis.confirm = () => true;
+    const channel = document.getElementById("updateChannel");
+    channel.value = "beta";
+    channel.dispatchEvent(new Event("change", {bubbles:true}));
+    document.dispatchEvent(new Event("moondog-data"));
+  }, syntheticNextVersion);
+  await page.evaluate(() => document.getElementById("checkMoonDogUpdate").click());
+  await page.waitForFunction(() =>
+    document.getElementById("updateProgressLabel")?.textContent==="Checking for updates");
+  assert.equal(await page.locator("#updateProgress").isVisible(), true);
+  await page.waitForFunction(() => typeof globalThis.__moondogResolveCheck==="function");
+  await page.evaluate(() => globalThis.__moondogResolveCheck());
+  await page.waitForFunction(() =>
+    document.getElementById("installMoonDogUpdate")?.disabled===false);
+  await page.evaluate(() => document.getElementById("installMoonDogUpdate").click());
+  await page.waitForFunction(() =>
+    typeof globalThis.__moondogEmitRepairPhase==="function");
+  for (const event of [
+    {phase:"check",label:"Checking",percent:10,detail:"Inspecting synthetic application files"},
+    {phase:"repair",label:"Repairing",percent:55,detail:"Restoring synthetic verified software"},
+    {phase:"verify",label:"Verifying",percent:85,detail:"Checking synthetic repaired hashes"}
+  ]) {
+    await page.evaluate(value => globalThis.__moondogEmitRepairPhase(value), event);
+    await page.waitForFunction(label =>
+      document.getElementById("updateProgressLabel")?.textContent===label, event.label);
+    assert.equal(await page.locator("#updateProgress").isVisible(), true);
+    assert.match(await page.locator("#updateProgressState").textContent(), /WORKING/);
+  }
+  await page.evaluate(() => globalThis.__moondogFinishRepair());
+  await page.waitForFunction(() =>
+    document.getElementById("updateProgressState")?.textContent.includes("STOPPED"));
+  assert.match(await page.locator("#updateStatus").textContent(),
+    /Synthetic permission denied; no files changed/);
+  assert.equal(pageErrors.length, 0);
+  console.log("Verified browser-rendered update progression and stopped-error UX using synthetic callback driver; not browser permission or real file repair proof.");
+  console.log("Verified repaired Beta installation and repeat update launched through file://", runtime);
 } finally {
   await browser.close();
 }
