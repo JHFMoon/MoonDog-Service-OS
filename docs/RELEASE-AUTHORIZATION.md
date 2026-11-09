@@ -1,6 +1,6 @@
-# James-approved MoonDog release contract
+# Repository-owner-approved MoonDog release contract
 
-**Standing authorization:** James authorizes automatic merging of eligible same-repository pull requests under the risk-based review policy below. Every merge requires applicable tests and verification on the exact PR head and compliance with GitHub protections. The trusted main-branch policy defines eligibility.
+**Standing authorization:** the repository owner authorizes automatic merging of eligible same-repository pull requests under the risk-based review policy below. Every merge requires applicable tests and verification on the exact PR head and compliance with GitHub protections. The trusted main-branch policy defines eligibility.
 
 
 A Stable promotion PR requires separate owner authorization before merge. Publication still runs only through the existing `.github/workflows/stable-release.yml` workflow after protected merge and successful main Publication Check; never install it or dispatch a separate manual deployment merely because a PR merged.
@@ -31,7 +31,7 @@ Routine engineering and Beta work operate under standing owner authorization. An
 
 ## Installation
 - Application may automatically **check** for verified new Stable releases and show a visible non-blocking notification with release notes.
-- Installation into a local browser-authorized folder requires James's confirmation. No silent overwrite of locally held operational files.
+- Installation into a local browser-authorized folder requires the repository owner's confirmation. No silent overwrite of locally held operational files.
 - Deliver a concise completion record: change, Beta/Stable version, validation result, deployment URL, and any blockers.
 
 ## Automation boundary
@@ -41,13 +41,13 @@ The PR template supplies the standalone `MoonDog-Auto-Merge: yes` line to future
 
 ## Chat-only review mode (no external coding agent)
 
-At James's direction, trusted release workflows must **not automatically summon Codex or any other external agent**. The packaging workflow publishes a same-PR candidate without posting an agent-review request. The guarded merger evaluates exact-head checks, risk classification, scoped preservation proof, authenticated unresolved findings, and applicable review evidence. A missing or stale formal review keeps a review-required change pending. Routine and scoped-proof changes proceed when their own gates pass.
+At the repository owner's direction, trusted release workflows must **not automatically summon Codex or any other external agent**. The packaging workflow publishes a same-PR candidate without posting an agent-review request. The guarded merger evaluates exact-head checks, risk classification, scoped preservation proof, authenticated unresolved findings, and applicable review evidence. A missing or stale formal review keeps a review-required change pending. Routine and scoped-proof changes proceed when their own gates pass.
 
 The trusted policy and workflows themselves remain protected automation files. A change to them requires a separately reviewed bootstrap PR using ordinary GitHub-authorized merge permissions; the automatic merger does not merge its own policy changes. This mode does not constitute independent human review or device validation.
 
 ## Exact-head owner-attested inspection
 
-Where formal review is required, James permits an AI-assisted owner attestation submitted through the connected GitHub account, including for a PR authored by `JHFMoon`. The reviewer must actually inspect the current PR diff and the exact SHA, report findings, and submit a **GitHub pull-request review** using the authenticated `JHFMoon` account, with these two standalone lines:
+Where formal review is required, the repository owner permits an AI-assisted owner attestation submitted through the connected GitHub account, including for a PR authored by `JHFMoon`. The reviewer must actually inspect the current PR diff and the exact SHA, report findings, and submit a **GitHub pull-request review** using the authenticated `JHFMoon` account, with these two standalone lines:
 
 ```text
 MoonDog-Owner-Review: approved
