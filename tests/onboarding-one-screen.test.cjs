@@ -90,10 +90,10 @@ test("initial screen requires the store and valid SAPR, not optional sources",()
   assert.match(h.ui.setupCompletionNote.textContent,/Save your dealership/);
 });
 test("one-page store save retains other settings and commits only after durable write",async()=>{
-  const h=harness({name:"Synthetic Motors",code:"42947",brand:"Ford"});
+  const h=harness({name:"Synthetic Motors",code:"7007",brand:"Ford"});
   await h.methods.saveSetupStoreIdentity();
   assert.equal(h.model.settings.store.name,"Synthetic Motors");
-  assert.equal(h.model.settings.store.code,"42947");
+  assert.equal(h.model.settings.store.code,"7007");
   assert.equal(h.model.settings.store.brand,"Ford");
   assert.equal(h.model.settings.store.timeZone,"America/Los_Angeles");
   assert.equal(h.model.settings.keepUnrelated.important,true);
@@ -109,7 +109,7 @@ test("invalid store number cannot write and indicates the exact field",async()=>
   assert.equal(h.ui.setupStoreCode.focused,true);
 });
 test("invalid time zone cannot silently set store authority",async()=>{
-  const h=harness({name:"Synthetic Motors",code:"42947",timeZone:"Mars/Olympus"});
+  const h=harness({name:"Synthetic Motors",code:"7007",timeZone:"Mars/Olympus"});
   await h.methods.saveSetupStoreIdentity();
   assert.equal(h.writes(),0);
   assert.match(h.ui.setupStoreFeedback.textContent,/valid time zone/);
@@ -136,7 +136,7 @@ test("existing imported store identity cannot be silently changed",async()=>{
   assert.match(h.ui.setupStoreFeedback.textContent,/verified store review/);
 });
 test("report selection stays on page and imports via guarded existing parser while keeping original",async()=>{
-  const h=harness({storedName:"Synthetic Motors",storedCode:"42947",storedZone:"America/Los_Angeles"});
+  const h=harness({storedName:"Synthetic Motors",storedCode:"7007",storedZone:"America/Los_Angeles"});
   h.ui.performanceSourceSelect.options=[
     {value:"",textContent:"Select XLSX"},
     {value:"SAPR-2026-11-06.xlsx",textContent:"SAPR-2026-11-06.xlsx"}];
@@ -157,7 +157,7 @@ test("SAPR import stays blocked with no saved store identity",async()=>{
   assert.match(h.ui.setupSaprFeedback.textContent,/First save/);
 });
 test("SAPR invalid content never becomes verified setup",async()=>{
-  const h=harness({storedName:"Synthetic Motors",storedCode:"42947",
+  const h=harness({storedName:"Synthetic Motors",storedCode:"7007",
     storedZone:"America/Los_Angeles",importFailure:true});
   h.ui.setupSaprSource.value="wrong.xlsx";
   await assert.rejects(h.methods.importSetupSapr(),/synthetic invalid SAPR/);
@@ -166,7 +166,7 @@ test("SAPR invalid content never becomes verified setup",async()=>{
   assert.match(h.ui.setupSaprFeedback.textContent,/wasn't saved/);
 });
 test("dirty store edits block import and completion until saved",()=>{
-  const h=harness({storedName:"Synthetic Motors",storedCode:"42947",
+  const h=harness({storedName:"Synthetic Motors",storedCode:"7007",
     storedZone:"America/Los_Angeles",sapr:{periodEnd:"2026-11-06"}});
   h.methods.setDirty(true);h.methods.renderSetup();
   assert.equal(h.ui.completeSetup.disabled,true);
@@ -174,7 +174,7 @@ test("dirty store edits block import and completion until saved",()=>{
   assert.match(h.ui.setupCompletionNote.textContent,/Save your dealership changes/);
 });
 test("one-page render never overwrites unsaved store text",()=>{
-  const h=harness({storedName:"Original Store",storedCode:"42947"});
+  const h=harness({storedName:"Original Store",storedCode:"7007"});
   h.ui.setupStoreName.value="Unsaved user edit";
   h.methods.setDirty(true);h.methods.renderSetup();
   assert.equal(h.ui.setupStoreName.value,"Unsaved user edit");

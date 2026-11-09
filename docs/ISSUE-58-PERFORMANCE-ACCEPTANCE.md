@@ -1,6 +1,6 @@
 # Issue 58 — verified software performance acceptance evidence
 
-**Evidence reconciliation, 2026-11-03 (UTC).** This document records **automated synthetic** verification of the shipped MoonDog Service Operations Dashboard. It does **not** claim performance measured on James's physical Windows/Edge installation, actual OneDrive/network latency, native picker, or live customer data. Per issue 58's 2026-10-19 owner-approved closure policy, such field results are optional; the source, CI, preservation, and protected Beta gates are not.
+**Evidence reconciliation, 2026-11-03 (UTC).** This document records **automated synthetic** verification of the shipped MoonDog Service Operations Dashboard. It does **not** claim performance measured on the repository owner's physical Windows/Edge installation, actual OneDrive/network latency, native picker, or live customer data. Per issue 58's 2026-10-19 owner-approved closure policy, such field results are optional; the source, CI, preservation, and protected Beta gates are not.
 
 ## Trusted release state and safeguards
 
