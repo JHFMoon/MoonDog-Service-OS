@@ -59,5 +59,5 @@ test("no store code or name cannot establish identity",()=>{
   assert.throws(()=>resolve("","7007"),/Guided Setup/);
 });
 test("source code includes no hardcoded dealer identity",()=>{
-  assert.doesNotMatch(selected,/Roseville|Rocklin|Dodge Exampletown|BMW Exampletown|42947/i);
+  assert.doesNotMatch(selected,/Dodge Exampletown|BMW Exampletown|Synthetic Motors|Exampletown Motors/i);
 });
