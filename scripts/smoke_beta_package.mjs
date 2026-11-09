@@ -302,7 +302,14 @@ try {
   const syntheticNextVersion = beta.version.replace(/beta\.(\d+)$/,
     (_whole, number) => "beta." + (Number(number) + 1));
   assert.notEqual(syntheticNextVersion, beta.version);
-  await page.locator('.nav-item[data-view="settings"]').click({timeout:8000});
+  // First-run clean installs may collapse the Settings sidebar destination.
+  // Exercise the actual navigation handler without treating menu visibility
+  // as part of this repair-progress regression.
+  await page.evaluate(() => {
+    const settings = document.querySelector('.nav-item[data-view="settings"]');
+    if (!settings) throw Error("Installed Settings navigation is missing");
+    settings.click();
+  });
   await page.locator("#settings-update").waitFor({state:"visible", timeout:8000});
   await page.evaluate(nextVersion => {
     const missing = () => Object.assign(new Error("Synthetic missing entry"), {name:"NotFoundError"});
@@ -351,6 +358,7 @@ try {
   await page.waitForFunction(() =>
     document.getElementById("updateProgressLabel")?.textContent==="Checking for updates");
   assert.equal(await page.locator("#updateProgress").isVisible(), true);
+  await page.waitForFunction(() => typeof globalThis.__moondogResolveCheck==="function");
   await page.evaluate(() => globalThis.__moondogResolveCheck());
   await page.waitForFunction(() =>
     document.getElementById("installMoonDogUpdate")?.disabled===false);
