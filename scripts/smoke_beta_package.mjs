@@ -5,6 +5,8 @@ import { createHash, webcrypto } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
 const launcher = process.argv[2];
@@ -146,6 +148,7 @@ const expectedPlan = await context.MoonDogPackagePlan.dryRun({
 if (expectedPlan.rejected.length || expectedPlan.add.length || expectedPlan.delete.length) {
   throw new Error(`Beta package plan was not a valid in-place runtime update: ${JSON.stringify(expectedPlan)}`);
 }
+const ordinaryStarted = performance.now();
 const result = await context.MoonDogUpdateInstall.apply({
   verifiedPackage, appDirectoryHandle, workspaceDirectoryHandle,
   trustedAllowlist, expectedPlan, confirmed: true, subtle: webcrypto.subtle
@@ -157,6 +160,52 @@ if (createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex") !
   throw new Error("The Beta update changed protected synthetic Workspace state.");
 }
 console.log("Verified Stable-to-Beta installation and protected synthetic Workspace invariance", beta.version);
+const ordinaryUpdateMs = performance.now() - ordinaryStarted;
+
+// Damage only this clean-install smoke fixture, after its synthetic state was
+// created and verified above. Use the real verified package and installer;
+// never manufacture repaired runtime bytes or invoke Fresh.
+const repairedPaths = ["index.html", "assets/app.js"];
+for (const relative of repairedPaths) fs.unlinkSync(path.join(appRoot, relative));
+const repairPlan = await context.MoonDogPackagePlan.dryRun({
+  verifiedPackage, appDirectoryHandle, trustedAllowlist, subtle: webcrypto.subtle
+});
+assert.equal(repairPlan.rejected.length, 0);
+const repairEvents = [];
+const repairStarted = performance.now();
+const repaired = await context.MoonDogUpdateInstall.apply({
+  verifiedPackage, appDirectoryHandle, workspaceDirectoryHandle, trustedAllowlist,
+  expectedPlan: repairPlan, confirmed: true, subtle: webcrypto.subtle,
+  onProgress: event => repairEvents.push({phase: event.phase, label: event.label})
+});
+const repairMs = performance.now() - repairStarted;
+assert.equal(repaired.status, "installed", repaired.reason);
+for (const label of ["Checking", "Repairing", "Verifying"])
+  assert.ok(repairEvents.some(event => event.label === label), `Missing installer phase: ${label}`);
+const installedHashes = () => repairedPaths.map(relative =>
+  createHash("sha256").update(fs.readFileSync(path.join(appRoot, relative))).digest("hex"));
+const repairedHashes = installedHashes();
+for (const [index, relative] of repairedPaths.entries()) {
+  const entry = JSON.parse(packageBytes).files.find(file => file.path === relative && file.action === "put");
+  assert.ok(entry, `Verified package must carry repair bytes: ${relative}`);
+  assert.equal(repairedHashes[index], entry.sha256, `Repaired bytes differ from verified package: ${relative}`);
+}
+const repeatPlan = await context.MoonDogPackagePlan.dryRun({
+  verifiedPackage, appDirectoryHandle, trustedAllowlist, subtle: webcrypto.subtle
+});
+const repeatStarted = performance.now();
+const repeated = await context.MoonDogUpdateInstall.apply({
+  verifiedPackage, appDirectoryHandle, workspaceDirectoryHandle, trustedAllowlist,
+  expectedPlan: repeatPlan, confirmed: true, subtle: webcrypto.subtle
+});
+const repeatUpdateMs = performance.now() - repeatStarted;
+assert.equal(repeated.status, "installed", repeated.reason);
+assert.deepEqual(installedHashes(), repairedHashes);
+assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"), originalStateHash);
+console.log("Synthetic production updater repair timing", JSON.stringify({
+  scope: "single local filesystem sample per path; VM production installer; excludes browser permission, network and physical-device latency; phase callbacks are not rendered UX proof",
+  ordinaryUpdateMs, repairMs, repeatUpdateMs, repairedPaths
+}));
 
 const browser = await chromium.launch({ headless: true, channel: process.env.MOONDOG_BROWSER_CHANNEL || undefined });
 const page = await browser.newPage();
@@ -245,7 +294,7 @@ try {
     return {advisors: 9, subsets: [1, 3, 9], uiSelections: [0,1,3,9], emptyRejected, officialIssuance: "verified"};
   }, workbookHarness);
   console.log("Verified packaged Supervisor Workbook and outbound handoff XLSX round trips", workbookResult);
-  console.log("Verified Beta update installed and launched", runtime);
+  console.log("Verified repaired Beta installation and repeat update launched through file://", runtime);
 } finally {
   await browser.close();
 }
