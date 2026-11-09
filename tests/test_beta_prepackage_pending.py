@@ -27,7 +27,7 @@ class PendingPackageWorkflowContract(unittest.TestCase):
                 self.assertIn("continue-on-error: true", source[probe:wait])
                 self.assertIn("steps.beta-package-probe.outcome == 'failure'", source[probe:wait])
                 self.assertIn("if: github.event_name == 'pull_request'", source[strict:strict + 160])
-                self.assertIn(PRECHECK, source[strict:strict + 240])
+                self.assertIn(PRECHECK, source[strict:strict + 340])
                 self.assertNotIn("continue-on-error", source[strict:strict + 260])
                 self.assertEqual(source.count(PRECHECK), 2)
                 self.assertIn("cancel-in-progress:", source)

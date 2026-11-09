@@ -230,7 +230,7 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write("ready=false\n" if mismatches else "ready=true\n")
           if mismatches:
-              print("Trusted Beta package pending for this head; guarded merge will reevaluate after verified packaging.")
+              print("Waiting: the exact PR runtime is not present in its integrity-checked Beta package; merge remains blocked.")
           PY
 
       - name: Evaluate exact-head verification and authorization evidence
