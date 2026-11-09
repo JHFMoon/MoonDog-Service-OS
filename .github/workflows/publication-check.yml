@@ -25,6 +25,19 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # A source-only runtime PR starts alongside the trusted package maker.
+      # A new packaged head cancels this obsolete run via PR concurrency.
+      # A missing/failed package still fails the strict preflight below.
+      - name: Probe package parity before trusted Beta reservation
+        id: beta-package-probe
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/preflight_beta_runtime.py
+      - name: Await superseding trusted package head (bounded)
+        if: github.event_name == 'pull_request' && steps.beta-package-probe.outcome == 'failure'
+        run: sleep 120
       - name: Fail fast until trusted Beta package matches runtime
         if: github.event_name == 'pull_request'
         env:
