@@ -79,21 +79,28 @@ test("stale historical search cannot overwrite newer history",async()=>{
  const old=context.loadHistory(true,4);state.searchToken=5;release('{"id":"older","type":"daily-task"}');
  assert.equal(await old,false);assert.equal(state.history[0].id,"newer");
 });
-test("unmodified recognition rules do not reparse learned files after an update",async()=>{
- let scanned=0,removed=0,written=0;
- const model={root:{},applicationRoot:{},autoImport:{}};
+test("unchanged parser only baselines after selected-root verified update journal",async()=>{
+ let scanned=0,removed=0,written=0,marked=0,layouts=0;
+ const root={},durable={version:"beta",completed:false};
+ const model={root,applicationRoot:root,autoImport:{}};
  const context=vm.createContext({model,writeAuthority:{canWrite:true},VERSION:"beta",LEARNED_PARSER_REVISION:"rule-1",
   AUTO_IMPORT_PATH:["data","auto-import.json"],localStorage:{getItem:()=>JSON.stringify({version:"beta"}),removeItem:()=>removed++},
-  auditInstalledRuntimeLayout:async()=>({needsReview:false,scanned:35}),
+  findVerifiedUpdateFollowup:async selected=>{assert.equal(selected,root);return durable;},
+  markVerifiedUpdateFollowupComplete:async receipt=>{assert.equal(receipt,durable);durable.completed=true;marked++;},
+  auditInstalledRuntimeLayout:async()=>{layouts++;return {needsReview:false,scanned:35};},
   reconcileLearnedFiles:async()=>{scanned++;return {attempts:135}},
   writeJson:async()=>written++,recordDiagnostic:()=>{}});
  vm.runInContext(followup+"\nthis.runFollowup=runVerifiedUpdateFollowup",context);
  await context.runFollowup();
- assert.equal(scanned,0);assert.equal(removed,1);assert.equal(written,1);
+ assert.equal(scanned,0);assert.equal(removed,0);assert.equal(written,1);
+ assert.equal(marked,1);assert.equal(layouts,1);
  assert.equal(model.autoImport.learnedParserRevision,"rule-1");
- model.autoImport.learnedParserRevision="prior-rule";removed=0;
  await context.runFollowup();
- assert.equal(scanned,1);assert.equal(removed,1);
+ assert.equal(layouts,1);assert.equal(written,1);assert.equal(marked,1);
+ model.autoImport.learnedParserRevision="prior-rule";
+ await context.runFollowup();
+ assert.equal(scanned,1);assert.equal(removed,0);assert.equal(written,2);
+ assert.equal(marked,1);assert.equal(layouts,2);
 });
 test("mobile output skips byte-identical writes but verifies changed output",async()=>{
  let text="unchanged",writes=0;
