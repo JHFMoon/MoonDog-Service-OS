@@ -571,7 +571,7 @@ try{
         search:summarizeNavigationMs(searchOpenMs),editorOpen:summarizeNavigationMs(editorOpenMs)}));
 
     // Report manager visual regression: actual packaged file:// runtime, same
-    // 928px Edge viewport from James's screenshots, plus reflow/zoom checks.
+    // 928px Edge viewport from an owner-supplied screenshot, plus reflow/zoom checks.
     await page.locator('.nav-item[data-view="tools"]').click({timeout:3500});
     await page.locator('#dailyTools button').filter({hasText:"Import or refresh data"}).click({timeout:3500});
     await page.waitForFunction(()=>document.getElementById("dailyTools")?.dataset.category==="imports",null,{timeout:3500});

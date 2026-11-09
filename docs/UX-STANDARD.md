@@ -29,7 +29,7 @@ Passing means: no unintended horizontal overflow, no clipped or inaccessible sou
 3. **Remaining screens:** inspect and repair narrow/zoom overflow in Home, Tools, Assign Next, Imports/Exports and Settings; run route and keyboard checks.
 4. **Sustain:** run the viewport regression matrix in CI, track measured exceptions, and perform the 30-second find/understand/act task review before a Beta is recommended for Stable. PRs #550 and #551 expanded the Clean Install Proof artifact: synthetic file:// testing covers ten routes across ten documented viewports, CSS zoom-equivalent widths, text contrast, labeled controls, keyboard focus, unclipped long RO fields, the nine-run Open RO save/read-back task and six additional nine-run task journeys, with duration/clicks/field entries/scroll/error evidence. This is browser-automated evidence, not physical-device/native-zoom/OneDrive verification. The broader original issue #60 cold/warm start, reconnect, interrupted-save end-to-end effort, remaining source-confidence, navigation/Settings and update-feedback requirements remain open in the authoritative matrix.
 
-Do not claim Stage 2–4 complete until their browser evidence exists. Do not promote Stable without James's explicit approval. No dealership operational data may be used in public test fixtures.
+Do not claim Stage 2–4 complete until their browser evidence exists. Do not promote Stable without the repository owner's explicit approval. No dealership operational data may be used in public test fixtures.
 
 ## Synthetic interrupted-save and reconnect task proof (current Beta engineering gate)
 
