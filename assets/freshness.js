@@ -419,9 +419,15 @@
     if(kind==="not-now") {
       entry.deferrals.push({at,hour:Number.isInteger(options.hour)?options.hour:timeHour(at)});
       entry.deferrals=entry.deferrals.slice(-24);
-      const prior=entry.deferrals.filter(item=>timestamp-timeStamp(item.at)<7*86400000).length;
+      // Late asynchronous deferrals must never reduce a newer user snooze.
+      // Count only observations at or before this event, not future events.
+      const prior=entry.deferrals.filter(item=>{
+        const age=timestamp-timeStamp(item.at);
+        return age>=0&&age<7*86400000;
+      }).length;
       const minutes=Math.min(180,prior>=3?120:prior===2?60:30);
-      entry.notNowUntil=new Date(timestamp+minutes*60000).toISOString();
+      entry.notNowUntil=new Date(Math.max(timeStamp(entry.notNowUntil),
+        timestamp+minutes*60000)).toISOString();
     }
     if(kind==="requested") entry.lastRequested=at;
     sources[source]=entry;
