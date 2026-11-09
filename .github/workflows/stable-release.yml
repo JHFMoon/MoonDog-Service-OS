@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       approval_reference:
-        description: "James's explicit approval for emergency/manual Stable publication"
+        description: "the repository owner's explicit approval for emergency/manual Stable publication"
         required: true
         type: string
 
