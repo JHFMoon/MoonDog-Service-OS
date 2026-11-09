@@ -2,9 +2,18 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const fs = require("node:fs");
+const vm = require("node:vm");
+
+function load(relative){
+  const code=fs.readFileSync(path.resolve(__dirname,"..",relative),"utf8");
+  const context=vm.createContext({Date,Intl});
+  vm.runInContext(code,context);
+  return context.ServiceRefreshIntelligence;
+}
 
 for(const target of ["src/refresh-intelligence.js","assets/freshness.js"]){
-  const R = require(path.resolve(__dirname,"..",target));
+  const R = load(target);
   test(target+": late deferral does not shorten a newer snooze or trigger repeated report prompts",()=>{
     const first="2026-11-08T10:00:00Z";
     const latest="2026-11-08T14:00:00Z";
@@ -18,8 +27,8 @@ for(const target of ["src/refresh-intelligence.js","assets/freshness.js"]){
     assert.equal(JSON.stringify(history),original,"late event must not mutate original history");
     assert.equal(deliveredLate.sources.csi.notNowUntil,expected,
       "late event must preserve the most recent explicit user deferral");
-    assert.deepEqual(R.plan([{source:"csi",rank:1}],deliveredLate,{
-      at:"2026-11-08T14:30:00Z",today:"2026-11-08"}),[],
+    assert.equal(R.plan([{source:"csi",rank:1}],deliveredLate,{
+      at:"2026-11-08T14:30:00Z",today:"2026-11-08"}).length,0,
       "the refresh list should not nag the user during their existing deferral");
   });
   test(target+": future event timestamps cannot inflate older deferral frequency",()=>{
