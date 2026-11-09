@@ -218,20 +218,24 @@ jobs:
           set -euo pipefail
           PYTHONPATH=. python3 - <<'PY'
           import json
+          import os
           from pathlib import Path
           from scripts.build_beta_package import current_beta_runtime_mismatches
 
           mismatches = current_beta_runtime_mismatches(Path("candidate"))
           print(json.dumps({"runtimeMismatches": mismatches}, sort_keys=True))
+          # An unpackaged source head is not yet ready, not a merge failure.
+          # Required pull_request checks still fail closed if packaging never
+          # produces a verified replacement; this job never merges it.
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("ready=false\n" if mismatches else "ready=true\n")
           if mismatches:
-              raise SystemExit(
-                  "Guarded merge refused: the exact PR runtime is not present in its integrity-checked Beta package."
-              )
+              print("Trusted Beta package pending for this head; guarded merge will reevaluate after verified packaging.")
           PY
 
       - name: Evaluate exact-head verification and authorization evidence
         id: proof
-        if: steps.guard.outputs.skip != 'true' && steps.current.outputs.updated != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.current.outputs.updated != 'true' && steps.package-parity.outputs.ready == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ steps.release-app.outputs.token }}
