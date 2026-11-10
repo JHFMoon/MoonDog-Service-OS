@@ -261,3 +261,36 @@ test("failed learned-file hash cannot log into another store after reconnect",as
     assert.equal(Object.keys(ledgerB.seen).length,0);
   }
 });
+
+test("learned-file history cannot leave cross-store diagnostics after reconnect",async()=>{
+  const begin=app.indexOf("  async function reconcileLearnedFiles(");
+  const end=app.indexOf("  // Read-only catalog-to-disk",begin);
+  assert.ok(begin>=0&&end>begin&&end-begin<8000,"use actual production reconciler");
+  for(const retired of [true,false])for(const switched of [true,false]){
+    const rootA={name:"Synthetic A"},rootB={name:"Synthetic B"};
+    const ledgerA={seen:{},learnedFileMemo:{}};
+    const model={root:rootA,autoImport:ledgerA},history=[],diagnostics=[],writes=[];
+    const file={size:3,lastModified:1,
+      slice:()=>({text:async()=>"generic csv"}),
+      arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer};
+    const ctx=vm.createContext({
+      model,folderWatch:{busy:false},dailyImportBusy:false,appointmentImportBusy:false,
+      directory:async()=>({entries:async function*(){yield ["synthetic.csv",{kind:"file",getFile:async()=>file}];}}),
+      classifyImportFile:async()=>"synthetic-supported",
+      processClassifiedCandidate:async()=>({retired}),
+      addHistory:async()=>{history.push(model.root.name);if(switched){
+        model.root=rootB;model.autoImport={seen:{},learnedFileMemo:{}};
+      }},
+      recordDiagnostic:()=>diagnostics.push(model.root.name),
+      writeJson:async()=>writes.push(model.root.name),
+      now:()=>new Date(0).toISOString(),sha256:async()=>"",setTimeout,Promise,
+      AUTO_IMPORT_PATH:["data","auto-import.json"]
+    });
+    vm.runInContext(app.slice(begin,end)+"\nglobalThis.reconcileActual=reconcileLearnedFiles;",ctx);
+    const outcome=await ctx.reconcileActual("synthetic-revision");
+    assert.deepEqual(history,["Synthetic A"],"only original store history called");
+    assert.deepEqual(diagnostics,switched?[]:["Synthetic A"],"never log old source recovery in new store");
+    assert.deepEqual(writes,[]);
+    assert.equal(Boolean(outcome.deferred),switched);
+  }
+});
