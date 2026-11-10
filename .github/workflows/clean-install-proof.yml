@@ -61,10 +61,10 @@ jobs:
           # protected bootstrap (or missing helper) deliberately runs everything.
           helper="$RUNNER_TEMP/moondog-verification-plan.py"
           if [[ -n "$base" ]] && git show "$base:scripts/verification_plan.py" > "$helper"; then
-            python3 "$helper" --base "$base" --head "$head" --output .verification-plan.json --github-output "$GITHUB_OUTPUT"
+            python3 "$helper" --base "$base" --head "$head" --output verification-plan.json --github-output "$GITHUB_OUTPUT"
           else
             echo 'scope=full' >> "$GITHUB_OUTPUT"
-            printf '%s\n' '{"schemaVersion":1,"scope":"full","reason":"No trusted base classifier; full verification required."}' > .verification-plan.json
+            printf '%s\n' '{"schemaVersion":1,"scope":"full","reason":"No trusted base classifier; full verification required."}' > verification-plan.json
           fi
 
       - name: Cache pinned distribution dependency outputs
@@ -280,7 +280,7 @@ jobs:
         with:
           name: clean-install-proof
           path: |
-            .verification-plan.json
+            verification-plan.json
             dist/Service-Operations-Dashboard.zip
             dist/Service-Operations-Dashboard.zip.sha256
             dist/Service-Operations-Dashboard.manifest.json
