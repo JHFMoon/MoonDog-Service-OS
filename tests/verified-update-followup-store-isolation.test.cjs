@@ -116,6 +116,44 @@ test("reconnecting a different store during awaited follow-up cannot write or co
   }
 });
 
+
+test("learned-file scanner cannot resume pending folder read into a different store",async()=>{
+  const start=app.indexOf("  async function reconcileLearnedFiles(");
+  const end=app.indexOf("  // Read-only catalog-to-disk",start);
+  assert.ok(start>=0&&end>start&&end-start<8000,"selected production reconciler exists");
+  const source=app.slice(start,end);
+  for(const switchStore of [true,false]){
+    const rootA={name:"Synthetic A"},rootB={name:"Synthetic B"};
+    const model={root:rootA,autoImport:{seen:{},learnedFileMemo:{}}};
+    let unblock,entered,writes=0;
+    const pending=new Promise(resolve=>unblock=resolve);
+    const started=new Promise(resolve=>entered=resolve);
+    const ctx=vm.createContext({
+      model,folderWatch:{busy:false},dailyImportBusy:false,appointmentImportBusy:false,
+      directory:async()=>{entered();await pending;return {
+        entries:async function*(){yield ["unsupported.txt",{
+          kind:"file",getFile:async()=>({size:12,lastModified:1})
+        }]}
+      };},
+      AUTO_IMPORT_PATH:["data","auto-import.json"],
+      writeJson:async()=>{writes++;assert.equal(model.root,rootA);},
+      recordDiagnostic:()=>{},now:()=>new Date(0).toISOString(),setTimeout,Promise
+    });
+    vm.runInContext(source+"\nglobalThis.retryLearnedFiles=reconcileLearnedFiles;",ctx);
+    const job=ctx.retryLearnedFiles("synthetic-revision");
+    await started;
+    if(switchStore){
+      model.root=rootB;
+      model.autoImport={seen:{},learnedFileMemo:{}};
+    }
+    unblock();
+    const result=await job;
+    assert.equal(writes,switchStore?0:1);
+    assert.equal(result.deferred===true,switchStore);
+    assert.equal(model.root,switchStore?rootB:rootA);
+  }
+});
+
 test("successful update does not create a shared-origin browser marker",()=>{
   const updater=fs.readFileSync(path.join(__dirname,"..","assets","moondog-update-settings.js"),"utf8");
   assert.doesNotMatch(updater, /localStorage\?\.setItem\(["']moondog-verified-update-followup-v1["']/);

@@ -4008,14 +4008,21 @@
 
   async function reconcileLearnedFiles(parserRevision=LEARNED_PARSER_REVISION) {
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)return {deferred:true};
+    // Do not resume a learned-file import against another connected store.
+    const selectedRoot=model.root,selectedAutoImport=model.autoImport;
+    const stillSelected=()=>model.root===selectedRoot&&model.autoImport===selectedAutoImport;
+    if(!selectedRoot||!stillSelected())return {deferred:true};
     let failures=0,attempts=0,recovered=0,unsupported=0,skipped=0;
     const memo=model.autoImport.learnedFileMemo||=( {} );
     let memoDirty=false,failureLedgerDirty=false;dailyImportBusy=true;try{
-    let folder; try { folder = await directory(["Files To Learn"], false); } catch (error) { if (error.name === "NotFoundError") return {failures:0,attempts:0,recovered:0,unsupported:0}; throw error; }
-    const entries = []; for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && !/^~\$/.test(name)) { try { const file = await handle.getFile(); const relativePath=`Files To Learn/${name}`; entries.push({ name, location:"learn", relativePath, handle, file, signature:`${relativePath}|${file.size}|${file.lastModified}` }); } catch (error) { failures++;const diagnostic=`Learned-source open deferred: ${error?.name||"Error"}`;model.autoImport.seen||={};model.autoImport.seen[`learn-open|${name}`]={fileName:name,storedAs:name,importFailed:true,readError:true,diagnostic,failedAt:now()};failureLedgerDirty=true;recordDiagnostic("FILES TO LEARN",diagnostic); } }
-    for (const entry of entries) { entry.structurePriority=10; if (/\.csv$/i.test(entry.name)) { const start=(await entry.file.slice(0,160).text()).trim().toLowerCase(); entry.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
+    let folder; try { folder = await directory(["Files To Learn"], false); } catch (error) { if(!stillSelected())return {deferred:true};if(error.name === "NotFoundError") return {failures:0,attempts:0,recovered:0,unsupported:0}; throw error; }
+    if(!stillSelected())return {deferred:true};
+    const entries = []; for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && !/^~\$/.test(name)) { try { const file = await handle.getFile(); if(!stillSelected())return {deferred:true}; const relativePath=`Files To Learn/${name}`; entries.push({ name, location:"learn", relativePath, handle, file, signature:`${relativePath}|${file.size}|${file.lastModified}` }); } catch (error) { if(!stillSelected())return {deferred:true};failures++;const diagnostic=`Learned-source open deferred: ${error?.name||"Error"}`;model.autoImport.seen||={};model.autoImport.seen[`learn-open|${name}`]={fileName:name,storedAs:name,importFailed:true,readError:true,diagnostic,failedAt:now()};failureLedgerDirty=true;recordDiagnostic("FILES TO LEARN",diagnostic); } }
+    if(!stillSelected())return {deferred:true};
+    for (const entry of entries) { if(!stillSelected())return {deferred:true};entry.structurePriority=10; if (/\.csv$/i.test(entry.name)) { const start=(await entry.file.slice(0,160).text()).trim().toLowerCase(); if(!stillSelected())return {deferred:true};entry.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     entries.sort((a, b) => a.structurePriority - b.structurePriority || a.file.lastModified - b.file.lastModified || a.name.localeCompare(b.name, undefined, { numeric: true }));
     for (const entry of entries) {
+      if(!stillSelected())return {deferred:true};
       let currentBytes=null;
       try {
         if(model.autoImport.seen?.[entry.signature]?.kind==="appointments"&&model.autoImport.seen[entry.signature].importedAt)continue;
@@ -4025,17 +4032,25 @@
         if(!/\.(?:csv|xlsx|pdf|docx)$/i.test(entry.name)){
           unsupported++;memo[entry.signature]=parserRevision;memoDirty=true;continue;
         }
-        const bytes = await entry.file.arrayBuffer(), kind = await classifyImportFile(entry.name, entry.file, bytes);currentBytes=new Uint8Array(bytes);
+        const bytes=await entry.file.arrayBuffer();
+        if(!stillSelected())return {deferred:true};
+        const kind=await classifyImportFile(entry.name,entry.file,bytes);
+        if(!stillSelected())return {deferred:true};
+        currentBytes=new Uint8Array(bytes);
         if (!kind) { unsupported++;memo[entry.signature]=parserRevision;memoDirty=true; continue; }
-        const outcome=await processClassifiedCandidate(entry, kind, bytes, true);if(kind==="appointments"){model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,importedAt:now(),kind};await writeJson(AUTO_IMPORT_PATH,model.autoImport);}
+        const outcome=await processClassifiedCandidate(entry, kind, bytes, true);
+        if(!stillSelected())return {deferred:true};
+        if(kind==="appointments"){model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,importedAt:now(),kind};await writeJson(AUTO_IMPORT_PATH,model.autoImport);}
         recovered++;for(const previous of Object.values(model.autoImport.seen||{}))if(previous.importFailed&&previous.storedAs===entry.name&&!previous.failureResolvedAt){previous.failureResolvedAt=now();previous.importFailed=false;failureLedgerDirty=true;}if(outcome?.retired){await addHistory("learned-file-retired","Verified a known non-service learned source and removed the Service OS copy",{sourceFamily:kind,retired:true});recordDiagnostic("FILES TO LEARN",`${kind} retired; no Service OS data retained`);}else{await addHistory("learned-file-recovered", "Verified a now-supported learned source through durable intake", { sourceFamily: kind, recovered: true });recordDiagnostic("FILES TO LEARN", `${kind} recovered after durable verification`);}
-      } catch (error) { failures++;const diagnostic=`Known-file reconciliation deferred: ${error.name}: ${error.message||error}`;model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,storedAs:entry.name,importFailed:true,diagnostic,failedAt:now(),failureSha256:currentBytes?await sha256(currentBytes):""};failureLedgerDirty=true;recordDiagnostic("FILES TO LEARN",diagnostic); }
+      } catch (error) { if(!stillSelected())return {deferred:true};failures++;const diagnostic=`Known-file reconciliation deferred: ${error.name}: ${error.message||error}`;model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,storedAs:entry.name,importFailed:true,diagnostic,failedAt:now(),failureSha256:currentBytes?await sha256(currentBytes):""};failureLedgerDirty=true;recordDiagnostic("FILES TO LEARN",diagnostic); }
       // Yield between files: version-triggered reconciliation must not freeze Home.
       await new Promise(resolve=>setTimeout(resolve,0));
     }
+    if(!stillSelected())return {deferred:true};
     if(memoDirty||failureLedgerDirty){
       // Cache is non-authoritative metadata; original files remain untouched.
-      await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+      await writeJson(AUTO_IMPORT_PATH,selectedAutoImport);
+      if(!stillSelected())return {deferred:true};
     }
     return {failures,attempts,recovered,unsupported,skipped};
     }finally{dailyImportBusy=false;}
