@@ -4,7 +4,11 @@ This is a non-sensitive execution checkpoint, not proof of a continuously runnin
 
 **Current closure-policy override — 2026-10-19 (owner-directed):** No issue may be held open solely because the owner has not performed a live Windows, Edge, OneDrive or browser test. Remove mandatory physical validation and owner-attestation gates from #164/#58; treat `docs/EDGE-ONEDRIVE-FIELD-VALIDATION.md` only as a voluntary diagnostic protocol. The remaining synthetic engineering tests, reliability/security requirements, protected exact-head checks and Beta provenance stay mandatory. This directive supersedes historical references to mandatory field evidence in the dated checkpoint entries below. Live #164 software criteria 164-02…09 (minus the former field-only 164-01) are not all verified and #164 must stay open for those reasons, not for missing browser testing.
 
-## Authoritative current engineering checkpoint — October 28, 2026 UTC
+## Current execution authority
+
+Use the [maintained GitHub checkpoint in #799](https://github.com/JHFMoon/MoonDog-Service-OS/issues/799#issuecomment-6726613130) for exact main/PR heads, published versus staged versions, CI evidence, protected approvals and the next executable action. Update that checkpoint in place rather than appending competing current snapshots here. Re-query GitHub before acting; every dated entry below is historical evidence, not current authorization or release status. The live issue acceptance registry and issue-specific requirements remain authoritative for closure.
+
+## Historical engineering checkpoint — October 28, 2026 UTC
 
 This replaces the October 19 live handoff below; older material is retained as history only. Reconcile against GitHub before acting. This ledger does not imply a background agent.
 
