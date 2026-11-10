@@ -3962,7 +3962,14 @@
       else if (kind === "known-non-service") return await retireKnownNonServiceSource(candidate,bytes,deleteAfterSuccess);
       else if (["supplemental-pdf","supplemental-csv","supplemental-workbook","supplemental-docx"].includes(kind)) await importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess,layoutOverride);
       else if (kind === "appointments") appointmentOutcome=await importAppointmentFile(candidate.name, deleteAfterSuccess, bytes);
-      else if (kind === "disposable-greeter") { if (deleteAfterSuccess) await removeSourceEntry(candidate.name); await addHistory("disposable-output-removed", "Removed generated Greeter appointment output", { outputType: "Greeter Appointment List" }); recordDiagnostic("REPORT INBOX", "MoonDog Greeter output deleted as disposable output"); }
+      else if (kind === "disposable-greeter") {
+        // Reconnect after removal must not append the old store's history to the new store.
+        const cleanupRoot=model.root;
+        if (deleteAfterSuccess) await removeSourceEntry(candidate.name);
+        if (model.root!==cleanupRoot) throw new Error("Workspace changed during Greeter cleanup; history deferred.");
+        await addHistory("disposable-output-removed", "Removed generated Greeter appointment output", { outputType: "Greeter Appointment List" });
+        recordDiagnostic("REPORT INBOX", "MoonDog Greeter output deleted as disposable output");
+      }
       else if (kind === "ro-update") await importReturnedWorkbook(candidate.name, deleteAfterSuccess, bytes);
       else await importSource(candidate.name, deleteAfterSuccess, bytes, candidate.location === "inbox");
   

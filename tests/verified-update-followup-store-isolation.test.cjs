@@ -159,3 +159,35 @@ test("successful update does not create a shared-origin browser marker",()=>{
   assert.doesNotMatch(updater, /localStorage\?\.setItem\(["']moondog-verified-update-followup-v1["']/);
   assert.match(updater, /The verified installer already stores the update receipt/);
 });
+
+test("Greeter output cleanup cannot append source-store history into a newly connected store",async()=>{
+  const begin=app.indexOf("  async function processClassifiedCandidate(");
+  const end=app.indexOf("  async function completeExactReviewedInboxSource(",begin);
+  assert.ok(begin>=0&&end>begin&&end-begin<10000,"production import dispatcher extractable");
+  for(const switched of [true,false]){
+    const rootA={name:"Synthetic A"},rootB={name:"Synthetic B"};
+    const model={root:rootA,settings:{store:{name:"Synthetic",code:"SYN"}}};
+    const history=[],deletions=[],sourceLocations=new Map();
+    const guards=new Map(),cleanupContext=new Map();
+    const ctx=vm.createContext({
+      model,sourceLocations,xlsxSourceDeleteGuards:guards,
+      autoSourceDeleteContext:cleanupContext,
+      removeSourceEntry:async()=>{deletions.push(model.root.name);if(switched)model.root=rootB;},
+      addHistory:async()=>history.push(model.root.name),
+      recordDiagnostic:()=>{},ensurePreviousMonthSummary:async()=>{},renderAll:()=>{}
+    });
+    vm.runInContext(app.slice(begin,end)+"\nglobalThis.dispatch=processClassifiedCandidate;",ctx);
+    const candidate={name:"synthetic-greeter.pdf",location:"learn"};
+    const perform=()=>ctx.dispatch(candidate,"disposable-greeter",new Uint8Array([1]).buffer,true);
+    if(switched){
+      await assert.rejects(perform(),/Workspace changed during Greeter cleanup/);
+      assert.deepEqual(history,[],"old-store completion cannot write history to a different store");
+    }else{
+      await perform();
+      assert.deepEqual(history,["Synthetic A"],"same-store cleanup writes its own history");
+    }
+    assert.deepEqual(deletions,["Synthetic A"]);
+    assert.equal(guards.size,0,"source cleanup guard released after both outcomes");
+    assert.equal(cleanupContext.size,0);
+  }
+});
