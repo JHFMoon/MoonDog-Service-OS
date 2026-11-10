@@ -39,7 +39,7 @@ test("watch dispatches verified full XLSX automatically and blocks non-inbox Ope
   const code=section("  async function processClassifiedCandidate(","  async function reconcileLearnedFiles(");
   const params=[],candidate={name:"synthetic-openro.xlsx",location:"inbox",signature:"synthetic",
     relativePath:"01 - DROP REPORTS HERE/synthetic-openro.xlsx"};
-  const ctx={sourceLocations:new Map(),xlsxSourceDeleteGuards:new Map(),autoSourceDeleteContext:new Map(),
+  const ctx={model:{root:{name:"Synthetic Inbox Store"}},sourceLocations:new Map(),xlsxSourceDeleteGuards:new Map(),autoSourceDeleteContext:new Map(),
     sameByteContent:equal,sourceFileHandle:async()=>({getFile:async()=>({arrayBuffer:async()=>bytes})}),
     importSource:async(...args)=>params.push(args),
     ensurePreviousMonthSummary:async()=>{},renderAll:()=>{},Map,Boolean};

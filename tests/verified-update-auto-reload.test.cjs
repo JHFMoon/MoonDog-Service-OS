@@ -78,8 +78,8 @@ test("verified installation schedules one automatic reload after completion",asy
   assert.equal(result.fields.get("updateProgressPercent").textContent,"100%");
   assert.equal(result.fields.get("updateProgressDetail").textContent,"Installation verified. Reloading the dashboard automatically...");
   assert.equal(result.reloads.length,0,"reload is deferred until the result has rendered");
-  assert.ok(result.storageWrites.some(x=>x.key==="moondog-verified-update-followup-v1"),
-    "existing post-update receipt is preserved");
+  assert.equal(result.storageWrites.some(x=>x.key==="moondog-verified-update-followup-v1"),false,
+    "verified install must not publish a browser-profile-wide follow-up receipt");
   reloadTimers[0].fn();
   assert.deepEqual(result.reloads,["reloaded"]);
 });

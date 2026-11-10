@@ -98,11 +98,13 @@ test("runtime inventory rejects traversal or Workspace inspection targets",async
   await assert.rejects(audit(root,["Workspace/private.json"]),/invalid path/);
 });
 
-test("heavy audit is tied to a verified installed-version receipt, not every startup",()=>{
+test("heavy audit requires selected-root journal or independent parser revision",()=>{
   const followup=app.slice(app.indexOf("  async function runVerifiedUpdateFollowup() {"),app.indexOf("\n  const folderWatch=",app.indexOf("  async function runVerifiedUpdateFollowup() {")));
-  assert.match(followup,/receipt\?\.version!==VERSION/);
+  assert.match(followup,/await findVerifiedUpdateFollowup\(connectedApplicationRoot\)/);
+  assert.match(followup,/model\.root===connectedRoot/);
+  assert.match(followup,/if\(!durableReceipt&&!parserRevisionChanged\)return/);
   assert.match(followup,/if\(layout\.needsReview\)/);
-  assert.match(followup,/localStorage\.removeItem\(key\)/);
+  assert.doesNotMatch(followup,/localStorage\.getItem|localStorage\.removeItem/);
   assert.match(followup,/parserRevisionChanged=previousParser\?previousParser!==LEARNED_PARSER_REVISION:legacyImportState/);
   assert.match(followup,/reconcileLearnedFiles\(LEARNED_PARSER_REVISION\)/);
   assert.match(app,/return \{failures,attempts,recovered,unsupported,skipped\}/);
