@@ -17,9 +17,11 @@ class LearnedFileRetryTests(unittest.TestCase):
     def test_retry_receipt_is_only_cleared_on_success(self):
         segment=APP.split("async function runVerifiedUpdateFollowup()",1)[1].split("const folderWatch=",1)[0]
         self.assertIn('result?.deferred||result?.failures',segment)
-        self.assertIn('if(followupReceipt)await markVerifiedUpdateFollowupComplete(followupReceipt);',segment)
+        self.assertIn('if(followupReceipt){',segment)
+        self.assertIn('await markVerifiedUpdateFollowupComplete(followupReceipt);',segment)
         self.assertLess(segment.index('result?.deferred||result?.failures'),
-                        segment.index('if(followupReceipt)await markVerifiedUpdateFollowupComplete(followupReceipt);'))
+                        segment.index('await markVerifiedUpdateFollowupComplete(followupReceipt);'))
+        self.assertIn('if(!selectedRootStillCurrent())return;',segment)
         self.assertNotIn('localStorage.removeItem',segment)
 
 if __name__=="__main__":

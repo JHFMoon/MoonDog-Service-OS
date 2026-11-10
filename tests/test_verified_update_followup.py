@@ -18,7 +18,9 @@ class VerifiedUpdateFollowupTests(unittest.TestCase):
     def test_connection_followup_gated_by_exact_installed_version(self):
         section=APP[APP.index("async function runVerifiedUpdateFollowup()"):APP.index("const folderWatch=",APP.index("async function runVerifiedUpdateFollowup()"))]
         self.assertIn('if(!durableReceipt&&!parserRevisionChanged)return;',section)
-        self.assertIn('await findVerifiedUpdateFollowup(model.applicationRoot)',section)
+        self.assertIn('await findVerifiedUpdateFollowup(connectedApplicationRoot)',section)
+        self.assertIn('model.root===connectedRoot',section)
+        self.assertIn('if(!selectedRootStillCurrent())return;',section)
         self.assertNotIn('localStorage.getItem',section)
         self.assertIn('!writeAuthority.canWrite',section)
         self.assertIn('parserRevisionChanged=previousParser?previousParser!==LEARNED_PARSER_REVISION:legacyImportState',section)

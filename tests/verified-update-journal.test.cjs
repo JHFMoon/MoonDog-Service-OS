@@ -121,7 +121,8 @@ test("follow-up requires selected-installation journal or independent parser rev
   const start=app.indexOf("  async function runVerifiedUpdateFollowup()");
   const end=app.indexOf("\n  const folderWatch=",start);
   const followup=app.slice(start,end);
-  assert.match(followup,/findVerifiedUpdateFollowup\(model\.applicationRoot\)/);
+  assert.match(followup,/findVerifiedUpdateFollowup\(connectedApplicationRoot\)/);
+  assert.match(followup,/model\.root===connectedRoot/);
   assert.match(followup,/if\(!durableReceipt&&!parserRevisionChanged\)return/);
   assert.doesNotMatch(followup,/localStorage\.getItem/);
   assert.match(followup,/markVerifiedUpdateFollowupComplete\(followupReceipt\)/);
