@@ -229,3 +229,35 @@ test("appointment memo completion cannot write history after a store reconnect",
     assert.equal(model.autoImport.learnedParserRevision,undefined);
   }
 });
+
+test("failed learned-file hash cannot log into another store after reconnect",async()=>{
+  const begin=app.indexOf("  async function reconcileLearnedFiles(");
+  const end=app.indexOf("  // Read-only catalog-to-disk",begin);
+  assert.ok(begin>=0&&end>begin&&end-begin<8000,"extract production reconciliation");
+  for(const switched of [true,false]){
+    const rootA={name:"Synthetic A"},rootB={name:"Synthetic B"};
+    const ledgerA={seen:{},learnedFileMemo:{}},ledgerB={seen:{},learnedFileMemo:{}};
+    const model={root:rootA,autoImport:ledgerA},diagnostics=[],writes=[];
+    const file={size:4,lastModified:1,
+      slice:()=>({text:async()=>"generic csv"}),
+      arrayBuffer:async()=>new Uint8Array([1,2,3,4]).buffer};
+    const ctx=vm.createContext({
+      model,folderWatch:{busy:false},dailyImportBusy:false,appointmentImportBusy:false,
+      directory:async()=>({entries:async function*(){yield ["synthetic.csv",{kind:"file",getFile:async()=>file}];}}),
+      classifyImportFile:async()=>"synthetic-supported",
+      processClassifiedCandidate:async()=>{throw new Error("synthetic import failure");},
+      writeJson:async()=>{writes.push(model.root.name);},
+      recordDiagnostic:()=>{diagnostics.push(model.root.name);},
+      now:()=>new Date(0).toISOString(),
+      sha256:async()=>{if(switched){model.root=rootB;model.autoImport=ledgerB;}return "synthetic-hash";},
+      setTimeout,Promise,AUTO_IMPORT_PATH:["data","auto-import.json"]
+    });
+    vm.runInContext(app.slice(begin,end)+"\nglobalThis.retry=reconcileLearnedFiles;",ctx);
+    const outcome=await ctx.retry("synthetic-revision");
+    assert.deepEqual(diagnostics,switched?[]:["Synthetic A"],"no old-store failure diagnostic under Store B");
+    assert.deepEqual(writes,switched?[]:["Synthetic A"],"only original store writes failure ledger");
+    assert.equal(Boolean(outcome.deferred),switched);
+    assert.equal(Object.keys(ledgerA.seen).length,switched?0:1);
+    assert.equal(Object.keys(ledgerB.seen).length,0);
+  }
+});
