@@ -333,3 +333,40 @@ test("source dispatcher cannot compute or render old-store completion in newly c
     assert.equal(cleanupContext.size,0);
   }
 });
+
+test("source verification cannot import into a reconnected store",async()=>{
+  const begin=app.indexOf("  async function processClassifiedCandidate(");
+  const end=app.indexOf("  async function completeExactReviewedInboxSource(",begin);
+  assert.ok(begin>=0&&end>begin&&end-begin<10000,"production dispatcher extract");
+  const production=app.slice(begin,end);
+  for(const switchAt of ["getFile","arrayBuffer","never"]){
+    const rootA={name:"Synthetic A"},rootB={name:"Synthetic B"};
+    const model={root:rootA,settings:{store:{name:"Synthetic",code:"SYN"}}};
+    const calls=[],sourceLocations=new Map(),guards=new Map(),deleteContext=new Map();
+    const ctx=vm.createContext({
+      model,sourceLocations,xlsxSourceDeleteGuards:guards,autoSourceDeleteContext:deleteContext,
+      sourceFileHandle:async()=>({getFile:async()=>{
+        if(switchAt==="getFile")model.root=rootB;
+        return {arrayBuffer:async()=>{
+          if(switchAt==="arrayBuffer")model.root=rootB;
+          return new Uint8Array([1,2,3]).buffer;
+        }};
+      }}),
+      sameByteContent:()=>true,
+      importManagerSource:async()=>calls.push("import:"+model.root.name),
+      ensurePreviousMonthSummary:async()=>calls.push("summary:"+model.root.name),
+      renderAll:()=>calls.push("render:"+model.root.name),
+      window:{confirm:()=>true}
+    });
+    vm.runInContext(production+"\nglobalThis.dispatchActual=processClassifiedCandidate;",ctx);
+    const perform=()=>ctx.dispatchActual(
+      {name:"synthetic.xlsx",location:"inbox",signature:"synthetic",relativePath:"synthetic.xlsx"},
+      "sor",new Uint8Array([1,2,3]),false);
+    if(switchAt==="never")await perform();
+    else await assert.rejects(perform(),/Workspace changed while source bytes were verified/);
+    assert.deepEqual(calls,switchAt==="never"
+      ?["import:Synthetic A","summary:Synthetic A","render:Synthetic A"]:[]);
+    assert.equal(guards.size,0);
+    assert.equal(deleteContext.size,0);
+  }
+});

@@ -3946,6 +3946,9 @@
       if (!sameByteContent(await currentFile.arrayBuffer(), bytes))
         throw new Error(`${candidate.name} changed while it was being checked and was left in place.`);
     }
+    // An awaited source-byte verification must not move the import to another installation.
+    if(model.root!==selectedSourceRoot)
+      throw new Error("Workspace changed while source bytes were verified; import deferred.");
     // The deletion guard protects every automatic report type, not only XLSX.
     const guardXlsxDelete = candidate.location !== "picked" && Boolean(bytes);
     if (guardXlsxDelete) xlsxSourceDeleteGuards.set(candidate.name, bytes);
