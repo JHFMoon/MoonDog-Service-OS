@@ -294,3 +294,42 @@ test("learned-file history cannot leave cross-store diagnostics after reconnect"
     assert.equal(Boolean(outcome.deferred),switched);
   }
 });
+
+test("source dispatcher cannot compute or render old-store completion in newly connected store",async()=>{
+  const begin=app.indexOf("  async function processClassifiedCandidate(");
+  const end=app.indexOf("  async function completeExactReviewedInboxSource(",begin);
+  assert.ok(begin>=0&&end>begin&&end-begin<10000,"extract production dispatcher");
+  const production=app.slice(begin,end);
+  for(const switchingAt of ["import","summary","never"]){
+    const rootA={name:"Synthetic Store A"},rootB={name:"Synthetic Store B"};
+    const model={root:rootA,settings:{store:{name:"Synthetic",code:"SYN"}}};
+    const calls=[],sourceLocations=new Map(),guards=new Map(),cleanupContext=new Map();
+    const ctx=vm.createContext({
+      model,sourceLocations,xlsxSourceDeleteGuards:guards,
+      autoSourceDeleteContext:cleanupContext,
+      importSource:async()=>{
+        calls.push("import:"+model.root.name);
+        if(switchingAt==="import")model.root=rootB;
+      },
+      ensurePreviousMonthSummary:async()=>{
+        calls.push("summary:"+model.root.name);
+        if(switchingAt==="summary")model.root=rootB;
+      },
+      renderAll:()=>{calls.push("render:"+model.root.name);},
+      window:{confirm:()=>true}
+    });
+    vm.runInContext(production+"\nglobalThis.dispatchActual=processClassifiedCandidate;",ctx);
+    const perform=()=>ctx.dispatchActual(
+      {name:"synthetic-source.csv",location:"learn"},
+      "synthetic-unclassified",null,false);
+    if(switchingAt==="never")await perform();
+    else await assert.rejects(perform(),/Workspace changed during source/);
+    assert.deepEqual(calls,switchingAt==="import"
+      ?["import:Synthetic Store A"]
+      :switchingAt==="summary"
+        ?["import:Synthetic Store A","summary:Synthetic Store A"]
+        :["import:Synthetic Store A","summary:Synthetic Store A","render:Synthetic Store A"]);
+    assert.equal(guards.size,0);
+    assert.equal(cleanupContext.size,0);
+  }
+});

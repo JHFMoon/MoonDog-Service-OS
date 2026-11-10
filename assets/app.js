@@ -3939,6 +3939,7 @@
     if (kind === "performance" && candidate.location !== "picked") throw new Error("Needs Review: SAPR source dealership is not verified. Confirm the original workbook using explicit Import Performance.");
     if (kind === "open-ro-docx" && candidate.location !== "picked") throw new Error("Needs Review: DOCX source is not yet authorized for hands-off roster replacement.");
     if (kind === "open-ro" && !["picked","inbox"].includes(candidate.location)) throw new Error("Needs Review: only the dedicated Inbox may automatically replace Open ROs.");
+    const selectedSourceRoot=model.root;
     sourceLocations.set(candidate.name, candidate.location);let appointmentOutcome;
     if (/\.xlsx$/i.test(candidate.name) && candidate.location !== "picked" && bytes) {
       const currentFile = await (await sourceFileHandle(candidate.name)).getFile();
@@ -3973,7 +3974,12 @@
       else if (kind === "ro-update") await importReturnedWorkbook(candidate.name, deleteAfterSuccess, bytes);
       else await importSource(candidate.name, deleteAfterSuccess, bytes, candidate.location === "inbox");
   
-      await ensurePreviousMonthSummary(); renderAll();return appointmentOutcome;
+      if(model.root!==selectedSourceRoot)
+        throw new Error("Workspace changed during source import; completion deferred.");
+      await ensurePreviousMonthSummary();
+      if(model.root!==selectedSourceRoot)
+        throw new Error("Workspace changed during source summary; render deferred.");
+      renderAll();return appointmentOutcome;
     } finally {
       if (guardXlsxDelete) xlsxSourceDeleteGuards.delete(candidate.name);
       if (typeof autoSourceDeleteContext !== "undefined") {
