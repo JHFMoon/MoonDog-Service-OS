@@ -191,3 +191,41 @@ test("Greeter output cleanup cannot append source-store history into a newly con
     assert.equal(cleanupContext.size,0);
   }
 });
+
+test("appointment memo completion cannot write history after a store reconnect",async()=>{
+  const start=app.indexOf("  async function reconcileLearnedFiles(");
+  const end=app.indexOf("  // Read-only catalog-to-disk",start);
+  assert.ok(start>=0&&end>start&&end-start<8000,"extract production learned-file reconciler");
+  const production=app.slice(start,end);
+  for(const switched of [true,false]){
+    const rootA={name:"Synthetic Store A"},rootB={name:"Synthetic Store B"};
+    const originalLedger={seen:{},learnedFileMemo:{}};
+    const model={root:rootA,autoImport:originalLedger};
+    const writes=[],history=[];
+    const file={size:2,lastModified:1,
+      slice:()=>({text:async()=>"advisor name,total ros,vir printed/emailed"}),
+      arrayBuffer:async()=>new Uint8Array([1,2]).buffer};
+    const ctx=vm.createContext({
+      model,folderWatch:{busy:false},dailyImportBusy:false,appointmentImportBusy:false,
+      directory:async()=>({entries:async function*(){yield ["synthetic-appointments.csv",{kind:"file",getFile:async()=>file}];}}),
+      classifyImportFile:async()=>"appointments",
+      processClassifiedCandidate:async()=>({retired:false}),
+      writeJson:async(path,value)=>{
+        assert.equal(path[1],"auto-import.json");
+        assert.equal(value,originalLedger,"persist original store memo only");
+        writes.push(model.root.name);
+        if(switched){model.root=rootB;model.autoImport={seen:{},learnedFileMemo:{}};}
+      },
+      addHistory:async()=>{history.push(model.root.name);},
+      recordDiagnostic:()=>{},now:()=>new Date(0).toISOString(),
+      sha256:async()=>"",setTimeout,Promise,AUTO_IMPORT_PATH:["data","auto-import.json"]
+    });
+    vm.runInContext(production+"\nglobalThis.reconcileActual=reconcileLearnedFiles;",ctx);
+    const result=await ctx.reconcileActual("synthetic-parser");
+    assert.deepEqual(writes,["Synthetic Store A"]);
+    assert.deepEqual(history,switched?[]:["Synthetic Store A"],"no old-store completion in new store");
+    assert.equal(Boolean(result.deferred),switched);
+    assert.equal(model.root,switched?rootB:rootA);
+    assert.equal(model.autoImport.learnedParserRevision,undefined);
+  }
+});
