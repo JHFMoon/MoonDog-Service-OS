@@ -4152,6 +4152,11 @@
     // Only the installation-bound verified update journal or an independently
     // changed parser revision is sufficient.
     if(!model.root||!writeAuthority.canWrite)return;
+    const connectedRoot=model.root,connectedApplicationRoot=model.applicationRoot,
+      connectedAutoImport=model.autoImport;
+    const selectedRootStillCurrent=()=>model.root===connectedRoot&&
+      model.applicationRoot===connectedApplicationRoot&&
+      model.autoImport===connectedAutoImport&&writeAuthority.canWrite;
     const previousParser=model.autoImport.learnedParserRevision;
     const legacyImportState=Object.values(model.autoImport.seen||{}).some(entry=>entry&&
       (entry.kind||entry.importFailed||entry.recognized));
@@ -4161,16 +4166,20 @@
     // layout-audited retry; failures keep the revision unchanged for retry.
     const parserRevisionChanged=previousParser?previousParser!==LEARNED_PARSER_REVISION:legacyImportState;
     let durableReceipt;
-    try{durableReceipt=await findVerifiedUpdateFollowup(model.applicationRoot);}
+    try{durableReceipt=await findVerifiedUpdateFollowup(connectedApplicationRoot);}
     catch(error){
-      recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Selected installation journal lookup deferred: "+String(error?.name||"Error")+"; no files changed.");
+      if(selectedRootStillCurrent())
+        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Selected installation journal lookup deferred: "+String(error?.name||"Error")+"; no files changed.");
       return;
     }
+    // An awaited folder read must never resume against a different store.
+    if(!selectedRootStillCurrent())return;
     if(durableReceipt?.completed&&!parserRevisionChanged)return;
     if(!durableReceipt&&!parserRevisionChanged)return;
     const followupReceipt=durableReceipt?.version===VERSION&&!durableReceipt.completed?durableReceipt:null;
     try{
-      const layout=await auditInstalledRuntimeLayout(model.applicationRoot);
+      const layout=await auditInstalledRuntimeLayout(connectedApplicationRoot);
+      if(!selectedRootStillCurrent())return;
       if(layout.needsReview){
         recordDiagnostic("VERIFIED UPDATE LAYOUT","Needs review · missing "+layout.missing+" · out-of-place reports "+layout.misplacedReports+" · unexpected runtime files "+layout.unexpectedRuntime+". No files were changed; update receipt retained.");
         return;
@@ -4182,18 +4191,25 @@
       let result={attempts:0,recovered:0,unsupported:0,skipped:0};
       if(parserRevisionChanged){
         result=await reconcileLearnedFiles(LEARNED_PARSER_REVISION);
+        if(!selectedRootStillCurrent())return;
       }
       if(result?.deferred||result?.failures){
         recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Learning-source retry deferred; receipt retained. Attempts "+(result?.attempts||0)+" · recovered "+(result?.recovered||0)+" · unsupported "+(result?.unsupported||0)+" · errors "+(result?.failures||0));
         return;
       }
+      if(!selectedRootStillCurrent())return;
       if(model.autoImport.learnedParserRevision!==LEARNED_PARSER_REVISION){
         model.autoImport.learnedParserRevision=LEARNED_PARSER_REVISION;
         await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+        if(!selectedRootStillCurrent())return;
       }
-      if(followupReceipt)await markVerifiedUpdateFollowupComplete(followupReceipt);
+      if(followupReceipt){
+        if(!selectedRootStillCurrent())return;
+        await markVerifiedUpdateFollowupComplete(followupReceipt);
+        if(!selectedRootStillCurrent())return;
+      }
       recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Verified "+VERSION+" · attempted "+(result?.attempts||0)+" learned files · skipped "+(result?.skipped||0)+" · recovered "+(result?.recovered||0)+" · still unsupported "+(result?.unsupported||0)+". Unchanged parser revisions do not trigger reclassification.");
-    }catch(error){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.name||"Error")+"; receipt retained, originals unchanged.");}
+    }catch(error){if(selectedRootStillCurrent())recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.name||"Error")+"; receipt retained, originals unchanged.");}
   }
 
   const folderWatch={timer:null,busy:false,pending:new Map(),lastChecked:"",state:"OFF",message:""};

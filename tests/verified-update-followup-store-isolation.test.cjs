@@ -13,10 +13,15 @@ const selectedFunction=app.slice(begin,end);
 const VERSION="0.10.18-beta.409", REVISION="synthetic-parser-v1";
 const BROWSER_RECEIPT="moondog-verified-update-followup-v1";
 
-function scenario({browserReceipt=null,durable=null,parserRevision=null,lookupFails=false}={}) {
+function scenario({browserReceipt=null,durable=null,parserRevision=null,lookupFails=false,switchDuring=null}={}) {
   const calls={lookup:0,layout:0,writes:0,reconcile:0,completed:0,removed:0,diagnostics:0};
   const root={name:"Synthetic Store B"};
   const model={root,applicationRoot:root,autoImport:{learnedParserRevision:parserRevision,seen:{}}};
+  const otherRoot={name:"Different Synthetic Store"};
+  const switchRoot=()=>{
+    model.root=otherRoot;model.applicationRoot=otherRoot;
+    model.autoImport={learnedParserRevision:null,seen:{}};
+  };
   const storage={
     getItem:key=>key===BROWSER_RECEIPT&&browserReceipt?JSON.stringify(browserReceipt):"null",
     removeItem:key=>{assert.equal(key,BROWSER_RECEIPT);calls.removed++;}
@@ -28,15 +33,18 @@ function scenario({browserReceipt=null,durable=null,parserRevision=null,lookupFa
       calls.lookup++;
       assert.equal(selected,root,"durable receipt must use the connected installation");
       if(lookupFails)throw Object.assign(Error("synthetic unreadable journal"),{name:"NotReadableError"});
+      if(switchDuring==="journal")switchRoot();
       return durable;
     },
     auditInstalledRuntimeLayout:async selected=>{
       assert.equal(selected,root);calls.layout++;
+      if(switchDuring==="layout")switchRoot();
       return {needsReview:false,scanned:2,compatibilityIndexPresent:true};
     },
     recordDiagnostic:()=>{calls.diagnostics++;},
     reconcileLearnedFiles:async revision=>{
       assert.equal(revision,REVISION);calls.reconcile++;
+      if(switchDuring==="reconcile")switchRoot();
       return {attempts:1,recovered:0,unsupported:0,skipped:1};
     },
     writeJson:async(name,value)=>{
@@ -89,6 +97,23 @@ test("independent changed parser revision still reconciles without a browser rec
   assert.equal(h.calls.writes,1);
   assert.equal(h.calls.completed,0);
   assert.equal(h.model.autoImport.learnedParserRevision,REVISION);
+});
+
+test("reconnecting a different store during awaited follow-up cannot write or complete the old store receipt",async()=>{
+  for(const stage of ["journal","layout","reconcile"]){
+    const h=scenario({
+      durable:{version:VERSION,completed:false,journal:{status:"verified"}},
+      parserRevision:stage==="reconcile"?"older-parser":REVISION,
+      switchDuring:stage
+    });
+    await h.run();
+    assert.equal(h.calls.writes,0,stage+" changed the newly connected store");
+    assert.equal(h.calls.completed,0,stage+" completed an outdated installation receipt");
+    assert.equal(h.calls.removed,0,stage+" touched browser-local state");
+    assert.equal(h.model.root.name,"Different Synthetic Store");
+    assert.equal(h.model.autoImport.learnedParserRevision,null);
+    assert.equal(h.calls.layout,stage==="journal"?0:1);
+  }
 });
 
 test("successful update does not create a shared-origin browser marker",()=>{
