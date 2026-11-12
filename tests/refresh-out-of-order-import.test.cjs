@@ -61,4 +61,14 @@ for (const relative of ["src/refresh-intelligence.js", "assets/freshness.js"]) {
     assert.equal(history.sources.performance.observations.length, 1);
     assert.equal(history.sources.performance.observations[0].hour, 12);
   });
+  test(relative + ": delayed manager request retains latest request time", () => {
+    const later="2026-11-12T15:00:00Z";
+    const before=R.learn(R.empty(),"performance","requested",{at:later});
+    const immutable=JSON.stringify(before);
+    const after=R.learn(before,"performance","requested",{at:"2026-11-12T10:00:00Z"});
+    assert.equal(after.sources.performance.lastRequested,later);
+    assert.equal(JSON.stringify(before),immutable);
+    const next=R.learn(after,"performance","requested",{at:"2026-11-12T16:00:00Z"});
+    assert.equal(next.sources.performance.lastRequested,"2026-11-12T16:00:00Z");
+  });
 }
