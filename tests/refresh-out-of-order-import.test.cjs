@@ -71,4 +71,19 @@ for (const relative of ["src/refresh-intelligence.js", "assets/freshness.js"]) {
     const next=R.learn(after,"performance","requested",{at:"2026-11-12T16:00:00Z"});
     assert.equal(next.sources.performance.lastRequested,"2026-11-12T16:00:00Z");
   });
+  test(relative + ": delayed deferral cannot evict newer bounded source history", () => {
+    const priorDeferrals=Array.from({length:24},(_,hour)=>({
+      at:"2026-11-10T"+String(hour).padStart(2,"0")+":00:00Z",hour
+    }));
+    const before={schemaVersion:1,sources:{performance:{
+      observations:[],deferrals:priorDeferrals,notNowUntil:"2026-11-12T18:00:00Z"
+    }}};
+    const original=JSON.stringify(before);
+    const after=R.learn(before,"performance","not-now",{at:"2026-11-09T00:00:00Z"});
+    assert.equal(JSON.stringify(before),original,"prior history must not be mutated");
+    assert.equal(after.sources.performance.deferrals.length,24);
+    assert.deepEqual(Array.from(after.sources.performance.deferrals,x=>x.at),
+      priorDeferrals.map(x=>x.at),"late extra event must not evict a newer event");
+    assert.equal(after.sources.performance.notNowUntil,"2026-11-12T18:00:00.000Z");
+  });
 }
