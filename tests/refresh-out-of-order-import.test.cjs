@@ -16,19 +16,18 @@ for (const relative of ["src/refresh-intelligence.js", "assets/freshness.js"]) {
   const R = load(relative);
   test(relative + ": late import preserves a newer user snooze without mutating the original", () => {
     const deferAt = "2026-11-08T14:00:00Z";
-    let history = R.learn(R.empty(), "performance", "not-now", {at:deferAt});
-    const until = history.sources.performance.notNowUntil;
-    const prior = history;
+    const prior = R.learn(R.empty(), "performance", "not-now", {at:deferAt});
+    const until = prior.sources.performance.notNowUntil;
     const original = JSON.stringify(prior);
-    history = R.learn(history, "performance", "imported",
+    const after = R.learn(prior, "performance", "imported",
       {at:"2026-11-08T10:00:00Z", periodEnd:"2026-11-07", hour:8});
     assert.equal(JSON.stringify(prior), original, "prior state remains unmodified");
-    assert.equal(history.sources.performance.notNowUntil, until);
-    assert.equal(history.sources.performance.observations.length, 1,
+    assert.equal(after.sources.performance.notNowUntil, until);
+    assert.equal(after.sources.performance.observations.length, 1,
       "a valid late arrival is still recorded with its verified report period");
-    assert.equal(R.plan([{source:"performance",rank:1}], history,
+    assert.equal(R.plan([{source:"performance",rank:1}], after,
       {at:"2026-11-08T14:10:00Z", today:"2026-11-08"}).length, 0);
-    const newer = R.learn(history, "performance", "imported",
+    const newer = R.learn(after, "performance", "imported",
       {at:"2026-11-08T15:00:00Z", periodEnd:"2026-11-07", hour:15});
     assert.equal(newer.sources.performance.notNowUntil, "",
       "a genuinely newer verified arrival may clear the snooze");
