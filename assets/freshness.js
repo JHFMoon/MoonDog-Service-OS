@@ -410,11 +410,17 @@
       // Do not replace it with today's upload date or clear a pending snooze.
       if(!dateValid(date))return history||empty();
       const observation={at,day:date,hour:Number.isInteger(options.hour)?options.hour:timeHour(at)};
+      // A late asynchronous import cannot replace a newer observation or
+      // clear a reminder the user snoozed after the older import started.
       const existing=entry.observations.findIndex(item=>item.day===observation.day);
-      if(existing>=0) entry.observations.splice(existing,1);
-      entry.observations.push(observation);
-      entry.observations=entry.observations.slice(-24);
-      entry.notNowUntil="";
+      if(existing<0 || timeStamp(entry.observations[existing].at)<=timestamp) {
+        if(existing>=0) entry.observations.splice(existing,1);
+        entry.observations.push(observation);
+        entry.observations.sort((a,b)=>timeStamp(a.at)-timeStamp(b.at)||String(a.day).localeCompare(String(b.day)));
+        entry.observations=entry.observations.slice(-24);
+      }
+      const latestDeferral=entry.deferrals.reduce((latest,item)=>Math.max(latest,timeStamp(item?.at)),0);
+      if(timestamp>=latestDeferral) entry.notNowUntil="";
     }
     if(kind==="not-now") {
       entry.deferrals.push({at,hour:Number.isInteger(options.hour)?options.hour:timeHour(at)});
