@@ -435,7 +435,8 @@
       entry.notNowUntil=new Date(Math.max(timeStamp(entry.notNowUntil),
         timestamp+minutes*60000)).toISOString();
     }
-    if(kind==="requested") entry.lastRequested=at;
+    // A delayed request event must not roll back a newer manager request.
+    if(kind==="requested" && timestamp>=timeStamp(entry.lastRequested)) entry.lastRequested=at;
     sources[source]=entry;
     return {schemaVersion:1,sources};
   }
