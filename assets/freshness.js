@@ -424,6 +424,8 @@
     }
     if(kind==="not-now") {
       entry.deferrals.push({at,hour:Number.isInteger(options.hour)?options.hour:timeHour(at)});
+      // Keep the newest event times, not the last asynchronously delivered ones.
+      entry.deferrals.sort((a,b)=>timeStamp(a?.at)-timeStamp(b?.at));
       entry.deferrals=entry.deferrals.slice(-24);
       // Late asynchronous deferrals must never reduce a newer user snooze.
       // Count only observations at or before this event, not future events.
