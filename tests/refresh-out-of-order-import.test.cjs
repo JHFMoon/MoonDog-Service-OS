@@ -18,10 +18,11 @@ for (const relative of ["src/refresh-intelligence.js", "assets/freshness.js"]) {
     const deferAt = "2026-11-08T14:00:00Z";
     let history = R.learn(R.empty(), "performance", "not-now", {at:deferAt});
     const until = history.sources.performance.notNowUntil;
-    const original = JSON.stringify(history);
+    const prior = history;
+    const original = JSON.stringify(prior);
     history = R.learn(history, "performance", "imported",
       {at:"2026-11-08T10:00:00Z", periodEnd:"2026-11-07", hour:8});
-    assert.equal(JSON.stringify(R.learn(R.empty(), "performance", "not-now", {at:deferAt})), original);
+    assert.equal(JSON.stringify(prior), original, "prior state remains unmodified");
     assert.equal(history.sources.performance.notNowUntil, until);
     assert.equal(history.sources.performance.observations.length, 1,
       "a valid late arrival is still recorded with its verified report period");
