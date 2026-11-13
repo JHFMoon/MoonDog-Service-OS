@@ -96,7 +96,12 @@
     return {schemaVersion:1,sources};
   }
   function typicalHour(record) {
-    const samples=record.observations.slice(-12).map(item=>item.hour).filter(hour=>Number.isInteger(hour)&&hour>=0&&hour<=23).sort((a,b)=>a-b);
+    // Recovered history without valid event and report dates is not verified
+    // evidence for learning a report arrival schedule.
+    const verified=Array.isArray(record?.observations)
+      ? record.observations.filter(item=>item&&dateValid(item.day)&&timeStamp(item.at)>0)
+      : [];
+    const samples=verified.slice(-12).map(item=>item.hour).filter(hour=>Number.isInteger(hour)&&hour>=0&&hour<=23).sort((a,b)=>a-b);
     return samples.length>=4?samples[Math.floor(samples.length/2)]:null;
   }
   function plan(requests,history,{at=new Date().toISOString(),today="",limit=4}={}) {
