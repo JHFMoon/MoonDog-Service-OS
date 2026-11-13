@@ -102,7 +102,7 @@
   function plan(requests,history,{at=new Date().toISOString(),today="",limit=4}={}) {
     const current=timeStamp(at)||Date.now(),seen=new Set(),result=[];
     const sourceRequests=Array.isArray(requests)?requests:[];
-    for(const request of [...sourceRequests].sort((a,b)=>(a.rank??7)-(b.rank??7))) {
+    for(const request of [...sourceRequests].sort((a,b)=>(a?.rank??7)-(b?.rank??7))) {
       const source=String(request?.source||""),def=catalog[source];
       if(!def||seen.has(source)) continue;
       seen.add(source);
