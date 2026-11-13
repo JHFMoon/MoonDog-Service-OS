@@ -33,10 +33,17 @@
   const finite = n => typeof n==="number" && Number.isFinite(n) && n>=0;
   const timeStamp = v => { const n=Date.parse(v||"");return Number.isFinite(n)?n:0; };
   const timeHour = v => new Date(v).getHours();
+  // Recovered legacy source history can be out of delivery order and contain
+  // malformed entries. Preserve the latest *dated* evidence without treating
+  // invalid records as observations or mutating the stored original arrays.
+  const recentEvents = values => Array.isArray(values)
+    ? values.filter(item=>item&&typeof item==="object"&&!Array.isArray(item))
+        .sort((a,b)=>timeStamp(a?.at)-timeStamp(b?.at)).slice(-24)
+    : [];
   function sourceRecord(history,source) {
     const item=history?.sources?.[source]||{};
-    return { observations:Array.isArray(item.observations)?item.observations.slice(-24):[],
-      deferrals:Array.isArray(item.deferrals)?item.deferrals.slice(-24):[],
+    return { observations:recentEvents(item.observations),
+      deferrals:recentEvents(item.deferrals),
       notNowUntil:typeof item.notNowUntil==="string"?item.notNowUntil:"",
       // Retain the last verified request across imports and deferrals.
       ...(typeof item.lastRequested==="string" && Number.isFinite(Date.parse(item.lastRequested))
