@@ -99,7 +99,8 @@
     // Recovered history without valid event and report dates is not verified
     // evidence for learning a report arrival schedule.
     const verified=Array.isArray(record?.observations)
-      ? record.observations.filter(item=>item&&dateValid(item.day)&&timeStamp(item.at)>0)
+      ? record.observations.filter(item=>item&&dateValid(item.day)&&
+          typeof item.at==="string"&&item.at.includes("T")&&Boolean(sourceDay(item.at)))
       : [];
     const samples=verified.slice(-12).map(item=>item.hour).filter(hour=>Number.isInteger(hour)&&hour>=0&&hour<=23).sort((a,b)=>a-b);
     return samples.length>=4?samples[Math.floor(samples.length/2)]:null;
