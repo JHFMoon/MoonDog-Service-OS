@@ -163,6 +163,15 @@ for (const relative of ["src/refresh-intelligence.js", "assets/freshness.js"]) {
     const record=R.sourceRecord(before,"performance");
     assert.equal(R.typicalHour(record),null,
       "unverified imported event timestamps cannot establish a regular report hour");
+    const invalidCalendar=Array.from({length:4},(_,index)=>({
+      day:"2026-03-0"+(index+1),
+      at:"2026-02-30T"+String(10+index).padStart(2,"0")+":00:00Z",
+      hour:9
+    }));
+    assert.equal(R.typicalHour(R.sourceRecord({schemaVersion:1,sources:{performance:{
+      observations:invalidCalendar,deferrals:[],notNowUntil:""
+    }}},"performance")),null,
+      "normalized impossible calendar dates cannot become trusted observation times");
     const plan=R.plan([{source:"performance",rank:7}],before,{
       at:"2026-11-12T15:00:00Z",today:"2026-11-12"
     });
