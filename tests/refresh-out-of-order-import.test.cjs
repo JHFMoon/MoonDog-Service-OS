@@ -149,4 +149,35 @@ for (const relative of ["src/refresh-intelligence.js", "assets/freshness.js"]) {
     assert.deepEqual(Array.from(result,entry=>entry.source),["performance","csi"]);
     assert.deepEqual(requests,original,"original request list must not be mutated");
   });
+  test(relative + ": invalid imported history cannot fabricate a learned report hour", () => {
+    const malformed=[
+      {day:"2026-11-01",at:"not-a-time-1",hour:9},
+      {day:"2026-11-02",at:"not-a-time-2",hour:9},
+      {day:"2026-11-03",at:"not-a-time-3",hour:9},
+      {day:"2026-11-04",at:"not-a-time-4",hour:9}
+    ];
+    const before={schemaVersion:1,sources:{performance:{
+      observations:malformed,deferrals:[],notNowUntil:""
+    }}};
+    const original=JSON.stringify(before);
+    const record=R.sourceRecord(before,"performance");
+    assert.equal(R.typicalHour(record),null,
+      "unverified imported event timestamps cannot establish a regular report hour");
+    const plan=R.plan([{source:"performance",rank:7}],before,{
+      at:"2026-11-12T15:00:00Z",today:"2026-11-12"
+    });
+    assert.equal(plan[0].learnedHour,null,
+      "Home must not display a fabricated learned import schedule");
+    const valid=Array.from({length:4},(_,index)=>({
+      day:"2026-11-"+String(index+6).padStart(2,"0"),
+      at:"2026-11-"+String(index+6).padStart(2,"0")+"T14:00:00Z",
+      hour:14
+    }));
+    const mixed=R.sourceRecord({schemaVersion:1,sources:{performance:{
+      observations:[...malformed,...valid],deferrals:[],notNowUntil:""
+    }}},"performance");
+    assert.equal(R.typicalHour(mixed),14,
+      "only verified observations should contribute to learned arrival hour");
+    assert.equal(JSON.stringify(before),original,"legacy history remains immutable");
+  });
 }
