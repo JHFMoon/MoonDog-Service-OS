@@ -139,4 +139,14 @@ for (const relative of ["src/refresh-intelligence.js", "assets/freshness.js"]) {
     assert.equal(recovered.observations.at(-1).day,"2026-11-12",
       "verified newest observation must survive unsorted legacy hydration");
   });
+  test(relative + ": planner skips empty restored request slots without crashing", () => {
+    const requests=[null,{source:"performance",rank:2},undefined,
+      {source:"unknown",rank:4},{source:"csi",rank:5}];
+    const original=requests.slice();
+    const result=R.plan(requests,R.empty(),{
+      at:"2026-11-12T16:00:00Z",today:"2026-11-12"
+    });
+    assert.deepEqual(Array.from(result,entry=>entry.source),["performance","csi"]);
+    assert.deepEqual(requests,original,"original request list must not be mutated");
+  });
 }
