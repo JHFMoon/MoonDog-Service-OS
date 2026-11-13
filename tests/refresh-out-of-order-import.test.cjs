@@ -86,4 +86,57 @@ for (const relative of ["src/refresh-intelligence.js", "assets/freshness.js"]) {
       priorDeferrals.map(x=>x.at),"late extra event must not evict a newer event");
     assert.equal(after.sources.performance.notNowUntil,"2026-11-12T18:00:00.000Z");
   });
+  test(relative + ": hydrated source history ignores invalid elements and preserves valid records", () => {
+    const valid={at:"2026-11-08T14:00:00Z",day:"2026-11-08",hour:14};
+    const deferred={at:"2026-11-08T10:00:00Z",hour:10};
+    const before={schemaVersion:1,sources:{performance:{
+      observations:[null,false,[],valid],deferrals:[null,42,[],deferred],notNowUntil:""
+    }}};
+    const original=JSON.stringify(before);
+    const observed=R.sourceRecord(before,"performance");
+    assert.equal(observed.observations.length,1);
+    assert.equal(observed.observations[0].at,valid.at);
+    assert.equal(observed.deferrals.length,1);
+    assert.equal(observed.deferrals[0].at,deferred.at);
+    const planned=R.plan([{source:"performance"}],before,{
+      at:"2026-11-08T16:00:00Z",today:"2026-11-08"});
+    assert.equal(planned.length,1,"malformed old history must not crash planner");
+    const imported=R.learn(before,"performance","imported",{
+      at:"2026-11-08T15:00:00Z",periodEnd:"2026-11-08",hour:15});
+    assert.equal(imported.sources.performance.observations.length,1);
+    assert.equal(imported.sources.performance.observations[0].hour,15);
+    assert.equal(imported.sources.performance.deferrals.length,1);
+    assert.equal(JSON.stringify(before),original,"stored history is never changed in-place");
+  });
+  test(relative + ": legacy unsorted history retains newest event before limiting to 24", () => {
+    const newest={at:"2026-11-12T15:00:00Z",hour:15};
+    const older=Array.from({length:24},(_,index)=>({
+      at:"2026-11-12T10:"+String(index).padStart(2,"0")+":00Z",hour:10
+    }));
+    const before={schemaVersion:1,sources:{performance:{
+      observations:[],deferrals:[newest,...older],notNowUntil:"2026-11-12T17:00:00Z"
+    }}};
+    const original=JSON.stringify(before);
+    const recent=R.sourceRecord(before,"performance");
+    assert.equal(recent.deferrals.length,24);
+    assert.equal(recent.deferrals.at(-1).at,newest.at,
+      "newest deferral must survive old unsorted 25-event history");
+    const after=R.learn(before,"performance","imported",{
+      at:"2026-11-12T13:00:00Z",periodEnd:"2026-11-11",hour:13
+    });
+    assert.equal(after.sources.performance.notNowUntil,"2026-11-12T17:00:00Z",
+      "older import must not clear the dropped-latest user snooze");
+    assert.equal(JSON.stringify(before),original);
+    const newestObservation={at:"2026-11-12T15:00:00Z",day:"2026-11-12",hour:15};
+    const oldObservations=Array.from({length:24},(_,index)=>{
+      const day="2026-10-"+String(index+1).padStart(2,"0");
+      return {at:day+"T12:00:00Z",day,hour:12};
+    });
+    const recovered=R.sourceRecord({schemaVersion:1,sources:{performance:{
+      observations:[newestObservation,...oldObservations],deferrals:[]
+    }}},"performance");
+    assert.equal(recovered.observations.length,24);
+    assert.equal(recovered.observations.at(-1).day,"2026-11-12",
+      "verified newest observation must survive unsorted legacy hydration");
+  });
 }
