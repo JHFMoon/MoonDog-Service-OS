@@ -51,11 +51,26 @@ CSS_NETWORK = re.compile(
 )
 
 
+def append_only_preservation_test(change: dict) -> bool:
+    """Allow additive test coverage; never automate weakening existing assertions."""
+    if change.get("status") != "modified":
+        return False
+    patch = change.get("patch")
+    if not isinstance(patch, str) or not patch or "\\n" not in patch:
+        return False
+    lines = patch.splitlines()
+    return (any(line.startswith("+") and not line.startswith("+++") for line in lines)
+            and not any(line.startswith("-") and not line.startswith("---") for line in lines)
+            and all(not line.startswith(("Binary files ", "GIT binary patch")) for line in lines))
+
+
 def path_risk(path: str, change: dict) -> str:
     if not isinstance(path, str) or not path or "\\" in path or any(
         part in {"", ".", ".."} for part in path.split("/")
     ):
         return "protected"
+    if path in CRITICAL_PRESERVATION_TESTS and append_only_preservation_test(change):
+        return "data-affecting"
     if path.startswith((".github/", "scripts/", "distribution/")) or path in {
         ".gitattributes", ".gitignore", "SECURITY.md",
     } or path in PROTECTED_DOCUMENTS or path in PROTECTED_TESTS or path in CRITICAL_PRESERVATION_TESTS or path in PROTECTED_RUNTIME or path.startswith("assets/moondog-update-"):
