@@ -24,6 +24,8 @@ PROTECTED_TESTS = {
     "tests/test_guarded_merge_policy.py", "tests/test_pipeline_guard.py",
     "tests/test_security_workflows.py", "tests/test_check_publication.py",
     "tests/test_public_audit_history.py", "tests/test_beta_change_risk.py",
+    "tests/local-target-boundary.test.cjs", "tests/source-boundary.test.cjs",
+    "tests/manifest-cdn-bypass.test.cjs", "tests/automatic-diagnostics-disabled.test.cjs",
 }
 CSS_NETWORK = re.compile(
     r"@import|@font-face|url\s*\(|image-set\s*\(|expression\s*\(|"
