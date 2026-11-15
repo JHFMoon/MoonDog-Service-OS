@@ -5,6 +5,12 @@
 
 A Stable promotion PR requires separate owner authorization before merge. Publication still runs only through the existing `.github/workflows/stable-release.yml` workflow after protected merge and successful main Publication Check; never install it or dispatch a separate manual deployment merely because a PR merged.
 
+## Verified changes without mandatory reviews (proposed protected policy transition)
+
+For ordinary engineering, Beta, distribution, and operational-code changes, no human or AI review is a prerequisite. The trusted merge guard requires a complete same-repository PR scope, accepted author, current-main ancestry, no draft, exact-head successful Publication Check and Clean Install Proof, privacy/security scans, package parity, authenticated unresolved-findings veto, and GitHub branch protection. These checks are not optional. Changes to security enforcement, protected workflows, the classifier itself, Stable promotion, and destructive or real-store operations retain their existing separate authorization boundaries. An optional review can identify a finding but cannot replace failed checks.
+
+This section becomes operative only after this protected policy change has been legitimately integrated into main. It does not grant permission to bypass the current protected bootstrap for this very PR.
+
 ## Permanent engineering review policy
 
 Routine engineering and Beta work operate under standing owner authorization. An independent human or AI reviewer is optional. Routine eligibility relies on exact-head automated evidence. Where the classification requires formal review, record the inspection against the exact PR head, including scope, findings, resolutions and verification limits. Refresh required review evidence when the head changes. No particular coding interface or model is required.
