@@ -95,6 +95,7 @@ class BetaChangeRiskTests(unittest.TestCase):
             "assets/maintenance-tests.js",
             "scripts/update_recovery.py",
             "scripts/permission_repair.py",
+            "scripts/smoke_beta_package.mjs",
             "tests/open-ro-edit-save-roundtrip.test.cjs",
             "tests/supervisor-workbook-recovery.test.cjs",
             "tests/durable-write-fault-matrix.test.cjs",
