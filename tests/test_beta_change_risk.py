@@ -51,6 +51,15 @@ class BetaChangeRiskTests(unittest.TestCase):
         self.assertEqual(merge_decision([entry("assets/app.js"), scoped_test()]), "automatic")
         self.assertEqual(merge_decision([entry("tests/fake/open-ro-preservation.test.cjs")]), "automatic")
 
+    def test_new_security_and_release_scripts_stay_protected(self):
+        for path in (
+            "scripts/new_security_scan.py", "scripts/privacy_cleanup.py",
+            "scripts/release_guard.py", "scripts/update_signature.py",
+            "scripts/manifest_integrity.py", "scripts/auth_permissions.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(merge_decision([entry(path)]), "protected")
+
     def test_css_remote_resources_fail_closed(self):
         for patch in (
             "@@ -1 +1 @@\n+@import 'https://example.invalid/foo.css';",
