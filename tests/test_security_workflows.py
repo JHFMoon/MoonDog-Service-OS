@@ -325,7 +325,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('"$DECISION" = "automatic"', merge)
         self.assertIn('"$FINAL_DECISION" != "automatic"', merge)
         self.assertIn('scripts/pipeline_guard.py check-paths', merge)
-        self.assertIn('Clean Install Proof', merge)
+        self.assertNotIn('Clean Install Proof', merge)
         self.assertIn('Refuse Stable manifest changes', merge)
         self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"', merge)
         policy = __import__("json").loads(
