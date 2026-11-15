@@ -88,9 +88,9 @@ button.addEventListener("click",async()=>{
     const scope = selectedSystemFiles
       ? "You selected System Files. Choose its parent to check the launcher and manifest too. "
       : hasSystemFiles ? "" : "System Files folder is missing. Make sure you selected the extracted Dashboard folder. ";
-    result.className = "result " + (complete ? "ok" : "error");
+    // Checking System Files alone cannot verify the outer launcher or manifest.\n    result.className = "result " + (!complete ? "error" : selectedSystemFiles ? "" : "ok");
     result.textContent = scope + (complete
-      ? "Expected paths were found. File contents and updater permissions were not checked."
+      ? (selectedSystemFiles\n        ? "Application paths found; launcher and installation manifest UNVERIFIED. Select the parent folder for a full path check. File contents and permissions were not checked."\n        : "Expected paths were found. File contents and updater permissions were not checked.")
       : "Required paths are missing. Keep your existing folder intact and follow the recovery steps below.")
       + "\n" + items.map(([path, found]) => (found ? "FOUND: " : "MISSING: ") + path).join("\n");
     result.style.whiteSpace="pre-line";
