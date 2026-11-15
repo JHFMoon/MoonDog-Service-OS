@@ -111,6 +111,34 @@ class BetaChangeRiskTests(unittest.TestCase):
                 ):
                     self.assertEqual(merge_decision([unsafe]), "protected")
 
+    def test_exact_crlf_source_reader_normalization_is_automatic_only_for_two_harnesses(self):
+        safe_patch = (
+            '@@ -1,11 +1,11 @@\\n'
+            '-const fs = require("node:fs");\\n'
+            '+const readSource = require("./helpers/read-source.cjs");\\n'
+            '-const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");\\n'
+            '+const app = readSource(path.join(__dirname, "..", "assets", "app.js"));'
+        )
+        for path in (
+            "tests/open-ro-edit-save-roundtrip.test.cjs",
+            "tests/supervisor-workbook-recovery.test.cjs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(merge_decision([entry(path, patch=safe_patch)]), "automatic")
+                for unsafe in (
+                    entry(path, patch=safe_patch + '\\n-assert.equal(actual, expected);\\n+assert.ok(true);'),
+                    entry(path, patch=None),
+                    entry(path, patch=safe_patch, status="renamed"),
+                    entry(path, patch=safe_patch.replace('readSource', 'unsafeRead')),
+                ):
+                    self.assertEqual(merge_decision([unsafe]), "protected")
+        self.assertEqual(merge_decision([
+            entry("tests/durable-write-fault-matrix.test.cjs", patch=safe_patch)
+        ]), "protected")
+        self.assertEqual(merge_decision([
+            entry("tests/helpers/read-source.cjs", patch=safe_patch)
+        ]), "automatic")
+
     def test_missing_unknown_or_truncated_scope_fails_closed(self):
         self.assertEqual(merge_decision([]), "protected")
         self.assertEqual(merge_decision([entry("updates/manifest.json")]), "protected")
