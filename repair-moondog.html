@@ -582,6 +582,9 @@
 
   async function assertTarget(app, workspace, identity = null, allowRequest = true) {
     await assertAuthority(workspace, allowRequest);
+    // Root access does not establish continuing authority on a separately
+    // granted application handle. Inspection must never prompt for either.
+    await assertAuthority(app, allowRequest);
     const system = await workspace.getDirectoryHandle("System Files", { create: false });
     if (typeof system.isSameEntry !== "function" || !(await system.isSameEntry(app)))
       throw new Error("Application folder does not belong to the selected installation.");

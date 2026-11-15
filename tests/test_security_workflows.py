@@ -7,6 +7,75 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SecurityWorkflowTests(unittest.TestCase):
+    def test_both_merge_stages_require_real_exact_head_install_and_privacy_checks(self):
+        import contextlib
+        import io
+        import json
+        import os
+        import tempfile
+        import textwrap
+        from unittest.mock import patch
+        workflow = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text()
+        head = "a" * 40
+        repo = "synthetic/repository"
+        for final in (False, True):
+            marker = "Squash merge verified current PR" if final else "Evaluate exact-head verification and authorization evidence"
+            section = workflow[workflow.index(marker):]
+            source = section.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0]
+            source = textwrap.dedent(source)
+            for fault in (None, "missing-install", "failed-install", "pending-install",
+                          "dispatch-install", "stale-install", "spoofed-suite", "failed-privacy"):
+                with self.subTest(final=final, fault=fault), tempfile.TemporaryDirectory() as directory:
+                    runs, checks = [], []
+                    for index, (name, path, check) in enumerate((
+                        ("Publication check", ".github/workflows/publication-check.yml", "Publication Check"),
+                        ("Clean Install Proof", ".github/workflows/clean-install-proof.yml", "prove-clean-install"),
+                    )):
+                        if index == 1 and fault == "missing-install":
+                            continue
+                        runs.append({"name": name, "path": path, "head_sha": head,
+                                     "event": "pull_request", "head_repository": {"full_name": repo},
+                                     "check_suite_id": index + 1, "created_at": "2026-11-15T00:00:00Z"})
+                        checks.append({"name": check, "head_sha": head, "status": "completed",
+                                       "conclusion": "success", "app": {"id": 15368},
+                                       "check_suite": {"id": index + 1}})
+                    if fault == "failed-privacy": checks[0]["conclusion"] = "failure"
+                    if fault == "failed-install": checks[1]["conclusion"] = "failure"
+                    if fault == "pending-install": checks[1]["status"] = "in_progress"
+                    if fault == "dispatch-install": runs[1]["event"] = "workflow_dispatch"
+                    if fault == "stale-install": checks[1]["head_sha"] = "b" * 40
+                    if fault == "spoofed-suite": checks[1]["check_suite"]["id"] = 999
+                    prefix = "final-head" if final else "head"
+                    paths = {f"/tmp/{prefix}-runs.json": {"workflow_runs": runs},
+                             f"/tmp/{prefix}-checks.json": {"check_runs": checks}}
+                    candidate = source
+                    for original, data in paths.items():
+                        target = str(Path(directory) / Path(original).name)
+                        Path(target).write_text(json.dumps(data))
+                        candidate = candidate.replace(original, target)
+                    output = str(Path(directory) / "output")
+                    code = 0
+                    with patch.dict(os.environ, {"REPO": repo, "HEAD_SHA": head, "GITHUB_OUTPUT": output}), contextlib.redirect_stdout(io.StringIO()):
+                        try:
+                            exec(compile(candidate, "actual-workflow-ci-gate", "exec"), {})
+                        except SystemExit as error:
+                            code = error.code
+                    pending = Path(output).exists() and "ready=false" in Path(output).read_text()
+                    if fault:
+                        self.assertTrue(code != 0 or pending, "unsafe evidence must never authorize merge")
+                    else:
+                        self.assertEqual(code, 0)
+                        self.assertFalse(pending)
+
+    def test_full_clean_install_proof_runs_functional_and_policy_suites(self):
+        proof = (ROOT / ".github/workflows/clean-install-proof.yml").read_text()
+        section = proof.split("- name: Run full functional and policy regressions", 1)[1].split("- name:", 1)[0]
+        self.assertIn("if: steps.scope.outputs.scope == 'full'", section)
+        self.assertIn("python3 -m unittest discover -s tests -p 'test_*.py'", section)
+        self.assertIn("node --test --test-concurrency=2 tests/*.test.cjs", section)
+        self.assertNotIn("continue-on-error", section)
+        self.assertIn("LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}", section)
+
     def test_publication_check_covers_all_pushes_and_recurs(self):
         text = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
         self.assertIn("  push:\n", text)
@@ -24,10 +93,10 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("name: Publication Check", text)
 
 
-    def test_clean_install_does_not_fetch_parser_test_base(self):
+    def test_clean_install_uses_immutable_parser_base_without_mutable_fetch(self):
         workflow = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
         self.assertNotIn("Fetch immutable PR base for parser epoch checks", workflow)
-        self.assertNotIn("LEARNED_PARSER_BASE_SHA", workflow)
+        self.assertIn("LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}", workflow)
 
 
     def test_privacy_only_publication_preserves_independent_clean_install(self):
@@ -103,10 +172,10 @@ class SecurityWorkflowTests(unittest.TestCase):
 
     def test_guarded_merge_and_offline_distribution_are_hands_off_safe(self):
         merge = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text(encoding="utf-8")
-        self.assertIn('workflows: ["Publication check"]', merge)
+        self.assertIn('workflows: ["Publication check", "Clean Install Proof"]', merge)
         self.assertIn("github.event.workflow_run.event == 'pull_request'", merge)
         self.assertIn("python3 scripts/guarded_merge_policy.py check-authorization", merge)
-        self.assertNotIn('workflows: ["Publication check", "Clean Install Proof"]', merge)
+        self.assertIn("'Clean Install Proof': ('.github/workflows/clean-install-proof.yml', 'prove-clean-install')", merge)
         self.assertIn("pull_request_target:", merge)
         self.assertIn("issue_comment:", merge)
         self.assertIn("pull_request_review:", merge)
@@ -325,7 +394,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('"$DECISION" = "automatic"', merge)
         self.assertIn('"$FINAL_DECISION" != "automatic"', merge)
         self.assertIn('scripts/pipeline_guard.py check-paths', merge)
-        self.assertNotIn('Clean Install Proof', merge)
+        self.assertIn("'Clean Install Proof':('.github/workflows/clean-install-proof.yml','prove-clean-install')", merge)
         self.assertIn('Refuse Stable manifest changes', merge)
         self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"', merge)
         policy = __import__("json").loads(

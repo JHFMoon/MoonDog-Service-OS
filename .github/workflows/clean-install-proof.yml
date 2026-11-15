@@ -67,6 +67,14 @@ jobs:
             printf '%s\n' '{"schemaVersion":1,"scope":"full","reason":"No trusted base classifier; full verification required."}' > .verification-plan.json
           fi
 
+      - name: Run full functional and policy regressions for changed executable inputs
+        if: steps.scope.outputs.scope == 'full'
+        env:
+          LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          node --test --test-concurrency=2 tests/*.test.cjs
+
       - name: Cache pinned distribution dependency outputs
         id: vendor-cache
         if: steps.scope.outputs.scope != 'documentation'
