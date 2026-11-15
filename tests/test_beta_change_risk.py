@@ -137,7 +137,7 @@ class BetaChangeRiskTests(unittest.TestCase):
         ]), "protected")
         self.assertEqual(merge_decision([
             entry("tests/helpers/read-source.cjs", patch=safe_patch)
-        ]), "automatic")
+        ]), "protected")
 
     def test_missing_unknown_or_truncated_scope_fails_closed(self):
         self.assertEqual(merge_decision([]), "protected")
