@@ -725,3 +725,30 @@ test('each repeated update repairs new application drift and a failed repair can
   assert.equal((await fixture.run()).status, 'installed');
   assertPrivate();
 });
+
+test('oversized application readback stops before allocating bytes or changing installation files', async () => {
+  const fixture = await setup({includeScript:true});
+  const expectedPlan = await context.MoonDogPackagePlan.dryRun({
+    verifiedPackage:fixture.verifiedPackage,appDirectoryHandle:fixture.app,
+    trustedAllowlist:fixture.trustedAllowlist,subtle:webcrypto.subtle
+  });
+  const originalHandle = fixture.app.getFileHandle;
+  let oversizedReads = 0;
+  fixture.app.getFileHandle = async (name, options) => {
+    const handle = await originalHandle(name, options);
+    if (name !== 'index.html') return handle;
+    return {...handle,getFile:async () => ({size:64*1024*1024+1,
+      arrayBuffer:async () => { oversizedReads++; return (await handle.getFile()).arrayBuffer(); }})};
+  };
+  const before = copyFiles(fixture), directories = new Set(fixture.state.dirs);
+  const result = await context.MoonDogUpdateInstall.apply({
+    verifiedPackage:fixture.verifiedPackage,appDirectoryHandle:fixture.app,
+    workspaceDirectoryHandle:fixture.root,trustedAllowlist:fixture.trustedAllowlist,
+    expectedPlan,confirmed:true,subtle:webcrypto.subtle
+  });
+  assert.equal(oversizedReads, 0, 'reject metadata before arrayBuffer allocation');
+  assert.equal(result.status, 'stopped');
+  assert.match(result.reason, /too large/i);
+  assert.deepEqual(fixture.state.files, before);
+  assert.deepEqual(fixture.state.dirs, directories);
+});
