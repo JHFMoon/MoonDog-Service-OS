@@ -51,6 +51,8 @@ def path_risk(path: str, change: dict) -> str:
         "scripts/public_audit_history.py", "scripts/build_beta_package.py",
     }:
         return "protected"
+    if path == "scripts/smoke_beta_package.mjs":
+        return "data-affecting"
     # Fail closed for enforcement, privacy and release tooling even when
     # a newly introduced filename is not in the explicit protected set.
     if path.startswith("scripts/") and re.search(
