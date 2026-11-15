@@ -689,3 +689,39 @@ test('read-only recovery inspection refuses denied application permission withou
   assert.deepEqual(fixture.state.dirs, directories);
   }
 });
+
+test('each repeated update repairs new application drift and a failed repair can be retried without private data loss', async () => {
+  const fixture = await setup({includeScript:true});
+  const privateFiles = new Map([
+    ['System Files/Workspace/data/current-state.json', Buffer.from('synthetic saved manager edits')],
+    ['System Files/Workspace/originals/synthetic-original.txt', Buffer.from('synthetic original import')],
+    ['System Files/Workspace/backups/synthetic-private.txt', Buffer.from('synthetic preserved backup')]
+  ]);
+  fixture.state.dirs.add('System Files/Workspace/originals');
+  for (const [key, bytes] of privateFiles) fixture.state.files.set(key, Buffer.from(bytes));
+  const assertPrivate = () => {
+    for (const [key, bytes] of privateFiles) assert.deepEqual(fixture.state.files.get(key), bytes, key);
+  };
+  assert.equal((await fixture.run()).status, 'installed');
+  assertPrivate();
+
+  // Drift occurs after successful installation, rather than only before first use.
+  fixture.state.files.set('System Files/assets/app.js', Buffer.from('synthetic damaged app'));
+  fixture.state.files.delete('System Files/assets/new.js');
+  fixture.state.failOnce = 'System Files/assets/new.js';
+  const failed = await fixture.run();
+  assert.equal(failed.status, 'rolled-back', failed.reason);
+  assert.equal(fixture.state.files.get('System Files/assets/app.js').toString(), 'synthetic damaged app');
+  assert.equal(fixture.state.files.has('System Files/assets/new.js'), false);
+  assertPrivate();
+
+  const events = [];
+  const repaired = await fixture.run(event => events.push(event));
+  assert.equal(repaired.status, 'installed', repaired.reason);
+  assert.equal(fixture.state.files.get('System Files/assets/app.js').toString(), 'verified replacement application script');
+  assert.equal(fixture.state.files.get('System Files/assets/new.js').toString(), 'new');
+  assert.ok(events.some(event => event.phase === 'verify-package'));
+  assertPrivate();
+  assert.equal((await fixture.run()).status, 'installed');
+  assertPrivate();
+});
