@@ -120,11 +120,11 @@ class BetaChangeRiskTests(unittest.TestCase):
             "tests/durable-write-fault-matrix.test.cjs",
         ):
             with self.subTest(path=path):
-                additive = entry(path, patch="@@ -10,0 +11,2 @@\\n+test('new recovery scenario', () => {\\n+  assert.equal(after, before);\\n+});")
+                additive = entry(path, patch="@@ -10,0 +11,2 @@\n+test('new recovery scenario', () => {\n+  assert.equal(after, before);\n+});")
                 self.assertEqual(classify([additive]), "data-affecting")
                 self.assertEqual(merge_decision([additive]), "automatic")
                 for unsafe in (
-                    entry(path, patch="@@ -1 +1 @@\\n-assert.equal(saved, before);\\n+assert.ok(true);"),
+                    entry(path, patch="@@ -1 +1 @@\n-assert.equal(saved, before);\n+assert.ok(true);"),
                     entry(path, patch=None),
                     entry(path, status="removed", patch=None),
                 ):
