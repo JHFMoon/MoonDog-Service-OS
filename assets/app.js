@@ -3939,12 +3939,16 @@
     if (kind === "performance" && candidate.location !== "picked") throw new Error("Needs Review: SAPR source dealership is not verified. Confirm the original workbook using explicit Import Performance.");
     if (kind === "open-ro-docx" && candidate.location !== "picked") throw new Error("Needs Review: DOCX source is not yet authorized for hands-off roster replacement.");
     if (kind === "open-ro" && !["picked","inbox"].includes(candidate.location)) throw new Error("Needs Review: only the dedicated Inbox may automatically replace Open ROs.");
+    const selectedSourceRoot=model.root;
     sourceLocations.set(candidate.name, candidate.location);let appointmentOutcome;
     if (/\.xlsx$/i.test(candidate.name) && candidate.location !== "picked" && bytes) {
       const currentFile = await (await sourceFileHandle(candidate.name)).getFile();
       if (!sameByteContent(await currentFile.arrayBuffer(), bytes))
         throw new Error(`${candidate.name} changed while it was being checked and was left in place.`);
     }
+    // An awaited source-byte verification must not move the import to another installation.
+    if(model.root!==selectedSourceRoot)
+      throw new Error("Workspace changed while source bytes were verified; import deferred.");
     // The deletion guard protects every automatic report type, not only XLSX.
     const guardXlsxDelete = candidate.location !== "picked" && Boolean(bytes);
     if (guardXlsxDelete) xlsxSourceDeleteGuards.set(candidate.name, bytes);
@@ -3962,11 +3966,23 @@
       else if (kind === "known-non-service") return await retireKnownNonServiceSource(candidate,bytes,deleteAfterSuccess);
       else if (["supplemental-pdf","supplemental-csv","supplemental-workbook","supplemental-docx"].includes(kind)) await importSupplementalSource(candidate,kind,bytes,deleteAfterSuccess,layoutOverride);
       else if (kind === "appointments") appointmentOutcome=await importAppointmentFile(candidate.name, deleteAfterSuccess, bytes);
-      else if (kind === "disposable-greeter") { if (deleteAfterSuccess) await removeSourceEntry(candidate.name); await addHistory("disposable-output-removed", "Removed generated Greeter appointment output", { outputType: "Greeter Appointment List" }); recordDiagnostic("REPORT INBOX", "MoonDog Greeter output deleted as disposable output"); }
+      else if (kind === "disposable-greeter") {
+        // Reconnect after removal must not append the old store's history to the new store.
+        const cleanupRoot=model.root;
+        if (deleteAfterSuccess) await removeSourceEntry(candidate.name);
+        if (model.root!==cleanupRoot) throw new Error("Workspace changed during Greeter cleanup; history deferred.");
+        await addHistory("disposable-output-removed", "Removed generated Greeter appointment output", { outputType: "Greeter Appointment List" });
+        recordDiagnostic("REPORT INBOX", "MoonDog Greeter output deleted as disposable output");
+      }
       else if (kind === "ro-update") await importReturnedWorkbook(candidate.name, deleteAfterSuccess, bytes);
       else await importSource(candidate.name, deleteAfterSuccess, bytes, candidate.location === "inbox");
   
-      await ensurePreviousMonthSummary(); renderAll();return appointmentOutcome;
+      if(model.root!==selectedSourceRoot)
+        throw new Error("Workspace changed during source import; completion deferred.");
+      await ensurePreviousMonthSummary();
+      if(model.root!==selectedSourceRoot)
+        throw new Error("Workspace changed during source summary; render deferred.");
+      renderAll();return appointmentOutcome;
     } finally {
       if (guardXlsxDelete) xlsxSourceDeleteGuards.delete(candidate.name);
       if (typeof autoSourceDeleteContext !== "undefined") {
@@ -4008,14 +4024,21 @@
 
   async function reconcileLearnedFiles(parserRevision=LEARNED_PARSER_REVISION) {
     if(folderWatch.busy||dailyImportBusy||appointmentImportBusy)return {deferred:true};
+    // Do not resume a learned-file import against another connected store.
+    const selectedRoot=model.root,selectedAutoImport=model.autoImport;
+    const stillSelected=()=>model.root===selectedRoot&&model.autoImport===selectedAutoImport;
+    if(!selectedRoot||!stillSelected())return {deferred:true};
     let failures=0,attempts=0,recovered=0,unsupported=0,skipped=0;
     const memo=model.autoImport.learnedFileMemo||=( {} );
     let memoDirty=false,failureLedgerDirty=false;dailyImportBusy=true;try{
-    let folder; try { folder = await directory(["Files To Learn"], false); } catch (error) { if (error.name === "NotFoundError") return {failures:0,attempts:0,recovered:0,unsupported:0}; throw error; }
-    const entries = []; for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && !/^~\$/.test(name)) { try { const file = await handle.getFile(); const relativePath=`Files To Learn/${name}`; entries.push({ name, location:"learn", relativePath, handle, file, signature:`${relativePath}|${file.size}|${file.lastModified}` }); } catch (error) { failures++;const diagnostic=`Learned-source open deferred: ${error?.name||"Error"}`;model.autoImport.seen||={};model.autoImport.seen[`learn-open|${name}`]={fileName:name,storedAs:name,importFailed:true,readError:true,diagnostic,failedAt:now()};failureLedgerDirty=true;recordDiagnostic("FILES TO LEARN",diagnostic); } }
-    for (const entry of entries) { entry.structurePriority=10; if (/\.csv$/i.test(entry.name)) { const start=(await entry.file.slice(0,160).text()).trim().toLowerCase(); entry.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
+    let folder; try { folder = await directory(["Files To Learn"], false); } catch (error) { if(!stillSelected())return {deferred:true};if(error.name === "NotFoundError") return {failures:0,attempts:0,recovered:0,unsupported:0}; throw error; }
+    if(!stillSelected())return {deferred:true};
+    const entries = []; for await (const [name, handle] of folder.entries()) if (handle.kind === "file" && !/^~\$/.test(name)) { try { const file = await handle.getFile(); if(!stillSelected())return {deferred:true}; const relativePath=`Files To Learn/${name}`; entries.push({ name, location:"learn", relativePath, handle, file, signature:`${relativePath}|${file.size}|${file.lastModified}` }); } catch (error) { if(!stillSelected())return {deferred:true};failures++;const diagnostic=`Learned-source open deferred: ${error?.name||"Error"}`;model.autoImport.seen||={};model.autoImport.seen[`learn-open|${name}`]={fileName:name,storedAs:name,importFailed:true,readError:true,diagnostic,failedAt:now()};failureLedgerDirty=true;recordDiagnostic("FILES TO LEARN",diagnostic); } }
+    if(!stillSelected())return {deferred:true};
+    for (const entry of entries) { if(!stillSelected())return {deferred:true};entry.structurePriority=10; if (/\.csv$/i.test(entry.name)) { const start=(await entry.file.slice(0,160).text()).trim().toLowerCase(); if(!stillSelected())return {deferred:true};entry.structurePriority=start.startsWith("next appointments scheduled summary")?0:start.startsWith("advisor name,total ros,vir printed/emailed")?1:5; } }
     entries.sort((a, b) => a.structurePriority - b.structurePriority || a.file.lastModified - b.file.lastModified || a.name.localeCompare(b.name, undefined, { numeric: true }));
     for (const entry of entries) {
+      if(!stillSelected())return {deferred:true};
       let currentBytes=null;
       try {
         if(model.autoImport.seen?.[entry.signature]?.kind==="appointments"&&model.autoImport.seen[entry.signature].importedAt)continue;
@@ -4025,17 +4048,25 @@
         if(!/\.(?:csv|xlsx|pdf|docx)$/i.test(entry.name)){
           unsupported++;memo[entry.signature]=parserRevision;memoDirty=true;continue;
         }
-        const bytes = await entry.file.arrayBuffer(), kind = await classifyImportFile(entry.name, entry.file, bytes);currentBytes=new Uint8Array(bytes);
+        const bytes=await entry.file.arrayBuffer();
+        if(!stillSelected())return {deferred:true};
+        const kind=await classifyImportFile(entry.name,entry.file,bytes);
+        if(!stillSelected())return {deferred:true};
+        currentBytes=new Uint8Array(bytes);
         if (!kind) { unsupported++;memo[entry.signature]=parserRevision;memoDirty=true; continue; }
-        const outcome=await processClassifiedCandidate(entry, kind, bytes, true);if(kind==="appointments"){model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,importedAt:now(),kind};await writeJson(AUTO_IMPORT_PATH,model.autoImport);}
-        recovered++;for(const previous of Object.values(model.autoImport.seen||{}))if(previous.importFailed&&previous.storedAs===entry.name&&!previous.failureResolvedAt){previous.failureResolvedAt=now();previous.importFailed=false;failureLedgerDirty=true;}if(outcome?.retired){await addHistory("learned-file-retired","Verified a known non-service learned source and removed the Service OS copy",{sourceFamily:kind,retired:true});recordDiagnostic("FILES TO LEARN",`${kind} retired; no Service OS data retained`);}else{await addHistory("learned-file-recovered", "Verified a now-supported learned source through durable intake", { sourceFamily: kind, recovered: true });recordDiagnostic("FILES TO LEARN", `${kind} recovered after durable verification`);}
-      } catch (error) { failures++;const diagnostic=`Known-file reconciliation deferred: ${error.name}: ${error.message||error}`;model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,storedAs:entry.name,importFailed:true,diagnostic,failedAt:now(),failureSha256:currentBytes?await sha256(currentBytes):""};failureLedgerDirty=true;recordDiagnostic("FILES TO LEARN",diagnostic); }
+        const outcome=await processClassifiedCandidate(entry, kind, bytes, true);
+        if(!stillSelected())return {deferred:true};
+        if(kind==="appointments"){model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,importedAt:now(),kind};await writeJson(AUTO_IMPORT_PATH,model.autoImport);if(!stillSelected())return {deferred:true};}
+        recovered++;for(const previous of Object.values(model.autoImport.seen||{}))if(previous.importFailed&&previous.storedAs===entry.name&&!previous.failureResolvedAt){previous.failureResolvedAt=now();previous.importFailed=false;failureLedgerDirty=true;}if(outcome?.retired){await addHistory("learned-file-retired","Verified a known non-service learned source and removed the Service OS copy",{sourceFamily:kind,retired:true});if(!stillSelected())return {deferred:true};recordDiagnostic("FILES TO LEARN",`${kind} retired; no Service OS data retained`);}else{await addHistory("learned-file-recovered", "Verified a now-supported learned source through durable intake", { sourceFamily: kind, recovered: true });if(!stillSelected())return {deferred:true};recordDiagnostic("FILES TO LEARN", `${kind} recovered after durable verification`);}
+      } catch (error) { if(!stillSelected())return {deferred:true};const diagnostic=`Known-file reconciliation deferred: ${error.name}: ${error.message||error}`;const failureSha256=currentBytes?await sha256(currentBytes):"";if(!stillSelected())return {deferred:true};failures++;model.autoImport.seen||={};model.autoImport.seen[entry.signature]={fileName:entry.name,relativePath:entry.relativePath,storedAs:entry.name,importFailed:true,diagnostic,failedAt:now(),failureSha256};failureLedgerDirty=true;recordDiagnostic("FILES TO LEARN",diagnostic); }
       // Yield between files: version-triggered reconciliation must not freeze Home.
       await new Promise(resolve=>setTimeout(resolve,0));
     }
+    if(!stillSelected())return {deferred:true};
     if(memoDirty||failureLedgerDirty){
       // Cache is non-authoritative metadata; original files remain untouched.
-      await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+      await writeJson(AUTO_IMPORT_PATH,selectedAutoImport);
+      if(!stillSelected())return {deferred:true};
     }
     return {failures,attempts,recovered,unsupported,skipped};
     }finally{dailyImportBusy=false;}
@@ -4147,11 +4178,16 @@
   }
 
   async function runVerifiedUpdateFollowup() {
-    // The updater receipt is preferred; its verified backup journal is a
-    // durable fallback when browser storage could not retain the marker.
-    const key="moondog-verified-update-followup-v1";let receipt=null;
-    try{receipt=JSON.parse(localStorage.getItem(key)||"null");}catch(_){}
+    // Browser-local storage can be shared by distinct file:// installations.
+    // It cannot authorize follow-up work in a selected dealership Workspace.
+    // Only the installation-bound verified update journal or an independently
+    // changed parser revision is sufficient.
     if(!model.root||!writeAuthority.canWrite)return;
+    const connectedRoot=model.root,connectedApplicationRoot=model.applicationRoot,
+      connectedAutoImport=model.autoImport;
+    const selectedRootStillCurrent=()=>model.root===connectedRoot&&
+      model.applicationRoot===connectedApplicationRoot&&
+      model.autoImport===connectedAutoImport&&writeAuthority.canWrite;
     const previousParser=model.autoImport.learnedParserRevision;
     const legacyImportState=Object.values(model.autoImport.seen||{}).some(entry=>entry&&
       (entry.kind||entry.importFailed||entry.recognized));
@@ -4161,23 +4197,20 @@
     // layout-audited retry; failures keep the revision unchanged for retry.
     const parserRevisionChanged=previousParser?previousParser!==LEARNED_PARSER_REVISION:legacyImportState;
     let durableReceipt;
-    try{durableReceipt=await findVerifiedUpdateFollowup(model.applicationRoot);}
+    try{durableReceipt=await findVerifiedUpdateFollowup(connectedApplicationRoot);}
     catch(error){
-      if(receipt?.version!==VERSION){
-        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Receipt lookup deferred: "+String(error?.name||"Error")+"; no files changed.");
-        return;
-      }
-    }
-    if(durableReceipt?.completed&&!parserRevisionChanged){
-      try{localStorage.removeItem(key);}catch(error){
-        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Completed receipt cleanup deferred: "+String(error?.name||"Error")+".");
-      }
+      if(selectedRootStillCurrent())
+        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Selected installation journal lookup deferred: "+String(error?.name||"Error")+"; no files changed.");
       return;
     }
-    if(receipt?.version!==VERSION&&!durableReceipt&&!parserRevisionChanged)return;
+    // An awaited folder read must never resume against a different store.
+    if(!selectedRootStillCurrent())return;
+    if(durableReceipt?.completed&&!parserRevisionChanged)return;
+    if(!durableReceipt&&!parserRevisionChanged)return;
     const followupReceipt=durableReceipt?.version===VERSION&&!durableReceipt.completed?durableReceipt:null;
     try{
-      const layout=await auditInstalledRuntimeLayout(model.applicationRoot);
+      const layout=await auditInstalledRuntimeLayout(connectedApplicationRoot);
+      if(!selectedRootStillCurrent())return;
       if(layout.needsReview){
         recordDiagnostic("VERIFIED UPDATE LAYOUT","Needs review · missing "+layout.missing+" · out-of-place reports "+layout.misplacedReports+" · unexpected runtime files "+layout.unexpectedRuntime+". No files were changed; update receipt retained.");
         return;
@@ -4189,21 +4222,25 @@
       let result={attempts:0,recovered:0,unsupported:0,skipped:0};
       if(parserRevisionChanged){
         result=await reconcileLearnedFiles(LEARNED_PARSER_REVISION);
+        if(!selectedRootStillCurrent())return;
       }
       if(result?.deferred||result?.failures){
         recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Learning-source retry deferred; receipt retained. Attempts "+(result?.attempts||0)+" · recovered "+(result?.recovered||0)+" · unsupported "+(result?.unsupported||0)+" · errors "+(result?.failures||0));
         return;
       }
+      if(!selectedRootStillCurrent())return;
       if(model.autoImport.learnedParserRevision!==LEARNED_PARSER_REVISION){
         model.autoImport.learnedParserRevision=LEARNED_PARSER_REVISION;
         await writeJson(AUTO_IMPORT_PATH,model.autoImport);
+        if(!selectedRootStillCurrent())return;
       }
-      if(followupReceipt)await markVerifiedUpdateFollowupComplete(followupReceipt);
-      try{localStorage.removeItem(key);}catch(_){
-        recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Browser receipt cleanup unavailable; durable parser revision and import results remain verified.");
+      if(followupReceipt){
+        if(!selectedRootStillCurrent())return;
+        await markVerifiedUpdateFollowupComplete(followupReceipt);
+        if(!selectedRootStillCurrent())return;
       }
       recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Verified "+VERSION+" · attempted "+(result?.attempts||0)+" learned files · skipped "+(result?.skipped||0)+" · recovered "+(result?.recovered||0)+" · still unsupported "+(result?.unsupported||0)+". Unchanged parser revisions do not trigger reclassification.");
-    }catch(error){recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.name||"Error")+"; receipt retained, originals unchanged.");}
+    }catch(error){if(selectedRootStillCurrent())recordDiagnostic("VERIFIED UPDATE FOLLOW-UP","Follow-up deferred: "+String(error?.name||"Error")+"; receipt retained, originals unchanged.");}
   }
 
   const folderWatch={timer:null,busy:false,pending:new Map(),lastChecked:"",state:"OFF",message:""};
