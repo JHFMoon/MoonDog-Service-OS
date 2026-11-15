@@ -130,6 +130,14 @@
   async function applicationDiagnosis(app, trustedAllowlist, plan, repairs) {
     const known = new Set(trustedAllowlist.map(path => global.MoonDogApplyDesignModel.canonicalPath(path)));
     let unknownPreserved = 0, inspected = 0, missingDirectories = 0;
+    // Inventory names at the verified application root too: misplaced scripts
+    // and legacy application folders must be reported, preserved and unread.
+    const roots = new Set([...known].map(path => path.split("/")[0]));
+    for (const name of ["workspace", "assets", "vendor", IDENTITY_FILE.toLowerCase(), "moondog_fresh_reset_pending.json"]) roots.add(name);
+    for await (const [name] of app.entries()) {
+      if (++inspected > 4096) throw new Error("Application inventory is too large for safe automatic repair.");
+      if (!roots.has(name.toLowerCase())) unknownPreserved++;
+    }
     // Only list application directories, never private Workspace/report trees.
     for (const name of ["assets", "vendor"]) {
       let directory;
@@ -206,6 +214,9 @@
 
   async function assertTarget(app, workspace, identity = null, allowRequest = true) {
     await assertAuthority(workspace, allowRequest);
+    // Root access does not establish continuing authority on a separately
+    // granted application handle. Inspection must never prompt for either.
+    await assertAuthority(app, allowRequest);
     const system = await workspace.getDirectoryHandle("System Files", { create: false });
     if (typeof system.isSameEntry !== "function" || !(await system.isSameEntry(app)))
       throw new Error("Application folder does not belong to the selected installation.");
@@ -288,7 +299,12 @@
   async function read(root, relative) {
     try {
       const { folder, name } = await parent(root, relative);
-      return new Uint8Array(await (await (await folder.getFileHandle(name, { create: false })).getFile()).arrayBuffer());
+      const file = await (await folder.getFileHandle(name, { create: false })).getFile();
+      // Inspect metadata before allocating application or recovery bytes.
+      // Preserve oversized originals for local review rather than exhausting
+      // memory or starting a transaction whose backup cannot be verified.
+      if (file.size > 64 * 1024 * 1024) throw new Error("File is too large for safe application recovery: " + relative);
+      return new Uint8Array(await file.arrayBuffer());
     } catch (error) {
       if (error && error.name === "NotFoundError") return null;
       throw error;
@@ -475,7 +491,8 @@
       await verifyExistingStructure(app, definition, subtle, new Set(repairs.map(entry => entry.path)));
       const diagnosis = await applicationDiagnosis(app, trustedAllowlist, plan, repairs);
       await progress(onProgress, { phase: "health-check", percent: 14, label: "Checking",
-        detail: "Checking trusted application structure; private Workspace files are preserved" });
+        detail: "Checking trusted application structure; private Workspace files are preserved" +
+          (diagnosis.unknownPreserved ? "; " + diagnosis.unknownPreserved + " unrecognized application item(s) preserved" : "") });
       const htmlEntry = contents.files.find(entry => entry.path === "index.html");
       if (htmlEntry?.action === "delete") throw new Error("The application entry cannot be deleted.");
       let compatibility = null;

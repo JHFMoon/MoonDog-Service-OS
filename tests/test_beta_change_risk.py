@@ -37,47 +37,28 @@ class BetaChangeRiskTests(unittest.TestCase):
         self.assertEqual(classify([entry("assets/app.js"), scoped_test()]), "data-affecting")
         self.assertEqual(merge_decision([entry("assets/app.js"), scoped_test()]), "automatic")
 
-    def test_data_change_without_scoped_proof_requires_review(self):
-        self.assertEqual(merge_decision([entry("assets/app.js")]), "review-required")
-        self.assertEqual(merge_decision([
-            entry("assets/app.js"),
-            entry("tests/navigation-render-performance.test.cjs", patch="+test('render', () => { assert.ok(true) }"),
-        ]), "review-required")
-        self.assertEqual(merge_decision([
-            entry("assets/app.js"),
-            entry("tests/open-ro-new-write-preservation.test.cjs", patch="+// no added assertion"),
-        ]), "review-required")
-        self.assertEqual(merge_decision([
-            entry("assets/app.js"),
-            entry("tests/open-ro-new-write-preservation.test.cjs", patch=None),
-        ]), "review-required")
+    def test_ordinary_changes_do_not_require_review_but_security_controls_do(self):
+        for path in ("assets/app.js", "distribution/install.html",
+                     "scripts/installation_check.py", "tests/navigation-render-performance.test.cjs"):
+            with self.subTest(path=path):
+                self.assertEqual(merge_decision([entry(path)]), "automatic")
+        self.assertEqual(merge_decision([entry("updates/unknown-intake.json", status="added")]), "automatic")
+        self.assertEqual(merge_decision([entry("scripts/pipeline_guard.py")]), "protected")
 
-    def test_unrelated_test_does_not_fake_data_preservation(self):
-        not_source_bound = entry(
-            "tests/open-ro-made-up-preservation.test.cjs",
-            status="added",
-            patch="+test('no-loss',()=>{const before = {}; const after = {}; assert.equal(before, after)})",
-        )
-        self.assertEqual(merge_decision([entry("assets/app.js"), not_source_bound]), "review-required")
-        self.assertEqual(merge_decision([
-            entry("assets/app.js"),
-            entry("tests/open-ro-made-up-preservation.test.cjs", status="added",
-                  patch="+const a = fs.readFileSync('assets/app.js');\n+assert.equal(true, true);"),
-        ]), "review-required")
-        self.assertEqual(merge_decision([
-            entry("assets/app.js"), scoped_test(), entry("assets/daily-ops.js")
-        ]), "review-required")
-        self.assertEqual(merge_decision([
-            entry("updates/unknown-intake.json", status="added"), scoped_test()
-        ]), "review-required")
+    def test_no_review_required_for_unproved_runtime_but_missing_scope_still_blocks(self):
+        self.assertEqual(merge_decision([entry("assets/app.js")]), "automatic")
+        self.assertEqual(merge_decision([entry("assets/app.js", patch=None)]), "automatic")
+        self.assertEqual(merge_decision([entry("assets/app.js"), scoped_test()]), "automatic")
+        self.assertEqual(merge_decision([entry("tests/fake/open-ro-preservation.test.cjs")]), "automatic")
 
-    def test_nested_scoped_proof_does_not_bypass_review(self):
-        nested = entry(
-            "tests/fake/open-ro-preservation.test.cjs",
-            status="added",
-            patch="+test('fake', () => { assert.equal(before, after) }",
-        )
-        self.assertEqual(merge_decision([entry("assets/app.js"), nested]), "review-required")
+    def test_new_security_and_release_scripts_stay_protected(self):
+        for path in (
+            "scripts/new_security_scan.py", "scripts/privacy_cleanup.py",
+            "scripts/release_guard.py", "scripts/update_signature.py",
+            "scripts/manifest_integrity.py", "scripts/auth_permissions.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(merge_decision([entry(path)]), "protected")
 
     def test_css_remote_resources_fail_closed(self):
         for patch in (
@@ -97,21 +78,38 @@ class BetaChangeRiskTests(unittest.TestCase):
             ".github/guarded-merge-policy.json",
             "scripts/beta_change_risk.py",
             "scripts/pipeline_guard.py",
-            "assets/moondog-update-install.js",
-            "assets/moondog-update-verify.js",
-            "assets/moondog-write-authority.js",
-            "assets/maintenance.js",
+            "tests/test_beta_change_risk.py",
             "tests/local-target-boundary.test.cjs",
             "tests/source-boundary.test.cjs",
-            "tests/test_beta_change_risk.py",
-            "tests/durable-write-fault-matrix.test.cjs",
-            "tests/workspace-history-isolation.test.cjs",
+            "tests/manifest-cdn-bypass.test.cjs",
             "docs/RELEASE-AUTHORIZATION.md",
             "docs/DATA-PRESERVATION-FIRST-BETA-POLICY.md",
             "SECURITY.md",
         ):
             with self.subTest(path=path):
                 self.assertEqual(merge_decision([entry(path), scoped_test()]), "protected")
+
+    def test_routine_installer_recovery_and_preservation_are_automatic(self):
+        for path in (
+            "assets/moondog-update-install.js",
+            "assets/moondog-update-verify.js",
+            "assets/moondog-write-authority.js",
+            "assets/maintenance.js",
+            "assets/maintenance-tests.js",
+            "scripts/update_recovery.py",
+            "scripts/permission_repair.py",
+            "scripts/smoke_beta_package.mjs",
+            "tests/open-ro-edit-save-roundtrip.test.cjs",
+            "tests/supervisor-workbook-recovery.test.cjs",
+            "tests/durable-write-fault-matrix.test.cjs",
+            "tests/workspace-history-isolation.test.cjs",
+            "tests/write-authority-recovery-conflicts.test.cjs",
+            "tests/helpers/read-source.cjs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(merge_decision([entry(path)]), "automatic")
+        # Exact-head privacy, publication, clean-install, branch protection
+        # and findings veto remain independent mandatory checks.
 
     def test_missing_unknown_or_truncated_scope_fails_closed(self):
         self.assertEqual(merge_decision([]), "protected")

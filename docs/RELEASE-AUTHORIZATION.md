@@ -5,11 +5,17 @@
 
 A Stable promotion PR requires separate owner authorization before merge. Publication still runs only through the existing `.github/workflows/stable-release.yml` workflow after protected merge and successful main Publication Check; never install it or dispatch a separate manual deployment merely because a PR merged.
 
+## Verified changes without mandatory reviews (proposed protected policy transition)
+
+For ordinary engineering, Beta, distribution, and operational-code changes, no human or AI review is a prerequisite. The trusted merge guard requires a complete same-repository PR scope, accepted author, current-main ancestry, no draft, exact-head successful Publication Check and Clean Install Proof, privacy/security scans, package parity, authenticated unresolved-findings veto, and GitHub branch protection. These checks are not optional. Changes to security enforcement, protected workflows, the classifier itself, Stable promotion, and destructive or real-store operations retain their existing separate authorization boundaries. An optional review can identify a finding but cannot replace failed checks.
+
+This section becomes operative only after this protected policy change has been legitimately integrated into main. It does not grant permission to bypass the current protected bootstrap for this very PR.
+
 ## Permanent engineering review policy
 
 Routine engineering and Beta work operate under standing owner authorization. An independent human or AI reviewer is optional. Routine eligibility relies on exact-head automated evidence. Where the classification requires formal review, record the inspection against the exact PR head, including scope, findings, resolutions and verification limits. Refresh required review evidence when the head changes. No particular coding interface or model is required.
 
-- Routine changes and data-affecting changes with accepted scoped preservation proof follow the existing automated path. Data-affecting changes without that proof require authenticated exact-head review evidence under the existing owner-attestation route. No AI reviewer, model, vendor, comment, or AI artifact is required. Historical optional review evidence remains readable for audit compatibility. Owner attestation can document AI-assisted inspection without an independent reviewer.
+- Routine changes and data-affecting changes with accepted scoped preservation proof follow the existing automated path. Ordinary data-affecting changes use mandatory exact-head CI and authenticated findings veto without requiring review; security/release enforcement changes remain separately protected. No AI reviewer, model, vendor, comment, or AI artifact is required. Historical optional review evidence remains readable for audit compatibility. Owner attestation can document AI-assisted inspection without an independent reviewer.
 - Protected changes, including this policy and its workflow, require the existing separate manual or bootstrap route. For future protected PRs, record a formal exact-head owner-attested GitHub review that explicitly identifies the protected scope and evidence. An authorized maintainer verifies the review, any findings veto, the current base and mandatory checks before using the ordinary GitHub PR merge route. The guarded workflow continues refusing automatic merges for protected changes.
 - Required automated tests, Publication Check, Clean Install Proof, security scans, applicable package integrity verification, and GitHub branch protections continue to apply. Resolve authenticated findings before merging.
 - Stable promotion, real-store deployment, and destructive actions on actual dealership data each require separate owner authorization.

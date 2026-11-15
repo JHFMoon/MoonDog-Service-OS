@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.10.18-beta.415 — current Beta
+
+- fix(797): inventory misplaced application root items safely. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.414 — current Beta
+
+- fix(59): cancel obsolete maintenance after same-root reconnect. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.413 — current Beta
+
+- fix(797): bound application and journal reads during repair. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.412 — current Beta
+
+- fix(797): honor application permission during recovery inspection. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.411 — current Beta
+
+- fix(789): bind update follow-up and source work to selected installation. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
+## 0.10.18-beta.410 — current Beta
+
+- fix(59): preserve source-history authority across delayed events and recovery. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.409 — current Beta
 
 - fix(59): keep report snoozes from regressing on delayed events. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

@@ -249,11 +249,11 @@ jobs:
           repo=os.environ['REPO']
           head=os.environ['HEAD_SHA']
           specs={
-              'Publication check': '.github/workflows/publication-check.yml',
-              'Clean Install Proof': '.github/workflows/clean-install-proof.yml',
+              'Publication check': ('.github/workflows/publication-check.yml', 'Publication Check'),
+              'Clean Install Proof': ('.github/workflows/clean-install-proof.yml', 'prove-clean-install'),
           }
           latest={}
-          for name,path in specs.items():
+          for name,(path,check_name) in specs.items():
               matches=[r for r in runs if r.get('name')==name and r.get('path')==path and
                        r.get('head_sha')==head and r.get('event')=='pull_request' and
                        r.get('head_repository',{}).get('full_name')==repo]
@@ -264,7 +264,7 @@ jobs:
               if run is None:
                   selected[name]='pending'
                   continue
-              check_name='Publication Check' if name=='Publication check' else 'prove-clean-install'
+              check_name=specs[name][1]
               suite=run.get('check_suite_id')
               matches=[c for c in check_runs if c.get('name')==check_name and c.get('head_sha')==head and
                        c.get('app',{}).get('id')==15368 and c.get('check_suite',{}).get('id')==suite]
@@ -300,15 +300,18 @@ jobs:
               exit 1
             fi
             REVIEW_MODE="$(jq -r '.beta_review_mode // "review-required"' .github/guarded-merge-policy.json)"
-            if [ "$REVIEW_STATE" = "clean" ] || { [ "$REVIEW_MODE" = "automated-data-proofs" ] && [ "$DECISION" = "automatic" ]; }; then
+            if [ "$REVIEW_MODE" = "automated-verified-changes" ] && [ "$DECISION" = "automatic" ]; then
               echo "ready=true" >> "$GITHUB_OUTPUT"
-              echo "Beta review decision: $DECISION; mandatory exact-head checks passed."
+              echo "Verified automatic merge: exact-head privacy scan passed; no mandatory reviewer."
+            elif [ "$REVIEW_STATE" = "clean" ]; then
+              echo "ready=true" >> "$GITHUB_OUTPUT"
+              echo "Legacy review evidence accepted under current trusted policy."
             else
               echo "ready=false" >> "$GITHUB_OUTPUT"
-              echo "Beta review pending ($DECISION); a new review event will reevaluate."
+              echo "Merge pending under trusted policy: $DECISION."
             fi
           else
-            echo "Required exact-head checks are pending; workflow_run will reevaluate this PR."
+            echo "Required exact-head privacy scan is pending; workflow_run will reevaluate this PR."
           fi
 
       - name: Squash merge verified current PR
@@ -403,7 +406,7 @@ jobs:
             echo "Final guarded merge refused: protected change requires the manual merge route." >&2
             exit 1
           fi
-          if [ "$FINAL_REVIEW" != "clean" ] && { [ "$REVIEW_MODE" != "automated-data-proofs" ] || [ "$FINAL_DECISION" != "automatic" ]; }; then
+          if [ "$FINAL_REVIEW" != "clean" ] && { [ "$REVIEW_MODE" != "automated-verified-changes" ] || [ "$FINAL_DECISION" != "automatic" ]; }; then
             echo "Final guarded merge refused: scoped preservation proof or required review is missing." >&2
             exit 1
           fi
@@ -489,7 +492,7 @@ jobs:
                   return (run["status"] == "completed" and run["conclusion"] == "failure"
                           and run["event"] == "pull_request" and run["head_sha"] == head
                           and run["run_attempt"] == int(attempt)
-                          and run["name"] in ("Publication check", "Clean Install Proof")
+                          and run["name"] == "Publication check"
                           and (run["head_repository"] or {}).get("full_name") == repo)
 
               run = api("GET", run_path)

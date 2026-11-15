@@ -139,8 +139,7 @@ class CanonicalBetaSourceTests(unittest.TestCase):
         publication = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
         clean_install = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
         for workflow, expensive_step in (
-            (publication, "Run focused tests"),
-            (clean_install, "Classify exact pull request change scope"),
+            (clean_install, "Run full functional and policy regressions"),
         ):
             with self.subTest(expensive_step=expensive_step):
                 self.assertIn("if: github.event_name == 'pull_request'", workflow)

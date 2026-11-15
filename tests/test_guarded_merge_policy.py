@@ -335,7 +335,7 @@ class ProviderIndependentResolutionTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         workflow = (root/'.github/workflows/guarded-pr-merge.yml').read_text()
         start = workflow.index('            if [ "$REVIEW_STATE" = "findings" ]; then')
-        end = workflow.index('          else\n            echo "Required exact-head checks', start)
+        end = workflow.index('          else\n            echo "Required exact-head privacy scan', start)
         code = '\n'.join(line[12:] for line in workflow[start:end].splitlines())
         # No comments or reviews at all, and no provider invocation or artifact.
         state = merge_review_state([], [], HEAD, POLICY)

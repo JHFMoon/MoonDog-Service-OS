@@ -16,7 +16,7 @@ PRECHECK = "python3 scripts/preflight_beta_runtime.py"
 
 class PendingPackageWorkflowContract(unittest.TestCase):
     def test_required_pr_checks_remain_strict_after_bounded_supersession_wait(self):
-        for name in ("publication-check.yml", "clean-install-proof.yml"):
+        for name in ("clean-install-proof.yml",):
             with self.subTest(workflow=name):
                 source = (ROOT / ".github" / "workflows" / name).read_text()
                 probe = source.index("id: beta-package-probe")

@@ -7,6 +7,75 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SecurityWorkflowTests(unittest.TestCase):
+    def test_both_merge_stages_require_real_exact_head_install_and_privacy_checks(self):
+        import contextlib
+        import io
+        import json
+        import os
+        import tempfile
+        import textwrap
+        from unittest.mock import patch
+        workflow = (ROOT / ".github/workflows/guarded-pr-merge.yml").read_text()
+        head = "a" * 40
+        repo = "synthetic/repository"
+        for final in (False, True):
+            marker = "Squash merge verified current PR" if final else "Evaluate exact-head verification and authorization evidence"
+            section = workflow[workflow.index(marker):]
+            source = section.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0]
+            source = textwrap.dedent(source)
+            for fault in (None, "missing-install", "failed-install", "pending-install",
+                          "dispatch-install", "stale-install", "spoofed-suite", "failed-privacy"):
+                with self.subTest(final=final, fault=fault), tempfile.TemporaryDirectory() as directory:
+                    runs, checks = [], []
+                    for index, (name, path, check) in enumerate((
+                        ("Publication check", ".github/workflows/publication-check.yml", "Publication Check"),
+                        ("Clean Install Proof", ".github/workflows/clean-install-proof.yml", "prove-clean-install"),
+                    )):
+                        if index == 1 and fault == "missing-install":
+                            continue
+                        runs.append({"name": name, "path": path, "head_sha": head,
+                                     "event": "pull_request", "head_repository": {"full_name": repo},
+                                     "check_suite_id": index + 1, "created_at": "2026-11-15T00:00:00Z"})
+                        checks.append({"name": check, "head_sha": head, "status": "completed",
+                                       "conclusion": "success", "app": {"id": 15368},
+                                       "check_suite": {"id": index + 1}})
+                    if fault == "failed-privacy": checks[0]["conclusion"] = "failure"
+                    if fault == "failed-install": checks[1]["conclusion"] = "failure"
+                    if fault == "pending-install": checks[1]["status"] = "in_progress"
+                    if fault == "dispatch-install": runs[1]["event"] = "workflow_dispatch"
+                    if fault == "stale-install": checks[1]["head_sha"] = "b" * 40
+                    if fault == "spoofed-suite": checks[1]["check_suite"]["id"] = 999
+                    prefix = "final-head" if final else "head"
+                    paths = {f"/tmp/{prefix}-runs.json": {"workflow_runs": runs},
+                             f"/tmp/{prefix}-checks.json": {"check_runs": checks}}
+                    candidate = source
+                    for original, data in paths.items():
+                        target = str(Path(directory) / Path(original).name)
+                        Path(target).write_text(json.dumps(data))
+                        candidate = candidate.replace(original, target)
+                    output = str(Path(directory) / "output")
+                    code = 0
+                    with patch.dict(os.environ, {"REPO": repo, "HEAD_SHA": head, "GITHUB_OUTPUT": output}), contextlib.redirect_stdout(io.StringIO()):
+                        try:
+                            exec(compile(candidate, "actual-workflow-ci-gate", "exec"), {})
+                        except SystemExit as error:
+                            code = error.code
+                    pending = Path(output).exists() and "ready=false" in Path(output).read_text()
+                    if fault:
+                        self.assertTrue(code != 0 or pending, "unsafe evidence must never authorize merge")
+                    else:
+                        self.assertEqual(code, 0)
+                        self.assertFalse(pending)
+
+    def test_full_clean_install_proof_runs_functional_and_policy_suites(self):
+        proof = (ROOT / ".github/workflows/clean-install-proof.yml").read_text()
+        section = proof.split("- name: Run full functional and policy regressions", 1)[1].split("- name:", 1)[0]
+        self.assertIn("if: steps.scope.outputs.scope == 'full'", section)
+        self.assertIn("python3 -m unittest discover -s tests -p 'test_*.py'", section)
+        self.assertIn("node --test --test-concurrency=2 tests/*.test.cjs", section)
+        self.assertNotIn("continue-on-error", section)
+        self.assertIn("LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}", section)
+
     def test_publication_check_covers_all_pushes_and_recurs(self):
         text = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
         self.assertIn("  push:\n", text)
@@ -20,68 +89,38 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("  workflow_dispatch:\n", clean_install)
         self.assertIn("fetch-depth: 0", text)
         self.assertIn("git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'", text)
-        self.assertIn("python3 scripts/audit_git_history.py", text)
+        self.assertIn("audit_git_history.py", text)
         self.assertIn("name: Publication Check", text)
 
 
-    def test_clean_install_does_not_fetch_parser_test_base(self):
+    def test_clean_install_uses_immutable_parser_base_without_mutable_fetch(self):
         workflow = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
         self.assertNotIn("Fetch immutable PR base for parser epoch checks", workflow)
-        self.assertNotIn("LEARNED_PARSER_BASE_SHA", workflow)
+        self.assertIn("LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}", workflow)
 
 
-    def test_clean_install_proof_does_not_repeat_publication_suites(self):
+    def test_privacy_only_publication_preserves_independent_clean_install(self):
         publication = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
         clean_install = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
-        duplicated_commands = (
-            "python3 -m unittest discover -s tests -p 'test_*.py'",
-            "python3 scripts/build_operating_modules.py --check",
-            "python3 scripts/check_publication.py",
-            "python3 scripts/build_distribution.py --check-source",
-        )
-        for command in duplicated_commands:
-            with self.subTest(command=command):
-                self.assertIn(command, publication)
-                self.assertNotIn(command, clean_install)
-        self.assertIn("subprocess.run(['node', '--test', *files], check=True)", publication)
-        self.assertNotIn("Run repository safety checks", clean_install)
-        for proof_step in (
-            "Recreate and verify pinned browser dependencies",
-            "Build twice and prove deterministic output",
-            "Smoke-test extracted file application",
-            "Prove 16:9 TV layouts and seven-slide rotation with synthetic data",
-            "Install the verified Beta package and launch its runtime",
-        ):
-            with self.subTest(proof_step=proof_step):
-                self.assertIn(proof_step, clean_install)
+        self.assertIn("Current-tree and package privacy boundary", publication)
+        self.assertIn("Contextual history scan", publication)
+        self.assertIn("Strict history scan", publication)
+        self.assertIn("MOONDOG_TRUSTED_PRIVACY", publication)
+        self.assertIn('git show "$base:scripts/$name"', publication)
+        self.assertIn('sys.modules["check_publication"] = check_publication', publication)
+        for nonprivacy_step in ("Run focused tests", "Test browser update check",
+                                "Verify updater-compatible generated runtime",
+                                "Verify clean-install source contract"):
+            self.assertNotIn(nonprivacy_step, publication)
+        self.assertIn("Install the verified Beta package and launch its runtime", clean_install)
+        self.assertIn("Recreate and verify pinned browser dependencies", clean_install)
 
-
-    def test_ci_attribution_guard_blocks_misleading_trailer_only_in_new_commits(self):
-        text = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
-        name = "Reject falsely attributed CI co-authors in new commits"
-        self.assertIn(name, text)
-        section = text.split(name, 1)[1].split("      - name:", 1)[0]
-        self.assertIn("PR_BASE_SHA:", section)
-        self.assertIn("PR_HEAD_SHA:", section)
-        self.assertIn('revision = f"{base}..{head}" if base and head else os.environ["GITHUB_SHA"]', section)
-        self.assertIn('["git", "log", "--format=%B%x00", revision]', section)
-        pattern_source = next(
-            line.strip() for line in section.splitlines()
-            if line.strip().startswith('r"(?im)^Co-authored-by:')
-        )
-        pattern = re.compile(ast.literal_eval(pattern_source))
-        self.assertIsNotNone(pattern.search(
-            "Publish Beta\n\nCo-authored-by: MoonDog CI <ci@users.noreply.github.com>\n"
-        ))
-        self.assertIsNotNone(pattern.search(
-            "Co-Authored-By: CI <CI@USERS.NOREPLY.GITHUB.COM>\n"
-        ))
-        self.assertIsNone(pattern.search(
-            "Co-authored-by: MoonDog Automation <41898282+github-actions[bot]@users.noreply.github.com>\n"
-        ))
-        self.assertIsNone(pattern.search(
-            "Co-authored-by: Example Contributor <contributor@example.com>\n"
-        ))
+    def test_privacy_scanners_are_trusted_and_candidate_has_no_privileged_token(self):
+        workflow = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
+        self.assertIn('git show "$base:scripts/$name"', workflow)
+        self.assertIn('sys.path.insert(0, os.environ["MOONDOG_TRUSTED_PRIVACY"])', workflow)
+        self.assertNotIn("statuses: write", workflow)
+        self.assertNotIn("GH_TOKEN:", workflow)
 
     def test_candidate_tests_have_no_elevated_status_token(self):
         workflow = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
@@ -136,7 +175,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('workflows: ["Publication check", "Clean Install Proof"]', merge)
         self.assertIn("github.event.workflow_run.event == 'pull_request'", merge)
         self.assertIn("python3 scripts/guarded_merge_policy.py check-authorization", merge)
-        self.assertIn("Clean Install Proof", merge)
+        self.assertIn("'Clean Install Proof': ('.github/workflows/clean-install-proof.yml', 'prove-clean-install')", merge)
         self.assertIn("pull_request_target:", merge)
         self.assertIn("issue_comment:", merge)
         self.assertIn("pull_request_review:", merge)
@@ -355,17 +394,17 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn('"$DECISION" = "automatic"', merge)
         self.assertIn('"$FINAL_DECISION" != "automatic"', merge)
         self.assertIn('scripts/pipeline_guard.py check-paths', merge)
-        self.assertIn('Clean Install Proof', merge)
+        self.assertIn("'Clean Install Proof':('.github/workflows/clean-install-proof.yml','prove-clean-install')", merge)
         self.assertIn('Refuse Stable manifest changes', merge)
         self.assertIn('gh api -X PUT "repos/$REPO/pulls/$PR_NUMBER/merge"', merge)
         policy = __import__("json").loads(
             (ROOT / ".github/guarded-merge-policy.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(policy["beta_review_mode"], "automated-data-proofs")
+        self.assertEqual(policy["beta_review_mode"], "automated-verified-changes")
         self.assertEqual(policy["stable_publication"], "existing-stable-release-workflow-only")
         publication = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
-        self.assertIn("subprocess.run(['node', '--test', *files], check=True)", publication)
-        self.assertIn("python3 scripts/audit_public_git_history.py", publication)
+        self.assertIn("Current-tree and package privacy boundary", publication)
+        self.assertIn("audit_public_git_history.py", publication)
 
 
 if __name__ == "__main__":

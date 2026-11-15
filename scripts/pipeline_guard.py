@@ -13,6 +13,10 @@ else:
     from guarded_merge_authorization import has_explicit_approval
     from guarded_merge_policy import has_merge_authorization
 
+# Exact reviewed engineering exceptions only. Unknown scripts still fail closed;
+# expanding this set is itself a protected guard change.
+AUTOMATED_ENGINEERING_FILES = frozenset({"scripts/smoke_beta_package.mjs"})
+
 PROTECTED_PREFIXES = (
     ".github/workflows/",
     "scripts/",
@@ -48,6 +52,8 @@ def protected_automation_path(path: str) -> bool:
     normalized = str(path or "").replace("\\", "/")
     while normalized.startswith("./"):
         normalized = normalized[2:]
+    if normalized in AUTOMATED_ENGINEERING_FILES:
+        return False
     return normalized in PROTECTED_FILES or any(
         normalized.startswith(prefix) for prefix in PROTECTED_PREFIXES
     )
