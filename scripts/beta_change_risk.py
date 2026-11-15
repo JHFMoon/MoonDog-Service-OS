@@ -64,12 +64,45 @@ def append_only_preservation_test(change: dict) -> bool:
             and all(not line.startswith(("Binary files ", "GIT binary patch")) for line in lines))
 
 
+def safe_source_reader_normalization(path: str, change: dict) -> bool:
+    """Allow only the two verified CRLF-safe test harness substitutions.
+
+    These changes replace raw source reads with the existing LF-normalizing
+    helper without changing assertions or production behavior. Any additional
+    edits, missing patch data, renames, or altered lines remain protected.
+    """
+    if path not in {
+        "tests/open-ro-edit-save-roundtrip.test.cjs",
+        "tests/supervisor-workbook-recovery.test.cjs",
+    } or change.get("status") != "modified":
+        return False
+    patch = change.get("patch")
+    if not isinstance(patch, str) or not patch:
+        return False
+    removed = [line[1:] for line in patch.splitlines()
+               if line.startswith("-") and not line.startswith("---")]
+    added = [line[1:] for line in patch.splitlines()
+             if line.startswith("+") and not line.startswith("+++")]
+    return (
+        removed == [
+            'const fs = require("node:fs");',
+            'const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");',
+        ]
+        and added == [
+            'const readSource = require("./helpers/read-source.cjs");',
+            'const app = readSource(path.join(__dirname, "..", "assets", "app.js"));',
+        ]
+    )
+
+
 def path_risk(path: str, change: dict) -> str:
     if not isinstance(path, str) or not path or "\\" in path or any(
         part in {"", ".", ".."} for part in path.split("/")
     ):
         return "protected"
     if path in CRITICAL_PRESERVATION_TESTS and append_only_preservation_test(change):
+        return "data-affecting"
+    if safe_source_reader_normalization(path, change):
         return "data-affecting"
     if path.startswith(".github/") or path in {
         ".gitattributes", ".gitignore", "SECURITY.md",
