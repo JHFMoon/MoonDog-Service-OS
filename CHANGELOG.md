@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.412 — current Beta
+
+- fix(797): honor application permission during recovery inspection. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.411 — current Beta
 
 - fix(789): bind update follow-up and source work to selected installation. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
