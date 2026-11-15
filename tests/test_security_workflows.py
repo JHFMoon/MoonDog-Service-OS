@@ -361,7 +361,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         policy = __import__("json").loads(
             (ROOT / ".github/guarded-merge-policy.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(policy["beta_review_mode"], "automated-data-proofs")
+        self.assertEqual(policy["beta_review_mode"], "automated-verified-changes")
         self.assertEqual(policy["stable_publication"], "existing-stable-release-workflow-only")
         publication = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
         self.assertIn("subprocess.run(['node', '--test', *files], check=True)", publication)
