@@ -752,3 +752,27 @@ test('oversized application readback stops before allocating bytes or changing i
   assert.deepEqual(fixture.state.files, before);
   assert.deepEqual(fixture.state.dirs, directories);
 });
+
+test('each update diagnoses misplaced root application files without reading them or private originals', async () => {
+  const fixture=await setup({includeScript:true});
+  const misplaced='System Files/app.js';
+  fixture.state.files.set(misplaced,Buffer.from('synthetic preserved misplaced application'));
+  fixture.state.dirs.add('System Files/Workspace/originals');
+  fixture.state.files.set('System Files/Workspace/originals/synthetic-original.txt',Buffer.from('synthetic original'));
+  const before=privateFiles(fixture),original=Buffer.from(fixture.state.files.get(misplaced));
+  const originalHandle=fixture.app.getFileHandle;
+  fixture.app.getFileHandle=async (name,options)=>{
+    assert.notEqual(name,'app.js','diagnosis must not read unapproved root-file contents');
+    return originalHandle(name,options);
+  };
+  for(let attempt=0;attempt<2;attempt++){
+    const events=[];
+    const result=await fixture.run(event=>events.push(event));
+    assert.equal(result.status,'installed',result.reason);
+    const receipt=JSON.parse(fixture.state.files.get('System Files/Workspace/backups/system-updates/'+result.backupName+'/journal.json'));
+    assert.equal(receipt.structure.diagnosis.unknownPreserved,1);
+    assert.ok(events.some(event=>event.phase==='health-check'&&event.detail.includes('1 unrecognized application item')));
+    assert.deepEqual(fixture.state.files.get(misplaced),original);
+    assert.deepEqual(privateFiles(fixture),before);
+  }
+});
