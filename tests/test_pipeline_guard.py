@@ -29,6 +29,29 @@ class PipelineGuardTests(unittest.TestCase):
         ]
         self.assertEqual(blocked_paths(candidates), sorted(candidates))
 
+    def test_explicit_smoke_engineering_exception_matches_risk_policy(self):
+        from scripts.beta_change_risk import merge_decision
+        for path in ("scripts/smoke_beta_package.mjs", "assets/app.js",
+                     "updates/install.js", "tests/self-heal-update-directories.test.cjs"):
+            with self.subTest(path=path):
+                self.assertEqual(blocked_paths([path]), [])
+                self.assertEqual(merge_decision([{"filename": path, "status": "modified",
+                                                  "patch": "@@ -1 +1 @@\n-old\n+new"}]), "automatic")
+
+    def test_engineering_exception_cannot_exempt_controls_or_unknown_scripts(self):
+        for path in ("scripts/pipeline_guard.py", "scripts/beta_change_risk.py",
+                     "scripts/check_publication.py", "scripts/build_beta_package.py",
+                     "scripts/new_security_scan.py", "scripts/smoke_distribution.mjs",
+                     "scripts/smoke_beta_package.mjs/../pipeline_guard.py",
+                     "scripts/SMOKE_BETA_PACKAGE.mjs", "scripts/new_smoke.mjs",
+                     ".github/workflows/guarded-pr-merge.yml",
+                     "tests/test_pipeline_guard.py"):
+            with self.subTest(path=path):
+                self.assertTrue(protected_automation_path(path))
+        # Mixed changes cannot use the ordinary file to conceal a control change.
+        self.assertEqual(blocked_paths(["scripts/smoke_beta_package.mjs",
+                                        "scripts/pipeline_guard.py"]), ["scripts/pipeline_guard.py"])
+
     def test_pr_snapshot_requires_exact_safe_current_identity(self):
         pr = {
             "state": "open",
