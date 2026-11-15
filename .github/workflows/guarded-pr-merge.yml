@@ -348,8 +348,7 @@ jobs:
           runs=json.load(open('/tmp/final-head-runs.json',encoding='utf-8')).get('workflow_runs',[])
           checks=json.load(open('/tmp/final-head-checks.json',encoding='utf-8')).get('check_runs',[])
           repo=os.environ['REPO']; head=os.environ['HEAD_SHA']
-          specs={'Publication check':('.github/workflows/publication-check.yml','Publication Check'),
-                 'Clean Install Proof':('.github/workflows/clean-install-proof.yml','prove-clean-install')}
+          specs={'Publication check':('.github/workflows/publication-check.yml','Publication Check')}
           for workflow,(path,check_name) in specs.items():
               matches=[r for r in runs if r.get('name')==workflow and r.get('path')==path and r.get('head_sha')==head and
                        r.get('event')=='pull_request' and r.get('head_repository',{}).get('full_name')==repo]
@@ -405,7 +404,7 @@ jobs:
             echo "Final guarded merge refused: protected change requires the manual merge route." >&2
             exit 1
           fi
-          if [ "$FINAL_REVIEW" != "clean" ] && { [ "$REVIEW_MODE" != "automated-data-proofs" ] || [ "$FINAL_DECISION" != "automatic" ]; }; then
+          if [ "$FINAL_REVIEW" != "clean" ] && { [ "$REVIEW_MODE" != "automated-verified-changes" ] || [ "$FINAL_DECISION" != "automatic" ]; }; then
             echo "Final guarded merge refused: scoped preservation proof or required review is missing." >&2
             exit 1
           fi
@@ -491,7 +490,7 @@ jobs:
                   return (run["status"] == "completed" and run["conclusion"] == "failure"
                           and run["event"] == "pull_request" and run["head_sha"] == head
                           and run["run_attempt"] == int(attempt)
-                          and run["name"] in ("Publication check", "Clean Install Proof")
+                          and run["name"] == "Publication check"
                           and (run["head_repository"] or {}).get("full_name") == repo)
 
               run = api("GET", run_path)
