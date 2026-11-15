@@ -300,12 +300,15 @@ jobs:
               exit 1
             fi
             REVIEW_MODE="$(jq -r '.beta_review_mode // "review-required"' .github/guarded-merge-policy.json)"
-            if [ "$REVIEW_STATE" = "clean" ] || { [ "$REVIEW_MODE" = "automated-data-proofs" ] && [ "$DECISION" = "automatic" ]; }; then
+            if [ "$REVIEW_MODE" = "automated-verified-changes" ] && [ "$DECISION" = "automatic" ]; then
               echo "ready=true" >> "$GITHUB_OUTPUT"
-              echo "Beta review decision: $DECISION; mandatory exact-head checks passed."
+              echo "Verified automatic merge: exact-head checks passed; no mandatory reviewer."
+            elif [ "$REVIEW_STATE" = "clean" ]; then
+              echo "ready=true" >> "$GITHUB_OUTPUT"
+              echo "Legacy review evidence accepted under current trusted policy."
             else
               echo "ready=false" >> "$GITHUB_OUTPUT"
-              echo "Beta review pending ($DECISION); a new review event will reevaluate."
+              echo "Merge pending under trusted policy: $DECISION."
             fi
           else
             echo "Required exact-head checks are pending; workflow_run will reevaluate this PR."
