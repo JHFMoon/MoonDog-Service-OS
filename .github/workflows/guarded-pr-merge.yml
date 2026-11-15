@@ -277,7 +277,7 @@ jobs:
                   selected[name]='failure'
           print(json.dumps(selected,sort_keys=True))
           if 'failure' in selected.values():
-              raise SystemExit('Latest exact-head privacy Publication Check failed.')
+              raise SystemExit('Latest exact-head Publication Check or Clean Install Proof failed.')
           if not all(selected[name]=='success' for name in specs):
               open(os.environ['GITHUB_OUTPUT'],'a').write('ready=false\n')
               sys.exit(0)

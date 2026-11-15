@@ -67,6 +67,14 @@ class SecurityWorkflowTests(unittest.TestCase):
                         self.assertEqual(code, 0)
                         self.assertFalse(pending)
 
+    def test_full_clean_install_proof_runs_functional_and_policy_suites(self):
+        proof = (ROOT / ".github/workflows/clean-install-proof.yml").read_text()
+        section = proof.split("- name: Run full functional and policy regressions", 1)[1].split("- name:", 1)[0]
+        self.assertIn("if: steps.scope.outputs.scope == 'full'", section)
+        self.assertIn("python3 -m unittest discover -s tests -p 'test_*.py'", section)
+        self.assertIn("node --test --test-concurrency=2 tests/*.test.cjs", section)
+        self.assertNotIn("continue-on-error", section)
+
     def test_publication_check_covers_all_pushes_and_recurs(self):
         text = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
         self.assertIn("  push:\n", text)
