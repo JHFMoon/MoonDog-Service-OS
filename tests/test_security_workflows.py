@@ -74,6 +74,7 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("python3 -m unittest discover -s tests -p 'test_*.py'", section)
         self.assertIn("node --test --test-concurrency=2 tests/*.test.cjs", section)
         self.assertNotIn("continue-on-error", section)
+        self.assertIn("LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}", section)
 
     def test_publication_check_covers_all_pushes_and_recurs(self):
         text = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
