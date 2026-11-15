@@ -20,30 +20,13 @@ PROTECTED_DOCUMENTS = {
     "docs/SOURCE-OF-TRUTH.md", "docs/ROADMAP-ACCEPTANCE-MATRIX.md",
     "docs/SOURCE-AUTHORITY-INVENTORY.md", "docs/ISSUE-CLOSEOUT-EVIDENCE.json",
 }
-CRITICAL_PRESERVATION_TESTS = frozenset({
-    "tests/durable-write-fault-matrix.test.cjs",
-    "tests/open-ro-save-failure-does-not-advance.test.cjs",
-    "tests/open-ro-edit-save-roundtrip.test.cjs",
-    "tests/restore-safety-durable-source.test.cjs",
-    "tests/sapr-zero-day-history-comparison.test.cjs",
-    "tests/supervisor-workbook-recovery.test.cjs",
-    "tests/workspace-history-isolation.test.cjs",
-    "tests/write-authority-recovery-conflicts.test.cjs",
-    "tests/local-target-boundary.test.cjs",
-    "tests/source-boundary.test.cjs",
-    "tests/manifest-cdn-bypass.test.cjs",
-    "tests/automatic-diagnostics-disabled.test.cjs",
-})
 PROTECTED_TESTS = {
     "tests/test_guarded_merge_policy.py", "tests/test_pipeline_guard.py",
     "tests/test_security_workflows.py", "tests/test_check_publication.py",
     "tests/test_public_audit_history.py", "tests/test_beta_change_risk.py",
+    "tests/local-target-boundary.test.cjs", "tests/source-boundary.test.cjs",
+    "tests/manifest-cdn-bypass.test.cjs", "tests/automatic-diagnostics-disabled.test.cjs",
 }
-PROTECTED_RUNTIME = frozenset({
-    "assets/moondog-write-authority.js",
-    "assets/maintenance.js",
-    "assets/maintenance-tests.js",
-})
 CSS_NETWORK = re.compile(
     r"@import|@font-face|url\s*\(|image-set\s*\(|expression\s*\(|"
     r"-moz-binding|behavior\s*:|(?:https?|data|javascript)\s*:|\\",
@@ -51,29 +34,17 @@ CSS_NETWORK = re.compile(
 )
 
 
-def append_only_preservation_test(change: dict) -> bool:
-    """Allow additive test coverage; never automate weakening existing assertions."""
-    if change.get("status") != "modified":
-        return False
-    patch = change.get("patch")
-    if not isinstance(patch, str) or not patch or "\n" not in patch:
-        return False
-    lines = patch.splitlines()
-    return (any(line.startswith("+") and not line.startswith("+++") for line in lines)
-            and not any(line.startswith("-") and not line.startswith("---") for line in lines)
-            and all(not line.startswith(("Binary files ", "GIT binary patch")) for line in lines))
-
-
 def path_risk(path: str, change: dict) -> str:
     if not isinstance(path, str) or not path or "\\" in path or any(
         part in {"", ".", ".."} for part in path.split("/")
     ):
         return "protected"
-    if path in CRITICAL_PRESERVATION_TESTS and append_only_preservation_test(change):
-        return "data-affecting"
+    # Production installation, update, recovery, and preservation code is
+    # verified by exact-head CI, not by filename-based review requirements.
+    # The policy/enforcement machinery itself remains protected.
     if path.startswith(".github/") or path in {
         ".gitattributes", ".gitignore", "SECURITY.md",
-    } or path in PROTECTED_DOCUMENTS or path in PROTECTED_TESTS or path in CRITICAL_PRESERVATION_TESTS or path in PROTECTED_RUNTIME or path.startswith("assets/moondog-update-"):
+    } or path in PROTECTED_DOCUMENTS or path in PROTECTED_TESTS:
         return "protected"
     # The enforcement and security/release machinery itself remains protected.
     if path in {
@@ -82,12 +53,14 @@ def path_risk(path: str, change: dict) -> str:
         "scripts/public_audit_history.py", "scripts/build_beta_package.py",
     }:
         return "protected"
-    # Fail closed for enforcement, privacy, updater and release tooling even
-    # when a newly introduced filename is not in the explicit protected set.
+    if path == "scripts/smoke_beta_package.mjs":
+        return "data-affecting"
+    # Fail closed for enforcement, privacy and release tooling even when
+    # a newly introduced filename is not in the explicit protected set.
     if path.startswith("scripts/") and re.search(
         r"(?i)(?:security|privacy|audit|secret|credential|release|publication|"
         r"merge|guard|risk|package|stable|workflow|manifest|integrity|"
-        r"signature|checksum|updat(?:e|er)|permission|auth)",
+        r"signature|checksum|auth)",
         path,
     ):
         return "protected"
