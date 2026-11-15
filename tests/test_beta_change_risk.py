@@ -113,10 +113,10 @@ class BetaChangeRiskTests(unittest.TestCase):
 
     def test_exact_crlf_source_reader_normalization_is_automatic_only_for_two_harnesses(self):
         safe_patch = (
-            '@@ -1,11 +1,11 @@\\n'
-            '-const fs = require("node:fs");\\n'
-            '+const readSource = require("./helpers/read-source.cjs");\\n'
-            '-const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");\\n'
+            '@@ -1,11 +1,11 @@\n'
+            '-const fs = require("node:fs");\n'
+            '+const readSource = require("./helpers/read-source.cjs");\n'
+            '-const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");\n'
             '+const app = readSource(path.join(__dirname, "..", "assets", "app.js"));'
         )
         for path in (
@@ -126,7 +126,7 @@ class BetaChangeRiskTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(merge_decision([entry(path, patch=safe_patch)]), "automatic")
                 for unsafe in (
-                    entry(path, patch=safe_patch + '\\n-assert.equal(actual, expected);\\n+assert.ok(true);'),
+                    entry(path, patch=safe_patch + '\n-assert.equal(actual, expected);\n+assert.ok(true);'),
                     entry(path, patch=None),
                     entry(path, patch=safe_patch, status="renamed"),
                     entry(path, patch=safe_patch.replace('readSource', 'unsafeRead')),
