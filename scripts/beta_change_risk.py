@@ -56,7 +56,7 @@ def append_only_preservation_test(change: dict) -> bool:
     if change.get("status") != "modified":
         return False
     patch = change.get("patch")
-    if not isinstance(patch, str) or not patch or "\\n" not in patch:
+    if not isinstance(patch, str) or not patch or "\n" not in patch:
         return False
     lines = patch.splitlines()
     return (any(line.startswith("+") and not line.startswith("+++") for line in lines)
