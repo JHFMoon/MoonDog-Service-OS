@@ -113,6 +113,23 @@ class BetaChangeRiskTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(merge_decision([entry(path), scoped_test()]), "protected")
 
+    def test_additive_critical_preservation_tests_do_not_require_formal_review(self):
+        for path in (
+            "tests/write-authority-recovery-conflicts.test.cjs",
+            "tests/workspace-history-isolation.test.cjs",
+            "tests/durable-write-fault-matrix.test.cjs",
+        ):
+            with self.subTest(path=path):
+                additive = entry(path, patch="@@ -10,0 +11,2 @@\\n+test('new recovery scenario', () => {\\n+  assert.equal(after, before);\\n+});")
+                self.assertEqual(classify([additive]), "data-affecting")
+                self.assertEqual(merge_decision([additive]), "automatic")
+                for unsafe in (
+                    entry(path, patch="@@ -1 +1 @@\\n-assert.equal(saved, before);\\n+assert.ok(true);"),
+                    entry(path, patch=None),
+                    entry(path, status="removed", patch=None),
+                ):
+                    self.assertEqual(merge_decision([unsafe]), "protected")
+
     def test_missing_unknown_or_truncated_scope_fails_closed(self):
         self.assertEqual(merge_decision([]), "protected")
         self.assertEqual(merge_decision([entry("updates/manifest.json")]), "protected")
