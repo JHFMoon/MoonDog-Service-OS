@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.414 — current Beta
+
+- fix(59): cancel obsolete maintenance after same-root reconnect. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.413 — current Beta
 
 - fix(797): bound application and journal reads during repair. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

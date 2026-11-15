@@ -1885,9 +1885,10 @@
     const connectedRoot=model.root;
     // Let the first interactive frame settle. Use one idle slice between
     // independent tasks so users can keep using Home during source checks.
+    const connectedAutoImport=model.autoImport;
     const sleepBetweenChecks=()=>new Promise(resolve=>setTimeout(resolve,350));
     setTimeout(async()=>{
-      if(model.root!==connectedRoot||!writeAuthority.canWrite)return;
+      if(model.root!==connectedRoot||model.autoImport!==connectedAutoImport||!writeAuthority.canWrite)return;
       const jobs=[
         ['Report inbox',()=>folderWatchScan('connection')],
         ['Month-end summary',()=>ensurePreviousMonthSummary()],
@@ -1900,7 +1901,7 @@
       // The potentially large Files To Learn reconciliation is deliberately
       // excluded from automatic reconnection. User-triggered import remains
       // available; do not repeatedly parse historical learning files.
-      const queueIsCurrent=()=>model.root===connectedRoot&&writeAuthority.canWrite&&!workspaceConnectionBusy;
+      const queueIsCurrent=()=>model.root===connectedRoot&&model.autoImport===connectedAutoImport&&writeAuthority.canWrite&&!workspaceConnectionBusy;
       for(const [label,run] of jobs){
         if(!queueIsCurrent())break;
         do {
@@ -1909,10 +1910,10 @@
         if(!queueIsCurrent())break;
         postConnectionScanBusy=true;
         try{await run();}
-        catch(error){recordDiagnostic('POST-CONNECTION SCAN',label+': '+String(error?.message||error));}
+        catch(error){if(queueIsCurrent())recordDiagnostic('POST-CONNECTION SCAN',label+': '+String(error?.message||error));}
         finally{postConnectionScanBusy=false;}
       }
-      if(model.root===connectedRoot){
+      if(queueIsCurrent()){
         renderRecovery();
         recordDiagnostic("FOLDER CONNECTION",permissionWasPending?
           "Automatic reconnect completed after folder permission restoration":
