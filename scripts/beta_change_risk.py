@@ -82,6 +82,15 @@ def path_risk(path: str, change: dict) -> str:
         "scripts/public_audit_history.py", "scripts/build_beta_package.py",
     }:
         return "protected"
+    # Fail closed for enforcement, privacy, updater and release tooling even
+    # when a newly introduced filename is not in the explicit protected set.
+    if path.startswith("scripts/") and re.search(
+        r"(?i)(?:security|privacy|audit|secret|credential|release|publication|"
+        r"merge|guard|risk|package|stable|workflow|manifest|integrity|"
+        r"signature|checksum|updat(?:e|er)|permission|auth)",
+        path,
+    ):
+        return "protected"
     if path in NON_EXECUTABLE_METADATA or BETA_PACKAGE.fullmatch(path):
         return "metadata"
     if path.startswith("docs/") and path.endswith(".md"):
