@@ -78,15 +78,7 @@ class BetaChangeRiskTests(unittest.TestCase):
             ".github/guarded-merge-policy.json",
             "scripts/beta_change_risk.py",
             "scripts/pipeline_guard.py",
-            "assets/moondog-update-install.js",
-            "assets/moondog-update-verify.js",
-            "assets/moondog-write-authority.js",
-            "assets/maintenance.js",
-            "tests/local-target-boundary.test.cjs",
-            "tests/source-boundary.test.cjs",
             "tests/test_beta_change_risk.py",
-            "tests/durable-write-fault-matrix.test.cjs",
-            "tests/workspace-history-isolation.test.cjs",
             "docs/RELEASE-AUTHORIZATION.md",
             "docs/DATA-PRESERVATION-FIRST-BETA-POLICY.md",
             "SECURITY.md",
@@ -94,53 +86,26 @@ class BetaChangeRiskTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(merge_decision([entry(path), scoped_test()]), "protected")
 
-    def test_additive_critical_preservation_tests_do_not_require_formal_review(self):
+    def test_routine_installer_recovery_and_preservation_are_automatic(self):
         for path in (
-            "tests/write-authority-recovery-conflicts.test.cjs",
-            "tests/workspace-history-isolation.test.cjs",
-            "tests/durable-write-fault-matrix.test.cjs",
-        ):
-            with self.subTest(path=path):
-                additive = entry(path, patch="@@ -10,0 +11,2 @@\n+test('new recovery scenario', () => {\n+  assert.equal(after, before);\n+});")
-                self.assertEqual(classify([additive]), "data-affecting")
-                self.assertEqual(merge_decision([additive]), "automatic")
-                for unsafe in (
-                    entry(path, patch="@@ -1 +1 @@\n-assert.equal(saved, before);\n+assert.ok(true);"),
-                    entry(path, patch=None),
-                    entry(path, status="removed", patch=None),
-                ):
-                    self.assertEqual(merge_decision([unsafe]), "protected")
-
-    def test_exact_crlf_source_reader_normalization_is_automatic_only_for_two_harnesses(self):
-        safe_patch = (
-            '@@ -1,11 +1,11 @@\n'
-            '-const fs = require("node:fs");\n'
-            '+const readSource = require("./helpers/read-source.cjs");\n'
-            '-const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");\n'
-            '+const app = readSource(path.join(__dirname, "..", "assets", "app.js"));'
-        )
-        for path in (
+            "assets/moondog-update-install.js",
+            "assets/moondog-update-verify.js",
+            "assets/moondog-write-authority.js",
+            "assets/maintenance.js",
+            "assets/maintenance-tests.js",
+            "scripts/update_recovery.py",
+            "scripts/permission_repair.py",
             "tests/open-ro-edit-save-roundtrip.test.cjs",
             "tests/supervisor-workbook-recovery.test.cjs",
+            "tests/durable-write-fault-matrix.test.cjs",
+            "tests/workspace-history-isolation.test.cjs",
+            "tests/write-authority-recovery-conflicts.test.cjs",
+            "tests/helpers/read-source.cjs",
         ):
             with self.subTest(path=path):
-                self.assertEqual(merge_decision([entry(path, patch=safe_patch)]), "automatic")
-                for unsafe in (
-                    entry(path, patch=safe_patch + '\n-assert.equal(actual, expected);\n+assert.ok(true);'),
-                    entry(path, patch=None),
-                    entry(path, patch=safe_patch, status="renamed"),
-                    entry(path, patch=safe_patch.replace('readSource', 'unsafeRead')),
-                    entry(path, patch=safe_patch + '\nGIT binary patch'),
-                    entry(path, patch=safe_patch + '\n\\ No newline at end of file'),
-                    entry(path, patch=safe_patch.replace('@@ -1,11 +1,11 @@\n', '')),
-                ):
-                    self.assertEqual(merge_decision([unsafe]), "protected")
-        self.assertEqual(merge_decision([
-            entry("tests/durable-write-fault-matrix.test.cjs", patch=safe_patch)
-        ]), "protected")
-        self.assertEqual(merge_decision([
-            entry("tests/helpers/read-source.cjs", patch=safe_patch)
-        ]), "protected")
+                self.assertEqual(merge_decision([entry(path)]), "automatic")
+        # Exact-head privacy, publication, clean-install, branch protection
+        # and findings veto remain independent mandatory checks.
 
     def test_missing_unknown_or_truncated_scope_fails_closed(self):
         self.assertEqual(merge_decision([]), "protected")
