@@ -387,10 +387,17 @@
   const finite = n => typeof n==="number" && Number.isFinite(n) && n>=0;
   const timeStamp = v => { const n=Date.parse(v||"");return Number.isFinite(n)?n:0; };
   const timeHour = v => new Date(v).getHours();
+  // Recovered legacy source history can be out of delivery order and contain
+  // malformed entries. Preserve the latest *dated* evidence without treating
+  // invalid records as observations or mutating the stored original arrays.
+  const recentEvents = values => Array.isArray(values)
+    ? values.filter(item=>item&&typeof item==="object"&&!Array.isArray(item))
+        .sort((a,b)=>timeStamp(a?.at)-timeStamp(b?.at)).slice(-24)
+    : [];
   function sourceRecord(history,source) {
     const item=history?.sources?.[source]||{};
-    return { observations:Array.isArray(item.observations)?item.observations.slice(-24):[],
-      deferrals:Array.isArray(item.deferrals)?item.deferrals.slice(-24):[],
+    return { observations:recentEvents(item.observations),
+      deferrals:recentEvents(item.deferrals),
       notNowUntil:typeof item.notNowUntil==="string"?item.notNowUntil:"",
       // Retain the last verified request across imports and deferrals.
       ...(typeof item.lastRequested==="string" && Number.isFinite(Date.parse(item.lastRequested))
@@ -410,14 +417,22 @@
       // Do not replace it with today's upload date or clear a pending snooze.
       if(!dateValid(date))return history||empty();
       const observation={at,day:date,hour:Number.isInteger(options.hour)?options.hour:timeHour(at)};
+      // A late asynchronous import cannot replace a newer observation or
+      // clear a reminder the user snoozed after the older import started.
       const existing=entry.observations.findIndex(item=>item.day===observation.day);
-      if(existing>=0) entry.observations.splice(existing,1);
-      entry.observations.push(observation);
-      entry.observations=entry.observations.slice(-24);
-      entry.notNowUntil="";
+      if(existing<0 || timeStamp(entry.observations[existing].at)<=timestamp) {
+        if(existing>=0) entry.observations.splice(existing,1);
+        entry.observations.push(observation);
+        entry.observations.sort((a,b)=>timeStamp(a.at)-timeStamp(b.at)||String(a.day).localeCompare(String(b.day)));
+        entry.observations=entry.observations.slice(-24);
+      }
+      const latestDeferral=entry.deferrals.reduce((latest,item)=>Math.max(latest,timeStamp(item?.at)),0);
+      if(timestamp>=latestDeferral) entry.notNowUntil="";
     }
     if(kind==="not-now") {
       entry.deferrals.push({at,hour:Number.isInteger(options.hour)?options.hour:timeHour(at)});
+      // Keep the newest event times, not the last asynchronously delivered ones.
+      entry.deferrals.sort((a,b)=>timeStamp(a?.at)-timeStamp(b?.at));
       entry.deferrals=entry.deferrals.slice(-24);
       // Late asynchronous deferrals must never reduce a newer user snooze.
       // Count only observations at or before this event, not future events.
@@ -429,18 +444,25 @@
       entry.notNowUntil=new Date(Math.max(timeStamp(entry.notNowUntil),
         timestamp+minutes*60000)).toISOString();
     }
-    if(kind==="requested") entry.lastRequested=at;
+    // A delayed request event must not roll back a newer manager request.
+    if(kind==="requested" && timestamp>=timeStamp(entry.lastRequested)) entry.lastRequested=at;
     sources[source]=entry;
     return {schemaVersion:1,sources};
   }
   function typicalHour(record) {
-    const samples=record.observations.slice(-12).map(item=>item.hour).filter(hour=>Number.isInteger(hour)&&hour>=0&&hour<=23).sort((a,b)=>a-b);
+    // Recovered history without valid event and report dates is not verified
+    // evidence for learning a report arrival schedule.
+    const verified=Array.isArray(record?.observations)
+      ? record.observations.filter(item=>item&&dateValid(item.day)&&
+          typeof item.at==="string"&&item.at.includes("T")&&Boolean(sourceDay(item.at)))
+      : [];
+    const samples=verified.slice(-12).map(item=>item.hour).filter(hour=>Number.isInteger(hour)&&hour>=0&&hour<=23).sort((a,b)=>a-b);
     return samples.length>=4?samples[Math.floor(samples.length/2)]:null;
   }
   function plan(requests,history,{at=new Date().toISOString(),today="",limit=4}={}) {
     const current=timeStamp(at)||Date.now(),seen=new Set(),result=[];
     const sourceRequests=Array.isArray(requests)?requests:[];
-    for(const request of [...sourceRequests].sort((a,b)=>(a.rank??7)-(b.rank??7))) {
+    for(const request of [...sourceRequests].sort((a,b)=>(a?.rank??7)-(b?.rank??7))) {
       const source=String(request?.source||""),def=catalog[source];
       if(!def||seen.has(source)) continue;
       seen.add(source);
