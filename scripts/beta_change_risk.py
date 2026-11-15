@@ -33,6 +33,7 @@ CRITICAL_PRESERVATION_TESTS = frozenset({
     "tests/source-boundary.test.cjs",
     "tests/manifest-cdn-bypass.test.cjs",
     "tests/automatic-diagnostics-disabled.test.cjs",
+    "tests/helpers/read-source.cjs",
 })
 PROTECTED_TESTS = {
     "tests/test_guarded_merge_policy.py", "tests/test_pipeline_guard.py",
