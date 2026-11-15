@@ -4,6 +4,7 @@ const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
 const vm=require("node:vm");
+const maintenance=require("../assets/maintenance.js");
 
 const source=fs.readFileSync(path.join(__dirname,"..","assets/moondog-write-authority.js"),"utf8");
 const begin=source.indexOf("  async function at("),end=source.indexOf("  async function validate(",begin);
@@ -25,7 +26,7 @@ const another=encode({value:"independent writer"});
 
 function fixture(current=after,options={}){
   const prefix=options.physicalWorkspace?"System Files/Workspace/":"";
-  const statePath=prefix+"data/state.json",journalPath=prefix+"data/.moondog-txn-synthetic.json",revisionPath=prefix+"data/store-revision.json";
+  const statePath=prefix+"data/"+(options.fileName||"state.json"),journalPath=prefix+"data/.moondog-txn-synthetic.json",revisionPath=prefix+"data/store-revision.json";
   const files=new Map(),dirs=new Set(options.physicalWorkspace?["System Files","System Files/Workspace",prefix+"data"]:["data"]),actions=[];
   let permissionState=options.permissionState||"granted",permissionRequests=0,transientReads=Number(options.transientReadFailures||0),revisionReads=0;
   if(current!==null)files.set(statePath,asBytes(current));
@@ -75,6 +76,7 @@ function fixture(current=after,options={}){
             async write(bytes){actions.push(["write",k]);pending=typeof bytes==="string"?new TextEncoder().encode(bytes):new Uint8Array(bytes);},
             async close(){
               actions.push(["close",k]);files.set(k,pending);
+              if(k===statePath&&options.foreignAfterWrite)files.set(k,new Uint8Array(another));
               if(k.includes("/.moondog-txn-")&&
                 (options.foreignBeforeDelete||options.foreignBeforeCreate))
                 files.set(statePath,new Uint8Array(another));
@@ -119,9 +121,11 @@ function fixture(current=after,options={}){
   vm.runInContext(setup+"\n"+production+"\n"+validation+"\n"+mutation+
     "\nglobalThis.recoverPending=recoverPending;globalThis.validate=validate;"+
     "globalThis.isEditable=()=>editable;globalThis.reason=()=>validationReason;globalThis.deleteTarget=journaledDelete;"+
-    "globalThis.createTarget=journaledCreate;globalThis.setRestoreOwner=id=>{localRestoreOwner=id;};",context);
+    "globalThis.createTarget=journaledCreate;globalThis.setRestoreOwner=id=>{localRestoreOwner=id;};"+
+    "globalThis.io={beginMutation,completeMutation,cancelMutation,read:p=>readBytes(nativeRoot,p.split('/')),rawWrite:(p,b,t)=>{requireToken(t);return writeBytesRaw(nativeRoot,p.split('/'),b);}};",context);
   return{
     files,dirs,actions,journal,
+    writeTarget:bytes=>maintenance.safeWrite(context.io,statePath,bytes),
     recover:revision=>context.recoverPending(root,{schemaVersion:1,revision}),
     validate:(ask=false)=>context.validate(root,ask),
     editable:()=>context.isEditable(),
@@ -537,4 +541,18 @@ test("exhausted transient validation fails closed and later retries the retained
   assert.equal(f.reason(),"READY");
   assert.equal(f.editable(),true);
   assert.deepEqual(f.current(),original);
+});
+
+test("operational metrics readback preserves a competing writer and retains the journal",async()=>{
+  const f=fixture(before,{physicalWorkspace:true,noInitialJournal:true,fileName:"operational-metrics.json",foreignAfterWrite:true});
+  assert.equal(await f.validate(),true);
+  await assert.rejects(f.writeTarget(after),/Recovery read-back failed/);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true);
+  assert.equal(await f.validate(),false);
+  assert.equal(f.editable(),false);
+  assert.deepEqual(f.current(),another);
+  assert.equal(f.pending(),true);
+  const target="System Files/Workspace/data/operational-metrics.json";
+  assert.deepEqual(f.actions.filter(([action,name])=>name===target&&["write","remove"].includes(action)),[["write",target]]);
 });
