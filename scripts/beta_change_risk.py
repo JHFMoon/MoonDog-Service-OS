@@ -78,7 +78,10 @@ def safe_source_reader_normalization(path: str, change: dict) -> bool:
     } or change.get("status") != "modified":
         return False
     patch = change.get("patch")
-    if not isinstance(patch, str) or not patch:
+    if not isinstance(patch, str) or not patch or not patch.startswith("@@ "):
+        return False
+    if any(line.startswith(("Binary files ", "GIT binary patch", "\\ No newline at end of file"))
+           for line in patch.splitlines()):
         return False
     removed = [line[1:] for line in patch.splitlines()
                if line.startswith("-") and not line.startswith("---")]
