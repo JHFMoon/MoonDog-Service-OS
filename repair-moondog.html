@@ -506,6 +506,14 @@
   async function applicationDiagnosis(app, trustedAllowlist, plan, repairs) {
     const known = new Set(trustedAllowlist.map(path => global.MoonDogApplyDesignModel.canonicalPath(path)));
     let unknownPreserved = 0, inspected = 0, missingDirectories = 0;
+    // Inventory names at the verified application root too: misplaced scripts
+    // and legacy application folders must be reported, preserved and unread.
+    const roots = new Set([...known].map(path => path.split("/")[0]));
+    for (const name of ["workspace", "assets", "vendor", IDENTITY_FILE.toLowerCase(), "moondog_fresh_reset_pending.json"]) roots.add(name);
+    for await (const [name] of app.entries()) {
+      if (++inspected > 4096) throw new Error("Application inventory is too large for safe automatic repair.");
+      if (!roots.has(name.toLowerCase())) unknownPreserved++;
+    }
     // Only list application directories, never private Workspace/report trees.
     for (const name of ["assets", "vendor"]) {
       let directory;
@@ -859,7 +867,8 @@
       await verifyExistingStructure(app, definition, subtle, new Set(repairs.map(entry => entry.path)));
       const diagnosis = await applicationDiagnosis(app, trustedAllowlist, plan, repairs);
       await progress(onProgress, { phase: "health-check", percent: 14, label: "Checking",
-        detail: "Checking trusted application structure; private Workspace files are preserved" });
+        detail: "Checking trusted application structure; private Workspace files are preserved" +
+          (diagnosis.unknownPreserved ? "; " + diagnosis.unknownPreserved + " unrecognized application item(s) preserved" : "") });
       const htmlEntry = contents.files.find(entry => entry.path === "index.html");
       if (htmlEntry?.action === "delete") throw new Error("The application entry cannot be deleted.");
       let compatibility = null;
