@@ -93,10 +93,10 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertIn("name: Publication Check", text)
 
 
-    def test_clean_install_does_not_fetch_parser_test_base(self):
+    def test_clean_install_uses_immutable_parser_base_without_mutable_fetch(self):
         workflow = (ROOT / ".github/workflows/clean-install-proof.yml").read_text(encoding="utf-8")
         self.assertNotIn("Fetch immutable PR base for parser epoch checks", workflow)
-        self.assertNotIn("LEARNED_PARSER_BASE_SHA", workflow)
+        self.assertIn("LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}", workflow)
 
 
     def test_privacy_only_publication_preserves_independent_clean_install(self):
