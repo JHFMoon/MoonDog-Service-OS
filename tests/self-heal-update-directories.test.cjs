@@ -665,6 +665,31 @@ test('permission loss during read-only recovery inspection never requests permis
  assert.deepEqual(h.state.files,before);assert.deepEqual(h.state.dirs,dirs);
 });
 
+test('read-only recovery inspection refuses denied application permission without prompting or changing files', async () => {
+  for (const loseDuringInspection of [false, true]) {
+  const fixture = await setup({includeScript:true});
+  const installed = await fixture.run();
+  assert.equal(installed.status, 'installed', installed.reason);
+  const journalPath = 'System Files/Workspace/backups/system-updates/' + installed.backupName + '/journal.json';
+  const journal = JSON.parse(fixture.state.files.get(journalPath));
+  journal.status = 'applying';
+  fixture.state.files.set(journalPath, Buffer.from(JSON.stringify(journal)));
+  let requests = 0;
+  let queries = 0;
+  fixture.app.queryPermission = async () => loseDuringInspection && ++queries === 1 ? 'granted' : 'denied';
+  fixture.app.requestPermission = async () => { requests++; return 'granted'; };
+  const before = copyFiles(fixture), directories = new Set(fixture.state.dirs);
+  const result = await context.MoonDogUpdateInstall.inspectRecovery({
+    appDirectoryHandle:fixture.app,workspaceDirectoryHandle:fixture.root,
+    backupName:installed.backupName,trustedAllowlist:fixture.trustedAllowlist
+  });
+  assert.equal(result.status, 'recovery-required', result.reason);
+  assert.equal(requests, 0);
+  assert.deepEqual(fixture.state.files, before);
+  assert.deepEqual(fixture.state.dirs, directories);
+  }
+});
+
 test('each repeated update repairs new application drift and a failed repair can be retried without private data loss', async () => {
   const fixture = await setup({includeScript:true});
   const privateFiles = new Map([
