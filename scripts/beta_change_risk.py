@@ -20,33 +20,16 @@ PROTECTED_DOCUMENTS = {
     "docs/SOURCE-OF-TRUTH.md", "docs/ROADMAP-ACCEPTANCE-MATRIX.md",
     "docs/SOURCE-AUTHORITY-INVENTORY.md", "docs/ISSUE-CLOSEOUT-EVIDENCE.json",
 }
-CRITICAL_PRESERVATION_TESTS = frozenset({
-})
 PROTECTED_TESTS = {
     "tests/test_guarded_merge_policy.py", "tests/test_pipeline_guard.py",
     "tests/test_security_workflows.py", "tests/test_check_publication.py",
     "tests/test_public_audit_history.py", "tests/test_beta_change_risk.py",
 }
-PROTECTED_RUNTIME = frozenset({
-})
 CSS_NETWORK = re.compile(
     r"@import|@font-face|url\s*\(|image-set\s*\(|expression\s*\(|"
     r"-moz-binding|behavior\s*:|(?:https?|data|javascript)\s*:|\\",
     re.IGNORECASE,
 )
-
-
-def append_only_preservation_test(change: dict) -> bool:
-    """Allow additive test coverage; never automate weakening existing assertions."""
-    if change.get("status") != "modified":
-        return False
-    patch = change.get("patch")
-    if not isinstance(patch, str) or not patch or "\n" not in patch:
-        return False
-    lines = patch.splitlines()
-    return (any(line.startswith("+") and not line.startswith("+++") for line in lines)
-            and not any(line.startswith("-") and not line.startswith("---") for line in lines)
-            and all(not line.startswith(("Binary files ", "GIT binary patch")) for line in lines))
 
 
 def path_risk(path: str, change: dict) -> str:
@@ -59,7 +42,7 @@ def path_risk(path: str, change: dict) -> str:
     # The policy/enforcement machinery itself remains protected.
     if path.startswith(".github/") or path in {
         ".gitattributes", ".gitignore", "SECURITY.md",
-    } or path in PROTECTED_DOCUMENTS or path in PROTECTED_TESTS or path in CRITICAL_PRESERVATION_TESTS or path in PROTECTED_RUNTIME:
+    } or path in PROTECTED_DOCUMENTS or path in PROTECTED_TESTS:
         return "protected"
     # The enforcement and security/release machinery itself remains protected.
     if path in {
