@@ -130,6 +130,9 @@ class BetaChangeRiskTests(unittest.TestCase):
                     entry(path, patch=None),
                     entry(path, patch=safe_patch, status="renamed"),
                     entry(path, patch=safe_patch.replace('readSource', 'unsafeRead')),
+                    entry(path, patch=safe_patch + "\\nGIT binary patch"),
+                    entry(path, patch=safe_patch + "\\n\\\\ No newline at end of file"),
+                    entry(path, patch=safe_patch.replace("@@ -1,11 +1,11 @@\\n", "")),
                 ):
                     self.assertEqual(merge_decision([unsafe]), "protected")
         self.assertEqual(merge_decision([
