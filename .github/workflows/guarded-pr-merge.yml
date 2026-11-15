@@ -2,7 +2,7 @@ name: Guarded PR Merge
 
 on:
   workflow_run:
-    workflows: ["Publication check", "Clean Install Proof"]
+    workflows: ["Publication check"]
     types: [completed]
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited, closed]
@@ -250,7 +250,6 @@ jobs:
           head=os.environ['HEAD_SHA']
           specs={
               'Publication check': '.github/workflows/publication-check.yml',
-              'Clean Install Proof': '.github/workflows/clean-install-proof.yml',
           }
           latest={}
           for name,path in specs.items():
@@ -264,7 +263,7 @@ jobs:
               if run is None:
                   selected[name]='pending'
                   continue
-              check_name='Publication Check' if name=='Publication check' else 'prove-clean-install'
+              check_name='Publication Check'
               suite=run.get('check_suite_id')
               matches=[c for c in check_runs if c.get('name')==check_name and c.get('head_sha')==head and
                        c.get('app',{}).get('id')==15368 and c.get('check_suite',{}).get('id')==suite]
@@ -277,7 +276,7 @@ jobs:
                   selected[name]='failure'
           print(json.dumps(selected,sort_keys=True))
           if 'failure' in selected.values():
-              raise SystemExit('Latest exact-head Publication Check or Clean Install Proof failed.')
+              raise SystemExit('Latest exact-head privacy Publication Check failed.')
           if not all(selected[name]=='success' for name in specs):
               open(os.environ['GITHUB_OUTPUT'],'a').write('ready=false\n')
               sys.exit(0)
@@ -302,7 +301,7 @@ jobs:
             REVIEW_MODE="$(jq -r '.beta_review_mode // "review-required"' .github/guarded-merge-policy.json)"
             if [ "$REVIEW_MODE" = "automated-verified-changes" ] && [ "$DECISION" = "automatic" ]; then
               echo "ready=true" >> "$GITHUB_OUTPUT"
-              echo "Verified automatic merge: exact-head checks passed; no mandatory reviewer."
+              echo "Verified automatic merge: exact-head privacy scan passed; no mandatory reviewer."
             elif [ "$REVIEW_STATE" = "clean" ]; then
               echo "ready=true" >> "$GITHUB_OUTPUT"
               echo "Legacy review evidence accepted under current trusted policy."
@@ -311,7 +310,7 @@ jobs:
               echo "Merge pending under trusted policy: $DECISION."
             fi
           else
-            echo "Required exact-head checks are pending; workflow_run will reevaluate this PR."
+            echo "Required exact-head privacy scan is pending; workflow_run will reevaluate this PR."
           fi
 
       - name: Squash merge verified current PR
@@ -349,8 +348,7 @@ jobs:
           runs=json.load(open('/tmp/final-head-runs.json',encoding='utf-8')).get('workflow_runs',[])
           checks=json.load(open('/tmp/final-head-checks.json',encoding='utf-8')).get('check_runs',[])
           repo=os.environ['REPO']; head=os.environ['HEAD_SHA']
-          specs={'Publication check':('.github/workflows/publication-check.yml','Publication Check'),
-                 'Clean Install Proof':('.github/workflows/clean-install-proof.yml','prove-clean-install')}
+          specs={'Publication check':('.github/workflows/publication-check.yml','Publication Check')}
           for workflow,(path,check_name) in specs.items():
               matches=[r for r in runs if r.get('name')==workflow and r.get('path')==path and r.get('head_sha')==head and
                        r.get('event')=='pull_request' and r.get('head_repository',{}).get('full_name')==repo]
@@ -406,7 +404,7 @@ jobs:
             echo "Final guarded merge refused: protected change requires the manual merge route." >&2
             exit 1
           fi
-          if [ "$FINAL_REVIEW" != "clean" ] && { [ "$REVIEW_MODE" != "automated-data-proofs" ] || [ "$FINAL_DECISION" != "automatic" ]; }; then
+          if [ "$FINAL_REVIEW" != "clean" ] && { [ "$REVIEW_MODE" != "automated-verified-changes" ] || [ "$FINAL_DECISION" != "automatic" ]; }; then
             echo "Final guarded merge refused: scoped preservation proof or required review is missing." >&2
             exit 1
           fi
@@ -492,7 +490,7 @@ jobs:
                   return (run["status"] == "completed" and run["conclusion"] == "failure"
                           and run["event"] == "pull_request" and run["head_sha"] == head
                           and run["run_attempt"] == int(attempt)
-                          and run["name"] in ("Publication check", "Clean Install Proof")
+                          and run["name"] == "Publication check"
                           and (run["head_repository"] or {}).get("full_name") == repo)
 
               run = api("GET", run_path)

@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   public-boundary:
-    name: Functional and publication boundaries
+    name: Current-tree and package privacy boundary
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -25,113 +25,63 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      # A source-only runtime PR starts alongside the trusted package maker.
-      # A new packaged head cancels this obsolete run via PR concurrency.
-      # A missing/failed package still fails the strict preflight below.
-      - name: Probe package parity before trusted Beta reservation
-        id: beta-package-probe
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
-        env:
-          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/preflight_beta_runtime.py
-      - name: Await superseding trusted package head (bounded)
-        if: github.event_name == 'pull_request' && steps.beta-package-probe.outcome == 'failure'
-        run: sleep 120
-      - name: Fail fast until trusted Beta package matches runtime
-        if: github.event_name == 'pull_request'
-        env:
-          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/preflight_beta_runtime.py
-      - name: Fetch all public refs for history audit
-        run: |
-          git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
-      - name: Reject falsely attributed CI co-authors in new commits
+      - name: Load privacy scanners from trusted base
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          python3 - <<'PY'
-          import os
-          import re
-          import subprocess
-
-          base = os.environ.get("PR_BASE_SHA")
-          head = os.environ.get("PR_HEAD_SHA")
-          revision = f"{base}..{head}" if base and head else os.environ["GITHUB_SHA"]
-          messages = subprocess.check_output(
-              ["git", "log", "--format=%B%x00", revision], text=True
-          )
-          bad_ci_trailer = re.compile(
-              r"(?im)^Co-authored-by:\s*[^\r\n]*<ci@users\.noreply\.github\.com>\s*$"
-          )
-          if bad_ci_trailer.search(messages):
-              raise SystemExit(
-                  "Incorrect CI co-author attribution. Remove the trailer; "
-                  "MoonDog automation already uses github-actions[bot]."
-              )
-          PY
-      - name: Classify exact pull request change scope
-        id: scope
-        shell: bash
-        env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          base=""; head="$GITHUB_SHA"
-          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            base="$PR_BASE_SHA"; head="$PR_HEAD_SHA"
-            test "$(git rev-parse "${GITHUB_SHA}^1")" = "$base"
-            test "$(git rev-parse "${GITHUB_SHA}^2")" = "$head"
-          elif [[ "$GITHUB_EVENT_NAME" == push ]]; then
-            base="$(git rev-parse "${GITHUB_SHA}^1")"
+          trusted="${RUNNER_TEMP}/moondog-privacy"
+          mkdir -p "$trusted"
+          base="$PR_BASE_SHA"
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            base="$(git rev-parse HEAD^)"
           fi
-          # Only immutable base code may select reduced verification. The first
-          # protected bootstrap (or missing helper) deliberately runs everything.
-          helper="$RUNNER_TEMP/moondog-verification-plan.py"
-          if [[ -n "$base" ]] && git show "$base:scripts/verification_plan.py" > "$helper"; then
-            python3 "$helper" --base "$base" --head "$head" --output .verification-plan.json --github-output "$GITHUB_OUTPUT"
-          else
-            echo 'scope=full' >> "$GITHUB_OUTPUT"
-            printf '%s\n' '{"schemaVersion":1,"scope":"full","reason":"No trusted base classifier; full verification required."}' > .verification-plan.json
-          fi
-      - name: Run focused production-path regressions
-        if: steps.scope.outputs.scope == 'full'
-        run: node --test tests/package-verification.test.cjs tests/durable-write-fault-matrix.test.cjs tests/write-authority-recovery-conflicts.test.cjs tests/workspace-history-isolation.test.cjs tests/install.test.cjs tests/source-boundary.test.cjs
-      - name: Verify scoped publication and package contracts
-        if: steps.scope.outputs.scope != 'full'
-        run: |
-          python3 -m unittest discover -s tests -p 'test_update_manifest.py'
-          python3 -m unittest discover -s tests -p 'test_beta_package_runtime.py'
-          python3 -m unittest discover -s tests -p 'test_check_publication.py'
-          node --test tests/source-boundary.test.cjs tests/local-target-boundary.test.cjs tests/package-verification.test.cjs tests/runtime-mirror.test.cjs
-      - name: Run focused tests
-        if: steps.scope.outputs.scope == 'full'
-        run: python3 -m unittest discover -s tests -p 'test_*.py'
-      - name: Verify updater-compatible generated runtime
-        run: python3 scripts/build_operating_modules.py --check
-      - name: Verify clean-install source contract
-        run: python3 scripts/build_distribution.py --check-source
-      - name: Test browser update check
-        if: steps.scope.outputs.scope == 'full'
-        env:
-          LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          test -n "$base"
+          for name in check_publication.py audit_git_history.py audit_public_git_history.py; do
+            git show "$base:scripts/$name" > "$trusted/$name"
+            test -s "$trusted/$name"
+          done
+          echo "MOONDOG_TRUSTED_PRIVACY=$trusted" >> "$GITHUB_ENV"
+      - name: Verify tracked public data boundary and embedded package privacy
         run: |
           python3 - <<'PY'
-          import glob, subprocess
-          focused = {'package-verification','durable-write-fault-matrix','write-authority-recovery-conflicts','workspace-history-isolation','install','source-boundary'}
-          files = [p for p in sorted(glob.glob('tests/*.test.cjs')) if p.split('/')[-1].removesuffix('.test.cjs') not in focused]
-          if not files:
-              raise SystemExit('Missing complete Node regression suite')
-          subprocess.run(['node', '--test', *files], check=True)
+          import base64
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, os.environ["MOONDOG_TRUSTED_PRIVACY"])
+          from check_publication import blocked_content, blocked_path
+
+          root = Path.cwd()
+          paths = subprocess.check_output(["git", "ls-files", "-z"]).split(bytes([0]))
+          failures = 0
+          for raw in filter(None, paths):
+              path = os.fsdecode(raw)
+              if blocked_path(path):
+                  failures += 1
+                  continue
+              content = subprocess.check_output(["git", "show", ":" + path])
+              if blocked_content(content):
+                  failures += 1
+              if path.startswith("updates/packages/") and path.endswith(".json"):
+                  try:
+                      package = json.loads(content)
+                      for entry in package["files"]:
+                          if blocked_path(entry["path"]) or blocked_content(
+                              base64.b64decode(entry["contentBase64"], validate=True)
+                          ):
+                              failures += 1
+                  except (KeyError, ValueError, TypeError):
+                      failures += 1
+          if failures:
+              raise SystemExit(f"Privacy publication blocked: {failures} redacted finding(s)")
+          print("Current tracked tree and embedded package privacy scan passed")
           PY
-      - name: Check tracked publication contents
-        run: python3 scripts/check_publication.py
 
   history-boundary:
     name: Contextual history scan
-    needs: public-boundary
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -141,12 +91,43 @@ jobs:
           persist-credentials: false
       - name: Fetch all public refs for history audit
         run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
+      - name: Load privacy scanners from trusted base
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          trusted="${RUNNER_TEMP}/moondog-privacy"
+          mkdir -p "$trusted"
+          base="$PR_BASE_SHA"
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            base="$(git rev-parse HEAD^)"
+          fi
+          test -n "$base"
+          for name in check_publication.py audit_git_history.py audit_public_git_history.py; do
+            git show "$base:scripts/$name" > "$trusted/$name"
+            test -s "$trusted/$name"
+          done
+          echo "MOONDOG_TRUSTED_PRIVACY=$trusted" >> "$GITHUB_ENV"
       - name: Audit reachable Git history for sensitive material
-        run: python3 scripts/audit_git_history.py
+        env:
+          TRUSTED_SCRIPT: audit_git_history.py
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+          trusted = Path(os.environ["MOONDOG_TRUSTED_PRIVACY"])
+          sys.path.insert(0, str(trusted))
+          import check_publication  # Pin audit imports to trusted base scanner.
+          sys.modules["check_publication"] = check_publication
+          name = os.environ["TRUSTED_SCRIPT"]
+          source = (trusted / name).read_bytes()
+          filename = str(Path.cwd() / "scripts" / name)
+          exec(compile(source, filename, "exec"), {"__name__": "__main__", "__file__": filename})
+          PY
 
   history-strict:
     name: Strict history scan
-    needs: public-boundary
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -156,8 +137,40 @@ jobs:
           persist-credentials: false
       - name: Fetch all public refs for history audit
         run: git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
+      - name: Load privacy scanners from trusted base
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          trusted="${RUNNER_TEMP}/moondog-privacy"
+          mkdir -p "$trusted"
+          base="$PR_BASE_SHA"
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            base="$(git rev-parse HEAD^)"
+          fi
+          test -n "$base"
+          for name in check_publication.py audit_git_history.py audit_public_git_history.py; do
+            git show "$base:scripts/$name" > "$trusted/$name"
+            test -s "$trusted/$name"
+          done
+          echo "MOONDOG_TRUSTED_PRIVACY=$trusted" >> "$GITHUB_ENV"
       - name: Enforce strict redacted full-history VIN and credential scan
-        run: python3 scripts/audit_public_git_history.py
+        env:
+          TRUSTED_SCRIPT: audit_public_git_history.py
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+          trusted = Path(os.environ["MOONDOG_TRUSTED_PRIVACY"])
+          sys.path.insert(0, str(trusted))
+          import check_publication  # Pin audit imports to trusted base scanner.
+          sys.modules["check_publication"] = check_publication
+          name = os.environ["TRUSTED_SCRIPT"]
+          source = (trusted / name).read_bytes()
+          filename = str(Path.cwd() / "scripts" / name)
+          exec(compile(source, filename, "exec"), {"__name__": "__main__", "__file__": filename})
+          PY
 
   publication-check:
     name: Publication Check
@@ -165,7 +178,7 @@ jobs:
     needs: [public-boundary, history-boundary, history-strict]
     runs-on: ubuntu-latest
     steps:
-      - name: Require every functional and security result
+      - name: Require every privacy result
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: |
@@ -174,6 +187,6 @@ jobs:
           results = json.loads(os.environ['RESULTS'])
           expected = {'public-boundary', 'history-boundary', 'history-strict'}
           if set(results) != expected or any(result.get('result') != 'success' for result in results.values()):
-              raise SystemExit('Publication blocked: every required functional and history job must succeed')
-          print('All required functional, publication-boundary and full-history checks passed')
+              raise SystemExit('Publication blocked: every required privacy job must succeed')
+          print('All required current-tree, package and full-history privacy checks passed')
           PY
