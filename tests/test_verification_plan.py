@@ -122,7 +122,7 @@ class VerificationPlanTests(unittest.TestCase):
 
 class VerificationWorkflowTests(unittest.TestCase):
     def test_both_workflows_execute_only_base_classifier_with_bootstrap_full_fallback(self):
-        for name in ['publication-check','clean-install-proof']:
+        for name in ['clean-install-proof']:
             text=(ROOT/'.github/workflows'/f'{name}.yml').read_text()
             self.assertIn('git show "$base:scripts/verification_plan.py" > "$helper"',text)
             self.assertIn('echo \'scope=full\' >> "$GITHUB_OUTPUT"',text)
@@ -130,7 +130,7 @@ class VerificationWorkflowTests(unittest.TestCase):
             self.assertNotIn('python3 scripts/verification_plan.py',text)
     def test_publication_aggregator_rejects_failures_cancelled_skipped_missing_unknown(self):
         text=(ROOT/'.github/workflows/publication-check.yml').read_text()
-        block=text.split('      - name: Require every functional and security result',1)[1]
+        block=text.split('      - name: Require every privacy result',1)[1]
         code=block.split("          python3 - <<'PY'\n",1)[1].split('\n          PY',1)[0]
         code='\n'.join(line[10:] for line in code.splitlines())
         import sys
@@ -146,23 +146,20 @@ class VerificationWorkflowTests(unittest.TestCase):
         self.assertNotEqual(run({}),0)
         self.assertIn('needs: [public-boundary, history-boundary, history-strict]',text)
         self.assertIn('if: always()',text)
-    def test_focused_and_remaining_node_commands_cover_each_test_once(self):
-        text=(ROOT/'.github/workflows/publication-check.yml').read_text()
-        import ast
-        focused=text.split('      - name: Run focused production-path regressions',1)[1].split('      - name:',1)[0]
-        command=focused.split('run: node --test ',1)[1].strip()
-        expected=set(command.split())
-        block=text.split('      - name: Test browser update check',1)[1].split('      - name:',1)[0]
-        line=next(x.strip() for x in block.splitlines()if x.strip().startswith('focused = '))
-        excluded=ast.literal_eval(line.split('=',1)[1].strip())
-        remaining={str(p.relative_to(ROOT))for p in (ROOT/'tests').glob('*.test.cjs')if p.name.removesuffix('.test.cjs')not in excluded}
-        complete={str(p.relative_to(ROOT))for p in (ROOT/'tests').glob('*.test.cjs')}
-        self.assertFalse(expected&remaining);self.assertEqual(expected|remaining,complete)
+    def test_full_functional_suites_are_required_by_clean_install_proof(self):
+        text=(ROOT/'.github/workflows/clean-install-proof.yml').read_text()
+        block=text.split('      - name: Run full functional and policy regressions',1)[1].split('      - name:',1)[0]
+        self.assertIn("if: steps.scope.outputs.scope == 'full'",block)
+        self.assertEqual(block.count('node --test --test-concurrency=2 tests/*.test.cjs'),1)
+        self.assertEqual(block.count("python3 -m unittest discover -s tests -p 'test_*.py'"),1)
+        self.assertNotIn('continue-on-error',block)
     def test_no_security_scan_is_skipped_or_cached_by_scope(self):
         text=(ROOT/'.github/workflows/publication-check.yml').read_text()
         for job,script in [('history-boundary','audit_git_history.py'),('history-strict','audit_public_git_history.py')]:
             block=text.split('  '+job+':',1)[1]
-            self.assertIn('python3 scripts/'+script,block)
+            self.assertIn('TRUSTED_SCRIPT: '+script,block)
+            self.assertIn('source = (trusted / name).read_bytes()',block)
+            self.assertIn('exec(compile(source, filename',block)
         clean=(ROOT/'.github/workflows/clean-install-proof.yml').read_text()
         self.assertIn("key: distribution-vendor-v1-${{ runner.os }}-${{ hashFiles('distribution/dependencies.json', 'scripts/prepare_distribution_vendor.sh') }}",clean)
         self.assertLess(clean.index('python3 scripts/verify_distribution_vendor.py'),clean.index('python3 scripts/build_distribution.py --vendor-dir'))
