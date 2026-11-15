@@ -109,7 +109,20 @@ jobs:
           done
           echo "MOONDOG_TRUSTED_PRIVACY=$trusted" >> "$GITHUB_ENV"
       - name: Audit reachable Git history for sensitive material
-        run: python3 "$MOONDOG_TRUSTED_PRIVACY/audit_git_history.py"
+        env:
+          TRUSTED_SCRIPT: audit_git_history.py
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+          trusted = Path(os.environ["MOONDOG_TRUSTED_PRIVACY"])
+          sys.path.insert(0, str(trusted))
+          name = os.environ["TRUSTED_SCRIPT"]
+          source = (trusted / name).read_bytes()
+          filename = str(Path.cwd() / "scripts" / name)
+          exec(compile(source, filename, "exec"), {"__name__": "__main__", "__file__": filename})
+          PY
 
   history-strict:
     name: Strict history scan
@@ -140,7 +153,20 @@ jobs:
           done
           echo "MOONDOG_TRUSTED_PRIVACY=$trusted" >> "$GITHUB_ENV"
       - name: Enforce strict redacted full-history VIN and credential scan
-        run: python3 "$MOONDOG_TRUSTED_PRIVACY/audit_public_git_history.py"
+        env:
+          TRUSTED_SCRIPT: audit_public_git_history.py
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+          trusted = Path(os.environ["MOONDOG_TRUSTED_PRIVACY"])
+          sys.path.insert(0, str(trusted))
+          name = os.environ["TRUSTED_SCRIPT"]
+          source = (trusted / name).read_bytes()
+          filename = str(Path.cwd() / "scripts" / name)
+          exec(compile(source, filename, "exec"), {"__name__": "__main__", "__file__": filename})
+          PY
 
   publication-check:
     name: Publication Check
