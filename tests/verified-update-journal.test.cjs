@@ -117,12 +117,14 @@ test("consuming a journal receipt writes and verifies its exact-once marker",asy
   assert.equal((await findReceipt(current.root,version)).completed,true);
 });
 
-test("follow-up is gated by either receipt source and consumes durable evidence",()=>{
+test("follow-up requires selected-installation journal or independent parser revision",()=>{
   const start=app.indexOf("  async function runVerifiedUpdateFollowup()");
   const end=app.indexOf("\n  const folderWatch=",start);
   const followup=app.slice(start,end);
-  assert.match(followup,/findVerifiedUpdateFollowup\(model\.applicationRoot\)/);
-  assert.match(followup,/receipt\?\.version!==VERSION&&!durableReceipt/);
+  assert.match(followup,/findVerifiedUpdateFollowup\(connectedApplicationRoot\)/);
+  assert.match(followup,/model\.root===connectedRoot/);
+  assert.match(followup,/if\(!durableReceipt&&!parserRevisionChanged\)return/);
+  assert.doesNotMatch(followup,/localStorage\.getItem/);
   assert.match(followup,/markVerifiedUpdateFollowupComplete\(followupReceipt\)/);
   assert.match(followup,/durableReceipt\?\.completed/);
   assert.match(followup,/result\?\.deferred\|\|result\?\.failures/);
