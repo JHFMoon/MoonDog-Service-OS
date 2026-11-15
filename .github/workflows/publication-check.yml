@@ -118,6 +118,8 @@ jobs:
           from pathlib import Path
           trusted = Path(os.environ["MOONDOG_TRUSTED_PRIVACY"])
           sys.path.insert(0, str(trusted))
+          import check_publication  # Pin audit imports to trusted base scanner.
+          sys.modules["check_publication"] = check_publication
           name = os.environ["TRUSTED_SCRIPT"]
           source = (trusted / name).read_bytes()
           filename = str(Path.cwd() / "scripts" / name)
@@ -162,6 +164,8 @@ jobs:
           from pathlib import Path
           trusted = Path(os.environ["MOONDOG_TRUSTED_PRIVACY"])
           sys.path.insert(0, str(trusted))
+          import check_publication  # Pin audit imports to trusted base scanner.
+          sys.modules["check_publication"] = check_publication
           name = os.environ["TRUSTED_SCRIPT"]
           source = (trusted / name).read_bytes()
           filename = str(Path.cwd() / "scripts" / name)
