@@ -667,7 +667,12 @@
   async function read(root, relative) {
     try {
       const { folder, name } = await parent(root, relative);
-      return new Uint8Array(await (await (await folder.getFileHandle(name, { create: false })).getFile()).arrayBuffer());
+      const file = await (await folder.getFileHandle(name, { create: false })).getFile();
+      // Inspect metadata before allocating application or recovery bytes.
+      // Preserve oversized originals for local review rather than exhausting
+      // memory or starting a transaction whose backup cannot be verified.
+      if (file.size > 64 * 1024 * 1024) throw new Error("File is too large for safe application recovery: " + relative);
+      return new Uint8Array(await file.arrayBuffer());
     } catch (error) {
       if (error && error.name === "NotFoundError") return null;
       throw error;
