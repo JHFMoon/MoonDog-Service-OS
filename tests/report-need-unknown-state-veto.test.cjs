@@ -25,7 +25,9 @@ test("contradictory safeForCurrent flags cannot certify missing, stale or unload
     {status:"stale",loaded:false,safeForCurrent:true},
     {status:"current",loaded:false,safeForCurrent:true},
     {status:"current",loaded:true,safeForCurrent:false},
-    {status:"historical-valid",loaded:false,safeForCurrent:true}
+    {status:"current",loaded:true,safeForCurrent:"true"},
+    {status:"historical-valid",loaded:false,safeForCurrent:true},
+    {status:"historical-valid",loaded:true,safeForCurrent:true}
   ];
   for(const key of families.filter(family=>family!=="openRo")){
     for(const evidence of blocked){
