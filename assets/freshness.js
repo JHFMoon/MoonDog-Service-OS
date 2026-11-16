@@ -87,7 +87,15 @@
     let next=operatingFrom(today);if(last>=next)next=operatingFrom(addDays(last,1));
     result.cadence=key==='sapr'?'Daily — operating days':key==='sor'?'Optional dated financial observation':'Optional daily — operating days';
     result.last=last;result.next=next;result.missing=missing;result.financialMonth=key==='sor'?input.financialMonth||'':'';
-    result.status=required?(missing.length?'Missing required dates':last&&last>coverage.expectedEnd?`Current through ${format(last)}`:coverage.expectedEnd?`Current through ${format(coverage.expectedEnd)}`:last?`Current through ${format(last)}`:'No completed operating day yet'):(last?`Current through ${format(last)}`:'No verified trend point');
+    // An expected due date is not a source observation and cannot certify
+    // a completed SAPR report when no verified point exists.
+    const expected=validPoint(coverage.expectedEnd)?coverage.expectedEnd:'';
+    result.status=required?(
+      missing.length?'Missing required dates':
+      !last?(expected?`No verified report day; expected through ${format(expected)}`:'No verified report day'):
+      expected&&last<expected?`Last verified ${format(last)}; expected through ${format(expected)}`:
+      `Current through ${format(last)}`
+    ):(last?`Current through ${format(last)}`:'No verified trend point');
     result.recovery=key==='sapr'?'Each missing day needs a separate month-to-date SAPR ending on that date; a current cumulative SAPR cannot rebuild prior points.':key==='nextAppointments'?'Each dated report supplies one point. A verified substitute can fill only its matching period; cumulative totals do not rebuild prior daily points.':key==='sor'?'The report month is a financial label, not an observation date. Only a verified source or file observation date in that month supplies a point.':'Each missing date needs an actual dated report; a current report cannot reconstruct past observations.';
     return result;
   }
