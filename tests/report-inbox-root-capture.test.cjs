@@ -11,7 +11,7 @@ const last=app.indexOf("  function candidateNeedsImport(candidate)",first);
 assert.ok(first>=0&&last>first,"actual production Report Inbox enumerator is present");
 const production=app.slice(first,last);
 
-function harness(pauseAt=""){
+function harness(pauseAt="",extraFiles=0){
   let entered,release;
   const paused=new Promise(resolve=>{entered=resolve;});
   const gate=new Promise(resolve=>{release=resolve;});
@@ -41,6 +41,7 @@ function harness(pauseAt=""){
     observations.inboxEntries++;
     await pause("inbox");
     yield ["synthetic-report.xlsx",iFile];
+    for(let i=0;i<extraFiles;i++)yield ["synthetic-extra-"+i+".xlsx",fileHandle(file(10,4))];
   }};
   const model={root:rootA};
   const context=vm.createContext({
@@ -119,4 +120,13 @@ test("no connected Workspace yields an empty list without touching folders",asyn
   assert.equal((await h.scan()).length,0);
   assert.equal(h.observations.inboxEntries,0);
   assert.equal(h.observations.fileReads,0);
+});
+
+test("folder switch cancels queued metadata reads after the two active workers settle",async()=>{
+  const h=harness("file",8);
+  const pending=h.scan();
+  await h.paused;h.model.root=h.rootB;h.release();
+  assert.equal((await pending).length,0);
+  assert.equal(h.observations.fileReads,2,"only already-started metadata reads may finish");
+  assert.equal(h.observations.rootBEntries,0);
 });

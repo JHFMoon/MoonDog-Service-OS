@@ -4276,7 +4276,10 @@
     const candidates=new Array(pending.length);
     let next=0;
     const readNext=async()=>{
-      while(next<pending.length){
+      // A folder switch cancels queued reads as well as their final results.
+      // Already-started native metadata reads may settle, but do not keep
+      // touching the previous Workspace while the next connection loads.
+      while(model.root===scanRoot&&next<pending.length){
         const index=next++,item=pending[index];
         const relativePath=item.location==="inbox"?`${REPORT_INBOX}/${item.name}`:item.name;
         try{
