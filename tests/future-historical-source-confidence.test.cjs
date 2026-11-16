@@ -57,6 +57,29 @@ test("future-dated SAPR end cannot verify an otherwise past historical interval"
   assert.equal(forward.status, "historical-valid", "forward-looking appointments keep valid future coverage");
 });
 
+test("future-ended CSI and VIR periods cannot certify completed historical observations", () => {
+  const base={exists:true,purpose:"historical",today:"2026-11-16",
+    periodStart:"2026-10-01",periodEnd:"2026-12-01",
+    targetStart:"2026-10-15",targetEnd:"2026-10-20"};
+  for(const key of ["csi","vir"]){
+    const item=Object.freeze({key,...base,...(key==="csi"?{
+      scopeVerified:true,scopeStart:base.periodStart,scopeEnd:base.periodEnd
+    }:{})});
+    const original=JSON.stringify(item);
+    const impossible=freshness.evaluateSource(item);
+    assert.equal(impossible.status,"stale",key+" future report end cannot certify past coverage");
+    assert.equal(impossible.safeForPurpose,false);
+    assert.equal(freshness.evaluateMetric([impossible]).verified,false);
+    assert.equal(JSON.stringify(item),original,"evaluation never edits retained data");
+    const past=freshness.evaluateSource({...item,periodEnd:item.today,
+      ...(key==="csi"?{scopeEnd:item.today}:{})});
+    assert.equal(past.status,"historical-valid",key+" completed valid period still qualifies");
+  }
+  const upcoming=freshness.evaluateSource({key:"nextAppointments",...base});
+  assert.equal(upcoming.status,"historical-valid",
+    "forward-looking Next Appointments continues to cover a future report period");
+});
+
 test("genuinely covered historical intervals and end-only observations remain verified", () => {
   for (const key of families) {
     const historical = freshness.evaluateSource({
