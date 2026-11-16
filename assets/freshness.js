@@ -205,6 +205,9 @@
       const periodValid = validDateKey(today) && validDateKey(targetStart) && validDateKey(targetEnd) &&
         targetStart <= targetEnd && targetEnd <= today &&
         validDateKey(input.periodEnd) && input.periodEnd >= targetEnd &&
+        // SAPR reports cannot certify past coverage with a future reported end.
+        // Forward-looking report families retain their own period semantics.
+        (input.key !== "sapr" || input.periodEnd <= today) &&
         sourceStartValid && (sourceStartMissing
           // An undated start cannot prove historical coverage before its only
           // verified observation day. Preserve legacy end-day lookup only.
