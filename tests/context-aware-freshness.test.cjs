@@ -129,6 +129,25 @@ test('invalid month keys never normalize into neighboring months or years', () =
   assert.equal(F.finalOperatingDay('2026-02'), '2026-02-28');
 });
 
+test('trend gap instructions reject future, malformed, duplicate and nonoperating dates', () => {
+  const saprDates=['2026-11-14','2026-12-02','bad','2026-11-15','2026-11-14','2026-11-16'];
+  const menuReleases=['2026-11-16','2026-11-17','2026-11-23','bad','2026-11-09','2026-11-16'];
+  const csiDates=['2026-11-16','invalid','2026-12-01'];
+  const sapr=F.trendMaintenance({key:'sapr',today:'2026-11-16',coverage:{missingDates:saprDates}});
+  assert.deepEqual(sapr.missing,['2026-11-14'],'only completed actual operating-day SAPR gaps count');
+  assert.doesNotMatch(F.trendMaintenanceSummary('sapr',sapr),/bad|2026-12-02|2026-11-15|2026-11-16/);
+  const menu=F.trendMaintenance({key:'menu',today:'2026-11-16',coverage:{missingReleases:menuReleases}});
+  assert.deepEqual(menu.missing,['2026-11-09','2026-11-16'],'only due Monday releases are requested');
+  assert.equal(menu.next,'2026-11-16');
+  assert.doesNotMatch(F.trendMaintenanceSummary('menu',menu),/bad|2026-11-17|2026-11-23/);
+  const csi=F.trendMaintenance({key:'csi',today:'2026-11-16',monthStart:'2026-11-01',
+    coverage:{missingDates:csiDates}});
+  assert.deepEqual(csi.missing,['2026-11-16'],'legitimate same-day CSI report-scope gaps are preserved');
+  assert.deepEqual(saprDates,['2026-11-14','2026-12-02','bad','2026-11-15','2026-11-14','2026-11-16']);
+  assert.deepEqual(menuReleases,['2026-11-16','2026-11-17','2026-11-23','bad','2026-11-09','2026-11-16']);
+  assert.deepEqual(csiDates,['2026-11-16','invalid','2026-12-01']);
+});
+
 test('history maintenance uses newest valid report day regardless of import enumeration order', () => {
   const presentDates=['2026-10-19','2026-10-17','2026-10-18','2026-02-30','2026-10-21'];
   for(const key of ['sapr','nextAppointments','vir','sor']){
