@@ -330,8 +330,14 @@
       authoritativeHistorical = evidence.status === 'historical-valid' && evidence.loaded === true &&
         evidence.safeForPurpose === true && evidence.safeForCurrent === false && datedCurrent,
       authoritative = authoritativeCurrent || authoritativeHistorical,
+      // Only coherent missing/stale source records may use independent
+      // verified workload; contradictory loaded/safe flags are integrity holds.
+      openRoMissing = evidence.status === 'missing' && evidence.loaded === false &&
+        evidence.safeForCurrent !== true && evidence.safeForPurpose !== true,
+      openRoStale = evidence.status === 'stale' && evidence.loaded === true &&
+        evidence.safeForCurrent !== true && evidence.safeForPurpose !== true,
       independentOpenRo = key === 'openRo' && input.currentSnapshot === true &&
-        (authoritative || evidence.status === 'missing' || evidence.status === 'stale'),
+        (authoritative || openRoMissing || openRoStale),
       current = recognizedSourceState && (independentOpenRo || (!input.legacyUnsafe && authoritative)),
       missing = (input.missingDates || []).filter(date => trustedDate(date) && date.slice(0,7) === today.slice(0,7) && date < today && !isSunday(date)),
       active = Boolean(input.activeFeature), soon = Boolean(input.soonFeature);
