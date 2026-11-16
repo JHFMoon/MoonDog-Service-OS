@@ -251,9 +251,47 @@ try {
   fs.rmSync(target, {recursive:true, force:true});
 }
 console.log("Verified synthetic denied-write and foreign-store root refusal; app bytes, private synthetic state, and journals unchanged.");
+// The ordinary Stable-to-Beta path has one clean baseline. Repeated safe
+// repair/idempotent cycles provide descriptive p50/p95 observations without
+// pretending that synthetic filesystem timings predict OneDrive or Edge.
+const repairSamples=[repairMs], repeatSamples=[repeatUpdateMs];
+for(let cycle=1;cycle<5;cycle++){
+  for(const relative of repairedPaths)fs.unlinkSync(path.join(appRoot,relative));
+  const cyclePlan=await context.MoonDogPackagePlan.dryRun({
+    verifiedPackage,appDirectoryHandle,trustedAllowlist,subtle:webcrypto.subtle
+  });
+  assert.equal(cyclePlan.rejected.length,0);
+  const repairStart=performance.now();
+  const result=await context.MoonDogUpdateInstall.apply({
+    verifiedPackage,appDirectoryHandle,workspaceDirectoryHandle,trustedAllowlist,
+    expectedPlan:cyclePlan,confirmed:true,subtle:webcrypto.subtle
+  });
+  repairSamples.push(performance.now()-repairStart);
+  assert.equal(result.status,"installed",result.reason);
+  assert.deepEqual(installedHashes(),repairedHashes);
+  assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),originalStateHash);
+  const idempotentPlan=await context.MoonDogPackagePlan.dryRun({
+    verifiedPackage,appDirectoryHandle,trustedAllowlist,subtle:webcrypto.subtle
+  });
+  const repeatStart=performance.now();
+  const again=await context.MoonDogUpdateInstall.apply({
+    verifiedPackage,appDirectoryHandle,workspaceDirectoryHandle,trustedAllowlist,
+    expectedPlan:idempotentPlan,confirmed:true,subtle:webcrypto.subtle
+  });
+  repeatSamples.push(performance.now()-repeatStart);
+  assert.equal(again.status,"installed",again.reason);
+  assert.deepEqual(installedHashes(),repairedHashes);
+  assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),originalStateHash);
+}
+const distribution=values=>{
+  const sorted=[...values].sort((a,b)=>a-b);
+  return {samples:sorted.length,p50Ms:sorted[Math.ceil(sorted.length*.5)-1],
+    p95Ms:sorted[Math.ceil(sorted.length*.95)-1]};
+};
 console.log("Synthetic production updater repair timing", JSON.stringify({
-  scope: "single local filesystem sample per path; VM production installer; excludes browser permission, network and physical-device latency; phase callbacks are not rendered UX proof",
-  ordinaryUpdateMs, repairMs, repeatUpdateMs, repairedPaths
+  scope: "one Stable-to-Beta sample, five repair and five idempotent-repeat samples; production installer in synthetic local filesystem VM; no OneDrive, native Edge permission, or physical-device latency claim",
+  ordinaryUpdateMs, repairMs, repeatUpdateMs, repairDistribution:distribution(repairSamples),
+  repeatDistribution:distribution(repeatSamples), repairedPaths
 }));
 
 const browser = await chromium.launch({ headless: true, channel: process.env.MOONDOG_BROWSER_CHANNEL || undefined });
@@ -390,6 +428,9 @@ try {
     globalThis.MoonDogPackagePlan.dryRun = async () => ({
       add:[], replace:["assets/app.js"], delete:[], unchanged:[], rejected:[]
     });
+    // Retain the real production installer for a separate denied-permission
+    // browser proof; the phase-rendering fixture below is deliberately mocked.
+    globalThis.__moondogProductionInstallApply = globalThis.MoonDogUpdateInstall.apply;
     globalThis.MoonDogUpdateInstall.apply = async ({onProgress}) =>
       new Promise(resolve => {
         globalThis.__moondogEmitRepairPhase = event => onProgress(event);
@@ -403,7 +444,7 @@ try {
     channel.dispatchEvent(new Event("change", {bubbles:true}));
     document.dispatchEvent(new Event("moondog-data"));
   }, syntheticNextVersion);
-  await page.evaluate(() => document.getElementById("checkMoonDogUpdate").click());
+  await page.locator("#checkMoonDogUpdate").click();
   await page.waitForFunction(() =>
     document.getElementById("updateProgressLabel")?.textContent==="Checking for updates");
   assert.equal(await page.locator("#updateProgress").isVisible(), true);
@@ -432,6 +473,72 @@ try {
     /Synthetic permission denied; no files changed/);
   assert.equal(pageErrors.length, 0);
   console.log("Verified browser-rendered update progression and stopped-error UX using synthetic callback driver; not browser permission or real file repair proof.");
+  // STOPPED is painted before setProgress finishes yielding and the controller
+  // finally releases busy. Wait for the real Check control before replacing
+  // the fixture root; a click on its disabled predecessor is silently ignored.
+  await page.waitForFunction(() =>
+    document.getElementById("checkMoonDogUpdate")?.disabled===false);
+  // Unlike the phase-only callback driver above, exercise the actual shipped
+  // installer through the installed Settings controller. Synthetic native
+  // handles deny read/write authority before any application bytes can move.
+  await page.evaluate(async nextVersion => {
+    const bytes = new TextEncoder().encode("MoonDog synthetic denied-folder proof");
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    const sha256 = [...hash].map(value => value.toString(16).padStart(2, "0")).join("");
+    const missing = () => Object.assign(new Error("Missing synthetic folder"), {name:"NotFoundError"});
+    let forbiddenOperations = 0;
+    const deniedSystem = {
+      name:"System Files", kind:"directory",
+      queryPermission:async () => "denied", requestPermission:async () => "denied",
+      getFileHandle:async () => {forbiddenOperations++;throw Error("Application file access after denial");},
+      getDirectoryHandle:async () => {throw missing();}
+    };
+    const deniedRoot = {
+      name:"Synthetic read-only installation",kind:"directory",
+      queryPermission:async () => "denied",requestPermission:async () => "denied",
+      getDirectoryHandle:async (name, options) => {
+        if(name==="System Files" && options?.create===false)return deniedSystem;
+        throw missing();
+      }
+    };
+    globalThis.__moondogDeniedFileOperations = () => forbiddenOperations;
+    globalThis.__moondogSettingsModel = {
+      ...(globalThis.__moondogSettingsModel || {}), applicationRoot:deniedRoot
+    };
+    let productionInstallCalls = 0;
+    globalThis.__moondogProductionInstallCalls = () => productionInstallCalls;
+    globalThis.MoonDogUpdateInstall.apply = async options => {
+      productionInstallCalls++;
+      return globalThis.__moondogProductionInstallApply(options);
+    };
+    globalThis.MoonDogUpdateInstall.listBackups = async () => [];
+    globalThis.MoonDogUpdateCheck.check = async () => ({
+      status:"newer-version",version:nextVersion,channel:"beta",
+      sha256,packageUrl:"https://example.test/synthetic-denied-folder"
+    });
+    globalThis.MoonDogPackageVerification.verify = async () => ({
+      status:"verified",version:nextVersion,channel:"beta",sha256,bytes,
+      minimumCompatibleVersion:"0.10.9",migrationRequired:false
+    });
+    globalThis.MoonDogPackagePlan.dryRun = async () => ({
+      add:[],replace:["assets/app.js"],delete:[],unchanged:[],rejected:[]
+    });
+    document.dispatchEvent(new Event("moondog-data"));
+  }, syntheticNextVersion);
+  await page.locator("#checkMoonDogUpdate").click();
+  await page.waitForFunction(() =>
+    document.getElementById("installMoonDogUpdate")?.disabled===false);
+  await page.evaluate(() => document.getElementById("installMoonDogUpdate").click());
+  await page.waitForFunction(() =>
+    document.getElementById("updateProgressState")?.textContent.includes("STOPPED"));
+  assert.match(await page.locator("#updateStatus").textContent(),
+    /Folder write permission was not granted|Folder write permission was lost/);
+  assert.equal(await page.evaluate(() => globalThis.__moondogProductionInstallCalls()),1);
+  assert.equal(await page.evaluate(() => globalThis.__moondogDeniedFileOperations()),0);
+  assert.deepEqual(installedHashes(),repairedHashes);
+  assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),originalStateHash);
+  assert.equal(pageErrors.length,0);
+  console.log("Verified installed file:// Settings invokes actual production installer and refuses denied native folder permission without application file reads; synthetic handles only.");
   console.log("Verified repaired Beta installation and repeat update launched through file://", runtime);
 } finally {
   await browser.close();
