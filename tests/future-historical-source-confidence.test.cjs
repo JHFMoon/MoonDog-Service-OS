@@ -37,6 +37,26 @@ test("historical lookup never certifies a future date across all source families
   }
 });
 
+test("future-dated SAPR end cannot verify an otherwise past historical interval", () => {
+  const source = Object.freeze({
+    key: "sapr", exists: true, purpose: "historical", today: "2026-11-16",
+    periodStart: "2026-10-01", periodEnd: "2026-12-01",
+    targetStart: "2026-10-15", targetEnd: "2026-10-20"
+  });
+  const before = JSON.stringify(source);
+  const future = freshness.evaluateSource(source);
+  assert.equal(future.status, "stale", "future SAPR report end is not completed source coverage");
+  assert.equal(future.safeForPurpose, false);
+  assert.equal(freshness.evaluateMetric([future]).verified, false);
+  assert.equal(JSON.stringify(source), before, "source and declared period remain untouched");
+
+  const corrected = freshness.evaluateSource({...source, periodEnd: source.today});
+  assert.equal(corrected.status, "historical-valid", "verified completed SAPR interval still works");
+  assert.equal(freshness.evaluateMetric([corrected]).verified, true);
+  const forward = freshness.evaluateSource({...source, key: "nextAppointments"});
+  assert.equal(forward.status, "historical-valid", "forward-looking appointments keep valid future coverage");
+});
+
 test("genuinely covered historical intervals and end-only observations remain verified", () => {
   for (const key of families) {
     const historical = freshness.evaluateSource({
