@@ -392,7 +392,7 @@
       result?.status === "unavailable" ? "GitHub unavailable" :
       result?.status === "invalid-input" ? "Installed version cannot be compared" :
       installedChannel === state.channel ? `Installed ${installedChannel === "beta" ? "Beta" : "Stable"} ${installedVersion}; check for newer builds` : "Not checked";
-    field("updateFolders").textContent = `Selected installation folder (parent of System Files): ${appRoot()?.name || "not connected"}. Runtime: System Files/. Dealership data: System Files/Workspace/. Update rollback backups: System Files/Workspace/backups/system-updates/.`;
+    field("updateFolders").textContent = appRoot() ? `Connected MoonDog copy: ${appRoot().name}. MoonDog keeps update recovery files inside this copy automatically; no separate backup destination is needed. For Fresh, Edge may ask you to confirm this same folder (the one containing System Files).` : "Connect your existing MoonDog copy to continue. Choose the folder containing System Files, not System Files itself.";
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
       "Update Current Installation";
     installButton.disabled = state.busy || state.freshResetUnresolved || recoveryHold() || !currentOffer() ||
@@ -505,16 +505,19 @@
       status.textContent="Fresh Installation requires an Edge folder picker; no update was started.";
       return;
     }
+    // Describe the native folder check before opening the picker, without awaiting
+    // or losing the click activation required by Edge.
+    status.textContent = `Confirm the connected MoonDog folder “${current.name || "MoonDog"}” in Edge. Select the folder containing System Files—not System Files or Workspace. MoonDog handles its internal backups automatically.`;
     let chosen;
     try{chosen=await global.showDirectoryPicker({id:"moondog-fresh-selected-copy",mode:"readwrite"});}
     catch(error){
       if(error?.name!=="AbortError")
-        status.textContent="Fresh Installation folder selection failed. No update was started.";
+        status.textContent="Edge could not confirm the MoonDog folder. Nothing was changed. Check folder permission, then try again.";
       return;
     }
     if(current!==appRoot()||!chosen||typeof chosen.isSameEntry!=="function"||
         !(await chosen.isSameEntry(current))){
-      status.textContent="Selected folder does not match the connected installation. No update or deletion was performed.";
+      status.textContent="That is not the connected MoonDog folder. Choose the folder containing System Files in this copy. No update or deletion was performed.";
       return;
     }
     return postUpdateReady() ? finishPostUpdateFresh(chosen) : installUpdate(true,chosen);
