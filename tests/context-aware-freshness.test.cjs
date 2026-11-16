@@ -148,6 +148,23 @@ test('trend gap instructions reject future, malformed, duplicate and nonoperatin
   assert.deepEqual(csiDates,['2026-11-16','invalid','2026-12-01']);
 });
 
+test('SAPR due dates cannot masquerade as verified report coverage', () => {
+  const today='2026-11-16',expectedEnd='2026-11-14';
+  const absent=F.trendMaintenance({key:'sapr',today,coverage:{expectedEnd}});
+  assert.equal(absent.last,'');
+  assert.equal(absent.status,'No verified report day; expected through 2026-11-14');
+  const future=F.trendMaintenance({key:'sapr',today,coverage:{expectedEnd:'2026-12-31'}});
+  assert.equal(future.last,'');
+  assert.equal(future.status,'No verified report day');
+  assert.doesNotMatch(F.trendMaintenanceSummary('sapr',future),/2026-12-31|Current through/);
+  const behind=F.trendMaintenance({key:'sapr',today,coverage:{expectedEnd,lastPoint:'2026-11-12'}});
+  assert.equal(behind.status,'Last verified 2026-11-12; expected through 2026-11-14');
+  const complete=F.trendMaintenance({key:'sapr',today,coverage:{expectedEnd,lastPoint:'2026-11-14'}});
+  assert.equal(complete.status,'Current through 2026-11-14');
+  const beyond=F.trendMaintenance({key:'sapr',today,coverage:{expectedEnd,lastPoint:'2026-11-16'}});
+  assert.equal(beyond.status,'Current through 2026-11-16');
+});
+
 test('history maintenance uses newest valid report day regardless of import enumeration order', () => {
   const presentDates=['2026-10-19','2026-10-17','2026-10-18','2026-02-30','2026-10-21'];
   for(const key of ['sapr','nextAppointments','vir','sor']){
