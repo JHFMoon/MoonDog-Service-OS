@@ -444,7 +444,7 @@ try {
     channel.dispatchEvent(new Event("change", {bubbles:true}));
     document.dispatchEvent(new Event("moondog-data"));
   }, syntheticNextVersion);
-  await page.evaluate(() => document.getElementById("checkMoonDogUpdate").click());
+  await page.locator("#checkMoonDogUpdate").click();
   await page.waitForFunction(() =>
     document.getElementById("updateProgressLabel")?.textContent==="Checking for updates");
   assert.equal(await page.locator("#updateProgress").isVisible(), true);
@@ -473,6 +473,11 @@ try {
     /Synthetic permission denied; no files changed/);
   assert.equal(pageErrors.length, 0);
   console.log("Verified browser-rendered update progression and stopped-error UX using synthetic callback driver; not browser permission or real file repair proof.");
+  // STOPPED is painted before setProgress finishes yielding and the controller
+  // finally releases busy. Wait for the real Check control before replacing
+  // the fixture root; a click on its disabled predecessor is silently ignored.
+  await page.waitForFunction(() =>
+    document.getElementById("checkMoonDogUpdate")?.disabled===false);
   // Unlike the phase-only callback driver above, exercise the actual shipped
   // installer through the installed Settings controller. Synthetic native
   // handles deny read/write authority before any application bytes can move.
@@ -500,7 +505,12 @@ try {
     globalThis.__moondogSettingsModel = {
       ...(globalThis.__moondogSettingsModel || {}), applicationRoot:deniedRoot
     };
-    globalThis.MoonDogUpdateInstall.apply = globalThis.__moondogProductionInstallApply;
+    let productionInstallCalls = 0;
+    globalThis.__moondogProductionInstallCalls = () => productionInstallCalls;
+    globalThis.MoonDogUpdateInstall.apply = async options => {
+      productionInstallCalls++;
+      return globalThis.__moondogProductionInstallApply(options);
+    };
     globalThis.MoonDogUpdateInstall.listBackups = async () => [];
     globalThis.MoonDogUpdateCheck.check = async () => ({
       status:"newer-version",version:nextVersion,channel:"beta",
@@ -515,7 +525,7 @@ try {
     });
     document.dispatchEvent(new Event("moondog-data"));
   }, syntheticNextVersion);
-  await page.evaluate(() => document.getElementById("checkMoonDogUpdate").click());
+  await page.locator("#checkMoonDogUpdate").click();
   await page.waitForFunction(() =>
     document.getElementById("installMoonDogUpdate")?.disabled===false);
   await page.evaluate(() => document.getElementById("installMoonDogUpdate").click());
@@ -523,7 +533,10 @@ try {
     document.getElementById("updateProgressState")?.textContent.includes("STOPPED"));
   assert.match(await page.locator("#updateStatus").textContent(),
     /Folder write permission was not granted|Folder write permission was lost/);
+  assert.equal(await page.evaluate(() => globalThis.__moondogProductionInstallCalls()),1);
   assert.equal(await page.evaluate(() => globalThis.__moondogDeniedFileOperations()),0);
+  assert.deepEqual(installedHashes(),repairedHashes);
+  assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),originalStateHash);
   assert.equal(pageErrors.length,0);
   console.log("Verified installed file:// Settings invokes actual production installer and refuses denied native folder permission without application file reads; synthetic handles only.");
   console.log("Verified repaired Beta installation and repeat update launched through file://", runtime);
