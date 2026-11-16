@@ -62,7 +62,10 @@
   function trendMaintenance(input) {
     const {key,today,coverage={}}=input, unavailable=['not-used','temporarily-unavailable'].includes(coverage.state),
       validPoint=date=>validDateKey(date)&&date<=today,
-      last=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentDates||[]).filter(validPoint).sort().at(-1)||'',
+      validTrendPoint=date=>validPoint(date)&&(key!=='sapr'||!isSunday(date)),
+      last=validTrendPoint(coverage.lastPoint)?coverage.lastPoint:
+        (Array.isArray(coverage.presentDates)?coverage.presentDates:[])
+          .filter(validTrendPoint).sort().at(-1)||'',
       // Never turn future, invalid, duplicate or Sunday SAPR gaps into pull instructions.
       missing=[...new Set((Array.isArray(coverage.missingDates)?coverage.missingDates:[])
         .filter(date=>validPoint(date) && (key!=='sapr'||(date<today&&!isSunday(date)))))].sort(),
