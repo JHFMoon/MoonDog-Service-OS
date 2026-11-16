@@ -346,10 +346,16 @@
     return finish('CURRENT', key === 'menu' ? 'Weekly report current. Historical release gaps are evidence details, not daily tasks.' : 'Evidence is sufficient for the current purpose.');
   }
   function evaluateMetric(dependencies = []) {
-    const blocking = dependencies.filter((item) => !item?.safeForPurpose && !["not-used", "temporarily-unavailable"].includes(item?.status));
+    // A claimed safe flag never overrides a contradictory source status or
+    // absent loaded evidence. Canonical evidence is current or historical-valid.
+    const reliable = item => item?.loaded === true && item.safeForPurpose === true &&
+      ((item.status === "current" && item.safeForCurrent === true) ||
+       (item.status === "historical-valid" && item.safeForCurrent === false));
+    const blocking = dependencies.filter(item => !reliable(item) &&
+      !(item?.safeForPurpose !== true && ["not-used", "temporarily-unavailable"].includes(item?.status)));
     // Optional dependencies may be excluded alongside a valid source, but an
     // entirely unavailable input set is never proof of a current metric.
-    if (dependencies.length && !blocking.length && !dependencies.some((item) => item?.safeForPurpose)) {
+    if (dependencies.length && !blocking.length && !dependencies.some(reliable)) {
       blocking.push(...dependencies);
     }
     return Object.freeze({ verified: blocking.length === 0, status: blocking[0]?.status || "verified", blocking, dependencies });
