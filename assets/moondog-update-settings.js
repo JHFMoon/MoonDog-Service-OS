@@ -374,7 +374,7 @@
     paintUpdateProgress();
   }
   function render() {
-    field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
+    field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : installedChannel === "stable" ? "Stable" : "Unverified";
     field("updateChannelNote").textContent = (state.channel === "beta" ?
       "Beta is the test channel. A verified return to Stable remains available." :
       "Stable is the normal operating channel.") +
@@ -646,6 +646,25 @@
         appDirectoryHandle: selectedSystem, workspaceDirectoryHandle: selectedRoot,
         trustedAllowlist: catalog, expectedPlan: plan, confirmed: true,
         onProgress: event => setProgress({ ...event, percent: Math.round(28 + (Math.max(0, Math.min(100, Number(event.percent) || 0)) * .72)) }) });
+      // The updater is pinned to selectedRoot, but the user may reconnect a
+      // different installation while the filesystem operation is awaiting.
+      // Do not attribute Store A's result/version/reload to Store B.
+      if (selectedRoot !== appRoot()) {
+        state.check = null;
+        state.checkFor = null;
+        state.postUpdateFresh = null;
+        installedVersion = "";
+        comparisonVersion = "";
+        installedChannel = "unknown";
+        field("updateInstalledVersion").textContent = "Unverified — reconnect installation";
+        field("updateInstalledChannel").textContent = "Unverified";
+        clearPlan();
+        status.textContent = "The selected installation changed during update. The original installation may have been updated; reconnect it to verify its version and recovery journal. The newly selected installation is unverified.";
+        await setProgress({ phase: "error", percent: null,
+          label: "Installation selection changed",
+          detail: "Reconnect the original installation to verify the update and recovery status." });
+        return;
+      }
       status.textContent = outcome.status === "installed" ?
         `Update verified. Reloading to use version ${outcome.version}. Rollback backup saved in System Files/Workspace/backups/system-updates/.` :
         outcome.status === "rolled-back" ? "Update failed and original app files were verified restored. Rollback backup saved in System Files/Workspace/backups/system-updates/." :

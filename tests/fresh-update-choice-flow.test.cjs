@@ -100,6 +100,24 @@ test("root change after install blocks Fresh without a reset call",async()=>{
   assert.match(h.field("updateStatus").textContent,/selected installation changed/);
 });
 
+test("preserve-update cannot credit a newly connected store with another store's completed update",async()=>{
+  const h=harness();
+  await h.check();
+  h.context.MoonDogUpdateInstall.apply=async ({workspaceDirectoryHandle})=>{
+    assert.equal(workspaceDirectoryHandle,h.root,"the verified installer remains pinned to Store A");
+    h.events.push(["apply"]);
+    h.context.__moondogSettingsModel.applicationRoot={name:"Unrelated Synthetic Store B"};
+    return {status:"installed",version:"0.10.18-beta.382"};
+  };
+  await h.preserve();
+  assert.deepEqual(h.events.map(event=>event[0]),["verify","plan","apply"]);
+  assert.match(h.field("updateStatus").textContent,/selected installation changed during update/);
+  assert.match(h.field("updateInstalledVersion").textContent,/Unverified/);
+  assert.equal(h.field("updateInstalledChannel").textContent,"Unverified");
+  assert.doesNotMatch(h.field("updateStatus").textContent,/Reloading|Update verified/);
+  assert.equal(h.field("installMoonDogUpdate").disabled,true);
+});
+
 test("failed Fresh cleanup after verified install blocks further updates in this tab",async()=>{
   const h=harness();await h.check();
   h.context.__moondogFreshInstallation.resetSelectedFreshInstallation=async()=>{
