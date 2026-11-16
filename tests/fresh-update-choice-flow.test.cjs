@@ -8,7 +8,7 @@ const vm = require("node:vm");
 const source=fs.readFileSync(path.join(__dirname,"..","assets","moondog-update-settings.js"),"utf8");
 
 function harness(installerResult={status:"installed",version:"0.10.18-beta.382",backupName:"MoonDog-Update-Backup-synthetic"},options={}) {
-  const listeners=new Map(),fields=new Map(),events=[],storageWrites=[];
+  const listeners=new Map(),fields=new Map(),events=[],storageWrites=[],permissionRequests=[];
   let record=options.journal??null,reads=0,journalFailure=options.journalFailure??null;
   const missing=()=>Object.assign(new Error("Missing synthetic directory"),{name:"NotFoundError"});
   const journalFolder={kind:"directory",getFileHandle:async name=>{
@@ -29,6 +29,11 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
     if(name!=="Workspace")throw missing();return workspace;
   }};
   const root={name:"Synthetic-Installation",isSameEntry:async other=>other===root,
+    requestPermission:async opts=>{
+      permissionRequests.push(opts.mode);
+      if(options.permissionError)throw options.permissionError;
+      return options.permission||"granted";
+    },
     resolve:async()=>["System Files","Workspace"],getDirectoryHandle:async name=>{
       if(name!=="System Files")throw missing();return system;
     }};
@@ -43,7 +48,7 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
     MoonDogInstalledVersion:options.installedVersion||"0.10.18-beta.381",
     location:options.location||{},
     __moondogSettingsModel:{applicationRoot:root},
-    showDirectoryPicker:async()=>root,
+    showDirectoryPicker:async()=>{throw Error("Unexpected folder picker: use connected installation handle");},
     __moondogMaintenance:{runtimePaths:["assets/app.js"]},
     __moondogFreshInstallation:{resetSelectedFreshInstallation:async options=>{
       events.push(["fresh",options.selectedRoot,options.verifiedInstall.version]);return {status:"fresh"};
@@ -64,7 +69,7 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
     confirm:()=>true,Date,setTimeout(){},requestAnimationFrame:fn=>fn()
   });
   vm.runInContext(source,context);
-  return {root,events,storageWrites,field,listeners,context,
+  return {root,events,storageWrites,permissionRequests,field,listeners,context,
     setJournal:next=>{record=next;},setJournalFailure:error=>{journalFailure=error;},
     journalReads:()=>reads,
     async settle(){for(let n=0;n<40;n++)await Promise.resolve();},
@@ -80,6 +85,7 @@ test("Fresh choice is available for new Beta offer and occurs only after verifie
   assert.deepEqual(h.events.map(e=>e[0]),["verify","plan","apply","fresh"]);
   assert.equal(h.events.at(-1)[1],h.root);
   assert.equal(h.events.at(-1)[2],"0.10.18-beta.382");
+  assert.deepEqual(h.permissionRequests,["readwrite"],"Fresh must reuse one saved handle and request Edge write permission");
   assert.equal(h.storageWrites.includes("moondog-verified-update-followup-v1"),false,
     "Fresh must not add a shared-origin follow-up receipt for another installation");
 });
@@ -138,20 +144,22 @@ test("preserving an installation relies on its own durable journal, not shared b
   assert.equal(h.storageWrites.includes("moondog-verified-update-followup-v1"),false);
 });
 
-test("wrong-folder picker selection rejects Fresh before verifying or installing",async()=>{
-  const h=harness();await h.check();
-  h.context.showDirectoryPicker=async()=>({name:"Unrelated-Synthetic-Copy",
-    isSameEntry:async()=>false});
-  await h.fresh();
-  assert.deepEqual(h.events.map(e=>e[0]),[]);
-  assert.match(h.field("updateStatus").textContent,/does not match the connected installation/);
+test("Fresh write-permission denial stops before verifying or installing",async()=>{
+  const h=harness(undefined,{permission:"denied"});await h.check();await h.fresh();
+  assert.deepEqual(h.events,[]);
+  assert.deepEqual(h.permissionRequests,["readwrite"]);
+  assert.match(h.field("updateStatus").textContent,/Folder access was not approved/);
 });
-test("Fresh picker unavailability refuses safely without running installer",async()=>{
-  const h=harness();await h.check();
-  h.context.showDirectoryPicker=undefined;
-  await h.fresh();
-  assert.deepEqual(h.events.map(e=>e[0]),[]);
-  assert.match(h.field("updateStatus").textContent,/requires an Edge folder picker/);
+test("Fresh permission error stops without touching the installation",async()=>{
+  const h=harness(undefined,{permissionError:Error("Synthetic Edge refusal")});
+  await h.check();await h.fresh();
+  assert.deepEqual(h.events,[]);
+  assert.match(h.field("updateStatus").textContent,/could not authorize changes/);
+});
+test("Fresh requires a connected handle with a permission API",async()=>{
+  const h=harness();await h.check();h.root.requestPermission=undefined;await h.fresh();
+  assert.deepEqual(h.events,[]);
+  assert.match(h.field("updateStatus").textContent,/cannot verify the connected installation/);
 });
 
 test("changing the connected root during preview never mixes two installation handles",async()=>{
@@ -236,14 +244,17 @@ test("post-reload Fresh checks journal again and blocks a changed receipt",async
   assert.match(h.field("updateStatus").textContent,/receipt changed/);
 });
 
-test("post-reload Fresh rejects wrong-store picker even with a matching journal",async()=>{
+test("post-reload Fresh refuses a root swap during permission",async()=>{
   const h=harness(undefined,{installedVersion:"0.10.18-beta.382",
     checkResult:{status:"up-to-date"},journal:VERIFIED_RELOAD_JOURNAL});
   await h.check();await h.settle();
-  h.context.showDirectoryPicker=async()=>({name:"Other-Store",isSameEntry:async()=>false});
+  h.root.requestPermission=async()=>{
+    h.context.__moondogSettingsModel.applicationRoot={name:"Other-Store"};
+    return "granted";
+  };
   await h.fresh();
   assert.deepEqual(h.events,[]);
-  assert.match(h.field("updateStatus").textContent,/does not match the connected installation/);
+  assert.match(h.field("updateStatus").textContent,/installation changed/);
 });
 
 test("post-reload Fresh cancellation never deletes or writes a shared follow-up",async()=>{
