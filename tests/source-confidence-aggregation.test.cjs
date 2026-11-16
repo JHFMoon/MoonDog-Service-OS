@@ -5,6 +5,37 @@ const F=require("../assets/freshness.js");
 
 const today="2026-10-07";
 
+test("contradictory safeForPurpose cannot certify missing, invalid or unloaded source confidence",()=>{
+  const broken = [
+    ...["missing","stale","invalid","conflicting","unsupported","unverified"].map(status =>
+      Object.freeze({key:"sapr",status,loaded:true,safeForCurrent:true,safeForPurpose:true})),
+    Object.freeze({key:"sapr",status:"current",loaded:false,safeForCurrent:true,safeForPurpose:true}),
+    Object.freeze({key:"sapr",status:"historical-valid",loaded:false,safeForCurrent:false,safeForPurpose:true}),
+    Object.freeze({key:"sapr",status:"current",loaded:true,safeForCurrent:false,safeForPurpose:true}),
+    Object.freeze({key:"sapr",status:"historical-valid",loaded:true,safeForCurrent:true,safeForPurpose:true})
+  ];
+  for(const evidence of broken){
+    const metric=F.evaluateMetric([evidence]);
+    assert.equal(metric.verified,false,"contradictory source cannot certify metric: "+JSON.stringify(evidence));
+    assert.deepEqual(metric.blocking,[evidence],"original contradictory source stays visible");
+    assert.equal(metric.status,evidence.status,"preserve the source status for review");
+  }
+  for(const key of Object.keys(F.SOURCE_DEFINITIONS)){
+    const cadence=F.SOURCE_DEFINITIONS[key].cadence;
+    const base={key,exists:true,today};
+    const input=cadence==="same-business-day"?{...base,sourceDate:today}:
+      cadence==="same-business-day-period"?{...base,periodStart:today,periodEnd:today}:
+      cadence==="prior-operating-day"?{...base,periodStart:"2026-10-01",periodEnd:"2026-10-06"}:
+      cadence==="cumulative-observation"?{...base,scopeVerified:true,scopeStart:"2026-10-01",scopeEnd:"2026-10-06"}:
+      cadence==="weekly-monday"?{...base,releaseWeek:"2026-10-05"}:
+      cadence==="state-current"?{...base,stale:false}:
+      {...base,periodStart:"2026-10-01",periodEnd:"2026-10-06"};
+    const evidence=F.evaluateSource(input);
+    assert.ok(["current","historical-valid"].includes(evidence.status),key+" canonical source control");
+    assert.equal(F.evaluateMetric([evidence]).verified,true,key+" verified source remains usable");
+  }
+});
+
 test("missing, stale, and unsupported sources remain unverified metric dependencies",()=>{
   const cases=[
     ["missing",F.evaluateSource({key:"sapr",exists:false,today})],
