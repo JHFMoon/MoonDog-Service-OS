@@ -148,6 +148,24 @@ test('trend gap instructions reject future, malformed, duplicate and nonoperatin
   assert.deepEqual(csiDates,['2026-11-16','invalid','2026-12-01']);
 });
 
+test('SAPR trend requires a completed operating day, not a Sunday date', () => {
+  const today='2026-11-16';
+  const supplied=Object.freeze(['2026-11-14','2026-11-15']);
+  const plan=F.trendMaintenance({key:'sapr',today,
+    coverage:{lastPoint:'2026-11-15',presentDates:supplied}});
+  assert.equal(plan.last,'2026-11-14');
+  assert.equal(plan.status,'Current through 2026-11-14');
+  const withoutLast=F.trendMaintenance({key:'sapr',today,coverage:{presentDates:supplied}});
+  assert.equal(withoutLast.last,'2026-11-14');
+  const sundayOnly=F.trendMaintenance({key:'sapr',today,coverage:{presentDates:['2026-11-15']}});
+  assert.equal(sundayOnly.last,'');
+  assert.equal(sundayOnly.status,'No verified report day');
+  const optionalVir=F.trendMaintenance({key:'vir',today,coverage:{presentDates:supplied}});
+  assert.equal(optionalVir.last,'2026-11-15',
+    'a genuine VIR point observation can still occur on Sunday');
+  assert.deepEqual(supplied,['2026-11-14','2026-11-15']);
+});
+
 test('SAPR due dates cannot masquerade as verified report coverage', () => {
   const today='2026-11-16',expectedEnd='2026-11-14';
   const absent=F.trendMaintenance({key:'sapr',today,coverage:{expectedEnd}});
