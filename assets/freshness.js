@@ -73,7 +73,11 @@
     if(['openRo','appointments','appointmentActivity','openRoSummary'].includes(key))return{...result,cadence:key==='openRo'||key==='appointments'?'Current operational snapshot':'Reference only',status:'NONE REQUIRED',importDate:validPoint(input.currentImportDate)?input.currentImportDate:'',snapshotDate:validPoint(input.sourceSnapshotDate)?input.sourceSnapshotDate:'',lastActivityDate:validPoint(input.lastActivityDate)?input.lastActivityDate:'',note:key==='openRo'||key==='appointments'?'Historical daily trend: Not required.':'No historical trend maintenance required.'};
     if(unavailable)return{...result,status:coverage.state==='not-used'?'NOT USED':'UNAVAILABLE',note:coverage.state==='not-used'?'No report action for this store.':'Trend evidence remains pending until the source is available.'};
     if(key==='menu'){
-      const latest=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentReleases||[]).filter(validPoint).sort().at(-1)||'',currentMonday=mondayFor(today),nextRelease=addDays(currentMonday,7),
+      const validRelease=date=>validPoint(date)&&dayOfWeek(date)===1,
+        latest=validRelease(coverage.lastPoint)?coverage.lastPoint:
+          (Array.isArray(coverage.presentReleases)?coverage.presentReleases:[])
+            .filter(validRelease).sort().at(-1)||'',
+        currentMonday=mondayFor(today),nextRelease=addDays(currentMonday,7),
         gaps=[...new Set((Array.isArray(coverage.missingReleases)?coverage.missingReleases:[])
           .filter(date=>validDateKey(date)&&date<=currentMonday&&dayOfWeek(date)===1))].sort();
       return{...result,cadence:'Weekly — Monday release',last:latest,next:gaps.includes(currentMonday)?currentMonday:nextRelease,missing:gaps,status:gaps.length?'Missing required releases':latest?`Current through ${format(latest)}`:'No verified release yet',recovery:'Each missing release needs its actual retained Menu Sales report; a current release does not rebuild prior weeks.'};
