@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.423 — current Beta
+
+- fix(59-04): require verified report dates in trend instructions. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.422 — current Beta
 
 - fix(59): require coherent report readiness and completed CSI/VIR history. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
