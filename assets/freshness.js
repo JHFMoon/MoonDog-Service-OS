@@ -62,7 +62,13 @@
   function trendMaintenance(input) {
     const {key,today,coverage={}}=input, unavailable=['not-used','temporarily-unavailable'].includes(coverage.state),
       validPoint=date=>validDateKey(date)&&date<=today,
-      last=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentDates||[]).filter(validPoint).sort().at(-1)||'',missing=coverage.missingDates||[],
+      validTrendPoint=date=>validPoint(date)&&(key!=='sapr'||!isSunday(date)),
+      last=validTrendPoint(coverage.lastPoint)?coverage.lastPoint:
+        (Array.isArray(coverage.presentDates)?coverage.presentDates:[])
+          .filter(validTrendPoint).sort().at(-1)||'',
+      // Never turn future, invalid, duplicate or Sunday SAPR gaps into pull instructions.
+      missing=[...new Set((Array.isArray(coverage.missingDates)?coverage.missingDates:[])
+        .filter(date=>validPoint(date) && (key!=='sapr'||(date<today&&!isSunday(date)))))].sort(),
       required=key==='sapr'||key==='menu',optional=['nextAppointments','vir','mediaAsr','mediaAsrTech','efficiency','sor'].includes(key),
       format=input.formatDate||((date)=>date),operatingFrom=date=>{while(isSunday(date))date=addDays(date,1);return date;},
       result={kind:required?'required':optional?'optional':key==='csi'?'recoverable':'none',cadence:'',last:'',next:'',missing:[],status:'',recovery:'',note:''};
@@ -70,7 +76,13 @@
     if(['openRo','appointments','appointmentActivity','openRoSummary'].includes(key))return{...result,cadence:key==='openRo'||key==='appointments'?'Current operational snapshot':'Reference only',status:'NONE REQUIRED',importDate:validPoint(input.currentImportDate)?input.currentImportDate:'',snapshotDate:validPoint(input.sourceSnapshotDate)?input.sourceSnapshotDate:'',lastActivityDate:validPoint(input.lastActivityDate)?input.lastActivityDate:'',note:key==='openRo'||key==='appointments'?'Historical daily trend: Not required.':'No historical trend maintenance required.'};
     if(unavailable)return{...result,status:coverage.state==='not-used'?'NOT USED':'UNAVAILABLE',note:coverage.state==='not-used'?'No report action for this store.':'Trend evidence remains pending until the source is available.'};
     if(key==='menu'){
-      const latest=validPoint(coverage.lastPoint)?coverage.lastPoint:(coverage.presentReleases||[]).filter(validPoint).sort().at(-1)||'',currentMonday=mondayFor(today),nextRelease=addDays(currentMonday,7),gaps=coverage.missingReleases||[];
+      const validRelease=date=>validPoint(date)&&dayOfWeek(date)===1,
+        latest=validRelease(coverage.lastPoint)?coverage.lastPoint:
+          (Array.isArray(coverage.presentReleases)?coverage.presentReleases:[])
+            .filter(validRelease).sort().at(-1)||'',
+        currentMonday=mondayFor(today),nextRelease=addDays(currentMonday,7),
+        gaps=[...new Set((Array.isArray(coverage.missingReleases)?coverage.missingReleases:[])
+          .filter(date=>validDateKey(date)&&date<=currentMonday&&dayOfWeek(date)===1))].sort();
       return{...result,cadence:'Weekly — Monday release',last:latest,next:gaps.includes(currentMonday)?currentMonday:nextRelease,missing:gaps,status:gaps.length?'Missing required releases':latest?`Current through ${format(latest)}`:'No verified release yet',recovery:'Each missing release needs its actual retained Menu Sales report; a current release does not rebuild prior weeks.'};
     }
     if(key==='csi'){
@@ -82,7 +94,15 @@
     let next=operatingFrom(today);if(last>=next)next=operatingFrom(addDays(last,1));
     result.cadence=key==='sapr'?'Daily — operating days':key==='sor'?'Optional dated financial observation':'Optional daily — operating days';
     result.last=last;result.next=next;result.missing=missing;result.financialMonth=key==='sor'?input.financialMonth||'':'';
-    result.status=required?(missing.length?'Missing required dates':last&&last>coverage.expectedEnd?`Current through ${format(last)}`:coverage.expectedEnd?`Current through ${format(coverage.expectedEnd)}`:last?`Current through ${format(last)}`:'No completed operating day yet'):(last?`Current through ${format(last)}`:'No verified trend point');
+    // An expected due date is not a source observation and cannot certify
+    // a completed SAPR report when no verified point exists.
+    const expected=validPoint(coverage.expectedEnd)?coverage.expectedEnd:'';
+    result.status=required?(
+      missing.length?'Missing required dates':
+      !last?(expected?`No verified report day; expected through ${format(expected)}`:'No verified report day'):
+      expected&&last<expected?`Last verified ${format(last)}; expected through ${format(expected)}`:
+      `Current through ${format(last)}`
+    ):(last?`Current through ${format(last)}`:'No verified trend point');
     result.recovery=key==='sapr'?'Each missing day needs a separate month-to-date SAPR ending on that date; a current cumulative SAPR cannot rebuild prior points.':key==='nextAppointments'?'Each dated report supplies one point. A verified substitute can fill only its matching period; cumulative totals do not rebuild prior daily points.':key==='sor'?'The report month is a financial label, not an observation date. Only a verified source or file observation date in that month supplies a point.':'Each missing date needs an actual dated report; a current report cannot reconstruct past observations.';
     return result;
   }
