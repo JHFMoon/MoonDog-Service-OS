@@ -390,6 +390,9 @@ try {
     globalThis.MoonDogPackagePlan.dryRun = async () => ({
       add:[], replace:["assets/app.js"], delete:[], unchanged:[], rejected:[]
     });
+    // Retain the real production installer for a separate denied-permission
+    // browser proof; the phase-rendering fixture below is deliberately mocked.
+    globalThis.__moondogProductionInstallApply = globalThis.MoonDogUpdateInstall.apply;
     globalThis.MoonDogUpdateInstall.apply = async ({onProgress}) =>
       new Promise(resolve => {
         globalThis.__moondogEmitRepairPhase = event => onProgress(event);
@@ -432,6 +435,59 @@ try {
     /Synthetic permission denied; no files changed/);
   assert.equal(pageErrors.length, 0);
   console.log("Verified browser-rendered update progression and stopped-error UX using synthetic callback driver; not browser permission or real file repair proof.");
+  // Unlike the phase-only callback driver above, exercise the actual shipped
+  // installer through the installed Settings controller. Synthetic native
+  // handles deny read/write authority before any application bytes can move.
+  await page.evaluate(async nextVersion => {
+    const bytes = new TextEncoder().encode("MoonDog synthetic denied-folder proof");
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    const sha256 = [...hash].map(value => value.toString(16).padStart(2, "0")).join("");
+    const missing = () => Object.assign(new Error("Missing synthetic folder"), {name:"NotFoundError"});
+    let forbiddenOperations = 0;
+    const deniedSystem = {
+      name:"System Files", kind:"directory",
+      queryPermission:async () => "denied", requestPermission:async () => "denied",
+      getFileHandle:async () => {forbiddenOperations++;throw Error("Application file access after denial");},
+      getDirectoryHandle:async () => {throw missing();}
+    };
+    const deniedRoot = {
+      name:"Synthetic read-only installation",kind:"directory",
+      queryPermission:async () => "denied",requestPermission:async () => "denied",
+      getDirectoryHandle:async (name, options) => {
+        if(name==="System Files" && options?.create===false)return deniedSystem;
+        throw missing();
+      }
+    };
+    globalThis.__moondogDeniedFileOperations = () => forbiddenOperations;
+    globalThis.__moondogSettingsModel = {
+      ...(globalThis.__moondogSettingsModel || {}), applicationRoot:deniedRoot
+    };
+    globalThis.MoonDogUpdateInstall.apply = globalThis.__moondogProductionInstallApply;
+    globalThis.MoonDogUpdateInstall.listBackups = async () => [];
+    globalThis.MoonDogUpdateCheck.check = async () => ({
+      status:"newer-version",version:nextVersion,channel:"beta",
+      sha256,packageUrl:"https://example.test/synthetic-denied-folder"
+    });
+    globalThis.MoonDogPackageVerification.verify = async () => ({
+      status:"verified",version:nextVersion,channel:"beta",sha256,bytes,
+      minimumCompatibleVersion:"0.10.9",migrationRequired:false
+    });
+    globalThis.MoonDogPackagePlan.dryRun = async () => ({
+      add:[],replace:["assets/app.js"],delete:[],unchanged:[],rejected:[]
+    });
+    document.dispatchEvent(new Event("moondog-data"));
+  }, syntheticNextVersion);
+  await page.evaluate(() => document.getElementById("checkMoonDogUpdate").click());
+  await page.waitForFunction(() =>
+    document.getElementById("installMoonDogUpdate")?.disabled===false);
+  await page.evaluate(() => document.getElementById("installMoonDogUpdate").click());
+  await page.waitForFunction(() =>
+    document.getElementById("updateProgressState")?.textContent.includes("STOPPED"));
+  assert.match(await page.locator("#updateStatus").textContent(),
+    /Folder write permission was not granted|Folder write permission was lost/);
+  assert.equal(await page.evaluate(() => globalThis.__moondogDeniedFileOperations()),0);
+  assert.equal(pageErrors.length,0);
+  console.log("Verified installed file:// Settings invokes actual production installer and refuses denied native folder permission without application file reads; synthetic handles only.");
   console.log("Verified repaired Beta installation and repeat update launched through file://", runtime);
 } finally {
   await browser.close();
