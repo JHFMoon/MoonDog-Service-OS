@@ -5,6 +5,28 @@ const F=require("../assets/freshness.js");
 
 const today="2026-10-07";
 
+test("an empty dependency set and unknown-source placeholders never certify metric confidence",()=>{
+  for(const dependencies of [undefined,[]]){
+    const metric=F.evaluateMetric(dependencies);
+    assert.equal(metric.verified,false,"absence of source authority is never verification");
+    assert.equal(metric.status,"missing","unbound metric evidence is explicitly missing");
+    assert.deepEqual(metric.dependencies,[]);
+    assert.deepEqual(metric.blocking,[],"a missing dependency set has no fabricated source row");
+  }
+  const unknown=Object.freeze({});
+  const unresolved=F.evaluateMetric([unknown]);
+  assert.equal(unresolved.verified,false);
+  assert.equal(unresolved.status,"unverified","unknown source cannot display verified status");
+  assert.deepEqual(unresolved.blocking,[unknown],"preserve the original unknown evidence");
+  const optional=F.evaluateMetric([{status:"not-used",safeForPurpose:false}]);
+  assert.equal(optional.verified,false,"only optional sources cannot verify a metric");
+  assert.equal(optional.status,"not-used");
+  const current=F.evaluateSource({key:"sapr",exists:true,today,periodStart:"2026-10-01",periodEnd:"2026-10-06"});
+  assert.equal(F.evaluateMetric([current]).verified,true,"valid source confidence is unchanged");
+  assert.equal(F.evaluateMetric([current,{status:"not-used",safeForPurpose:false}]).verified,true,
+    "optional exclusion remains valid when a real source exists");
+});
+
 test("missing, stale, and unsupported sources remain unverified metric dependencies",()=>{
   const cases=[
     ["missing",F.evaluateSource({key:"sapr",exists:false,today})],
