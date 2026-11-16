@@ -325,8 +325,14 @@
       // A safeForCurrent flag cannot override its contradictory status or
       // absent loaded-source authority. Only canonical loaded/current evidence
       // or a validated recent historical observation is usable here.
-      authoritativeCurrent = evidence.status === 'current' && evidence.loaded === true && evidence.safeForCurrent === true,
-      current = recognizedSourceState && ((key === 'openRo' && input.currentSnapshot === true) || (!input.legacyUnsafe && (authoritativeCurrent || (evidence.loaded === true && evidence.status === 'historical-valid' && datedCurrent)))),
+      authoritativeCurrent = evidence.status === 'current' && evidence.loaded === true &&
+        evidence.safeForCurrent === true && evidence.safeForPurpose === true,
+      authoritativeHistorical = evidence.status === 'historical-valid' && evidence.loaded === true &&
+        evidence.safeForPurpose === true && evidence.safeForCurrent === false && datedCurrent,
+      authoritative = authoritativeCurrent || authoritativeHistorical,
+      independentOpenRo = key === 'openRo' && input.currentSnapshot === true &&
+        (authoritative || evidence.status === 'missing' || evidence.status === 'stale'),
+      current = recognizedSourceState && (independentOpenRo || (!input.legacyUnsafe && authoritative)),
       missing = (input.missingDates || []).filter(date => trustedDate(date) && date.slice(0,7) === today.slice(0,7) && date < today && !isSunday(date)),
       active = Boolean(input.activeFeature), soon = Boolean(input.soonFeature);
     if (optional && !active && !soon) return finish(current ? 'CURRENT' : 'OPTIONAL', current ? 'Current trend is usable; additional dated observations are optional.' : 'Optional trend depth. No historical backfill required.');
