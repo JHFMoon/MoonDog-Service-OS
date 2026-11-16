@@ -352,7 +352,10 @@
     if (dependencies.length && !blocking.length && !dependencies.some((item) => item?.safeForPurpose)) {
       blocking.push(...dependencies);
     }
-    return Object.freeze({ verified: blocking.length === 0, status: blocking[0]?.status || "verified", blocking, dependencies });
+    // No declared dependencies is missing authority, not a verified KPI.
+    const verified = dependencies.length > 0 && blocking.length === 0;
+    const status = verified ? "verified" : (blocking[0]?.status || (dependencies.length ? "unverified" : "missing"));
+    return Object.freeze({ verified, status, blocking, dependencies });
   }
 
   root.MoonDogFreshness = Object.freeze({ DEFAULT_TIME_ZONE, SOURCE_DEFINITIONS, REPORT_PURPOSES, evaluateReportNeed, trendMaintenance, trendMaintenanceSummary, trendMaintenanceAction, trendMaintenanceActions, csiTrendEvidence, validDateKey, dateKey, timeParts, addDays, dayOfWeek, isSunday, previousOperatingDay, operatingDays, mondayFor, lastDayOfMonth, previousMonth, finalOperatingDay, adjacentWindows, evaluateSource, evaluateMetric });
