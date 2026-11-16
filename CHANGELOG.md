@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.421 — current Beta
+
+- fix(59-01): require coherent loaded source before metric verification. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.420 — current Beta
 
 - fix(59-01): refuse metrics verified without source dependencies. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
