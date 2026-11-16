@@ -207,7 +207,7 @@
         validDateKey(input.periodEnd) && input.periodEnd >= targetEnd &&
         // SAPR reports cannot certify past coverage with a future reported end.
         // Forward-looking report families retain their own period semantics.
-        (input.key !== "sapr" || input.periodEnd <= today) &&
+        (!["sapr","csi","vir"].includes(input.key) || input.periodEnd <= today) &&
         sourceStartValid && (sourceStartMissing
           // An undated start cannot prove historical coverage before its only
           // verified observation day. Preserve legacy end-day lookup only.
