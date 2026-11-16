@@ -83,6 +83,23 @@ test("recent historical source needs explicit coherent purpose authority", () =>
   }
 });
 
+test("independent Open RO workload rejects contradictory missing or stale source flags", () => {
+  const blocked=[
+    {status:"missing",loaded:true,safeForCurrent:false,safeForPurpose:false},
+    {status:"missing",loaded:false,safeForCurrent:true,safeForPurpose:false},
+    {status:"missing",loaded:false,safeForCurrent:false,safeForPurpose:true},
+    {status:"stale",loaded:false,safeForCurrent:false,safeForPurpose:false},
+    {status:"stale",loaded:true,safeForCurrent:true,safeForPurpose:false},
+    {status:"stale",loaded:true,safeForCurrent:false,safeForPurpose:true}
+  ];
+  for(const evidence of blocked)assert.equal(check("openRo",Object.freeze(evidence),true).state,
+    "NEED NOW", "independent workload cannot waive contradictory source-integrity flags");
+  assert.equal(check("openRo",Object.freeze({
+    status:"missing",loaded:false,safeForCurrent:false,safeForPurpose:false}),true).state,"CURRENT");
+  assert.equal(check("openRo",Object.freeze({
+    status:"stale",loaded:true,safeForCurrent:false,safeForPurpose:false}),true).state,"CURRENT");
+});
+
 test("unknown, blank, pending and bogus confidence cannot claim report readiness in any operational family", () => {
   for (const key of families) {
     for (const status of [undefined, null, "", "unknown", "pending", "loading", "verified"]) {
