@@ -258,7 +258,7 @@ test("optional exclusions remain allowed when another source actually verifies t
   const blocked=F.evaluateMetric([current,notUsed,missing]);
   assert.equal(blocked.verified,false);
   assert.deepEqual(blocked.blocking,[missing],"a real missing dependency must still block");
-  assert.equal(F.evaluateMetric([]).verified,true,"empty dependency behavior is unchanged");
+  assert.equal(F.evaluateMetric([]).verified,false,"empty dependency set cannot certify a current metric");
 });
 
 
