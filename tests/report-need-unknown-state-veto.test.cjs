@@ -17,6 +17,30 @@ function check(key, evidence, currentSnapshot = true) {
   return need;
 }
 
+test("contradictory safeForCurrent flags cannot certify missing, stale or unloaded sources", () => {
+  const blocked = [
+    {status:"missing",loaded:false,safeForCurrent:true},
+    {status:"missing",loaded:true,safeForCurrent:true},
+    {status:"stale",loaded:true,safeForCurrent:true},
+    {status:"stale",loaded:false,safeForCurrent:true},
+    {status:"current",loaded:false,safeForCurrent:true},
+    {status:"current",loaded:true,safeForCurrent:false},
+    {status:"current",loaded:true,safeForCurrent:"true"},
+    {status:"historical-valid",loaded:false,safeForCurrent:true},
+    {status:"historical-valid",loaded:true,safeForCurrent:true}
+  ];
+  for(const key of families.filter(family=>family!=="openRo")){
+    for(const evidence of blocked){
+      const original=Object.freeze({key,...evidence,safeForPurpose:true});
+      assert.notEqual(check(key,original,false).state,"CURRENT",
+        key+" "+evidence.status+" must not borrow an inconsistent readiness flag");
+    }
+  }
+  assert.equal(check("sapr",Object.freeze({status:"current",loaded:true,safeForCurrent:true}),false).state,"CURRENT");
+  assert.equal(check("openRo",Object.freeze({status:"missing",loaded:false,safeForCurrent:false}),true).state,"CURRENT",
+    "independently verified current Open RO workload remains an allowed fallback");
+});
+
 test("unknown, blank, pending and bogus confidence cannot claim report readiness in any operational family", () => {
   for (const key of families) {
     for (const status of [undefined, null, "", "unknown", "pending", "loading", "verified"]) {
