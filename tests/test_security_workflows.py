@@ -76,6 +76,16 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", section)
         self.assertIn("LEARNED_PARSER_BASE_SHA: ${{ github.event.pull_request.base.sha }}", section)
 
+    def test_documentation_only_proof_upload_keeps_visible_scope_evidence(self):
+        workflow = (ROOT / ".github/workflows/clean-install-proof.yml").read_text()
+        output = re.search(r"--output ([^\s]+)", workflow).group(1)
+        self.assertFalse(Path(output).name.startswith("."), "upload-artifact excludes hidden files by default")
+        self.assertIn("> " + output, workflow, "bootstrap fallback must write the same evidence path")
+        artifact = workflow.split("- name: Upload proof artifact", 1)[1]
+        self.assertRegex(artifact, r"(?m)^\s+" + re.escape(output) + r"$")
+        self.assertIn("if-no-files-found: error", artifact)
+        self.assertNotIn("include-hidden-files: true", artifact)
+
     def test_publication_check_covers_all_pushes_and_recurs(self):
         text = (ROOT / ".github/workflows/publication-check.yml").read_text(encoding="utf-8")
         self.assertIn("  push:\n", text)
