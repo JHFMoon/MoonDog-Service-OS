@@ -59,3 +59,33 @@ test("the date-source due-today priority remains authoritative",()=>{
   assert.equal(item.rank,2);
   assert.equal(item.title,"Keep this commitment today");
 });
+
+test("RO commitment deferral honors the dealership timezone rather than the computer clock",()=>{
+  const freshnessSource=fs.readFileSync(path.join(__dirname,"..","assets","freshness.js"),"utf8");
+  function inStore(zone){
+    const cx=vm.createContext({Date,Intl,__moondogSettingsModel:{settings:{store:{timeZone:zone}}}});
+    vm.runInContext(freshnessSource,cx);
+    vm.runInContext(source,cx);
+    return cx.MoonDogDailyEngine;
+  }
+  const cases=[
+    ["Pacific standard","America/Los_Angeles","2026-11-16T17:30:00.000Z","2026-11-16","09:35","2026-11-16T17:32:30.000Z"],
+    ["Pacific daylight","America/Los_Angeles","2026-07-20T16:30:00.000Z","2026-07-20","09:35","2026-07-20T16:32:30.000Z"],
+    ["Eastern standard","America/New_York","2026-11-16T14:30:00.000Z","2026-11-16","09:35","2026-11-16T14:32:30.000Z"],
+    ["Japan standard","Asia/Tokyo","2026-11-16T00:30:00.000Z","2026-11-16","09:35","2026-11-16T00:32:30.000Z"]
+  ];
+  for(const [label,zone,now,day,time,expected] of cases){
+    const engine=inStore(zone),ro=makeRO(day,time),at=Date.parse(now);
+    const urgent=engine.roTask(ro,{...api,priority:()=>1},day,at);
+    assert.equal(urgent.deadline,day+"T"+time+":00",label+" source deadline");
+    assert.equal(engine.deferUntil(urgent,[],at),expected,
+      label+" follow-up must occur before the real store-local commitment");
+  }
+  const engine=inStore("America/Los_Angeles"),at=Date.parse("2026-11-16T17:30:00Z");
+  assert.equal(engine.deferUntil({id:"synthetic",hard:true,
+    deadline:"2026-11-16T17:35:00Z"},[],at),"2026-11-16T17:32:30.000Z",
+    "explicit UTC deadline remains absolute");
+  assert.equal(engine.deferUntil({id:"synthetic",hard:true,
+    deadline:"2026-11-16T09:25:00"},[],at),"2026-11-16T17:40:00.000Z",
+    "an already overdue promise preserves the existing bounded deferral");
+});
