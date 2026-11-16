@@ -52,7 +52,7 @@ test("connected workspace resolves System Files without a second app-folder pick
   assert.equal(source.includes("backupDirectoryHandle"), false);
   assert.match(field("updateFolders").textContent, /Connected MoonDog copy: Test-Workspace/);
   assert.match(field("updateFolders").textContent, /no separate backup destination is needed/);
-  assert.match(field("updateFolders").textContent, /no folder browsing or separate backup location is needed/);
+  assert.match(field("updateFolders").textContent, /No folder browsing or separate backup location is needed/);
   await listeners.get("checkMoonDogUpdate:click")();
   assert.equal(checks.at(-1).currentVersion, "0.10.7-beta.1");
   assert.equal(checks.at(-1).channel, "beta");
