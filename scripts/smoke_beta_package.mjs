@@ -251,9 +251,47 @@ try {
   fs.rmSync(target, {recursive:true, force:true});
 }
 console.log("Verified synthetic denied-write and foreign-store root refusal; app bytes, private synthetic state, and journals unchanged.");
+// The ordinary Stable-to-Beta path has one clean baseline. Repeated safe
+// repair/idempotent cycles provide descriptive p50/p95 observations without
+// pretending that synthetic filesystem timings predict OneDrive or Edge.
+const repairSamples=[repairMs], repeatSamples=[repeatUpdateMs];
+for(let cycle=1;cycle<5;cycle++){
+  for(const relative of repairedPaths)fs.unlinkSync(path.join(appRoot,relative));
+  const cyclePlan=await context.MoonDogPackagePlan.dryRun({
+    verifiedPackage,appDirectoryHandle,trustedAllowlist,subtle:webcrypto.subtle
+  });
+  assert.equal(cyclePlan.rejected.length,0);
+  const repairStart=performance.now();
+  const result=await context.MoonDogUpdateInstall.apply({
+    verifiedPackage,appDirectoryHandle,workspaceDirectoryHandle,trustedAllowlist,
+    expectedPlan:cyclePlan,confirmed:true,subtle:webcrypto.subtle
+  });
+  repairSamples.push(performance.now()-repairStart);
+  assert.equal(result.status,"installed",result.reason);
+  assert.deepEqual(installedHashes(),repairedHashes);
+  assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),originalStateHash);
+  const idempotentPlan=await context.MoonDogPackagePlan.dryRun({
+    verifiedPackage,appDirectoryHandle,trustedAllowlist,subtle:webcrypto.subtle
+  });
+  const repeatStart=performance.now();
+  const again=await context.MoonDogUpdateInstall.apply({
+    verifiedPackage,appDirectoryHandle,workspaceDirectoryHandle,trustedAllowlist,
+    expectedPlan:idempotentPlan,confirmed:true,subtle:webcrypto.subtle
+  });
+  repeatSamples.push(performance.now()-repeatStart);
+  assert.equal(again.status,"installed",again.reason);
+  assert.deepEqual(installedHashes(),repairedHashes);
+  assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),originalStateHash);
+}
+const distribution=values=>{
+  const sorted=[...values].sort((a,b)=>a-b);
+  return {samples:sorted.length,p50Ms:sorted[Math.ceil(sorted.length*.5)-1],
+    p95Ms:sorted[Math.ceil(sorted.length*.95)-1]};
+};
 console.log("Synthetic production updater repair timing", JSON.stringify({
-  scope: "single local filesystem sample per path; VM production installer; excludes browser permission, network and physical-device latency; phase callbacks are not rendered UX proof",
-  ordinaryUpdateMs, repairMs, repeatUpdateMs, repairedPaths
+  scope: "one Stable-to-Beta sample, five repair and five idempotent-repeat samples; production installer in synthetic local filesystem VM; no OneDrive, native Edge permission, or physical-device latency claim",
+  ordinaryUpdateMs, repairMs, repeatUpdateMs, repairDistribution:distribution(repairSamples),
+  repeatDistribution:distribution(repeatSamples), repairedPaths
 }));
 
 const browser = await chromium.launch({ headless: true, channel: process.env.MOONDOG_BROWSER_CHANNEL || undefined });
