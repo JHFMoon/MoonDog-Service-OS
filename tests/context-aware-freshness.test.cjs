@@ -195,6 +195,22 @@ test('Menu weekly freshness requires the canonical Monday release date', () => {
   assert.equal(unsupportedPeriodEnd.status,'stale','a Tuesday period end cannot stand in for a Monday release');
 });
 
+test('Menu trend never treats a Tuesday or future date as a verified Monday release', () => {
+  const today='2026-11-16',monday='2026-11-09',tuesday='2026-11-10';
+  const wrongLast=F.trendMaintenance({key:'menu',today,
+    coverage:{lastPoint:tuesday,presentReleases:[monday]}});
+  assert.equal(wrongLast.last,monday,'invalid lastPoint must not override a verified Monday');
+  const mixed=F.trendMaintenance({key:'menu',today,
+    coverage:{presentReleases:[monday,tuesday,'2026-11-23','bad']}});
+  assert.equal(mixed.last,monday);
+  const noMonday=F.trendMaintenance({key:'menu',today,coverage:{lastPoint:tuesday}});
+  assert.equal(noMonday.last,'');
+  assert.equal(noMonday.status,'No verified release yet');
+  const canonical=F.trendMaintenance({key:'menu',today,coverage:{lastPoint:monday}});
+  assert.equal(canonical.last,monday);
+  assert.equal(canonical.status,'Current through 2026-11-09');
+});
+
 test('Menu weekly report history picks latest release without assuming import sort', () => {
   const releases=['2026-10-19','2026-10-05','2026-10-12','2026-10-26','2026-13-01'];
   const plan=F.trendMaintenance({key:'menu',today:'2026-10-20',coverage:{presentReleases:releases}});
