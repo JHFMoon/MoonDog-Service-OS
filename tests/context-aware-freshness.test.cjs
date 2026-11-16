@@ -129,6 +129,60 @@ test('invalid month keys never normalize into neighboring months or years', () =
   assert.equal(F.finalOperatingDay('2026-02'), '2026-02-28');
 });
 
+test('trend gap instructions reject future, malformed, duplicate and nonoperating dates', () => {
+  const saprDates=['2026-11-14','2026-12-02','bad','2026-11-15','2026-11-14','2026-11-16'];
+  const menuReleases=['2026-11-16','2026-11-17','2026-11-23','bad','2026-11-09','2026-11-16'];
+  const csiDates=['2026-11-16','invalid','2026-12-01'];
+  const sapr=F.trendMaintenance({key:'sapr',today:'2026-11-16',coverage:{missingDates:saprDates}});
+  assert.deepEqual(sapr.missing,['2026-11-14'],'only completed actual operating-day SAPR gaps count');
+  assert.doesNotMatch(F.trendMaintenanceSummary('sapr',sapr),/bad|2026-12-02|2026-11-15|2026-11-16/);
+  const menu=F.trendMaintenance({key:'menu',today:'2026-11-16',coverage:{missingReleases:menuReleases}});
+  assert.deepEqual(menu.missing,['2026-11-09','2026-11-16'],'only due Monday releases are requested');
+  assert.equal(menu.next,'2026-11-16');
+  assert.doesNotMatch(F.trendMaintenanceSummary('menu',menu),/bad|2026-11-17|2026-11-23/);
+  const csi=F.trendMaintenance({key:'csi',today:'2026-11-16',monthStart:'2026-11-01',
+    coverage:{missingDates:csiDates}});
+  assert.deepEqual(csi.missing,['2026-11-16'],'legitimate same-day CSI report-scope gaps are preserved');
+  assert.deepEqual(saprDates,['2026-11-14','2026-12-02','bad','2026-11-15','2026-11-14','2026-11-16']);
+  assert.deepEqual(menuReleases,['2026-11-16','2026-11-17','2026-11-23','bad','2026-11-09','2026-11-16']);
+  assert.deepEqual(csiDates,['2026-11-16','invalid','2026-12-01']);
+});
+
+test('SAPR trend requires a completed operating day, not a Sunday date', () => {
+  const today='2026-11-16';
+  const supplied=Object.freeze(['2026-11-14','2026-11-15']);
+  const plan=F.trendMaintenance({key:'sapr',today,
+    coverage:{lastPoint:'2026-11-15',presentDates:supplied}});
+  assert.equal(plan.last,'2026-11-14');
+  assert.equal(plan.status,'Current through 2026-11-14');
+  const withoutLast=F.trendMaintenance({key:'sapr',today,coverage:{presentDates:supplied}});
+  assert.equal(withoutLast.last,'2026-11-14');
+  const sundayOnly=F.trendMaintenance({key:'sapr',today,coverage:{presentDates:['2026-11-15']}});
+  assert.equal(sundayOnly.last,'');
+  assert.equal(sundayOnly.status,'No verified report day');
+  const optionalVir=F.trendMaintenance({key:'vir',today,coverage:{presentDates:supplied}});
+  assert.equal(optionalVir.last,'2026-11-15',
+    'a genuine VIR point observation can still occur on Sunday');
+  assert.deepEqual(supplied,['2026-11-14','2026-11-15']);
+});
+
+test('SAPR due dates cannot masquerade as verified report coverage', () => {
+  const today='2026-11-16',expectedEnd='2026-11-14';
+  const absent=F.trendMaintenance({key:'sapr',today,coverage:{expectedEnd}});
+  assert.equal(absent.last,'');
+  assert.equal(absent.status,'No verified report day; expected through 2026-11-14');
+  const future=F.trendMaintenance({key:'sapr',today,coverage:{expectedEnd:'2026-12-31'}});
+  assert.equal(future.last,'');
+  assert.equal(future.status,'No verified report day');
+  assert.doesNotMatch(F.trendMaintenanceSummary('sapr',future),/2026-12-31|Current through/);
+  const behind=F.trendMaintenance({key:'sapr',today,coverage:{expectedEnd,lastPoint:'2026-11-12'}});
+  assert.equal(behind.status,'Last verified 2026-11-12; expected through 2026-11-14');
+  const complete=F.trendMaintenance({key:'sapr',today,coverage:{expectedEnd,lastPoint:'2026-11-14'}});
+  assert.equal(complete.status,'Current through 2026-11-14');
+  const beyond=F.trendMaintenance({key:'sapr',today,coverage:{expectedEnd,lastPoint:'2026-11-16'}});
+  assert.equal(beyond.status,'Current through 2026-11-16');
+});
+
 test('history maintenance uses newest valid report day regardless of import enumeration order', () => {
   const presentDates=['2026-10-19','2026-10-17','2026-10-18','2026-02-30','2026-10-21'];
   for(const key of ['sapr','nextAppointments','vir','sor']){
@@ -157,6 +211,22 @@ test('Menu weekly freshness requires the canonical Monday release date', () => {
 
   const unsupportedPeriodEnd = F.evaluateSource({key:'menu',exists:true,today,periodEnd:'2026-10-20'});
   assert.equal(unsupportedPeriodEnd.status,'stale','a Tuesday period end cannot stand in for a Monday release');
+});
+
+test('Menu trend never treats a Tuesday or future date as a verified Monday release', () => {
+  const today='2026-11-16',monday='2026-11-09',tuesday='2026-11-10';
+  const wrongLast=F.trendMaintenance({key:'menu',today,
+    coverage:{lastPoint:tuesday,presentReleases:[monday]}});
+  assert.equal(wrongLast.last,monday,'invalid lastPoint must not override a verified Monday');
+  const mixed=F.trendMaintenance({key:'menu',today,
+    coverage:{presentReleases:[monday,tuesday,'2026-11-23','bad']}});
+  assert.equal(mixed.last,monday);
+  const noMonday=F.trendMaintenance({key:'menu',today,coverage:{lastPoint:tuesday}});
+  assert.equal(noMonday.last,'');
+  assert.equal(noMonday.status,'No verified release yet');
+  const canonical=F.trendMaintenance({key:'menu',today,coverage:{lastPoint:monday}});
+  assert.equal(canonical.last,monday);
+  assert.equal(canonical.status,'Current through 2026-11-09');
 });
 
 test('Menu weekly report history picks latest release without assuming import sort', () => {
