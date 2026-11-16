@@ -374,7 +374,7 @@
     paintUpdateProgress();
   }
   function render() {
-    field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
+    field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : installedChannel === "stable" ? "Stable" : "Unverified";
     field("updateChannelNote").textContent = (state.channel === "beta" ?
       "Beta is the test channel. A verified return to Stable remains available." :
       "Stable is the normal operating channel.") +
