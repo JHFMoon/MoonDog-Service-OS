@@ -392,7 +392,7 @@
       result?.status === "unavailable" ? "GitHub unavailable" :
       result?.status === "invalid-input" ? "Installed version cannot be compared" :
       installedChannel === state.channel ? `Installed ${installedChannel === "beta" ? "Beta" : "Stable"} ${installedVersion}; check for newer builds` : "Not checked";
-    field("updateFolders").textContent = appRoot() ? `Connected MoonDog copy: ${appRoot().name}. MoonDog keeps update recovery files inside this copy automatically; no separate backup destination is needed. For Fresh, Edge may ask you to confirm this same folder (the one containing System Files).` : "Connect your existing MoonDog copy to continue. Choose the folder containing System Files, not System Files itself.";
+    field("updateFolders").textContent = appRoot() ? `Connected MoonDog copy: ${appRoot().name}. MoonDog keeps update recovery files inside this copy automatically; no separate backup destination is needed. For Fresh, Edge may ask you to approve access to this connected copy. No folder browsing or separate backup location is needed.` : "Connect your existing MoonDog copy to continue. Choose the folder containing System Files, not System Files itself.";
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
       "Update Current Installation";
     installButton.disabled = state.busy || state.freshResetUnresolved || recoveryHold() || !currentOffer() ||
@@ -497,30 +497,31 @@
   });
   freshButton.addEventListener("click", async () => {
     if(!freshAvailable())return;
-    // Chromium may share a saved IndexedDB handle between file launchers.
-    // The user must explicitly choose THIS installation, before any awaits
-    // that would lose Edge's transient folder-picker activation.
-    const current=appRoot();
-    if(typeof global.showDirectoryPicker!=="function"){
-      status.textContent="Fresh Installation requires an Edge folder picker; no update was started.";
+    // Reuse the connected installation handle. Reopening a folder picker is
+    // unnecessary and error-prone, especially for nontechnical users. Invoke
+    // requestPermission directly in the click gesture when Edge requires it.
+    const connected=appRoot();
+    if(!connected || typeof connected.requestPermission!=="function" ||
+       typeof connected.isSameEntry!=="function"){
+      status.textContent="MoonDog cannot verify the connected installation. Reconnect it in Settings; nothing was changed.";
       return;
     }
-    // Describe the native folder check before opening the picker, without awaiting
-    // or losing the click activation required by Edge.
-    status.textContent = `Confirm the connected MoonDog folder “${current.name || "MoonDog"}” in Edge. Select the folder containing System Files—not System Files or Workspace. MoonDog handles its internal backups automatically.`;
-    let chosen;
-    try{chosen=await global.showDirectoryPicker({id:"moondog-fresh-selected-copy",mode:"readwrite"});}
-    catch(error){
-      if(error?.name!=="AbortError")
-        status.textContent="Edge could not confirm the MoonDog folder. Nothing was changed. Check folder permission, then try again.";
+    let permission;
+    try{
+      permission=await connected.requestPermission({mode:"readwrite"});
+    }catch(error){
+      status.textContent="Edge could not authorize changes to the connected MoonDog copy. Nothing was changed.";
       return;
     }
-    if(current!==appRoot()||!chosen||typeof chosen.isSameEntry!=="function"||
-        !(await chosen.isSameEntry(current))){
-      status.textContent="That is not the connected MoonDog folder. Choose the folder containing System Files in this copy. No update or deletion was performed.";
+    if(permission!=="granted"){
+      status.textContent="Folder access was not approved. Nothing was changed. Choose Fresh again when ready.";
       return;
     }
-    return postUpdateReady() ? finishPostUpdateFresh(chosen) : installUpdate(true,chosen);
+    if(connected!==appRoot() || !(await connected.isSameEntry(appRoot()))){
+      status.textContent="The connected MoonDog installation changed. No update or deletion was performed.";
+      return;
+    }
+    return postUpdateReady() ? finishPostUpdateFresh(connected) : installUpdate(true,connected);
   });
   installButton.addEventListener("click", () => installUpdate(false));
   async function finishPostUpdateFresh(confirmedRoot) {
