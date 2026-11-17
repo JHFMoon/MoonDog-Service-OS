@@ -13,12 +13,37 @@
     const times=events.filter(e=>e.details?.action==='completed'&&e.details.taskType===type).slice(-30).map(e=>Number(e.details.hour)).filter(Number.isFinite);
     return times.length>=3?times.sort((a,b)=>a-b)[Math.floor(times.length/2)]:null;
   }
+  // Local RO review deadlines belong to the configured dealership timezone,
+  // never the operating computer's timezone. Explicit-offset dates stay absolute.
+  function storeDeadlineEpoch(deadline) {
+    const civil=/^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d+)?$/.exec(String(deadline||''));
+    if(!civil || !freshness?.validDateKey || !freshness?.timeParts)
+      return Date.parse(deadline);
+    if(!freshness.validDateKey(civil[1]))return NaN;
+    const [year,month,day]=civil[1].split('-').map(Number);
+    const target=Date.UTC(year,month-1,day,Number(civil[2]),Number(civil[3]),Number(civil[4]));
+    const zone=businessTimeZone();
+    let instant=target;
+    for(let attempt=0;attempt<5;attempt++){
+      const parts=freshness.timeParts(new Date(instant),zone);
+      if(!parts?.date)return NaN;
+      const observed=Date.parse(parts.date+'T'+String(parts.hour).padStart(2,'0')+':'+
+        String(parts.minute).padStart(2,'0')+':'+String(parts.second).padStart(2,'0')+'Z');
+      if(!Number.isFinite(observed))return NaN;
+      const correction=target-observed;
+      instant+=correction;
+      if(correction===0)break;
+    }
+    const verified=freshness.timeParts(new Date(instant),zone);
+    return verified?.date===civil[1]&&verified.hour===Number(civil[2])&&
+      verified.minute===Number(civil[3])&&verified.second===Number(civil[4])?instant:NaN;
+  }
   function deferUntil(task,events,at) {
     const count=events.filter(e=>e.details?.taskId===task.id&&e.details.action==='deferred').length;
     let delay=task.hard?Math.max(2,10-count*2):Math.max(10,60-count*10);
     const learned=preference(events,task.type),hour=businessHour(at);
     if(!task.hard&&learned!==null&&learned>hour)delay=Math.min(180,(learned-hour)*60);
-    if(task.deadline){const remaining=(Date.parse(task.deadline)-at)/minutes;if(remaining>0)delay=Math.min(delay,Math.max(1,remaining/2));}
+    if(task.deadline){const remaining=(storeDeadlineEpoch(task.deadline)-at)/minutes;if(remaining>0)delay=Math.min(delay,Math.max(1,remaining/2));}
     return new Date(at+delay*minutes).toISOString();
   }
   function followUpAt(at,days=3,scheduledDays) {
