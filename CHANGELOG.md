@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.425 — current Beta
+
+- fix(59-04): veto future or non-Monday Menu historical releases. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.424 — current Beta
 
 - fix(59-02): honor store-local RO commitment deadlines when deferring. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

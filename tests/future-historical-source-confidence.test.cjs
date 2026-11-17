@@ -80,6 +80,35 @@ test("future-ended CSI and VIR periods cannot certify completed historical obser
     "forward-looking Next Appointments continues to cover a future report period");
 });
 
+test("future or non-Monday Menu release cannot certify completed historical coverage", () => {
+  const base={key:"menu",exists:true,purpose:"historical",today:"2026-11-16",
+    periodStart:"2026-10-01",periodEnd:"2026-11-09",
+    releaseWeek:"2026-11-09",targetStart:"2026-10-05",targetEnd:"2026-10-05"};
+  const cases=[
+    [{...base,periodEnd:"2026-12-07"},"future coverage end"],
+    [{...base,releaseWeek:"2026-12-07"},"future release week"],
+    [{...base,releaseWeek:"2026-11-10"},"non-Monday release"],
+    [{...base,releaseWeek:"invalid"},"malformed release week"]
+  ];
+  for(const [source,kind] of cases){
+    const frozen=Object.freeze(source),before=JSON.stringify(frozen);
+    const evidence=freshness.evaluateSource(frozen);
+    assert.equal(evidence.status,"stale",kind+" cannot certify earlier completed Menu results");
+    assert.equal(evidence.safeForPurpose,false);
+    assert.equal(freshness.evaluateMetric([evidence]).verified,false);
+    assert.equal(JSON.stringify(frozen),before,"original Menu source remains untouched");
+  }
+  const valid=freshness.evaluateSource(base);
+  assert.equal(valid.status,"historical-valid","valid past Monday release remains usable");
+  assert.equal(freshness.evaluateMetric([valid]).verified,true);
+  const legacy=freshness.evaluateSource({...base,releaseWeek:undefined});
+  assert.equal(legacy.status,"historical-valid","legacy verified period-only Menu history retained");
+  const forward=freshness.evaluateSource({...base,key:"nextAppointments",periodEnd:"2026-12-07",
+    releaseWeek:undefined});
+  assert.equal(forward.status,"historical-valid",
+    "upcoming appointment report continues to support forward-looking coverage");
+});
+
 test("genuinely covered historical intervals and end-only observations remain verified", () => {
   for (const key of families) {
     const historical = freshness.evaluateSource({
