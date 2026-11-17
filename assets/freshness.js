@@ -227,7 +227,13 @@
         validDateKey(input.periodEnd) && input.periodEnd >= targetEnd &&
         // SAPR reports cannot certify past coverage with a future reported end.
         // Forward-looking report families retain their own period semantics.
-        (!["sapr","csi","vir"].includes(input.key) || input.periodEnd <= today) &&
+        // Historical Menu Sales is a completed Monday-release snapshot, not
+        // forward-looking appointment coverage. Never certify a future release
+        // or future-ended Menu period as already verified history.
+        (!["sapr","csi","vir","menu"].includes(input.key) || input.periodEnd <= today) &&
+        (input.key !== "menu" || !hasPeriodValue(input.releaseWeek) ||
+          (validDateKey(input.releaseWeek) && dayOfWeek(input.releaseWeek) === 1 &&
+            input.releaseWeek <= today)) &&
         sourceStartValid && (sourceStartMissing
           // An undated start cannot prove historical coverage before its only
           // verified observation day. Preserve legacy end-day lookup only.
