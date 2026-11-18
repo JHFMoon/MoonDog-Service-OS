@@ -20,17 +20,17 @@ const sourceTrends=src("  const TREND_SOURCES=","  function trendMeasures(");
 const trendPoints=src("  function trendPoints(","  function availableTrendMeasures(");
 const today="2026-10-30";
 
-function exercise(family,snapshot) {
+function exercise(family,snapshot,additional={}) {
   const model={
     performance:{snapshots:{}},
     operationalMetrics:{
       vir:{snapshots: family==="vir"?{"synthetic":snapshot}:{}},
-      nextAppointments:{snapshots:family==="nextAppointments"?{"synthetic":snapshot}:{}}
+      nextAppointments:{snapshots:family==="nextAppointments"?{"synthetic":snapshot,...additional}:{}}
     },
     settings:{advisors:{}}
   };
   const ctx=vm.createContext({
-    freshness,model,Date,Intl,
+    freshness,model,Date,Intl,text:value=>String(value??""),
     sourceExpectation:()=> "recommended",
     businessTimeZone:()=> "America/Los_Angeles",
     localDateKey:()=>today,
@@ -69,6 +69,30 @@ test("verified Next Appointments source period supplies one dated Performance va
   assert.equal(points[0].value,12);
   assert.equal(points[0].date,"2026-10-29");
   assert.equal(points[0].periodVerified,true);
+});
+
+test("an invalid later duplicate cannot hide a verified Next Appointments trend point",()=>{
+  const report={
+    periodStart:"2026-10-01",periodEnd:"2026-10-29",
+    importedAt:"2026-10-30T08:00:00Z",sourceFile:"verified-synthetic",
+    summary:{scheduled:0}
+  };
+  const later={
+    ...report,periodStart:"2026-10-30",importedAt:"2026-10-30T09:00:00Z",
+    sourceFile:"invalid-synthetic",summary:{scheduled:99}
+  };
+  const f=exercise("nextAppointments",report,{later});
+  const before=JSON.stringify(f.model);
+  assert.deepEqual(f.points().map(point=>[point.date,point.value,point.sourceFile]),[
+    ["2026-10-29",0,"verified-synthetic"]
+  ]);
+  assert.equal(JSON.stringify(f.model),before);
+
+  const correction={...later,periodStart:report.periodStart,sourceFile:"correction-synthetic"};
+  const validCorrection=exercise("nextAppointments",report,{correction});
+  assert.deepEqual(validCorrection.points().map(point=>[point.value,point.sourceFile]),[
+    [99,"correction-synthetic"]
+  ]);
 });
 
 test("Next Appointments cannot project a count from an invalid or unverified source period",()=>{

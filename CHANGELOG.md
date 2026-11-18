@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.443 — current Beta
+
+- fix(59): verify chart sources before ranking duplicates. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.442 — current Beta
 
 - fix(59): isolate housekeeping scheduling by Workspace. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
