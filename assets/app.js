@@ -1934,11 +1934,14 @@
     setConnectionState("CONNECTED");
   }
   async function connect() {
+    return connectWithFolderChoice();
+  }
+  async function connectWithFolderChoice(chooseNewFolder = false) {
     const dailyUi=globalThis.__moondogDailyUI;
     if(!dailyUi?.confirmWorkspaceChange)throw new Error("Daily Operations is still initializing. Try changing folders again.");
     if(!dailyUi.confirmWorkspaceChange())return;
     if (!window.showDirectoryPicker) throw new Error("This Edge version does not support local folder access from this page.");
-    if (model.pendingRoot) { 
+    if (model.pendingRoot && !chooseNewFolder) {
       // An explicit Retry saved folder/Restore editing click starts a fresh bounded
       // recovery window. A previously exhausted automatic budget must not prevent
       // the next temporary OneDrive failure from receiving normal retry attempts.
@@ -2048,6 +2051,13 @@
       return;
     }
     return run(connect);
+  }
+  function chooseDashboardFolder() {
+    return run(() => {
+      if (model.freshResetRecoveryRoot || ["PENDING_TRANSACTION", "INTERRUPTED_RESTORE"].includes(writeAuthority.reason))
+        throw new Error("Review the existing Workspace recovery before choosing another dashboard folder.");
+      return connectWithFolderChoice(true);
+    });
   }
   async function restoreConnection() {
     setConnectionState("RESTORING SAVED CONNECTION", "RECONNECTING TO SERVICE OPERATIONS DASHBOARD DATA");
@@ -9164,6 +9174,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     ui.attentionFilter.value="";clearSavedOpenRoFilters();
     applyRoDensity();saveRoDeviceView();renderTable();
   });
+  globalThis.__moondogChooseDashboardFolder = chooseDashboardFolder;
   ensureCustomerVoiceSourceUi();ui.connectButton.addEventListener("click", handleWorkspaceRecoveryAction); ui.homeConnect.addEventListener("click", handleWorkspaceRecoveryAction); ui.scanFiles.addEventListener("click", () => run(scanFiles)); ui.sourceSelect.addEventListener("change", () => { ui.importButton.disabled = !ui.sourceSelect.value; }); ui.importButton.addEventListener("click", () => run(importSource)); ui.exportButton.addEventListener("click", () => run(() => generateWorkbook(true))); ui.refreshState.addEventListener("click", () => run(async () => { model.state = await readJson(STATE_PATH, model.state); await ensureDailyFocus(); renderAll(); status("Durable state refreshed.", "success"); })); ui.searchInput.addEventListener("input",renderTable); [["advisor",ui.advisorFilter],["sourceStatus",ui.sourceStatusFilter],["managementStatus",ui.managementStatusFilter]].forEach(([field,select])=>select.addEventListener("change",()=>{saveOpenRoFilter(field,select);renderTable();})); ui.attentionFilter.addEventListener("change",renderTable); ui.clearFilters.addEventListener("click", () => { ui.searchInput.value = ""; ui.advisorFilter.value = ""; ui.sourceStatusFilter.value = ""; ui.managementStatusFilter.value = ""; ui.attentionFilter.value = ""; clearSavedOpenRoFilters(); saveRoDeviceView(); renderTable(); }); ui.dailyFocusGrid.addEventListener("click", (event) => { const button = event.target.closest("button[data-focus-id]"); if (button) openEdit(button.dataset.focusId, "focus"); }); ui.roTable.addEventListener("click", (event) => { const button = event.target.closest("button[data-id]"); if (button) openEdit(button.dataset.id); }); ui.editForm.addEventListener("submit", (event) => run(() => saveRecord(event))); ui.editForm.addEventListener("input",markEditDraftDirty); ui.editForm.addEventListener("change",markEditDraftDirty); ui.editOwner.addEventListener("input",()=>{ui.editOwner.dataset.ownerAssignmentExplicit="true";}); window.addEventListener("beforeunload",guardUnsavedEditUnload); ui.editDialog.addEventListener("cancel",(event)=>{if(!confirmDiscardEdit())event.preventDefault();else editDraftDirty=false;}); ui.editStatus.addEventListener("change",()=>updateStatusDetailEditor()); ui.editStatusDetail.addEventListener("change",()=>updateStatusDetailEditor()); ui.closeRoAction.addEventListener("click",()=>run(()=>closeRo())); document.querySelectorAll(".dialog-close").forEach((button) => button.addEventListener("click", () => button.closest("dialog")===ui.editDialog ? closeEditDialog() : button.closest("dialog")?.close())); ui.refreshAppointmentFiles.addEventListener("click", () => run(scanAppointmentFiles)); ui.appointmentSource.addEventListener("change", () => { ui.importAppointments.disabled = !ui.appointmentSource.value; }); ui.importAppointments.addEventListener("click", () => run(async () => {
     if(workspaceConnectionBusy||postConnectionScanBusy||workspaceRecoveryBusy)
       throw new Error("Another Workspace operation is in progress. Retry the appointment import when it finishes.");
