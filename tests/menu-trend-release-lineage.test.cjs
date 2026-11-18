@@ -135,3 +135,38 @@ test("duplicate equivalent releases count once and malformed retained entries fa
   assert.deepEqual(result.fromWording, ["2026-10-12"]);
   assert.deepEqual(result.missing, ["2026-10-05", "2026-10-19", "2026-10-26"]);
 });
+
+test("the performance chart only plots verified Menu releases before deduplicating", () => {
+  const selectorStart = app.indexOf("  const TREND_SOURCES=");
+  const selectorEnd = app.indexOf("  function trendMeasures()", selectorStart);
+  const pointsStart = app.indexOf("  function trendPoints(", selectorEnd);
+  const pointsEnd = app.indexOf("  function availableTrendMeasures(", pointsStart);
+  assert.ok(selectorStart >= 0 && selectorEnd > selectorStart && pointsStart > selectorEnd && pointsEnd > pointsStart);
+  const snapshots = {
+    good: snapshot("2026-10-05", {store: {presentation: 0}, sourceFile: "valid-synthetic"}),
+    invalidNewer: snapshot("2026-10-05", {
+      ranDate: "2026-10-13", importedAt: "2026-10-26T16:00:00.000Z",
+      store: {presentation: 94}, sourceFile: "wrong-run-date-synthetic"
+    }),
+    nonMonday: snapshot("2026-10-13"),
+    invalidPeriod: snapshot("2026-10-19", {periodStart: "2026-02-30"}),
+    futurePeriod: snapshot("2026-10-26", {periodEnd: "2026-10-31"}),
+    legacy: snapshot("2026-10-12", {ranDate: "", sourceFile: "legacy-synthetic"})
+  };
+  const before = JSON.stringify(snapshots);
+  const context = vm.createContext({
+    model: {operationalMetrics: {menu: {snapshots}}},
+    freshness,
+    localDateKey: () => TODAY,
+    validCoverageDate: value => freshness.validDateKey(value) ? value : "",
+    text: value => String(value || "")
+  });
+  vm.runInContext(source + app.slice(selectorStart, selectorEnd) +
+    app.slice(pointsStart, pointsEnd) + "\nthis.readPoints=trendPoints;", context);
+  const points = context.readPoints({family: "menu", key: "presentation", roles: ["store"]}, "store", "", TODAY);
+  assert.deepEqual(Array.from(points, point => [point.date, point.value, point.sourceFile]), [
+    ["2026-10-05", 0, "valid-synthetic"],
+    ["2026-10-12", 52, "legacy-synthetic"]
+  ]);
+  assert.equal(JSON.stringify(snapshots), before);
+});
