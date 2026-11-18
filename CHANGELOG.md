@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.437 — current Beta
+
+- fix(797): keep saved connection when a folder pick fails preflight. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.436 — current Beta
 
 - fix(59): veto future Menu coverage across dashboard views. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
