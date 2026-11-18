@@ -2,6 +2,7 @@
   "use strict";
 
   const MANIFEST_URL = "https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/manifest.json";
+  const MANIFEST_TIMEOUT_MS = 15000;
   const VERSION = /^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/;
 
   function parseVersion(value) {
@@ -34,7 +35,8 @@
       // changes the cache key without exposing workspace data or credentials.
       const freshManifestUrl = MANIFEST_URL + "?check=" + Date.now();
       const response = await fetcher(freshManifestUrl, {
-        cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer"
+        cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer",
+        signal: global.AbortSignal?.timeout?.(MANIFEST_TIMEOUT_MS)
       });
       if (!response.ok) throw new Error("Manifest unavailable");
       const manifest = await response.json();

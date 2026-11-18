@@ -144,3 +144,38 @@ test("A stale raw CDN response can be bypassed without changing verified package
   assert.equal(result.sha256, published.beta.sha256);
   assert.equal(result.packageUrl, published.beta.packageUrl);
 });
+
+test("a stalled manifest connection or response body releases the check deadline", {timeout: 5000}, async () => {
+  const runtime = fs.readFileSync(path.join(__dirname, "..", "assets", "moondog-update-check.js"), "utf8");
+  for (const implementation of [source, runtime]) {
+    for (const stage of ["connection", "body"]) {
+      const controller = new AbortController();
+      const deadlines = [];
+      const local = vm.createContext({AbortSignal: {timeout(ms) {
+        deadlines.push(ms);
+        return controller.signal;
+      }}});
+      vm.runInContext(implementation, local);
+      let attachedSignal;
+      let markWaiting;
+      const waiting = new Promise(resolve => { markWaiting = resolve; });
+      const abortable = () => new Promise((_, reject) => {
+        attachedSignal?.addEventListener("abort", () => reject(attachedSignal.reason), {once: true});
+        markWaiting();
+      });
+      const manual = stage === "connection";
+      const pending = local.MoonDogUpdateCheck.check({
+        currentVersion: "1.0.0", manual,
+        fetcher: async (_, options) => {
+          attachedSignal = options.signal;
+          return stage === "connection" ? abortable() : {ok: true, json: abortable};
+        }
+      });
+      assert.deepEqual(deadlines, [15000], stage);
+      assert.equal(attachedSignal, controller.signal, stage);
+      await waiting;
+      controller.abort();
+      assert.equal((await pending).status, manual ? "unavailable" : "silent", stage);
+    }
+  }
+});
