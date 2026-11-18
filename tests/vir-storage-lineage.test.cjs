@@ -149,6 +149,16 @@ test("synthetic VIR observation keeps its source date through durable storage an
   assert.equal(futureEvidence.verified, false);
   assert.equal(futureEvidence.period, "Observed 2026-10-24");
   assert.match(futureEvidence.reason, /future-dated/);
+
+  model.operationalMetrics.vir.snapshots.future = future;
+  assert.equal(context.virMeetingEvidence().status, "verified");
+  assert.equal(context.virMeetingEvidence().period, "Observed 2026-10-22");
+  context.renderHome();
+  assert.match(ui.virCoverage.textContent, /Oct 22/);
+  delete model.operationalMetrics.vir.snapshots[key];
+  assert.equal(context.virMeetingEvidence().status, "stale",
+    "Retain the future-dated diagnostic when there is no eligible observation");
+  assert.equal(model.operationalMetrics.vir.snapshots.future, future);
 });
 
 
