@@ -362,3 +362,26 @@ test("background check discards a folder diagnosis after the selected handle cha
   assert.equal(h.field("installMoonDogUpdate").disabled, true);
   assert.deepEqual(h.events, []);
 });
+
+test("an invalid replacement folder does not persist over the previous connection", async () => {
+  const previous = folder();
+  const rejected = folder({systemPresent: false});
+  const connection = connectActions(null, rejected.root);
+  const context = connection.context;
+  context.model.root = previous.root;
+  context.model.workspaceConnectionCommittedRoot = previous.root;
+  context.model.applicationRoot = previous.root;
+  context.connectedNativeRoot = previous.root;
+  context.finishConnection = async () => {
+    throw Object.assign(new Error("Can't verify this Dashboard folder."), {code: "WORKSPACE_LAYOUT_UNVERIFIED"});
+  };
+  context.writeAuthority.disable = () => { connection.events.push("disable"); };
+  context.rememberRoot = async handle => { connection.events.push({saved: handle}); };
+  context.transientWorkspaceState = () => false;
+
+  await context.__moondogChooseDashboardFolder();
+  assert.deepEqual(connection.events, ["picker", "Can't verify this Dashboard folder."]);
+  assert.equal(context.model.pendingRoot, null);
+  assert.equal(context.model.applicationRoot, previous.root);
+  assert.equal(context.model.workspaceConnectionCommittedRoot, previous.root);
+});
