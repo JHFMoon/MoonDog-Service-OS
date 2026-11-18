@@ -13,7 +13,7 @@ function source(start,end){
 }
 const defaults=source("  const pristineWorkspaceSnapshots=Object.fromEntries(","  let connectedNativeRoot = null;");
 const validation=source("  function validateConnectedWorkbookSnapshot(","  let postConnectionScanBusy=false;");
-const readOnly=source("      for (const [key, path] of paths) {","      const rawSettings =");
+const readOnly=source("      const snapshots = {};","      const rawSettings =");
 const plan=source("    const connectionReadSpecs = [","    const connectionReadResults");
 assert.match(readOnly,/readJson\(path, newWorkspaceSnapshot\(key\)\)/);
 for(const key of ["state","appointments","performance","operationalMetrics","meetingCycle","assignNext","autoImport","recovery"])
@@ -82,12 +82,12 @@ test("actual read-only connection uses root-independent defaults and preserves v
   ctx.paths=paths;
   ctx.readJson=async (key,fallback)=>key==="state" ? fallback :
     key==="performance" ? {snapshots:{"2026-11-03":{source:"SYN-B"}}} : fallback;
-  vm.runInContext("this.load=async function(){"+readOnly+"};",ctx);
-  await ctx.load();
-  assert.deepEqual(clone(f.model.state),f.initial.state,"missing B state cannot import A RO notes");
-  assert.deepEqual(f.model.performance,{snapshots:{"2026-11-03":{source:"SYN-B"}}},
+  vm.runInContext("this.load=async function(){"+readOnly+"return snapshots;};",ctx);
+  const snapshots = await ctx.load();
+  assert.deepEqual(clone(snapshots.state),f.initial.state,"missing B state cannot import A RO notes");
+  assert.deepEqual(snapshots.performance,{snapshots:{"2026-11-03":{source:"SYN-B"}}},
     "verified B report takes precedence over empty default");
-  assert.equal(f.model.appointments.days["2026-11-03"],undefined);
+  assert.equal(snapshots.appointments.days["2026-11-03"],undefined);
   assert.equal(oldA.state.records[0].management.note,"Manager A note",
     "the prior A source evidence is not rewritten during a B read");
 });
@@ -97,11 +97,140 @@ test("malformed B state fails without fallback to still-present A RO records",as
   const ctx=f.ctx;
   ctx.paths=[["state","state"],["performance","performance"]];
   ctx.readJson=async key=>key==="state"?{records:null,closedRecords:[]}:f.ctx.next(key);
-  vm.runInContext("this.load=async function(){"+readOnly+"};",ctx);
+  vm.runInContext("this.load=async function(){"+readOnly+"return snapshots;};",ctx);
   await assert.rejects(ctx.load(),/Saved Open\/Closed RO records are invalid/);
   assert.deepEqual(f.model.state,existing,"invalid B never replaces A in-memory state before connection error");
 });
 
+
+function stageReadOnlyConnection(f, readJson, interruptedRestoreReview = null) {
+  const oldHandle = {name: "Synthetic A"};
+  const candidate = {name: "Synthetic B"};
+  const events = [];
+  Object.assign(f.model, {
+    root: oldHandle,
+    applicationRoot: oldHandle,
+    workspaceConnectionCommittedRoot: oldHandle,
+    settings: {store: {name: oldHandle.name}}
+  });
+  const keys = [
+    "STATE_PATH", "APPOINTMENTS_PATH", "PERFORMANCE_PATH", "OPERATIONAL_METRICS_PATH",
+    "MEETING_CYCLE_PATH", "ASSIGN_NEXT_PATH", "AUTO_IMPORT_PATH", "RECOVERY_PATH"
+  ];
+  Object.assign(f.ctx, Object.fromEntries(keys.map((key, index) => [key, names[index]])), {
+    connectedNativeRoot: oldHandle,
+    operationalRoot: async handle => handle,
+    wrapOperationalRoot: handle => handle,
+    workspaceConnectionBlockReason: () => "",
+    document: {dispatchEvent: event => events.push(event.type)},
+    Event,
+    SETTINGS_PATH: "settings",
+    SOURCE_ADAPTER_BOOTSTRAP_PATH: "source-adapter",
+    readJson,
+    sourceAdapter: {schemaVersion: 1, storeCode: "SYN-A", storeName: "Synthetic A"},
+    loadSourceAdapter: (adapter, settings) => {
+      f.ctx.sourceAdapter = {...adapter, storeCode: settings.store.code, storeName: settings.store.name};
+      events.push("adapter " + settings.store.code);
+    },
+    clearSourceAdapter: () => {
+      f.ctx.sourceAdapter = {};
+      events.push("adapter cleared");
+    },
+    inspectInterruptedRestore: async () => interruptedRestoreReview,
+    status: (_message, type) => events.push(type),
+    migratedSettings: settings => settings,
+    pruneClosedRecords: records => records,
+    stopFolderWatch: () => {},
+    ui: {homeConnect: {}},
+    renderSettings: () => {},
+    renderAll: () => {},
+    renderRecovery: () => {},
+    renderSetup: () => {},
+    reportInboxEntries: async () => [],
+    scanFiles: async () => {},
+    scanAppointmentFiles: async () => {},
+    scanPerformanceFiles: async () => {},
+    scanRecoveryBackups: async () => {},
+    rememberRoot: async handle => events.push("saved " + handle.name),
+    setConnectionState: state => events.push(state),
+    writeAuthority: {reason: "WORKSPACE_BUSY"},
+    scheduleAuthorityRevalidation: handle => events.push("retry " + handle.name)
+  });
+  const fullConnection = source("  async function finishReadOnlyConnection(", "  // All folder changes");
+  vm.runInContext(fullConnection + "\nthis.connectReadOnly=finishReadOnlyConnection;", f.ctx);
+  return {oldHandle, candidate, events};
+}
+
+test("read-only reconnect keeps the preceding Workspace intact when a later snapshot is unreadable", async () => {
+  const f=fresh();switchToWorkspaceA(f);
+  const {oldHandle, candidate, events} = stageReadOnlyConnection(f, async (key, fallback) => {
+    if (key === "performance") throw Error("Synthetic performance read failed");
+    return fallback;
+  });
+  const before = {...f.model};
+  await assert.rejects(f.ctx.connectReadOnly(candidate), /Synthetic performance read failed/);
+  for (const key of names) assert.equal(f.model[key], before[key], key + " still belongs to A");
+  assert.equal(f.model.settings, before.settings);
+  assert.equal(f.model.root, oldHandle);
+  assert.equal(f.model.applicationRoot, oldHandle);
+  assert.equal(f.model.workspaceConnectionCommittedRoot, oldHandle);
+  assert.equal(f.ctx.connectedNativeRoot, oldHandle);
+  assert.deepEqual(events, ["moondog-workspace-changing"]);
+});
+
+test("read-only reconnect retains the preceding snapshots when the selected store adapter is missing", async () => {
+  const f=fresh();switchToWorkspaceA(f);
+  const {oldHandle, candidate, events} = stageReadOnlyConnection(f, async (key, fallback) =>
+    key === "settings" ? {advisors: {"SYN-B": {}}} : fallback);
+  const before = {...f.model};
+  await assert.rejects(f.ctx.connectReadOnly(candidate), /protected local source adapter is missing/);
+  for (const key of names) assert.equal(f.model[key], before[key], key + " still belongs to A");
+  assert.equal(f.model.settings, before.settings);
+  assert.equal(f.model.root, oldHandle);
+  assert.equal(f.model.workspaceConnectionCommittedRoot, oldHandle);
+  assert.deepEqual(events, ["moondog-workspace-changing"]);
+});
+
+test("a failed settings migration restores the preceding Workspace source adapter", async () => {
+  const f=fresh();switchToWorkspaceA(f);
+  const {oldHandle, candidate, events} = stageReadOnlyConnection(f, async (key, fallback) =>
+    key === "settings" ? {store: {code: "SYN-B", name: "Synthetic B"}, sourceAdapters: {schemaVersion: 1}} : fallback);
+  const before = {...f.model};
+  const originalAdapter = f.ctx.sourceAdapter;
+  f.ctx.migratedSettings = () => { throw Error("Synthetic settings migration failed"); };
+  await assert.rejects(f.ctx.connectReadOnly(candidate), /Synthetic settings migration failed/);
+  for (const key of names) assert.equal(f.model[key], before[key], key + " still belongs to A");
+  assert.equal(f.model.settings, before.settings);
+  assert.equal(f.model.root, oldHandle);
+  assert.deepEqual(f.ctx.sourceAdapter, originalAdapter);
+  assert.deepEqual(events, ["moondog-workspace-changing", "adapter SYN-B", "adapter SYN-A"]);
+});
+
+test("a successful read-only reconnect publishes only the fully loaded selected Workspace", async () => {
+  const f=fresh();switchToWorkspaceA(f);
+  const selectedState = {records: [{id: "SYN-B-OPEN"}], closedRecords: []};
+  const previousMetrics = f.model.operationalMetrics;
+  const review = {state: "held"};
+  const {candidate, events} = stageReadOnlyConnection(f, async (key, fallback) => {
+    if (key === "state") return selectedState;
+    if (key === "settings") return {store: {name: "Synthetic B"}};
+    return fallback;
+  }, review);
+  await f.ctx.connectReadOnly(candidate);
+  assert.equal(f.model.root, candidate);
+  assert.equal(f.model.workspaceConnectionCommittedRoot, candidate);
+  assert.equal(f.model.state, selectedState);
+  assert.equal(f.model.settings.store.name, "Synthetic B");
+  assert.equal(f.model.appointments.days["2026-11-03"], undefined);
+  assert.equal(f.model.recovery.interruptedRestoreReview, review);
+  assert.match(f.model.recovery.status, /Interrupted restore/);
+  assert.deepEqual(clone(f.model.operationalMetrics.efficiency), {snapshots: {}});
+  assert.deepEqual(previousMetrics, {snapshots: {source: "A"}});
+  assert.deepEqual(events, [
+    "moondog-workspace-changing", "adapter cleared", "saved Synthetic B",
+    "CONNECTED", "retry Synthetic B", "error", "moondog-data"
+  ]);
+});
 
 test("actual batched writable hydration never inherits the preceding Workspace on missing files",async()=>{
   const f=fresh();switchToWorkspaceA(f);

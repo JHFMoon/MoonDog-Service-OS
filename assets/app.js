@@ -1668,6 +1668,7 @@
     const beforeCommitBlock=workspaceConnectionBlockReason();
     if(beforeCommitBlock){const error=new Error(beforeCommitBlock);error.code="WORKSPACE_CONNECTION_BUSY";throw error;}
     const previousRoot = model.root, previousNativeRoot = connectedNativeRoot;
+    const previousApplicationRoot = model.applicationRoot;
     model.root = wrapOperationalRoot(resolvedRoot); model.applicationRoot = handle;
     // Synchronously revoke old Daily task/search actions before any B async load.
     document.dispatchEvent(new Event("moondog-workspace-changing"));
@@ -1677,52 +1678,67 @@
         ["operationalMetrics", OPERATIONAL_METRICS_PATH], ["meetingCycle", MEETING_CYCLE_PATH],
         ["assignNext", ASSIGN_NEXT_PATH], ["autoImport", AUTO_IMPORT_PATH], ["recovery", RECOVERY_PATH]
       ];
+      // Keep the previous Workspace's snapshots together until the candidate
+      // has passed its required reads and recovery assessment.
+      const snapshots = {};
       for (const [key, path] of paths) {
         const loaded = await readJson(path, newWorkspaceSnapshot(key));
-        model[key] = key === "state" ? validateConnectedWorkbookSnapshot(loaded) : loaded;
+        snapshots[key] = key === "state" ? validateConnectedWorkbookSnapshot(loaded) : loaded;
       }
       const rawSettings = await readJson(SETTINGS_PATH, {});
       const adapter = rawSettings.sourceAdapters || await readJson(SOURCE_ADAPTER_BOOTSTRAP_PATH, null);
       if (!adapter && Object.keys(rawSettings.advisors || {}).length && !rawSettings.setup?.newStorePrepared)
         throw new Error("The protected local source adapter is missing. Restore local configuration before reconnecting.");
-      if (adapter) loadSourceAdapter(adapter, rawSettings); else clearSourceAdapter();
-      model.settings = migratedSettings(rawSettings, Boolean(model.state.records?.length || model.state.source));
-      model.state.closedRecords = pruneClosedRecords(model.state.closedRecords || []);
-      model.operationalMetrics.nextAppointments ||= { snapshots: {} };
-      model.operationalMetrics.vir ||= { snapshots: {} };
-      model.operationalMetrics.menu ||= { snapshots: {} };
-      model.operationalMetrics.csi ||= { surveys: {}, imports: [] };
-      model.operationalMetrics.monthlySummaries ||= {};
-      model.operationalMetrics.supplementalReports ||= { snapshots: {} };
+      snapshots.state.closedRecords = pruneClosedRecords(snapshots.state.closedRecords || []);
+      snapshots.operationalMetrics.nextAppointments ||= { snapshots: {} };
+      snapshots.operationalMetrics.vir ||= { snapshots: {} };
+      snapshots.operationalMetrics.menu ||= { snapshots: {} };
+      snapshots.operationalMetrics.csi ||= { surveys: {}, imports: [] };
+      snapshots.operationalMetrics.monthlySummaries ||= {};
+      snapshots.operationalMetrics.supplementalReports ||= { snapshots: {} };
       for (const family of ["sor", "appointmentActivity", "efficiency", "mediaAsr", "openRoSummary"])
-        model.operationalMetrics[family] ||= { snapshots: {} };
-      model.assignNext.days ||= {};
+        snapshots.operationalMetrics[family] ||= { snapshots: {} };
+      snapshots.assignNext.days ||= {};
       const interruptedRestoreReview=await inspectInterruptedRestore();
-      model.recovery.interruptedRestoreReview=interruptedRestoreReview;
-      if(interruptedRestoreReview)model.recovery.status="Interrupted restore: controlled recovery review required";
-      // Keep the saved folder handle for one-click Restore editing. Never
-      // require selecting a different Workspace just to request Edge access.
-      model.pendingRoot = handle;
-      stopFolderWatch("Folder write permission unavailable");
-      ui.homeConnect.hidden = true;
-      renderSettings(); renderAll(); renderRecovery();
-      const reportInboxSnapshot = reportInboxEntries();
-      await Promise.allSettled([
-        reportInboxSnapshot.then(entries => scanFiles(entries)),
-        reportInboxSnapshot.then(entries => scanAppointmentFiles(entries)),
-        reportInboxSnapshot.then(entries => scanPerformanceFiles(entries)),
-        scanRecoveryBackups()
-      ]);
-      connectedNativeRoot = handle;
-      try { await rememberRoot(handle); } catch (_) { /* Manual folder reconnection remains available without browser storage. */ }
-      // Only a fully loaded Workspace may drive Daily history and task selection.
-      model.workspaceConnectionCommittedRoot=model.root;
-      setConnectionState("CONNECTED");
-      if(["WORKSPACE_BUSY","PERMISSION_REQUIRED"].includes(writeAuthority.reason))scheduleAuthorityRevalidation(handle);
-      if(interruptedRestoreReview)status("INTERRUPTED RESTORE: EDITING IS BLOCKED. Review the protected safety backup and live files before any recovery; do not delete the restore marker.","error");
-      renderSetup();
-      document.dispatchEvent(new Event("moondog-data"));
-    } catch (error) { model.root = previousRoot; model.applicationRoot = previousNativeRoot; connectedNativeRoot = previousNativeRoot; throw error; }
+      snapshots.recovery.interruptedRestoreReview=interruptedRestoreReview;
+      if(interruptedRestoreReview)snapshots.recovery.status="Interrupted restore: controlled recovery review required";
+      const previousAdapter = sourceAdapter;
+      try {
+        if (adapter) loadSourceAdapter(adapter, rawSettings); else clearSourceAdapter();
+        snapshots.settings = migratedSettings(rawSettings, Boolean(snapshots.state.records?.length || snapshots.state.source));
+      } catch (error) {
+        if (sourceAdapter !== previousAdapter) {
+          if (previousAdapter.schemaVersion === 1)
+            loadSourceAdapter(previousAdapter, { store: { name: previousAdapter.storeName, code: previousAdapter.storeCode } });
+          else clearSourceAdapter();
+        }
+        throw error;
+      }
+      Object.assign(model, snapshots);
+    } catch (error) { model.root = previousRoot; model.applicationRoot = previousApplicationRoot; connectedNativeRoot = previousNativeRoot; throw error; }
+
+    // Keep the saved folder handle for one-click Restore editing. Never
+    // require selecting a different Workspace just to request Edge access.
+    model.pendingRoot = handle;
+    stopFolderWatch("Folder write permission unavailable");
+    ui.homeConnect.hidden = true;
+    renderSettings(); renderAll(); renderRecovery();
+    const reportInboxSnapshot = reportInboxEntries();
+    await Promise.allSettled([
+      reportInboxSnapshot.then(entries => scanFiles(entries)),
+      reportInboxSnapshot.then(entries => scanAppointmentFiles(entries)),
+      reportInboxSnapshot.then(entries => scanPerformanceFiles(entries)),
+      scanRecoveryBackups()
+    ]);
+    connectedNativeRoot = handle;
+    try { await rememberRoot(handle); } catch (_) { /* Manual folder reconnection remains available without browser storage. */ }
+    // Only a fully loaded Workspace may drive Daily history and task selection.
+    model.workspaceConnectionCommittedRoot=model.root;
+    setConnectionState("CONNECTED");
+    if(["WORKSPACE_BUSY","PERMISSION_REQUIRED"].includes(writeAuthority.reason))scheduleAuthorityRevalidation(handle);
+    if(model.recovery.interruptedRestoreReview)status("INTERRUPTED RESTORE: EDITING IS BLOCKED. Review the protected safety backup and live files before any recovery; do not delete the restore marker.","error");
+    renderSetup();
+    document.dispatchEvent(new Event("moondog-data"));
   }
 
   // All folder changes, including automatic restoration, share one exclusive
