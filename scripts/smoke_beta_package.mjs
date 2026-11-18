@@ -562,6 +562,20 @@ try {
   assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),originalStateHash);
   assert.equal(pageErrors.length,0);
   console.log("Verified installed file:// Settings invokes actual production installer and refuses denied native folder permission without application file reads; synthetic handles only.");
+  // A denied update must not survive a real installed file:// browser restart
+  // as a falsely promoted runtime version or silently start another repair.
+  await page.reload({waitUntil:"load",timeout:30000});
+  await page.waitForURL(url=>url.protocol==="file:"&&url.pathname.endsWith("/index.html"),{timeout:10000});
+  await page.waitForFunction(expected=>globalThis.MoonDogInstalledVersion===expected,
+    beta.version,{timeout:15000});
+  assert.equal(await page.evaluate(()=>globalThis.MoonDogInstalledVersion),beta.version,
+    "restart after denied update must boot the original verified installed Beta");
+  assert.deepEqual(installedHashes(),repairedHashes,
+    "browser restart must not trigger a silent application repair or replacement");
+  assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),
+    originalStateHash,"browser restart must not change synthetic private Workspace");
+  assert.equal(pageErrors.length,0);
+  console.log("Verified installed browser restart after denied production update retains trusted Beta and synthetic private bytes; no interrupted-journal recovery claim.");
   console.log("Verified repaired Beta installation and repeat update launched through file://", runtime);
 } finally {
   await browser.close();
