@@ -9254,7 +9254,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     authorityRevalidationRoot=null;
   }
   function scheduleAuthorityRevalidation(root,immediate=false){
-    if(!root||root!==connectedNativeRoot||writeAuthority.canWrite||authorityRevalidationRunning)return;
+    if(!root||root!==connectedNativeRoot||model.connectionState!=="CONNECTED"||writeAuthority.canWrite||authorityRevalidationRunning)return;
     if(authorityRevalidationRoot!==root){
       clearAuthorityRevalidation();
       authorityRevalidationRoot=root;
@@ -9274,14 +9274,40 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       authorityRevalidationTimer=null;
       // The validator can change the native write target. A scheduled check
       // must stay outside the interval in which another Workspace is loading.
-      if(root!==connectedNativeRoot||writeAuthority.canWrite||workspaceConnectionBusy)return;
+      if(root!==connectedNativeRoot||model.connectionState!=="CONNECTED"||writeAuthority.canWrite||workspaceConnectionBusy)return;
+      const connectedWorkspace=model.root;
+      const stillSelected=()=>root===connectedNativeRoot&&model.root===connectedWorkspace&&model.connectionState==="CONNECTED";
       authorityRevalidationAttempts+=1;
       authorityRevalidationRunning=true;
       let ok=false;
-      try { ok=await writeAuthority.validate(root,false); }
-      catch (_) { /* A failed validation remains eligible for bounded retry. */ }
-      finally { authorityRevalidationRunning=false; }
-      if(root!==connectedNativeRoot)return;
+      try {
+        // The write validator may initialize a revision. Prove that the
+        // existing Workspace is still the connected directory before calling it.
+        const verifiedWorkspace=await operationalRoot(root);
+        const sameWorkspace=await connectedWorkspace?.isSameEntry(verifiedWorkspace);
+        if(!stillSelected())return;
+        if(!sameWorkspace){
+          clearAuthorityRevalidation();
+          offerReplacementForSavedFolder(new Error("The saved Workspace has changed. Choose the working folder to verify it again."));
+          return;
+        }
+        ok=await writeAuthority.validate(root,false);
+      }catch(error){
+        if(!stillSelected())return;
+        if(error?.code==="FRESH_RESET_INCOMPLETE"){
+          clearAuthorityRevalidation();
+          model.pendingRoot=root;
+          model.freshResetRecoveryRoot=root;
+          setConnectionState("CONNECTION ERROR",error.message);
+          return;
+        }
+        if(["NotFoundError","TypeMismatchError"].includes(error?.name)){
+          clearAuthorityRevalidation();
+          offerReplacementForSavedFolder(new Error("Can't verify the saved Workspace. Choose the outer folder containing 00 - OPEN DASHBOARD.html and System Files."));
+          return;
+        }
+      }finally{authorityRevalidationRunning=false;}
+      if(!stillSelected())return;
       renderSetup();
       if(ok){
         clearAuthorityRevalidation();
