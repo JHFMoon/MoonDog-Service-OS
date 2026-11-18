@@ -33,7 +33,7 @@
   try { saved = JSON.parse(global.localStorage.getItem(key) || "{}"); } catch (_) {}
   const state = { channel: saved.channel === "beta" ? "beta" : saved.channel === "stable" ? "stable" : declaredBetaVersion ? "beta" : "stable",
     lastCheck: saved.lastCheck || null, lastAutomatic: saved.lastAutomatic || "",
-    dismissed: saved.dismissed || null, check: null, checkFor: null,
+    dismissed: saved.dismissed || null, check: null, checkFor: null, rootPreflight: null,
     recoveryRequired: saved.recoveryRequired === true, hasRecoverable: false, autoRecoverable: false,
     recoveryScanPending: false, recoveryScanFailed: false, recoveryScanError: "", busy: false, progress: null,
     progressChangedAt: 0, progressStalled: false, freshResetUnresolved: false,
@@ -48,6 +48,60 @@
     if (!installation) throw new Error("Connect the Service Operations Dashboard installation first.");
     return installation.getDirectoryHandle("System Files", { create: false });
   };
+  // The update UI verifies only software layout, never store report contents.
+  // A valid outer folder may itself be named Workspace: names alone are not proof.
+  async function inspectUpdateInstallation(root) {
+    const reject = detail => ({ root, verified: false, detail });
+    const guidance = "Choose the outer Dashboard folder containing 00 - OPEN DASHBOARD.html and System Files. Do not select System Files or its Workspace.";
+    if (!root || typeof root.getDirectoryHandle !== "function") return reject("Connect the dashboard installation first. " + guidance);
+    try {
+      const app = await root.getDirectoryHandle("System Files", { create: false });
+      if (typeof root.resolve !== "function" || typeof app?.isSameEntry !== "function")
+        return reject("The browser cannot verify this installation folder. " + guidance);
+      const relation = await root.resolve(app);
+      if (!Array.isArray(relation) || relation.length !== 1 || relation[0] !== "System Files")
+        return reject("This is not the selected outer installation folder. " + guidance);
+      // Existence only: never create, enumerate, or read protected operational files.
+      await app.getDirectoryHandle("Workspace", { create: false });
+      let hasEntry = false;
+      try {
+        const entry = await app.getFileHandle("index.html", { create: false });
+        hasEntry = entry?.kind === "file" || typeof entry?.getFile === "function";
+      } catch (error) {
+        if (!["NotFoundError", "TypeMismatchError"].includes(error?.name)) throw error;
+      }
+      if (!hasEntry) {
+        // Match the production installer's recognized clean-install contract.
+        // Only the software manifest can justify application-entry repair.
+        let manifest = null;
+        try {
+          const file = await (await root.getFileHandle("INSTALLATION-MANIFEST.json", { create: false })).getFile();
+          if (file.size <= 1024 * 1024) manifest = JSON.parse(await file.text());
+        } catch (error) {
+          if (!["NotFoundError", "TypeMismatchError", "SyntaxError"].includes(error?.name)) throw error;
+        }
+        if (manifest?.format !== "service-operations-dashboard-clean-install" ||
+            manifest.formatVersion !== 1 || manifest.applicationRoot !== "System Files" ||
+            manifest.workspaceRoot !== "System Files/Workspace" ||
+            manifest.launcher !== "00 - OPEN DASHBOARD.html" ||
+            manifest.workspaceProtectedFromUpdates !== true ||
+            !/^\\d+\\.\\d+\\.\\d+(?:-beta\\.\\d+)?$/.test(manifest.version || "") ||
+            !Array.isArray(manifest.files) || !manifest.files.some(item =>
+              item?.path === "System Files/index.html" && /^[0-9a-f]{64}$/.test(item.sha256 || "")))
+          return reject("The application entry is missing and this folder has no recognized clean-install identity. Preserve the existing Workspace for local recovery.");
+      }
+      if (root !== appRoot()) return reject("The connected installation changed. Check the selected folder again.");
+      return { root, verified: true, detail: "" };
+    } catch (error) {
+      if (root !== appRoot()) return reject("The connected installation changed. Check the selected folder again.");
+      if (error?.name === "NotAllowedError" || error?.name === "SecurityError")
+        return reject("The dashboard needs permission to check this installation. Reconnect and grant Edge folder access.");
+      if (error?.name === "NotFoundError" || error?.name === "TypeMismatchError")
+        return reject("Can't verify the installation folder or its private Workspace. " + guidance);
+      return reject("Can't verify the selected installation folder. " + guidance);
+    }
+  }
+  const updateRootReady = () => state.rootPreflight?.verified === true && state.rootPreflight.root === appRoot();
   function clearPlan() { planText.textContent = ""; planText.hidden = true; }
   function postUpdateReady() {
     const receipt=state.postUpdateFresh;
@@ -235,7 +289,8 @@
     '<button type="button" id="installMoonDogUpdate" class="primary" disabled>Update Current Installation</button>' +
     '<button type="button" id="freshMoonDogUpdate" class="danger" disabled>Update to Fresh Installation</button>' +
     '<button type="button" id="retryMoonDogFreshCheck" hidden>Retry Fresh Verification</button>' +
-    '<button type="button" id="recoverMoonDogUpdate" hidden>Recover interrupted update</button></div>' +
+    '<button type="button" id="recoverMoonDogUpdate" hidden>Recover interrupted update</button>' +
+    '<button type="button" id="chooseUpdateFolder" hidden>Choose Dashboard Folder</button></div>' +
     '<p id="updateChoiceNote" class="settings-note">Update Current Installation preserves all dealership data. Fresh Installation permanently removes data only from the selected copy, after verified installation and additional confirmations. Fresh is unavailable until the isolated reset passes safety verification.</p>' +
     '<p id="updateFolders" class="settings-note">Connect Service Operations Dashboard before installation. Update rollback backups are saved in System Files/Workspace/backups/system-updates/ inside the connected workspace.</p>' +
     '<div id="updateProgress" class="update-progress" aria-live="polite"><div class="update-progress-head"><strong id="updateProgressLabel">Ready for updates</strong><span id="updateProgressPercent">Ready</span></div><div id="updateProgressTrack" class="update-progress-track" role="progressbar" aria-label="Update progress" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Idle"><span id="updateProgressBar"></span></div><small id="updateProgressDetail">Select Check for Updates to begin.</small><small id="updateProgressState" role="status">IDLE</small></div>' +
@@ -288,7 +343,7 @@
     if (!notice) return;
     const offered = currentOffer(), value = state.check;
     const dismissed = state.dismissed?.day === localDay() && state.dismissed?.channel === state.channel && state.dismissed?.version === value?.version;
-    notice.hidden = !offered || dismissed || recoveryHold() || (state.hasRecoverable && state.channel !== "beta");
+    notice.hidden = !offered || !updateRootReady() || dismissed || recoveryHold() || (state.hasRecoverable && state.channel !== "beta");
     if (notice.hidden) return;
     notice.querySelector("[data-update-title]").textContent = (value.status === "channel-switch" ? "Return to Stable " : value.channel === "beta" ? "Beta " : "Stable ") + value.version + " available";
     notice.querySelector("[data-update-install]").textContent = value.status === "channel-switch" ? "Return to Stable" : "Update Current Installation";
@@ -395,11 +450,11 @@
     field("updateFolders").textContent = `Selected installation folder (parent of System Files): ${appRoot()?.name || "not connected"}. Runtime: System Files/. Dealership data: System Files/Workspace/. Update rollback backups: System Files/Workspace/backups/system-updates/.`;
     installButton.textContent = result?.status === "channel-switch" ? "Return to Stable" :
       "Update Current Installation";
-    installButton.disabled = state.busy || state.freshResetUnresolved || recoveryHold() || !currentOffer() ||
+    installButton.disabled = state.busy || state.freshResetUnresolved || recoveryHold() || !currentOffer() || !updateRootReady() ||
       (state.hasRecoverable && state.channel !== "beta");
     freshButton.hidden = state.channel !== "beta" || result?.status === "channel-switch";
     freshButton.textContent = postUpdateReady() ? "Finish Fresh After Verified Update" : "Update to Fresh Installation";
-    freshButton.disabled = !freshAvailable();
+    freshButton.disabled = !freshAvailable() || (currentOffer() && !updateRootReady());
     field("updateChoiceNote").textContent = freshButton.hidden ?
       "Update Current Installation preserves all dealership information." :
       freshAvailable() ?
@@ -418,6 +473,11 @@
     retryFresh.disabled=state.busy || state.postUpdateScanPending || state.recoveryScanPending;
     if(state.freshResetUnresolved)
       field("updateChoiceNote").textContent="Fresh Installation is unresolved in this tab after a verified update. Do not retry updates or use this copy until its durable recovery hold is reviewed. Other installations are unaffected.";
+    const folderProblem = Boolean(currentOffer() && !updateRootReady());
+    field("chooseUpdateFolder").hidden = !folderProblem;
+    field("chooseUpdateFolder").disabled = state.busy;
+    if (folderProblem) field("updateChoiceNote").textContent =
+      state.rootPreflight?.detail || "Can't verify the installation folder. Choose Dashboard Folder before updating.";
     field("checkMoonDogUpdate").disabled = state.busy;
     channel.disabled = state.busy;
     field("recoverMoonDogUpdate").hidden = !state.recoveryRequired && !state.hasRecoverable && !state.recoveryScanFailed;
@@ -425,11 +485,17 @@
     paintNotice();
   }
 
+  field("chooseUpdateFolder").addEventListener("click", () => {
+    const connect = document.getElementById("connectButton");
+    if (connect && !connect.disabled && typeof connect.click === "function") connect.click();
+    else status.textContent = "Go to the main dashboard and click Connect in the upper right, then choose the outer Dashboard folder.";
+  });
   async function check(manual) {
     if (state.busy) return;
     const checkedChannel = state.channel, checkedVersion = comparisonVersion, checkedRoot = appRoot();
     state.check = null;
     state.checkFor = null;
+    state.rootPreflight = null;
     clearPlan();
     clearProgress();
     state.busy = true;
@@ -449,16 +515,23 @@
       if (manual) state.dismissed = null;
       if (["newer-version", "channel-switch"].includes(result.status)) {
         state.checkFor = { channel: checkedChannel, version: checkedVersion, root: checkedRoot };
+        state.rootPreflight = await inspectUpdateInstallation(checkedRoot);
+        if (checkedChannel !== state.channel || checkedVersion !== comparisonVersion || checkedRoot !== appRoot()) return;
       }
       save();
       if (manual && result.status === "unavailable") status.textContent = "Could not reach GitHub. Try again later.";
       else if (manual && result.status === "invalid-input") status.textContent = "The installed version cannot be compared.";
-      else if (manual) status.textContent = "Update check complete.";
-      if (manual) await setProgress({ phase: result.status === "unavailable" || result.status === "invalid-input" ? "error" : "complete",
-        percent: result.status === "unavailable" ? null : 100,
-        label: result.status === "unavailable" ? "Update check unavailable" : "Update check complete",
-        detail: result.status === "newer-version" ? "Verified update available. Choose an installation option." :
-          result.status === "unavailable" ? "GitHub unavailable; retry when connected." : "Manifest check finished." });
+      else if (manual) status.textContent = currentOffer() && !updateRootReady() ?
+        (state.rootPreflight?.detail || "Can't verify the installation folder.") : "Update check complete.";
+      if (manual) {
+        const badFolder = Boolean(currentOffer() && !updateRootReady());
+        await setProgress({ phase: badFolder || result.status === "unavailable" || result.status === "invalid-input" ? "error" : "complete",
+          percent: badFolder || result.status === "unavailable" ? null : 100,
+          label: badFolder ? "Choose Dashboard Folder" : result.status === "unavailable" ? "Update check unavailable" : "Update check complete",
+          detail: badFolder ? state.rootPreflight?.detail || "Can't verify the installation folder." :
+            result.status === "newer-version" ? "Verified update available. Choose an installation option." :
+            result.status === "unavailable" ? "GitHub unavailable; retry when connected." : "Manifest check finished." });
+      }
     } catch (error) {
       if (manual) {
         status.textContent = "Update check stopped: " + (error?.message || "Unknown error");
@@ -475,6 +548,7 @@
     state.lastAutomatic = "";
     state.check = null;
     state.checkFor = null;
+    state.rootPreflight = null;
     clearPlan();
     clearProgress();
     save(); render();
@@ -590,8 +664,15 @@
       freshOutcomeStatus = null, freshPostInstall = false;
     state.busy = true; render();
     clearPlan();
-    await setProgress({ phase: "verify-package", percent: 5, label: "Verifying update package", detail: "Downloading and checking the selected update" });
+    await setProgress({ phase: "health-check", percent: null, label: "Checking installation folder", detail: "Verifying the selected Dashboard folder before downloading files" });
     try {
+      // The selected root can change or become unreadable since the update offer.
+      // Revalidate before package download or even a proposed file change.
+      const rootInspection = await inspectUpdateInstallation(selectedRoot);
+      state.rootPreflight = rootInspection;
+      if (selectedRoot !== appRoot() || !rootInspection.verified)
+        throw new Error(rootInspection.detail || "The connected installation changed. No update started.");
+      await setProgress({ phase: "verify-package", percent: 5, label: "Verifying update package", detail: "Downloading and checking the selected update" });
       const catalog = [...new Set([...(global.__moondogMaintenance?.runtimePaths || []), "assets/moondog-update-check.js",
         "assets/moondog-update-verify.js", "assets/moondog-update-plan.js",
         "assets/moondog-update-model.js", "assets/moondog-update-install.js",
