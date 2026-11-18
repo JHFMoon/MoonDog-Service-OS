@@ -56,7 +56,7 @@ function folder({ name = "Outer Dashboard", systemPresent = true, index = true,
   return { root, system, calls };
 }
 
-function harness(selected) {
+function harness(selected, updateStatus = "newer-version") {
   const fields = new Map(), listeners = new Map(), events = [];
   const model = { applicationRoot: selected.root };
   let connectClicks = 0;
@@ -81,7 +81,7 @@ function harness(selected) {
     __moondogSettingsModel: model,
     __moondogMaintenance: { runtimePaths: ["index.html", "assets/app.js"] },
     MoonDogUpdateCheck: { check: async () => ({
-      status: "newer-version", channel: "beta", version: "0.10.18-beta.425",
+      status: updateStatus, channel: "beta", version: "0.10.18-beta.425",
       packageUrl: "https://example.test/software-only.json", sha256: "b".repeat(64)
     }) },
     MoonDogUpdateInstall: { listBackups: async () => [],
@@ -196,4 +196,34 @@ test("missing entry after update offer refuses execution without trusted identit
   assert.equal(h.field("installMoonDogUpdate").disabled, true);
   assert.equal(h.field("chooseUpdateFolder").hidden, false);
   assert.match(h.field("updateStatus").textContent, /no recognized clean-install identity/);
+});
+
+test("manual already-current manifest diagnoses the wrong folder without offering an update", async () => {
+  const bad = folder({ name: "Wrong private subfolder", systemPresent: false });
+  const h = harness(bad, "up-to-date");
+  await h.check();
+  assert.equal(h.field("installMoonDogUpdate").disabled, true);
+  assert.equal(h.field("chooseUpdateFolder").hidden, false);
+  assert.match(h.field("updateStatus").textContent, /Can't verify the installation folder/);
+  assert.equal(h.field("updateProgressLabel").textContent, "Choose Dashboard Folder");
+  await h.install();
+  assert.deepEqual(h.events, [], "current manifest cannot excuse an unverified installation");
+  assert.deepEqual(bad.calls, ["root/directory:System Files"]);
+});
+
+test("manual already-current manifest clears folder warning after explicit valid reconnect", async () => {
+  const bad = folder({ systemPresent: false });
+  const good = folder({ name: "Approved outer installation" });
+  const h = harness(bad, "up-to-date");
+  await h.check();
+  assert.equal(h.field("chooseUpdateFolder").hidden, false);
+  h.choose();
+  assert.equal(h.connectClicks(), 1);
+  h.model.applicationRoot = good.root;
+  await h.check();
+  assert.equal(h.field("chooseUpdateFolder").hidden, true);
+  assert.equal(h.field("updateStatus").textContent, "Update check complete.");
+  assert.equal(h.field("installMoonDogUpdate").disabled, true,
+    "already-current software must not offer unnecessary installation");
+  assert.deepEqual(h.events, []);
 });
