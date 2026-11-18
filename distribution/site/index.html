@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Service Operations Dashboard — Offline Download</title>
+<title>MoonDog Repair Center — Service Operations Dashboard</title>
 <style>
 :root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#13252d;background:#eef3f5}
 *{box-sizing:border-box}body{margin:0}.wrap{max-width:980px;margin:auto;padding:56px 24px 80px}
@@ -21,33 +21,34 @@ code{word-break:break-all}@media(max-width:760px){.hero{padding:30px}.grid{grid-
 </head>
 <body><main class="wrap">
 <section class="hero">
-<div class="eyebrow">Local-first service operations</div>
-<h1>Your dashboard.<br>Your data.</h1>
-<p class="lead">Download a clean, unconfigured copy of Service Operations Dashboard. Extract it anywhere you control, complete first-run setup, and operate locally. GitHub is used only for verified software distribution and optional update checks.</p>
+<div class="eyebrow">MoonDog · Local repair center</div>
+<h1>Fix your dashboard.<br>Keep your data.</h1>
+<p class="lead">An update stopped? Software files missing? Start here. Check your installed MoonDog folder on this computer, see what needs attention, and use the verified software repair tool when it is safe. Dealership data stays local.</p>
 <div class="actions">
-<a class="button" href="https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip">Download latest stable ZIP</a>
-<a class="button secondary" href="https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest">View release details</a>
+<a class="button" href="./check-installation.html">Check my installation</a>
+<a class="button secondary" href="https://github.com/JHFMoon/MoonDog-Service-OS/blob/main/repair-moondog.html">Get verified repair tool</a>
 </div>
-<p><a class="button secondary" href="./check-installation.html">Fix Installation Files</a></p>
-<p class="meta">Update stopped or index.html missing? Check the folder structure and follow safe recovery steps.</p>
+<p class="meta">Use Microsoft Edge on Windows. Choose the folder containing <strong>System Files</strong> and <strong>00 - OPEN DASHBOARD.html</strong>. The first check changes nothing.</p>
+<p class="meta">Need a new store instead? <a href="https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip">Download a fresh Stable ZIP</a> · <a href="https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest">Release details</a></p>
 <p class="meta"><a href="./bridge-0.10.17.html">0.10.16 says editing authority is required? Use the 0.10.17 bridge installer.</a></p>
 <p class="meta" id="releaseMeta">Loading current Stable release information…</p>
 </section>
 
 <div class="grid">
-<section class="card"><b>1 · Extract</b><p>Unzip the download to a normal folder. Do not run the app from inside the ZIP.</p></section>
-<section class="card"><b>2 · Open</b><p>Open <strong>00 - OPEN DASHBOARD.html</strong> in Microsoft Edge.</p></section>
-<section class="card"><b>3 · Own it</b><p>Choose the extracted folder, designate the editing computer, and complete Guided Setup.</p></section>
+<section class="card"><b>1 · Select</b><p>Click <strong>Check my installation</strong>, then choose the existing MoonDog folder. Do not choose Workspace.</p></section>
+<section class="card"><b>2 · Diagnose</b><p>See whether application files, Workspace, or update recovery journals need attention. The check is read-only.</p></section>
+<section class="card"><b>3 · Repair safely</b><p>For approved software repairs, get the verified repair page and follow its prompts. A recovery problem must be resolved first.</p></section>
 </div>
 
 <section class="card" style="margin-top:18px">
-<h2>What stays local</h2>
-<p>Store identity, advisor and technician mappings, imported reports, RO/VIN/customer information, settings, history, exports, diagnostics, and backups stay under <strong>System Files/Workspace</strong> in your extracted copy. Software updates are not allowed to overwrite that workspace.</p>
-<h2>Updates</h2>
-<p>The dashboard can check the public Stable channel when internet is available. It verifies the release package and SHA-256, shows the planned application-file changes, requires approval, creates a rollback backup, verifies the installed bytes, and leaves Workspace data alone.</p>
+<h2>Repair what is safe, never guess at recovery</h2>
+<p>The verified repair tool can restore approved application files and missing software folders while preserving the existing <strong>System Files/Workspace</strong>. It checks installation identity, package integrity, folder authority, and recovery backups before writing.</p>
+<p>If a rollback backup is unreadable or missing its <strong>journal.json</strong>, MoonDog must stop and ask for local review. An unknown recovery state is not safe to erase, invent, or ignore. Do not delete backup folders to force an update.</p>
+<h2>Already using MoonDog?</h2>
+<p>After a verified repair, reopen the local launcher and use <strong>Settings → System Updates</strong>. Do not create a second Workspace or copy store data into a new installation to work around a failed recovery check.</p>
 <h2>Browser target</h2>
-<p>The validated desktop target is Microsoft Edge on Windows with the File System Access API. Normal operation is offline after installation; internet is only needed for update checks.</p>
-<div class="warning"><strong>Important:</strong> back up the extracted folder. The application is intentionally local-first; GitHub is not a backup of your store data.</div>
+<p>Use Microsoft Edge on Windows for local folder access. This webpage checks your selected installation locally. Verified package downloads require an internet connection; operational records are not uploaded.</p>
+<div class="warning"><strong>Important:</strong> Keep the original installation and its backups. No website can promise recovery from every damaged drive, missing backup, OneDrive lock, or denied permission. The tool must stop rather than put store data at risk.</div>
 </section>
 </main>
 <script>
