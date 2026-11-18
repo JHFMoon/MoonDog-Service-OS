@@ -228,3 +228,35 @@ test("manual already-current manifest clears folder warning after explicit valid
     "already-current software must not offer unnecessary installation");
   assert.deepEqual(h.events, []);
 });
+
+test("manual update check diagnoses an invalid folder before using the network", async () => {
+  const bad = folder({ systemPresent: false });
+  const h = harness(bad, "unavailable");
+  let manifestChecks = 0;
+  h.context.MoonDogUpdateCheck.check = async () => {
+    manifestChecks++;
+    return { status: "unavailable" };
+  };
+  await h.check();
+  assert.equal(h.field("chooseUpdateFolder").hidden, false);
+  assert.match(h.field("updateStatus").textContent, /Can't verify the installation folder/);
+  assert.equal(h.field("updateProgressLabel").textContent, "Choose Dashboard Folder");
+  assert.equal(manifestChecks, 0);
+  await h.install();
+  assert.deepEqual(h.events, []);
+});
+
+test("manual update check reports GitHub unavailable after validating a good folder", async () => {
+  const good = folder();
+  const h = harness(good, "unavailable");
+  const checkManifest = h.context.MoonDogUpdateCheck.check;
+  h.context.MoonDogUpdateCheck.check = async () => {
+    assert.ok(good.calls.includes("system/file:index.html"));
+    return checkManifest();
+  };
+  await h.check();
+  assert.equal(h.field("chooseUpdateFolder").hidden, true);
+  assert.equal(h.field("updateStatus").textContent, "Could not reach GitHub. Try again later.");
+  assert.equal(h.field("installMoonDogUpdate").disabled, true);
+  assert.deepEqual(h.events, []);
+});
