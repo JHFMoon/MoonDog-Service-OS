@@ -12,6 +12,7 @@ function production(start,end){
   assert.ok(a>=0&&b>a,"production backup function was not found: "+start);
   return app.slice(a,b);
 }
+const equalBytes=production("  function equalFileBytes(", "  async function recoverPendingSupervisorWorkbook(");
 const maker=production("  async function createBackupBytes(","  async function validateBackupBytes(");
 const writer=production("  async function writeValidatedBackup(","  async function createBackupNow(");
 const encode=s=>new TextEncoder().encode(s);
@@ -19,7 +20,7 @@ const decode=b=>new TextDecoder().decode(b);
 const hash=async b=>crypto.createHash("sha256").update(b).digest("hex");
 const missing=()=>Object.assign(Error("synthetic missing state"),{name:"NotFoundError"});
 
-function fixture(){
+function fixture({alternateBackupReadback=null}={}){
   const paths=[
     "data/current-state.json","data/settings.json",
     "data/appointments.json","data/advisor-performance.json"
@@ -56,12 +57,16 @@ function fixture(){
     backupFileName:prefix=>prefix+".zip",
     sha256:hash,
     validateDurableObject:(_path,value)=>{if(!value||typeof value!=="object")throw Error("invalid value");},
-    readFileBytes:async parts=>{const b=files.get(parts.join("/"));if(!b)throw missing();return new Uint8Array(b);},
+    readFileBytes:async parts=>{
+      const b=files.get(parts.join("/"));
+      if(!b)throw missing();
+      return parts[0]==="backups"&&alternateBackupReadback ? alternateBackupReadback : new Uint8Array(b);
+    },
     directoryFiles:async()=>[...files.entries()].filter(([p])=>p.startsWith("data/history/")).map(([p,b])=>({name:p.split("/").at(-1),bytes:new Uint8Array(b)})),
     validateBackupBytes:async()=>{validated++;const m=JSON.parse(archive.files.get("manifest.json"));return{manifest:m};},
     writeBytes:async(parts,bytes)=>{files.set(parts.join("/"),new Uint8Array(bytes));}
   });
-  vm.runInContext(maker+"\n"+writer+
+  vm.runInContext(equalBytes+"\n"+maker+"\n"+writer+
     "\nglobalThis.make=createBackupBytes;globalThis.writeSafety=writeValidatedBackup;",context);
   return{
     files,model,paths,originals,
@@ -115,4 +120,13 @@ test("missing durable canonical data refuses restore safety archive generation",
   f.files.delete("data/settings.json");
   await assert.rejects(f.writeSafety(),/synthetic missing state/);
   assert.equal(f.files.has("backups/MoonDog Restore Safety.zip"),false);
+});
+
+test("backup writer rejects a different package even when its timestamp matches",async()=>{
+  const f=fixture({alternateBackupReadback:encode("synthetic-archivf")});
+  await assert.rejects(f.writeSafety(),/Backup read-back verification failed/);
+  assert.equal(f.files.has("backups/MoonDog Restore Safety.zip"),true,
+    "The writer leaves the saved package available for recovery review");
+  for(const [index,file] of f.paths.entries())
+    assert.equal(decode(f.files.get(file)),JSON.stringify(f.originals[index])+"\n");
 });
