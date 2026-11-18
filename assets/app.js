@@ -2810,9 +2810,13 @@
   function csiDate(value) {
     const source=text(value).trim();
     const iso=source.match(/(20\d{2})-(\d{2})-(\d{2})/);
-    if(iso)return iso[1]+"-"+iso[2]+"-"+iso[3];
+    if(iso)return freshness.validDateKey(iso[0])?iso[0]:null;
     const us=source.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s|$)/);
-    if(us){const year=us[3].length===2?"20"+us[3]:us[3];return year+"-"+us[1].padStart(2,"0")+"-"+us[2].padStart(2,"0");}
+    if(us){
+      const year=us[3].length===2?"20"+us[3]:us[3];
+      const key=year+"-"+us[1].padStart(2,"0")+"-"+us[2].padStart(2,"0");
+      return freshness.validDateKey(key)?key:null;
+    }
     // Dealer Dashboard XLSX uses numeric Excel dates on some exports.
     // UTC arithmetic avoids locale-dependent off-by-one-day conversions.
     const serial=Number(source);
@@ -2886,12 +2890,16 @@
     // response. Count metric-bearing revisions before merging so the durable
     // source history identifies a correction without copying response values
     // or survey identifiers into the audit event.
+    // An impossible date from an older import cannot outrank a valid correction
+    // for the same Invite ID.
+    const keepLaterSurvey = (prior, survey) =>
+      freshness.validDateKey(prior?.surveyDate) && prior.surveyDate > survey.surveyDate;
     const revisedMetricSurveyCount = Object.values(parsed.surveys).reduce((count, survey) => {
       const prior = existing[survey.id];
-      if (!prior || prior.surveyDate > survey.surveyDate) return count;
+      if (!prior || keepLaterSurvey(prior, survey)) return count;
       return count + (["surveyDate", "score", "classification", "advisorCode"].some((field) => prior[field] !== survey[field]) ? 1 : 0);
     }, 0);
-    Object.values(parsed.surveys).forEach((survey) => { const prior = existing[survey.id]; existing[survey.id] = prior && prior.surveyDate > survey.surveyDate ? prior : { ...prior, ...survey, extensionRecordIds: [...new Set([...(prior?.extensionRecordIds || []), ...survey.extensionRecordIds])], lastSeenAt: now() }; });
+    Object.values(parsed.surveys).forEach((survey) => { const prior = existing[survey.id]; existing[survey.id] = keepLaterSurvey(prior, survey) ? prior : { ...prior, ...survey, extensionRecordIds: [...new Set([...(prior?.extensionRecordIds || []), ...survey.extensionRecordIds])], lastSeenAt: now() }; });
     const newest = Object.values(existing).map((survey) => survey.surveyDate).sort().at(-1); if (newest) { const cutoff = freshness.addDays(newest,-730); Object.keys(existing).forEach((id) => { if (existing[id].surveyDate < cutoff) delete existing[id]; }); }
     candidate.csi.surveys = existing; candidate.csi.imports ||= []; candidate.csi.imports.push({ sourceFile: name, sourceStoreConfidence:"configured-destination-only", importedAt: refreshAt, refreshDate, coverageStart: parsed.coverageStart, coverageEnd: parsed.coverageEnd, scopeStart:parsed.scopeStart,scopeEnd:parsed.scopeEnd,scopeVerified:parsed.scopeVerified, metricSnapshotSha256, dailySummary:npsSummary(parsed.surveys), rows: Object.keys(parsed.surveys).length, unresolvedAdvisorCount: parsed.unresolvedAdvisorCount, format: /\.xlsx$/i.test(name) ? "xlsx" : "csv" }); candidate.csi.imports = candidate.csi.imports.slice(-250); candidate.csi.lastSuccessfulRefreshAt = refreshAt; candidate.csi.lastSuccessfulRefreshDate = refreshDate; candidate.updatedAt = refreshAt; try {
       // Import data and its source lineage must not become visible to Home,

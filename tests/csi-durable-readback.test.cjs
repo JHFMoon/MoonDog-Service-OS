@@ -55,7 +55,7 @@ function fixture(mode = "verified", options = {}) {
     }})}),
     parseCsiCsv: () => structuredClone(parsed),
     npsSummary: surveys => ({responseCount: Object.keys(surveys).length}),
-    freshness: {addDays: (_date, days) => days === -730 ? "2024-10-21" : "unexpected"},
+    freshness: {validDateKey: require("../assets/freshness.js").validDateKey, addDays: (_date, days) => days === -730 ? "2024-10-21" : "unexpected"},
     writeJson: async (_path, data) => {
       events.push("write");
       if (currentMode === "write-denied") throw Error("synthetic write denied");
