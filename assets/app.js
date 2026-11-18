@@ -4401,12 +4401,24 @@
       writeAuthority.canWrite&&!workspaceConnectionBusy&&!workspaceRecoveryBusy&&
       !(postConnectionScanBusy&&reason!=="connection")&&
       !dailyImportBusy&&!appointmentImportBusy&&folderWatchEnabled();
+    const pauseForPermission = (reason) => {
+      if (!eligible()) return;
+      stopFolderWatch("FOLDER PERMISSION REQUIRED");
+      const savedRoot = connectedNativeRoot;
+      model.pendingRoot = savedRoot;
+      writeAuthority.disable();
+      setConnectionState("PERMISSION REQUIRED",
+        "Folder access was lost. Click Restore folder access to reconnect to the saved folder.");
+      recordDiagnostic("REPORT INBOX WATCH", reason);
+      // Reuse the read-only layout preflight and bounded, no-prompt saved-folder retry.
+      scheduleSavedConnectionRetry(savedRoot);
+    };
     if(folderWatch.busy||!eligible())return;
     folderWatch.busy=true;watchStatus("CHECKING REPORT INBOX");
     try{
       const permissionState=await permission(scanRoot,false);
       if(!eligible())return;
-      if(permissionState!=="granted"){stopFolderWatch("FOLDER PERMISSION REQUIRED");model.pendingRoot=connectedNativeRoot;ui.permissionBadge.textContent=`Reconnect: ${model.root.name}`;ui.connectButton.textContent="Reconnect folder";recordDiagnostic("REPORT INBOX WATCH","Folder permission was lost; watching paused");return;}
+      if(permissionState!=="granted"){pauseForPermission("Folder permission was lost; watching paused");return;}
       const candidates=await watchCandidates();
       if(!eligible())return;
       const legacyCleanupReview=candidates.filter(item=>item.location==="inbox"&&!item.readError&&model.autoImport.seen?.[item.signature]?.kind==="appointments"&&model.autoImport.seen[item.signature].importedAt&&!model.autoImport.seen[item.signature].cleanupPending); if(model.autoImport.inboxVersion!==1){model.autoImport.seen||={};for(const candidate of candidates.filter(item=>item.location==="root"&&item.signature))model.autoImport.seen[candidate.signature]={fileName:candidate.name,relativePath:candidate.relativePath,firstSeenAt:now(),baseline:true,specializedRoot:true};model.autoImport.inboxVersion=1;model.autoImport.updatedAt=now();await writeJson(AUTO_IMPORT_PATH,model.autoImport);if(!eligible())return;recordDiagnostic("REPORT INBOX WATCH","Dedicated Report Inbox scope initialized; existing root workbooks were left untouched");}
@@ -4417,7 +4429,7 @@
       if(stable.size){watchStatus("IMPORTING");const scrollX=window.scrollX,scrollY=window.scrollY,result=await autoSurveyFolder(stable,eligible);if(!result||!eligible())return;for(const candidate of candidates.filter(item=>stable.has(item.signature) &&
         !result.deferredPaths?.includes(item.relativePath)))folderWatch.pending.delete(candidate.relativePath);renderAll();renderSetup();renderRecovery();window.scrollTo(scrollX,scrollY);folderWatch.lastChecked=now();if(result.cleanupReviewRequired?.length){watchStatus("REPORT CLEANUP REVIEW REQUIRED",`${result.cleanupReviewRequired.length} source file(s) changed identity after verified ingestion. They remain in Report Inbox; review before re-import or deletion.`);}else if(result.reviewRequired?.length){watchStatus("REPORT SOURCE REVIEW REQUIRED",`${result.reviewRequired.length} unsigned report(s) remain in Report Inbox. Verify the dealership and period through the matching manual import control before accepting source data.`);}else if(result.cleanupPending?.length){watchStatus("REPORT CLEANUP RETRY PENDING",`${result.cleanupPending.length} report(s) were saved, but original source deletion did not finish. Cleanup will retry without importing again.`);}else if(result.imported.length){watchStatus("REPORT INBOX WATCHING",`${result.imported.length} supported report${result.imported.length===1?"":"s"} updated automatically`);recordDiagnostic("REPORT INBOX WATCH",`${result.imported.length} supported source file(s) imported automatically from the Report Inbox`);}else if(result.cleaned?.length){watchStatus("REPORT INBOX WATCHING",`${result.cleaned.length} previously ingested file(s) were deleted after verified retry.`);}else watchStatus(result.retained.length?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",result.learned.length?`${result.learned.length} unsupported or failed file(s) moved safely to Files To Learn.`:"");}
       else{folderWatch.lastChecked=now();const pendingManual=candidates.filter(item=>item.location==="inbox"&&model.autoImport.seen?.[item.signature]?.manualImportRequired).length;if(pendingManual)watchStatus("REPORT SOURCE REVIEW REQUIRED",`${pendingManual} report(s) are awaiting manager dealership/source review. Use Import Report, Import Performance, or manual Daily report import as appropriate.`);else if(legacyCleanupReview.length)watchStatus("CLEANUP REVIEW REQUIRED",`${legacyCleanupReview.length} previously imported appointment source(s) are still present without verified cleanup provenance. Review the original files before manual removal; the Dashboard will not auto-delete legacy files.`);else watchStatus(folderWatch.pending.size?"WAITING FOR FILE TO FINISH SYNCING":"REPORT INBOX WATCHING",folderWatch.pending.size?`${folderWatch.pending.size} file(s) remain pending stability or temporary read recovery.`:"");}
-    }catch(error){if(model.root!==scanRoot)return;if(error.name==="NotFoundError"){stopFolderWatch("REPORT INBOX MISSING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox is missing");}else if(error.name==="NotAllowedError"||error.name==="SecurityError"){stopFolderWatch("FOLDER PERMISSION REQUIRED");recordDiagnostic("REPORT INBOX WATCH","Folder permission error paused watching");}else{watchStatus("REPORT INBOX ERROR","The last scan failed; Service Operations Dashboard will retry automatically.");recordDiagnostic("REPORT INBOX WATCH",`Report Inbox scan failed (${error.name||"Error"})`);}}finally{folderWatch.busy=false;}
+    }catch(error){if(model.root!==scanRoot)return;if(error.name==="NotFoundError"){stopFolderWatch("REPORT INBOX MISSING");recordDiagnostic("REPORT INBOX WATCH","Report Inbox is missing");}else if(error.name==="NotAllowedError"||error.name==="SecurityError"){pauseForPermission("Folder permission error paused watching");}else{watchStatus("REPORT INBOX ERROR","The last scan failed; Service Operations Dashboard will retry automatically.");recordDiagnostic("REPORT INBOX WATCH",`Report Inbox scan failed (${error.name||"Error"})`);}}finally{folderWatch.busy=false;}
   }
   async function autoSurveyFolder(eligibleSignatures = null, scanEligible = () => true) {
     // Report Inbox candidates are enumerated a second time here. A reconnect
