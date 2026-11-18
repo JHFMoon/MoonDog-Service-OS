@@ -1761,6 +1761,9 @@
     }
     const permissionWasPending=model.pendingRoot===handle;
     if (await permission(handle, ask) !== "granted") throw new Error("Folder access was not granted.");
+    // Authority validation can initialize a revision. Confirm an existing
+    // Workspace and check the Fresh hold before it can create any files.
+    await operationalRoot(handle);
     const afterPermissionBlock=workspaceConnectionBlockReason();
     if(afterPermissionBlock){const error=new Error(afterPermissionBlock);error.code="WORKSPACE_CONNECTION_BUSY";throw error;}
     await writeAuthority.validate(handle, ask);

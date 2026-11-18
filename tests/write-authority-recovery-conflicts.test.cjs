@@ -124,7 +124,7 @@ function fixture(current=after,options={}){
     "globalThis.createTarget=journaledCreate;globalThis.setRestoreOwner=id=>{localRestoreOwner=id;};"+
     "globalThis.io={beginMutation,completeMutation,cancelMutation,read:p=>readBytes(nativeRoot,p.split('/')),rawWrite:(p,b,t)=>{requireToken(t);return writeBytesRaw(nativeRoot,p.split('/'),b);}};",context);
   return{
-    files,dirs,actions,journal,
+    root,files,dirs,actions,journal,
     writeTarget:bytes=>maintenance.safeWrite(context.io,statePath,bytes),
     recover:revision=>context.recoverPending(root,{schemaVersion:1,revision}),
     validate:(ask=false)=>context.validate(root,ask),
@@ -555,4 +555,41 @@ test("operational metrics readback preserves a competing writer and retains the 
   assert.equal(f.pending(),true);
   const target="System Files/Workspace/data/operational-metrics.json";
   assert.deepEqual(f.actions.filter(([action,name])=>name===target&&["write","remove"].includes(action)),[["write",target]]);
+});
+
+test("connecting an incomplete installation cannot create its Workspace or revision", async () => {
+  const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+  const layoutStart = app.indexOf("  const WORKSPACE_PREFIX");
+  const layoutEnd = app.indexOf("  // This path is only called", layoutStart);
+  const connectStart = app.indexOf("  let workspaceConnectionBusy=false;");
+  const connectEnd = app.indexOf("  async function connect() {", connectStart);
+  assert.ok(layoutStart >= 0 && layoutEnd > layoutStart && connectStart > layoutEnd && connectEnd > connectStart);
+
+  for (const interruptedFresh of [false, true]) {
+    const f = fixture(null, {physicalWorkspace: true, noInitialJournal: true});
+    f.files.clear();
+    f.dirs.clear();
+    if (interruptedFresh) {
+      f.dirs.add("System Files");
+      f.files.set("System Files/MOONDOG_FRESH_RESET_PENDING.json", encode({status: "incomplete"}));
+    }
+    const originalDirs = Array.from(f.dirs);
+    const originalFiles = Array.from(f.files);
+    const model = {root: null, pendingRoot: f.root, applicationRoot: null};
+    const context = vm.createContext({
+      model, folderWatch: {busy: false}, dailyImportBusy: false, appointmentImportBusy: false,
+      permission: async () => "granted",
+      writeAuthority: {validate: (_, ask) => f.validate(ask), get canWrite() { return f.editable(); }}
+    });
+    vm.runInContext(app.slice(layoutStart, layoutEnd) + app.slice(connectStart, connectEnd) +
+      "\nthis.openSelectedFolder=finishConnection;", context);
+    const error = await context.openSelectedFolder(f.root, false).then(
+      () => null, failure => failure);
+    assert.deepEqual(Array.from(f.dirs), originalDirs, "no layout creation in the unverified selection");
+    assert.deepEqual(Array.from(f.files), originalFiles, "no revision creation or marker replacement");
+    assert.deepEqual(f.actions, []);
+    assert.equal(interruptedFresh ? error?.code : error?.name,
+      interruptedFresh ? "FRESH_RESET_INCOMPLETE" : "NotFoundError");
+    assert.equal(model.applicationRoot, null);
+  }
 });
