@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.446 — current Beta
+
+- fix(59): select VIR observations as of the business date. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.445 — current Beta
 
 - fix(797): open the picker for a rejected saved folder. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

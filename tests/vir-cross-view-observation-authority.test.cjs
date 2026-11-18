@@ -12,7 +12,7 @@ function extract(from, to) {
   assert.ok(start >= 0 && end > start, "Missing production source block: " + from);
   return app.slice(start, end);
 }
-const validator = extract("  function verifiedVirSourceObservationDate(", "  function sourceFreshness(");
+const sourceAuthority = extract("  function verifiedVirSourceObservationDate(", "  function metricDependencyEvidence(");
 const lineage = extract("  function virObservationDate(", "  function normalizeOperationalCoverage()");
 const menuValidator = extract("  function verifiedMenuTrendReleases(", "  function trendCoverageAudit(");
 const coverage = extract("  function trendCoverageAudit(", "  function trendMaintenance(");
@@ -42,6 +42,7 @@ function fixture(records = [], today = TODAY) {
     validCoverageDate: v => freshness.validDateKey(v) ? v : "",
     localDateKey: d => d ? d.toISOString().slice(0, 10) : today,
     previousOperatingDateKey: d => freshness.previousOperatingDay(d),
+    businessTimeZone: () => "UTC",
     sourceExpectation: () => "recommended",
     SOURCE_COVERAGE_RULES: {sapr: {}, menu: {}, vir: {}, csi: {}},
     currentMonthWindow: d => ({start: d.slice(0,7) + "-01", end: d, expectedDates: []}),
@@ -53,10 +54,10 @@ function fixture(records = [], today = TODAY) {
     metricEvidence: r => ({...r, verified: false})
   });
   const before = JSON.stringify(model);
-  vm.runInContext(validator + "\n" + lineage + "\n" + menuValidator + "\n" + coverage + "\n" + windowKeys + "\n" + comparison
+  vm.runInContext(sourceAuthority + "\n" + lineage + "\n" + menuValidator + "\n" + coverage + "\n" + windowKeys + "\n" + comparison
     + "\nthis.observe=virObservationDate;this.observationTime=virObservationTime;"
     + "this.latest=latestVirObservation;this.stale=virObservationIsStale;"
-    + "this.coverage=trendCoverageAudit;this.compare=virMeetingWindowComparison;", context);
+    + "this.coverage=trendCoverageAudit;this.compare=virMeetingWindowComparison;this.health=sourceFreshness;", context);
   function checkUnchanged() {
     assert.equal(JSON.stringify(model), before, "Source selection and coverage are read-only");
   }
@@ -104,6 +105,20 @@ test("Home latest VIR prefers genuine source record to newer undated import", ()
   const f = fixture([valid, undated]);
   assert.equal(f.ctx.latest().sourceFile, "valid.csv");
   assert.equal(f.ctx.coverage(TODAY).vir.observationDate, "2026-10-30");
+  f.checkUnchanged();
+});
+
+test("Home VIR uses the newest observation on or before the requested business date", () => {
+  const prior = sample("2026-10-30");
+  const current = sample(TODAY);
+  const future = sample("2026-11-03");
+  const f = fixture([prior, current, future]);
+  assert.equal(f.ctx.latest(), current);
+  assert.equal(f.ctx.coverage(TODAY).vir.observationDate, TODAY);
+  assert.equal(f.ctx.coverage("2026-10-30").vir.observationDate, "2026-10-30");
+  const health = f.ctx.health("vir", {today: "2026-10-30"});
+  assert.equal(health.status, "current");
+  assert.equal(health.periodEnd, "2026-10-30");
   f.checkUnchanged();
 });
 
