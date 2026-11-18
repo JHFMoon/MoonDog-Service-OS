@@ -19,13 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      HEAD_SHA: ${{ github.sha }}
 
     steps:
-      - name: Check out validated source
+      # Validate current protected main for the Pages UI and metadata; the software
+      # package is built later from the immutable Stable release tag.
+      - name: Check out validated main source
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || env.HEAD_SHA }}
+          ref: main
           fetch-depth: 0
 
       - name: Fetch all public refs for history audit
@@ -39,6 +40,17 @@ jobs:
           python3 scripts/check_publication.py
           python3 scripts/audit_git_history.py
           python3 scripts/build_distribution.py --check-source
+
+      - name: Preserve reviewed Pages files from current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          SITE_DIR="$RUNNER_TEMP/moondog-verified-site"
+          mkdir -p "$SITE_DIR"
+          cp -R distribution/site/. "$SITE_DIR/"
+          test -f "$SITE_DIR/index.html"
+          test -f "$SITE_DIR/check-installation.html"
+          echo "Pages source validated at main $(git rev-parse HEAD); Stable runtime will be checked out separately."
 
       - name: Resolve Stable release
         id: stable
@@ -140,7 +152,7 @@ jobs:
         shell: bash
         run: |
           rm -rf .pages
-          cp -R distribution/site .pages
+          cp -R "$RUNNER_TEMP/moondog-verified-site" .pages
           python3 - <<'PY'
           import json
           from pathlib import Path
