@@ -813,7 +813,19 @@
   function advisorMap(participation = null, includeInactive = false) { return Object.fromEntries(configuredAdvisors(participation, includeInactive).map((advisor) => [advisor.number, advisor.name])); }
   function storeIdentityReady(settings=model.settings){const store=settings?.store||{};return Boolean(String(store.name||"").trim()&&String(store.code||"").trim()&&String(store.timeZone||"").trim());}
   function saprImportRank(snapshot){const imported=Date.parse(snapshot?.importedAt||"");if(Number.isFinite(imported))return imported;const period=Date.parse(`${snapshot?.periodEnd||""}T12:00:00`);return Number.isFinite(period)?period:0;}
-  function currentSaprSnapshot(requireVerifiedDays=false){return Object.values(model.performance?.snapshots||{}).filter((snapshot)=>snapshot?.periodEnd&&snapshot.validation?.advisorDetailSheets>0&&Object.keys(snapshot.advisors||{}).length&&(!requireVerifiedDays||(snapshot.validation?.saprDaysVerified===true&&Number.isFinite(snapshot.saprDaysCompleted)&&Number.isFinite(snapshot.saprTotalDays)&&snapshot.saprDaysCompleted>=0&&snapshot.saprTotalDays>0&&snapshot.saprTotalDays>=snapshot.saprDaysCompleted))).sort((a,b)=>saprImportRank(a)-saprImportRank(b)||String(a.periodEnd).localeCompare(String(b.periodEnd))).at(-1)||null;}
+  function currentSaprSnapshot(requireVerifiedDays=false, today=localDateKey()) {
+    return Object.values(model.performance?.snapshots || {}).filter(snapshot => {
+      const start = snapshot?.periodStart, end = snapshot?.periodEnd;
+      const validStart = start == null || start === "" || (freshness.validDateKey(start) && start <= end);
+      return freshness.validDateKey(end) && end <= today && validStart &&
+        snapshot.validation?.advisorDetailSheets > 0 && Object.keys(snapshot.advisors || {}).length &&
+        (!requireVerifiedDays || (snapshot.validation?.saprDaysVerified === true &&
+          Number.isFinite(snapshot.saprDaysCompleted) && Number.isFinite(snapshot.saprTotalDays) &&
+          snapshot.saprDaysCompleted >= 0 && snapshot.saprTotalDays > 0 &&
+          snapshot.saprTotalDays >= snapshot.saprDaysCompleted));
+    }).sort((a,b) => saprImportRank(a) - saprImportRank(b) ||
+      a.periodEnd.localeCompare(b.periodEnd)).at(-1) || null;
+  }
   function verifiedSaprSnapshot(){return currentSaprSnapshot();}
   function setupRequiredReady(settings=model.settings){return storeIdentityReady(settings)&&Boolean(verifiedSaprSnapshot());}
   function sourceExpectation(key){return model.settings.setup?.sourceExpectations?.[key]||"recommended";}
@@ -5316,7 +5328,7 @@
         invalid: declared && !verifiedDate ? "The retained Open RO source has an invalid or future report date." : ""
       }, item, verifiedDate);
     }
-    if (key === "sapr") { const item = hasSelectedItem ? options.item : currentSaprSnapshot(true); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, verifiedDatedInterval(item)); }
+    if (key === "sapr") { const item = hasSelectedItem ? options.item : currentSaprSnapshot(true, today); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd }, item, verifiedDatedInterval(item)); }
     if (key === "csi") {
       const branch = model.operationalMetrics?.csi || {}, imports = branch.imports || [],
         item = hasSelectedItem ? options.item : imports.at(-1),

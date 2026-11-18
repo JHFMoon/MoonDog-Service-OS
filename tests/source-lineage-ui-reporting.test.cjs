@@ -195,6 +195,7 @@ test('Performance tracker refuses an undated Open RO as a verified zero',()=>{
     reportPeriodVerified:false,importTimestamp:'2026-10-26T12:00:00Z'};
   let calculations=0;
   const ctx=vm.createContext({model,ui,sourceFreshness:key=>key==='openRo'?health:{key:'sapr',status:'current'},
+    freshness:require('../assets/freshness.js'),localDateKey:()=>'2026-11-02',
     sourceLineageLabel:e=>e.key==='openRo'?'Open RO · period unknown':'SAPR · verified',
     renderPerformanceBase:()=>{},renderPerformanceExecutive:()=>{},
     renderCurrentMonthTrend:()=>{},renderControllables:()=>{},
@@ -242,6 +243,7 @@ test('production Performance advisor table treats imported identity as text, nev
     performanceMetric:{value:'totalGross'}};
   const context=vm.createContext({
     model:{performance:{snapshots:{'2026-10-31':source}}},ui,
+    freshness:require('../assets/freshness.js'),localDateKey:()=>'2026-11-02',
     document:{createElement:node},Option:function(label,value){return {label,value};},
     advisorShownInSection:()=>true,performanceEntity:(snapshot,selection)=>
       selection==='store'?snapshot.store:snapshot.advisors[selection],
