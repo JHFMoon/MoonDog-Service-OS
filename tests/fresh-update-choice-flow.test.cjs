@@ -171,7 +171,12 @@ test("changing the connected root during preview never mixes two installation ha
 });
 test("preview and install always use the same selected root and runtime handle",async()=>{
   const h=harness();await h.check();
-  const runtime={name:"Selected-Synthetic-System"};
+  const runtime={name:"Selected-Synthetic-System",
+    isSameEntry:async other=>other===runtime,
+    getFileHandle:async name=>{if(name!=="index.html")throw Error("Unexpected synthetic file");return {kind:"file"};},
+    getDirectoryHandle:async name=>{if(name!=="Workspace")throw Error("Unexpected synthetic folder");return {kind:"directory"};}
+  };
+  h.root.resolve=async target=>target===runtime?["System Files"]:["System Files","Workspace"];
   h.root.getDirectoryHandle=async(name,opts)=>{
     assert.equal(name,"System Files");
     assert.equal(opts.create,false);
