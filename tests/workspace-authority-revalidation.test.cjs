@@ -176,3 +176,98 @@ test("read-only proof from a superseded Workspace cannot reach the write validat
   assert.deepEqual(f.validations, []);
   assert.deepEqual(f.states, []);
 });
+
+test("permission recovery keeps the committed Workspace and draft when access returns", async () => {
+  const f = fixture();
+  const originalWorkspace = f.context.model.root;
+  const draft = { note: "Synthetic unsaved update" };
+  Object.assign(f.context.model, {
+    pendingRoot: f.rootA,
+    workspaceConnectionCommittedRoot: originalWorkspace,
+    connectionState: "PERMISSION REQUIRED",
+    localDraft: draft
+  });
+  f.context.writeAuthority.reason = "NO_WORKSPACE";
+  f.context.completeWorkspaceConnection = () => { throw Error("Automatic recovery must not reload the Workspace"); };
+  let reads = 0, watchStarts = 0;
+  f.context.operationalRoot = async root => {
+    if (++reads === 1) throw Object.assign(Error("Synthetic permission unavailable"), {name: "NotAllowedError"});
+    return root;
+  };
+  f.context.writeAuthority.validate = async (root, ask) => {
+    assert.equal(root, f.rootA);
+    assert.equal(ask, false);
+    f.validations.push(root);
+    f.context.writeAuthority.canWrite = true;
+    return true;
+  };
+  f.context.startFolderWatch = () => { watchStarts++; };
+  f.context.schedule(f.rootA);
+  assert.equal(f.timers.size, 1);
+  await f.tick();
+  assert.equal(f.context.model.connectionState, "PERMISSION REQUIRED");
+  assert.deepEqual(f.validations, []);
+  await f.tick();
+  assert.deepEqual(f.validations, [f.rootA]);
+  assert.equal(f.context.model.connectionState, "CONNECTED");
+  assert.equal(f.context.model.pendingRoot, null);
+  assert.equal(f.context.model.root, originalWorkspace);
+  assert.equal(f.context.model.localDraft, draft);
+  assert.equal(watchStarts, 1);
+});
+
+test("automatic permission recovery ignores a different pending handle", async () => {
+  const f = fixture();
+  Object.assign(f.context.model, {
+    pendingRoot: f.rootB,
+    workspaceConnectionCommittedRoot: f.context.model.root,
+    connectionState: "PERMISSION REQUIRED"
+  });
+  f.context.schedule(f.rootA, true);
+  assert.equal(f.timers.size, 0);
+  assert.deepEqual(f.validations, []);
+});
+
+test("permission recovery stops if validation finds a controlled recovery hold", async () => {
+  const f = fixture();
+  Object.assign(f.context.model, {
+    pendingRoot: f.rootA,
+    workspaceConnectionCommittedRoot: f.context.model.root,
+    connectionState: "PERMISSION REQUIRED"
+  });
+  f.context.writeAuthority.reason = "NO_WORKSPACE";
+  f.context.writeAuthority.validate = async root => {
+    f.validations.push(root);
+    f.context.writeAuthority.reason = "INTERRUPTED_RESTORE";
+    return false;
+  };
+  f.context.schedule(f.rootA);
+  await f.tick();
+  assert.deepEqual(f.validations, [f.rootA]);
+  assert.equal(f.context.model.connectionState, "CONNECTED", "read-only recovery guidance becomes available");
+  assert.equal(f.context.model.pendingRoot, f.rootA);
+  f.context.schedule(f.rootA, true);
+  assert.equal(f.timers.size, 0);
+});
+
+test("permission recovery keeps manual Restore available after exhausting retries", async () => {
+  const f = fixture();
+  Object.assign(f.context.model, {
+    pendingRoot: f.rootA,
+    workspaceConnectionCommittedRoot: f.context.model.root,
+    connectionState: "PERMISSION REQUIRED"
+  });
+  let reads = 0;
+  f.context.writeAuthority.reason = "NO_WORKSPACE";
+  f.context.operationalRoot = async () => {
+    reads++;
+    throw Object.assign(Error("Synthetic permission unavailable"), {name: "NotAllowedError"});
+  };
+  f.context.schedule(f.rootA);
+  for (let i = 0; i < 5; i++) await f.tick();
+  assert.equal(reads, 5);
+  assert.deepEqual(f.validations, []);
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.context.model.connectionState, "PERMISSION REQUIRED");
+  assert.equal(f.context.model.pendingRoot, f.rootA);
+});
