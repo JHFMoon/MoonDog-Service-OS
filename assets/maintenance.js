@@ -79,9 +79,26 @@ function retiredRecoveryDirectory(path){return /^backups\/(?:deployment-20\d{6}(
 
 function create(io,api){
  let running=null,lastLight=0,deepDate='',timer=null,retryDeep=false;const metadata=()=>api.recovery().housekeeping||{};
- function schedule(reason){clearTimeout(timer);timer=setTimeout(()=>run({reason}).catch(()=>{}),1500);}
+ let activeWorkspace;
+ function resetWorkspaceCounters(){
+  const selected=api.workspace?.();
+  if(selected===activeWorkspace)return;
+  activeWorkspace=selected;
+  lastLight=0;
+  deepDate='';
+  retryDeep=false;
+ }
+ function schedule(reason){
+  const selected=api.workspace?.();
+  clearTimeout(timer);
+  timer=setTimeout(()=>{
+   if(api.workspace?.()===selected)run({reason}).catch(()=>{});
+  },1500);
+ }
  async function run(options={}){
-  if(running)return running;const at=api.now?.()||Date.now(),day=api.day();const prior=metadata();
+  if(running)return running;
+  resetWorkspaceCounters();
+  const at=api.now?.()||Date.now(),day=api.day();const prior=metadata();
   const deep=!options.repairOnly&&(retryDeep||prior.deepRetryPending===true||(deepDate||prior.lastDeepHousekeepingDate)!==day);
   if(!options.force&&!deep&&at-(lastLight||Date.parse(prior.lastLightHousekeepingAt)||0)<300000)return {throttled:true};
   if(api.busy?.())return {busy:true};
@@ -190,7 +207,17 @@ function create(io,api){
    api.changed?.();return result;
   })();try{return await running}finally{running=null;}
  }
- return {run,schedule,backupReady(){if(metadata().issues?.some(i=>i.reason==='Retention waits for a validated full recovery backup')){retryDeep=true;schedule('validated backup');}},get running(){return !!running}};
+ return {
+  run,schedule,
+  backupReady(){
+   resetWorkspaceCounters();
+   if(metadata().issues?.some(i=>i.reason==='Retention waits for a validated full recovery backup')){
+    retryDeep=true;
+    schedule('validated backup');
+   }
+  },
+  get running(){return !!running}
+ };
 }
 const knownNonReportHashes=new Set(["0a3cc9952b9620efd2a437c75c2f16f1f1304d8d85dc55043068a65686784e59","21020c28c76cf7ccf6f1447591dfff92b749bac8a14d18ecb5c0fbee7e78d787","bafc10c2e8e38ea80574b919ac4cbef64f5636f22922107c769b0e3bcbeb390e","6c795a4a6b506787265f73753cf33e780a9ca2d8b0817586362b01b08b31f233","3399e6b3467d562dd9c20ba6aced4b636688113129529d4476d99b6a713b10ff","b85a6613184d33df9487fdd0b6a2687dd999aec8a429d8a4d9bc2ce85f0d5ccf","75bc1ce7f4b2421f84ff37e664c4f25c8eb6149cbcfe616500230fcb9d32a2e6"]);
 root.MoonDogMaintenance={knownNonReportHash:h=>knownNonReportHashes.has(String(h).toLowerCase()),safeWrite,policy,family,semanticSame,superseded,migrationResolved,retiredRecoveryDirectory,create,canonical,retention:RETENTION};if(typeof module!=='undefined')module.exports=root.MoonDogMaintenance;
