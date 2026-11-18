@@ -130,6 +130,14 @@
     // observation. A verified export scope is separate coverage evidence.
     // Never manufacture report observation dates from a recent local import.
     const saved=imports.filter(item=>item && typeof item==="object"),
+      validReportDate=date=>validDateKey(date)&&(!today||date<=today),
+      declaredStart=item=>item.scopeStart!==undefined&&item.scopeStart!==null&&item.scopeStart!=='',
+      // Reject contradictory claims together, as source freshness does. Import
+      // activity is separate and a legacy end-only scope still proves one day.
+      eligible=saved.filter(item=>
+        (item.reportObservationVerified!==true||validReportDate(item.reportObservationDate))&&
+        (item.scopeVerified!==true||(validReportDate(item.scopeEnd)&&
+          (!declaredStart(item)||(validDateKey(item.scopeStart)&&item.scopeStart<=item.scopeEnd))))),
       verifiedImportDate=item=>{
         if(item.refreshDate)return validDateKey(item.refreshDate)?item.refreshDate:"";
         const stamp=item.importedAt;
@@ -138,16 +146,12 @@
         return typeof stamp==="string"&&validDateKey(stamp.slice(0,10))?dateKey(stamp):"";
       },
       importDates=[...new Set(saved.map(verifiedImportDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort(),
-      reportDates=[...new Set(saved.filter(item=>item.reportObservationVerified===true).map(item=>item.reportObservationDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
+      reportDates=[...new Set(eligible.filter(item=>item.reportObservationVerified===true).map(item=>item.reportObservationDate))].sort();
     const responseDates=[...new Set(Object.values(surveys).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const advisorResponseDates=[...new Set(Object.values(surveys).filter(item=>item.advisorCode).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
     const unmappedAdvisorResponses=Object.values(surveys).filter(item=>validDateKey(item.surveyDate)&&(!today||item.surveyDate<=today)&&!item.advisorCode).length;
-    // A verified end-only CSI observation proves a day, never a cumulative start.
-    // Refuse explicitly invalid or reversed starts instead of treating them as absent.
-    const declaredStart=item=>item.scopeStart!==undefined&&item.scopeStart!==null&&item.scopeStart!=='';
-    const scopes=saved.filter(item=>item.scopeVerified===true&&validDateKey(item.scopeEnd)&&
-      (!declaredStart(item)||(validDateKey(item.scopeStart)&&item.scopeStart<=item.scopeEnd))&&
-      (!today||item.scopeEnd<=today)).sort((a,b)=>a.scopeEnd.localeCompare(b.scopeEnd));
+    const scopes=eligible.filter(item=>item.scopeVerified===true)
+      .sort((a,b)=>a.scopeEnd.localeCompare(b.scopeEnd));
     return {reportDates,importDates,responseDates,advisorResponseDates,unmappedAdvisorResponses,lastReportObservation:reportDates.at(-1)||'',lastImportDate:importDates.at(-1)||'',lastResponseEvent:responseDates.at(-1)||'',verifiedScope:scopes.at(-1)||null,missingDates:[]};
   }
   function trendMaintenanceAction(row,format=(value)=>value) {
