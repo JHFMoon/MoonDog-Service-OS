@@ -66,7 +66,14 @@ test("update offer and preview expire on channel/check changes; recovery reflect
     return fields.get(id);
   };
   const card = { innerHTML: "", querySelector: selector => field(selector.slice(1)) };
-  const root = { name: "Test-Workspace", getDirectoryHandle: async () => { throw Object.assign(new Error("missing"), { name: "NotFoundError" }); } };
+  const system = {
+    isSameEntry: async other => other === system,
+    getFileHandle: async name => name === "index.html" ? { kind: "file" } : null,
+    getDirectoryHandle: async name => name === "Workspace" ? { kind: "directory" } : null
+  };
+  const root = { name: "Test-Workspace", resolve: async handle => handle === system ? ["System Files"] : null,
+    getDirectoryHandle: async name => name === "System Files" ? system :
+      Promise.reject(Object.assign(new Error("missing"), { name: "NotFoundError" })) };
   let offered = { status: "newer-version", channel: "beta", version: "0.10.7-beta.2",
     packageUrl: "https://example.test/beta.json", sha256: "a".repeat(64) };
   let recoverable = [];

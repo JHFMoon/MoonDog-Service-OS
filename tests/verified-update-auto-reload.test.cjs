@@ -19,9 +19,14 @@ async function runCase({result={status:"installed",version:offered.version},
     return fields.get(id);
   };
   const card={innerHTML:"",id:"",className:"",querySelector:q=>field(q.slice(1))};
-  const root={name:"Workspace",getDirectoryHandle:async name=>{
-    assert.equal(name,"System Files");return {getDirectoryHandle:async()=>{throw Error("Legacy beta marker unavailable");}};
-  }};
+  const system={isSameEntry:async other=>other===system,
+    getFileHandle:async name=>name==="index.html"?{kind:"file"}:null,
+    getDirectoryHandle:async name=>{
+      if(name==="Workspace")return {kind:"directory"};
+      throw Error("Legacy beta marker unavailable");
+    }};
+  const root={name:"Workspace",resolve:async target=>target===system?["System Files"]:null,
+    getDirectoryHandle:async name=>{assert.equal(name,"System Files");return system;} };
   let applied=0, recoveryReads=0, forceRecoveryFailure=recoveryFails, confirmationCount=0;
   const globals={
     document:{

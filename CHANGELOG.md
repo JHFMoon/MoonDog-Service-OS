@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.426 — current Beta
+
+- fix(797): validate connected install before update preview. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.425 — current Beta
 
 - fix(59-04): veto future or non-Monday Menu historical releases. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
