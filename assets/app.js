@@ -4410,8 +4410,7 @@
       setConnectionState("PERMISSION REQUIRED",
         "Folder access was lost. Click Restore folder access to reconnect to the saved folder.");
       recordDiagnostic("REPORT INBOX WATCH", reason);
-      // Reuse the read-only layout preflight and bounded, no-prompt saved-folder retry.
-      scheduleSavedConnectionRetry(savedRoot);
+      // Let the normal Restore action handle unsaved drafts before it reloads the Workspace.
     };
     if(folderWatch.busy||!eligible())return;
     folderWatch.busy=true;watchStatus("CHECKING REPORT INBOX");

@@ -264,18 +264,21 @@ test("current Workspace permission loss still pauses its watcher after enumerati
   assert.equal(h.counters.stops,1);
   assert.equal(h.counters.imports,0);
   assert.equal(h.writeAuthority.canWrite,false);
-  assert.deepEqual(h.retries,[h.oldRoot]);
+  assert.deepEqual(h.retries,[]);
   assert.deepEqual(h.connectionStates,["PERMISSION REQUIRED"]);
   assert.equal(h.folderWatch.busy,false);
 });
 
-test("denied Report Inbox polling revokes cached editing and rechecks only its saved folder",async()=>{
+test("denied Report Inbox polling revokes cached editing and preserves the saved folder and draft",async()=>{
   const h=harness({permissionState:"denied"});
+  const draft={note:"Synthetic unsaved note"};
+  h.model.localDraft=draft;
   await h.scan();
   assert.equal(h.writeAuthority.canWrite,false);
-  assert.deepEqual(h.retries,[h.oldRoot]);
+  assert.deepEqual(h.retries,[]);
   assert.deepEqual(h.connectionStates,["PERMISSION REQUIRED"]);
   assert.equal(h.model.pendingRoot,h.oldRoot);
+  assert.equal(h.model.localDraft,draft);
   assert.equal(h.counters.stops,1);
   assert.equal(h.counters.reads,0);
   assert.equal(h.counters.writes,0);
