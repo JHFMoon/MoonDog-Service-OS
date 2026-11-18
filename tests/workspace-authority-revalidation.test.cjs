@@ -23,10 +23,16 @@ function defer() {
 
 function fixture() {
   const rootA = {name: "Synthetic A"}, rootB = {name: "Synthetic B"};
-  const timers = new Map(), validations = [];
+  const timers = new Map(), validations = [], states = [];
   let timerId = 0;
   const context = vm.createContext({
     connectedNativeRoot: rootA,
+    model: {connectionState: "CONNECTED", root: {async isSameEntry(workspace) { return workspace === context.connectedNativeRoot; }}},
+    operationalRoot: async root => root,
+    offerReplacementForSavedFolder: () => {
+      context.model.connectionState = "SAVED HANDLE UNAVAILABLE";
+      states.push(context.model.connectionState);
+    },
     writeAuthority: {
       reason: "PERMISSION_REQUIRED", canWrite: false,
       validate: async root => { validations.push(root); return false; }
@@ -40,7 +46,7 @@ function fixture() {
     clearTimeout: id => timers.delete(id),
     renderSetup() {},
     startFolderWatch() {},
-    setConnectionState() {},
+    setConnectionState: state => { context.model.connectionState = state; states.push(state); },
     status() {}
   });
   vm.runInContext(gate + revalidation +
@@ -50,7 +56,7 @@ function fixture() {
     timers.delete(id);
     return callback();
   }
-  return {rootA, rootB, timers, validations, context, tick};
+  return {rootA, rootB, timers, validations, states, context, tick};
 }
 
 test("a saved-root revalidation cannot start during a different Workspace connection", async () => {
@@ -102,4 +108,71 @@ test("a new Workspace gets its own revalidation timer and retry budget", async (
   assert.equal([...f.timers.values()][0].delay, 1200);
   await f.tick();
   assert.deepEqual(f.validations, [f.rootA, f.rootB]);
+});
+
+test("automatic write revalidation stops before the validator when the Workspace has disappeared", async () => {
+  const f = fixture();
+  f.context.operationalRoot = async () => {
+    throw Object.assign(Error("Synthetic Workspace is missing"), {name: "NotFoundError"});
+  };
+  f.context.schedule(f.rootA);
+  await f.tick();
+  assert.deepEqual(f.validations, []);
+  assert.deepEqual(f.states, ["SAVED HANDLE UNAVAILABLE"]);
+  f.context.schedule(f.rootA, true);
+  assert.equal(f.timers.size, 0);
+});
+
+test("a different Workspace at the saved location cannot acquire write authority automatically", async () => {
+  const f = fixture();
+  f.context.operationalRoot = async () => f.rootB;
+  f.context.schedule(f.rootA);
+  await f.tick();
+  assert.deepEqual(f.validations, []);
+  assert.deepEqual(f.states, ["SAVED HANDLE UNAVAILABLE"]);
+  f.context.schedule(f.rootA, true);
+  assert.equal(f.timers.size, 0);
+});
+
+test("an interrupted Fresh hold stops automatic write revalidation before initialization", async () => {
+  const f = fixture();
+  f.context.operationalRoot = async () => {
+    throw Object.assign(Error("Synthetic Fresh hold"), {code: "FRESH_RESET_INCOMPLETE"});
+  };
+  f.context.schedule(f.rootA);
+  await f.tick();
+  assert.deepEqual(f.validations, []);
+  assert.deepEqual(f.states, ["CONNECTION ERROR"]);
+  assert.equal(f.context.model.pendingRoot, f.rootA);
+  assert.equal(f.context.model.freshResetRecoveryRoot, f.rootA);
+  assert.equal(f.timers.size, 0);
+});
+
+test("temporary Workspace read failure retries read-only proof before enabling editing", async () => {
+  const f = fixture();
+  let reads = 0;
+  f.context.operationalRoot = async root => {
+    if (++reads === 1) throw Object.assign(Error("Synthetic temporary read failure"), {name: "NotReadableError"});
+    return root;
+  };
+  f.context.schedule(f.rootA);
+  await f.tick();
+  assert.deepEqual(f.validations, []);
+  assert.equal([...f.timers.values()][0].delay, 2500);
+  await f.tick();
+  assert.deepEqual(f.validations, [f.rootA]);
+});
+
+test("read-only proof from a superseded Workspace cannot reach the write validator", async () => {
+  const f = fixture();
+  const read = defer();
+  f.context.operationalRoot = async () => read.promise;
+  f.context.schedule(f.rootA);
+  const checking = f.tick();
+  f.context.model.root = { async isSameEntry() { return true; } };
+  f.context.connectedNativeRoot = f.rootB;
+  read.release(f.rootA);
+  await checking;
+  assert.deepEqual(f.validations, []);
+  assert.deepEqual(f.states, []);
 });
