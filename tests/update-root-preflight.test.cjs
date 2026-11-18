@@ -271,6 +271,7 @@ function connectActions(pendingRoot, replacement) {
   const events = [];
   const context = vm.createContext({
     model: {pendingRoot},
+    workspaceConnectionBusy: false,
     window: {showDirectoryPicker: async () => { events.push("picker"); return replacement; }},
     __moondogDailyUI: {confirmWorkspaceChange: () => true},
     writeAuthority: {reason: "NO_WORKSPACE"},
@@ -312,4 +313,19 @@ test("Settings folder chooser cannot invoke or sidestep an unresolved recovery a
   await h.settle();
   assert.deepEqual(connection.events, Array(2).fill(
     "Review the existing Workspace recovery before choosing another dashboard folder."));
+});
+
+test("Settings folder chooser waits for an in-progress Workspace connection", async () => {
+  const rejected = folder({systemPresent: false});
+  const replacement = folder();
+  const h = harness(rejected);
+  const connection = connectActions(rejected.root, replacement.root);
+  h.context.__moondogChooseDashboardFolder = connection.context.__moondogChooseDashboardFolder;
+  await h.check();
+  connection.context.workspaceConnectionBusy = true;
+  h.choose();
+  await h.settle();
+  assert.deepEqual(connection.events, [
+    "Wait for the current Workspace connection check to finish before choosing a folder."
+  ]);
 });

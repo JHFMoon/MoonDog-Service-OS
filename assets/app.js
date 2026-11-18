@@ -2056,6 +2056,8 @@
     return run(() => {
       if (model.freshResetRecoveryRoot || ["PENDING_TRANSACTION", "INTERRUPTED_RESTORE"].includes(writeAuthority.reason))
         throw new Error("Review the existing Workspace recovery before choosing another dashboard folder.");
+      if (workspaceConnectionBusy || ["STARTING", "RESTORING SAVED CONNECTION"].includes(model.connectionState))
+        throw new Error("Wait for the current Workspace connection check to finish before choosing a folder.");
       return connectWithFolderChoice(true);
     });
   }
