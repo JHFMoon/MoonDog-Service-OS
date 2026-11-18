@@ -25,11 +25,14 @@ function harness(installerResult={status:"installed",version:"0.10.18-beta.382",
   const workspace={getDirectoryHandle:async name=>{
     if(name!=="backups")throw missing();return backupFolder;
   }};
-  const system={getDirectoryHandle:async name=>{
-    if(name!=="Workspace")throw missing();return workspace;
-  }};
+  const system={isSameEntry:async other=>other===system,
+    getFileHandle:async name=>{if(name!=="index.html")throw missing();return {kind:"file"};},
+    getDirectoryHandle:async name=>{
+      if(name!=="Workspace")throw missing();return workspace;
+    }};
   const root={name:"Synthetic-Installation",isSameEntry:async other=>other===root,
-    resolve:async()=>["System Files","Workspace"],getDirectoryHandle:async name=>{
+    resolve:async target=>target===system?["System Files"]:["System Files","Workspace"],
+    getDirectoryHandle:async name=>{
       if(name!=="System Files")throw missing();return system;
     }};
   function field(name) {
