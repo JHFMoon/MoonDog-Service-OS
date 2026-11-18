@@ -19,7 +19,7 @@ function harness({pauseAt="",permissionState="granted",watchError=null}={}){
     initializedAt:"2026-10-31T11:00:00.000Z",seen:{}}};
   const folderWatch={busy:false,pending:new Map([[candidate.relativePath,
     {signature:candidate.signature,confirmations:1,firstSeenAt:"2026-10-31T11:00:00.000Z"}]])};
-  const retries=[], connectionStates=[];
+  const retries=[], reloadRetries=[], connectionStates=[];
   const writeAuthority={
     canWrite:true,
     disable(){this.canWrite=false;}
@@ -56,7 +56,8 @@ function harness({pauseAt="",permissionState="granted",watchError=null}={}){
       return{imported:[candidate.name],retained:[],learned:[]};
     },
     stopFolderWatch:()=>{counters.stops++;},
-    scheduleSavedConnectionRetry:root=>retries.push(root),
+    scheduleSavedConnectionRetry:root=>reloadRetries.push(root),
+    scheduleAuthorityRevalidation:root=>retries.push(root),
     setConnectionState:state=>connectionStates.push(state),
     connectedNativeRoot:oldRoot,
     ui:{permissionBadge:{textContent:""},connectButton:{textContent:""}},
@@ -70,7 +71,7 @@ function harness({pauseAt="",permissionState="granted",watchError=null}={}){
     Map,Set,Promise,Object,String,Array,Boolean,JSON,Error,console
   });
   vm.runInContext(source+"\nthis.scan=folderWatchScan;",context);
-  return{oldRoot,model,folderWatch,writeAuthority,state,counters,entered,retries,connectionStates,
+  return{oldRoot,model,folderWatch,writeAuthority,state,counters,entered,retries,reloadRetries,connectionStates,
     release:()=>release(),scan:reason=>context.scan(reason||"poll")};
 }
 
@@ -264,7 +265,8 @@ test("current Workspace permission loss still pauses its watcher after enumerati
   assert.equal(h.counters.stops,1);
   assert.equal(h.counters.imports,0);
   assert.equal(h.writeAuthority.canWrite,false);
-  assert.deepEqual(h.retries,[]);
+  assert.deepEqual(h.retries,[h.oldRoot]);
+  assert.deepEqual(h.reloadRetries,[]);
   assert.deepEqual(h.connectionStates,["PERMISSION REQUIRED"]);
   assert.equal(h.folderWatch.busy,false);
 });
@@ -275,7 +277,8 @@ test("denied Report Inbox polling revokes cached editing and preserves the saved
   h.model.localDraft=draft;
   await h.scan();
   assert.equal(h.writeAuthority.canWrite,false);
-  assert.deepEqual(h.retries,[]);
+  assert.deepEqual(h.retries,[h.oldRoot]);
+  assert.deepEqual(h.reloadRetries,[]);
   assert.deepEqual(h.connectionStates,["PERMISSION REQUIRED"]);
   assert.equal(h.model.pendingRoot,h.oldRoot);
   assert.equal(h.model.localDraft,draft);

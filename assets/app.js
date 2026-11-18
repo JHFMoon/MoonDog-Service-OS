@@ -4418,7 +4418,9 @@
       setConnectionState("PERMISSION REQUIRED",
         "Folder access was lost. Click Restore folder access to reconnect to the saved folder.");
       recordDiagnostic("REPORT INBOX WATCH", reason);
-      // Let the normal Restore action handle unsaved drafts before it reloads the Workspace.
+      // Recheck in place. The manual Restore action remains available if Edge
+      // needs a permission prompt, and background retries never reload drafts.
+      scheduleAuthorityRevalidation(savedRoot);
     };
     if(folderWatch.busy||!eligible())return;
     folderWatch.busy=true;watchStatus("CHECKING REPORT INBOX");
@@ -9254,18 +9256,27 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     authorityRevalidationRoot=null;
   }
   function scheduleAuthorityRevalidation(root,immediate=false){
-    if(!root||root!==connectedNativeRoot||model.connectionState!=="CONNECTED"||writeAuthority.canWrite||authorityRevalidationRunning)return;
+    const restoringAccess=()=>model.connectionState==="PERMISSION REQUIRED"&&model.pendingRoot===root&&
+      Boolean(model.root)&&model.root===model.workspaceConnectionCommittedRoot;
+    const eligibleState=()=>model.connectionState==="CONNECTED"||restoringAccess();
+    const retryable=()=>["WORKSPACE_BUSY","PERMISSION_REQUIRED"].includes(writeAuthority.reason)||
+      restoringAccess()&&writeAuthority.reason==="NO_WORKSPACE";
+    if(!root||root!==connectedNativeRoot||!eligibleState()||writeAuthority.canWrite||authorityRevalidationRunning)return;
     if(authorityRevalidationRoot!==root){
       clearAuthorityRevalidation();
       authorityRevalidationRoot=root;
     }
     if(immediate&&authorityRevalidationTimer){clearTimeout(authorityRevalidationTimer);authorityRevalidationTimer=null;}
     if(authorityRevalidationTimer)return;
-    if(!["WORKSPACE_BUSY","PERMISSION_REQUIRED"].includes(writeAuthority.reason))return;
+    if(!retryable())return;
     if(immediate){authorityRevalidationAttempts=0;authorityRevalidationExhausted=false;}
     const delay=immediate?0:AUTHORITY_REVALIDATION_DELAYS[authorityRevalidationAttempts];
     if(delay===undefined){
       authorityRevalidationExhausted=true;
+      if(restoringAccess()){
+        setConnectionState("PERMISSION REQUIRED","Automatic access checks ended. Click Restore folder access to reconnect to the saved folder.");
+        return;
+      }
       setConnectionState("CONNECTED");
       status("Automatic Workspace recovery checks ended. Nothing was discarded. Click Retry Workspace to recheck the saved folder.","error");
       return;
@@ -9274,9 +9285,9 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       authorityRevalidationTimer=null;
       // The validator can change the native write target. A scheduled check
       // must stay outside the interval in which another Workspace is loading.
-      if(root!==connectedNativeRoot||model.connectionState!=="CONNECTED"||writeAuthority.canWrite||workspaceConnectionBusy)return;
+      if(root!==connectedNativeRoot||!eligibleState()||!retryable()||writeAuthority.canWrite||workspaceConnectionBusy)return;
       const connectedWorkspace=model.root;
-      const stillSelected=()=>root===connectedNativeRoot&&model.root===connectedWorkspace&&model.connectionState==="CONNECTED";
+      const stillSelected=()=>root===connectedNativeRoot&&model.root===connectedWorkspace&&eligibleState();
       authorityRevalidationAttempts+=1;
       authorityRevalidationRunning=true;
       let ok=false;
@@ -9311,15 +9322,15 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       renderSetup();
       if(ok){
         clearAuthorityRevalidation();
+        if(model.pendingRoot===root)model.pendingRoot=null;
         // Read-only startup stops Report Inbox polling; resume it after durable write access is revalidated.
         startFolderWatch();
         setConnectionState("CONNECTED");
         status("Workspace verification succeeded. Editing is restored; saved files and drafts were retained.","success");
         return;
       }
-      setConnectionState("CONNECTED");
-      if(["WORKSPACE_BUSY","PERMISSION_REQUIRED"].includes(writeAuthority.reason))
-        scheduleAuthorityRevalidation(root,false);
+      if(!restoringAccess()||!retryable())setConnectionState("CONNECTED");
+      if(retryable())scheduleAuthorityRevalidation(root,false);
     },delay);
   }
   window.addEventListener("focus",()=>{if(connectedNativeRoot&&!writeAuthority.canWrite)scheduleAuthorityRevalidation(connectedNativeRoot,true);});
