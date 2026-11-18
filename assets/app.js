@@ -7774,10 +7774,10 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
           found.push({name, invalid: true});
         }
       }
-    } catch (error) {
-      if (!current()) return;
-      showRecoveryBackupMessage("Couldn't list backups in this Workspace. Reconnect to check again.");
-      throw error;
+    } catch (_) {
+      if (current()) showRecoveryBackupMessage("Couldn't list backups in this Workspace. Reconnect to check again.");
+      // This read-only catalogue refresh follows verified backup and restore writes.
+      return;
     }
     if (!current()) return;
     found.sort((a, b) => String(b.createdAt || b.name).localeCompare(String(a.createdAt || a.name)));

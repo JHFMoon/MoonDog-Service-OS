@@ -7,9 +7,10 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+const backupStart = app.indexOf("  async function createBackupNow()");
 const start = app.indexOf("  async function scanRecoveryBackups()");
 const end = app.indexOf("  // A validated backup can become stale", start);
-assert.ok(start >= 0 && end > start, "Production backup inventory code exists");
+assert.ok(backupStart >= 0 && start > backupStart && end > start, "Production backup inventory code exists");
 
 function fixture(directory, readFileBytes) {
   const listeners = {};
@@ -30,8 +31,8 @@ function fixture(directory, readFileBytes) {
       appVersion: "test-version", recordCounts: {openRos: 1}
     }})
   });
-  vm.runInContext(app.slice(start, end) + "\nthis.scan = scanRecoveryBackups; this.selectBackup = refreshRecoveryBackupSelection;", context);
-  return {model, ui, select, scan: context.scan, selectBackup: context.selectBackup, listeners};
+  vm.runInContext(app.slice(backupStart, end) + "\nthis.scan = scanRecoveryBackups; this.selectBackup = refreshRecoveryBackupSelection; this.create = createBackupNow;", context);
+  return {model, ui, select, scan: context.scan, selectBackup: context.selectBackup, listeners, context};
 }
 
 function backupDirectory(id, beforeGet = async () => {}) {
@@ -116,8 +117,37 @@ test("an unreadable catalogue clears options and distinguishes unknown from an e
   });
   await home.scan();
   home.model.root = {id: "B"};
-  await assert.rejects(home.scan(), /Synthetic access denied/);
+  await home.scan();
   assert.deepEqual(home.select.options.map(option => option.value), [""]);
+  assert.match(home.ui.restoreBackupDetails.textContent, /couldn't list backups/i);
+  assert.equal(home.ui.restoreBackup.disabled, true);
+});
+
+test("a backup-list read failure leaves a successfully verified backup ready", async () => {
+  const home = fixture(async () => {
+    throw Object.assign(Error("Synthetic catalogue access denied"), {name: "NotAllowedError"});
+  });
+  home.model.recovery = {};
+  const saved = [], history = [], statuses = [];
+  Object.assign(home.context, {
+    VERSION: "synthetic-version",
+    RECOVERY_PATH: ["data", "recovery.json"],
+    withWorkspaceRecoveryHold: async action => action(),
+    renderRecovery: () => {},
+    writeValidatedBackup: async () => ({
+      name: "MoonDog Full Backup - B.zip",
+      manifest: {createdAt: "2026-11-04T18:00:00Z", recordCounts: {openRos: 1}}
+    }),
+    writeJson: async (_path, recovery) => saved.push(recovery.status),
+    addHistory: async type => history.push(type),
+    recordDiagnostic: () => {},
+    status: message => statuses.push(message)
+  });
+  await home.context.create();
+  assert.deepEqual(saved, ["Backup ready"]);
+  assert.deepEqual(history, ["full-backup-created"]);
+  assert.equal(home.model.recovery.lastBackup.validationStatus, "Validated");
+  assert.match(statuses.at(-1), /backup created and validated/i);
   assert.match(home.ui.restoreBackupDetails.textContent, /couldn't list backups/i);
   assert.equal(home.ui.restoreBackup.disabled, true);
 });
