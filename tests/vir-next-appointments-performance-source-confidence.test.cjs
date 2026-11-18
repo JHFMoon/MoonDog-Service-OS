@@ -130,3 +130,25 @@ test("observation-only Next Appointments may remain current-day operational cont
   assert.equal(f.evidence().status,"invalid");
   assert.deepEqual(f.points(),[],"historical Performance points remain unverified");
 });
+
+test("a Next Appointments substitute must explicitly verify its period",()=>{
+  const record={
+    periodStart:"2026-10-01",periodEnd:"2026-10-29",
+    observationDate:today,importedAt:"2026-10-30T08:00:00Z",summary:{scheduled:0}
+  };
+  for(const malformed of ["false","true",1,{}]){
+    const f=exercise("nextAppointments",{
+      ...record,validation:{parser:"appointments-created-summary-v1",periodVerified:malformed}
+    });
+    assert.equal(f.evidence().safeForPurpose,false,JSON.stringify(malformed));
+    assert.deepEqual(f.points(),[]);
+    const current=f.evidence({purpose:"current"});
+    assert.equal(current.status,"current");
+    assert.equal(current.reportPeriodVerified,false);
+  }
+  const verified=exercise("nextAppointments",{
+    ...record,validation:{parser:"appointments-created-summary-v1",periodVerified:true}
+  });
+  assert.equal(verified.evidence().reportPeriodVerified,true);
+  assert.deepEqual(verified.points().map(point=>point.value),[0]);
+});
