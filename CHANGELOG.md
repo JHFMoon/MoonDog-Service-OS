@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.431 — current Beta
+
+- fix(797): bound stalled update manifest requests. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.430 — current Beta
 
 - fix(797): open the picker from Choose Dashboard Folder. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
