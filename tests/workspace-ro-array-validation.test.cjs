@@ -12,7 +12,7 @@ function production(start,end){
   return app.slice(a,b);
 }
 const helper=production("  function validateConnectedWorkbookSnapshot(", "  let postConnectionScanBusy=false;");
-const readOnly=production("      for (const [key, path] of paths) {", "      const rawSettings =");
+const readOnly=production("      const snapshots = {};", "      const rawSettings =");
 const writable=production(
   "    validateConnectedWorkbookSnapshot(connectionReadResults[0]);",
   "    model.operationalMetrics.nextAppointments ||="
@@ -67,7 +67,7 @@ function readOnlyHarness(saved){
       return location==="state"?clone(saved):{replaced:true};
     }
   });
-  vm.runInContext(helper+"\nthis.run=async function(){"+readOnly+"};",ctx);
+  vm.runInContext(helper+"\nthis.run=async function(){"+readOnly+"return snapshots;};",ctx);
   return {model,previous,readEvents,run:()=>ctx.run()};
 }
 test("read-only reconnect rejects malformed source before replacing prior active model state",async()=>{
@@ -93,10 +93,10 @@ test("read-only reconnect fails closed on malformed roster members",async()=>{
 });
 test("read-only reconnect hydrates validated source and preserves manager notes",async()=>{
   const source=valid(),h=readOnlyHarness(source);
-  await h.run();
-  assert.deepEqual(h.model.state,source);
-  assert.equal(h.model.state.closedRecords[0].management.note,"original closed note");
-  assert.deepEqual(h.model.appointments,{replaced:true});
+  const snapshots = await h.run();
+  assert.deepEqual(snapshots.state,source);
+  assert.equal(snapshots.state.closedRecords[0].management.note,"original closed note");
+  assert.deepEqual(snapshots.appointments,{replaced:true});
 });
 function writableHarness(saved){
   const prior=valid(),model={
