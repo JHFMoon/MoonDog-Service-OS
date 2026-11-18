@@ -97,6 +97,8 @@ test("bounded authority retries recover transient failures without an implicit p
   let next=1,calls=0,permissionRequests=0,watchRestarts=0,reason="WORKSPACE_BUSY",writable=false;
   const root={id:"saved-workspace"};
   const context={
+    model:{connectionState:"CONNECTED",root:{isSameEntry:async()=>true}},
+    operationalRoot:async handle=>handle,
     connectedNativeRoot:root,authorityRevalidationExhausted:false,workspaceConnectionBusy:false,authorityRevalidationRunning:false,
     writeAuthority:{get canWrite(){return writable;},get reason(){return reason;},validate:async(_root,ask)=>{assert.equal(ask,false);calls++;permissionRequests+=ask?1:0;if(calls>=3){writable=true;reason="READY";return true;}return false;}},
     setTimeout:(fn,delay)=>{const id=next++;timers.set(id,fn);delays.push(delay);return id;},
@@ -121,6 +123,8 @@ test("automatic validation never runs through a pending transaction or interrupt
   for(const reason of ["PENDING_TRANSACTION","INTERRUPTED_RESTORE"]){
     const timers=new Map();
     const context={
+    model:{connectionState:"CONNECTED",root:{isSameEntry:async()=>true}},
+    operationalRoot:async handle=>handle,
       connectedNativeRoot:{},authorityRevalidationExhausted:false,workspaceConnectionBusy:false,authorityRevalidationRunning:false,
       writeAuthority:{canWrite:false,reason,validate:async()=>{throw Error("held states must not be automatically retried");}},
       setTimeout:(fn,delay)=>{timers.set(1,{fn,delay});return 1;},clearTimeout:id=>timers.delete(id),
@@ -140,6 +144,8 @@ test("page focus immediately revalidates a restored permission without requestin
   let next=1,reason="PERMISSION_REQUIRED",writable=false,calls=0;
   const root={id:"persisted-handle"};
   const context={
+    model:{connectionState:"CONNECTED",root:{isSameEntry:async()=>true}},
+    operationalRoot:async handle=>handle,
     connectedNativeRoot:root,authorityRevalidationExhausted:false,workspaceConnectionBusy:false,authorityRevalidationRunning:false,
     writeAuthority:{get canWrite(){return writable;},get reason(){return reason;},validate:async(_root,ask)=>{assert.equal(ask,false);calls++;writable=true;reason="READY";return true;}},
     setTimeout:(fn,delay)=>{const id=next++;timers.set(id,fn);delays.push(delay);return id;},
@@ -348,6 +354,8 @@ test("a recovered read-only Workspace restarts Report Inbox Watch after durable 
   const root={name:"Synthetic Workspace"},timers=new Map(),events=[];
   let next=0,canWrite=false;
   const context={
+    model:{connectionState:"CONNECTED",root:{isSameEntry:async()=>true}},
+    operationalRoot:async handle=>handle,
     connectedNativeRoot:root,workspaceConnectionBusy:false,authorityRevalidationRunning:false,
     writeAuthority:{get canWrite(){return canWrite;},reason:"WORKSPACE_BUSY",
       validate:async(received,ask)=>{assert.equal(received,root);assert.equal(ask,false);canWrite=true;return true;}},
