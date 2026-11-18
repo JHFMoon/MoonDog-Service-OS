@@ -102,10 +102,11 @@ test("reversed, impossible and non-Monday releases fail closed in every view", (
   }
 });
 
-test("future weekly releases and future run dates cannot be current source evidence", () => {
+test("future weekly releases, run dates and coverage cannot be current source evidence", () => {
   for (const item of [
     report({releaseWeek: "2026-11-09", ranDate: "2026-11-09"}),
-    report({ranDate: "2026-11-03"})
+    report({ranDate: "2026-11-03"}),
+    report({periodEnd: "2026-11-03"})
   ]) {
     const f = harness(item);
     assert.equal(f.getSource().safeForCurrent, false);
