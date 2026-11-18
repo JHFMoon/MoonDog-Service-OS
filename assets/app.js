@@ -997,7 +997,7 @@
       const week=item?.releaseWeek,start=item?.periodStart,end=item?.periodEnd,ran=item?.ranDate;
       // A retained key alone is not proof of a valid, dated weekly source.
       if(!freshness.validDateKey(week)||week>todayKey||freshness.dayOfWeek(week)!==1)continue;
-      if(!freshness.validDateKey(start)||!freshness.validDateKey(end)||start>end)continue;
+      if(!freshness.validDateKey(start)||!freshness.validDateKey(end)||start>end||end>todayKey)continue;
       // Legacy report records may omit ranDate; when present it must agree with release lineage.
       if(ran!=null&&ran!==""&&(!freshness.validDateKey(ran)||ran>todayKey||freshness.mondayFor(ran)!==week))continue;
       releases.add(week);
@@ -5520,7 +5520,7 @@
       const asOf=today||localDateKey();
       // Filter rejected releases before duplicate resolution so a later import
       // cannot hide an independently verified point for the same Monday.
-      values=values.filter(item=>verifiedMenuTrendReleases({retained:item},asOf).size>0&&item.periodEnd<=asOf);
+      values=values.filter(item=>verifiedMenuTrendReleases({retained:item},asOf).size>0);
     }
     const dates=new Map();for(const item of values){if(family==='mediaAsr'&&mediaScope(item)!=='advisor')continue;const date=trendObservationDate(family,item);if(!date)continue;const prior=dates.get(date);if(!prior||text(item.importedAt)>=text(prior.importedAt))dates.set(date,item);}return [...dates.values()];
   }
