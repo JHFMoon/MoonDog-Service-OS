@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.440 — current Beta
+
+- fix(59): throttle housekeeping only after durable completion. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.439 — current Beta
 
 - fix(59): reject invalid SAPR periods before selecting a source. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

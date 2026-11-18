@@ -54,3 +54,33 @@ test("Scheduled housekeeping defers to fullscreen presentation and resumes on ex
   assert.match(app,/addEventListener\('fullscreenchange',\(\)=>\{if\(!document\.fullscreenElement\)notify\(\);\}\)/,
     "fullscreen exit schedules postponed housekeeping");
 });
+
+test("failed light-housekeeping read-back does not throttle the next eligible attempt", async () => {
+  const now = Date.parse(day + "T19:00:00Z");
+  let metadata = {lastDeepHousekeepingDate: day, lastLightHousekeepingAt: day + "T17:00:00Z"};
+  let rejectFirstCompletion = true;
+  let rootScans = 0;
+  const engine = maintenance.create({
+    list: async path => { if (path === "data") rootScans++; return []; },
+    exists: async () => false
+  }, {
+    recovery: () => ({housekeeping: metadata}),
+    day: () => day, now: () => now, references: () => [],
+    ensureFolders: async () => {}, diagnostic: async () => {},
+    finish: async next => {
+      if (next.lastLightHousekeepingAt === new Date(now).toISOString() && rejectFirstCompletion) {
+        rejectFirstCompletion = false;
+        throw new Error("Synthetic durable housekeeping read-back failure");
+      }
+      metadata = next;
+    }
+  });
+  assert.equal((await engine.run()).failed, true);
+  assert.equal(metadata.lastHousekeepingStatus, "Retry needed");
+  const retry = await engine.run();
+  assert.equal(retry.throttled, undefined);
+  assert.equal(retry.failed, undefined);
+  assert.equal(metadata.lastHousekeepingStatus, "All clear");
+  assert.equal(rootScans, 2);
+  assert.deepEqual(await engine.run(), {throttled: true}, "throttle resumes after verified completion");
+});
