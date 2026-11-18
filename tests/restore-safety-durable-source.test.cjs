@@ -5,6 +5,7 @@ const fs=require("node:fs");
 const path=require("node:path");
 const vm=require("node:vm");
 const crypto=require("node:crypto");
+const {SyntheticArchive}=require("./helpers/workspace-source-roundtrip.cjs");
 
 const app=fs.readFileSync(path.join(__dirname,"..","assets/app.js"),"utf8");
 function production(start,end){
@@ -14,13 +15,14 @@ function production(start,end){
 }
 const equalBytes=production("  function equalFileBytes(", "  async function recoverPendingSupervisorWorkbook(");
 const maker=production("  async function createBackupBytes(","  async function validateBackupBytes(");
+const validator=production("  async function validateBackupBytes(", "  function backupFileName(");
 const writer=production("  async function writeValidatedBackup(","  async function createBackupNow(");
 const encode=s=>new TextEncoder().encode(s);
 const decode=b=>new TextDecoder().decode(b);
 const hash=async b=>crypto.createHash("sha256").update(b).digest("hex");
 const missing=()=>Object.assign(Error("synthetic missing state"),{name:"NotFoundError"});
 
-function fixture({alternateBackupReadback=null}={}){
+function fixture({alternateBackupReadback=null,verifyArchive=false}={}){
   const paths=[
     "data/current-state.json","data/settings.json",
     "data/appointments.json","data/advisor-performance.json"
@@ -52,7 +54,7 @@ function fixture({alternateBackupReadback=null}={}){
     async generateAsync(){return encode("synthetic-archive");}
   }
   const context=vm.createContext({
-    BACKUP_FILES,model,JSZip:FakeZip,VERSION:"synthetic",BUILD_DATE:"synthetic",TextEncoder,TextDecoder,
+    BACKUP_FILES,model,JSZip:verifyArchive?SyntheticArchive:FakeZip,VERSION:"synthetic",BUILD_DATE:"synthetic",TextEncoder,TextDecoder,
     utf8:encode,decodeUtf8:decode,now:()=>"2026-01-01T00:00:00.000Z",stamp:()=>"synthetic",
     backupFileName:prefix=>prefix+".zip",
     sha256:hash,
@@ -66,12 +68,13 @@ function fixture({alternateBackupReadback=null}={}){
     validateBackupBytes:async()=>{validated++;const m=JSON.parse(archive.files.get("manifest.json"));return{manifest:m};},
     writeBytes:async(parts,bytes)=>{files.set(parts.join("/"),new Uint8Array(bytes));}
   });
-  vm.runInContext(equalBytes+"\n"+maker+"\n"+writer+
+  vm.runInContext(equalBytes+"\n"+maker+"\n"+(verifyArchive?validator:"")+"\n"+writer+
     "\nglobalThis.make=createBackupBytes;globalThis.writeSafety=writeValidatedBackup;",context);
   return{
     files,model,paths,originals,
-    create:type=>context.make("synthetic-test",type),
+    create:(type,label="synthetic-test")=>context.make(label,type),
     writeSafety:()=>context.writeSafety("safety","MoonDog Restore Safety"),
+    verify:bytes=>context.validateBackupBytes(bytes),
     get archive(){return archive;},
     get verified(){return validated;}
   };
@@ -122,11 +125,19 @@ test("missing durable canonical data refuses restore safety archive generation",
   assert.equal(f.files.has("backups/MoonDog Restore Safety.zip"),false);
 });
 
-test("backup writer rejects a different package even when its timestamp matches",async()=>{
-  const f=fixture({alternateBackupReadback:encode("synthetic-archivf")});
+test("backup writer rejects a different valid package with the same timestamp",async()=>{
+  const other=fixture({verifyArchive:true});
+  other.files.set("data/current-state.json",encode('{"records":[{"id":"other"}]}\n'));
+  const replacement=await other.create("restore-safety");
+
+  const f=fixture({verifyArchive:true,alternateBackupReadback:replacement.bytes});
+  const expected=await f.create("restore-safety","safety");
+  assert.equal((await f.verify(expected.bytes)).manifest.createdAt,(await f.verify(replacement.bytes)).manifest.createdAt);
+  assert.notDeepEqual(expected.bytes,replacement.bytes);
+
   await assert.rejects(f.writeSafety(),/Backup read-back verification failed/);
-  assert.equal(f.files.has("backups/MoonDog Restore Safety.zip"),true,
-    "The writer leaves the saved package available for recovery review");
+  assert.deepEqual(f.files.get("backups/MoonDog Restore Safety.zip"),new Uint8Array(expected.bytes),
+    "The writer leaves the original saved package available for recovery review");
   for(const [index,file] of f.paths.entries())
     assert.equal(decode(f.files.get(file)),JSON.stringify(f.originals[index])+"\n");
 });
