@@ -5375,7 +5375,7 @@
         scopeEnd: scopeVerified ? item.scopeEnd : "",
         periodStart: reportPeriod.periodStart, periodEnd: reportPeriod.periodEnd }, item, reportPeriod.verified);
     }
-    if (key === "nextAppointments") { const item = hasSelectedItem ? options.item : latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd,
+    if (key === "nextAppointments") { const item = hasSelectedItem ? options.item : latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&item.validation.periodVerified!==true; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd,
         // Historical metrics require a real, validated interval. An end-only
         // observation may still inform current operations but not past coverage.
         invalid: item && purpose==="historical" && (observation || !verifiedDatedInterval(item)) ?
