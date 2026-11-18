@@ -31,26 +31,38 @@ function dir(name,entries={}){
     getDirectoryHandle:async(n,opts={})=>{
       assert.equal(opts.create,false,"inspection never creates directories");
       if(entries[n]?.kind==="directory")return entries[n];
+      if(entries[n])throw Object.assign(Error("wrong entry type"),{name:"TypeMismatchError"});
       throw missing();
     },
     getFileHandle:async(n,opts={})=>{
       assert.equal(opts.create,false,"inspection never creates files");
       if(entries[n]?.kind==="file")return entries[n];
+      if(entries[n])throw Object.assign(Error("wrong entry type"),{name:"TypeMismatchError"});
       throw missing();
     },
     entries:async function*(){for(const item of Object.entries(entries))yield item;}
   };
 }
-function synthetic({missingJournal=false,unfinished=false,missingApp=false,missingWorkspace=false}={}){
+function synthetic({
+  missingJournal=false,unfinished=false,missingApp=false,missingWorkspace=false,
+  freshHold=false,restoreHold=false,holdAsDirectory=false
+}={}){
+  const marker=name=>holdAsDirectory?dir(name):{
+    kind:"file",getFile:()=>assert.fail("The public checker should not read a private recovery marker")
+  };
   const journal=unfinished?{status:"applying",inventory:[]}:{status:"verified",inventory:[]};
   const backup=dir("MoonDog-Update-Backup-SYNTHETIC",missingJournal?{}:{
     "journal.json":file(JSON.stringify(journal))
   });
   const updates=dir("system-updates",{"MoonDog-Update-Backup-SYNTHETIC":backup});
-  const workspace=dir("Workspace",{"backups":dir("backups",{"system-updates":updates})});
+  const workspace=dir("Workspace",{
+    "backups":dir("backups",{"system-updates":updates}),
+    ...(restoreHold?{"data":dir("data",{"restore-in-progress.json":marker("restore-in-progress.json")})}:{})
+  });
   const system=dir("System Files",{
     "index.html":file("generic synthetic software"),
     "assets":dir("assets",missingApp?{}:{"app.js":file("generic synthetic software")}),
+    ...(freshHold?{"MOONDOG_FRESH_RESET_PENDING.json":marker("MOONDOG_FRESH_RESET_PENDING.json")}:{}),
     ...(!missingWorkspace?{"Workspace":workspace}:{})
   });
   return dir("Dashboard Interface",{
@@ -93,4 +105,20 @@ test("missing protected Workspace stops recovery rather than recreating it",asyn
   const result=await check({missingWorkspace:true});
   assert.match(result,/UPDATE BLOCKED/);
   assert.match(result,/Workspace is missing/);
+});
+
+test("an interrupted Fresh installation blocks repair even when application paths are present",async()=>{
+  for(const holdAsDirectory of [false,true]){
+    const result=await check({freshHold:true,holdAsDirectory});
+    assert.match(result,/UPDATE BLOCKED/);
+    assert.match(result,/interrupted Fresh installation/i);
+  }
+});
+
+test("an interrupted Workspace restore blocks repair without reading the private marker",async()=>{
+  for(const holdAsDirectory of [false,true]){
+    const result=await check({restoreHold:true,holdAsDirectory});
+    assert.match(result,/UPDATE BLOCKED/);
+    assert.match(result,/interrupted Workspace restore/i);
+  }
 });

@@ -65,10 +65,18 @@ async function directory(parent,name){
   try{return await parent.getDirectoryHandle(name,{create:false});}
   catch(error){if(missingError(error))return null;throw error;}
 }
+async function recoveryMarkerExists(parent,name){
+  return await has(parent,name,"file") || await has(parent,name,"directory");
+}
 async function recoveryScan(system){
   const lines=[];
+  if(await recoveryMarkerExists(system,"MOONDOG_FRESH_RESET_PENDING.json"))
+    return {blocked:true,lines:["BLOCKED: An interrupted Fresh Installation needs local recovery review. Preserve the selected installation and its recovery marker."]};
   const workspace=await directory(system,"Workspace");
   if(!workspace)return {blocked:true,lines:["BLOCKED: System Files/Workspace is missing. Preserve the original installation; do not create an empty replacement over store data."]};
+  const data=await directory(workspace,"data");
+  if(data && await recoveryMarkerExists(data,"restore-in-progress.json"))
+    return {blocked:true,lines:["BLOCKED: An interrupted Workspace restore needs local recovery review. Preserve Workspace and its safety backup."]};
   const backups=await directory(workspace,"backups");
   const updates=backups && await directory(backups,"system-updates");
   if(!updates)return {blocked:false,lines:["No system-update backup folder was found. This can be normal on installations that have never updated."]};
