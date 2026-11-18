@@ -134,3 +134,46 @@ test("System Updates exposes a live progress bar, percentage, detail text, and a
   assert.match(css, /\.update-progress\.warning/);
   assert.match(css, /\.update-progress\.error/);
 });
+
+test("a delayed legacy version marker cannot change the version after reconnect", async () => {
+  const fields = new Map();
+  const documentListeners = new Map();
+  const field = id => {
+    if (!fields.has(id)) fields.set(id, {textContent: "", disabled: false, hidden: false, style: {},
+      setAttribute() {}, addEventListener() {}});
+    return fields.get(id);
+  };
+  let signalRead, finishRead;
+  const reading = new Promise(resolve => { signalRead = resolve; });
+  const contents = new Promise(resolve => { finishRead = resolve; });
+  const oldRoot = {name: "Old synthetic copy", getDirectoryHandle: async () => ({
+    getDirectoryHandle: async () => ({getFileHandle: async name => {
+      assert.equal(name, "product-settings.css");
+      return {getFile: async () => ({text: () => { signalRead(); return contents; }})};
+    }})
+  })};
+  const newRoot = {name: "New synthetic copy", getDirectoryHandle: async () => {
+    throw Object.assign(new Error("No legacy assets"), {name: "NotFoundError"});
+  }};
+  const model = {applicationRoot: oldRoot};
+  const context = vm.createContext({
+    document: {
+      getElementById: id => id === "view-settings" ? {querySelector: () => ({append() {}})} : null,
+      createElement: () => ({querySelector: selector => field(selector.slice(1))}),
+      addEventListener: (name, handler) => documentListeners.set(name, handler)
+    },
+    MoonDogInstalledVersion: "0.10.6-freshness", __moondogSettingsModel: model,
+    MoonDogUpdateInstall: {listBackups: async () => []},
+    localStorage: {getItem: () => null, setItem() {}},
+    setTimeout() {}, requestAnimationFrame: callback => callback()
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "assets", "moondog-update-settings.js"), "utf8"), context);
+  await reading;
+  model.applicationRoot = newRoot;
+  documentListeners.get("moondog-data")();
+  await new Promise(resolve => setImmediate(resolve));
+  finishRead("/* Synthetic legacy CSS */\n/* MoonDog controlled Beta update test 0.10.7-beta.1; no style changes. */\n");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(field("updateInstalledVersion").textContent, "0.10.6");
+  assert.equal(field("updateInstalledChannel").textContent, "Stable");
+});
