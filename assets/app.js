@@ -1979,7 +1979,9 @@
           if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){
             model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;
           }
-          if(error?.name==="NotAllowedError"||error?.name==="SecurityError"||/folder access was not granted/i.test(String(error?.message||""))){
+          if(error?.code==="WORKSPACE_LAYOUT_UNVERIFIED"){
+            offerReplacementForSavedFolder(error);
+          }else if(error?.name==="NotAllowedError"||error?.name==="SecurityError"||/folder access was not granted/i.test(String(error?.message||""))){
             setConnectionState("PERMISSION REQUIRED","Edge needs read/write access to the saved folder. Click Restore folder access; Workspace data was not cleared.");
           }else if(transientWorkspaceState(error)){
             setConnectionState("CONNECTION ERROR",`Workspace I/O is temporarily busy${error?.name?` (${error.name})`:""}, possibly while OneDrive syncs. The saved folder handle and files are retained; MoonDog will retry automatically.`);
@@ -2048,6 +2050,10 @@
         if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){
           model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;
         }
+        if(error?.code==="WORKSPACE_LAYOUT_UNVERIFIED"){
+          offerReplacementForSavedFolder(error);
+          return;
+        }
         if(error?.name==="NotAllowedError"||error?.name==="SecurityError"||/folder access was not granted/i.test(String(error?.message||""))){
           setConnectionState("PERMISSION REQUIRED","Edge needs read/write access to the saved folder. Click Restore folder access; all files remain in place.");
           return;
@@ -2115,10 +2121,18 @@
       }else{
         writeAuthority.disable();
         if(model.root&&model.root!==model.workspaceConnectionCommittedRoot){model.root=null;model.applicationRoot=null;connectedNativeRoot=null;model.workspaceConnectionCommittedRoot=null;}
-        setConnectionState("CONNECTION ERROR",`Saved folder validation stopped: ${error?.message||String(error)}. The saved handle and files are retained.`);
+        if(error?.code==="WORKSPACE_LAYOUT_UNVERIFIED")offerReplacementForSavedFolder(error);
+        else setConnectionState("CONNECTION ERROR",`Saved folder validation stopped: ${error?.message||String(error)}. The saved handle and files are retained.`);
       }
       console.error(error);
     }
+  }
+
+  function offerReplacementForSavedFolder(error) {
+    // Retain the browser's saved handle until a verified replacement connects,
+    // but make the next Connect action open the picker instead of retrying it.
+    model.pendingRoot = null;
+    setConnectionState("SAVED HANDLE UNAVAILABLE", error.message);
   }
 
   function headerMap(headers) { const map = {},roKeys=new Set(RO_KEYS.map(normalizedPerson)); headers.forEach((header, index) => { const key = normalizedPerson(header); if (roKeys.has(key)) map.ro = index; for (const [field, aliases] of Object.entries(ALIASES)) if (aliases.some(alias=>normalizedPerson(alias)===key)) map[field] = index; }); return map; }

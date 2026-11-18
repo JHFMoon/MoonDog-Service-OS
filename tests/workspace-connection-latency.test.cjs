@@ -279,3 +279,44 @@ test("failed delayed manual hydration clears the uncommitted root and keeps the 
   assert.equal(model.workspaceConnectionCommittedRoot, model.root);
   assert.equal(model.pendingRoot, null);
 });
+
+test("a saved folder rejected for its layout makes Connect open a replacement picker", async () => {
+  const allConnectionActions = extract(app, "  async function connect() {", "  function headerMap(");
+  for (const route of ["startup", "manual retry", "timed retry"]) {
+    const saved = {kind: "directory", queryPermission() {}};
+    const replacement = {kind: "directory"};
+    const attempts = [];
+    const states = [];
+    const model = {root: null, pendingRoot: route === "startup" ? null : saved};
+    let scheduled;
+    const context = vm.createContext({
+      model, __moondogDailyUI: {confirmWorkspaceChange: () => true},
+      window: {indexedDB: {}, showDirectoryPicker: async () => replacement},
+      recallRoot: async () => saved, permission: async () => "granted",
+      setConnectionState: (state, message) => states.push({state, message}),
+      setTimeout: callback => { scheduled = callback; return 1; },
+      clearTimeout() {}, stopFolderWatch() {},
+      console: {error() {}}, transientWorkspaceState: () => false,
+      writeAuthority: {disable() {}},
+      finishConnection: async handle => {
+        attempts.push(handle);
+        if (handle === saved) throw Object.assign(new Error("Choose the outer Dashboard folder."), {
+          code: "WORKSPACE_LAYOUT_UNVERIFIED"
+        });
+      }
+    });
+    vm.runInContext(allConnectionActions +
+      "\nthis.actions={connect,restoreConnection,scheduleSavedConnectionRetry};", context);
+    if (route === "startup") await context.actions.restoreConnection();
+    else if (route === "manual retry") await assert.rejects(context.actions.connect(), /outer Dashboard/);
+    else {
+      context.actions.scheduleSavedConnectionRetry(saved);
+      await scheduled();
+    }
+    assert.equal(model.pendingRoot, null, route);
+    assert.equal(states.at(-1).state, "SAVED HANDLE UNAVAILABLE", route);
+    assert.match(states.at(-1).message, /outer Dashboard/, route);
+    await context.actions.connect();
+    assert.deepEqual(attempts, [saved, replacement], route);
+  }
+});
