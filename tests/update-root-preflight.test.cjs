@@ -168,3 +168,32 @@ test("a new explicit reconnect and update check clears an old invalid root", asy
   assert.equal(h.field("chooseUpdateFolder").hidden, true);
   assert.deepEqual(h.events, []);
 });
+
+test("late folder permission loss disables an already offered update before package download", async () => {
+  const f = folder(), h = harness(f);
+  await h.check();
+  assert.equal(h.field("installMoonDogUpdate").disabled, false);
+  const previous = f.root.getDirectoryHandle;
+  f.root.getDirectoryHandle = async (...args) => {
+    if (args[0] === "System Files")
+      throw Object.assign(new Error("Access revoked after offer"), { name: "NotAllowedError" });
+    return previous(...args);
+  };
+  await h.install();
+  assert.deepEqual(h.events, [], "late permission loss cannot start a download or write");
+  assert.equal(h.field("installMoonDogUpdate").disabled, true);
+  assert.equal(h.field("chooseUpdateFolder").hidden, false);
+  assert.match(h.field("updateStatus").textContent, /permission/i);
+});
+
+test("missing entry after update offer refuses execution without trusted identity", async () => {
+  const f = folder(), h = harness(f);
+  await h.check();
+  assert.equal(h.field("installMoonDogUpdate").disabled, false);
+  f.system.getFileHandle = async () => { throw missing(); };
+  await h.install();
+  assert.deepEqual(h.events, [], "no preview or verified package download after entry vanishes");
+  assert.equal(h.field("installMoonDogUpdate").disabled, true);
+  assert.equal(h.field("chooseUpdateFolder").hidden, false);
+  assert.match(h.field("updateStatus").textContent, /no recognized clean-install identity/);
+});
