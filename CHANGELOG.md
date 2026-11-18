@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.450 — current Beta
+
+- fix(59): verify exact bytes of saved backup packages. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.449 — current Beta
 
 - fix(59): keep recovery backup choices with their Workspace. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
