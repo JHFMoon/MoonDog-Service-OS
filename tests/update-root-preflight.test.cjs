@@ -59,7 +59,7 @@ function folder({ name = "Outer Dashboard", systemPresent = true, index = true,
 function harness(selected, updateStatus = "newer-version") {
   const fields = new Map(), listeners = new Map(), events = [];
   const model = { applicationRoot: selected.root };
-  let connectClicks = 0;
+  let folderActions = 0;
   function field(id) {
     if (!fields.has(id)) fields.set(id, {
       textContent: "", value: "", disabled: false, hidden: false, style: {},
@@ -72,13 +72,13 @@ function harness(selected, updateStatus = "newer-version") {
   const card = { innerHTML: "", querySelector: selector => field(selector.slice(1)) };
   const document = {
     getElementById: id => id === "view-settings" ?
-      { querySelector: () => ({ append() {} }) } :
-      id === "connectButton" ? { disabled: false, click() { connectClicks++; } } : null,
+      { querySelector: () => ({ append() {} }) } : null,
     createElement: () => card, querySelector: () => null, addEventListener() {}
   };
   const context = vm.createContext({
     document, MoonDogInstalledVersion: "0.10.17",
     __moondogSettingsModel: model,
+    __moondogChooseDashboardFolder: () => { folderActions++; },
     __moondogMaintenance: { runtimePaths: ["index.html", "assets/app.js"] },
     MoonDogUpdateCheck: { check: async () => ({
       status: updateStatus, channel: "beta", version: "0.10.18-beta.425",
@@ -92,7 +92,7 @@ function harness(selected, updateStatus = "newer-version") {
   });
   vm.runInContext(source, context);
   return {
-    model, events, field, context, connectClicks: () => connectClicks,
+    model, events, field, context, folderActions: () => folderActions,
     async settle() { for (let i = 0; i < 30; i++) await Promise.resolve(); },
     async check() { await listeners.get("checkMoonDogUpdate:click")(); },
     async install() { await listeners.get("installMoonDogUpdate:click")(); },
@@ -111,7 +111,7 @@ test("selected private Workspace and System Files paths cannot offer a misleadin
     assert.deepEqual(h.events, [], "no package download or install for invalid root");
     assert.ok(f.calls.every(c => c === "root/directory:System Files"), "never read private records");
     h.choose();
-    assert.equal(h.connectClicks(), 1, "use the existing Connect action to ask for the right folder");
+    assert.equal(h.folderActions(), 1, "ask for the right folder through the dashboard folder action");
   }
 });
 
@@ -219,7 +219,7 @@ test("manual already-current manifest clears folder warning after explicit valid
   await h.check();
   assert.equal(h.field("chooseUpdateFolder").hidden, false);
   h.choose();
-  assert.equal(h.connectClicks(), 1);
+  assert.equal(h.folderActions(), 1);
   h.model.applicationRoot = good.root;
   await h.check();
   assert.equal(h.field("chooseUpdateFolder").hidden, true);
@@ -259,4 +259,73 @@ test("manual update check reports GitHub unavailable after validating a good fol
   assert.equal(h.field("updateStatus").textContent, "Could not reach GitHub. Try again later.");
   assert.equal(h.field("installMoonDogUpdate").disabled, true);
   assert.deepEqual(h.events, []);
+});
+
+function connectActions(pendingRoot, replacement) {
+  const app = fs.readFileSync(path.join(__dirname, "..", "assets", "app.js"), "utf8");
+  const start = app.indexOf("  async function connect() {");
+  const end = app.indexOf("  async function restoreConnection()", start);
+  assert.ok(start >= 0 && end > start);
+  const exposed = app.match(/globalThis\.__moondogChooseDashboardFolder = chooseDashboardFolder;/);
+  assert.ok(exposed);
+  const events = [];
+  const context = vm.createContext({
+    model: {pendingRoot},
+    workspaceConnectionBusy: false,
+    window: {showDirectoryPicker: async () => { events.push("picker"); return replacement; }},
+    __moondogDailyUI: {confirmWorkspaceChange: () => true},
+    writeAuthority: {reason: "NO_WORKSPACE"},
+    finishConnection: async (handle, ask) => { events.push({handle, ask}); },
+    setConnectionState() {},
+    run: async action => { try { await action(); } catch (error) { events.push(error.message); } }
+  });
+  vm.runInContext(app.slice(start, end) + exposed[0] + "\nthis.retrySavedFolder = connect;", context);
+  return {context, events};
+}
+
+test("Settings folder chooser opens the native picker instead of retrying a rejected saved folder", async () => {
+  const rejected = folder({systemPresent: false});
+  const replacement = folder();
+  const h = harness(rejected);
+  const connection = connectActions(rejected.root, replacement.root);
+  h.context.__moondogChooseDashboardFolder = connection.context.__moondogChooseDashboardFolder;
+  await h.check();
+  h.choose();
+  await h.settle();
+  assert.deepEqual(connection.events, ["picker", {handle: replacement.root, ask: true}]);
+  await connection.context.retrySavedFolder();
+  assert.deepEqual(connection.events.at(-1), {handle: rejected.root, ask: true});
+});
+
+test("Settings folder chooser cannot invoke or sidestep an unresolved recovery action", async () => {
+  const rejected = folder({systemPresent: false});
+  const replacement = folder();
+  const h = harness(rejected);
+  const connection = connectActions(rejected.root, replacement.root);
+  h.context.__moondogChooseDashboardFolder = connection.context.__moondogChooseDashboardFolder;
+  await h.check();
+  connection.context.model.freshResetRecoveryRoot = rejected.root;
+  h.choose();
+  await h.settle();
+  connection.context.model.freshResetRecoveryRoot = null;
+  connection.context.writeAuthority.reason = "PENDING_TRANSACTION";
+  h.choose();
+  await h.settle();
+  assert.deepEqual(connection.events, Array(2).fill(
+    "Review the existing Workspace recovery before choosing another dashboard folder."));
+});
+
+test("Settings folder chooser waits for an in-progress Workspace connection", async () => {
+  const rejected = folder({systemPresent: false});
+  const replacement = folder();
+  const h = harness(rejected);
+  const connection = connectActions(rejected.root, replacement.root);
+  h.context.__moondogChooseDashboardFolder = connection.context.__moondogChooseDashboardFolder;
+  await h.check();
+  connection.context.workspaceConnectionBusy = true;
+  h.choose();
+  await h.settle();
+  assert.deepEqual(connection.events, [
+    "Wait for the current Workspace connection check to finish before choosing a folder."
+  ]);
 });
