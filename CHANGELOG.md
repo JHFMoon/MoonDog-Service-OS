@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.430 — current Beta
+
+- fix(797): open the picker from Choose Dashboard Folder. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.429 — current Beta
 
 - fix(59): keep contradictory CSI claims out of trend evidence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
