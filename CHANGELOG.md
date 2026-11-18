@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.438 — current Beta
+
+- fix(797): pin legacy update version to the selected folder. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.437 — current Beta
 
 - fix(797): keep saved connection when a folder pick fails preflight. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

@@ -39,13 +39,11 @@
     progressChangedAt: 0, progressStalled: false, freshResetUnresolved: false,
     postUpdateFresh: null, postUpdateScanPending: false, postUpdateScanFailed: false,
     postUpdateScanError: "", postUpdateScanCompleted: false };
-  let postUpdateScanGeneration = 0, recoveryScanGeneration = 0;
+  let postUpdateScanGeneration = 0, recoveryScanGeneration = 0, installedScanGeneration = 0;
   const appRoot = () => global.__moondogSettingsModel?.applicationRoot || null;
-  const applicationFiles = async () => {
+  const applicationFiles = installation => {
     // applicationRoot is the selected top-level installation folder, which
     // contains System Files; Workspace is nested below and is NOT the target.
-    const installation = appRoot();
-    if (!installation) throw new Error("Connect the Service Operations Dashboard installation first.");
     return installation.getDirectoryHandle("System Files", { create: false });
   };
   // The update UI verifies only software layout, never store report contents.
@@ -233,8 +231,11 @@
   }
   async function inspectInstalledTestVersion() {
     const root = appRoot();
-    if (!root || root === inspectedRoot) return;
+    if (root === inspectedRoot) return;
     inspectedRoot = root;
+    const generation = ++installedScanGeneration;
+    if (!root) return;
+    const sameInstallation = () => root === appRoot() && generation === installedScanGeneration;
     installedVersion = declaredBetaVersion || baseComparisonVersion;
     installedChannel = declaredBetaVersion ? "beta" : "stable";
     comparisonVersion = installedVersion;
@@ -244,34 +245,41 @@
     field("updateInstalledVersion").textContent = installedVersion || "Unknown";
     field("updateInstalledChannel").textContent = installedChannel === "beta" ? "Beta" : "Stable";
     render();
-    try {
-      const assets = await (await applicationFiles()).getDirectoryHandle("assets", { create: false });
-      const stylesheet = await assets.getFileHandle("product-settings.css", { create: false });
-      const content = await (await stylesheet.getFile()).text();
-      if (baseComparisonVersion === "0.10.6" && content.endsWith(betaMarker)) {
-        installedVersion = "0.10.7-beta.1";
-        installedChannel = "beta";
-        comparisonVersion = installedVersion;
-        state.check = null;
-        field("updateInstalledVersion").textContent = installedVersion;
-        field("updateInstalledChannel").textContent = "Beta";
-        render();
-      }
-    } catch (_) { /* The baseline version remains authoritative if the marker cannot be read. */ }
-    try {
-      const assets = await (await applicationFiles()).getDirectoryHandle("assets", { create: false });
-      const script = await assets.getFileHandle("daily-ops.js", { create: false });
-      if (baseComparisonVersion === "0.10.6" && (await (await script.getFile()).text()).endsWith(beta2Marker)) {
-        installedVersion = "0.10.7-beta.2";
-        installedChannel = "beta";
-        comparisonVersion = installedVersion;
-        state.check = null;
-        state.checkFor = null;
-        field("updateInstalledVersion").textContent = installedVersion;
-        field("updateInstalledChannel").textContent = "Beta";
-        render();
-      }
-    } catch (_) { /* The baseline or Beta 1 marker remains authoritative. */ }
+    if (baseComparisonVersion === "0.10.6") {
+      try {
+        const assets = await (await applicationFiles(root)).getDirectoryHandle("assets", { create: false });
+        const stylesheet = await assets.getFileHandle("product-settings.css", { create: false });
+        const content = await (await stylesheet.getFile()).text();
+        if (!sameInstallation()) return;
+        if (content.endsWith(betaMarker)) {
+          installedVersion = "0.10.7-beta.1";
+          installedChannel = "beta";
+          comparisonVersion = installedVersion;
+          state.check = null;
+          field("updateInstalledVersion").textContent = installedVersion;
+          field("updateInstalledChannel").textContent = "Beta";
+          render();
+        }
+      } catch (_) { /* The baseline version remains authoritative if the marker cannot be read. */ }
+      if (!sameInstallation()) return;
+      try {
+        const assets = await (await applicationFiles(root)).getDirectoryHandle("assets", { create: false });
+        const script = await assets.getFileHandle("daily-ops.js", { create: false });
+        const content = await (await script.getFile()).text();
+        if (!sameInstallation()) return;
+        if (content.endsWith(beta2Marker)) {
+          installedVersion = "0.10.7-beta.2";
+          installedChannel = "beta";
+          comparisonVersion = installedVersion;
+          state.check = null;
+          state.checkFor = null;
+          field("updateInstalledVersion").textContent = installedVersion;
+          field("updateInstalledChannel").textContent = "Beta";
+          render();
+        }
+      } catch (_) { /* The baseline or Beta 1 marker remains authoritative. */ }
+      if (!sameInstallation()) return;
+    }
     refreshRecovery();
     void inspectPostUpdateFresh();
   }
