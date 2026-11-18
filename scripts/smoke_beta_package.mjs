@@ -400,9 +400,20 @@ try {
   await page.locator("#settings-update").waitFor({state:"visible", timeout:8000});
   await page.evaluate(nextVersion => {
     const missing = () => Object.assign(new Error("Synthetic missing entry"), {name:"NotFoundError"});
-    const system = {name:"System Files", getDirectoryHandle:async () => {throw missing();}};
+    const system = {
+      name:"System Files",kind:"directory",isSameEntry:async other=>other===system,
+      getFileHandle:async (name,options)=>{
+        if(name==="index.html" && options?.create===false)return {kind:"file"};
+        throw missing();
+      },
+      getDirectoryHandle:async (name,options)=>{
+        if(name==="Workspace" && options?.create===false)return {kind:"directory"};
+        throw missing();
+      }
+    };
     const root = {
-      name:"Synthetic repair UX installation",
+      name:"Synthetic repair UX installation",kind:"directory",
+      resolve:async target=>target===system?["System Files"]:null,
       getDirectoryHandle:async (name, options) => {
         if(name==="System Files" && options?.create===false)return system;
         throw missing();
@@ -490,12 +501,24 @@ try {
     const deniedSystem = {
       name:"System Files", kind:"directory",
       queryPermission:async () => "denied", requestPermission:async () => "denied",
-      getFileHandle:async () => {forbiddenOperations++;throw Error("Application file access after denial");},
-      getDirectoryHandle:async () => {throw missing();}
+      isSameEntry:async other => other===deniedSystem,
+      // Read-only path existence is allowed for root preflight; actual app
+      // byte access and every write remain forbidden in this synthetic store.
+      getFileHandle:async (name,options) => {
+        if(name==="index.html" && options?.create===false)return {
+          kind:"file",getFile:async()=>{forbiddenOperations++;throw Error("Application content read after denial");}
+        };
+        forbiddenOperations++;throw Error("Application file access after denial");
+      },
+      getDirectoryHandle:async (name,options) => {
+        if(name==="Workspace" && options?.create===false)return {kind:"directory"};
+        throw missing();
+      }
     };
     const deniedRoot = {
       name:"Synthetic read-only installation",kind:"directory",
       queryPermission:async () => "denied",requestPermission:async () => "denied",
+      resolve:async target=>target===deniedSystem?["System Files"]:null,
       getDirectoryHandle:async (name, options) => {
         if(name==="System Files" && options?.create===false)return deniedSystem;
         throw missing();
