@@ -15,7 +15,7 @@ assert.ok(start>=0&&end>start,"production read-only recovery assessment must exi
 const production=app.slice(start,end);
 assert.match(app,/const interruptedRestoreReview=await inspectInterruptedRestore\(\)/,
   "read-only connection must assess the hold");
-assert.match(app,/if\(interruptedRestoreReview\)status\("INTERRUPTED RESTORE:/,
+assert.match(app,/if\(model\.recovery\.interruptedRestoreReview\)status\("INTERRUPTED RESTORE:/,
   "read-only connection must warn the manager without clearing the hold");
 assert.match(app,/r\.state==="held"\|\|r\.state==="missing-files"\|\|r\.state==="unreadable-files"\|\|r\.state==="unstable-files"\?`Read-only recovery assessment/,
   "read-only Recovery view must show evidence counts even for missing or denied files");
