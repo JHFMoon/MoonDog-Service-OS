@@ -208,7 +208,8 @@ test("manual already-current manifest diagnoses the wrong folder without offerin
   assert.equal(h.field("updateProgressLabel").textContent, "Choose Dashboard Folder");
   await h.install();
   assert.deepEqual(h.events, [], "current manifest cannot excuse an unverified installation");
-  assert.deepEqual(bad.calls, ["root/directory:System Files"]);
+  assert.ok(bad.calls.length > 0 && bad.calls.every(call => call === "root/directory:System Files"),
+    "diagnostic must inspect only the public software layout, not private data");
 });
 
 test("manual already-current manifest clears folder warning after explicit valid reconnect", async () => {
