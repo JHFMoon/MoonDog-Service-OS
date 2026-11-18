@@ -9716,6 +9716,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
   function initializeHousekeeping(){
     maintenanceEngine=MoonDogMaintenance.create(maintenanceIO,{
       recovery:()=>model.recovery,day:storeDateKey,inventoryComplete:true,
+      workspace:()=>model.root,
       busy:()=>!writeAuthority.canWrite||!model.root||model.connectionState!=='CONNECTED'||workspaceConnectionBusy||workspaceRecoveryBusy||maintenanceOperations>0||folderWatch.busy||dailyImportBusy||Boolean(document.fullscreenElement)||/Creating|Restoring/i.test(model.recovery.status||''),
       references:maintenanceReferences,currentWorkbook:()=>`exports/${model.settings.supervisorWorkbook?.filename||model.settings.exportName}`,
       ensureFolders:initializeFolders,
