@@ -170,3 +170,41 @@ test("overlapping maintenance runs coalesce and release the single-flight guard"
   assert.equal(f.finished.length,1,"one shared run persists housekeeping state once");
   assert.equal(f.engine.running,false,"the single-flight guard releases after completion");
 });
+
+test("a failed retention checkpoint preserves an explicitly requested deep retry", async t => {
+  t.mock.method(globalThis, "setTimeout", () => null);
+  const today = "2026-10-19";
+  let metadata = {
+    lastDeepHousekeepingDate: today,
+    issues: [{path: "backups", reason: "Retention waits for a validated full recovery backup"}]
+  };
+  let failedCompletion = false;
+  const io = {
+    list: async () => [], exists: async () => false
+  };
+  const api = {
+    now: () => now, day: () => today, recovery: () => ({housekeeping: metadata}),
+    references: () => [], ensureFolders: async () => {}, validateCurrent: async () => {},
+    diagnostic: async () => {},
+    finish: async next => {
+      if (next.lastDeepHousekeepingAt && !failedCompletion) {
+        failedCompletion = true;
+        throw new Error("Synthetic backup retention completion read-back failed");
+      }
+      metadata = next;
+    }
+  };
+  const engine = maintenance.create(io, api);
+  engine.backupReady();
+  const first = await engine.run();
+  assert.equal(first.deep, true);
+  assert.equal(first.failed, true);
+  assert.equal(metadata.lastHousekeepingStatus, "Retry needed");
+
+  assert.equal(metadata.deepRetryPending, true);
+  const retry = await maintenance.create(io, api).run();
+  assert.equal(retry.deep, true, "a failed forced retention pass must remain pending");
+  assert.equal(retry.failed, undefined);
+  assert.equal(metadata.lastDeepHousekeepingDate, today);
+  assert.equal(metadata.deepRetryPending, false);
+});
