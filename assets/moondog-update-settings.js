@@ -497,7 +497,9 @@
       checkedVersion === comparisonVersion && checkedRoot === appRoot();
     state.check = null;
     state.checkFor = null;
-    state.rootPreflight = null;
+    // A background manifest result cannot resolve a local folder issue.
+    // Reuse only a diagnosis for this same handle until it is inspected again.
+    if (manual || state.rootPreflight?.root !== checkedRoot) state.rootPreflight = null;
     clearPlan();
     clearProgress();
     state.busy = true;
