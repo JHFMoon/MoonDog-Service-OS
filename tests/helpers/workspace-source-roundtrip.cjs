@@ -76,4 +76,4 @@ function backupFunctions(app, model, date) {
     '\n({ createBackupBytes, validateBackupBytes, verifyBackupStoreOwnership })', context);
 }
 
-module.exports = { hydrateWorkspace, backupFunctions };
+module.exports = { hydrateWorkspace, backupFunctions, SyntheticArchive };
