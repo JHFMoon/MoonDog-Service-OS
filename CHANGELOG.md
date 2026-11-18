@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.433 — current Beta
+
+- fix(59): require boolean verification for saved CSI evidence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.432 — current Beta
 
 - fix(797): preserve folder guidance during background checks. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

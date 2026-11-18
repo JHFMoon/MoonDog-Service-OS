@@ -156,3 +156,32 @@ test("CSI trend evidence rejects the same contradictory saved report as source f
   assert.equal(trend.verifiedScope, current);
   assert.deepEqual(trend.reportDates, ["2026-10-06"]);
 });
+
+test("truthy non-boolean CSI flags cannot make a saved report authoritative", () => {
+  const scope = {scopeStart: "2026-10-01", scopeEnd: "2026-10-06"};
+  const observation = {reportObservationDate: "2026-10-06"};
+  for (const flag of ["false", "true", 1, {}, []]) {
+    for (const item of [
+      {...scope, scopeVerified: flag},
+      {...observation, reportObservationVerified: flag}
+    ]) {
+      const evidence = evaluate(item);
+      assert.equal(evidence.safeForCurrent, false, JSON.stringify(item));
+      assert.equal(evidence.reportPeriodVerified, false);
+      assert.equal(freshness.evaluateMetric([evidence]).verified, false);
+    }
+  }
+  const observationOnly = evaluate({
+    ...scope, scopeVerified: "false", ...observation, reportObservationVerified: true
+  });
+  assert.equal(observationOnly.status, "current");
+  assert.equal(observationOnly.periodStart, observation.reportObservationDate);
+  assert.equal(observationOnly.periodEnd, observation.reportObservationDate);
+
+  const scopeOnly = evaluate({
+    ...scope, scopeVerified: true, reportObservationVerified: "true", reportObservationDate: "2026-10-08"
+  });
+  assert.equal(scopeOnly.status, "current");
+  assert.equal(scopeOnly.periodStart, scope.scopeStart);
+  assert.equal(scopeOnly.periodEnd, scope.scopeEnd);
+});
