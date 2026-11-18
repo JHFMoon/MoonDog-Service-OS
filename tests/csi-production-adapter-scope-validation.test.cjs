@@ -127,3 +127,32 @@ test("explicitly verified CSI observation with invalid or future date cannot bor
   assert.equal(valid.status, "current");
   assert.equal(valid.reportPeriodVerified, true);
 });
+
+test("CSI trend evidence rejects the same contradictory saved report as source freshness", () => {
+  const today = "2026-10-07";
+  const earlier = {scopeVerified: true, scopeStart: "2026-10-01", scopeEnd: "2026-10-05"};
+  const current = {
+    scopeVerified: true, scopeStart: "2026-10-01", scopeEnd: "2026-10-06",
+    reportObservationVerified: true, reportObservationDate: "2026-10-06",
+    refreshDate: today, rows: 0
+  };
+  for (const item of [
+    {...current, reportObservationDate: undefined},
+    {...current, reportObservationDate: "2026-02-30"},
+    {...current, reportObservationDate: "2026-10-08"},
+    {...current, scopeStart: "2026-10-07"},
+    {...current, scopeEnd: undefined}
+  ]) {
+    Object.freeze(item);
+    assert.equal(evaluate(item).status, "invalid");
+    const trend = freshness.csiTrendEvidence({imports: [earlier, item], today});
+    assert.equal(trend.verifiedScope, earlier, "keep independently verified earlier scope");
+    assert.deepEqual(trend.reportDates, [], "reject report evidence from the contradictory record");
+    assert.deepEqual(trend.importDates, [today], "local import activity remains separate");
+  }
+
+  const trend = freshness.csiTrendEvidence({imports: [earlier, current], today});
+  assert.equal(evaluate(current).status, "current");
+  assert.equal(trend.verifiedScope, current);
+  assert.deepEqual(trend.reportDates, ["2026-10-06"]);
+});
