@@ -25,15 +25,21 @@ const headers = [
   'NPS: ServPulse', 'NPS Filter Group'
 ].join(',');
 
-function harness({ scopeEnd = '2026-10-06', includeScope = true, initialSurveys = {} } = {}) {
+function harness({
+  scopeStart = '2026-10-01', scopeEnd = '2026-10-06', includeScope = true,
+  initialSurveys = {}, surveyDates = []
+} = {}) {
   const lines = [
-    ...(includeScope ? ['From,2026-10-01', 'To,' + scopeEnd] : []),
-    headers
+    ...(includeScope ? ['From,' + scopeStart, 'To,' + scopeEnd] : []),
+    headers,
+    ...surveyDates.map((date, index) =>
+      [`SYN-${index}`, `PULSE-${index}`, 'Pulse Completed', 'Yes', date, '', 10, 'Promoter', 10, 'Promoter'].join(','))
   ];
   const csv = lines.join('\n') + '\n';
   const csi = { surveys: { ...initialSurveys }, imports: [] };
   const model = { operationalMetrics: { csi } };
   let durable = null;
+  const events = [], history = [];
   const context = {
     model, structuredClone, crypto, TextEncoder, OPERATIONAL_METRICS_PATH: ['data', 'operational-metrics.json'],
     now: () => '2026-10-07T15:00:00Z',
@@ -48,15 +54,18 @@ function harness({ scopeEnd = '2026-10-06', includeScope = true, initialSurveys 
     freshness,
     writeJson: async (_, value) => { durable = structuredClone(value); },
     readJson: async () => durable,
-    addHistory: async () => {},
-    removeSourceEntry: async () => {},
+    addHistory: async (type, _message, metadata) => {
+      events.push(type);
+      history.push({type, metadata});
+    },
+    removeSourceEntry: async () => events.push("source-deleted"),
     renderOverviewIntelligence: () => {},
     renderMeeting: () => {}
   };
   vm.runInNewContext(digestHelper + '\n' + ingestionSource + '\nthis.importCsiFile = importCsiFile;', context, {
     filename: 'assets/app.js CSI ingestion'
   });
-  return { importCsiFile: context.importCsiFile, csi, durable: () => durable };
+  return { importCsiFile: context.importCsiFile, csi, durable: () => durable, events, history };
 }
 
 test('validated header-only zero-response CSI report passes production parse and import', async () => {
@@ -104,4 +113,45 @@ test('valid zero-response report retains previously imported survey history', as
   await importCsiFile('empty-but-current.csv');
   assert.deepEqual(Object.keys(csi.surveys), ['old-id']);
   assert.equal(durable().csi.surveys['old-id'].score, 10);
+});
+
+test('impossible CSI survey dates fail before any write, history, or source cleanup', async () => {
+  const prior = { 'old-id': { id: 'old-id', surveyDate: '2026-02-02', score: 10 } };
+  for (const surveyDate of ['2026-02-30T12:00:00-04:00', '2/29/2026 13:00', '2026-04-31']) {
+    const {importCsiFile, csi, durable, events} = harness({
+      scopeStart: '2026-01-01', initialSurveys: prior, surveyDates: [surveyDate]
+    });
+    await assert.rejects(importCsiFile('calendar-invalid.csv', true), /CSI survey date could not be read/);
+    assert.equal(durable(), null);
+    assert.deepEqual(csi.surveys, prior);
+    assert.deepEqual(csi.imports, []);
+    assert.deepEqual(events, []);
+  }
+});
+
+test('verified leap-day CSI survives ISO, US and Excel date formats', async () => {
+  const serial = (Date.UTC(2024, 1, 29) - Date.UTC(1899, 11, 30)) / 86400000;
+  const {importCsiFile, csi, durable} = harness({
+    scopeStart: '2024-02-01',
+    surveyDates: ['2024-02-29T12:00:00-04:00', '2/29/24 13:00', serial + 0.5]
+  });
+  await importCsiFile('calendar-valid.csv');
+  assert.deepEqual(Object.values(durable().csi.surveys).map(survey => survey.surveyDate),
+    ['2024-02-29', '2024-02-29', '2024-02-29']);
+  assert.equal(csi.imports[0].dailySummary.responses, 3);
+});
+
+test('a corrected survey can replace an impossible saved date under the same Invite ID', async () => {
+  const prior = { id: 'SYN-0', surveyDate: '2026-02-30', score: 10, extensionRecordIds: ['SYN-EXT'] };
+  const {importCsiFile, csi, durable, history} = harness({
+    scopeStart: '2026-01-01',
+    initialSurveys: {'SYN-0': prior},
+    surveyDates: ['2026-02-28']
+  });
+  await importCsiFile('calendar-corrected.csv');
+  assert.equal(csi.surveys['SYN-0'].surveyDate, '2026-02-28');
+  assert.deepEqual(Array.from(csi.surveys['SYN-0'].extensionRecordIds), ['SYN-EXT']);
+  assert.equal(durable().csi.surveys['SYN-0'].surveyDate, '2026-02-28');
+  assert.equal(history[0].metadata.revisedMetricSurveyCount, 1);
+  assert.equal(prior.surveyDate, '2026-02-30');
 });
