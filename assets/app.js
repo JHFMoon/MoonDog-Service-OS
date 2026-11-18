@@ -5523,7 +5523,7 @@
   renderPerformance = function renderPerformanceVerified() { renderPerformanceBase(); const dates = Object.keys(model.performance.snapshots || {}).sort(), latest = currentSaprSnapshot(true) || currentSaprSnapshot() || (dates.length ? model.performance.snapshots[dates.at(-1)] : null); if (!latest) return; const advisors = Object.values(latest.advisors || {}), selection = ui.performanceAdvisor.value || "store",saprHealth=sourceFreshness("sapr"),openRoHealth=sourceFreshness("openRo"); ui.performanceSource.textContent = `${latest.sourceFile} · ${advisors.length} verified advisor detail sheet${advisors.length === 1 ? "" : "s"} · ${sourceLineageLabel(saprHealth)}`; ui.performanceAdvisorNote.textContent = `${latest.periodStart} through ${latest.periodEnd} SAPR · tracker counts from ${model.state.source?.fileName || "durable Open RO state"} · ${sourceLineageLabel(openRoHealth)}`; const openCard = [...ui.performanceKpis.querySelectorAll("article")].find((card) => card.querySelector("span")?.textContent === "Open / aged"); if (openCard) openCard.querySelector("span").textContent = "SAPR open / aged"; for (const row of ui.performanceAdvisorTable.querySelectorAll("tr")) { const code = row.querySelector("td:first-child small")?.textContent; if (!code) continue; const cell = document.createElement("td"); cell.className = "tracker-open-count"; cell.textContent = openRoHealth.safeForCurrent&&openRoHealth.reportPeriodVerified?performanceFormat(trackerOpenCount(code), "count"):"UPDATE PENDING"; row.append(cell); } renderPerformanceExecutive(latest, selection); renderCurrentMonthTrend(latest, selection); renderControllables(latest, selection); };
 
   const TREND_SOURCES={sapr:'SAPR',csi:'Dealer Dashboard CSI',vir:'VIR',menu:'Menu Sales',nextAppointments:'Next Appointments / NSA',mediaAsr:'Media ASR — Advisor',mediaAsrTech:'Media ASR — Technician',efficiency:'Efficiency Tracking',sor:'SOR'};
-  function sourceTrendObservations(family, today) {
+  function sourceTrendObservations(family, today, accept = null) {
     if(family==='sapr')return Object.values(model.performance.snapshots||{});
     const branch=model.operationalMetrics[family]||{};let values=[...Object.values(branch.snapshots||{}),...Object.values(branch.dailySnapshots||{})];
     if(family==='vir')values=allVirObservations();
@@ -5534,7 +5534,17 @@
       // cannot hide an independently verified point for the same Monday.
       values=values.filter(item=>verifiedMenuTrendReleases({retained:item},asOf).size>0);
     }
-    const dates=new Map();for(const item of values){if(family==='mediaAsr'&&mediaScope(item)!=='advisor')continue;const date=trendObservationDate(family,item);if(!date)continue;const prior=dates.get(date);if(!prior||text(item.importedAt)>=text(prior.importedAt))dates.set(date,item);}return [...dates.values()];
+    const dates=new Map();
+    for(const item of values){
+      if(family==='mediaAsr'&&mediaScope(item)!=='advisor')continue;
+      const date=trendObservationDate(family,item);
+      if(!date)continue;
+      const prior=dates.get(date);
+      if((!prior||text(item.importedAt)>=text(prior.importedAt))&&(!accept||accept(item,date))){
+        dates.set(date,item);
+      }
+    }
+    return [...dates.values()];
   }
   function trendObservationDate(family,item) {
     if(family==='sapr')return validCoverageDate(item.periodEnd);
@@ -5600,18 +5610,19 @@
         };
       });
     }
+    // Reject invalid periods before choosing the newest record for a date so
+    // an unverified duplicate cannot hide a verified chart point.
+    const needsVerifiedPeriod=['sor','efficiency','mediaAsr','mediaAsrTech','nextAppointments','vir'].includes(measure.family);
+    const accept=needsVerifiedPeriod?(item,date)=>{
+      if(date.slice(0,7)!==month||date>today)return false;
+      const lineage=sourceFreshness(measure.family,{
+        item,today,purpose:'historical',targetStart:date,targetEnd:date
+      });
+      return lineage.safeForPurpose&&lineage.reportPeriodVerified;
+    }:null;
     const points=[];
-    for(const item of sourceTrendObservations(measure.family,today)){
+    for(const item of sourceTrendObservations(measure.family,today,accept)){
       const date=trendObservationDate(measure.family,item);if(!date||date.slice(0,7)!==month||date>today)continue;
-      // A retained reference record may be older than current importer guards.
-      // Chart dates and numeric values do not independently prove that the
-      // saved report's declared period agrees with its observation.
-      if(['sor','efficiency','mediaAsr','mediaAsrTech','nextAppointments','vir'].includes(measure.family)){
-        const lineage=sourceFreshness(measure.family,{
-          item,today,purpose:'historical',targetStart:date,targetEnd:date
-        });
-        if(!lineage.safeForPurpose||!lineage.reportPeriodVerified)continue;
-      }
       if(measure.family==='sapr'&&(item.periodStart!==start||['totalGross','totalRevenue'].includes(measure.key)&&!item.validation?.finalTotalsVerified))continue;
       let entity=trendEntity(item,role,id,measure.family),value,benchmark=null,bic=null;
       if(measure.controllable){const control=role==='store'?item.controllables?.store?.[measure.key]:item.controllables?.advisors?.[id]?.[measure.key];value=control?.actual;benchmark=control?.brandAverage;bic=control?.bic;}
