@@ -588,8 +588,7 @@ test("connecting an incomplete installation cannot create its Workspace or revis
     assert.deepEqual(Array.from(f.dirs), originalDirs, "no layout creation in the unverified selection");
     assert.deepEqual(Array.from(f.files), originalFiles, "no revision creation or marker replacement");
     assert.deepEqual(f.actions, []);
-    assert.equal(interruptedFresh ? error?.code : error?.name,
-      interruptedFresh ? "FRESH_RESET_INCOMPLETE" : "NotFoundError");
+    assert.equal(error?.code, interruptedFresh ? "FRESH_RESET_INCOMPLETE" : "WORKSPACE_LAYOUT_UNVERIFIED");
     assert.equal(model.applicationRoot, null);
   }
 });

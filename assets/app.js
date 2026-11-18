@@ -1763,7 +1763,13 @@
     if (await permission(handle, ask) !== "granted") throw new Error("Folder access was not granted.");
     // Authority validation can initialize a revision. Confirm an existing
     // Workspace and check the Fresh hold before it can create any files.
-    await operationalRoot(handle);
+    try { await operationalRoot(handle); }
+    catch (error) {
+      if (!["NotFoundError", "TypeMismatchError"].includes(error?.name)) throw error;
+      const layoutError = new Error("Can't verify this Dashboard folder. Choose the outer folder containing 00 - OPEN DASHBOARD.html and System Files.", {cause: error});
+      layoutError.code = "WORKSPACE_LAYOUT_UNVERIFIED";
+      throw layoutError;
+    }
     const afterPermissionBlock=workspaceConnectionBlockReason();
     if(afterPermissionBlock){const error=new Error(afterPermissionBlock);error.code="WORKSPACE_CONNECTION_BUSY";throw error;}
     await writeAuthority.validate(handle, ask);
@@ -1975,6 +1981,9 @@
     }
     const handle = await window.showDirectoryPicker({ id: "moondog-operations", mode: "readwrite" });
     try { return await finishConnection(handle, true); } catch (error) {
+      // This candidate failed before changing authority or staging its data.
+      // Preserve the known connection and saved handle when a user mispicks.
+      if (error?.code === "WORKSPACE_LAYOUT_UNVERIFIED") throw error;
       if(error?.code!=="WORKSPACE_CONNECTION_BUSY"){
         writeAuthority.disable();
         // Keep the user's selected handle available even when failure occurs
