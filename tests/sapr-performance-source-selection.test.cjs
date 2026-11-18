@@ -53,6 +53,7 @@ function harness(snapshots){
   const consumers=[],charts=[];
   const ctx=vm.createContext({
     Date,model,ui,document:{createElement:()=>element()},
+    freshness:require("../assets/freshness.js"),localDateKey:()=>"2026-11-02",
     Option:function Option(label,value){this.label=label;this.value=value;},
     performanceEntity:(item,selection)=>selection==="store"?item.store:item.advisors?.[selection],
     performanceDelta:(current,prior,key)=>current&&prior&&
@@ -100,6 +101,22 @@ test("59-01 corrected earlier SAPR import does not split Home/Meeting/Performanc
     ["Executive","2026-10-20"],["Trend","2026-10-20"],["Controllables","2026-10-20"]
   ],"every Performance section uses the same period as Home and Meeting");
   assert.equal(JSON.stringify(snapshots),before,"rendering changes no source, manual data or import lineage");
+});
+
+test("malformed, reversed and future SAPR periods cannot supersede verified source data",()=>{
+  const valid=snapshot("2026-10-25","2026-10-26T20:00:00Z",2300);
+  for(const badPeriod of [
+    {periodEnd:"2026-10-32"},
+    {periodStart:"2026-10-29",periodEnd:"2026-10-28"},
+    {periodStart:"2026-11-01",periodEnd:"2026-11-03"}
+  ]){
+    const invalid={...snapshot("2026-10-28","2026-11-02T20:00:00Z",7400),...badPeriod};
+    const f=harness({verified:valid,invalid});
+    assert.equal(f.api.current(true),valid);
+    assert.equal(f.api.meeting(),valid);
+    f.api.render();
+    assert.equal(f.ui.performanceKpis.children[0].children[1].textContent,"2300");
+  }
 });
 
 test("59-01 a fully finished positive SAPR working-day period remains verified for Home and Meeting",()=>{
