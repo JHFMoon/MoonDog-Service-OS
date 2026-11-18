@@ -473,7 +473,7 @@
     retryFresh.disabled=state.busy || state.postUpdateScanPending || state.recoveryScanPending;
     if(state.freshResetUnresolved)
       field("updateChoiceNote").textContent="Fresh Installation is unresolved in this tab after a verified update. Do not retry updates or use this copy until its durable recovery hold is reviewed. Other installations are unaffected.";
-    const folderProblem = Boolean(currentOffer() && !updateRootReady());
+    const folderProblem = Boolean(state.rootPreflight && !updateRootReady());
     field("chooseUpdateFolder").hidden = !folderProblem;
     field("chooseUpdateFolder").disabled = state.busy;
     if (folderProblem) field("updateChoiceNote").textContent =
@@ -513,18 +513,22 @@
         state.lastCheck = new Date().toISOString();
       state.check = result;
       if (manual) state.dismissed = null;
-      if (["newer-version", "channel-switch"].includes(result.status)) {
+      const offered = ["newer-version", "channel-switch"].includes(result.status);
+      if (offered)
         state.checkFor = { channel: checkedChannel, version: checkedVersion, root: checkedRoot };
+      // A manual check must diagnose an invalid selected installation even
+      // when the manifest says this software version is already current.
+      if (offered || (manual && !["unavailable", "invalid-input", "silent"].includes(result.status))) {
         state.rootPreflight = await inspectUpdateInstallation(checkedRoot);
         if (checkedChannel !== state.channel || checkedVersion !== comparisonVersion || checkedRoot !== appRoot()) return;
       }
       save();
       if (manual && result.status === "unavailable") status.textContent = "Could not reach GitHub. Try again later.";
       else if (manual && result.status === "invalid-input") status.textContent = "The installed version cannot be compared.";
-      else if (manual) status.textContent = currentOffer() && !updateRootReady() ?
+      else if (manual) status.textContent = state.rootPreflight && !updateRootReady() ?
         (state.rootPreflight?.detail || "Can't verify the installation folder.") : "Update check complete.";
       if (manual) {
-        const badFolder = Boolean(currentOffer() && !updateRootReady());
+        const badFolder = Boolean(state.rootPreflight && !updateRootReady());
         await setProgress({ phase: badFolder || result.status === "unavailable" || result.status === "invalid-input" ? "error" : "complete",
           percent: badFolder || result.status === "unavailable" ? null : 100,
           label: badFolder ? "Choose Dashboard Folder" : result.status === "unavailable" ? "Update check unavailable" : "Update check complete",
