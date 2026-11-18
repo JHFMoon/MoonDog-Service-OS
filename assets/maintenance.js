@@ -99,7 +99,7 @@ function create(io,api){
   if(running)return running;
   resetWorkspaceCounters();
   const at=api.now?.()||Date.now(),day=api.day();const prior=metadata();
-  const deep=!options.repairOnly&&(retryDeep||(deepDate||prior.lastDeepHousekeepingDate)!==day);
+  const deep=!options.repairOnly&&(retryDeep||prior.deepRetryPending===true||(deepDate||prior.lastDeepHousekeepingDate)!==day);
   if(!options.force&&!deep&&at-(lastLight||Date.parse(prior.lastLightHousekeepingAt)||0)<300000)return {throttled:true};
   if(api.busy?.())return {busy:true};
   running=(async()=>{
@@ -197,10 +197,13 @@ function create(io,api){
      for(const p of await io.list('Files To Learn',false)){try{const f=await inspect(p);const kind=await api.classifyLearn(f);if(kind==='disposable')await remove(f,'FILES TO LEARN NON-INPUT REMOVED');else if(kind==='supported'){if(at-f.modified<60000){issue(p,'Report still changing; kept');continue;}await api.importLearn(f);const current=await inspect(p);if(current.hash===f.hash)await remove(f,'FILES TO LEARN IMPORT VERIFIED');}else issue(p,'Unrecognized learning material retained');}catch(_){issue(p,'Learning material retained after validation failure');}}
      deepDate=day;retryDeep=false;
     }
-    await api.finish({...prior,lastLightHousekeepingAt:result.at,...(deep?{lastDeepHousekeepingDate:day,lastDeepHousekeepingAt:result.at,lastRetentionValidationAt:result.at}:{}),lastHousekeepingStatus:result.issues.length?'Needs attention':'All clear',filesRemoved:(prior.filesRemoved||0)+result.filesRemoved,bytesReclaimed:(prior.bytesReclaimed||0)+result.bytesReclaimed,unresolvedMaintenanceCount:result.issues.length,issues:result.issues.slice(0,50),events:[...(prior.events||[]),...result.events].slice(-60),...(result.removed.some(f=>f.path.startsWith('backups/'))?{lastBackupPruneAt:result.at}:{})});
+    await api.finish({...prior,lastLightHousekeepingAt:result.at,...(deep?{lastDeepHousekeepingDate:day,lastDeepHousekeepingAt:result.at,lastRetentionValidationAt:result.at,deepRetryPending:false}:{}),lastHousekeepingStatus:result.issues.length?'Needs attention':'All clear',filesRemoved:(prior.filesRemoved||0)+result.filesRemoved,bytesReclaimed:(prior.bytesReclaimed||0)+result.bytesReclaimed,unresolvedMaintenanceCount:result.issues.length,issues:result.issues.slice(0,50),events:[...(prior.events||[]),...result.events].slice(-60),...(result.removed.some(f=>f.path.startsWith('backups/'))?{lastBackupPruneAt:result.at}:{})});
     lastLight=at;
-   await api.diagnostic('HOUSEKEEPING COMPLETE',result.filesRemoved+' files removed; '+result.issues.length+' items retained for review');
-   }catch(e){result.failed=true;if(deep)deepDate='';try{await api.finish({...prior,lastHousekeepingStatus:'Retry needed',unresolvedMaintenanceCount:1,issues:[{path:'maintenance',reason:'Storage unavailable; automatic retry pending'}]});}catch(_){}await api.diagnostic('HOUSEKEEPING FAILED','Storage inspection incomplete; retry later').catch(()=>{});}
+    await api.diagnostic('HOUSEKEEPING COMPLETE',result.filesRemoved+' files removed; '+result.issues.length+' items retained for review');
+   }catch(e){
+    result.failed=true;
+    if(deep)deepDate='';
+    try{await api.finish({...prior,...(deep?{deepRetryPending:true}:{}),lastHousekeepingStatus:'Retry needed',unresolvedMaintenanceCount:1,issues:[{path:'maintenance',reason:'Storage unavailable; automatic retry pending'}]});}catch(_){}await api.diagnostic('HOUSEKEEPING FAILED','Storage inspection incomplete; retry later').catch(()=>{});}
    api.changed?.();return result;
   })();try{return await running}finally{running=null;}
  }
