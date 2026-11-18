@@ -1744,6 +1744,7 @@
   // All folder changes, including automatic restoration, share one exclusive
   // connection operation. A second picker must not overlap this root's model load.
   let workspaceConnectionBusy=false;
+  let authorityRevalidationRunning=false;
   // Saved RO populations are durable source authority, not empty defaults when
   // a file is damaged. Only the genuinely absent legacy Closed RO property is
   // an empty retained roster; reject explicit malformed values before hydration.
@@ -1771,7 +1772,7 @@
       : "";
   }
   async function finishConnection(handle, ask) {
-    if(workspaceConnectionBusy){
+    if(workspaceConnectionBusy||authorityRevalidationRunning){
       const error=new Error("Another Workspace connection is still finishing. Try again when it completes.");
       error.code="WORKSPACE_CONNECTION_BUSY";
       throw error;
@@ -9151,13 +9152,19 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
 
   ensurePhase2SettingsUi();ensurePhase3Ui();ensureRecoveryUi();ensureFolderWatchUi();ensureManagerEntryCues();ensureFailedLearnedReportUi();ensureNewStoreUi();ui.setupSettingsSummary=document.getElementById("setupSettingsSummary");
   let authorityRevalidationTimer=null,authorityRevalidationAttempts=0,authorityRevalidationExhausted=false;
+  let authorityRevalidationRoot=null;
   const AUTHORITY_REVALIDATION_DELAYS=[1200,2500,5000,10000,20000];
   function clearAuthorityRevalidation(){
     if(authorityRevalidationTimer)clearTimeout(authorityRevalidationTimer);
     authorityRevalidationTimer=null;authorityRevalidationAttempts=0;authorityRevalidationExhausted=false;
+    authorityRevalidationRoot=null;
   }
   function scheduleAuthorityRevalidation(root,immediate=false){
-    if(!root||root!==connectedNativeRoot||writeAuthority.canWrite)return;
+    if(!root||root!==connectedNativeRoot||writeAuthority.canWrite||authorityRevalidationRunning)return;
+    if(authorityRevalidationRoot!==root){
+      clearAuthorityRevalidation();
+      authorityRevalidationRoot=root;
+    }
     if(immediate&&authorityRevalidationTimer){clearTimeout(authorityRevalidationTimer);authorityRevalidationTimer=null;}
     if(authorityRevalidationTimer)return;
     if(!["WORKSPACE_BUSY","PERMISSION_REQUIRED"].includes(writeAuthority.reason))return;
@@ -9171,9 +9178,15 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     }
     authorityRevalidationTimer=setTimeout(async()=>{
       authorityRevalidationTimer=null;
-      if(root!==connectedNativeRoot||writeAuthority.canWrite)return;
+      // The validator can change the native write target. A scheduled check
+      // must stay outside the interval in which another Workspace is loading.
+      if(root!==connectedNativeRoot||writeAuthority.canWrite||workspaceConnectionBusy)return;
       authorityRevalidationAttempts+=1;
-      const ok=await writeAuthority.validate(root,false).catch(()=>false);
+      authorityRevalidationRunning=true;
+      let ok=false;
+      try { ok=await writeAuthority.validate(root,false); }
+      catch (_) { /* A failed validation remains eligible for bounded retry. */ }
+      finally { authorityRevalidationRunning=false; }
       if(root!==connectedNativeRoot)return;
       renderSetup();
       if(ok){

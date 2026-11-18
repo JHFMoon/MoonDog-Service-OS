@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.448 — current Beta
+
+- fix(797): isolate write revalidation from Workspace switches. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.447 — current Beta
 
 - fix(797): keep failed read-only reconnects isolated. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
