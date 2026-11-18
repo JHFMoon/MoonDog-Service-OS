@@ -7748,7 +7748,82 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
       }
     });
   }
-  async function scanRecoveryBackups(){if(!model.root)return;const dir=await directory(["backups"],true),found=[];for await(const[name,handle]of dir.entries())if(handle.kind==="file"&&name.endsWith(".zip")&&/MoonDog (Full Backup|Restore Safety)/.test(name)){try{const bytes=new Uint8Array(await(await handle.getFile()).arrayBuffer()),validated=await validateBackupBytes(bytes);found.push({name,createdAt:validated.manifest.createdAt,label:validated.manifest.label,version:validated.manifest.appVersion});}catch(_){found.push({name,invalid:true});}}found.sort((a,b)=>String(b.createdAt||b.name).localeCompare(String(a.createdAt||a.name)));ui.restoreBackupSelect.replaceChildren(new Option("Select a validated backup",""));for(const item of found){const option=new Option(item.invalid?`${item.name} · INVALID`:`${new Date(item.createdAt).toLocaleString()} · ${item.label}`,item.name);option.disabled=Boolean(item.invalid);ui.restoreBackupSelect.append(option);}ui.restoreBackup.disabled=true;}
+  async function scanRecoveryBackups() {
+    if (!model.root) return;
+    const catalogue = {root: model.root, selection: null};
+    recoveryBackupCatalogue = catalogue;
+    const current = () => recoveryBackupCatalogue === catalogue && model.root === catalogue.root;
+    showRecoveryBackupMessage("Checking this Workspace for backups.");
+    const found = [];
+    try {
+      const dir = await directory(["backups"], false).catch(error => {
+        if (error.name === "NotFoundError") return null;
+        throw error;
+      });
+      if (!dir) {
+        if (current()) showRecoveryBackupMessage("No validated backups found in this Workspace.");
+        return;
+      }
+      for await (const [name, handle] of dir.entries()) {
+        if (!current()) return;
+        if (handle.kind !== "file" || !name.endsWith(".zip") || !/MoonDog (Full Backup|Restore Safety)/.test(name)) continue;
+        try {
+          const bytes = new Uint8Array(await (await handle.getFile()).arrayBuffer());
+          const {manifest} = await validateBackupBytes(bytes);
+          found.push({name, createdAt: manifest.createdAt, label: manifest.label});
+        } catch (_) {
+          found.push({name, invalid: true});
+        }
+      }
+    } catch (_) {
+      if (current()) showRecoveryBackupMessage("Couldn't list backups in this Workspace. Reconnect to check again.");
+      // This read-only catalogue refresh follows verified backup and restore writes.
+      return;
+    }
+    if (!current()) return;
+    found.sort((a, b) => String(b.createdAt || b.name).localeCompare(String(a.createdAt || a.name)));
+    showRecoveryBackupMessage(found.some(item => !item.invalid)
+      ? "Select a validated backup" : "No validated backups found in this Workspace.");
+    for (const item of found) {
+      const label = item.invalid ? `${item.name} · INVALID` : `${new Date(item.createdAt).toLocaleString()} · ${item.label}`;
+      const option = new Option(label, item.name);
+      option.disabled = Boolean(item.invalid);
+      ui.restoreBackupSelect.append(option);
+    }
+  }
+  let recoveryBackupCatalogue = null;
+  function showRecoveryBackupMessage(message) {
+    ui.restoreBackupSelect.replaceChildren(new Option(message, ""));
+    ui.restoreBackupDetails.textContent = message;
+    ui.restoreBackup.disabled = true;
+  }
+  document.addEventListener("moondog-workspace-changing", () => {
+    recoveryBackupCatalogue = null;
+    showRecoveryBackupMessage("Checking this Workspace for backups.");
+  });
+  async function refreshRecoveryBackupSelection() {
+    const catalogue = recoveryBackupCatalogue;
+    const name = ui.restoreBackupSelect.value;
+    ui.restoreBackup.disabled = true;
+    if (!catalogue || catalogue.root !== model.root) return;
+    const selection = {name};
+    catalogue.selection = selection;
+    const current = () => recoveryBackupCatalogue === catalogue && model.root === catalogue.root &&
+      catalogue.selection === selection && ui.restoreBackupSelect.value === name;
+    if (!name) {
+      ui.restoreBackupDetails.textContent = "Choose a validated full backup to view its timestamp and version.";
+      return;
+    }
+    ui.restoreBackupDetails.textContent = "Verifying the selected backup.";
+    try {
+      const {manifest} = await validateBackupBytes(await readFileBytes(["backups", name]));
+      if (!current()) return;
+      ui.restoreBackupDetails.textContent = `${new Date(manifest.createdAt).toLocaleString()} · ${manifest.appVersion} · ${manifest.recordCounts.openRos} Open ROs · VALIDATED`;
+      ui.restoreBackup.disabled = false;
+    } catch (error) {
+      if (current()) ui.restoreBackupDetails.textContent = error.message;
+    }
+  }
   // A validated backup can become stale while its safety package is being
   // written. Check every live durable object and history record against the
   // persisted safety snapshot BEFORE replacing any operational file. This is
@@ -8753,7 +8828,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     });
     ui.saveFailedLearnedPackage.addEventListener("click", () => run(createFailedLearnedSupportPackage));
   }
-  function ensureRecoveryUi(){if(ui.backupRecoverySection)return;const voice=ui["view-settings"].querySelector(".customer-voice-manager"),backup=document.createElement("section"),advanced=document.createElement("section");backup.id="backupRecoverySection";backup.className="card recovery-card";backup.innerHTML='<div class="section-head"><div><p class="eyebrow">Whole-state protection</p><h2>Backup &amp; Recovery</h2><p>Full backups recover the store. Restores always replace the complete durable state.</p></div><span id="recoveryStatus" class="badge muted">READY</span></div><div class="recovery-summary"><div><span>LAST SUCCESSFUL BACKUP</span><strong id="lastBackupDisplay">None yet</strong></div><div><span>RECOVERY STATUS</span><strong id="currentRecoveryDisplay">Ready</strong></div></div><div class="recovery-actions"><button id="createBackupNow" type="button" class="primary">Create Backup Now</button><button id="createRecoveryCopy" type="button">Create Support / Recovery Copy</button></div><label>Restore From Backup<select id="restoreBackupSelect"><option value="">Connect folder to scan backups</option></select></label><div id="restoreBackupDetails" class="recovery-detail">Choose a validated full backup to view its timestamp and version.</div><button id="restoreBackup" type="button" class="danger" disabled>Restore Complete State</button><section id="interruptedRecoveryControls" class="recovery-detail" hidden><h3>Interrupted restore recovery</h3><p id="interruptedRecoveryDetails">Review verified files before continuing.</p><label>Choose the complete state to keep<select id="interruptedRecoveryTarget"><option value="">Choose a verified state</option></select></label><button id="interruptedRecoveryButton" type="button" class="danger" disabled>Recover and verify complete state</button></section>';advanced.id="advancedDiagnosticsSection";advanced.className="card recovery-card";advanced.innerHTML='<div class="section-head"><div><p class="eyebrow">Management only</p><h2>Advanced / Diagnostics</h2><p>Readable support status without customer-level operational data.</p></div></div><div id="diagnosticsOverview" class="diagnostics-overview"></div><div class="recovery-actions"><button id="showDiagnosticsLocation" type="button">Show Diagnostics Location</button><button id="copyDiagnosticsPath" type="button">Copy Diagnostics Path</button><button id="createSupportPackage" type="button" class="primary">Create Support Package</button></div><code id="diagnosticsLocation" hidden></code><p class="settings-note">If support is needed, send the generated support package to James.</p>';voice.before(backup,advanced);for(const id of ["backupRecoverySection","recoveryStatus","lastBackupDisplay","currentRecoveryDisplay","createBackupNow","createRecoveryCopy","restoreBackupSelect","restoreBackupDetails","restoreBackup","interruptedRecoveryControls","interruptedRecoveryDetails","interruptedRecoveryTarget","interruptedRecoveryButton","advancedDiagnosticsSection","diagnosticsOverview","showDiagnosticsLocation","copyDiagnosticsPath","createSupportPackage","diagnosticsLocation"])ui[id]=document.getElementById(id);ui.createBackupNow.addEventListener("click",()=>run(createBackupNow));ui.createRecoveryCopy.addEventListener("click",()=>run(()=>createSupportPackage(true)));ui.createSupportPackage.addEventListener("click",()=>run(()=>createSupportPackage(false)));ui.restoreBackupSelect.addEventListener("change",async()=>{ui.restoreBackup.disabled=!ui.restoreBackupSelect.value;if(!ui.restoreBackupSelect.value){ui.restoreBackupDetails.textContent="Choose a validated full backup to view its timestamp and version.";return;}try{const validated=await validateBackupBytes(await readFileBytes(["backups",ui.restoreBackupSelect.value]));ui.restoreBackupDetails.textContent=`${new Date(validated.manifest.createdAt).toLocaleString()} · ${validated.manifest.appVersion} · ${validated.manifest.recordCounts.openRos} Open ROs · VALIDATED`;}catch(error){ui.restoreBackup.disabled=true;ui.restoreBackupDetails.textContent=error.message;}});ui.interruptedRecoveryTarget.addEventListener("change",refreshInterruptedRecoveryControls);ui.interruptedRecoveryButton.addEventListener("click",()=>run(()=>withWorkspaceRecoveryHold(recoverInterruptedRestore)));ui.restoreBackup.addEventListener("click",()=>run(()=>withWorkspaceRecoveryHold(restoreSelectedBackup)));ui.showDiagnosticsLocation.addEventListener("click",()=>{ui.diagnosticsLocation.hidden=false;ui.diagnosticsLocation.textContent=`${model.root?.name||"working folder"}\\MOONDOG_DIAGNOSTICS.md`;});ui.copyDiagnosticsPath.addEventListener("click",()=>run(copyDiagnosticsPath));}
+  function ensureRecoveryUi(){if(ui.backupRecoverySection)return;const voice=ui["view-settings"].querySelector(".customer-voice-manager"),backup=document.createElement("section"),advanced=document.createElement("section");backup.id="backupRecoverySection";backup.className="card recovery-card";backup.innerHTML='<div class="section-head"><div><p class="eyebrow">Whole-state protection</p><h2>Backup &amp; Recovery</h2><p>Full backups recover the store. Restores always replace the complete durable state.</p></div><span id="recoveryStatus" class="badge muted">READY</span></div><div class="recovery-summary"><div><span>LAST SUCCESSFUL BACKUP</span><strong id="lastBackupDisplay">None yet</strong></div><div><span>RECOVERY STATUS</span><strong id="currentRecoveryDisplay">Ready</strong></div></div><div class="recovery-actions"><button id="createBackupNow" type="button" class="primary">Create Backup Now</button><button id="createRecoveryCopy" type="button">Create Support / Recovery Copy</button></div><label>Restore From Backup<select id="restoreBackupSelect"><option value="">Connect folder to scan backups</option></select></label><div id="restoreBackupDetails" class="recovery-detail">Choose a validated full backup to view its timestamp and version.</div><button id="restoreBackup" type="button" class="danger" disabled>Restore Complete State</button><section id="interruptedRecoveryControls" class="recovery-detail" hidden><h3>Interrupted restore recovery</h3><p id="interruptedRecoveryDetails">Review verified files before continuing.</p><label>Choose the complete state to keep<select id="interruptedRecoveryTarget"><option value="">Choose a verified state</option></select></label><button id="interruptedRecoveryButton" type="button" class="danger" disabled>Recover and verify complete state</button></section>';advanced.id="advancedDiagnosticsSection";advanced.className="card recovery-card";advanced.innerHTML='<div class="section-head"><div><p class="eyebrow">Management only</p><h2>Advanced / Diagnostics</h2><p>Readable support status without customer-level operational data.</p></div></div><div id="diagnosticsOverview" class="diagnostics-overview"></div><div class="recovery-actions"><button id="showDiagnosticsLocation" type="button">Show Diagnostics Location</button><button id="copyDiagnosticsPath" type="button">Copy Diagnostics Path</button><button id="createSupportPackage" type="button" class="primary">Create Support Package</button></div><code id="diagnosticsLocation" hidden></code><p class="settings-note">If support is needed, send the generated support package to James.</p>';voice.before(backup,advanced);for(const id of ["backupRecoverySection","recoveryStatus","lastBackupDisplay","currentRecoveryDisplay","createBackupNow","createRecoveryCopy","restoreBackupSelect","restoreBackupDetails","restoreBackup","interruptedRecoveryControls","interruptedRecoveryDetails","interruptedRecoveryTarget","interruptedRecoveryButton","advancedDiagnosticsSection","diagnosticsOverview","showDiagnosticsLocation","copyDiagnosticsPath","createSupportPackage","diagnosticsLocation"])ui[id]=document.getElementById(id);ui.createBackupNow.addEventListener("click",()=>run(createBackupNow));ui.createRecoveryCopy.addEventListener("click",()=>run(()=>createSupportPackage(true)));ui.createSupportPackage.addEventListener("click",()=>run(()=>createSupportPackage(false)));ui.restoreBackupSelect.addEventListener("change",refreshRecoveryBackupSelection);ui.interruptedRecoveryTarget.addEventListener("change",refreshInterruptedRecoveryControls);ui.interruptedRecoveryButton.addEventListener("click",()=>run(()=>withWorkspaceRecoveryHold(recoverInterruptedRestore)));ui.restoreBackup.addEventListener("click",()=>run(()=>withWorkspaceRecoveryHold(restoreSelectedBackup)));ui.showDiagnosticsLocation.addEventListener("click",()=>{ui.diagnosticsLocation.hidden=false;ui.diagnosticsLocation.textContent=`${model.root?.name||"working folder"}\\MOONDOG_DIAGNOSTICS.md`;});ui.copyDiagnosticsPath.addEventListener("click",()=>run(copyDiagnosticsPath));}
   function ensureFolderWatchUi(){if(ui.folderWatchStatus)return;const badge=document.createElement("span");badge.id="folderWatchStatus";badge.className="badge muted";badge.textContent="WATCH OFF";ui.permissionBadge.before(badge);const panel=document.createElement("div");panel.className="folder-watch-setting";panel.innerHTML=`<div><strong>Report Inbox</strong><small id="folderWatchDetail">Watches ${REPORT_INBOX} every 15 seconds while Service Operations Dashboard is open.</small></div><label class="switch-label"><input id="folderWatchEnabled" type="checkbox"> ON</label><span>Polling interval: 15 seconds</span><div class="button-row"><button id="showReportInboxLocation" type="button">Show Report Inbox Location</button><button id="copyReportInboxPath" type="button">Copy Report Inbox Path</button></div><code id="reportInboxLocation" hidden></code>`;ui.advancedDiagnosticsSection.querySelector(".section-head").after(panel);for(const id of ["folderWatchStatus","folderWatchDetail","folderWatchEnabled","showReportInboxLocation","copyReportInboxPath","reportInboxLocation"])ui[id]=document.getElementById(id);ui.folderWatchEnabled.addEventListener("change",()=>{model.settings.future||={};model.settings.future.folderWatch={enabled:ui.folderWatchEnabled.checked,intervalSeconds:15};queueSettingsAutosave();if(ui.folderWatchEnabled.checked){startFolderWatch();folderWatchScan("setting");}else{stopFolderWatch("WATCH OFF");recordDiagnostic("REPORT INBOX WATCH","Report Inbox watch stopped in Settings");}});ui.showReportInboxLocation.addEventListener("click",()=>{ui.reportInboxLocation.hidden=false;ui.reportInboxLocation.textContent=`${model.root?.name||"working folder"}\\${REPORT_INBOX}`;});ui.copyReportInboxPath.addEventListener("click",()=>run(copyReportInboxPath));}
   async function copyReportInboxPath(){const value=`${model.root?.name||"working folder"}\\${REPORT_INBOX}`;try{await navigator.clipboard.writeText(value);}catch(_){const area=document.createElement("textarea");area.value=value;document.body.append(area);area.select();document.execCommand("copy");area.remove();}ui.reportInboxLocation.hidden=false;ui.reportInboxLocation.textContent=`Copied: ${value}`;}
   function ensureManagerEntryCues(){if(!ui["view-imports"].querySelector(".report-inbox-cue")){const cue=document.createElement("p");cue.className="report-inbox-cue settings-note";cue.innerHTML=`For automatic imports, place supported reports in <strong>${REPORT_INBOX}</strong>.`;ui["view-imports"].prepend(cue);}if(!ui["view-setup"].querySelector(".manager-entry-cue")){const cue=document.createElement("p");cue.className="manager-entry-cue settings-note";cue.innerHTML=`Open Service Operations Dashboard: <strong>00 - OPEN DASHBOARD.html</strong> · Add reports: <strong>${REPORT_INBOX}</strong>`;ui["view-setup"].querySelector(".setup-heading").after(cue);}}
