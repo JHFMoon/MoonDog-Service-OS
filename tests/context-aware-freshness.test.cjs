@@ -94,7 +94,7 @@ test('VIR point-in-time provenance stays current without falsely inventing inter
   const end = app.indexOf('if (key === "menu")', start);
   assert.ok(start > 0 && end > start, 'production VIR evidence adapter exists');
   const adapter = app.slice(start,end);
-  assert.match(adapter,/hasSelectedItem \? options\.item : latestVirObservation\(\)/,
+  assert.match(adapter,/hasSelectedItem \? options\.item : latestVirObservation\(today\)/,
     'explicitly missing VIR observations cannot fall back to another retained report');
   assert.match(adapter,/periodEnd: observed/);
   assert.match(adapter,/verifiedVirSourceObservationDate\(item\)/,

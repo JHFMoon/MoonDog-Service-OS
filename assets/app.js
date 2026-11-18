@@ -1022,7 +1022,7 @@
     const savedReleases=verifiedMenuTrendReleases(model.operationalMetrics?.menu?.snapshots||{},todayKey);
     const audit={window,sapr:saprTrendCoverage(model.performance?.snapshots||{},todayKey),menu:{state:sourceExpectation('menu'),rule:SOURCE_COVERAGE_RULES.menu,expectedReleases:releases,presentReleases:releases.filter(date=>savedReleases.has(date)),lastPoint:[...savedReleases].sort().at(-1)||'',missingReleases:releases.filter(date=>!savedReleases.has(date))}};
     for(const key of Object.keys(SOURCE_COVERAGE_RULES))if(!['menu','sapr'].includes(key))audit[key]={state:sourceExpectation(key),...dailySourceCoverage(key,todayKey)};
-    audit.vir.observationDate=virObservationDate(latestVirObservation());audit.csi.refreshDate=latestCsiRefreshDate();
+    audit.vir.observationDate=virObservationDate(latestVirObservation(todayKey));audit.csi.refreshDate=latestCsiRefreshDate();
     audit.importRows=importCoverageWording(audit,todayKey);return audit;
   }
   function trendMaintenance(key,audit,todayKey=localDateKey(),evidence=sourceFreshness(key,{today:todayKey})) {
@@ -2539,7 +2539,16 @@
     return JSON.stringify({reportDate:virConflictDate(snapshot),store:{totalROs:snapshot?.store?.totalROs,used:snapshot?.store?.used,utilization:snapshot?.store?.utilization},advisors,ignored});
   }
   function allVirObservations() { return [...Object.values(model.operationalMetrics?.vir?.snapshots||{}),...Object.values(model.operationalMetrics?.vir?.pending||{})].filter(Boolean); }
-  function latestVirObservation() { return allVirObservations().sort((a,b)=>virObservationTime(a)-virObservationTime(b)||text(a.sourceFile).localeCompare(text(b.sourceFile))).at(-1)||null; }
+  function latestVirObservation(todayKey = localDateKey()) {
+    const observations = allVirObservations().sort((a, b) =>
+      virObservationTime(a) - virObservationTime(b) || text(a.sourceFile).localeCompare(text(b.sourceFile)));
+    const eligible = observations.findLast((item) => {
+      const observed = virObservationDate(item);
+      return observed && observed <= todayKey;
+    });
+    // Keep the retained-source diagnostic if there is no eligible observation.
+    return eligible || observations.at(-1) || null;
+  }
   function virObservationIsStale(snapshot,todayKey=localDateKey()) { const observed=virObservationDate(snapshot);return !observed||observed<previousOperatingDateKey(todayKey)||observed>todayKey; }
   function virCoverageMethod() { return "vir-point-in-time"; }
   function virObservationResolution(snapshot) { return snapshot?{observationTimestamp:snapshot.observationTimestamp||snapshot.sourceModifiedAt||snapshot.importedAt,method:"vir-point-in-time",basis:"VIR source observation provenance"}:null; }
@@ -5397,7 +5406,7 @@
         invalid: item && purpose==="historical" && (observation || !verifiedDatedInterval(item)) ?
           "Next Appointments historical metrics require a verified reporting start and end." : ""
       }, item, verifiedDatedInterval(item) && !observation); }
-    if (key === "vir") { const item = hasSelectedItem ? options.item : latestVirObservation(),observed=verifiedVirSourceObservationDate(item); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.observationTimestamp || item?.sourceModifiedAt || "", invalid: item && !observed ? "The retained VIR observation has no verified source reporting date; an import timestamp cannot establish coverage." : "", periodEnd: observed }, item, Boolean(observed)); }
+    if (key === "vir") { const item = hasSelectedItem ? options.item : latestVirObservation(today),observed=verifiedVirSourceObservationDate(item); return evaluate({ ...common, exists: Boolean(item), sourceTimestamp: item?.observationTimestamp || item?.sourceModifiedAt || "", invalid: item && !observed ? "The retained VIR observation has no verified source reporting date; an import timestamp cannot establish coverage." : "", periodEnd: observed }, item, Boolean(observed)); }
     if (key === "menu") {
       const item = hasSelectedItem ? options.item : latestOperationalSnapshot("menu"),
         verified = Boolean(item && verifiedMenuTrendReleases({ retained: item }, today).has(item.releaseWeek));
@@ -5935,7 +5944,7 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
     if (total === 0) return metricEvidence({ status: reported === null ? "not-applicable" : "data-mismatch", source: "VIR", period: `Observed ${period || "date unavailable"}`, importedDate, reason: reported === null ? "No eligible ROs were reported; utilization has no denominator" : "A zero-RO report must not report a utilization percentage", requiredAction: reported === null ? "No utilization percentage exists for this observation" : "Import a corrected VIR Use Utilization report", reconciliation: reported === null ? "PASS · zero eligible ROs, utilization undefined" : "FAIL · zero denominator with a numeric or invalid percentage" });
     const calculated = used / total * 100;
     if (!sourceNumber(reported) || !Number.isFinite(calculated) || Math.abs(calculated - reported) > .02) return metricEvidence({ status: "data-mismatch", source: "VIR", period: `Observed ${period || "date unavailable"}`, importedDate, reason: `Weighted Store VIR does not reconcile: ${used} of ${total} calculates to ${Number.isFinite(calculated) ? calculated.toFixed(2) : "unknown"}%, not ${Number.isFinite(reported) ? reported.toFixed(2) : "unknown"}%`, requiredAction: "Source does not reconcile; import a corrected VIR report", calculation: `${used} / ${total} × 100`, reconciliation: "FAIL · weighted Store VIR mismatch" });
-    if (options.requireNewest !== false && allVirObservations().some((item) => item !== snapshot && virObservationTime(item) > virObservationTime(snapshot))) return metricEvidence({ status: "parser-error", source: "VIR", period: `Observed ${period || "date unavailable"}`, importedDate, reason: "A newer VIR source exists but was not selected", requiredAction: "Review VIR source selection" });
+    if (options.requireNewest !== false && allVirObservations().some((item) => item !== snapshot && virObservationDate(item) <= todayKey && virObservationTime(item) > virObservationTime(snapshot))) return metricEvidence({ status: "parser-error", source: "VIR", period: `Observed ${period || "date unavailable"}`, importedDate, reason: "A newer VIR source exists but was not selected", requiredAction: "Review VIR source selection" });
     if (options.requireFreshness !== false && virObservationIsStale(snapshot, todayKey)) return metricEvidence({ value: calculated, status: "stale", source: "VIR", period: `Observed ${period || "date unavailable"}`, importedDate, freshness: `Last verified VIR ${period || "date unavailable"}`, reason: period && period > todayKey ? "The latest complete VIR observation is future-dated and cannot be used as current" : "The latest complete VIR observation is older than the prior completed operating day", requiredAction: "Import a current VIR Use Utilization report", calculation: `${used} / ${total} × 100 = ${calculated.toFixed(2)}%`, reconciliation: `PASS · ${expectedCodes.length} configured meeting participants present; ${foundCodes.length + extras.length} source rows reconciled` });
     return metricEvidence({ value: calculated, status: calculated === 0 ? "known-zero" : "verified", source: "VIR", period: `Observed ${period}`, importedDate, freshness: options.requireFreshness === false ? "verified observation in requested meeting window" : "current complete point-in-time observation", calculation: `${used} / ${total} × 100 = ${calculated.toFixed(2)}%`, reconciliation: `PASS · ${expectedCodes.length} configured meeting participants present; ${foundCodes.length + extras.length} source rows, store counts, and weighted utilization reconciled` });
   }
