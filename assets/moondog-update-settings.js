@@ -493,21 +493,36 @@
   async function check(manual) {
     if (state.busy) return;
     const checkedChannel = state.channel, checkedVersion = comparisonVersion, checkedRoot = appRoot();
+    const sameSelection = () => checkedChannel === state.channel &&
+      checkedVersion === comparisonVersion && checkedRoot === appRoot();
     state.check = null;
     state.checkFor = null;
     state.rootPreflight = null;
     clearPlan();
     clearProgress();
     state.busy = true;
-    if (manual) {
-      render(); // Automatic manifest checks never display checking state.
-      await setProgress({ phase: "check", percent: null, label: "Checking for updates",
-        detail: "Reading the verified update manifest" });
-    }
     try {
+      if (manual) {
+        render();
+        await setProgress({ phase: "check", percent: null, label: "Checking installation folder",
+          detail: "Verifying the selected dashboard folder" });
+        if (!sameSelection()) return;
+        const preflight = await inspectUpdateInstallation(checkedRoot);
+        if (!sameSelection()) return;
+        state.rootPreflight = preflight;
+        if (!preflight.verified) {
+          status.textContent = preflight.detail;
+          await setProgress({ phase: "error", percent: null, label: "Choose Dashboard Folder",
+            detail: preflight.detail });
+          return;
+        }
+        await setProgress({ phase: "check", percent: null, label: "Checking for updates",
+          detail: "Reading the verified update manifest" });
+        if (!sameSelection()) return;
+      }
       const result = await global.MoonDogUpdateCheck.check({ currentVersion: checkedVersion,
         channel: checkedChannel, manual });
-      if (checkedChannel !== state.channel || checkedVersion !== comparisonVersion || checkedRoot !== appRoot()) return;
+      if (!sameSelection()) return;
       // An offline/invalid automatic result is not a completed check. Retry later.
       if(!["silent","unavailable","invalid-input"].includes(result.status))
         state.lastCheck = new Date().toISOString();
@@ -516,24 +531,20 @@
       const offered = ["newer-version", "channel-switch"].includes(result.status);
       if (offered)
         state.checkFor = { channel: checkedChannel, version: checkedVersion, root: checkedRoot };
-      // A manual check must diagnose an invalid selected installation even
-      // when the manifest says this software version is already current.
-      if (offered || (manual && !["unavailable", "invalid-input", "silent"].includes(result.status))) {
-        state.rootPreflight = await inspectUpdateInstallation(checkedRoot);
-        if (checkedChannel !== state.channel || checkedVersion !== comparisonVersion || checkedRoot !== appRoot()) return;
+      if (offered && !manual) {
+        const preflight = await inspectUpdateInstallation(checkedRoot);
+        if (!sameSelection()) return;
+        state.rootPreflight = preflight;
       }
       save();
       if (manual && result.status === "unavailable") status.textContent = "Could not reach GitHub. Try again later.";
       else if (manual && result.status === "invalid-input") status.textContent = "The installed version cannot be compared.";
-      else if (manual) status.textContent = state.rootPreflight && !updateRootReady() ?
-        (state.rootPreflight?.detail || "Can't verify the installation folder.") : "Update check complete.";
+      else if (manual) status.textContent = "Update check complete.";
       if (manual) {
-        const badFolder = Boolean(state.rootPreflight && !updateRootReady());
-        await setProgress({ phase: badFolder || result.status === "unavailable" || result.status === "invalid-input" ? "error" : "complete",
-          percent: badFolder || result.status === "unavailable" ? null : 100,
-          label: badFolder ? "Choose Dashboard Folder" : result.status === "unavailable" ? "Update check unavailable" : "Update check complete",
-          detail: badFolder ? state.rootPreflight?.detail || "Can't verify the installation folder." :
-            result.status === "newer-version" ? "Verified update available. Choose an installation option." :
+        await setProgress({ phase: result.status === "unavailable" || result.status === "invalid-input" ? "error" : "complete",
+          percent: result.status === "unavailable" ? null : 100,
+          label: result.status === "unavailable" ? "Update check unavailable" : "Update check complete",
+          detail: result.status === "newer-version" ? "Verified update available. Choose an installation option." :
             result.status === "unavailable" ? "GitHub unavailable; retry when connected." : "Manifest check finished." });
       }
     } catch (error) {
@@ -562,7 +573,7 @@
     await check(true);
     // A manual update check must also recheck a previously failed Fresh journal,
     // otherwise the button can remain stuck after OneDrive read access returns.
-    if(declaredBetaVersion && appRoot())await inspectPostUpdateFresh();
+    if(declaredBetaVersion && updateRootReady())await inspectPostUpdateFresh();
   });
   field("retryMoonDogFreshCheck").addEventListener("click", async () => {
     if(state.busy || state.postUpdateScanPending || !appRoot())return;

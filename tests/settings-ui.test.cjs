@@ -17,16 +17,30 @@ test("connected workspace resolves System Files without a second app-folder pick
   const host = { querySelector: selector => selector === ".settings-sections" ?
     { append: value => { assert.equal(value, card); mountedInSettings = true; } } : null };
   const events = new Map();
-  const root = { name: "Test-Workspace", getDirectoryHandle: async (name, options) => {
-    assert.equal(name, "System Files"); assert.equal(options.create, false);
-    return { getDirectoryHandle: async (child, childOptions) => {
+  const system = {
+    isSameEntry: async handle => handle === system,
+    getFileHandle: async (file, options) => {
+      assert.equal(file, "index.html"); assert.equal(options.create, false);
+      return { kind: "file" };
+    },
+    getDirectoryHandle: async (child, childOptions) => {
+      assert.equal(childOptions.create, false);
+      if (child === "Workspace") return { kind: "directory" };
       assert.equal(child, "assets"); assert.equal(childOptions.create, false);
       return { getFileHandle: async (file, fileOptions) => {
         assert.equal(file, "product-settings.css"); assert.equal(fileOptions.create, false);
         return { getFile: async () => ({ text: async () => css }) };
       } };
-    } };
-  } };
+    }
+  };
+  const root = {
+    name: "Test-Workspace",
+    resolve: async handle => handle === system ? ["System Files"] : null,
+    getDirectoryHandle: async (name, options) => {
+      assert.equal(name, "System Files"); assert.equal(options.create, false);
+      return system;
+    }
+  };
   const context = vm.createContext({
     document: { getElementById: id => id === "view-settings" ? host : null,
       createElement: () => card, addEventListener: (name, handler) => events.set(name, handler) },

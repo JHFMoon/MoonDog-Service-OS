@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.428 — current Beta
+
+- fix(797): validate update folder before contacting GitHub. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.427 — current Beta
 
 - fix(797): validate selected folder even when update check is current. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
