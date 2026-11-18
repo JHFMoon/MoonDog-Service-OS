@@ -486,9 +486,9 @@
   }
 
   field("chooseUpdateFolder").addEventListener("click", () => {
-    const connect = document.getElementById("connectButton");
-    if (connect && !connect.disabled && typeof connect.click === "function") connect.click();
-    else status.textContent = "Go to the main dashboard and click Connect in the upper right, then choose the outer Dashboard folder.";
+    if (typeof global.__moondogChooseDashboardFolder === "function") {
+      void global.__moondogChooseDashboardFolder();
+    } else status.textContent = "Folder selection is still starting. Try Choose Dashboard Folder again.";
   });
   async function check(manual) {
     if (state.busy) return;
