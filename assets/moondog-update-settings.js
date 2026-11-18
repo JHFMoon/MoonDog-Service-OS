@@ -85,7 +85,7 @@
             manifest.workspaceRoot !== "System Files/Workspace" ||
             manifest.launcher !== "00 - OPEN DASHBOARD.html" ||
             manifest.workspaceProtectedFromUpdates !== true ||
-            !/^\\d+\\.\\d+\\.\\d+(?:-beta\\.\\d+)?$/.test(manifest.version || "") ||
+            !/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(manifest.version || "") ||
             !Array.isArray(manifest.files) || !manifest.files.some(item =>
               item?.path === "System Files/index.html" && /^[0-9a-f]{64}$/.test(item.sha256 || "")))
           return reject("The application entry is missing and this folder has no recognized clean-install identity. Preserve the existing Workspace for local recovery.");
