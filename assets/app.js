@@ -5308,14 +5308,16 @@
     if (key === "csi") {
       const branch = model.operationalMetrics?.csi || {}, imports = branch.imports || [],
         item = hasSelectedItem ? options.item : imports.at(-1),
-        scopeEnd = item?.scopeVerified ? validCoverageDate(item.scopeEnd) : "",
-        scopeStart = scopeEnd && item?.scopeVerified ? validCoverageDate(item.scopeStart) : "",
+        scopeVerified = item?.scopeVerified === true,
+        observationVerified = item?.reportObservationVerified === true,
+        scopeEnd = scopeVerified ? validCoverageDate(item.scopeEnd) : "",
+        scopeStart = scopeEnd ? validCoverageDate(item.scopeStart) : "",
         // Local import time and configured scoring window are not source coverage.
-        observedDate = item?.reportObservationVerified ? validCoverageDate(item.reportObservationDate) : "",
+        observedDate = observationVerified ? validCoverageDate(item.reportObservationDate) : "",
         reportPeriod = csiReportedPeriod(scopeStart, scopeEnd, observedDate),
         // Do not silently erase an invalid date in a scope explicitly marked verified.
         // Its sanitized period cannot be promoted to current by the remaining end date.
-        malformedDeclaredScope = item?.scopeVerified === true && (
+        malformedDeclaredScope = scopeVerified && (
           // A scope claimed as verified must have a real end date. A separately
           // verified observation or recent import cannot replace missing scope.
           !scopeEnd ||
@@ -5323,7 +5325,7 @@
         ),
         // A record claiming a verified observation must supply a valid
         // non-future date even when cumulative scope itself is current.
-        malformedDeclaredObservation = item?.reportObservationVerified === true &&
+        malformedDeclaredObservation = observationVerified &&
           (!observedDate || observedDate > today);
       return evaluate({ ...common, exists: Boolean(item),
         sourceTimestamp: item?.importedAt, sourceDate: observedDate,
@@ -5331,8 +5333,8 @@
         invalid: malformedDeclaredScope ? "The saved verified CSI report scope contains an invalid date." :
           malformedDeclaredObservation ? "The saved verified CSI report observation date is invalid or future-dated." : "",
         scopeVerified: Boolean(scopeEnd),
-        scopeStart: item?.scopeVerified ? item.scopeStart : "",
-        scopeEnd: item?.scopeVerified ? item.scopeEnd : "",
+        scopeStart: scopeVerified ? item.scopeStart : "",
+        scopeEnd: scopeVerified ? item.scopeEnd : "",
         periodStart: reportPeriod.periodStart, periodEnd: reportPeriod.periodEnd }, item, reportPeriod.verified);
     }
     if (key === "nextAppointments") { const item = hasSelectedItem ? options.item : latestOperationalSnapshot("nextAppointments"),observation=item?.validation?.parser==='appointments-created-summary-v1'&&!item.validation.periodVerified; return evaluate({ ...common, ...(observation?{cadence:'same-business-day',sourceDate:item.observationDate}:{}), exists: Boolean(item), sourceTimestamp: item?.importedAt, periodStart: item?.periodStart, periodEnd: item?.periodEnd,
