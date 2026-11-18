@@ -60,6 +60,7 @@ function harness(selected, updateStatus = "newer-version") {
   const fields = new Map(), listeners = new Map(), events = [];
   const model = { applicationRoot: selected.root };
   let folderActions = 0;
+  const timers = new Map();
   function field(id) {
     if (!fields.has(id)) fields.set(id, {
       textContent: "", value: "", disabled: false, hidden: false, style: {},
@@ -88,11 +89,11 @@ function harness(selected, updateStatus = "newer-version") {
       apply: async () => { events.push("apply"); throw Error("unexpected write"); } },
     MoonDogPackageVerification: { verify: async () => { events.push("package"); throw Error("unexpected network"); } },
     localStorage: { getItem: () => JSON.stringify({ channel: "beta" }), setItem() {} },
-    setTimeout() {}, Date, requestAnimationFrame: fn => fn()
+    setTimeout(callback, delay) { timers.set(delay, callback); }, Date, requestAnimationFrame: fn => fn()
   });
   vm.runInContext(source, context);
   return {
-    model, events, field, context, folderActions: () => folderActions,
+    model, events, field, context, timers, folderActions: () => folderActions,
     async settle() { for (let i = 0; i < 30; i++) await Promise.resolve(); },
     async check() { await listeners.get("checkMoonDogUpdate:click")(); },
     async install() { await listeners.get("installMoonDogUpdate:click")(); },
@@ -328,4 +329,36 @@ test("Settings folder chooser waits for an in-progress Workspace connection", as
   assert.deepEqual(connection.events, [
     "Wait for the current Workspace connection check to finish before choosing a folder."
   ]);
+});
+
+test("background offline check preserves the current folder diagnosis", async () => {
+  const bad = folder({systemPresent: false});
+  const h = harness(bad);
+  await h.check();
+  assert.equal(h.field("chooseUpdateFolder").hidden, false);
+  h.context.MoonDogUpdateCheck.check = async ({manual}) => {
+    assert.equal(manual, false);
+    return {status: "silent"};
+  };
+  h.timers.get(2000)();
+  await h.settle();
+  assert.equal(h.field("checkMoonDogUpdate").disabled, false);
+  assert.equal(h.field("chooseUpdateFolder").hidden, false);
+  assert.match(h.field("updateChoiceNote").textContent, /Can't verify the installation folder/);
+  assert.deepEqual(h.events, []);
+});
+
+test("background check discards a folder diagnosis after the selected handle changes", async () => {
+  const bad = folder({systemPresent: false});
+  const good = folder();
+  const h = harness(bad);
+  await h.check();
+  assert.equal(h.field("chooseUpdateFolder").hidden, false);
+  h.model.applicationRoot = good.root;
+  h.context.MoonDogUpdateCheck.check = async () => ({status: "silent"});
+  h.timers.get(2000)();
+  await h.settle();
+  assert.equal(h.field("chooseUpdateFolder").hidden, true);
+  assert.equal(h.field("installMoonDogUpdate").disabled, true);
+  assert.deepEqual(h.events, []);
 });
