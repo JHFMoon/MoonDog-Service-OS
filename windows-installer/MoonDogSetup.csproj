@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <AssemblyName>MoonDogSetup</AssemblyName>
+    <Version>0.10.17.0</Version>
+  </PropertyGroup>
+  <!-- Release tooling must stage the *existing* official Stable ZIP only after its
+       independent asset digest and manifest have been verified. The source repo
+       contains no executable or bundled dealership data. -->
+  <ItemGroup>
+    <EmbeddedResource Include="package/Service-Operations-Dashboard.zip"
+                      LogicalName="MoonDog.OfficialStableZip"
+                      Condition="Exists('package/Service-Operations-Dashboard.zip')" />
+  </ItemGroup>
+  <Target Name="RequireReviewedReleasePackage" BeforeTargets="Publish">
+    <Error Condition="!Exists('package/Service-Operations-Dashboard.zip')"
+           Text="Official verified Stable ZIP is required for signed native installer publication." />
+  </Target>
+</Project>
