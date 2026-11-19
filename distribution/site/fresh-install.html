@@ -67,6 +67,7 @@ summary{cursor:pointer;font-weight:760;padding:13px 16px}.inner{padding:4px 16px
 <section id="finish" class="card" hidden aria-labelledby="finishHeading">
 <h2 id="finishHeading">3. Choose where to install MoonDog</h2>
 <p>Now that the ZIP is verified, choose where to save MoonDog. The website creates one <strong>new, separate installation folder</strong> there; it never overwrites an existing folder.</p>
+<p><strong>Want MoonDog on your Desktop?</strong> In Edge's folder picker, open Desktop, create a new folder named <code>MoonDog Installations</code>, and select <strong>that new folder</strong>. Do not select Desktop itself: Edge protects top-level Windows folders. MoonDog will create <code>Service Operations Dashboard</code> inside the folder you select.</p>
 <label class="label" for="installFolderName">Name for the new installation folder</label>
 <input id="installFolderName" class="folder-name" maxlength="72" value="Service Operations Dashboard" autocomplete="off" spellcheck="false">
 <button id="autoInstall" type="button" disabled>Choose location and create MoonDog</button>
@@ -183,7 +184,7 @@ autoInstall.addEventListener("click",async()=>{
   }
   installing=true;installedNext.hidden=true;ready();
   installResult.className="status";
-  installResult.textContent="Choose the parent folder in Microsoft Edge. No existing folder will be replaced.";
+  installResult.textContent="Choose a new parent folder (for example, Desktop > MoonDog Installations), not Desktop itself. No existing folder will be replaced.";
   try{
     const outcome=await globalThis.MoonDogFreshInstall.install({
       file:verifiedFile,sha256:stable.sha256,version:stable.version,folderName:folderName.value,
@@ -198,8 +199,13 @@ autoInstall.addEventListener("click",async()=>{
       installResult.textContent="No installation was created. You can choose another location when ready.";
     }
   }catch(error){
-    installResult.className="status error";
-    installResult.textContent=String(error?.message||"Installation was stopped safely.");
+    if(error?.name==="AbortError"){
+      installResult.className="status";
+      installResult.textContent="No folder was selected. If Edge said the folder contains system files, create and choose a separate folder inside Desktop instead of Desktop itself. Your verified ZIP is still ready.";
+    }else{
+      installResult.className="status error";
+      installResult.textContent=String(error?.message||"Installation was stopped safely.");
+    }
   }finally{installing=false;ready();}
 });
 if(!/Windows/i.test(navigator.userAgent||"")||typeof window.showDirectoryPicker!=="function"){
