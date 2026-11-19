@@ -77,7 +77,7 @@ test('incomplete synthetic store record cannot be mistaken for success',async()=
   const dir=await (await ns.getDirectoryHandle('stores')).getDirectoryHandle(id);
   const file=await dir.getFileHandle('manifest.json');file.bytes=new TextEncoder().encode('{ "format":');
   await assert.rejects(client.inspectStore(id));
-  assert.deepEqual(await client.listStoreIds(),[id], 'directory exists but requires verification before use');
+  await assert.rejects(client.listStoreIds(), /SyntaxError|Unexpected end|JSON/, 'unverified directory must never count as a saved store');
 });
 test('service worker caches only exact public files and refuses unrelated/private requests',async()=>{
   const vm=require('node:vm');

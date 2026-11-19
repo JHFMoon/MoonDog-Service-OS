@@ -82,7 +82,12 @@ export async function openSyntheticLab({ storage = globalThis.navigator?.storage
     async listStoreIds() {
       const ids = [];
       for await (const [name, handle] of stores.entries()) {
-        if (handle.kind === 'directory' && UUID.test(name)) ids.push(name);
+        if (handle.kind === 'directory' && UUID.test(name)) {
+          // A directory is not proof of a completed write. An interrupted or
+          // foreign store must never be counted as a verified store.
+          await verifiedStore(stores, name);
+          ids.push(name);
+        }
       }
       return ids.sort();
     },
