@@ -16,7 +16,9 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Playwright 1.55.0 Chromium does not support the ubuntu26.04 image.
+    # Match the proven Clean Install Proof runner; keep browser smoke mandatory.
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
 

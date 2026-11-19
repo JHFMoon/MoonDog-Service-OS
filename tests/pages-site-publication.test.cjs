@@ -45,3 +45,14 @@ test("Stable version metadata is not promoted by site publishing change", () => 
   assert.ok(/^\d+\.\d+\.\d+$/.test(manifest.stable.version), "Stable manifest stays a formal Stable version");
   assert.doesNotMatch(workflow, /gh release create.*beta/i);
 });
+
+
+test("Pages browser smoke remains required on supported Ubuntu 24.04", () => {
+  const publish = between("  publish:", "  deploy-pages:");
+  assert.ok(publish.includes("runs-on: ubuntu-24.04"));
+  assert.ok(publish.includes("npm install --no-save --no-package-lock playwright@1.55.0"));
+  assert.ok(publish.includes("npx playwright install --with-deps chromium"));
+  assert.ok(publish.includes("node scripts/smoke_distribution.mjs"));
+  assert.ok(publish.includes("- name: Re-run public safety checks"));
+  assert.ok(publish.includes('git checkout --detach "$TAG"'));
+});
