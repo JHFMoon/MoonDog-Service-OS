@@ -467,3 +467,14 @@ if (repairSmoke.status !== 0 || repairSmoke.error) {
   throw new Error("Repair Center Chromium smoke failed: " +
     (repairSmoke.error?.message || repairSmoke.signal || repairSmoke.status));
 }
+
+// Prove the actual reviewed Stable browser runtime can load from OPFS through
+// the synthetic-only web preview and survive an offline Chromium reload.
+// This is not Windows Edge field proof or approval for dealership data.
+const browserPreviewSmoke = spawnSync(process.execPath, [
+  fileURLToPath(new URL("./smoke_pwa_preview.mjs", import.meta.url))
+], { stdio: "inherit", timeout: 120000 });
+if (browserPreviewSmoke.status !== 0 || browserPreviewSmoke.error) {
+  throw new Error("Web-only OPFS Chromium smoke failed: " +
+    (browserPreviewSmoke.error?.message || browserPreviewSmoke.signal || browserPreviewSmoke.status));
+}
