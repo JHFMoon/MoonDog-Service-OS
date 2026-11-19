@@ -2,56 +2,151 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Check MoonDog Installation — Repair Center</title>
+<meta name="color-scheme" content="light">
+<title>Check MoonDog Installation — Guided Repair Center</title>
 <style>
-:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#13252d;background:#eef3f5}
-*{box-sizing:border-box}body{margin:0}.wrap{max-width:820px;margin:auto;padding:40px 20px 80px}
-.card{background:#fff;border:1px solid #d8e2e6;border-radius:18px;padding:28px;margin:16px 0}
-h1{font-size:clamp(28px,5vw,44px);letter-spacing:-.035em}p,li{line-height:1.6}
-a{color:#123d4b}button,.button{display:inline-block;background:#123d4b;color:#fff;border:0;border-radius:10px;padding:13px 18px;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}
-.button.secondary{background:#e9f1f3;color:#173b46}
-.actions{display:flex;gap:12px;flex-wrap:wrap}.muted{color:#51646c}
-.result{border-left:4px solid #66818a;padding:12px 16px;background:#f1f6f7;margin-top:16px}
-.result.error{border-color:#ae6424;background:#fff5e9}.result.ok{border-color:#217457;background:#ecf8f1}
-pre{white-space:pre-wrap;overflow-wrap:anywhere}
+:root{font:17px/1.6 system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:#19313b;background:#f3f6f7}
+*{box-sizing:border-box}body{margin:0}
+a{color:#175065;text-underline-offset:3px}a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid #e59b24;outline-offset:4px}
+.skip{position:absolute;left:15px;top:-100px;background:white;padding:12px;z-index:10}.skip:focus{top:12px}
+.shell{width:min(850px,100% - 32px);margin:auto}
+.topbar{background:white;border-bottom:1px solid #d6e3e7}.topbar .shell{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:66px}
+.brand{font-size:20px;font-weight:850;color:#163b4c;letter-spacing:-.5px}.brand small{font-size:13px;font-weight:600;color:#52707a;display:block;letter-spacing:0}
+main{padding:38px 0 76px}h1{font-size:clamp(30px,5vw,45px);line-height:1.12;letter-spacing:-.035em;margin:10px 0 18px}
+h2{font-size:25px;line-height:1.22;margin:0 0 14px}h3{font-size:20px;line-height:1.25;margin:0 0 10px}
+.eyebrow{font-size:13px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#426a78}
+.lead{font-size:19px;color:#4c6671;max-width:720px}.card{background:white;border:1px solid #d8e4e8;border-radius:19px;padding:clamp(23px,4vw,35px);margin:18px 0}
+p{margin:9px 0 16px}.muted{color:#526d76;font-size:15px}.safe{background:#e9f4ef;border:1px solid #d3e8d9;color:#245748;border-radius:12px;padding:12px 16px;font-weight:750;margin:20px 0}
+button,.button{display:inline-block;background:#15485a;color:white!important;border:0;border-radius:12px;padding:14px 19px;font:inherit;font-weight:800;text-decoration:none;cursor:pointer;min-height:52px}
+button:hover,.button:hover{background:#0b3748}button:disabled{opacity:.65;cursor:wait}.actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+details{background:#fafcfc;border:1px solid #d8e4e8;border-radius:13px;margin:16px 0;overflow:hidden}
+summary{font-size:17px;font-weight:750;padding:15px 18px;cursor:pointer}details[open] summary{border-bottom:1px solid #e0ebee}
+.details-inner{padding:5px 18px 19px}.details-inner ol{padding-left:21px}.details-inner li{margin:8px 0}
+.example{background:#ebf2f5;border-radius:12px;font:15px/1.9 ui-monospace,Consolas,monospace;padding:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.quick{margin:18px 0 0;padding:17px 19px;border-left:5px solid #64818b;background:#f0f5f7;border-radius:0 12px 12px 0;white-space:pre-line;font-size:17px;font-weight:700}
+.quick.passed{background:#eaf7f0;border-color:#2f8160;color:#225440}
+.quick.blocked,.quick.error{background:#fff1e9;border-color:#b65d25;color:#6c371e}
+.quick.repair,.quick.partial,.quick.wrong,.quick.unsupported{background:#fff7e7;border-color:#c68c31;color:#634b19}
+.next{border:1px solid #d7e3e7;background:#f8fafb;border-radius:13px;padding:20px;margin:16px 0}
+.next.blocked{background:#fff8ed;border-color:#e9d5b0}
+.next p:last-child{margin-bottom:0}.next ol{padding-left:24px}.next li{margin:9px 0}
+#result{white-space:pre-wrap;overflow-wrap:anywhere;max-height:380px;overflow:auto;font:14px/1.65 ui-monospace,Consolas,monospace}
+#copyFeedback{font-size:14px;color:#476671;margin:8px 0 0}
+.footer{color:#556e78;font-size:14px;padding:18px 0 45px;border-top:1px solid #d8e4e8}
+@media(max-width:600px){main{padding-top:20px}.brand{font-size:18px}h2{font-size:22px}}
 </style>
 </head>
-<body><main class="wrap">
-<p><a href="./">← MoonDog Repair Center</a></p>
-<h1>Check your MoonDog installation</h1>
-<p class="muted">One local check for missing application files and update-recovery problems. Nothing gets installed, deleted, uploaded, or changed during this check.</p>
-<section class="card">
-<h2>1 · Choose the existing installation</h2>
-<p>On the computer with MoonDog installed, open this page in <strong>Microsoft Edge</strong> and select the outer folder containing <strong>00 - OPEN DASHBOARD.html</strong> and <strong>System Files</strong>. Do not select Workspace.</p>
-<div class="actions"><button id="check" type="button">Choose folder and check</button></div>
-<div id="result" class="result" role="status" aria-live="polite">No folder selected. Nothing has been changed.</div>
+<body>
+<a href="#main" class="skip">Skip to the check</a>
+<header class="topbar"><div class="shell"><div class="brand">MoonDog <small>Repair Center</small></div><a href="./">Back to start</a></div></header>
+<main id="main" class="shell">
+<div class="eyebrow">Step 1 of 2 · Safe folder check</div>
+<h1>Let's check MoonDog on this computer.</h1>
+<p class="lead">We'll look for missing program files and signs of an unfinished update. You choose the folder. We'll tell you what to do next.</p>
+<div class="safe">✓ This check cannot change, install, erase, or upload your files.</div>
+
+<section class="card" aria-labelledby="selectHeading">
+<h2 id="selectHeading">1. Choose the MoonDog folder</h2>
+<p>Use <strong>Microsoft Edge on the Windows computer where MoonDog is installed</strong>. Click the button, find the folder you normally use for MoonDog, select that <strong>outer folder</strong>, then confirm the choice.</p>
+<details>
+<summary>Not sure which folder to choose? Show me</summary>
+<div class="details-inner">
+<p>Find the shortcut or file you normally double-click to open MoonDog. If it's a shortcut, right-click and choose <strong>Open file location</strong>, if available.</p>
+<p>Choose the folder that contains <strong>both</strong> of these items:</p>
+<div class="example">📁 Dashboard Interface  ← CHOOSE THIS FOLDER
+  📄 00 - OPEN DASHBOARD.html
+  📁 System Files
+    📁 Workspace  ← NOT THIS FOLDER</div>
+<p>Your outer folder may be named differently. Do not select a folder called <strong>Workspace</strong>. If you cannot find the installation, ask the person who installed MoonDog; don't create a replacement.</p>
+</div>
+</details>
+<div class="actions"><button id="check" type="button">Choose folder and check</button><span class="muted">Nothing is changed by clicking.</span></div>
+<div id="quickResult" class="quick" role="status" aria-live="polite" tabindex="-1">Ready when you are. No folder has been checked yet.</div>
 </section>
-<section class="card">
-<h2>2 · Repair approved software only</h2>
+
+<section class="card" aria-labelledby="nextHeading">
+<h2 id="nextHeading">2. Follow your result</h2>
+<p id="initialNext" class="muted">Once you complete the check, your next step will appear here.</p>
+<div id="nextPassed" class="next" hidden>
+  <h3>Basic folders were found</h3>
+  <p>No missing program paths or unresolved update journals were found in this check. <strong>This does not prove the application is fully healthy or that an update is safe.</strong></p>
+  <p>If MoonDog still won't work, ask your MoonDog support person for help before changing any files. You may use the verified repair tool only after its own safety checks approve the installation.</p>
+  <p><a href="#repairHelp">How to find the approved repair tool</a></p>
+</div>
+<div id="nextRepair" class="next" hidden>
+  <h3>Some program files appear to be missing</h3>
+  <p>Your store information was not changed. <strong>Do not reinstall into a new folder or copy over Workspace.</strong> The verified repair tool can attempt approved program-file fixes after checking recovery safety again.</p>
+  <p><a href="#repairHelp">Show me how to get the verified repair tool</a></p>
+</div>
+<div id="nextBlocked" class="next blocked" hidden>
+  <h3>Stop here — this needs assisted recovery</h3>
+  <p>Something about your existing store-data folder or a previous update could not be confirmed. <strong>Do not run a repair, delete backups, reinstall, or try to bypass this warning.</strong></p>
+  <p>Keep the original folder unchanged. Contact your MoonDog support person and show them the diagnostic details below.</p>
+</div>
+<div id="nextWrong" class="next" hidden>
+  <h3>Try choosing a different folder</h3>
+  <p>That selection doesn't look like MoonDog's outer installation folder. Nothing was changed. Click <strong>Choose folder and check</strong> again, using the example above.</p>
+</div>
+<div id="nextPartial" class="next" hidden>
+  <h3>One more step for a complete check</h3>
+  <p>You chose <strong>System Files</strong>. We checked what we could, but could not check the launcher and installation record outside it. Use the button again and choose the <strong>outer folder</strong> that contains System Files.</p>
+</div>
+<div id="nextUnsupported" class="next" hidden>
+  <h3>Use the computer where MoonDog is installed</h3>
+  <p>This device or browser cannot inspect folders. Use <strong>Microsoft Edge on Windows</strong> on the computer that has MoonDog. You can still read this guide on a phone.</p>
+</div>
+<div id="nextCancelled" class="next" hidden>
+  <h3>No folder was selected</h3>
+  <p>Nothing happened to your files. Click the button again whenever you're ready.</p>
+</div>
+<div id="nextError" class="next" hidden>
+  <h3>The check couldn't finish</h3>
+  <p>Nothing was changed. Try again if you can, or contact your MoonDog support person. Do not rename or delete files to fix this error.</p>
+</div>
+<details id="technicalDetails" hidden>
+  <summary>Technical check details (for your support person)</summary>
+  <div class="details-inner">
+    <p>These details stay on this computer unless you choose to share them. Share only with your authorized MoonDog support person.</p>
+    <pre id="result">No check performed.</pre>
+    <button id="copyReport" type="button">Copy this result</button>
+    <p id="copyFeedback" role="status" aria-live="polite"></p>
+  </div>
+</details>
+</section>
+
+<section class="card" id="repairHelp" aria-labelledby="repairTitle">
+<h2 id="repairTitle">Only if the result allows a software repair</h2>
+<details>
+<summary>How to get the verified repair tool</summary>
+<div class="details-inner">
 <ol>
-<li>Close all Dashboard tabs. <strong>Do not delete or overwrite</strong> your current folder, especially <strong>System Files/Workspace</strong>.</li>
-<li>For an <strong>existing installation</strong>, use the <a href="https://github.com/JHFMoon/MoonDog-Service-OS/blob/main/repair-moondog.html">verified software repair tool</a> (open the link, download the raw HTML file, then open it in Edge). Select the same outer MoonDog folder. It uses a verified package and preserves Workspace.</li>
-<li>If the check reports a <strong>missing, unreadable, or interrupted recovery journal</strong>, stop. Do not delete, rename, or invent a backup journal to make an update pass. Preserve the folders for local recovery review.</li>
-<li>Only for a <strong>brand-new store with no existing data</strong>, download a <a href="https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip">fresh Stable ZIP</a> and extract it to a new folder. Never overwrite a working store's installation with a ZIP.</li>
+  <li>Make sure the check did <strong>not</strong> say <strong>UPDATE BLOCKED</strong>. If it did, stop and ask for help.</li>
+  <li>Close any open MoonDog tabs so you don't have two copies running.</li>
+  <li>Open <a href="./repair-moondog.html">Get verified repair tool</a> on this website. You do not need to visit GitHub or download another file.</li>
+  <li>Choose the existing outer MoonDog folder. The tool asks for local folder permission and checks the installation again.</li>
+  <li>If the tool offers a <strong>verified Beta software repair</strong>, read its confirmation carefully. Continue only if you intend to install that version; otherwise cancel and ask your support person. The tool must stop on unresolved recovery problems.</li>
 </ol>
-<p><strong>Existing store?</strong> Preserve the original installation and its Workspace. A read-only path check is not proof that an update is safe; unresolved backups must be reviewed before any repair.</p>
-</section>
-<section class="card">
-<h2>Expected layout</h2>
-<pre>Service Operations Dashboard/
-├── 00 - OPEN DASHBOARD.html
-├── INSTALLATION-MANIFEST.json
-└── System Files/
-    ├── index.html
-    ├── assets/
-    │   └── app.js
-    └── Workspace/  (protected local data)</pre>
-<p class="muted">Use <strong>System Files</strong> when the updater asks for the application root. Guided Setup uses a separate Workspace folder for store data. A missing <strong>index.html</strong> points to the application folder or extracted files. Guided Setup and SAPR imports do not create this file.</p>
+<p><strong>Not comfortable with the download steps?</strong> Ask your MoonDog support person to guide you. Never manually replace the entire installation or its Workspace.</p>
+</div>
+</details>
 </section>
 </main>
+<footer class="footer"><div class="shell"><a href="./">Back to the Repair Center start page</a> · Your files stay on this computer during the check.</div></footer>
 <script>
 "use strict";
-const button=document.getElementById("check"), result=document.getElementById("result");
+const button=document.getElementById("check"),result=document.getElementById("result");
+const quick=document.getElementById("quickResult"),advanced=document.getElementById("technicalDetails"),initialNext=document.getElementById("initialNext");
+const outcomes=["Passed","Repair","Blocked","Wrong","Partial","Unsupported","Cancelled","Error"];
+function showOutcome(type,headline,lines=[]){
+  quick.className="quick "+type.toLowerCase();
+  quick.textContent=headline+"\n\nNo files were changed or uploaded.";
+  result.textContent=headline+"\n\n"+lines.join("\n")+"\n\nNo files were changed or uploaded.";
+  advanced.hidden=false;
+  advanced.open=false;
+  initialNext.hidden=true;
+  for(const kind of outcomes)document.getElementById("next"+kind).hidden=kind.toLowerCase()!==type.toLowerCase();
+  document.getElementById("copyFeedback").textContent="";
+}
 const missingError=error=>error && ["NotFoundError","TypeMismatchError"].includes(error.name);
 async function has(parent,name,kind){
   try {
@@ -99,52 +194,72 @@ async function recoveryScan(system){
   lines.unshift(checked+" recognized update backup folder(s) checked. "+(unresolved?unresolved+" require recovery review.":"No unresolved update backup journals detected."));
   return {blocked:unresolved>0,lines};
 }
+
 button.addEventListener("click",async()=>{
   if(typeof window.showDirectoryPicker!=="function"){
-    result.className="result error";
-    result.textContent="Open this page in Microsoft Edge on Windows to inspect local folders.";
+    showOutcome("Unsupported","This browser cannot check MoonDog folders. Use Edge on the Windows computer with MoonDog.");
     return;
   }
   button.disabled=true;
-  result.className="result";
-  result.textContent="Checking selected MoonDog folder…";
+  quick.className="quick";
+  quick.textContent="Checking the folder you choose. No files are being changed…";
   try{
     const root=await window.showDirectoryPicker({mode:"read",id:"moondog-repair-check-v1"});
     if(root.name.toLowerCase()==="workspace"){
-      result.className="result error";
-      result.textContent="Workspace was selected. Choose its outer Dashboard Interface folder. No changes made.";
+      showOutcome("Wrong","WRONG FOLDER — You selected Workspace. Choose the outer MoonDog installation folder instead.");
       return;
     }
     const selectedSystem=root.name.toLowerCase()==="system files";
+    const system=selectedSystem?root:await directory(root,"System Files");
+    if(!system){
+      showOutcome("Wrong","WRONG FOLDER — This folder does not contain MoonDog's System Files folder. Try the outer installation folder.");
+      return;
+    }
     const items=[];
     if(!selectedSystem){
       items.push(["00 - OPEN DASHBOARD.html",await has(root,"00 - OPEN DASHBOARD.html","file")]);
       items.push(["INSTALLATION-MANIFEST.json",await has(root,"INSTALLATION-MANIFEST.json","file")]);
     }
-    const system=selectedSystem?root:await directory(root,"System Files");
-    const assets=system && await directory(system,"assets");
-    items.push(["System Files/",!!system]);
-    items.push(["System Files/index.html",!!system&&await has(system,"index.html","file")]);
+    const assets=await directory(system,"assets");
+    items.push(["System Files/",true]);
+    items.push(["System Files/index.html",await has(system,"index.html","file")]);
     items.push(["System Files/assets/app.js",!!assets&&await has(assets,"app.js","file")]);
-    items.push(["System Files/Workspace/",!!system&&await has(system,"Workspace","directory")]);
+    items.push(["System Files/Workspace/",await has(system,"Workspace","directory")]);
     const softwarePathsFound=items.every(([,found])=>found);
-    const recovery=system?await recoveryScan(system):{blocked:true,lines:["BLOCKED: Missing System Files folder."]};
+    const recovery=await recoveryScan(system);
     const lines=[...items.map(([name,found])=>(found?"FOUND: ":"MISSING: ")+name),...recovery.lines];
-    const partial=selectedSystem?"Only System Files was selected; outer launcher and manifest were not checked. ":"";
-    const headline=recovery.blocked
-      ?"UPDATE BLOCKED — recovery needs local review. Do not delete backups or force an update."
-      :!softwarePathsFound
-      ?"SOFTWARE REPAIR NEEDED — preserve Workspace; use verified repair only after checking recovery."
-      :"FOLDER CHECK PASSED — application paths found and no unresolved update journals detected. File integrity and update readiness are not yet verified.";
-    result.className="result "+(recovery.blocked||!softwarePathsFound?"error":"ok");
-    result.textContent=partial+headline+"\n\n"+lines.join("\n")+"\n\nNo files were changed or uploaded.";
-    result.style.whiteSpace="pre-line";
+    if(selectedSystem)lines.unshift("Only the System Files folder was selected; outer launcher and manifest were NOT checked.");
+    if(recovery.blocked){
+      showOutcome("Blocked","UPDATE BLOCKED — A previous update or protected store-data folder needs local review. Stop before repairing.",lines);
+    }else if(!softwarePathsFound){
+      showOutcome("Repair","SOFTWARE REPAIR NEEDED — Some MoonDog program files appear to be missing. Preserve your existing folder.",lines);
+    }else if(selectedSystem){
+      showOutcome("Partial","PARTIAL CHECK — The System Files folder looks complete, but please check the outer folder too.",lines);
+    }else{
+      showOutcome("Passed","FOLDER CHECK PASSED — The expected program folders were found. File integrity and update readiness are not yet verified.",lines);
+    }
   }catch(error){
-    result.className="result error";
-    result.textContent=error?.name==="AbortError"
-      ?"Folder selection cancelled. No changes made."
-      :"Local check could not finish: "+(error?.message||"Folder unavailable")+". No changes made. Preserve the installation.";
+    if(error?.name==="AbortError"){
+      showOutcome("Cancelled","No folder was selected. Nothing was changed.");
+    }else if(["NotAllowedError","SecurityError"].includes(error?.name)){
+      showOutcome("Error","The browser did not allow the folder check. Try again in Edge, or ask for help.");
+    }else{
+      showOutcome("Error","The folder check could not finish. Preserve the original installation and ask for help.",[
+        "Local check error: "+(error?.name||"Unknown error")
+      ]);
+    }
   }finally{button.disabled=false;}
 });
+document.getElementById("copyReport").addEventListener("click",async()=>{
+  const feedback=document.getElementById("copyFeedback");
+  try{
+    if(!navigator.clipboard?.writeText)throw Error("Clipboard unavailable");
+    await navigator.clipboard.writeText(result.textContent);
+    feedback.textContent="Copied. Paste it only into a message to your authorized MoonDog support person.";
+  }catch(error){
+    feedback.textContent="Your browser could not copy this automatically. You can select the technical details above and copy them manually.";
+  }
+});
 </script>
-</body></html>
+</body>
+</html>

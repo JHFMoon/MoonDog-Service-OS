@@ -18,6 +18,9 @@ const base = arg === "--local"
 const checkerUrl = arg === "--local"
   ? pathToFileURL(path.resolve(process.argv[3], "check-installation.html")).href
   : new URL("check-installation.html", base).href;
+const repairUrl = arg === "--local"
+  ? pathToFileURL(path.resolve(process.argv[3], "repair-moondog.html")).href
+  : new URL("repair-moondog.html", base).href;
 const siteBase = arg === "--local" ? null : new URL("./", base).href;
 const browser = await chromium.launch({ headless: true });
 try {
@@ -52,17 +55,35 @@ try {
   assert.match(await page.locator("h1").innerText(), /Keep your data/);
   const check = page.getByRole("link", { name: "Check my installation" });
   assert.ok((await check.getAttribute("href")).includes("check-installation.html"));
+  assert.equal(await page.getByRole("link", { name: "Check my installation" }).count(), 1, "One primary starting action");
+  await page.getByText("Where do I get the approved repair tool?").click();
   const repair = page.getByRole("link", { name: "Get verified repair tool" });
-  assert.match(await repair.getAttribute("href"), /^https:\/\/github\.com\/JHFMoon\/MoonDog-Service-OS\/blob\/main\/repair-moondog\.html$/);
+  assert.equal(await repair.getAttribute("href"), "./repair-moondog.html", "Novices must not have to navigate GitHub");
+  assert.ok(await page.getByRole("link", { name: "Check my installation" }).isVisible());
+  assert.ok(await page.getByText("I don't know where MoonDog is saved").count(), "Novice folder-help is present");
   assert.equal(issues.length, 0, "Landing page JavaScript must not throw");
   if (siteBase) {
 
     await page.waitForFunction(() => document.getElementById("releaseMeta")?.textContent?.startsWith("Stable "), null, {timeout:15000});
-    assert.match(await page.locator("#releaseMeta").innerText(), /ZIP SHA-256 [a-f0-9]{64}/);
+    assert.match(await page.locator("#releaseMeta").textContent(), /ZIP SHA-256 [a-f0-9]{64}/);
   }
   await page.close();
 
-  for (const scenario of ["complete", "missing-journal", "unfinished", "missing-app", "missing-workspace", "unreadable"]) {
+  // The actual approved repair tool must be served from the same public site,
+  // not a confusing developer-download page. Merely opening it must not write.
+  const repairPage = await browser.newPage();
+  const repairErrors = [];
+  repairPage.on("pageerror", err => repairErrors.push(String(err)));
+  const repairResponse = await repairPage.goto(siteBase ? repairUrl + "?verified=" + expectedSha : repairUrl, { waitUntil: "load" });
+  if (siteBase) assert.equal(repairResponse.status(), 200, "Verified repair tool must be publicly reachable");
+  assert.match(await repairPage.title(), /Repair MoonDog/);
+  assert.equal(await repairPage.locator("#repair").isDisabled(), true, "No repair is possible before explicit folder choice");
+  assert.equal(await repairPage.locator("#choose").isEnabled(), true);
+  assert.match(await repairPage.locator("#status").innerText(), /Nothing has changed/);
+  assert.deepEqual(repairErrors, [], "Self-contained repair tool must load without script errors");
+  await repairPage.close();
+
+  for (const scenario of ["complete", "missing-journal", "unfinished", "missing-app", "missing-workspace", "unreadable", "wrong-folder", "system-files-only", "no-backups"]) {
     const p = await browser.newPage();
     p.setDefaultTimeout(15000);
     const errors = [];
@@ -97,18 +118,20 @@ try {
       const backups = directory("backups", {
         "system-updates": directory("system-updates", { "MoonDog-Update-Backup-SYNTHETIC": recovery })
       });
-      const workspace = directory("Workspace", { backups });
+      const workspace = directory("Workspace", scenario === "no-backups" ? {} : { backups });
       const app = directory("assets", scenario === "missing-app" ? {} : { "app.js": file("synthetic generic software") });
       const system = directory("System Files", {
         "index.html": file("synthetic generic software"),
         assets: app,
         ...(scenario === "missing-workspace" ? {} : { Workspace: workspace })
       });
-      const root = directory("Dashboard Interface", {
-        "00 - OPEN DASHBOARD.html": file("synthetic launcher"),
-        "INSTALLATION-MANIFEST.json": file("synthetic manifest"),
-        "System Files": system
-      });
+      const root = scenario === "wrong-folder" ? directory("My Documents", {})
+        : scenario === "system-files-only" ? system
+        : directory("Dashboard Interface", {
+          "00 - OPEN DASHBOARD.html": file("synthetic launcher"),
+          "INSTALLATION-MANIFEST.json": file("synthetic manifest"),
+          "System Files": system
+        });
       Object.defineProperty(window, "showDirectoryPicker", {
         configurable: true,
         value: async options => {
@@ -119,17 +142,35 @@ try {
     }, { scenario });
     await p.goto(siteBase ? checkerUrl + "?verified=" + expectedSha : checkerUrl, { waitUntil: "load" });
     await p.getByRole("button", { name: "Choose folder and check" }).click();
-    const result = await p.locator("#result").innerText();
+    const result = await p.locator("#result").textContent();
+    const summary = await p.locator("#quickResult").innerText();
+    assert.equal(await p.locator("#technicalDetails").isVisible(), true, "Technician details can be expanded");
+    assert.equal(await p.locator("#technicalDetails").evaluate(e => e.open), false, "Novices do not see diagnostic wall by default");
+    assert.match(summary, /No files were changed or uploaded/);
     const expected = {
       "complete": /FOLDER CHECK PASSED/,
       "missing-journal": /UPDATE BLOCKED[\s\S]*has no journal\.json/,
       "unfinished": /UPDATE BLOCKED[\s\S]*unfinished update/,
       "missing-app": /SOFTWARE REPAIR NEEDED[\s\S]*MISSING: System Files\/assets\/app\.js/,
       "missing-workspace": /UPDATE BLOCKED[\s\S]*Workspace is missing/,
-      "unreadable": /UPDATE BLOCKED[\s\S]*could not be verified/
+      "unreadable": /UPDATE BLOCKED[\s\S]*could not be verified/,
+      "wrong-folder": /WRONG FOLDER/,
+      "system-files-only": /PARTIAL CHECK/,
+      "no-backups": /FOLDER CHECK PASSED/
     }[scenario];
     assert.match(result, expected, scenario);
     assert.match(result, /No files were changed or uploaded/);
+    const nextKind = {
+      "complete": "Passed", "no-backups": "Passed",
+      "missing-journal": "Blocked", "unfinished": "Blocked",
+      "missing-app": "Repair", "missing-workspace": "Blocked",
+      "unreadable": "Blocked", "wrong-folder": "Wrong",
+      "system-files-only": "Partial"
+    }[scenario];
+    assert.equal(await p.locator("#next" + nextKind).isVisible(), true, "Next-step panel must match outcome");
+    if (nextKind === "Blocked") {
+      assert.equal(await p.locator("#nextRepair").isVisible(), false, "Never suggest repair for blocked recovery");
+    }
     assert.equal(errors.length, 0, "Checker JavaScript must not throw: " + scenario);
     await p.close();
     console.log("Browser proof:", scenario, "PASS");
