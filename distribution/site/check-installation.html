@@ -80,7 +80,7 @@ summary{font-size:17px;font-weight:750;padding:15px 18px;cursor:pointer}details[
 </div>
 <div id="nextBlocked" class="next blocked" hidden>
   <h3>Stop here — this needs assisted recovery</h3>
-  <p>Something about your existing store-data folder or a previous update could not be confirmed. <strong>Do not run a repair, delete backups, reinstall, or try to bypass this warning.</strong></p>
+  <p>MoonDog could not verify this as a safe existing installation. Its installation record, protected store-data folder, or previous update may need local review. <strong>Do not run a repair, delete backups, reinstall, or try to bypass this warning.</strong></p>
   <p>Keep the original folder unchanged. Contact your MoonDog support person and show them the diagnostic details below.</p>
 </div>
 <div id="nextWrong" class="next" hidden>
@@ -210,15 +210,23 @@ button.addEventListener("click",async()=>{
       return;
     }
     const selectedSystem=root.name.toLowerCase()==="system files";
+    const launcherPresent=selectedSystem?null:await has(root,"00 - OPEN DASHBOARD.html","file");
+    const manifestPresent=selectedSystem?null:await has(root,"INSTALLATION-MANIFEST.json","file");
     const system=selectedSystem?root:await directory(root,"System Files");
     if(!system){
-      showOutcome("Wrong","WRONG FOLDER — This folder does not contain MoonDog's System Files folder. Try the outer installation folder.");
+      if(launcherPresent||manifestPresent){
+        showOutcome("Blocked","INSTALLATION INCOMPLETE — The MoonDog program folder is missing. Preserve the original folder and request local support.",[
+          "MISSING: System Files/","Launcher found: "+Boolean(launcherPresent),"Installation record found: "+Boolean(manifestPresent)
+        ]);
+      }else{
+        showOutcome("Wrong","WRONG FOLDER — This folder does not contain MoonDog's System Files folder. Try the outer installation folder.");
+      }
       return;
     }
     const items=[];
     if(!selectedSystem){
-      items.push(["00 - OPEN DASHBOARD.html",await has(root,"00 - OPEN DASHBOARD.html","file")]);
-      items.push(["INSTALLATION-MANIFEST.json",await has(root,"INSTALLATION-MANIFEST.json","file")]);
+      items.push(["00 - OPEN DASHBOARD.html",launcherPresent]);
+      items.push(["INSTALLATION-MANIFEST.json",manifestPresent]);
     }
     const assets=await directory(system,"assets");
     items.push(["System Files/",true]);
@@ -231,6 +239,8 @@ button.addEventListener("click",async()=>{
     if(selectedSystem)lines.unshift("Only the System Files folder was selected; outer launcher and manifest were NOT checked.");
     if(recovery.blocked){
       showOutcome("Blocked","UPDATE BLOCKED — A previous update or protected store-data folder needs local review. Stop before repairing.",lines);
+    }else if(manifestPresent===false){
+      showOutcome("Blocked","INSTALLATION IDENTITY MISSING — The software repair tool cannot verify this installation. Keep the original folder and request local support.",lines);
     }else if(!softwarePathsFound){
       showOutcome("Repair","SOFTWARE REPAIR NEEDED — Some MoonDog program files appear to be missing. Preserve your existing folder.",lines);
     }else if(selectedSystem){
