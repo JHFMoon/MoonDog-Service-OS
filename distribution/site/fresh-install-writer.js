@@ -166,7 +166,10 @@
         fail("A clean package must never contain initialized dealership data.");
       approved.set(name,item);
     }
-    for(const required of ["00 - OPEN DASHBOARD.html","index.html","System Files/index.html",
+    // The original immutable Stable 0.10.17 ZIP has no root index.html bridge.
+    // Only the launcher, application entry, and private Workspace boundary are required.
+    // Do not synthesize unlisted application files during a verified install.
+    for(const required of ["00 - OPEN DASHBOARD.html","System Files/index.html",
       "System Files/Workspace/README.txt"])
       if(!approved.has(required))fail("The package is missing its launcher or private-data boundary.");
     for(const [name,entry] of archive.entries){
