@@ -239,7 +239,32 @@
   async function fileHandle(rootDir,path){
     const parts=path.split("/"),name=parts.pop();
     const dir=parts.length?await newDirectory(rootDir,parts.join("/")):rootDir;
+    // A new folder is not exclusive: another tab or sync process may add files
+    // after the initial empty check. Never knowingly replace their bytes.
+    if(await hasFile(dir,name) || await hasFolder(dir,name))
+      fail("An unexpected file appeared during installation. No existing file was overwritten.");
     return dir.getFileHandle(name,{create:true});
+  }
+  async function assertOnlyApprovedFiles(rootDir,packageData){
+    const expectedFiles=new Set(packageData.files.map(item=>item.path));
+    const expectedDirs=new Set(packageData.directories);
+    async function inspect(dir,prefix){
+      for await(const entry of dir.values()){
+        if(!entry || typeof entry.name!=="string")
+          fail("The installation contains an unexpected entry.");
+        const path=prefix+entry.name;
+        if(entry.kind==="directory"){
+          if(!expectedDirs.has(path+"/"))
+            fail("An unapproved directory appeared during installation.");
+          await inspect(entry,path+"/");
+        }else if(entry.kind==="file"){
+          // The inventory commits after this inspection; our marker is temporary.
+          if(path!==MARKER && !expectedFiles.has(path))
+            fail("An unapproved file appeared during installation.");
+        }else fail("The installation contains an unexpected entry.");
+      }
+    }
+    await inspect(rootDir,"");
   }
   async function writeReadBack(rootDir,path,bytes,hash) {
     const file=await fileHandle(rootDir,path);
@@ -299,6 +324,9 @@
         written++;
         status("Installing verified application files: "+written+" of "+(packageData.files.length-1)+"…");
       }
+      // Reject unexpected concurrent additions without reading private file data;
+      // do not commit the manifest for an unrecognized root.
+      await assertOnlyApprovedFiles(destination,packageData);
       const manifest=packageData.files.find(item=>item.path==="INSTALLATION-MANIFEST.json");
       await writeReadBack(destination,manifest.path,manifest.bytes,null);
       await destination.removeEntry(MARKER);
