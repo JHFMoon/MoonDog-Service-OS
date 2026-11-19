@@ -209,11 +209,21 @@
   }
   async function rootIsUnsafe(parent){
     // Names alone are not proof. Check exact known layout entries; never read report data.
-    return (await hasFile(parent,"INSTALLATION-MANIFEST.json")) ||
-      (await hasFile(parent,"00 - OPEN DASHBOARD.html")) ||
-      ((await hasFile(parent,"index.html")) &&
-        ((await hasFolder(parent,"Workspace")) || (await hasFolder(parent,"assets")))) ||
-      ((await hasFolder(parent,"data")) && (await hasFolder(parent,"backups")));
+    if(await hasFile(parent,"INSTALLATION-MANIFEST.json") ||
+       await hasFile(parent,"00 - OPEN DASHBOARD.html"))return true;
+    if((await hasFile(parent,"index.html")) &&
+       ((await hasFolder(parent,"Workspace")) || (await hasFolder(parent,"assets"))))return true;
+    if(await hasFolder(parent,"System Files")){
+      const system=await parent.getDirectoryHandle("System Files",{create:false});
+      if(await hasFolder(system,"Workspace") || await hasFile(system,"index.html"))
+        return true; // Preserve even partial application roots.
+    }
+    if(await hasFolder(parent,"data")){
+      if(await hasFolder(parent,"backups") || await hasFolder(parent,"imports") ||
+         await hasFolder(parent,"history"))
+        return true; // Recognize a partial protected Workspace by relationships.
+    }
+    return false;
   }
   async function newDirectory(rootDir,path){
     let current=rootDir;
