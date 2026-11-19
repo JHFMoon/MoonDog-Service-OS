@@ -441,7 +441,8 @@
   const active=()=>document.querySelector('.view.active')?.id.replace('view-','');
   const today=()=>api.date();
   const now=()=>Date.now();
-  const businessHour=()=>globalThis.MoonDogFreshness?.timeParts(new Date(),globalThis.__moondogFreshness?.timeZone?.()||'America/Los_Angeles')?.hour??new Date().getHours();
+  const businessTimeZone=()=>globalThis.__moondogFreshness?.timeZone?.()||'America/Los_Angeles';
+  const businessHour=()=>globalThis.MoonDogFreshness?.timeParts(new Date(),businessTimeZone())?.hour??new Date().getHours();
   function say(message){state.error=message;let target=active()==='home'?$('dailyError'):$('dailyToolError');if(!target&&message&&active()!=='home'){target=document.createElement('p');target.id='dailyToolError';target.setAttribute('role','alert');document.querySelector('.view.active')?.prepend(target);}if(target){target.hidden=!message;target.textContent=message;}}
   function discardDraftOk(){return !state.editing||globalThis.confirm('You have an unsaved Home update. Leave this task and discard the draft?');}
   function suspendForWorkspaceChange(){
@@ -708,7 +709,7 @@
     if(!model.root)return [];
     const planner=globalThis.ServiceRefreshIntelligence;
     const operational=planner?.topFive(allTasks(),state.events,engine,now()) || allTasks().filter(task=>engine.eligible(task,state.events,now()));
-    const needed=planner?.plan(api.reportRefreshRequests(today()),api.refreshHistory(),{at:new Date().toISOString(),today:today(),limit:8})||[];
+    const needed=planner?.plan(api.reportRefreshRequests(today()),api.refreshHistory(),{at:new Date().toISOString(),today:today(),limit:8,timeZone:businessTimeZone()})||[];
     const reports=needed.map(item=>({id:'report:'+item.source,type:'report',source:item.source,
       title:'Gather '+item.label+' report',description:[item.range,item.instruction].filter(Boolean).join(' · '),
       next:[item.location,item.instruction].filter(Boolean).join(' · '),view:'tools',rank:item.rank||7,
@@ -914,7 +915,7 @@
     const planner=globalThis.ServiceRefreshIntelligence;
     if(!planner||!model.root)return;
     const at=new Date().toISOString(),items=planner.plan(api.reportRefreshRequests(today()),api.refreshHistory(),{
-      at,today:today(),limit:3
+      at,today:today(),limit:3,timeZone:businessTimeZone()
     });
     const yoy=api.priorYearSapr?.();
     const sourceCurrent=globalThis.__moondogFreshness?.sourceFreshness?.('sapr',{today:today()});
