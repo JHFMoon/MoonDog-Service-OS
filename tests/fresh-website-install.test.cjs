@@ -248,6 +248,9 @@ test("website keeps verification, manual fallback and the in-app Guided Setup bo
  assert.match(html,/Extract All/);
  assert.match(html,/Complete <strong>Guided Setup<\/strong>/);
  assert.match(html,/Settings → System Updates/);
+ assert.match(html,/After Guided Setup, before normal use/);
+ assert.match(html,/Optional: check the installation if MoonDog won't open/);
+ assert.doesNotMatch(html,/class="button" href="\.\/check-installation\.html"/);
  assert.match(html,/validated SAPR report from that same store/);
  assert.doesNotMatch(source,/\bfetch\s*\(|\bXMLHttpRequest\b|\bsendBeacon\b/);
  assert.doesNotMatch(source,/getFileHandle\("settings\.json".*\{create:true/);
