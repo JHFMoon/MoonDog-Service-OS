@@ -25,12 +25,14 @@ test("the shipped Arrivals and porter view distinguish an unverified schedule fr
 
   const after = {
     importGuidance: html.includes("Import a verified Service Daily Log or PreRO to display today’s appointments."),
-    sourceSelectionDisabled: /id="appointmentSource" disabled/.test(html),
+    sourceSelectionDisabled: /<select\b[^>]*\bid="appointmentSource"[^>]*\bdisabled\b[^>]*>/.test(html),
+    sourceSelectionNamed: /<select\b[^>]*\bid="appointmentSource"[^>]*\baria-label="Choose today’s appointment report"/.test(html),
     printDisabled: /id="printArrivals" class="primary" disabled/.test(html),
     editableArrivalTracking: /id="arrivalTimeline" class="arrival-timeline"/.test(html),
   };
   assert.equal(after.importGuidance, true);
   assert.equal(after.sourceSelectionDisabled, true, "initial unconnected import must stay disabled");
+  assert.equal(after.sourceSelectionNamed, true, "novice users can identify the appointment source selector");
   assert.equal(after.printDisabled, true, "porter print must stay disabled before a verified source");
   assert.equal(after.editableArrivalTracking, true, "existing arrivals rendering target remains present");
 });
