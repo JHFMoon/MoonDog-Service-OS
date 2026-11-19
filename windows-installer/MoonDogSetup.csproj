@@ -17,6 +17,9 @@
        independent asset digest and manifest have been verified. The source repo
        contains no executable or bundled dealership data. -->
   <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <EmbeddedResource Include="package/Service-Operations-Dashboard.zip"
                       LogicalName="MoonDog.OfficialStableZip"
                       Condition="Exists('package/Service-Operations-Dashboard.zip')" />
