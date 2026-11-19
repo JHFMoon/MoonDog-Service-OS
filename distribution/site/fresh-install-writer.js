@@ -249,8 +249,13 @@
     return dir.getFileHandle(name,{create:true});
   }
   async function assertOnlyApprovedFiles(rootDir,packageData){
-    const expectedFiles=new Set(packageData.files.map(item=>item.path));
+    // Re-read the final tree, not only its names: a concurrent writer can change
+    // a previously verified file while later package members are being written.
+    const expectedFiles=new Map(packageData.files
+      .filter(item=>item.path!=="INSTALLATION-MANIFEST.json")
+      .map(item=>[item.path,item]));
     const expectedDirs=new Set(packageData.directories);
+    const seenFiles=new Set(),seenDirs=new Set();
     async function inspect(dir,prefix){
       for await(const entry of dir.values()){
         if(!entry || typeof entry.name!=="string")
@@ -259,15 +264,22 @@
         if(entry.kind==="directory"){
           if(!expectedDirs.has(path+"/"))
             fail("An unapproved directory appeared during installation.");
+          seenDirs.add(path+"/");
           await inspect(entry,path+"/");
         }else if(entry.kind==="file"){
-          // The inventory commits after this inspection; our marker is temporary.
-          if(path!==MARKER && !expectedFiles.has(path))
-            fail("An unapproved file appeared during installation.");
+          if(path===MARKER)continue; // Our transient failure marker.
+          const approved=expectedFiles.get(path);
+          if(!approved)fail("An unapproved file appeared during installation.");
+          const read=new Uint8Array(await (await entry.getFile()).arrayBuffer());
+          if(read.length!==approved.bytes.length || await digest(read)!==approved.sha256)
+            fail("An installed application file changed before completion.");
+          seenFiles.add(path);
         }else fail("The installation contains an unexpected entry.");
       }
     }
     await inspect(rootDir,"");
+    if(seenFiles.size!==expectedFiles.size || seenDirs.size!==expectedDirs.size)
+      fail("An installation file or folder disappeared before completion.");
   }
   async function writeReadBack(rootDir,path,bytes,hash) {
     const file=await fileHandle(rootDir,path);
