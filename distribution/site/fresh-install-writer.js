@@ -218,10 +218,14 @@
       if(await hasFolder(system,"Workspace") || await hasFile(system,"index.html"))
         return true; // Preserve even partial application roots.
     }
+    if(await hasFile(parent,"settings.json") || await hasFile(parent,"current-state.json"))
+      return true;
     if(await hasFolder(parent,"data")){
-      if(await hasFolder(parent,"backups") || await hasFolder(parent,"imports") ||
+      const data=await parent.getDirectoryHandle("data",{create:false});
+      if(await hasFile(data,"settings.json") || await hasFile(data,"current-state.json") ||
+         await hasFolder(parent,"backups") || await hasFolder(parent,"imports") ||
          await hasFolder(parent,"history"))
-        return true; // Recognize a partial protected Workspace by relationships.
+        return true; // Recognize even partially recovered private Workspace state.
     }
     return false;
   }
