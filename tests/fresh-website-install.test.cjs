@@ -221,6 +221,7 @@ test("website keeps verification, manual fallback and the in-app Guided Setup bo
  assert.match(html,/Extract All/);
  assert.match(html,/Complete <strong>Guided Setup<\/strong>/);
  assert.match(html,/Settings → System Updates/);
+ assert.match(html,/validated SAPR report from that same store/);
  assert.doesNotMatch(source,/\bfetch\s*\(|\bXMLHttpRequest\b|\bsendBeacon\b/);
  assert.doesNotMatch(source,/getFileHandle\("settings\.json".*\{create:true/);
  assert.doesNotThrow(()=>new vm.Script(source));
