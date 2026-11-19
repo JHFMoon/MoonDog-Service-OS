@@ -2,7 +2,8 @@
 import { createRequire } from "node:module";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 const { chromium } = createRequire(import.meta.url)("playwright");
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 
 const index = process.argv[2];
@@ -452,4 +453,17 @@ try {
 } finally {
   await browser.close();
   await rm(workerProbeDir, { recursive: true, force: true });
+}
+
+
+// Clean Install Proof also exercises the real Repair Center UI without asking
+// anyone to test a dealership installation. Only synthetic memory handles are used.
+const repairSmoke = spawnSync(process.execPath, [
+  fileURLToPath(new URL("./smoke_repair_center.mjs", import.meta.url)),
+  "--local",
+  path.join(process.cwd(), "distribution", "site")
+], { stdio: "inherit", timeout: 90000 });
+if (repairSmoke.status !== 0 || repairSmoke.error) {
+  throw new Error("Repair Center Chromium smoke failed: " +
+    (repairSmoke.error?.message || repairSmoke.signal || repairSmoke.status));
 }
