@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>MoonDog won't work — Safe Recovery Help</title>
+<style>
+:root{font:17px/1.57 system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:#19313c;background:#f2f6f7}
+*{box-sizing:border-box}body{margin:0}a{color:#155066;text-underline-offset:3px}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid #e49927;outline-offset:4px}
+.wrap{width:min(850px,100% - 32px);margin:auto}.top{background:#fff;border-bottom:1px solid #d6e2e6}
+.top .wrap{display:flex;justify-content:space-between;gap:12px;align-items:center;min-height:68px}
+.brand{font-weight:830;font-size:20px}.brand small{display:block;color:#526e79;font-size:13px;font-weight:500}
+main{padding:34px 0 74px}h1{font-size:clamp(31px,5vw,46px);letter-spacing:-.04em;line-height:1.12;margin:8px 0 16px}
+h2{font-size:25px;line-height:1.2;margin:0 0 12px}h3{font-size:21px;margin:0 0 12px}
+.lead{font-size:19px;color:#4c6771}.card{background:white;border:1px solid #d8e4e8;border-radius:19px;padding:clamp(21px,4vw,34px);margin:18px 0}
+.warning{border-left:5px solid #b36c26;background:#fff6e8;border-radius:0 12px 12px 0;padding:16px 19px;margin:18px 0}
+.safelist{margin:12px 0;padding-left:24px}.safelist li{margin:10px 0}
+.choice{display:flex;gap:12px;padding:15px;border-radius:12px;border:1px solid #d8e3e7;margin:11px 0;align-items:flex-start;cursor:pointer}
+.choice:hover{background:#f6fafb}.choice input{width:20px;height:20px;margin:5px 0 0;flex:none}
+button,.button{font:inherit;border:0;background:#164759;color:#fff!important;border-radius:12px;padding:13px 20px;min-height:52px;font-weight:800;text-decoration:none;display:inline-flex;cursor:pointer}
+button:disabled{opacity:.65}button:hover,.button:hover{background:#0b3546}
+.panel{background:#eef5f7;border-radius:13px;padding:20px;margin:18px 0}
+.panel.block{background:#fff5e7;border:1px solid #f0d4a1}
+#supportReport{white-space:pre-wrap;background:white;border:1px solid #d6e3e7;border-radius:10px;padding:15px;overflow-wrap:anywhere}
+.tip{font-size:15px;color:#566f7a}footer{padding:20px 0 40px;border-top:1px solid #d8e4e8;color:#566f7a;font-size:14px}
+@media(max-width:600px){main{padding-top:19px}h2{font-size:22px}}
+</style></head>
+<body>
+<header class="top"><div class="wrap"><div class="brand">MoonDog <small>Setup and Repair Center</small></div><a href="./">Back to choices</a></div></header>
+<main class="wrap">
+<h1>MoonDog still won't work?</h1>
+<p class="lead">Choose what you're seeing. We'll show you the safest next step without asking you to guess at folders, backups, or technical errors.</p>
+<div class="warning"><strong>Important:</strong> Never delete, rename, or overwrite the original MoonDog installation, Workspace, or backups to make an error go away. If you're unsure, stop and get help.</div>
+<section class="card" aria-labelledby="problemHeading">
+<h2 id="problemHeading">What problem are you having?</h2>
+<fieldset style="border:0;padding:0;margin:0"><legend style="font-size:15px;color:#536f7a">Choose the closest match:</legend>
+<label class="choice"><input type="radio" name="problem" value="new">I haven't installed MoonDog yet.</label>
+<label class="choice"><input type="radio" name="problem" value="missing">MoonDog is installed, but it won't open or something is missing.</label>
+<label class="choice"><input type="radio" name="problem" value="update">An update failed or the screen says a backup or recovery file is missing.</label>
+<label class="choice"><input type="radio" name="problem" value="permission">My browser won't let me choose or change the MoonDog folder.</label>
+<label class="choice"><input type="radio" name="problem" value="data">My reports, settings, or other store data seem to be missing.</label>
+<label class="choice"><input type="radio" name="problem" value="move">I'm moving MoonDog to another computer or setting up a second dealership.</label>
+<label class="choice"><input type="radio" name="problem" value="other">Something else is wrong.</label>
+</fieldset>
+<div id="answer" class="panel" role="status" aria-live="polite">
+<strong>Choose a problem above to see the next safe step.</strong>
+</div>
+</section>
+<section class="card">
+<h2>Before asking for help</h2>
+<p>Share the <strong>problem description</strong> and the technical result from the safe checker with your authorized MoonDog support person. Do not upload customer records, employee data, repair orders, VINs, or Workspace files to public GitHub issues or websites.</p>
+<p>Use this short, non-sensitive checklist:</p>
+<pre id="supportReport">MoonDog support request
+Problem: Not selected
+Computer: Windows / Other / Not sure
+Browser: Edge / Other / Not sure
+MoonDog version: If shown, write here
+Exact error: Only share if it contains no customer or employee details
+Actions already tried: None</pre>
+<button id="copy" type="button">Copy support checklist</button>
+<p id="copyStatus" class="tip" role="status" aria-live="polite"></p>
+<p class="tip">No support request is automatically sent, and this website cannot remotely reach your computer. Contact your store's authorized MoonDog support person using your normal support channel.</p>
+</section>
+</main><footer><div class="wrap">MoonDog Setup and Repair Center · Your store's data stays local. Stop when recovery cannot be verified.</div></footer>
+<script>
+"use strict";
+const responses={
+  new:{title:"Start with a clean installation",body:"Only if this is a genuinely new installation with no existing MoonDog data, follow the official Stable download and Guided Setup steps. If you are replacing a working store or moving computers, do not treat it as a new install.",href:"./fresh-install.html",action:"Open first-time setup"},
+  missing:{title:"Run the read-only check first",body:"Use Microsoft Edge on the Windows computer with MoonDog. Choose the outer installation folder. If the check says UPDATE BLOCKED, stop and ask for assisted recovery. A software repair is a separate step and must pass its own checks.",href:"./check-installation.html",action:"Check my installation"},
+  update:{title:"Stop — keep the original backups",body:"A missing, damaged, or unfinished recovery journal requires local review. Do not delete backup folders, reinstall over the existing installation, or force an update. Preserve the original files and show the diagnostic check to your authorized support person.",href:"./check-installation.html",action:"Run a read-only check",block:true},
+  permission:{title:"Use Microsoft Edge on the correct Windows computer",body:"Open this website in Edge on the computer that holds MoonDog. Select the outer installation folder when prompted. If the correct folder is denied, keep your files untouched and ask your local administrator or MoonDog support person for permission. Do not change browser security settings or try random folders.",href:"./check-installation.html",action:"Try the read-only check"},
+  data:{title:"Do not create an empty replacement",body:"Missing store information is different from missing software. Do not start a fresh installation, create a new Workspace, or run a software repair to replace missing data. Preserve the original installation and backups and ask for local recovery review.",block:true},
+  move:{title:"Keep stores and computers separate",body:"A new store must start in its own empty installation and Guided Setup. Moving an existing store is a migration, not a fresh install: preserve the original computer and backups until a verified, authorized migration can be completed. Do not copy Workspace between dealerships.",href:"./fresh-install.html",action:"Read new-store setup (only for a new store)",block:true},
+  other:{title:"Preserve the installation and get assisted help",body:"Start with the read-only check if MoonDog already exists. If you don't understand a result, stop and ask your authorized MoonDog support person rather than overwriting files.",href:"./check-installation.html",action:"Check my installation"}
+};
+const answer=document.getElementById("answer"),report=document.getElementById("supportReport"),status=document.getElementById("copyStatus");
+function show(value){
+  const info=responses[value];if(!info)return;
+  answer.className=info.block?"panel block":"panel";
+  answer.replaceChildren();
+  const title=document.createElement("h3"),body=document.createElement("p");
+  title.textContent=info.title;body.textContent=info.body;answer.append(title,body);
+  if(info.href){const link=document.createElement("a");link.className="button";link.href=info.href;link.textContent=info.action;answer.append(link);}
+  report.textContent="MoonDog support request\nProblem: "+value+" — "+info.title+"\nComputer: Windows / Other / Not sure\nBrowser: Edge / Other / Not sure\nMoonDog version: If shown, write here\nExact error: Only share if it contains no customer or employee details\nActions already tried: None";
+  status.textContent="";
+}
+document.querySelectorAll('input[name="problem"]').forEach(input=>input.addEventListener("change",()=>show(input.value)));
+document.getElementById("copy").addEventListener("click",async()=>{
+  try{await navigator.clipboard.writeText(report.textContent);status.textContent="Copied. Share only with your authorized support person.";}
+  catch(_){status.textContent="Could not copy automatically. Select the checklist text and copy it manually.";}
+});
+</script>
+</body></html>
