@@ -1,0 +1,178 @@
+name: Verify and Publish Repair Center
+
+on:
+  workflow_run:
+    workflows:
+      - Public Repository History Safety Audit
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# This site-only workflow never creates, publishes or modifies Stable or Beta packages.
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+
+# Share the Pages deployment lock with Publish Offline Distribution, including releases.
+concurrency:
+  group: offline-distribution
+  cancel-in-progress: false
+
+jobs:
+  build-and-check:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.name == 'Public Repository History Safety Audit')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: \${{ github.token }}
+      EXPECTED_SHA: \${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      TRIGGER_HEAD_SHA: \${{ github.event.workflow_run.head_sha }}
+      TRIGGER_HEAD_BRANCH: \${{ github.event.workflow_run.head_branch }}
+      TRIGGER_EVENT: \${{ github.event.workflow_run.event }}
+      TRIGGER_CONCLUSION: \${{ github.event.workflow_run.conclusion }}
+      TRIGGER_NAME: \${{ github.event.workflow_run.name }}
+    outputs:
+      main_sha: \${{ steps.identity.outputs.main_sha }}
+    steps:
+      - name: Check out exact triggering main commit (no write credentials)
+        uses: actions/checkout@v4
+        with:
+          ref: \${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify latest main and mandatory main audit plus Publication Check
+        run: python3 scripts/verify_repair_center_gate.py
+
+      - name: Record validated deployment source
+        id: identity
+        run: echo "main_sha=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Test site logic, publisher invariants, and source privacy
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_repair_center_gate.py'
+          node --test tests/repair-center-site.test.cjs tests/pages-site-publication.test.cjs
+          node --check scripts/smoke_repair_center.mjs
+          python3 scripts/check_publication.py
+
+      - name: Stage latest reviewed Pages UI with immutable Stable download metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .pages .stable-metadata
+          cp -R distribution/site/. .pages/
+          STABLE_VERSION="$(python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          v = json.loads(Path('updates/manifest.json').read_text())['stable']['version']
+          if not re.fullmatch(r'\d+\.\d+\.\d+', v):
+              raise SystemExit('Invalid Stable version')
+          print(v)
+          PY
+          )"
+          TAG="v$STABLE_VERSION"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets > .stable-metadata/assets.json
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern Service-Operations-Dashboard.manifest.json --dir .stable-metadata
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          src = Path('.stable-metadata')
+          assets = {a.get('name') for a in json.loads((src / 'assets.json').read_text())['assets']}
+          required = {
+              'Service-Operations-Dashboard.zip',
+              'Service-Operations-Dashboard.zip.sha256',
+              'Service-Operations-Dashboard.manifest.json'
+          }
+          if not required <= assets:
+              raise SystemExit('Stable release assets are missing; no site deployment')
+          release = json.loads((src / 'Service-Operations-Dashboard.manifest.json').read_text())
+          version = json.loads(Path('updates/manifest.json').read_text())['stable']['version']
+          sha = release.get('sha256')
+          if release.get('version') != version or not isinstance(sha, str) or not re.fullmatch(r'[a-f0-9]{64}', sha):
+              raise SystemExit('Immutable Stable release metadata differs from current authorized manifest')
+          def write(name, data):
+              (Path('.pages') / name).write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
+          write('latest.json', {
+              'version': version,
+              'sha256': sha,
+              'asset': 'https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip',
+              'release': f'https://github.com/JHFMoon/MoonDog-Service-OS/releases/tag/v{version}'
+          })
+          write('site-version.json', {'mainSha': os.environ['EXPECTED_SHA'], 'stableVersion': version})
+          PY
+
+      - name: Install pinned Chromium smoke tooling on supported Ubuntu
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Browser-test staged Repair Center with synthetic folders
+        run: node scripts/smoke_repair_center.mjs --local .pages
+
+      - name: Reject a stale source after browser testing
+        run: |
+          set -euo pipefail
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          test "$actual" = "$EXPECTED_SHA" || { echo 'Main advanced; do not publish stale Pages'; exit 1; }
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload verified Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: .pages
+
+  deploy:
+    name: Deploy verified Repair Center
+    needs: build-and-check
+    if: needs.build-and-check.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: \${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Recheck exact main before deployment
+        env:
+          GH_TOKEN: \${{ github.token }}
+          EXPECTED_SHA: \${{ needs.build-and-check.outputs.main_sha }}
+        run: |
+          set -euo pipefail
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          test "$actual" = "$EXPECTED_SHA" || { echo 'Main advanced before deploy; newer run must publish'; exit 1; }
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  verify-live:
+    name: Prove deployed Repair Center in Chromium
+    needs: [build-and-check, deploy]
+    if: needs.deploy.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact deployed source
+        uses: actions/checkout@v4
+        with:
+          ref: \${{ needs.build-and-check.outputs.main_sha }}
+          persist-credentials: false
+      - name: Install Chromium for real published-website verification
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Verify website version, links, and all synthetic folder cases
+        env:
+          EXPECTED_SHA: \${{ needs.build-and-check.outputs.main_sha }}
+        run: |
+          node scripts/smoke_repair_center.mjs --live \
+            "https://jhfmoon.github.io/MoonDog-Service-OS/" "$EXPECTED_SHA"
