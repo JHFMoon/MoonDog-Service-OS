@@ -121,10 +121,10 @@ class FakeDirectory {
  async *values(){for(const entry of this.entriesMap.values())yield entry;}
  async removeEntry(name){if(!this.entriesMap.delete(name))throw missing();}
 }
-function load(parent,confirm=()=>true){
+function load(parent,showDirectoryPicker=async()=>parent){
  const context={
    crypto:crypto.webcrypto,TextDecoder,TextEncoder,Blob,DecompressionStream,
-   confirm,showDirectoryPicker:async()=>parent
+   confirm:()=>{throw Error("Redundant confirmation");},showDirectoryPicker
  };
  vm.runInNewContext(source,context,{filename:"fresh-install-writer.js"});
  return context.MoonDogFreshInstall;
@@ -213,11 +213,11 @@ test("unverified and malformed archives do not create anything",async()=>{
    assert.equal(parent.shared.writes,0);
  }
 });
-test("declined installation and denied permissions never write a file",async()=>{
+test("cancelled folder picker and denied permissions never write a file",async()=>{
  const fixture=makeZip();
  let parent=new FakeDirectory("Synthetic Parent");
- let out=await load(parent,()=>false).install(installOptions(fixture));
- assert.equal(out.status,"cancelled");assert.equal(parent.entriesMap.size,0);
+ await assert.rejects(load(parent,async()=>{throw Error("Synthetic picker cancelled");}).install(installOptions(fixture)),/Synthetic picker cancelled/);
+ assert.equal(parent.entriesMap.size,0);
  parent=new FakeDirectory("Synthetic Parent",{writes:0,permission:"denied"});
  await assert.rejects(load(parent).install(installOptions(fixture)),/Write access was not granted/);
  assert.equal(parent.entriesMap.size,0);
@@ -248,6 +248,9 @@ test("website keeps verification, manual fallback and the in-app Guided Setup bo
  assert.match(html,/Extract All/);
  assert.match(html,/Complete <strong>Guided Setup<\/strong>/);
  assert.match(html,/Settings → System Updates/);
+ assert.match(html,/After Guided Setup, before normal use/);
+ assert.match(html,/Optional: check the installation if MoonDog won't open/);
+ assert.doesNotMatch(html,/class="button" href="\.\/check-installation\.html"/);
  assert.match(html,/validated SAPR report from that same store/);
  assert.doesNotMatch(source,/\bfetch\s*\(|\bXMLHttpRequest\b|\bsendBeacon\b/);
  assert.doesNotMatch(source,/getFileHandle\("settings\.json".*\{create:true/);
@@ -278,7 +281,7 @@ function websiteHarness(fixture,options={}) {
  const context={
   crypto:crypto.webcrypto,TextDecoder,TextEncoder,Blob,DecompressionStream,
   window:{showDirectoryPicker:directoryPicker},
-  showDirectoryPicker:directoryPicker,confirm:()=>true,
+  showDirectoryPicker:directoryPicker,confirm:()=>{throw Error("Unexpected second confirmation");},
   navigator:{userAgent:"Windows NT 10.0; Microsoft Edge"},
   document:{getElementById:id=>{
     const element=nodes.get(id);
@@ -308,7 +311,7 @@ function selectedZip(fixture) {
   arrayBuffer:async()=>Uint8Array.from(fixture.bytes).buffer};
 }
 
-test("website consent, official hash, and install button create one verified new store; never overwrite on retry",async()=>{
+test("website consent, automatic official hash, and install click create a verified new store; never overwrite on retry",async()=>{
  const fixture=makeZip(),ui=websiteHarness(fixture);
  await ui.flush();
  assert.equal(ui.el("zipFile").disabled,true,"a new store must explicitly consent first");
@@ -321,7 +324,7 @@ test("website consent, official hash, and install button create one verified new
  ui.el("zipFile").files=[selectedZip(fixture)];
  await ui.fire("zipFile","change");
  assert.equal(ui.el("verify").disabled,false);
- await ui.fire("verify","click");
+ 
  assert.equal(ui.el("finish").hidden,false);
  assert.equal(ui.el("autoInstall").disabled,false);
  assert.match(ui.el("verifyResult").textContent,/VERIFIED/);
@@ -352,12 +355,12 @@ test("website rejects a changed ZIP and a denied parent without presenting setup
  ui.el("freshConfirm").checked=true;await ui.fire("freshConfirm","change");
  const alternate=makeZip({"System Files/unlisted.txt":b("synthetic unauthorized")});
  ui.el("zipFile").files=[selectedZip(alternate)];await ui.fire("zipFile","change");
- await ui.fire("verify","click");
+ 
  assert.equal(ui.el("autoInstall").disabled,true);
  assert.equal(ui.el("finish").hidden,true);
  assert.equal(parent.shared.writes,0);
  ui.el("zipFile").files=[selectedZip(fixture)];await ui.fire("zipFile","change");
- await ui.fire("verify","click");
+ 
  assert.equal(ui.el("autoInstall").disabled,false);
  await ui.fire("autoInstall","click");
  assert.match(ui.el("installResult").textContent,/Write access was not granted/);
@@ -368,6 +371,27 @@ test("website rejects a changed ZIP and a denied parent without presenting setup
  await ui.fire("autoInstall","click");
  assert.match(ui.el("installResult").textContent,/INSTALLED AND VERIFIED/);
  assert.equal(parent.entriesMap.size,1);
+});
+
+test("rapid ZIP reselection cannot accept an earlier completed hash",async()=>{
+ const fixture=makeZip(),ui=websiteHarness(fixture);
+ await ui.flush();
+ ui.el("freshConfirm").checked=true;await ui.fire("freshConfirm","change");
+ let resolveFirst;
+ const slow={...selectedZip(fixture),arrayBuffer:()=>new Promise(resolve=>{resolveFirst=resolve;})};
+ ui.el("zipFile").files=[slow];
+ const oldCheck=ui.fire("zipFile","change");
+ assert.equal(ui.el("autoInstall").disabled,true);
+ const altered=makeZip({"System Files/unapproved.txt":b("synthetic mismatched ZIP")});
+ ui.el("zipFile").files=[selectedZip(altered)];
+ await ui.fire("zipFile","change");
+ assert.equal(ui.el("autoInstall").disabled,true);
+ assert.equal(ui.el("finish").hidden,true);
+ resolveFirst(Uint8Array.from(fixture.bytes).buffer);
+ await oldCheck;
+ assert.equal(ui.el("autoInstall").disabled,true,"a stale matching hash must not unlock installation");
+ assert.equal(ui.el("finish").hidden,true);
+ assert.equal(ui.parent.entriesMap.size,0);
 });
 
 test("website cannot offer an unverified release when official metadata fails",async()=>{

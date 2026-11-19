@@ -45,6 +45,9 @@ test("fresh install is explicitly a new-store-only Stable flow, never an overwri
   assert.match(fresh,/id="download" class="button hidden"/);
   assert.match(fresh,/id="zipFile"[^>]*type="file"[^>]*disabled/);
   assert.match(fresh,/id="verify" disabled/);
+ assert.match(fresh,/verify it automatically/);
+ assert.match(fresh,/zip.addEventListener\("change",async\(\)=>/);
+ assert.match(fresh,/verify.addEventListener\("click",verifySelectedZip\)/);
   assert.match(fresh,/id="finish" class="card" hidden/);
   assert.match(fresh,/Extract All/);
   assert.match(fresh,/Complete.*Guided Setup/);
@@ -71,7 +74,7 @@ test("recovery help always separates new install, repair and blocked Workspace r
   assert.doesNotThrow(()=>new vm.Script(recoverySource));
 });
 
-test("new-install verification gates completion on matching approved ZIP digest",async()=>{
+test("automatic new-install verification gates completion on matching approved ZIP digest",async()=>{
   const crypto=require("node:crypto").webcrypto;
   const bytes=new TextEncoder().encode("SYNTHETIC ZIP BYTES FOR VERIFICATION TEST ONLY");
   const digest=Buffer.from(await crypto.subtle.digest("SHA-256",bytes)).toString("hex");
@@ -98,14 +101,14 @@ test("new-install verification gates completion on matching approved ZIP digest"
   assert.equal(zip.disabled,false);
   assert.equal(download.classList.hiddenState,false);
   zip.files=[{name:"Service-Operations-Dashboard.zip",size:bytes.byteLength,arrayBuffer:async()=>bytes.buffer}];
-  zip.change();
-  await verify.click();
+  await zip.change();
+  
   assert.equal(finish.hidden,false,"matching ZIP allows installation instructions");
   assert.match(status.textContent,/VERIFIED/);
   zip.files=[{name:"Service-Operations-Dashboard.zip",size:6,arrayBuffer:async()=>new TextEncoder().encode("UNSAFE").buffer}];
-  zip.change();
+  await zip.change();
   assert.equal(finish.hidden,true,"file changes hide verified next steps");
-  await verify.click();
+  
   assert.equal(finish.hidden,true,"mismatched ZIP never reveals install steps");
   assert.match(status.textContent,/does not match the official Stable release/);
   confirm.checked=false;confirm.change();

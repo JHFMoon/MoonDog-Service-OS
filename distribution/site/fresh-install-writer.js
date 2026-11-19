@@ -311,10 +311,8 @@
       fail("The selected folder looks like an existing MoonDog or private Workspace. Choose its parent instead.");
     if(await hasFolder(parent,name) || await hasFile(parent,name))
       fail("That installation folder already exists. No files were changed. Choose a different new folder name.");
-    if(typeof root.confirm!=="function" || !root.confirm(
-      "Create a brand-new MoonDog "+version+" folder named \""+name+"\" inside \""+
-      String(parent.name||"the selected location")+"\"? Existing folders will not be changed."))
-      return {status:"cancelled"};
+    // The page already requires new-store consent and an explicit create click.
+    // A second confirmation is redundant; the picker and no-overwrite guards remain.
     status("Verifying the official ZIP and its application file inventory…");
     const buffer=await file.arrayBuffer();
     const packageData=await inspectVerifiedZip(buffer,sha256,version);
