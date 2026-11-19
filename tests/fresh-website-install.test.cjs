@@ -149,6 +149,23 @@ test("fresh install creates a separate complete verifiable folder, preserving un
  assert.match(progress.at(-1),/Verified installation created/);
  assert.equal(parent.entriesMap.size,1,"no files installed outside the one requested child");
 });
+test("two new store folders remain separate even under one selected parent",async()=>{
+ const parent=new FakeDirectory("Workspace"),api=load(parent),fixture=makeZip();
+ const first=await api.install(installOptions(fixture,{folderName:"MoonDog Store A"}));
+ const second=await api.install(installOptions(fixture,{folderName:"MoonDog Store B"}));
+ assert.equal(first.status,"installed");assert.equal(second.status,"installed");
+ assert.equal(parent.entriesMap.size,2);
+ const a=await parent.getDirectoryHandle("MoonDog Store A");
+ const b=await parent.getDirectoryHandle("MoonDog Store B");
+ assert.notStrictEqual(a,b);
+ const fileA=await a.getFileHandle("00 - OPEN DASHBOARD.html");
+ const fileB=await b.getFileHandle("00 - OPEN DASHBOARD.html");
+ const beforeB=Buffer.from(fileB.bytes);
+ fileA.bytes=new Uint8Array([1,2,3]);
+ assert.deepEqual(Buffer.from(fileB.bytes),beforeB,
+   "changing one synthetic installation cannot mutate the other");
+ assert.equal((await b.getDirectoryHandle("System Files")).entriesMap.has("Workspace"),true);
+});
 test("existing installation folder is never overwritten, even when empty or name is reused",async()=>{
  const parent=new FakeDirectory("Synthetic Parent"),api=load(parent),fixture=makeZip();
  const original=await parent.getDirectoryHandle("MoonDog Synthetic Store",{create:true});
