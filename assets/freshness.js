@@ -147,9 +147,14 @@
       },
       importDates=[...new Set(saved.map(verifiedImportDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort(),
       reportDates=[...new Set(eligible.filter(item=>item.reportObservationVerified===true).map(item=>item.reportObservationDate))].sort();
-    const responseDates=[...new Set(Object.values(surveys).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
-    const advisorResponseDates=[...new Set(Object.values(surveys).filter(item=>item.advisorCode).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
-    const unmappedAdvisorResponses=Object.values(surveys).filter(item=>validDateKey(item.surveyDate)&&(!today||item.surveyDate<=today)&&!item.advisorCode).length;
+    // Persisted survey maps can contain malformed rows after an interrupted or
+    // partial read. Ignore only those rows; never lose valid dated responses.
+    const surveyRows=surveys&&typeof surveys==="object"
+      ? Object.values(surveys).filter(item=>item&&typeof item==="object"&&!Array.isArray(item))
+      : [];
+    const responseDates=[...new Set(surveyRows.map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
+    const advisorResponseDates=[...new Set(surveyRows.filter(item=>item.advisorCode).map(item=>item.surveyDate).filter(date=>validDateKey(date)&&(!today||date<=today)))].sort();
+    const unmappedAdvisorResponses=surveyRows.filter(item=>validDateKey(item.surveyDate)&&(!today||item.surveyDate<=today)&&!item.advisorCode).length;
     const scopes=eligible.filter(item=>item.scopeVerified===true)
       .sort((a,b)=>a.scopeEnd.localeCompare(b.scopeEnd));
     return {reportDates,importDates,responseDates,advisorResponseDates,unmappedAdvisorResponses,lastReportObservation:reportDates.at(-1)||'',lastImportDate:importDates.at(-1)||'',lastResponseEvent:responseDates.at(-1)||'',verifiedScope:scopes.at(-1)||null,missingDates:[]};
