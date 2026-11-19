@@ -31,8 +31,12 @@ function crc32(data) {
  }
  return (crc^0xffffffff)>>>0;
 }
-function makeZip(extraFiles={},omitDirectory="") {
- const inventory=Object.entries(zipData).map(([name,data])=>({
+function makeZip(extraFiles={},omitDirectory="",originalStableLayout=false) {
+ // The original immutable Stable 0.10.17 builder predates the optional root index.html.
+ const packageFiles=originalStableLayout
+   ? Object.fromEntries(Object.entries(zipData).filter(([name])=>name!=="index.html"))
+   : zipData;
+ const inventory=Object.entries(packageFiles).map(([name,data])=>({
    path:name,size:data.byteLength,sha256:sha(data)
  }));
  const manifest={
@@ -45,7 +49,7 @@ function makeZip(extraFiles={},omitDirectory="") {
  const entries=[
    {name:PREFIX,bytes:Buffer.alloc(0)},
    ...DIRS.filter(x=>x!==omitDirectory).map(name=>({name:PREFIX+name,bytes:Buffer.alloc(0)})),
-   ...Object.entries({...zipData,...extraFiles}).map(([name,bytes])=>({name:PREFIX+name,bytes})),
+   ...Object.entries({...packageFiles,...extraFiles}).map(([name,bytes])=>({name:PREFIX+name,bytes})),
    {name:PREFIX+"INSTALLATION-MANIFEST.json",bytes:b(JSON.stringify(manifest))}
  ];
  const locals=[],centrals=[];let offset=0;
@@ -89,6 +93,8 @@ class FakeFile {
      close:async()=>{
        if(staged===null)throw Error("nothing written");
        this.bytes=staged;this.dir.shared.writes++;
+       if(typeof this.dir.shared.afterClose==="function")
+         await this.dir.shared.afterClose(this.name,this.dir);
      },
      abort:async()=>{}
    };
@@ -438,4 +444,70 @@ test("production-built full software ZIP installs into two isolated synthetic st
  }finally{
   fs.rmSync(tmp,{recursive:true,force:true});
  }
+});
+
+test("new installation refuses a foreign file added after the initial empty-folder check",async()=>{
+ const foreign=b("SYNTHETIC FOREIGN FILE: PRESERVE ORIGINAL BYTES"),fixture=makeZip();
+ const parent=new FakeDirectory("Synthetic Parent",{writes:0,permission:"granted",afterClose:async(name,dir)=>{
+   if(name==="MOONDOG-INSTALL-INCOMPLETE.txt"){
+     const pending=await dir.getFileHandle("index.html",{create:true});
+     pending.bytes=new Uint8Array(foreign);
+   }
+ }});
+ await assert.rejects(load(parent).install(installOptions(fixture)),/unexpected|appeared|already exists/i,
+  "a different writer adding an approved-name file must stop before overwrite");
+ const installed=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ const original=await installed.getFileHandle("index.html");
+ assert.deepEqual(Buffer.from(original.bytes),foreign,"never replace another writer's file");
+ assert.equal(installed.entriesMap.has("INSTALLATION-MANIFEST.json"),false);
+ assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
+});
+
+test("new installation detects an unlisted synthetic entry inserted during package writing",async()=>{
+ const foreign=b("SYNTHETIC EXTERNAL FILE: DO NOT DELETE"),fixture=makeZip();
+ const parent=new FakeDirectory("Synthetic Parent",{writes:0,permission:"granted",afterClose:async(name,dir)=>{
+   if(name==="00 - OPEN DASHBOARD.html"){
+     const unexpected=await dir.getFileHandle("SYNTHETIC-EXTERNAL.txt",{create:true});
+     unexpected.bytes=new Uint8Array(foreign);
+   }
+ }});
+ await assert.rejects(load(parent).install(installOptions(fixture)),/unexpected|appeared|unapproved/i,
+  "an extra file in an otherwise fresh root must prevent a verified-complete claim");
+ const installed=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ assert.deepEqual(Buffer.from((await installed.getFileHandle("SYNTHETIC-EXTERNAL.txt")).bytes),foreign);
+ assert.equal(installed.entriesMap.has("INSTALLATION-MANIFEST.json"),false);
+ assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
+});
+
+test("original immutable Stable layout may omit root index.html while retaining verified launcher and app entry",async()=>{
+ const fixture=makeZip({},"",true);
+ assert.equal(fixture.manifest.files.some(file=>file.path==="index.html"),false);
+ const parent=new FakeDirectory("Synthetic Parent");
+ const result=await load(parent).install(installOptions(fixture,{folderName:"Legacy Stable New Store"}));
+ assert.equal(result.status,"installed");
+ const root=await parent.getDirectoryHandle("Legacy Stable New Store");
+ assert.equal(root.entriesMap.has("index.html"),false,"never synthesize unlisted software");
+ assert.equal(root.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),false);
+ assert.ok(await root.getFileHandle("00 - OPEN DASHBOARD.html"));
+ const system=await root.getDirectoryHandle("System Files");
+ assert.ok(await system.getFileHandle("index.html"));
+ assert.ok(await root.getFileHandle("INSTALLATION-MANIFEST.json"));
+ const workspace=await system.getDirectoryHandle("Workspace");
+ assert.equal(workspace.entriesMap.has("settings.json"),false);
+});
+
+test("final integrity check rejects a previously written approved file changed before commit",async()=>{
+ const foreign=b("SYNTHETIC CONCURRENT REWRITE OF VERIFIED LAUNCHER"),fixture=makeZip();
+ const parent=new FakeDirectory("Synthetic Parent",{writes:0,permission:"granted",afterClose:async(name,dir)=>{
+   if(name==="index.html" && dir.name==="MoonDog Synthetic Store"){
+     const launcher=await dir.getFileHandle("00 - OPEN DASHBOARD.html",{create:false});
+     launcher.bytes=new Uint8Array(foreign); // Not written by installer.
+   }
+ }});
+ await assert.rejects(load(parent).install(installOptions(fixture)),/changed before completion|missing/i);
+ const installed=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ assert.deepEqual(Buffer.from((await installed.getFileHandle("00 - OPEN DASHBOARD.html")).bytes),foreign,
+  "report conflict but never silently replace or remove unrelated concurrent bytes");
+ assert.equal(installed.entriesMap.has("INSTALLATION-MANIFEST.json"),false);
+ assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
 });

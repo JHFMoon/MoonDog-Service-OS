@@ -166,7 +166,10 @@
         fail("A clean package must never contain initialized dealership data.");
       approved.set(name,item);
     }
-    for(const required of ["00 - OPEN DASHBOARD.html","index.html","System Files/index.html",
+    // The original immutable Stable 0.10.17 ZIP has no root index.html bridge.
+    // Only the launcher, application entry, and private Workspace boundary are required.
+    // Do not synthesize unlisted application files during a verified install.
+    for(const required of ["00 - OPEN DASHBOARD.html","System Files/index.html",
       "System Files/Workspace/README.txt"])
       if(!approved.has(required))fail("The package is missing its launcher or private-data boundary.");
     for(const [name,entry] of archive.entries){
@@ -239,7 +242,44 @@
   async function fileHandle(rootDir,path){
     const parts=path.split("/"),name=parts.pop();
     const dir=parts.length?await newDirectory(rootDir,parts.join("/")):rootDir;
+    // A new folder is not exclusive: another tab or sync process may add files
+    // after the initial empty check. Never knowingly replace their bytes.
+    if(await hasFile(dir,name) || await hasFolder(dir,name))
+      fail("An unexpected file appeared during installation. No existing file was overwritten.");
     return dir.getFileHandle(name,{create:true});
+  }
+  async function assertOnlyApprovedFiles(rootDir,packageData){
+    // Re-read the final tree, not only its names: a concurrent writer can change
+    // a previously verified file while later package members are being written.
+    const expectedFiles=new Map(packageData.files
+      .filter(item=>item.path!=="INSTALLATION-MANIFEST.json")
+      .map(item=>[item.path,item]));
+    const expectedDirs=new Set(packageData.directories);
+    const seenFiles=new Set(),seenDirs=new Set();
+    async function inspect(dir,prefix){
+      for await(const entry of dir.values()){
+        if(!entry || typeof entry.name!=="string")
+          fail("The installation contains an unexpected entry.");
+        const path=prefix+entry.name;
+        if(entry.kind==="directory"){
+          if(!expectedDirs.has(path+"/"))
+            fail("An unapproved directory appeared during installation.");
+          seenDirs.add(path+"/");
+          await inspect(entry,path+"/");
+        }else if(entry.kind==="file"){
+          if(path===MARKER)continue; // Our transient failure marker.
+          const approved=expectedFiles.get(path);
+          if(!approved)fail("An unapproved file appeared during installation.");
+          const read=new Uint8Array(await (await entry.getFile()).arrayBuffer());
+          if(read.length!==approved.bytes.length || await digest(read)!==approved.sha256)
+            fail("An installed application file changed before completion.");
+          seenFiles.add(path);
+        }else fail("The installation contains an unexpected entry.");
+      }
+    }
+    await inspect(rootDir,"");
+    if(seenFiles.size!==expectedFiles.size || seenDirs.size!==expectedDirs.size)
+      fail("An installation file or folder disappeared before completion.");
   }
   async function writeReadBack(rootDir,path,bytes,hash) {
     const file=await fileHandle(rootDir,path);
@@ -299,6 +339,9 @@
         written++;
         status("Installing verified application files: "+written+" of "+(packageData.files.length-1)+"…");
       }
+      // Reject unexpected concurrent additions without reading private file data;
+      // do not commit the manifest for an unrecognized root.
+      await assertOnlyApprovedFiles(destination,packageData);
       const manifest=packageData.files.find(item=>item.path==="INSTALLATION-MANIFEST.json");
       await writeReadBack(destination,manifest.path,manifest.bytes,null);
       await destination.removeEntry(MARKER);
