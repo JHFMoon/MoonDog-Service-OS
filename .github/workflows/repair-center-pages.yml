@@ -31,20 +31,20 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      GH_TOKEN: \${{ github.token }}
-      EXPECTED_SHA: \${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-      TRIGGER_HEAD_SHA: \${{ github.event.workflow_run.head_sha }}
-      TRIGGER_HEAD_BRANCH: \${{ github.event.workflow_run.head_branch }}
-      TRIGGER_EVENT: \${{ github.event.workflow_run.event }}
-      TRIGGER_CONCLUSION: \${{ github.event.workflow_run.conclusion }}
-      TRIGGER_NAME: \${{ github.event.workflow_run.name }}
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      TRIGGER_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      TRIGGER_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+      TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
+      TRIGGER_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      TRIGGER_NAME: ${{ github.event.workflow_run.name }}
     outputs:
-      main_sha: \${{ steps.identity.outputs.main_sha }}
+      main_sha: ${{ steps.identity.outputs.main_sha }}
     steps:
       - name: Check out exact triggering main commit (no write credentials)
         uses: actions/checkout@v4
         with:
-          ref: \${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -140,12 +140,12 @@ jobs:
     timeout-minutes: 15
     environment:
       name: github-pages
-      url: \${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Recheck exact main before deployment
         env:
-          GH_TOKEN: \${{ github.token }}
-          EXPECTED_SHA: \${{ needs.build-and-check.outputs.main_sha }}
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ needs.build-and-check.outputs.main_sha }}
         run: |
           set -euo pipefail
           actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
@@ -164,7 +164,7 @@ jobs:
       - name: Check out exact deployed source
         uses: actions/checkout@v4
         with:
-          ref: \${{ needs.build-and-check.outputs.main_sha }}
+          ref: ${{ needs.build-and-check.outputs.main_sha }}
           persist-credentials: false
       - name: Install Chromium for real published-website verification
         run: |
@@ -172,7 +172,7 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Verify website version, links, and all synthetic folder cases
         env:
-          EXPECTED_SHA: \${{ needs.build-and-check.outputs.main_sha }}
+          EXPECTED_SHA: ${{ needs.build-and-check.outputs.main_sha }}
         run: |
           node scripts/smoke_repair_center.mjs --live \
             "https://jhfmoon.github.io/MoonDog-Service-OS/" "$EXPECTED_SHA"
