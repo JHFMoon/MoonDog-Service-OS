@@ -495,3 +495,19 @@ test("original immutable Stable layout may omit root index.html while retaining 
  const workspace=await system.getDirectoryHandle("Workspace");
  assert.equal(workspace.entriesMap.has("settings.json"),false);
 });
+
+test("final integrity check rejects a previously written approved file changed before commit",async()=>{
+ const foreign=b("SYNTHETIC CONCURRENT REWRITE OF VERIFIED LAUNCHER"),fixture=makeZip();
+ const parent=new FakeDirectory("Synthetic Parent",{writes:0,permission:"granted",afterClose:async(name,dir)=>{
+   if(name==="index.html" && dir.name==="MoonDog Synthetic Store"){
+     const launcher=await dir.getFileHandle("00 - OPEN DASHBOARD.html",{create:false});
+     launcher.bytes=new Uint8Array(foreign); // Not written by installer.
+   }
+ }});
+ await assert.rejects(load(parent).install(installOptions(fixture)),/changed before completion|missing/i);
+ const installed=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ assert.deepEqual(Buffer.from((await installed.getFileHandle("00 - OPEN DASHBOARD.html")).bytes),foreign,
+  "report conflict but never silently replace or remove unrelated concurrent bytes");
+ assert.equal(installed.entriesMap.has("INSTALLATION-MANIFEST.json"),false);
+ assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
+});
