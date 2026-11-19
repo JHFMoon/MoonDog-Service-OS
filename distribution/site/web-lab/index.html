@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<link rel="manifest" href="./app.webmanifest"><link rel="icon" href="./icon.svg" type="image/svg+xml"><link rel="stylesheet" href="./style.css">
+<title>MoonDog browser storage feasibility lab</title></head>
+<body><main><h1>MoonDog web-only feasibility lab</h1>
+<p class="warning"><strong>SYNTHETIC TEST ONLY.</strong> This is not the MoonDog dashboard and cannot import dealership reports. Do not put customer, employee, RO, VIN, or other real-store information here.</p>
+<p>This checks whether Edge can keep separate browser-owned test stores without creating a Windows Desktop folder or running an executable.</p>
+<p><strong>Important:</strong> Clearing this website's browser data can permanently erase its local stores. This test is not a backup system.</p>
+<p id="storeCount">Checking browser storage…</p>
+<div class="actions"><button id="create" disabled>Create synthetic test store</button><button id="test" disabled>Verify stored proof</button></div>
+<pre id="status" class="status" role="status" aria-live="polite">Checking secure browser support…</pre>
+<p class="foot">The existing offline MoonDog application and its Workspaces are not changed. A real hosted app requires separate authority, recovery, reporting, and offline acceptance testing.</p>
+</main><script type="module" src="./lab.mjs"></script></body></html>
