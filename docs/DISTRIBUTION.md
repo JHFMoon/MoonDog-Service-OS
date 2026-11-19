@@ -24,13 +24,19 @@ GitHub Actions distribution build
                         v
              end user downloads ZIP
                         |
+                        +--> website verifies exact official Stable SHA-256
+                        |    +--> user chooses parent folder in Edge
+                        |    +--> creates new child; verifies every file readback
+                        |
+                        +--> manual Windows Extract All fallback
+                        |
                         v
          local extracted installation
          System Files/        application
          System Files/Workspace/   private data
 ```
 
-GitHub Pages is a storefront, not a compiler and not an operational service. The ZIP is built in GitHub Actions from the reviewed source/runtime catalog. This prevents a web page from deciding which local or repository files belong in a release.
+GitHub Pages is a storefront and optional **local clean-install assistant**, not a compiler or an operational service. The ZIP is built in GitHub Actions from the reviewed source/runtime catalog. The website can unpack only a user-selected official Stable ZIP whose SHA-256 matches the separately published release metadata and whose internal inventory matches exactly. With a user's explicit Edge directory choice, it writes that approved software into **one new, previously nonexistent child folder**, verifies durable readback, and never adopts or overwrites an existing folder. It neither uploads reports nor generates store data or settings. Manual Windows extraction remains an alternative.
 
 ## Clean-install contract
 
@@ -45,7 +51,9 @@ The ZIP contains:
 
 The ZIP must not contain initialized store settings, report data, customer/RO/VIN content, history, backups, credentials, browser authority identity, or any source-store adapter.
 
-The first installation starts unconfigured. The user chooses the extracted root folder, grants the browser read/write access to it, and completes Guided Setup. All subsequently created operational state belongs to that copy.
+The first installation starts unconfigured. The user can let the website create a brand-new installation folder or extract the official ZIP manually. Inside the installed `file://` application, the user chooses that exact outer root, grants Edge read/write access, and completes the **in-app Guided Setup** for store identity, business time zone and advisors. The public website must not create `settings.json` or infer store-specific data. Missing reports remain unknown until verified imports; an unconfigured installation is not an operationally ready dealership. All subsequently created operational state belongs to that copy.
+
+The website uses only browser File System Access APIs, not a server-side installer. It cannot launch a `file://` application from a hosted HTTPS page; the user opens the generated launcher locally. A write interruption leaves the new folder marked incomplete rather than pretending installation succeeded or silently deleting a partially written folder. An existing target, existing application/Workspace parent, invalid ZIP, denied permission or unsafe inventory blocks creation. No real-store files are touched in automated tests.
 
 ## Third-party browser libraries
 
