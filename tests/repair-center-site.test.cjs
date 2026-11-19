@@ -8,6 +8,8 @@ const vm=require("node:vm");
 const site=path.join(__dirname,"..","distribution","site");
 const landing=fs.readFileSync(path.join(site,"index.html"),"utf8");
 const checker=fs.readFileSync(path.join(site,"check-installation.html"),"utf8");
+const repair=fs.readFileSync(path.join(site,"repair-moondog.html"),"utf8");
+const approvedRepair=fs.readFileSync(path.join(__dirname,"..","repair-moondog.html"),"utf8");
 const match=checker.match(/<script>([\s\S]*?)<\/script>/);
 assert.ok(match,"read-only checker script is present");
 const source=match[1];
@@ -25,6 +27,19 @@ test("homepage has one safe first action and essential progressive help",()=>{
   assert.match(landing,/id="releaseMeta"/);
   assert.match(landing,/aria-live="polite"/);
   assert.match(landing,/focus-visible/);
+});
+
+
+test("public one-click repair is byte-identical to the reviewed source, not a substitute tool",()=>{
+  assert.equal(repair,approvedRepair,"Never publish a modified or stale repair engine");
+  assert.match(repair,/MoonDogPackageVerification/);
+  assert.match(repair,/MoonDogUpdateInstall/);
+  assert.match(repair,/showDirectoryPicker\(\{mode:"readwrite"/);
+  assert.match(repair,/global\.confirm\(/);
+  assert.match(landing,/href="\.\/repair-moondog\.html">Get verified repair tool/);
+  assert.match(checker,/href="\.\/repair-moondog\.html">Get verified repair tool/);
+  assert.doesNotMatch(landing,/github\.com\/JHFMoon\/MoonDog-Service-OS\/blob\/main\/repair-moondog\.html/);
+  assert.doesNotMatch(checker,/Download raw file/);
 });
 
 test("checker labels safe read-only action, hides technical details, and shows contextual next step",()=>{
