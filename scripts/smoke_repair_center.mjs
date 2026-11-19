@@ -25,7 +25,28 @@ try {
   page.setDefaultTimeout(15000);
   const issues = [];
   page.on("pageerror", error => issues.push(String(error)));
-  await page.goto(base, { waitUntil: "load" });
+  if (siteBase) {
+    assert.match(expectedSha ?? "", /^[0-9a-f]{40}$/);
+    // GitHub Pages CDN propagation may lag the successful deploy action.
+    // Require an exact SHA rather than mistaking a stale 200 response for success.
+    let verified = false;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      try {
+        const response = await page.request.get(
+          new URL("site-version.json?verify=" + expectedSha + "-" + attempt, siteBase).href,
+          { headers: { "Cache-Control": "no-cache" }, timeout: 10000 }
+        );
+        if (response.status() === 200) {
+          const metadata = await response.json();
+          verified = metadata.mainSha === expectedSha && /^\d+\.\d+\.\d+$/.test(metadata.stableVersion ?? "");
+        }
+      } catch (_) { /* Retry only an unchanged, newly deployed public site. */ }
+      if (verified) break;
+      await new Promise(resolve => setTimeout(resolve, 10000));
+    }
+    assert.ok(verified, "Live site-version.json never matched the exact deployed main SHA");
+  }
+  await page.goto(siteBase ? base + "?verified=" + expectedSha : base, { waitUntil: "load" });
   assert.match(await page.title(), /MoonDog Repair Center/);
   assert.match(await page.locator("h1").innerText(), /Fix your dashboard/);
   assert.match(await page.locator("h1").innerText(), /Keep your data/);
@@ -35,14 +56,7 @@ try {
   assert.match(await repair.getAttribute("href"), /^https:\/\/github\.com\/JHFMoon\/MoonDog-Service-OS\/blob\/main\/repair-moondog\.html$/);
   assert.equal(issues.length, 0, "Landing page JavaScript must not throw");
   if (siteBase) {
-    assert.match(expectedSha ?? "", /^[0-9a-f]{40}$/);
-    const response = await page.request.get(new URL("site-version.json?verify=" + expectedSha, siteBase).href, {
-      headers: { "Cache-Control": "no-cache" }
-    });
-    assert.equal(response.status(), 200, "Live deployment metadata must be public");
-    const metadata = await response.json();
-    assert.equal(metadata.mainSha, expectedSha, "Live site must match exact deployed main SHA");
-    assert.match(metadata.stableVersion, /^\d+\.\d+\.\d+$/);
+
     await page.waitForFunction(() => document.getElementById("releaseMeta")?.textContent?.startsWith("Stable "), null, {timeout:15000});
     assert.match(await page.locator("#releaseMeta").innerText(), /ZIP SHA-256 [a-f0-9]{64}/);
   }
@@ -103,7 +117,7 @@ try {
         }
       });
     }, { scenario });
-    await p.goto(checkerUrl, { waitUntil: "load" });
+    await p.goto(siteBase ? checkerUrl + "?verified=" + expectedSha : checkerUrl, { waitUntil: "load" });
     await p.getByRole("button", { name: "Choose folder and check" }).click();
     const result = await p.locator("#result").innerText();
     const expected = {
