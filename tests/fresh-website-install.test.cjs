@@ -175,7 +175,7 @@ test("existing installation folder is never overwritten, even when empty or name
 });
 test("private Workspace or existing app root cannot be selected as installation parent",async()=>{
  const fixture=makeZip();
- for(const mode of ["workspace","app","partial-app","partial-workspace"]){
+ for(const mode of ["workspace","app","partial-app","partial-workspace","data-settings"]){
    const parent=new FakeDirectory("Synthetic "+mode);
    if(mode==="workspace" || mode==="partial-workspace"){
      await parent.getDirectoryHandle("data",{create:true});
@@ -183,6 +183,9 @@ test("private Workspace or existing app root cannot be selected as installation 
    }else if(mode==="partial-app"){
      const system=await parent.getDirectoryHandle("System Files",{create:true});
      await system.getDirectoryHandle("Workspace",{create:true});
+   }else if(mode==="data-settings"){
+     const data=await parent.getDirectoryHandle("data",{create:true});
+     await data.getFileHandle("settings.json",{create:true});
    }else await parent.getFileHandle("00 - OPEN DASHBOARD.html",{create:true});
    await assert.rejects(load(parent).install(installOptions(fixture)),/existing MoonDog or private Workspace/);
    assert.equal(parent.shared.writes,0);
