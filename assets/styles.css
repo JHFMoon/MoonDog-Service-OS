@@ -19,3 +19,16 @@ main .view :is(h1,h2,h3,p,small,span,strong,button,label){
   .top-actions button{max-width:100%;white-space:normal}
 }
 /* Beta pipeline smoke test (#799): intentionally no visual or behavioral change. */
+
+
+/* Beginner-friendly navigation and folder connection help.
+   The hidden Home label is intentionally in textContent: legacy navigation
+   uses the selected button's text to populate the current page heading. */
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+.connection-help{max-width:880px;margin:10px 0 18px;background:#fff;border:1px solid #cddde7;border-radius:12px;color:#172f3b}
+.connection-help summary{cursor:pointer;display:list-item;padding:12px 16px;font-weight:750;min-height:46px}
+.connection-help summary:hover{background:#eff5f8;border-radius:12px}
+.connection-help[open] summary{border-bottom:1px solid #dbe5eb;border-radius:12px 12px 0 0}
+.connection-help-body{padding:2px 16px 13px;line-height:1.55}
+.connection-help-body p{margin:10px 0}
+.connection-help-body code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.94em;overflow-wrap:anywhere;background:#eff4f7;border-radius:4px;padding:2px 4px}
