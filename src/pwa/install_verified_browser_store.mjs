@@ -201,6 +201,26 @@ export async function inspectVerifiedBrowserInstallation({storage,crypto,storeId
   }
   if(!listed.has('System Files/index.html')||!listed.has('00 - OPEN DASHBOARD.html'))
     fail('Trusted app launcher or entry is missing.');
+  // Unknown executable/application files are not harmless. Inspect only public
+  // application names; never enumerate report bytes or operational Workspace.
+  const allowedFiles=new Set([STORE,APPLICATION,...listed.keys()]);
+  async function scanApplication(folder,prefix=''){
+    for await(const [name,handle] of folder.entries()){
+      const path=prefix+name;
+      if(path==='System Files/Workspace'){
+        if(handle.kind!=='directory')fail('Protected Workspace layout changed.');
+        continue; // No operational file enumeration.
+      }
+      if(handle.kind==='file'){
+        if(!allowedFiles.has(path))fail('Unapproved browser application file appeared: '+path);
+      }else if(handle.kind==='directory'){
+        if(![...allowedFiles].some(p=>p.startsWith(path+'/')))
+          fail('Unexpected browser application directory appeared: '+path);
+        await scanApplication(handle,path+'/');
+      }else fail('Unknown browser application filesystem entry.');
+    }
+  }
+  await scanApplication(store);
   let verified=0;
   for(const [path,item] of listed){
     const bytes=await read(store,path);

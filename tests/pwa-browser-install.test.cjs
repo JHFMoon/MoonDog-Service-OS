@@ -135,3 +135,11 @@ test('untrusted browser manifest hash cannot enable a store',async()=>{
  const s=storage(),x=await create(s);await install(s,x.identity.storeId);
  await assert.rejects((await modulePromise).inspectVerifiedBrowserInstallation({storage:s,crypto:webcrypto,storeId:x.identity.storeId,version:'0.10.17',expectedManifestHash:'0'.repeat(64)}),/differs/);
 });
+
+test('unlisted application file discovered after restart blocks verification',async()=>{
+ const s=storage(),x=await create(s);await install(s,x.identity.storeId);
+ const manifest=await x.store.getFileHandle('INSTALLATION-MANIFEST.json'),expected=await hash(manifest.bytes);
+ const assets=await x.store.getDirectoryHandle('System Files').then(d=>d.getDirectoryHandle('assets'));
+ assets.map.set('unapproved.js',new File('unapproved.js',bytes('not official')));
+ await assert.rejects((await modulePromise).inspectVerifiedBrowserInstallation({storage:s,crypto:webcrypto,storeId:x.identity.storeId,version:'0.10.17',expectedManifestHash:expected}),/Unapproved browser application/);
+});
