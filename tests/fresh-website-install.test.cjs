@@ -194,6 +194,7 @@ test("unverified and malformed archives do not create anything",async()=>{
    {...fixture,hash:"f".repeat(64)},
    makeZip({"System Files/Workspace/data/settings.json":b("Synthetic forbidden initialized state")}),
    makeZip({"System Files/extra-unknown.js":b("Unlisted software file")}),
+   makeZip({"System Files/../Outside.txt":b("Attempted traversal")}),
    makeZip({},"System Files/Workspace/backups/")
  ];
  for(const data of badCases){
