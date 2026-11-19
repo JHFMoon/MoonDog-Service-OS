@@ -49,10 +49,10 @@ test("Stable version metadata is not promoted by site publishing change", () => 
 
 test("Pages browser smoke remains required on supported Ubuntu 24.04", () => {
   const publish = between("  publish:", "  deploy-pages:");
-  assert.match(publish, /runs-on: ubuntu-24\\.04/);
-  assert.match(publish, /npm install --no-save --no-package-lock playwright@1\\.55\\.0/);
-  assert.match(publish, /npx playwright install --with-deps chromium/);
-  assert.match(publish, /node scripts\\/smoke_distribution\\.mjs/);
-  assert.match(publish, /- name: Re-run public safety checks/);
-  assert.match(publish, /git checkout --detach "\\$TAG"/);
+  assert.ok(publish.includes("runs-on: ubuntu-24.04"));
+  assert.ok(publish.includes("npm install --no-save --no-package-lock playwright@1.55.0"));
+  assert.ok(publish.includes("npx playwright install --with-deps chromium"));
+  assert.ok(publish.includes("node scripts/smoke_distribution.mjs"));
+  assert.ok(publish.includes("- name: Re-run public safety checks"));
+  assert.ok(publish.includes('git checkout --detach "$TAG"'));
 });
