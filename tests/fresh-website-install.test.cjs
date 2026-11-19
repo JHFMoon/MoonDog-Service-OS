@@ -248,6 +248,8 @@ test("website keeps verification, manual fallback and the in-app Guided Setup bo
  assert.match(html,/Extract All/);
  assert.match(html,/Complete <strong>Guided Setup<\/strong>/);
  assert.match(html,/Settings → System Updates/);
+ assert.match(html,/Do not select Desktop itself/);
+ assert.match(html,/Desktop &gt; MoonDog Installations|Desktop > MoonDog Installations/);
  assert.match(html,/After Guided Setup, before normal use/);
  assert.match(html,/Optional: check the installation if MoonDog won't open/);
  assert.doesNotMatch(html,/class="button" href="\.\/check-installation\.html"/);
@@ -277,7 +279,7 @@ function websiteHarness(fixture,options={}) {
   });
  }
  nodes.get("installFolderName").value="MoonDog Synthetic Store";
- const directoryPicker=async()=>parent;
+ const directoryPicker=options.directoryPicker|| (async()=>parent);
  const context={
   crypto:crypto.webcrypto,TextDecoder,TextEncoder,Blob,DecompressionStream,
   window:{showDirectoryPicker:directoryPicker},
@@ -371,6 +373,22 @@ test("website rejects a changed ZIP and a denied parent without presenting setup
  await ui.fire("autoInstall","click");
  assert.match(ui.el("installResult").textContent,/INSTALLED AND VERIFIED/);
  assert.equal(parent.entriesMap.size,1);
+});
+
+test("blocked Desktop choice leaves verified ZIP usable and does not write",async()=>{
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent");
+ const error=new Error("The user aborted a request");error.name="AbortError";
+ const ui=websiteHarness(fixture,{parent,directoryPicker:async()=>{throw error;}});
+ await ui.flush();
+ ui.el("freshConfirm").checked=true;await ui.fire("freshConfirm","change");
+ ui.el("zipFile").files=[selectedZip(fixture)];await ui.fire("zipFile","change");
+ assert.equal(ui.el("autoInstall").disabled,false);
+ await ui.fire("autoInstall","click");
+ assert.match(ui.el("installResult").textContent,/inside Desktop instead of Desktop itself/);
+ assert.equal(ui.el("autoInstall").disabled,false,"same verified ZIP can retry with a permitted folder");
+ assert.equal(ui.el("installedNext").hidden,true);
+ assert.equal(parent.entriesMap.size,0);
+ assert.equal(parent.shared.writes,0);
 });
 
 test("rapid ZIP reselection cannot accept an earlier completed hash",async()=>{
