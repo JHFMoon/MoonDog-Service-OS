@@ -99,3 +99,27 @@ test("CSI local import history rejects impossible ISO days instead of normalizin
   assert.deepEqual(evidence.reportDates, [],
     "a valid import day is never a verified source observation");
 });
+
+test("CSI trend survives malformed saved survey rows while retaining valid response evidence", () => {
+  const surveys = {
+    mapped: {surveyDate: "2026-10-29", advisorCode: "A"},
+    unmapped: {surveyDate: "2026-10-28"},
+    future: {surveyDate: "2026-11-01"},
+    impossible: {surveyDate: "2026-02-30"},
+    missing: null,
+    undefinedEntry: undefined,
+    textEntry: "2026-10-30",
+    arrayEntry: [{surveyDate: "2026-10-30"}]
+  };
+  const before = JSON.stringify(surveys);
+  const evidence = freshness.csiTrendEvidence({imports: [], surveys, today: "2026-10-30"});
+  assert.deepEqual(evidence.responseDates, ["2026-10-28", "2026-10-29"]);
+  assert.deepEqual(evidence.advisorResponseDates, ["2026-10-29"]);
+  assert.equal(evidence.unmappedAdvisorResponses, 1);
+  assert.equal(evidence.lastResponseEvent, "2026-10-29");
+  assert.deepEqual(evidence.reportDates, [], "survey rows do not create source report observations");
+  assert.equal(JSON.stringify(surveys), before, "malformed survey filtering must not mutate saved data");
+  const absentMap = freshness.csiTrendEvidence({imports: [], surveys: null, today: "2026-10-30"});
+  assert.deepEqual(absentMap.responseDates, []);
+  assert.equal(absentMap.unmappedAdvisorResponses, 0);
+});
