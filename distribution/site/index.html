@@ -29,7 +29,7 @@ p{margin:10px 0 16px}.lead{font-size:clamp(18px,2.1vw,21px);color:#425f6a;max-wi
 .steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 .step{background:white;border:1px solid #d7e2e6;border-radius:17px;padding:23px}
 .num{display:inline-grid;place-items:center;width:37px;height:37px;background:#dceaf0;color:#194e5b;border-radius:10px;font-size:18px;font-weight:850;margin-bottom:16px}
-.step p{margin:0;color:#49646e}
+.step p{margin:0 0 18px;color:#49646e}.step .primary{font-size:15px;line-height:1.3;padding:13px 14px;width:100%;text-align:center;min-height:53px}
 details{background:white;border:1px solid #d7e2e6;border-radius:15px;margin:12px 0;overflow:hidden}
 summary{cursor:pointer;padding:18px 20px;font-weight:800;font-size:17px}
 summary:hover{background:#f7fafb}details[open] summary{border-bottom:1px solid #e3ecee}
@@ -48,20 +48,35 @@ summary:hover{background:#f7fafb}details[open] summary{border-bottom:1px solid #
 <section class="hero" aria-labelledby="headline">
   <div class="eyebrow">Start here · Safe first step</div>
   <h1 id="headline">Fix your dashboard.<br>Keep your data.</h1>
-  <p class="lead">Is MoonDog not opening, missing something, or stuck after an update? We'll guide you through checking it, one step at a time.</p>
-  <div class="trust"><span>✓ No files changed during the check</span><span>✓ No store records uploaded</span><span>✓ Clear next steps</span></div>
-  <a class="primary" href="./check-installation.html">Check my installation</a>
-  <p class="small">Start on the <strong>Windows computer where MoonDog is installed</strong>. Use <strong>Microsoft Edge</strong> (the blue-green “e” browser).</p>
+  <p class="lead">Whether you're starting a new store or fixing an existing MoonDog, choose what you need below. We'll guide you one step at a time.</p>
+  <div class="trust"><span>✓ One store per installation</span><span>✓ Your data stays on your computer</span><span>✓ Clear and safe next steps</span></div>
+  <p class="small">Start on the <strong>Windows computer where MoonDog will be installed or is already saved</strong>. Use <strong>Microsoft Edge</strong> (the blue-green “e” browser).</p>
   <p id="browserNotice" class="notice" hidden><strong>Using a phone or an unsupported browser?</strong> You can read these instructions here, but checking folders requires a compatible browser on the computer with MoonDog installed. Use Microsoft Edge on Windows.</p>
 </section>
 
 <section class="section" aria-labelledby="how">
-  <h2 id="how">Here's what happens</h2>
+  <h2 id="how">What would you like to do?</h2>
   <div class="steps">
-    <div class="step"><span class="num" aria-hidden="true">1</span><h3>Choose MoonDog's folder</h3><p>We'll show you exactly what to look for. You choose it; the website does not search your computer.</p></div>
-    <div class="step"><span class="num" aria-hidden="true">2</span><h3>See a clear result</h3><p>We'll tell you if basic program files are missing or if a previous update needs help.</p></div>
-    <div class="step"><span class="num" aria-hidden="true">3</span><h3>Follow the next step</h3><p>You'll see whether to try an approved software repair or stop and ask for help. No guessing.</p></div>
+    <section class="step">
+      <span class="num" aria-hidden="true">1</span>
+      <h3>Install MoonDog for the first time</h3>
+      <p>Brand-new store with no MoonDog data? Download the official Stable version, verify it, and finish Guided Setup.</p>
+      <a class="primary" href="./fresh-install.html">Start a fresh installation</a>
+    </section>
+    <section class="step">
+      <span class="num" aria-hidden="true">2</span>
+      <h3>Fix my existing MoonDog</h3>
+      <p>MoonDog already exists but won't open or is missing files? Start with a safe, read-only check.</p>
+      <a class="primary" href="./check-installation.html">Check my installation</a>
+    </section>
+    <section class="step">
+      <span class="num" aria-hidden="true">3</span>
+      <h3>MoonDog still won't work</h3>
+      <p>Stuck after an update, missing store information, or moving computers? Find the safest next step.</p>
+      <a class="primary" href="./recovery-help.html">Get safe recovery help</a>
+    </section>
   </div>
+  <p class="small">Not sure which choice fits? If MoonDog has ever stored information for your dealership, choose <strong>Fix my existing MoonDog</strong> or <strong>Recovery help</strong>—never start fresh over that data.</p>
 </section>
 
 <section class="section" id="help" aria-labelledby="questions">
@@ -92,7 +107,7 @@ summary:hover{background:#f7fafb}details[open] summary{border-bottom:1px solid #
   <details>
     <summary>I'm setting up MoonDog for the very first time</summary>
     <div class="detail-body">
-      <p>The repair check is for an <strong>existing installation</strong>. If this is a truly new store with no MoonDog data, use the <a href="https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip">official new-installation download</a>.</p>
+      <p>The repair check is for an <strong>existing installation</strong>. If this is a truly new store with no MoonDog data, use the <a href="./fresh-install.html">guided fresh-installation steps</a> and verify the Stable download before extracting it.</p>
       <p>Do not use a fresh download to replace an existing MoonDog folder or store. Ask your installer if you're unsure.</p>
     </div>
   </details>
@@ -105,7 +120,7 @@ summary:hover{background:#f7fafb}details[open] summary{border-bottom:1px solid #
   <details>
     <summary>Where do I get the approved repair tool?</summary>
     <div class="detail-body">
-      <p><strong>Check the installation first.</strong> If the result says a previous update needs review, do not run a repair tool.</p>
+      <p><strong>Check the installation first.</strong> If the result says a previous update needs review, stop and use <a href="./recovery-help.html">safe recovery help</a>. Do not run a repair tool.</p>
       <p>For a check that reports missing application files but no unresolved recovery problem, open <a href="./repair-moondog.html">Get verified repair tool</a> right here on the MoonDog website. There is <strong>nothing to download from GitHub</strong>. The tool separately checks your installation, offers a <strong>verified Beta software repair</strong>, and asks for your permission before changing any program files.</p>
       <p>If those instructions are unfamiliar, ask your MoonDog support person to guide you. Do not download other files or manually replace folders.</p>
     </div>

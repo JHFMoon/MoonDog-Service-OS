@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Install MoonDog for the first time — MoonDog Setup</title>
+<style>
+:root{font:17px/1.58 system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:#1b343e;background:#f3f6f7}
+*{box-sizing:border-box}body{margin:0}a{color:#174b5e;text-underline-offset:3px}
+a:focus-visible,button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid #e49927;outline-offset:4px}
+.wrap{width:min(850px,100% - 32px);margin:auto}.top{background:#fff;border-bottom:1px solid #d7e2e6}
+.top .wrap{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{font-weight:850;font-size:20px}.brand small{display:block;font-weight:500;font-size:13px;color:#566e78}
+main{padding:32px 0 70px}h1{font-size:clamp(32px,5vw,47px);letter-spacing:-.04em;line-height:1.12;margin:8px 0 16px}
+h2{font-size:25px;letter-spacing:-.02em;margin:0 0 12px;line-height:1.2}
+h3{font-size:20px;margin:9px 0 5px}.lead{font-size:19px;color:#47636e}
+.card{background:white;border:1px solid #d7e3e7;border-radius:19px;padding:clamp(22px,4vw,33px);margin:17px 0}
+.eyebrow{text-transform:uppercase;font-size:13px;letter-spacing:.09em;font-weight:800;color:#4a6978}
+.alert{background:#fff6e6;border:1px solid #ead8aa;border-left:5px solid #ad7b2a;border-radius:0 11px 11px 0;padding:14px 18px;margin:18px 0}
+.safe{background:#e9f5ee;border:1px solid #b9dfc7;border-radius:13px;padding:13px 16px}
+button,.button{font:inherit;background:#164959;border:0;border-radius:12px;min-height:52px;padding:12px 19px;color:#fff!important;font-weight:800;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+button:hover,.button:hover{background:#0d3543}button:disabled{background:#9baeb5;cursor:not-allowed}
+.label{display:block;font-weight:760;margin:10px 0 7px}
+.checkbox{display:flex;align-items:flex-start;gap:12px;background:#eff5f7;border-radius:12px;padding:17px;cursor:pointer;margin:17px 0}
+.checkbox input{margin-top:7px;width:21px;height:21px;flex:none}
+ol{padding-left:25px}li{margin:11px 0}
+.status{padding:14px 16px;margin:15px 0;background:#edf3f5;border-left:5px solid #66828b;border-radius:0 11px 11px 0;white-space:pre-line}
+.status.ok{background:#e7f6ed;border-color:#39855d}.status.error{background:#fff0e8;border-color:#b75d26}
+.file{display:block;margin:12px 0 7px;max-width:100%;font:inherit}
+code{background:#edf3f5;padding:2px 5px;border-radius:5px;overflow-wrap:anywhere}
+details{background:#f8fafb;border:1px solid #dce6e9;border-radius:12px;margin:14px 0}
+summary{cursor:pointer;font-weight:760;padding:13px 16px}.inner{padding:4px 16px 17px}
+.hidden{display:none!important}
+.end{color:#55717b;border-top:1px solid #dce6e9;padding:20px 0 40px;font-size:14px}
+@media(max-width:600px){h2{font-size:22px}main{padding-top:20px}}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap"><div class="brand">MoonDog <small>Setup and Repair Center</small></div><a href="./">Back to choices</a></div></header>
+<main class="wrap">
+<div class="eyebrow">Fresh installation · Step-by-step</div>
+<h1>Set up MoonDog for a brand-new store</h1>
+<p class="lead">Follow these steps on a Windows computer. You won't need to understand computer files to get started. Your store's information stays on that computer.</p>
+<div class="alert"><strong>Already used MoonDog at this store?</strong> Stop here and choose <a href="./check-installation.html">Fix my existing MoonDog</a>. Fresh installation does not recover old work, reports, settings, or backups.</div>
+<section class="card" aria-labelledby="checkHeading">
+<h2 id="checkHeading">1. Confirm this is really a new installation</h2>
+<p>Every dealership needs its <strong>own separate MoonDog folder</strong>. Do not install into a folder that another store already uses.</p>
+<label class="checkbox" for="freshConfirm"><input type="checkbox" id="freshConfirm"><span><strong>This is a brand-new MoonDog installation.</strong> I am not replacing an existing MoonDog installation or trying to recover missing dealership information.</span></label>
+<div id="deviceNotice" class="alert" hidden><strong>Use Windows with Microsoft Edge.</strong> You can read this guide on your phone or Mac, but the tested setup steps and folder permissions target Windows with Edge.</div>
+</section>
+<section class="card" aria-labelledby="downloadHeading">
+<h2 id="downloadHeading">2. Download the official MoonDog software</h2>
+<p>MoonDog's <strong>Stable</strong> version is the recommended starting point for a new store. Do not download the Beta repair tool to create a store.</p>
+<p id="versionStatus" class="status" role="status" aria-live="polite">Checking the official Stable release information…</p>
+<a id="download" class="button hidden" href="https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip" download>Download the official Stable installation</a>
+<p id="downloadHint">Confirm step 1 and allow the release information to load before downloading.</p>
+<p><a href="https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest" rel="noopener">View official release information</a></p>
+</section>
+<section class="card" aria-labelledby="verifyHeading">
+<h2 id="verifyHeading">3. Check your downloaded file</h2>
+<p>This step confirms that the download is complete and matches the official Stable release. It happens <strong>only on your computer</strong>; the ZIP is not uploaded anywhere.</p>
+<label class="label" for="zipFile">Choose the ZIP file you just downloaded (often in Downloads)</label>
+<input id="zipFile" class="file" type="file" accept=".zip,application/zip" disabled>
+<button id="verify" disabled type="button">Verify my download</button>
+<p id="verifyResult" class="status" role="status" aria-live="polite">Download the official ZIP first. Then select it above.</p>
+</section>
+<section id="finish" class="card" hidden aria-labelledby="finishHeading">
+<h2 id="finishHeading">4. Put MoonDog in its own folder</h2>
+<ol>
+<li>On Windows, open <strong>File Explorer</strong> (the yellow folder icon) and go to <strong>Downloads</strong>.</li>
+<li>Find the same ZIP you just verified. Right-click it and select <strong>Extract All…</strong>, then <strong>Extract</strong>. <strong>Do not open MoonDog inside the ZIP.</strong></li>
+<li>Open the extracted folders until you find <strong>Service Operations Dashboard</strong>, containing <strong>00 - OPEN DASHBOARD.html</strong> and <strong>System Files</strong>. (Windows may create one extra outer folder.)</li>
+<li>Move the complete <strong>Service Operations Dashboard</strong> folder into a safe, <strong>new and empty location for this store</strong>. Keep the whole folder together. Never copy it over a previous store's folder.</li>
+</ol>
+<details><summary>Show me the folder I should see</summary><div class="inner">
+<pre>📁 Service Operations Dashboard  ← KEEP THIS WHOLE FOLDER
+  📄 00 - OPEN DASHBOARD.html  ← OPEN THIS FILE
+  📄 INSTALLATION-MANIFEST.json
+  📁 System Files
+    📁 Workspace  ← KEEP THIS PRIVATE</pre>
+<p>The Workspace starts empty. MoonDog creates your store's information during Guided Setup. Don't rename, delete, or merge a previous store's Workspace into this folder.</p></div></details>
+<h2>5. Open MoonDog and finish Guided Setup</h2>
+<ol>
+<li>Double-click <strong>00 - OPEN DASHBOARD.html</strong> inside the extracted folder. Open it in <strong>Microsoft Edge</strong>.</li>
+<li>When MoonDog asks which folder to use, choose that <strong>same outer Service Operations Dashboard folder</strong>—not System Files or Workspace.</li>
+<li>When Edge asks for folder access, choose <strong>Allow</strong> only if it shows the folder you just installed.</li>
+<li>Complete <strong>Guided Setup</strong> with the correct store identity. Do not import reports from a different dealership.</li>
+<li>Keep the installation and backup folders. Use MoonDog's validated Backup &amp; Recovery tools to establish backups before normal operation.</li>
+</ol>
+<p class="safe"><strong>That's it.</strong> Your software is installed when MoonDog opens, Guided Setup completes, and you confirm the correct store.</p>
+<p><a class="button" href="./check-installation.html">Check my installed MoonDog folder</a></p>
+</section>
+<section class="card" aria-labelledby="helpHeading">
+<h2 id="helpHeading">Something doesn't look right?</h2>
+<p>Don't guess or replace existing files. <a href="./recovery-help.html">Choose the problem you're seeing</a> for safe next steps.</p>
+<p>Changing to a new computer? This download creates a <strong>new empty installation</strong>, not a migration of your existing store data. Preserve the old folder and use an authorized migration or recovery process.</p>
+</section>
+</main>
+<footer class="end"><div class="wrap">MoonDog Setup and Repair Center · Installation software is generic; each store's data must remain private and separate.</div></footer>
+<script>
+"use strict";
+const allowedAsset="https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip";
+const confirmBox=document.getElementById("freshConfirm"),download=document.getElementById("download"),hint=document.getElementById("downloadHint");
+const zip=document.getElementById("zipFile"),verify=document.getElementById("verify"),result=document.getElementById("verifyResult");
+const finish=document.getElementById("finish"),versionStatus=document.getElementById("versionStatus");
+let stable=null,verificationEpoch=0,verifying=false;
+function ready(){
+  const enabled=Boolean(stable&&confirmBox.checked);
+  download.classList.toggle("hidden",!enabled);
+  zip.disabled=!enabled;
+  verify.disabled=verifying||!enabled||!zip.files?.length;
+  if(!enabled)finish.hidden=true;
+  hint.textContent=enabled?"Click Download, then select that same ZIP in step 3.": "Confirm step 1 and allow the official release information to load first.";
+}
+function fail(message){result.className="status error";result.textContent=message;finish.hidden=true;}
+confirmBox.addEventListener("change",()=>{verificationEpoch++;if(zip.files?.length)fail("Please verify the ZIP again before continuing.");ready();});
+zip.addEventListener("change",()=>{verificationEpoch++;finish.hidden=true;result.className="status";result.textContent="Ready to verify your selected ZIP. No files have been uploaded.";ready();});
+fetch("./latest.json",{cache:"no-store",credentials:"omit"}).then(r=>r.ok?r.json():Promise.reject(Error("Release metadata unavailable"))).then(data=>{
+  if(!data||!/^\d+\.\d+\.\d+$/.test(data.version||"")||!/^[a-f0-9]{64}$/.test(data.sha256||"")||data.asset!==allowedAsset){
+    throw Error("Release information could not be verified");
+  }
+  stable={version:data.version,sha256:data.sha256};
+  versionStatus.textContent="Official Stable "+stable.version+" found. The download will be verified against its published SHA-256 fingerprint.";
+  versionStatus.className="status ok";
+  download.href=allowedAsset;
+  ready();
+}).catch(()=>{
+  versionStatus.textContent="We could not safely verify the current release. Stop here and try again later. Do not use an unknown or unverified ZIP.";
+  versionStatus.className="status error";
+  stable=null;ready();
+});
+verify.addEventListener("click",async()=>{
+  finish.hidden=true;
+  if(!stable||!confirmBox.checked||zip.disabled||zip.files?.length!==1){fail("Complete steps 1 and 2, then choose the ZIP you downloaded.");return;}
+  const f=zip.files[0];
+  if(!/\.zip$/i.test(f.name)||f.size===0||f.size>256*1024*1024){
+    fail("That does not look like a supported MoonDog ZIP. Choose the official file downloaded in step 2.");return;
+  }
+  const epoch=verificationEpoch,expectedHash=stable.sha256;
+  verifying=true;ready();result.textContent="Verifying the ZIP on this computer. No files are being changed or uploaded…";result.className="status";
+  try{
+    if(!globalThis.crypto?.subtle)throw Error("Secure file verification is not available in this browser");
+    const bytes=await f.arrayBuffer();
+    const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),b=>b.toString(16).padStart(2,"0")).join("");
+    if(epoch!==verificationEpoch||expectedHash!==stable?.sha256||!confirmBox.checked)return;
+    if(hash!==expectedHash){fail("This ZIP does not match the official Stable release. Do not extract or install it. Download again from step 2.");return;}
+    result.className="status ok";
+    result.textContent="VERIFIED — This ZIP matches the official Stable "+stable.version+" release. You can now follow steps 4 and 5 below.";
+    finish.hidden=false;
+  }catch(error){if(epoch===verificationEpoch)fail("The ZIP could not be verified here. Do not install an unverified file. Use current Microsoft Edge on Windows or ask for support.");}
+  finally{verifying=false;ready();}
+});
+if(!/Windows/i.test(navigator.userAgent||"")||typeof window.showDirectoryPicker!=="function"){
+  document.getElementById("deviceNotice").hidden=false;
+}
+ready();
+</script>
+</body>
+</html>
