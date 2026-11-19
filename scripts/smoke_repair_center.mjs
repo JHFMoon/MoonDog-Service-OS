@@ -18,6 +18,9 @@ const base = arg === "--local"
 const checkerUrl = arg === "--local"
   ? pathToFileURL(path.resolve(process.argv[3], "check-installation.html")).href
   : new URL("check-installation.html", base).href;
+const repairUrl = arg === "--local"
+  ? pathToFileURL(path.resolve(process.argv[3], "repair-moondog.html")).href
+  : new URL("repair-moondog.html", base).href;
 const siteBase = arg === "--local" ? null : new URL("./", base).href;
 const browser = await chromium.launch({ headless: true });
 try {
@@ -55,7 +58,7 @@ try {
   assert.equal(await page.getByRole("link", { name: "Check my installation" }).count(), 1, "One primary starting action");
   await page.getByText("Where do I get the approved repair tool?").click();
   const repair = page.getByRole("link", { name: "Get verified repair tool" });
-  assert.match(await repair.getAttribute("href"), /^https:\/\/github\.com\/JHFMoon\/MoonDog-Service-OS\/blob\/main\/repair-moondog\.html$/);
+  assert.equal(await repair.getAttribute("href"), "./repair-moondog.html", "Novices must not have to navigate GitHub");
   assert.ok(await page.getByRole("link", { name: "Check my installation" }).isVisible());
   assert.ok(await page.getByText("I don't know where MoonDog is saved").count(), "Novice folder-help is present");
   assert.equal(issues.length, 0, "Landing page JavaScript must not throw");
@@ -65,6 +68,20 @@ try {
     assert.match(await page.locator("#releaseMeta").textContent(), /ZIP SHA-256 [a-f0-9]{64}/);
   }
   await page.close();
+
+  // The actual approved repair tool must be served from the same public site,
+  // not a confusing developer-download page. Merely opening it must not write.
+  const repairPage = await browser.newPage();
+  const repairErrors = [];
+  repairPage.on("pageerror", err => repairErrors.push(String(err)));
+  const repairResponse = await repairPage.goto(siteBase ? repairUrl + "?verified=" + expectedSha : repairUrl, { waitUntil: "load" });
+  if (siteBase) assert.equal(repairResponse.status(), 200, "Verified repair tool must be publicly reachable");
+  assert.match(await repairPage.title(), /Repair MoonDog/);
+  assert.equal(await repairPage.locator("#repair").isDisabled(), true, "No repair is possible before explicit folder choice");
+  assert.equal(await repairPage.locator("#choose").isEnabled(), true);
+  assert.match(await repairPage.locator("#status").innerText(), /Nothing has changed/);
+  assert.deepEqual(repairErrors, [], "Self-contained repair tool must load without script errors");
+  await repairPage.close();
 
   for (const scenario of ["complete", "missing-journal", "unfinished", "missing-app", "missing-workspace", "unreadable", "wrong-folder", "system-files-only", "no-backups"]) {
     const p = await browser.newPage();
