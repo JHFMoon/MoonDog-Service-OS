@@ -247,3 +247,131 @@ test("website keeps verification, manual fallback and the in-app Guided Setup bo
  assert.doesNotMatch(source,/getFileHandle\("settings\.json".*\{create:true/);
  assert.doesNotThrow(()=>new vm.Script(source));
 });
+
+
+// Exercise the actual website event handlers and ZIP writer together. This is an
+// in-memory DOM integration regression, not a claim of physical Edge field proof.
+function websiteHarness(fixture,options={}) {
+ const parent=options.parent||new FakeDirectory("Synthetic Installation Parent");
+ const nodes=new Map(),events=new Map();
+ const ids=[
+  "freshConfirm","download","downloadHint","zipFile","verify","verifyResult",
+  "finish","versionStatus","autoInstall","installFolderName","installResult",
+  "installedNext","deviceNotice"
+ ];
+ for(const id of ids){
+  nodes.set(id,{
+   id,checked:false,disabled:false,hidden:id==="finish"||id==="installedNext",
+   className:"",textContent:"",value:"",files:[],
+   classList:{toggle:()=>{}},
+   addEventListener:(event,callback)=>events.set(id+":"+event,callback)
+  });
+ }
+ nodes.get("installFolderName").value="MoonDog Synthetic Store";
+ const directoryPicker=async()=>parent;
+ const context={
+  crypto:crypto.webcrypto,TextDecoder,TextEncoder,Blob,DecompressionStream,
+  window:{showDirectoryPicker:directoryPicker},
+  showDirectoryPicker:directoryPicker,confirm:()=>true,
+  navigator:{userAgent:"Windows NT 10.0; Microsoft Edge"},
+  document:{getElementById:id=>{
+    const element=nodes.get(id);
+    if(!element)throw Error("Unrecognized page element: "+id);
+    return element;
+  }},
+  fetch:async()=>({
+   ok:options.metadataValid!==false,
+   json:async()=>({
+    version:"0.10.17",sha256:fixture.hash,
+    asset:"https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip"
+   })
+  })
+ };
+ vm.runInNewContext(source,context,{filename:"fresh-install-writer.js"});
+ const inline=html.match(/<script>\s*([\s\S]*?)<\/script>\s*<\/body>/i);
+ assert.ok(inline,"the actual website handler should be present");
+ vm.runInNewContext(inline[1],context,{filename:"fresh-install.html:inline"});
+ return {
+  parent,el:id=>nodes.get(id),
+  fire:async(id,event)=>{const callback=events.get(id+":"+event);assert.ok(callback,id+" "+event);return callback();},
+  flush:async()=>new Promise(resolve=>setImmediate(resolve))
+ };
+}
+function selectedZip(fixture) {
+ return {name:"Service-Operations-Dashboard.zip",size:fixture.bytes.length,
+  arrayBuffer:async()=>Uint8Array.from(fixture.bytes).buffer};
+}
+
+test("website consent, official hash, and install button create one verified new store; never overwrite on retry",async()=>{
+ const fixture=makeZip(),ui=websiteHarness(fixture);
+ await ui.flush();
+ assert.equal(ui.el("zipFile").disabled,true,"a new store must explicitly consent first");
+ assert.equal(ui.el("autoInstall").disabled,true);
+ assert.equal(ui.parent.shared.writes,0);
+ ui.el("freshConfirm").checked=true;
+ await ui.fire("freshConfirm","change");
+ assert.equal(ui.el("zipFile").disabled,false);
+ assert.equal(ui.el("autoInstall").disabled,true,"choosing a store is not sufficient before verification");
+ ui.el("zipFile").files=[selectedZip(fixture)];
+ await ui.fire("zipFile","change");
+ assert.equal(ui.el("verify").disabled,false);
+ await ui.fire("verify","click");
+ assert.equal(ui.el("finish").hidden,false);
+ assert.equal(ui.el("autoInstall").disabled,false);
+ assert.match(ui.el("verifyResult").textContent,/VERIFIED/);
+ assert.equal(ui.parent.shared.writes,0,"verification must never create files");
+ await ui.fire("autoInstall","click");
+ assert.equal(ui.el("installedNext").hidden,false);
+ assert.match(ui.el("installResult").textContent,/INSTALLED AND VERIFIED/);
+ const installed=await ui.parent.getDirectoryHandle("MoonDog Synthetic Store");
+ assert.ok(await installed.getFileHandle("INSTALLATION-MANIFEST.json"));
+ assert.ok(await installed.getFileHandle("00 - OPEN DASHBOARD.html"));
+ assert.equal(ui.parent.entriesMap.size,1);
+ const writeCount=ui.parent.shared.writes;
+ await ui.fire("autoInstall","click");
+ assert.equal(ui.parent.shared.writes,writeCount,"repeat installs must never overwrite the first store");
+ assert.equal(ui.parent.entriesMap.size,1);
+ assert.match(ui.el("installResult").textContent,/already exists/);
+ assert.equal(ui.el("installedNext").hidden,true);
+ ui.el("installFolderName").value="MoonDog Second Synthetic Store";
+ await ui.fire("autoInstall","click");
+ assert.equal(ui.parent.entriesMap.size,2,"a separate store gets a distinct new folder");
+ assert.equal(ui.el("installedNext").hidden,false);
+ assert.ok(await ui.parent.getDirectoryHandle("MoonDog Second Synthetic Store"));
+});
+
+test("website rejects a changed ZIP and a denied parent without presenting setup as complete",async()=>{
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent",{writes:0,permission:"denied"});
+ const ui=websiteHarness(fixture,{parent});await ui.flush();
+ ui.el("freshConfirm").checked=true;await ui.fire("freshConfirm","change");
+ const alternate=makeZip({"System Files/unlisted.txt":b("synthetic unauthorized")});
+ ui.el("zipFile").files=[selectedZip(alternate)];await ui.fire("zipFile","change");
+ await ui.fire("verify","click");
+ assert.equal(ui.el("autoInstall").disabled,true);
+ assert.equal(ui.el("finish").hidden,true);
+ assert.equal(parent.shared.writes,0);
+ ui.el("zipFile").files=[selectedZip(fixture)];await ui.fire("zipFile","change");
+ await ui.fire("verify","click");
+ assert.equal(ui.el("autoInstall").disabled,false);
+ await ui.fire("autoInstall","click");
+ assert.match(ui.el("installResult").textContent,/Write access was not granted/);
+ assert.equal(ui.el("installedNext").hidden,true);
+ assert.equal(parent.entriesMap.size,0);
+ assert.equal(parent.shared.writes,0);
+ parent.shared.permission="granted";
+ await ui.fire("autoInstall","click");
+ assert.match(ui.el("installResult").textContent,/INSTALLED AND VERIFIED/);
+ assert.equal(parent.entriesMap.size,1);
+});
+
+test("website cannot offer an unverified release when official metadata fails",async()=>{
+ const fixture=makeZip(),ui=websiteHarness(fixture,{metadataValid:false});
+ await ui.flush();
+ ui.el("freshConfirm").checked=true;await ui.fire("freshConfirm","change");
+ ui.el("zipFile").files=[selectedZip(fixture)];await ui.fire("zipFile","change");
+ assert.equal(ui.el("zipFile").disabled,true);
+ assert.equal(ui.el("verify").disabled,true);
+ assert.equal(ui.el("autoInstall").disabled,true);
+ assert.equal(ui.parent.entriesMap.size,0);
+ assert.match(ui.el("versionStatus").textContent,/could not safely verify/);
+});
