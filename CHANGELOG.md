@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.18-beta.456 — current Beta
+
+- fix(59-02): use store-local clock for report reminder timing. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.
+- Snapshot verified canonical runtime; previously missing reviewed changes are restored.
+
+
 ## 0.10.18-beta.455 — current Beta
 
 - fix(59): skip malformed CSI survey rows without losing valid evidence. Verified automated Beta from reviewed source. No Workspace migration; Stable remains unchanged.

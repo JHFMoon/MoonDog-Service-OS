@@ -522,8 +522,22 @@
     const samples=verified.slice(-12).map(item=>item.hour).filter(hour=>Number.isInteger(hour)&&hour>=0&&hour<=23).sort((a,b)=>a-b);
     return samples.length>=4?samples[Math.floor(samples.length/2)]:null;
   }
-  function plan(requests,history,{at=new Date().toISOString(),today="",limit=4}={}) {
-    const current=timeStamp(at)||Date.now(),seen=new Set(),result=[];
+  // Report reminder schedules are learned in dealership-local hours. A remote
+  // browser's clock or UTC date must never decide whether a report is due.
+  function planClock(at,timeZone) {
+    const value=new Date(at);
+    if(!Number.isFinite(value.valueOf()))return null;
+    if(!timeZone)return {date:day(at),hour:value.getHours()};
+    try{
+      const parts=Object.fromEntries(new Intl.DateTimeFormat("en-US",{
+        timeZone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",hourCycle:"h23"
+      }).formatToParts(value).map(part=>[part.type,part.value]));
+      const date=`${parts.year}-${parts.month}-${parts.day}`,hour=Number(parts.hour);
+      return dateValid(date)&&Number.isInteger(hour)&&hour>=0&&hour<=23?{date,hour}:null;
+    }catch(_){return null;} // Untrusted zone: never suppress a real request.
+  }
+  function plan(requests,history,{at=new Date().toISOString(),today="",limit=4,timeZone=""}={}) {
+    const current=timeStamp(at)||Date.now(),seen=new Set(),result=[],clock=planClock(at,timeZone);
     const sourceRequests=Array.isArray(requests)?requests:[];
     for(const request of [...sourceRequests].sort((a,b)=>(a?.rank??7)-(b?.rank??7))) {
       const source=String(request?.source||""),def=catalog[source];
@@ -533,8 +547,8 @@
       const safetyCritical=source==="open-ro";
       if(!safetyCritical&&snoozeUntil>current) continue;
       const median=typicalHour(entry);
-      if(!safetyCritical&&median!==null && dateValid(today) &&
-          day(at)===today && new Date(at).getHours()<Math.max(7,median-1) &&
+      if(!safetyCritical&&median!==null && dateValid(today) && clock &&
+          clock.date===today && clock.hour<Math.max(7,median-1) &&
           (request.rank??7)>4) continue;
       result.push({
         source,label:def.label,location:def.location,facts:[...def.facts],

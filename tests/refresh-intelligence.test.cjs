@@ -198,3 +198,38 @@ test("canonical refresh source and shipped browser runtime agree on SAPR validit
       plain(canonical.matchPriorYear(snapshot,hist,{today:"2026-10-06",hour:19})));
   }
 });
+
+test("report reminder timing uses the configured store zone, including UTC midnight crossover",()=>{
+  for(const relative of ["src/refresh-intelligence.js","assets/freshness.js"]){
+    const content=readSource(path.join(__dirname,"..",relative));
+    const sandbox=vm.createContext({Date,Intl});
+    vm.runInContext(content,sandbox);
+    const planner=sandbox.ServiceRefreshIntelligence;
+    const historyFor=hour=>{
+      let history=planner.empty();
+      for(const date of ["2026-11-09","2026-11-10","2026-11-11","2026-11-12"]){
+        history=planner.learn(history,"performance","imported",{
+          at:date+"T22:00:00Z",periodEnd:date,hour
+        });
+      }
+      return history;
+    };
+    const request=[{source:"performance",rank:6}];
+    const morning=historyFor(12),original=JSON.stringify(morning);
+    const today="2026-11-19",at="2026-11-19T16:30:00Z";
+    assert.equal(planner.plan(request,morning,{at,today,timeZone:"America/Los_Angeles"}).length,0,
+      relative+" must hold a low-priority reminder at 08:30 store time");
+    assert.equal(planner.plan(request,morning,{at,today,timeZone:"UTC"}).length,1,
+      relative+" must show it at 16:30 store time even on the same remote computer");
+    assert.equal(planner.plan(request,morning,{at,today,timeZone:"Mars/Olympus"}).length,1,
+      relative+" must not hide an actionable report behind an invalid store timezone");
+    assert.equal(JSON.stringify(morning),original,"stored source history must remain immutable");
+    const evening=historyFor(20);
+    assert.equal(planner.plan(request,evening,{
+      at:"2026-11-19T01:30:00Z",today:"2026-11-18",timeZone:"America/Los_Angeles"
+    }).length,0,relative+" must honor the previous store day after UTC midnight");
+  }
+  const dailyOps=readSource(path.join(__dirname,"..","assets/daily-ops.js"));
+  assert.match(dailyOps,/limit:8,timeZone:businessTimeZone\(\)/);
+  assert.match(dailyOps,/limit:3,timeZone:businessTimeZone\(\)/);
+});
