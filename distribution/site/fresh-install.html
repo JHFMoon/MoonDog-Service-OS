@@ -103,18 +103,18 @@ const allowedAsset="https://github.com/JHFMoon/MoonDog-Service-OS/releases/lates
 const confirmBox=document.getElementById("freshConfirm"),download=document.getElementById("download"),hint=document.getElementById("downloadHint");
 const zip=document.getElementById("zipFile"),verify=document.getElementById("verify"),result=document.getElementById("verifyResult");
 const finish=document.getElementById("finish"),versionStatus=document.getElementById("versionStatus");
-let stable=null;
+let stable=null,verificationEpoch=0,verifying=false;
 function ready(){
   const enabled=Boolean(stable&&confirmBox.checked);
   download.classList.toggle("hidden",!enabled);
   zip.disabled=!enabled;
-  verify.disabled=!enabled||!zip.files?.length;
+  verify.disabled=verifying||!enabled||!zip.files?.length;
   if(!enabled)finish.hidden=true;
   hint.textContent=enabled?"Click Download, then select that same ZIP in step 3.": "Confirm step 1 and allow the official release information to load first.";
 }
 function fail(message){result.className="status error";result.textContent=message;finish.hidden=true;}
-confirmBox.addEventListener("change",()=>{stable&&zip.files?.length?fail("Please verify the ZIP again before continuing."):null;ready();});
-zip.addEventListener("change",()=>{finish.hidden=true;result.className="status";result.textContent="Ready to verify your selected ZIP. No files have been uploaded.";ready();});
+confirmBox.addEventListener("change",()=>{verificationEpoch++;if(zip.files?.length)fail("Please verify the ZIP again before continuing.");ready();});
+zip.addEventListener("change",()=>{verificationEpoch++;finish.hidden=true;result.className="status";result.textContent="Ready to verify your selected ZIP. No files have been uploaded.";ready();});
 fetch("./latest.json",{cache:"no-store",credentials:"omit"}).then(r=>r.ok?r.json():Promise.reject(Error("Release metadata unavailable"))).then(data=>{
   if(!data||!/^\d+\.\d+\.\d+$/.test(data.version||"")||!/^[a-f0-9]{64}$/.test(data.sha256||"")||data.asset!==allowedAsset){
     throw Error("Release information could not be verified");
@@ -136,17 +136,19 @@ verify.addEventListener("click",async()=>{
   if(!/\.zip$/i.test(f.name)||f.size===0||f.size>256*1024*1024){
     fail("That does not look like a supported MoonDog ZIP. Choose the official file downloaded in step 2.");return;
   }
-  verify.disabled=true;result.textContent="Verifying the ZIP on this computer. No files are being changed or uploaded…";result.className="status";
+  const epoch=verificationEpoch,expectedHash=stable.sha256;
+  verifying=true;ready();result.textContent="Verifying the ZIP on this computer. No files are being changed or uploaded…";result.className="status";
   try{
     if(!globalThis.crypto?.subtle)throw Error("Secure file verification is not available in this browser");
     const bytes=await f.arrayBuffer();
     const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),b=>b.toString(16).padStart(2,"0")).join("");
-    if(hash!==stable.sha256){fail("This ZIP does not match the official Stable release. Do not extract or install it. Download again from step 2.");return;}
+    if(epoch!==verificationEpoch||expectedHash!==stable?.sha256||!confirmBox.checked)return;
+    if(hash!==expectedHash){fail("This ZIP does not match the official Stable release. Do not extract or install it. Download again from step 2.");return;}
     result.className="status ok";
     result.textContent="VERIFIED — This ZIP matches the official Stable "+stable.version+" release. You can now follow steps 4 and 5 below.";
     finish.hidden=false;
-  }catch(error){fail("The ZIP could not be verified here. Do not install an unverified file. Use current Microsoft Edge on Windows or ask for support.");}
-  finally{ready();}
+  }catch(error){if(epoch===verificationEpoch)fail("The ZIP could not be verified here. Do not install an unverified file. Use current Microsoft Edge on Windows or ask for support.");}
+  finally{verifying=false;ready();}
 });
 if(!/Windows/i.test(navigator.userAgent||"")||typeof window.showDirectoryPicker!=="function"){
   document.getElementById("deviceNotice").hidden=false;
