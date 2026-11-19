@@ -184,7 +184,7 @@ function dir(name,entries={}){
   };
 }
 function synthetic({missingJournal=false,unfinished=false,invalidJournal=false,unreadable=false,
-                    missingApp=false,missingWorkspace=false,missingSystem=false,
+                    missingApp=false,missingWorkspace=false,missingSystem=false,missingManifest=false,missingLauncher=false,
                     noBackups=false,selectedSystem=false,workspaceOnly=false,wrongFolder=false}={}){
   const journal=invalidJournal?"{not json}":JSON.stringify({status:unfinished?"applying":"verified",inventory:[]});
   const backup=dir("MoonDog-Update-Backup-SYNTHETIC",missingJournal?{}:{"journal.json":file(journal,unreadable)});
@@ -199,8 +199,8 @@ function synthetic({missingJournal=false,unfinished=false,invalidJournal=false,u
   if(wrongFolder)return dir("My Documents",{});
   if(selectedSystem)return system;
   return dir("Dashboard Interface",{
-    "00 - OPEN DASHBOARD.html":file("synthetic launcher"),
-    "INSTALLATION-MANIFEST.json":file("synthetic manifest"),
+    ...(!missingLauncher?{"00 - OPEN DASHBOARD.html":file("synthetic launcher")}:{}),
+    ...(!missingManifest?{"INSTALLATION-MANIFEST.json":file("synthetic manifest")}:{}),
     ...(!missingSystem?{"System Files":system}:{})
   });
 }
@@ -274,11 +274,25 @@ test("missing private Workspace takes precedence over missing app files",async()
   assert.equal(r.nodes.get("nextRepair").hidden,true);
 });
 test("wrong folders are distinguished from a damaged installation",async()=>{
-  for(const opts of [{workspaceOnly:true},{wrongFolder:true},{missingSystem:true}]){
+  for(const opts of [{workspaceOnly:true},{wrongFolder:true}]){
     const r=await check(opts);
     assert.equal(r.next,"Wrong");
     assert.match(r.summary,/WRONG FOLDER/);
   }
+});
+test("missing installation manifest blocks the Beta repair recommendation",async()=>{
+  for(const opts of [{missingManifest:true},{missingManifest:true,missingApp:true}]){
+    const r=await check(opts);
+    assert.equal(r.next,"Blocked");
+    assert.match(r.report,/INSTALLATION IDENTITY MISSING/);
+    assert.equal(r.nodes.get("nextRepair").hidden,true);
+  }
+});
+test("known MoonDog launcher with missing System Files is not mistaken for a random folder",async()=>{
+  const r=await check({missingSystem:true});
+  assert.equal(r.next,"Blocked");
+  assert.match(r.report,/INSTALLATION INCOMPLETE/);
+  assert.equal(r.nodes.get("nextRepair").hidden,true);
 });
 test("selecting System Files is only a partial check",async()=>{
   const r=await check({selectedSystem:true});
