@@ -89,6 +89,8 @@ class FakeFile {
      close:async()=>{
        if(staged===null)throw Error("nothing written");
        this.bytes=staged;this.dir.shared.writes++;
+       if(typeof this.dir.shared.afterClose==="function")
+         await this.dir.shared.afterClose(this.name,this.dir);
      },
      abort:async()=>{}
    };
@@ -438,4 +440,37 @@ test("production-built full software ZIP installs into two isolated synthetic st
  }finally{
   fs.rmSync(tmp,{recursive:true,force:true});
  }
+});
+
+test("new installation refuses a foreign file added after the initial empty-folder check",async()=>{
+ const foreign=b("SYNTHETIC FOREIGN FILE: PRESERVE ORIGINAL BYTES"),fixture=makeZip();
+ const parent=new FakeDirectory("Synthetic Parent",{writes:0,permission:"granted",afterClose:async(name,dir)=>{
+   if(name==="MOONDOG-INSTALL-INCOMPLETE.txt"){
+     const pending=await dir.getFileHandle("index.html",{create:true});
+     pending.bytes=new Uint8Array(foreign);
+   }
+ }});
+ await assert.rejects(load(parent).install(installOptions(fixture)),/unexpected|appeared|already exists/i,
+  "a different writer adding an approved-name file must stop before overwrite");
+ const installed=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ const original=await installed.getFileHandle("index.html");
+ assert.deepEqual(Buffer.from(original.bytes),foreign,"never replace another writer's file");
+ assert.equal(installed.entriesMap.has("INSTALLATION-MANIFEST.json"),false);
+ assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
+});
+
+test("new installation detects an unlisted synthetic entry inserted during package writing",async()=>{
+ const foreign=b("SYNTHETIC EXTERNAL FILE: DO NOT DELETE"),fixture=makeZip();
+ const parent=new FakeDirectory("Synthetic Parent",{writes:0,permission:"granted",afterClose:async(name,dir)=>{
+   if(name==="00 - OPEN DASHBOARD.html"){
+     const unexpected=await dir.getFileHandle("SYNTHETIC-EXTERNAL.txt",{create:true});
+     unexpected.bytes=new Uint8Array(foreign);
+   }
+ }});
+ await assert.rejects(load(parent).install(installOptions(fixture)),/unexpected|appeared|unapproved/i,
+  "an extra file in an otherwise fresh root must prevent a verified-complete claim");
+ const installed=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ assert.deepEqual(Buffer.from((await installed.getFileHandle("SYNTHETIC-EXTERNAL.txt")).bytes),foreign);
+ assert.equal(installed.entriesMap.has("INSTALLATION-MANIFEST.json"),false);
+ assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
 });
