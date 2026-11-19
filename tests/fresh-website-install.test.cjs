@@ -375,3 +375,67 @@ test("website cannot offer an unverified release when official metadata fails",a
  assert.equal(ui.parent.entriesMap.size,0);
  assert.match(ui.el("versionStatus").textContent,/could not safely verify/);
 });
+
+
+test("production-built full software ZIP installs into two isolated synthetic stores with original file bytes",async t=>{
+ const {spawnSync}=require("node:child_process"),os=require("node:os");
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),"moondog-full-site-install-"));
+ try{
+  const vendor=path.join(tmp,"vendor");fs.mkdirSync(vendor);
+  for(const [name,min,signature] of [
+   ["jszip.min.js",50000,"JSZip"],["pdf.min.js",100000,"pdfjsLib"],
+   ["pdf.worker.min.js",100000,"pdfjsWorker"],["xlsx.full.min.js",250000,"XLSX"]
+  ]){
+   const stub=Buffer.alloc(min+100,120);
+   stub.write(signature,0,"utf8");
+   fs.writeFileSync(path.join(vendor,name),stub);
+  }
+  const archive=path.join(tmp,"Service-Operations-Dashboard.zip");
+  const build=spawnSync("python3",[
+   "scripts/build_distribution.py","--vendor-dir",vendor,"--output",archive
+  ],{cwd:path.join(__dirname,".."),encoding:"utf8",timeout:120000,maxBuffer:8*1024*1024});
+  if(build.error?.code==="ENOENT"){t.skip("Python 3 builder is not installed");return;}
+  assert.equal(build.status,0,(build.stderr||"")+"\n"+(build.stdout||""));
+  const fullZip=fs.readFileSync(archive);
+  const release=JSON.parse(fs.readFileSync(path.join(tmp,"Service-Operations-Dashboard.manifest.json"),"utf8"));
+  const expectedHash=sha(fullZip);
+  assert.equal(expectedHash,release.sha256);
+  assert.equal(release.version,"0.10.17");
+  assert.ok(release.runtimeFileCount>20,"exercise real production runtime inventory, not a tiny ZIP fixture");
+  const parent=new FakeDirectory("Two Independent Synthetic Stores");
+  const installer=load(parent);
+  for(const name of ["Synthetic Dealer A","Synthetic Dealer B"]){
+   const result=await installer.install({
+    file:localFile(fullZip),sha256:expectedHash,version:release.version,folderName:name
+   });
+   assert.equal(result.status,"installed");
+   assert.equal(result.files,release.runtimeFileCount+5,
+    "the production builder's runtime files, launcher, companion files and manifest all persisted");
+   const root=await parent.getDirectoryHandle(name);
+   const system=await root.getDirectoryHandle("System Files");
+   const workspace=await system.getDirectoryHandle("Workspace");
+   assert.equal(root.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),false);
+   assert.equal(workspace.entriesMap.has("settings.json"),false);
+   assert.equal((await workspace.getDirectoryHandle("data")).entriesMap.has("settings.json"),false);
+   assert.deepEqual(Buffer.from((await system.getFileHandle("index.html")).bytes),
+    fs.readFileSync(path.join(__dirname,"..","index.html")),
+    "the installed app entry must match the production source byte-for-byte");
+   assert.deepEqual(Buffer.from((await root.getFileHandle("INSTALLATION-MANIFEST.json")).bytes).length>100,true);
+  }
+  assert.equal(parent.entriesMap.size,2,"the two installed stores have distinct roots");
+  const a=await parent.getDirectoryHandle("Synthetic Dealer A");
+  const b=await parent.getDirectoryHandle("Synthetic Dealer B");
+  const aLauncher=await a.getFileHandle("00 - OPEN DASHBOARD.html");
+  const bLauncher=await b.getFileHandle("00 - OPEN DASHBOARD.html");
+  const otherBytes=Buffer.from(bLauncher.bytes);
+  aLauncher.bytes=new Uint8Array([1,2,3]);
+  assert.deepEqual(Buffer.from(bLauncher.bytes),otherBytes,"store A cannot mutate store B");
+  const existingWrites=parent.shared.writes;
+  await assert.rejects(installer.install({
+   file:localFile(fullZip),sha256:expectedHash,version:release.version,folderName:"Synthetic Dealer A"
+  }),/already exists/);
+  assert.equal(parent.shared.writes,existingWrites,"a repeat install never writes over a store");
+ }finally{
+  fs.rmSync(tmp,{recursive:true,force:true});
+ }
+});
