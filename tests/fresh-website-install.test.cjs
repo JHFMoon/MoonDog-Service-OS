@@ -31,8 +31,12 @@ function crc32(data) {
  }
  return (crc^0xffffffff)>>>0;
 }
-function makeZip(extraFiles={},omitDirectory="") {
- const inventory=Object.entries(zipData).map(([name,data])=>({
+function makeZip(extraFiles={},omitDirectory="",originalStableLayout=false) {
+ // The original immutable Stable 0.10.17 builder predates the optional root index.html.
+ const packageFiles=originalStableLayout
+   ? Object.fromEntries(Object.entries(zipData).filter(([name])=>name!=="index.html"))
+   : zipData;
+ const inventory=Object.entries(packageFiles).map(([name,data])=>({
    path:name,size:data.byteLength,sha256:sha(data)
  }));
  const manifest={
@@ -45,7 +49,7 @@ function makeZip(extraFiles={},omitDirectory="") {
  const entries=[
    {name:PREFIX,bytes:Buffer.alloc(0)},
    ...DIRS.filter(x=>x!==omitDirectory).map(name=>({name:PREFIX+name,bytes:Buffer.alloc(0)})),
-   ...Object.entries({...zipData,...extraFiles}).map(([name,bytes])=>({name:PREFIX+name,bytes})),
+   ...Object.entries({...packageFiles,...extraFiles}).map(([name,bytes])=>({name:PREFIX+name,bytes})),
    {name:PREFIX+"INSTALLATION-MANIFEST.json",bytes:b(JSON.stringify(manifest))}
  ];
  const locals=[],centrals=[];let offset=0;
@@ -473,4 +477,21 @@ test("new installation detects an unlisted synthetic entry inserted during packa
  assert.deepEqual(Buffer.from((await installed.getFileHandle("SYNTHETIC-EXTERNAL.txt")).bytes),foreign);
  assert.equal(installed.entriesMap.has("INSTALLATION-MANIFEST.json"),false);
  assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
+});
+
+test("original immutable Stable layout may omit root index.html while retaining verified launcher and app entry",async()=>{
+ const fixture=makeZip({},"",true);
+ assert.equal(fixture.manifest.files.some(file=>file.path==="index.html"),false);
+ const parent=new FakeDirectory("Synthetic Parent");
+ const result=await load(parent).install(installOptions(fixture,{folderName:"Legacy Stable New Store"}));
+ assert.equal(result.status,"installed");
+ const root=await parent.getDirectoryHandle("Legacy Stable New Store");
+ assert.equal(root.entriesMap.has("index.html"),false,"never synthesize unlisted software");
+ assert.equal(root.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),false);
+ assert.ok(await root.getFileHandle("00 - OPEN DASHBOARD.html"));
+ const system=await root.getDirectoryHandle("System Files");
+ assert.ok(await system.getFileHandle("index.html"));
+ assert.ok(await root.getFileHandle("INSTALLATION-MANIFEST.json"));
+ const workspace=await system.getDirectoryHandle("Workspace");
+ assert.equal(workspace.entriesMap.has("settings.json"),false);
 });
