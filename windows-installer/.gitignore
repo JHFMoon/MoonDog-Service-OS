@@ -1,0 +1,7 @@
+package/
+bin/
+obj/
+tests/bin/
+tests/obj/
+*.exe
+*.pdb
