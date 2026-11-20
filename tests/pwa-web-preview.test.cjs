@@ -96,6 +96,8 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(js,/fetchVerifiedSitePackage/);assert.match(js,/probeSitePackage/);
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
+ assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v5'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);assert.match(sw,/const PUBLIC_SHELL/);
  assert.doesNotMatch(sw,/cache\.put\(|PUBLIC_SHELL[\s\S]*?Workspace\/data/);
