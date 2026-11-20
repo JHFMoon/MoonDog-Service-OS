@@ -351,16 +351,17 @@
       // Repair ONLY a missing entry from the bytes already verified in this
       // exact new install; never overwrite an existing file or touch Workspace.
       // All other changes fail closed in the final full-inventory check.
-      const approvedEntry=packageData.files.find(item=>item.path==="System Files/index.html");
-      if(!approvedEntry)fail("Verified package has no approved application entry.");
-      const app=await destination.getDirectoryHandle("System Files",{create:false});
-      if(!(await hasFile(app,"index.html")))
-        await writeReadBack(destination,approvedEntry.path,approvedEntry.bytes,approvedEntry.sha256);
       // OneDrive/sync and another tab can change the folder after the first
       // scan and manifest commit. Never announce success unless the *complete*
       // installation still matches the signed ZIP after removing the hold.
-      try { await assertOnlyApprovedFiles(destination,packageData,true); }
-      catch(error){
+      try {
+        const approvedEntry=packageData.files.find(item=>item.path==="System Files/index.html");
+        if(!approvedEntry)fail("Verified package has no approved application entry.");
+        const app=await destination.getDirectoryHandle("System Files",{create:false});
+        if(!(await hasFile(app,"index.html")))
+          await writeReadBack(destination,approvedEntry.path,approvedEntry.bytes,approvedEntry.sha256);
+        await assertOnlyApprovedFiles(destination,packageData,true);
+      }catch(error){
         // This new folder must remain visibly incomplete. Never overwrite an
         // unexpected marker or touch a pre-existing installation.
         try { await writeReadBack(destination,MARKER,marker,null); }
