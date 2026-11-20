@@ -217,7 +217,7 @@ test('browser serves exact selected generation then reconnects original Workspac
 
 const BETA_ROOT='https://jhfmoon.github.io/MoonDog-Service-OS/';
 const BETA_COMMIT='a'.repeat(40),BETA_VERSION='0.10.18-beta.456';
-async function syntheticPinnedBeta({badHash=false,wrongFile=false,unsafe=false,wrongStable=false}={}){
+async function syntheticPinnedBeta({badHash=false,wrongFile=false,unsafe=false,wrongStable=false,migrationRequired=false,minimumCompatibleVersion='0.10.9'}={}){
  const names=['index.html','assets/app.js','assets/styles.css','assets/freshness.js','vendor/xlsx.full.min.js'];
  if(unsafe)names[4]='Workspace/data/private.json';
  const files=[];
@@ -229,7 +229,7 @@ async function syntheticPinnedBeta({badHash=false,wrongFile=false,unsafe=false,w
  const pkg=b(JSON.stringify({formatVersion:1,version:BETA_VERSION,approvedFiles:names,files}));
  const manifest=b(JSON.stringify({
   stable:{version:wrongStable?'0.10.18':'0.10.17'},
-  beta:{version:BETA_VERSION,sha256:badHash?'0'.repeat(64):await sha(pkg),
+  beta:{version:BETA_VERSION,sha256:badHash?'0'.repeat(64):await sha(pkg),migrationRequired,minimumCompatibleVersion,
    packageUrl:'https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-'+BETA_VERSION+'.json'}
  }));
  const prefix='https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/'+BETA_COMMIT+'/';
@@ -265,10 +265,10 @@ test('pinned Beta JSON stages a separate verified generation then rolls back wit
 });
 test('tampered, private, stale-manifest or locked Beta never stages candidate bytes',async()=>{
  const gen=await candidate();
- for(const bad of [{badHash:true},{wrongFile:true},{unsafe:true},{wrongStable:true}]){
+ for(const bad of [{badHash:true},{wrongFile:true},{unsafe:true},{wrongStable:true},{migrationRequired:true},{minimumCompatibleVersion:'0.10.99'}]){
   const {store,args}=await fixture(),transport=await syntheticPinnedBeta(bad);
   await assert.rejects(gen.stageVerifiedBetaBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
-   installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl}),/mismatch|unapproved|Stable channel/);
+   installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl}),/mismatch|unapproved|Stable channel|migration|incompatible/);
   assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
  }
  const {store,args}=await fixture(),transport=await syntheticPinnedBeta();
