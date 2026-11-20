@@ -7,7 +7,7 @@ const b=text=>new TextEncoder().encode(text),sha=async value=>Buffer.from(await 
 const missing=()=>Object.assign(new Error('missing'),{name:'NotFoundError'});
 class File {
  constructor(name,data=new Uint8Array()){this.name=name;this.kind='file';this.bytes=data;}
- async getFile(){const bytes=this.bytes.slice();return {arrayBuffer:async()=>bytes.buffer,text:async()=>new TextDecoder().decode(bytes)};}
+ async getFile(){const bytes=this.bytes.slice();return {size:bytes.length,arrayBuffer:async()=>bytes.buffer,text:async()=>new TextDecoder().decode(bytes)};}
  async createWritable(){let pending=new Uint8Array();return {write:async value=>{pending=typeof value==='string'?b(value):new Uint8Array(value);},close:async()=>{this.bytes=pending.slice();},abort:async()=>{}};}
 }
 class Dir {
