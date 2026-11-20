@@ -1,0 +1,66 @@
+name: PWA Synthetic Acceptance
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Verify and Publish Repair Center]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: pwa-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  restart:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            channel: chromium
+          - os: windows-latest
+            channel: msedge
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && 'main' || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Capture current main authority
+        id: authority
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "sha=$(gh api repos/JHFMoon/MoonDog-Service-OS/commits/main --jq .sha)" >> "$GITHUB_OUTPUT"
+      - name: Install Playwright
+        shell: bash
+        run: npm install --no-save --no-package-lock playwright@1.55.0
+      - name: Install Linux Chromium
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
+      - name: Prove public offline restart and Workspace readback
+        shell: bash
+        env:
+          PWA_RECOVERY: '1'
+          BROWSER_CHANNEL: ${{ matrix.channel }}
+          EXPECTED_MAIN_SHA: ${{ steps.authority.outputs.sha }}
+        run: |
+          set -euo pipefail
+          node scripts/smoke_pwa_restart.mjs https://jhfmoon.github.io/MoonDog-Service-OS/ "$EXPECTED_MAIN_SHA" | tee pwa-restart-evidence.jsonl
+      - name: Refuse superseded evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN_SHA: ${{ steps.authority.outputs.sha }}
+        run: test "$(gh api repos/JHFMoon/MoonDog-Service-OS/commits/main --jq .sha)" = "$EXPECTED_MAIN_SHA"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pwa-restart-${{ matrix.os }}-${{ github.sha }}
+          path: pwa-restart-evidence.jsonl
+          if-no-files-found: error
