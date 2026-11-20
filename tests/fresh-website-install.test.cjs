@@ -237,9 +237,9 @@ test("interrupted first install is marked incomplete, not reported as successful
    "no complete installation claim on a partially written folder");
  await assert.rejects(api.install(installOptions(fixture)),/already exists/);
 });
-test("fresh installation cannot finish after a late missing or tampered application entry, manifest, or unlisted file",async()=>{
+test("fresh installation refuses late tampering, manifest changes or unlisted files",async()=>{
  const fixture=makeZip();
- for(const mode of ["missing-entry","tampered-entry","tampered-manifest","unlisted-file"]){
+ for(const mode of ["tampered-entry","tampered-manifest","unlisted-file"]){
   const shared={writes:0,permission:"granted"};
   shared.afterRemove=async(name,root)=>{
    if(name!=="MOONDOG-INSTALL-INCOMPLETE.txt")return;
@@ -266,6 +266,44 @@ test("fresh installation cannot finish after a late missing or tampered applicat
    "restore the visible incomplete marker after post-commit validation fails");
   assert.equal(parent.entriesMap.size,1,"preserve partial copy without touching another installation");
  }
+});
+
+test("new install automatically restores a missing System Files entry from approved ZIP bytes",async()=>{
+ const fixture=makeZip({}, "", true),shared={writes:0,permission:"granted"};
+ shared.afterRemove=async(name,destination)=>{
+  if(name==="MOONDOG-INSTALL-INCOMPLETE.txt"){
+   const app=await destination.getDirectoryHandle("System Files");
+   app.entriesMap.delete("index.html"); // Simulated late OneDrive removal.
+  }
+ };
+ const parent=new FakeDirectory("Synthetic Parent",shared),api=load(parent);
+ const result=await api.install(installOptions(fixture));
+ assert.equal(result.status,"installed");
+ const folder=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ const app=await folder.getDirectoryHandle("System Files");
+ assert.deepEqual(Buffer.from((await app.getFileHandle("index.html")).bytes),zipData["System Files/index.html"],
+   "approved application entry restored from immutable ZIP, not an untrusted copy");
+ assert.equal(folder.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),false);
+ assert.ok(await folder.getFileHandle("INSTALLATION-MANIFEST.json"));
+ assert.equal((await app.getDirectoryHandle("Workspace")).entriesMap.has("data"),true,
+   "a restored program file must leave the private Workspace alone");
+});
+
+test("a denied late entry restoration leaves an incomplete-install hold, never a success",async()=>{
+ const fixture=makeZip({}, "", true),shared={writes:0,permission:"granted"};
+ shared.afterRemove=async(name,destination)=>{
+  if(name==="MOONDOG-INSTALL-INCOMPLETE.txt"){
+   const app=await destination.getDirectoryHandle("System Files");
+   app.entriesMap.delete("index.html");
+   shared.failWrite="index.html";
+  }
+ };
+ const parent=new FakeDirectory("Synthetic Parent",shared),api=load(parent);
+ await assert.rejects(api.install(installOptions(fixture)),e=>
+  e.partial===true&&/partial NEW folder may remain/.test(e.message));
+ const folder=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ assert.equal(folder.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
+ assert.equal(parent.entriesMap.size,1,"no existing store is removed or replaced");
 });
 test("directory name rejects traversal and Windows reserved names",()=>{
  const api=load(new FakeDirectory("Synthetic Parent"));
