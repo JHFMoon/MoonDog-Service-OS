@@ -20,9 +20,11 @@ const PREVIOUS='moondog-pwa-synthetic-preview-pointer-v1';
 const SITE_URL=new URL('./',import.meta.url).href;
 let websiteAvailable=false;
 let activePreview=null,backupUrl=null;
-function showPreview(pointer){
+function showPreview(pointer,launchPointer=pointer){
+ // Keep the original Stable identity for backup/restore; launch a verified
+ // newer generation only when its independent selection is active.
  activePreview=pointer;
- open.href='./store/'+pointer.storeId+'/'+pointer.manifestHash+'/'+pointer.version+'/index.html';
+ open.href='./store/'+launchPointer.storeId+'/'+launchPointer.manifestHash+'/'+launchPointer.version+'/index.html';
  open.hidden=false;
  $('prepareBackup').disabled=false;
 }
@@ -54,12 +56,18 @@ async function offerExistingPreview(){
      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(prior.storeId||'')||
      !/^\d+\.\d+\.\d+$/.test(prior.version||''))return;
   const {inspectVerifiedBrowserInstallation}=await import('./modules/install_verified_browser_store.mjs');
+  const {inspectActiveBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
+  // An active generation is never trusted from localStorage alone.
+  const selection=await inspectActiveBrowserSoftware({storage:navigator.storage,crypto,storeId:prior.storeId});
+  if(selection&&(selection.originalVersion!==prior.version||selection.originalManifestHash!==prior.manifestHash))return;
   const check=await inspectVerifiedBrowserInstallation({storage:navigator.storage,crypto,
    storeId:prior.storeId,version:prior.version,expectedManifestHash:prior.manifestHash});
   if(!check.applicationVerified||
      typeof check.identity?.label!=='string'||
      !/^SYNTHETIC(?:\s|$)/i.test(check.identity.label))return;
-  showPreview(prior);
+  const launch=selection?{storeId:prior.storeId,version:selection.version,
+   manifestHash:selection.manifestHash}:prior;
+  showPreview(prior,launch);
   status('Existing SYNTHETIC preview verified in browser-private storage. You can reopen it without a ZIP.');
  }catch(_){/* Missing/corrupt/cleared store must not appear as a usable saved app. */}
 }

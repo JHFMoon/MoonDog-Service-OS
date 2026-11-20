@@ -9,6 +9,7 @@
  * the installed application before exposing a handle. That is intentional.
  */
 import {inspectVerifiedBrowserInstallation} from './install_verified_browser_store.mjs';
+import {inspectActiveBrowserSoftware} from './browser_software_selection.mjs';
 
 const WORKSPACE = 'System Files/Workspace';
 const STORE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -43,7 +44,14 @@ export async function openVerifiedOperationalWorkspace({storage,crypto,locks,sto
   const done = Promise.resolve(task).catch(error => {rejected(error);throw error;});
   try {
     await ready;
-    const proof = await inspectVerifiedBrowserInstallation({storage,crypto,storeId,version,expectedManifestHash});
+    const selected = await inspectActiveBrowserSoftware({storage,crypto,storeId});
+    if(selected && (selected.version!==version || selected.manifestHash!==expectedManifestHash))
+      fail('The requested dashboard does not match the active verified software generation.');
+    // A selected public generation always retains the original verified store
+    // and Workspace. The bridge never substitutes candidate files for handles.
+    const proof = await inspectVerifiedBrowserInstallation({storage,crypto,storeId,
+      version:selected?.originalVersion||version,
+      expectedManifestHash:selected?.originalManifestHash||expectedManifestHash});
     if(!proof.applicationVerified || proof.identity.storeId!==storeId)
       fail('Browser application verification did not authorize this store.');
     // This hosted preview is SYNTHETIC-only. A valid software signature alone

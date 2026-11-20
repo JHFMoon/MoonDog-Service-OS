@@ -13,7 +13,7 @@
   const [storeId,expectedManifestHash,version]=pathname.slice(prefix.length).split('/');
   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(storeId||'')||
      !/^[a-f0-9]{64}$/.test(expectedManifestHash||'')||
-     !/^\d+\.\d+\.\d+$/.test(version||''))throw Error('Invalid preview store route.');
+     !/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(version||''))throw Error('Invalid preview store route.');
   let active=null,connecting=null;
   const moduleUrl=new URL('./modules/connect_operational_workspace.mjs',base);
   // Only the app's intended connect action uses this bridge. Every other
