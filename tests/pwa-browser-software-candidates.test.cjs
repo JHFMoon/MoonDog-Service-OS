@@ -213,3 +213,76 @@ test('browser serves exact selected generation then reconnects original Workspac
  assert.equal(new TextDecoder().decode(original.bytes),'<html>synthetic</html>');
  assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
 });
+
+
+const BETA_ROOT='https://jhfmoon.github.io/MoonDog-Service-OS/';
+const BETA_COMMIT='a'.repeat(40),BETA_VERSION='0.10.18-beta.456';
+async function syntheticPinnedBeta({badHash=false,wrongFile=false,unsafe=false,wrongStable=false}={}){
+ const names=['index.html','assets/app.js','assets/styles.css','assets/freshness.js','vendor/xlsx.full.min.js'];
+ if(unsafe)names[4]='Workspace/data/private.json';
+ const files=[];
+ for(const path of names){
+  const source=b('synthetic-only '+path);
+  files.push({path,action:'put',sha256:await sha(source),contentBase64:Buffer.from(source).toString('base64')});
+ }
+ if(wrongFile)files[1].contentBase64=Buffer.from('tampered').toString('base64');
+ const pkg=b(JSON.stringify({formatVersion:1,version:BETA_VERSION,approvedFiles:names,files}));
+ const manifest=b(JSON.stringify({
+  stable:{version:wrongStable?'0.10.18':'0.10.17'},
+  beta:{version:BETA_VERSION,sha256:badHash?'0'.repeat(64):await sha(pkg),
+   packageUrl:'https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-'+BETA_VERSION+'.json'}
+ }));
+ const prefix='https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/'+BETA_COMMIT+'/';
+ const responses=new Map([[BETA_ROOT+'site-version.json',b(JSON.stringify({mainSha:BETA_COMMIT}))],
+  [prefix+'updates/manifest.json',manifest],[prefix+'updates/packages/moondog-'+BETA_VERSION+'.json',pkg]]);
+ const fetchImpl=async(url,options)=>{
+  assert.equal(options.redirect,'error');assert.equal(options.credentials,'omit');
+  const body=responses.get(url);if(!body)throw Error('unexpected synthetic transport '+url);
+  return {ok:true,type:'cors',redirected:false,url,headers:{get:()=>String(body.length)},
+   body:{getReader(){let emitted=false;return {read:async()=>emitted?{done:true}:{done:(emitted=true,false),value:body},cancel:async()=>{}};}}};
+ };
+ return {fetchImpl};
+}
+test('pinned Beta JSON stages a separate verified generation then rolls back with original Workspace unchanged',async()=>{
+ const {store,args,identity}=await fixture(),transport=await syntheticPinnedBeta();
+ const gen=await candidate(),selected=await select();
+ const staged=await gen.stageVerifiedBetaBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+  installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl});
+ assert.equal(staged.status,'verified-staged');assert.equal(staged.version,BETA_VERSION);assert.equal(staged.active,false);
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ assert.equal(await read(store,'System Files/index.html'),'<html>synthetic</html>');
+ const activated=await selected.activateStagedBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:identity.storeId,
+  originalVersion:args.installedVersion,originalManifestHash:args.installedManifestHash,
+  version:staged.version,zipHash:staged.zipHash,manifestHash:staged.manifestHash});
+ assert.equal(activated.active,true);
+ const asset=await selected.readActiveCandidateAsset({storage:args.storage,crypto,storeId:identity.storeId,
+  version:staged.version,expectedManifestHash:staged.manifestHash,relativePath:'assets/app.js'});
+ assert.equal(new TextDecoder().decode(asset.bytes),'synthetic-only assets/app.js');
+ const rollback=await selected.rollbackBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:identity.storeId,
+  originalVersion:args.installedVersion,originalManifestHash:args.installedManifestHash});
+ assert.equal(rollback.rolledBack,true);
+ assert.equal(await read(store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+});
+test('tampered, private, stale-manifest or locked Beta never stages candidate bytes',async()=>{
+ const gen=await candidate();
+ for(const bad of [{badHash:true},{wrongFile:true},{unsafe:true},{wrongStable:true}]){
+  const {store,args}=await fixture(),transport=await syntheticPinnedBeta(bad);
+  await assert.rejects(gen.stageVerifiedBetaBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+   installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl}),/mismatch|unapproved|Stable channel/);
+  assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ }
+ const {store,args}=await fixture(),transport=await syntheticPinnedBeta();
+ const params={storage:args.storage,crypto,storeId:args.storeId,installedVersion:args.installedVersion,
+  installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl};
+ await assert.rejects(gen.stageVerifiedBetaBrowserSoftware({...params,locks:{request:async(_n,_o,fn)=>fn(null)}}),/must close/);
+ await assert.rejects(gen.stageVerifiedBetaBrowserSoftware({...params,locks:args.locks,installedManifestHash:'0'.repeat(64)}),/differs|authority|wrong installed manifest/);
+ assert.equal(await read(store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+});
+test('pinned Beta staging refuses to adopt or overwrite a previous candidate',async()=>{
+ const {args,store}=await fixture(),transport=await syntheticPinnedBeta(),gen=await candidate();
+ const params={storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+  installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl};
+ await gen.stageVerifiedBetaBrowserSoftware(params);
+ await assert.rejects(gen.stageVerifiedBetaBrowserSoftware(params),/already exists/);
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+});
