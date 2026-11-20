@@ -51,6 +51,8 @@ function requireManifest(manifest){
   fail('Published Beta manifest does not preserve the approved Stable channel.');
  const expected='https://raw.githubusercontent.com/'+REPO+'/main/updates/packages/moondog-'+beta.version+'.json';
  if(beta.packageUrl!==expected)fail('Published Beta manifest package authority differs from reviewed source.');
+ if(beta.migrationRequired!==false||!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(beta.minimumCompatibleVersion||''))
+  fail('Beta requires an unsupported Workspace migration or has invalid minimum compatibility.');
  return beta;
 }
 /** All SHA anchors and hashes are verified before any package file is returned. */
@@ -81,5 +83,6 @@ export async function fetchVerifiedPinnedBeta({siteUrl=SITE,fetchImpl,crypto}={}
  }
  if(!names.has('index.html')||!names.has('assets/app.js'))fail('Beta runtime entrypoint is missing.');
  return Object.freeze({version:beta.version,mainSha:commit,packageHash:beta.sha256,
+  minimumCompatibleVersion:beta.minimumCompatibleVersion,migrationRequired:false,
   files:Object.freeze(entries),verified:true,installed:false,productionReady:false});
 }
