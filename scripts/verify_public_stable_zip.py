@@ -12,6 +12,19 @@ import zipfile
 from pathlib import Path
 
 MAX_BYTES = 64 * 1024 * 1024
+# An old clean ZIP may omit explicit runtime parent directories. Its allowed
+# empty Workspace directories, however, must be bounded by the software builder:
+# an unlisted directory name is itself possible private-store metadata.
+ALLOWED_EMPTY_WORKSPACE_DIRS = frozenset({
+    "System Files/Workspace/",
+    "System Files/Workspace/data/",
+    "System Files/Workspace/data/history/",
+    "System Files/Workspace/backups/",
+    "System Files/Workspace/imports/",
+    "System Files/Workspace/exports/",
+    "System Files/Workspace/support/",
+    "System Files/Workspace/01 - DROP REPORTS HERE/",
+})
 PACKAGE_ROOT = "Service Operations Dashboard"
 WORKSPACE = "System Files/Workspace/"
 SHA = re.compile(r"[0-9a-f]{64}\Z")
@@ -89,6 +102,15 @@ def verify(zip_path, release_manifest_path, sha_path, version):
         actual = {item.filename[len(root):] for item in info
                   if not item.is_dir() and item.filename != manifest_file}
         require(actual == set(catalog), "Unlisted or missing public software file")
+        approved_directories = {root}
+        for item_path in [*catalog.keys(), "INSTALLATION-MANIFEST.json"]:
+            segments = item_path.split("/")
+            for count in range(1, len(segments)):
+                approved_directories.add(root + "/".join(segments[:count]) + "/")
+        approved_directories.update(root + name for name in ALLOWED_EMPTY_WORKSPACE_DIRS)
+        actual_directories = {item.filename for item in info if item.is_dir()}
+        require(actual_directories <= approved_directories,
+                "ZIP contains unlisted directory names or private Workspace metadata")
         require("System Files/index.html" in catalog and
                 "00 - OPEN DASHBOARD.html" in catalog and
                 WORKSPACE + "README.txt" in catalog,
