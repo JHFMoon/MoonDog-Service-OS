@@ -194,6 +194,78 @@ export async function resumeVerifiedBetaBrowserSoftware({storage,crypto,locks,st
   return Object.freeze({...verified,resumed:true,active:false,productionReady:false});
  });
 }
+/** Resume only a previously QUARANTINED, partially written pinned Beta.
+ * Re-authenticate all source bytes, original installed software and ownership.
+ * Existing candidate files are immutable: mismatched/unapproved files refuse
+ * recovery; only missing exact verified public files may be created. The hold
+ * marker is the FINAL mutation, after complete durable readback. */
+export async function completeInterruptedVerifiedBetaBrowserSoftware({
+ storage,crypto,locks,storeId,installedVersion,installedManifestHash,fetchImpl,siteUrl
+}={}){
+ const beta=await fetchVerifiedPinnedBeta({siteUrl,fetchImpl,crypto});
+ if(!beta?.verified||!VERSION.test(beta.version)||!SHA.test(beta.packageHash)||
+    typeof crypto?.subtle?.digest!=='function'||typeof locks?.request!=='function')
+  fail('Authenticated interrupted Beta recovery authority is missing.');
+ if(beta.migrationRequired!==false||!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(beta.minimumCompatibleVersion||'')||
+    !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(installedVersion||'')||
+    versionCompare(installedVersion,beta.minimumCompatibleVersion)<0||
+    versionCompare(beta.version,installedVersion)<=0)
+  fail('Interrupted Beta update is incompatible or requires a migration.');
+ return locks.request('moondog-pwa-operational-'+storeId,{mode:'exclusive',ifAvailable:true},async lock=>{
+  if(!lock)fail('Close the active dashboard before recovering interrupted Beta software.');
+  const original=await assertOriginal({storage,crypto,storeId,installedVersion,installedManifestHash});
+  const plan=inspectPlan(await deriveBetaCandidatePlan(original,beta,crypto),beta.version);
+  const expected=new Map([[MANIFEST,plan.manifestBytes]]);
+  for(const file of plan.selected){
+   if(expected.has(file.path)||await digest(file.bytes,crypto.subtle)!==file.sha)
+    fail('Authenticated Beta candidate inventory is inconsistent.');
+   expected.set(file.path,file.bytes);
+  }
+  const id=candidateId(beta.version,beta.packageHash);
+  const parent=await candidatesFolder(storage,storeId,false);
+  const stage=await parent.getDirectoryHandle(id,{create:false});
+  // Never adopt a normally completed candidate or a different marker format.
+  if(await absent(stage,MARKER))fail('No incomplete software candidate is available for recovery.');
+  const marker=await read(stage,MARKER);
+  if(new TextDecoder('utf-8',{fatal:true}).decode(marker)!=='INCOMPLETE')
+   fail('Unrecognized incomplete candidate marker; original remains untouched.');
+  const present=new Set();
+  async function inspectExisting(node,prefix=''){
+   for await(const [name,handle] of node.entries()){
+    const path=prefix+name;
+    if(path===MARKER&&handle.kind==='file')continue;
+    if(handle.kind==='directory'){
+     if(![...expected.keys()].some(file=>file.startsWith(path+'/')))
+      fail('Unexpected candidate directory; recovery refuses untrusted staged content.');
+     await inspectExisting(handle,path+'/');
+    }else if(handle.kind==='file'){
+     const verified=expected.get(path);
+     if(!verified||present.has(path))fail('Unexpected candidate software file; refusing adoption.');
+     const stored=await read(node,name);
+     if(stored.length!==verified.length||await digest(stored,crypto.subtle)!==await digest(verified,crypto.subtle))
+      fail('Existing staged software differs from authenticated Beta; no overwrite.');
+     present.add(path);
+    }else fail('Unrecognized candidate entry; recovery refused.');
+   }
+  }
+  // Before any writes, prove every pre-existing byte is allowed and unchanged.
+  await inspectExisting(stage);
+  for(const [path,content] of expected){
+   if(!present.has(path))await writeNew(stage,path,content,crypto.subtle);
+  }
+  // Read back complete tree while still quarantined. A failed read preserves
+  // the incomplete marker, so no partial generation can ever be activated.
+  present.clear();
+  await inspectExisting(stage);
+  if(present.size!==expected.size)fail('Interrupted candidate recovery did not fully materialize.');
+  await stage.removeEntry(MARKER);
+  const manifestHash=await digest(plan.manifestBytes,crypto.subtle);
+  const result=await inspectStagedBrowserSoftware({storage,crypto,storeId,version:beta.version,
+   zipHash:beta.packageHash,expectedManifestHash:manifestHash});
+  return Object.freeze({...result,completedInterrupted:true,active:false,productionReady:false});
+ });
+}
+
 /** Read-only integrity verification; no Workspace enumeration, no activation. */
 export async function inspectStagedBrowserSoftware({storage,crypto,storeId,version,zipHash,expectedManifestHash}={}){
  if(typeof crypto?.subtle?.digest!=='function'||!UUID.test(storeId||'')||!SHA.test(expectedManifestHash||''))fail('Candidate inspection authority is missing.');
