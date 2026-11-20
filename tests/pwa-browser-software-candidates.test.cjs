@@ -35,8 +35,8 @@ async function plan(version){
  entries.push({path:'INSTALLATION-MANIFEST.json',bytes:b(JSON.stringify(manifest))});
  return {version,files:entries,directories:[]};
 }
-async function fixture(label='SYNTHETIC A'){
- const s=storage(),{store,identity}=await(await stores()).createEmptyStore({storage:s,crypto,label});
+async function fixture(label='SYNTHETIC A',sharedStorage){
+ const s=sharedStorage||storage(),{store,identity}=await(await stores()).createEmptyStore({storage:s,crypto,label});
  const original=await plan('0.10.17');
  for(const entry of original.files)await write(store,entry.path,entry.bytes);
  await write(store,'System Files/Workspace/data/SAPR.json',b('original report, do not touch'));
@@ -303,4 +303,45 @@ test('staged pinned Beta may be reverified for explicit retry without overwritin
  asset.bytes=b('tampered');
  await assert.rejects(gen.resumeVerifiedBetaBrowserSoftware(params),/checksum mismatch/);
  assert.equal(await read(store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+});
+
+test('two synthetic stores sharing one browser origin retain independent active Beta and Workspace generations',async()=>{
+ const common=storage(),alpha=await fixture('SYNTHETIC Alpha',common),bravo=await fixture('SYNTHETIC Bravo',common);
+ assert.notEqual(alpha.identity.storeId,bravo.identity.storeId);
+ // Overlapping operational filename and identical official Beta version are intentional.
+ await write(alpha.store,'System Files/Workspace/data/SAPR.json',b('CP GROSS ALPHA 500'));
+ await write(bravo.store,'System Files/Workspace/data/SAPR.json',b('CP GROSS BRAVO 200'));
+ const transport=await syntheticPinnedBeta(),gen=await candidate(),select=await selection();
+ const params=x=>({storage:common,crypto,locks:x.args.locks,storeId:x.identity.storeId,
+  installedVersion:x.args.installedVersion,installedManifestHash:x.args.installedManifestHash,
+  fetchImpl:transport.fetchImpl});
+ const stageA=await gen.stageVerifiedBetaBrowserSoftware(params(alpha));
+ await assert.rejects(select.activateStagedBrowserSoftware({
+  storage:common,crypto,locks:bravo.args.locks,storeId:bravo.identity.storeId,
+  originalVersion:bravo.args.installedVersion,originalManifestHash:bravo.args.installedManifestHash,
+  version:stageA.version,zipHash:stageA.zipHash,manifestHash:stageA.manifestHash
+ }),/NotFoundError|not found|missing/,'Alpha candidate must not be adopted by Bravo');
+ const activatedA=await select.activateStagedBrowserSoftware({
+  storage:common,crypto,locks:alpha.args.locks,storeId:alpha.identity.storeId,
+  originalVersion:alpha.args.installedVersion,originalManifestHash:alpha.args.installedManifestHash,
+  version:stageA.version,zipHash:stageA.zipHash,manifestHash:stageA.manifestHash});
+ assert.equal(activatedA.active,true);
+ assert.equal(await select.inspectActiveBrowserSoftware({storage:common,crypto,storeId:bravo.identity.storeId}),null);
+ const stageB=await gen.stageVerifiedBetaBrowserSoftware(params(bravo));
+ const activatedB=await select.activateStagedBrowserSoftware({
+  storage:common,crypto,locks:bravo.args.locks,storeId:bravo.identity.storeId,
+  originalVersion:bravo.args.installedVersion,originalManifestHash:bravo.args.installedManifestHash,
+  version:stageB.version,zipHash:stageB.zipHash,manifestHash:stageB.manifestHash});
+ assert.equal(activatedB.active,true);
+ await select.rollbackBrowserSoftware({storage:common,crypto,locks:alpha.args.locks,storeId:alpha.identity.storeId,
+  originalVersion:alpha.args.installedVersion,originalManifestHash:alpha.args.installedManifestHash});
+ assert.equal(await select.inspectActiveBrowserSoftware({storage:common,crypto,storeId:alpha.identity.storeId}),null);
+ const bravoActive=await select.inspectActiveBrowserSoftware({storage:common,crypto,storeId:bravo.identity.storeId});
+ assert.equal(bravoActive.version,BETA_VERSION,'Alpha rollback cannot reset Bravo selection');
+ assert.equal(await read(alpha.store,'System Files/Workspace/data/SAPR.json'),'CP GROSS ALPHA 500');
+ assert.equal(await read(bravo.store,'System Files/Workspace/data/SAPR.json'),'CP GROSS BRAVO 200');
+ assert.equal(await read(alpha.store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ assert.equal(await read(bravo.store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ assert.equal(await read(alpha.store,'System Files/index.html'),'<html>synthetic</html>');
+ assert.equal(await read(bravo.store,'System Files/index.html'),'<html>synthetic</html>');
 });
