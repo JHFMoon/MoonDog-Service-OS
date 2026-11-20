@@ -38,6 +38,9 @@ export async function loadVerifiedPublicAsset({storage,crypto,storeId,expectedMa
  const identity=JSON.parse(new TextDecoder().decode(await read(store,'STORE-IDENTITY.json')));
  if(identity?.format!=='moondog-pwa-local-store'||identity.storeId!==storeId||identity.version!==1)
    fail('Wrong or missing browser-store identity.');
+ // Public website preview must not open or serve stores created for actual work.
+ if(typeof identity.label!=='string'||!/^SYNTHETIC(?:\s|$)/i.test(identity.label))
+   fail('Browser preview refuses non-synthetic stores.');
  const manifestRaw=await read(store,INSTALL);
  if(await digest(manifestRaw,crypto)!==expectedManifestHash)fail('Installed manifest does not match verified authority.');
  const manifest=inspectManifest(manifestRaw,version);

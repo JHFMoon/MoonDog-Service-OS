@@ -55,7 +55,9 @@ async function offerExistingPreview(){
   const {inspectVerifiedBrowserInstallation}=await import('./modules/install_verified_browser_store.mjs');
   const check=await inspectVerifiedBrowserInstallation({storage:navigator.storage,crypto,
    storeId:prior.storeId,version:prior.version,expectedManifestHash:prior.manifestHash});
-  if(!check.applicationVerified)return;
+  if(!check.applicationVerified||
+     typeof check.identity?.label!=='string'||
+     !/^SYNTHETIC(?:\s|$)/i.test(check.identity.label))return;
   showPreview(prior);
   status('Existing SYNTHETIC preview verified in browser-private storage. You can reopen it without a ZIP.');
  }catch(_){/* Missing/corrupt/cleared store must not appear as a usable saved app. */}
