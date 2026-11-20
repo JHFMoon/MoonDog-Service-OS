@@ -4,13 +4,13 @@ const {webcrypto}=require('node:crypto');
 const load=()=>import('../src/pwa/verified_beta_transport.mjs');
 const bytes=x=>new TextEncoder().encode(x),sha=async x=>Buffer.from(await webcrypto.subtle.digest('SHA-256',x)).toString('hex');
 const ROOT='https://jhfmoon.github.io/MoonDog-Service-OS/',COMMIT='a'.repeat(40),VERSION='0.10.18-beta.456';
-async function fake({wrongHash=false,redirect=false,unsafe=false,stable='0.10.17',wrongFile=false}={}){
+async function fake({wrongHash=false,redirect=false,unsafe=false,stable='0.10.17',wrongFile=false,migrationRequired=false,minimumCompatibleVersion='0.10.9'}={}){
  const names=['index.html','assets/app.js','assets/styles.css','assets/freshness.js','vendor/xlsx.full.min.js'];
  if(unsafe)names[4]='Workspace/data/private.json';
  const files=[];for(const path of names){const raw=bytes('synthetic only '+path);files.push({path,action:'put',sha256:await sha(raw),contentBase64:Buffer.from(raw).toString('base64')});}
  if(wrongFile)files[1].contentBase64=Buffer.from('tampered').toString('base64');
  const pkg=bytes(JSON.stringify({formatVersion:1,version:VERSION,approvedFiles:names,files}));
- const manifest=bytes(JSON.stringify({stable:{version:stable},beta:{version:VERSION,sha256:wrongHash?'0'.repeat(64):await sha(pkg),packageUrl:'https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-'+VERSION+'.json'}}));
+ const manifest=bytes(JSON.stringify({stable:{version:stable},beta:{version:VERSION,sha256:wrongHash?'0'.repeat(64):await sha(pkg),migrationRequired,minimumCompatibleVersion,packageUrl:'https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/main/updates/packages/moondog-'+VERSION+'.json'}}));
  const url='https://raw.githubusercontent.com/JHFMoon/MoonDog-Service-OS/'+COMMIT+'/';
  const expected=new Map([[ROOT+'site-version.json',bytes(JSON.stringify({mainSha:COMMIT}))],[url+'updates/manifest.json',manifest],[url+'updates/packages/moondog-'+VERSION+'.json',pkg]]);
  const calls=[];
@@ -44,4 +44,11 @@ test('wrong Pages origin and unavailable cryptography reject before network acti
  await assert.rejects(api.fetchVerifiedPinnedBeta({siteUrl:'https://untrusted.example/',fetchImpl:f.fetchImpl,crypto:webcrypto}),/Trusted MoonDog Pages/);
  await assert.rejects(api.fetchVerifiedPinnedBeta({fetchImpl:f.fetchImpl,crypto:null}),/Trusted MoonDog Pages/);
  assert.equal(f.calls.length,0);
+});
+
+test('Beta requiring Workspace migration or missing compatibility authority is refused',async()=>{
+ for(const params of [{migrationRequired:true},{minimumCompatibleVersion:'invalid'}]){
+  const mock=await fake(params);
+  await assert.rejects((await load()).fetchVerifiedPinnedBeta({fetchImpl:mock.fetchImpl,crypto:webcrypto}),/migration|compatibility/);
+ }
 });

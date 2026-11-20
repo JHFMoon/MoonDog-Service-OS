@@ -2,11 +2,12 @@
 // Verified application files are read from private OPFS, SHA-checked per fetch.
 import {loadVerifiedPublicAsset,addPreviewBootstrap,parseBrowserAssetRoute} from './modules/serve_browser_app.mjs';
 const CACHE_PREFIX='moondog-synthetic-preview-shell-';
-const CACHE=CACHE_PREFIX+'v8';
+const CACHE=CACHE_PREFIX+'v9';
 const PUBLIC_SHELL=Object.freeze([
  './index.html','./setup.mjs','./bridge.js','./style.css','./app.webmanifest','./icon.svg',
  './modules/initialize_fresh_browser_workspace.mjs',
  './modules/browser_software_candidates.mjs','./modules/browser_software_selection.mjs',
+ './modules/verified_beta_transport.mjs',
  './modules/opfs-store.mjs','./modules/install_verified_browser_store.mjs',
  './modules/connect_operational_workspace.mjs','./modules/serve_browser_app.mjs',
  './modules/verified_site_package.mjs',
