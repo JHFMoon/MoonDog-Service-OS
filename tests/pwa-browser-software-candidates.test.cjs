@@ -311,32 +311,32 @@ test('two synthetic stores sharing one browser origin retain independent active 
  // Overlapping operational filename and identical official Beta version are intentional.
  await write(alpha.store,'System Files/Workspace/data/SAPR.json',b('CP GROSS ALPHA 500'));
  await write(bravo.store,'System Files/Workspace/data/SAPR.json',b('CP GROSS BRAVO 200'));
- const transport=await syntheticPinnedBeta(),gen=await candidate(),select=await selection();
+ const transport=await syntheticPinnedBeta(),gen=await candidate(),selector=await select();
  const params=x=>({storage:common,crypto,locks:x.args.locks,storeId:x.identity.storeId,
   installedVersion:x.args.installedVersion,installedManifestHash:x.args.installedManifestHash,
   fetchImpl:transport.fetchImpl});
  const stageA=await gen.stageVerifiedBetaBrowserSoftware(params(alpha));
- await assert.rejects(select.activateStagedBrowserSoftware({
+ await assert.rejects(selector.activateStagedBrowserSoftware({
   storage:common,crypto,locks:bravo.args.locks,storeId:bravo.identity.storeId,
   originalVersion:bravo.args.installedVersion,originalManifestHash:bravo.args.installedManifestHash,
   version:stageA.version,zipHash:stageA.zipHash,manifestHash:stageA.manifestHash
  }),/NotFoundError|not found|missing/,'Alpha candidate must not be adopted by Bravo');
- const activatedA=await select.activateStagedBrowserSoftware({
+ const activatedA=await selector.activateStagedBrowserSoftware({
   storage:common,crypto,locks:alpha.args.locks,storeId:alpha.identity.storeId,
   originalVersion:alpha.args.installedVersion,originalManifestHash:alpha.args.installedManifestHash,
   version:stageA.version,zipHash:stageA.zipHash,manifestHash:stageA.manifestHash});
  assert.equal(activatedA.active,true);
- assert.equal(await select.inspectActiveBrowserSoftware({storage:common,crypto,storeId:bravo.identity.storeId}),null);
+ assert.equal(await selector.inspectActiveBrowserSoftware({storage:common,crypto,storeId:bravo.identity.storeId}),null);
  const stageB=await gen.stageVerifiedBetaBrowserSoftware(params(bravo));
- const activatedB=await select.activateStagedBrowserSoftware({
+ const activatedB=await selector.activateStagedBrowserSoftware({
   storage:common,crypto,locks:bravo.args.locks,storeId:bravo.identity.storeId,
   originalVersion:bravo.args.installedVersion,originalManifestHash:bravo.args.installedManifestHash,
   version:stageB.version,zipHash:stageB.zipHash,manifestHash:stageB.manifestHash});
  assert.equal(activatedB.active,true);
- await select.rollbackBrowserSoftware({storage:common,crypto,locks:alpha.args.locks,storeId:alpha.identity.storeId,
+ await selector.rollbackBrowserSoftware({storage:common,crypto,locks:alpha.args.locks,storeId:alpha.identity.storeId,
   originalVersion:alpha.args.installedVersion,originalManifestHash:alpha.args.installedManifestHash});
- assert.equal(await select.inspectActiveBrowserSoftware({storage:common,crypto,storeId:alpha.identity.storeId}),null);
- const bravoActive=await select.inspectActiveBrowserSoftware({storage:common,crypto,storeId:bravo.identity.storeId});
+ assert.equal(await selector.inspectActiveBrowserSoftware({storage:common,crypto,storeId:alpha.identity.storeId}),null);
+ const bravoActive=await selector.inspectActiveBrowserSoftware({storage:common,crypto,storeId:bravo.identity.storeId});
  assert.equal(bravoActive.version,BETA_VERSION,'Alpha rollback cannot reset Bravo selection');
  assert.equal(await read(alpha.store,'System Files/Workspace/data/SAPR.json'),'CP GROSS ALPHA 500');
  assert.equal(await read(bravo.store,'System Files/Workspace/data/SAPR.json'),'CP GROSS BRAVO 200');
