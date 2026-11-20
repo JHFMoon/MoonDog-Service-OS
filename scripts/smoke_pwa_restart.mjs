@@ -95,14 +95,19 @@ try{
  assert.match(await page.title(),/dashboard|MoonDog|service/i);
  await page.locator('#connectButton').click();
  await page.waitForFunction(()=>!document.body.innerText.includes('Connect Service Operations Dashboard to begin')).catch(async error=>{console.error('CONNECT FAILURE',await page.locator('body').innerText());throw error;});
+ await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
+ await settledSnapshot(page);
  if(process.env.PWA_SAPR==='1'){
   await page.getByRole('button',{name:'Open Store settings',exact:true}).click();
-  await page.locator('#storeName').fill('SYNTHETIC Alpha Motors');
-  await page.locator('#storeCode').fill('9001');
-  await page.locator('#storeTimeZone').selectOption('America/Los_Angeles');
-  await page.locator('#storeBrand').focus();
-  await page.waitForFunction(()=>document.querySelector('#settingsSaveStatus').textContent.startsWith('Saved '));
-
+  async function saveField(id,value,select=false){
+   if(select)await page.locator(id).selectOption(value);else await page.locator(id).fill(value);
+   await page.locator(id).dispatchEvent('change');await page.locator('#storeBrand').focus();
+   await page.waitForFunction(()=>document.querySelector('#settingsSaveStatus').textContent.startsWith('Saved '));
+   assert.equal(await page.locator(id).inputValue(),value,'Store field must survive its durable save');
+  }
+  await saveField('#storeName','SYNTHETIC Alpha Motors');
+  await saveField('#storeCode','9001');
+  await saveField('#storeTimeZone','America/Los_Angeles',true);
   await page.evaluate(async()=>{
    const pointer=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
    const root=await navigator.storage.getDirectory();
@@ -128,6 +133,10 @@ try{
   });
   await page.locator('#dailyTools input[type=file]').setInputFiles({name:'synthetic-sapr.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from(sourceBytes)});
   await page.waitForFunction(()=>document.querySelector('#performancePeriod').textContent.includes('2026'),{},{timeout:30000});
+  await settledSnapshot(page);assertOperational(await readOperational(page));
+  await page.getByRole('button',{name:'Tools',exact:true}).click();
+  await page.getByRole('button',{name:'Import or refresh data',exact:true}).click();
+  await page.getByRole('button',{name:/report.*setup/i}).click();
   await page.locator('#completeSetup').click();
   await page.getByRole('button',{name:'Advisor Performance',exact:true}).click();
   assert.match(await page.locator('#view-performance').innerText(),/Current MTD: \$500/);
@@ -144,6 +153,8 @@ try{
  // Ensure real application HTML, not setup or worker failure page.
  await page.locator('#connectButton').click();
  await page.waitForFunction(()=>!document.body.innerText.includes('Connect Service Operations Dashboard to begin')).catch(async error=>{console.error('CONNECT FAILURE',await page.locator('body').innerText());throw error;});
+ await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
+ await settledSnapshot(page);
  assert.match(await page.locator('body').innerText(),/Guided Setup|Home|Advisor/i);
  if(process.env.PWA_SAPR==='1'){
   await page.getByRole('button',{name:'Advisor Performance',exact:true}).click();
@@ -198,6 +209,8 @@ try{
   const restoredApp=new URL(await page.locator('#openApp').getAttribute('href'),url).href;
   await page.goto(restoredApp);await page.locator('#connectButton').click();
   await page.waitForFunction(()=>!document.body.innerText.includes('Connect Service Operations Dashboard to begin')).catch(async error=>{console.error('CONNECT FAILURE',await page.locator('body').innerText());throw error;});
+ await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
+ await settledSnapshot(page);
   if(process.env.PWA_SAPR==='1'){
    assertOperational(await readOperational(page));
    await page.getByRole('button',{name:'Advisor Performance',exact:true}).click();
@@ -207,4 +220,4 @@ try{
   console.log(JSON.stringify({storageLossRecovery:true,externalBackup:true,separateReceipt:true,missingBackupRefused:true,tamperedReceiptRefused:true,tamperedBackupRefused:true,wrongStoreReceiptRefused:true,restoredFiles:expectedFiles.length}));
  }
  console.log(JSON.stringify({mainSha:sha,browser:process.env.BROWSER_CHANNEL||'Chromium',candidateInitializer,processRestart:true,offlineDashboard:true,workspaceFiles:before.files.length,workspaceUnchanged:true}));
-}finally{await context?.close();await rm(profile,{recursive:true,force:true});}
+}catch(error){const p=context?.pages().at(-1);if(p)console.error('Synthetic acceptance failure state:',(await p.locator('body').innerText()).slice(0,10000));throw error;}finally{await context?.close();await rm(profile,{recursive:true,force:true});}
