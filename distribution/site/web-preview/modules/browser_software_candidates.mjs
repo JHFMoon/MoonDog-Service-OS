@@ -76,6 +76,16 @@ function inspectPlan(plan,version){
  return {manifestBytes:bytes(manifestEntry.bytes),manifest,catalog,selected};
 }
 function candidateId(version,zipHash){if(!VERSION.test(version||'')||!SHA.test(zipHash||''))fail('A trusted exact candidate release is required.');return version+'-'+zipHash;}
+function versionParts(input){
+ const m=/^([0-9]+)\.([0-9]+)\.([0-9]+)/.exec(input||'');
+ if(!m)fail('Invalid candidate compatibility version.');
+ return m.slice(1).map(Number);
+}
+function versionCompare(a,b){
+ const aa=versionParts(a),bb=versionParts(b);
+ for(let i=0;i<3;i++)if(aa[i]!==bb[i])return aa[i]>bb[i]?1:-1;
+ return 0;
+}
 /**
  * Must receive ZIP bytes and checksum from an independently authenticated
  * release catalog. inspectVerifiedZip MUST be the existing full ZIP verifier.
@@ -149,6 +159,10 @@ export async function stageVerifiedBrowserSoftware({storage,crypto,locks,storeId
 export async function stageVerifiedBetaBrowserSoftware({storage,crypto,locks,storeId,installedVersion,installedManifestHash,fetchImpl,siteUrl}={}){
  const beta=await fetchVerifiedPinnedBeta({siteUrl,fetchImpl,crypto});
  if(beta.verified!==true||!VERSION.test(beta.version)||!SHA.test(beta.packageHash))fail('Verified Beta authority missing.');
+ if(beta.migrationRequired!==false||!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(beta.minimumCompatibleVersion||'')||
+    !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(installedVersion||'')||
+    versionCompare(installedVersion,beta.minimumCompatibleVersion)<0||versionCompare(beta.version,installedVersion)<=0)
+  fail('Beta update is incompatible with the installed original or requires an unsupported migration.');
  // zipHash is the existing immutable candidate-directory digest field; for
  // this call it binds the official Beta JSON package, not a ZIP.
  return stageAuthenticatedPlan({storage,crypto,locks,storeId,installedVersion,installedManifestHash,
