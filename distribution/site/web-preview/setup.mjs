@@ -26,7 +26,7 @@ function showPreview(pointer){
  $('prepareBackup').disabled=false;
 }
 async function registerPreviewWorker(){
- const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',type:'module'});
+ const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',type:'module',updateViaCache:'none'});
  if(registration.active?.state==='activated')return;
  const worker=registration.installing||registration.waiting||registration.active;
  if(!worker)throw Error('The preview service worker did not start.');
