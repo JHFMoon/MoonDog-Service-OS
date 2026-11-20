@@ -19,7 +19,7 @@ const requireMetadata=value=>{
 const PREVIOUS='moondog-pwa-synthetic-preview-pointer-v1';
 const SITE_URL=new URL('./',import.meta.url).href;
 let websiteAvailable=false;
-let activePreview=null,backupUrl=null;
+let activePreview=null,backupUrl=null,verifiedBetaOffer=null;
 function showPreview(pointer,launchPointer=pointer){
  // Keep the original Stable identity for backup/restore; launch a verified
  // newer generation only when its independent selection is active.
@@ -27,6 +27,12 @@ function showPreview(pointer,launchPointer=pointer){
  open.href='./store/'+launchPointer.storeId+'/'+launchPointer.manifestHash+'/'+launchPointer.version+'/index.html';
  open.hidden=false;
  $('prepareBackup').disabled=false;
+ $('checkBeta').disabled=false;
+ const selected=launchPointer.version!==pointer.version||launchPointer.manifestHash!==pointer.manifestHash;
+ $('rollbackBeta').disabled=!selected;
+ $('installBeta').disabled=true;
+ $('recoverOriginal').disabled=true;
+ verifiedBetaOffer=null;
 }
 async function registerPreviewWorker(){
  const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',type:'module',updateViaCache:'none'});
@@ -57,18 +63,29 @@ async function offerExistingPreview(){
      !/^\d+\.\d+\.\d+$/.test(prior.version||''))return;
   const {inspectVerifiedBrowserInstallation}=await import('./modules/install_verified_browser_store.mjs');
   const {inspectActiveBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
-  // An active generation is never trusted from localStorage alone.
-  const selection=await inspectActiveBrowserSoftware({storage:navigator.storage,crypto,storeId:prior.storeId});
-  if(selection&&(selection.originalVersion!==prior.version||selection.originalManifestHash!==prior.manifestHash))return;
   const check=await inspectVerifiedBrowserInstallation({storage:navigator.storage,crypto,
    storeId:prior.storeId,version:prior.version,expectedManifestHash:prior.manifestHash});
   if(!check.applicationVerified||
      typeof check.identity?.label!=='string'||
      !/^SYNTHETIC(?:\s|$)/i.test(check.identity.label))return;
+  // An invalid selector must not silently launch an original or a candidate.
+  // Only an explicit user recovery action may clear a damaged selector.
+  let selection;
+  try{selection=await inspectActiveBrowserSoftware({storage:navigator.storage,crypto,storeId:prior.storeId});}
+  catch(_){
+   activePreview=prior;open.hidden=true;
+   $('prepareBackup').disabled=true;$('checkBeta').disabled=true;
+   $('rollbackBeta').disabled=true;$('installBeta').disabled=true;
+   $('recoverOriginal').disabled=false;
+   $('betaStatus').textContent='Software-selection verification failed. The original installation is still intact; close any dashboard tabs and explicitly recover the original verified software.';
+   return;
+  }
+  if(selection&&(selection.originalVersion!==prior.version||selection.originalManifestHash!==prior.manifestHash))return;
   const launch=selection?{storeId:prior.storeId,version:selection.version,
    manifestHash:selection.manifestHash}:prior;
   showPreview(prior,launch);
   status('Existing SYNTHETIC preview verified in browser-private storage. You can reopen it without a ZIP.');
+  if(selection)$('betaStatus').textContent='Verified selected Beta '+selection.version+' active. Close the dashboard to roll back to original Stable.';
  }catch(_){/* Missing/corrupt/cleared store must not appear as a usable saved app. */}
 }
 const existingPreview=offerExistingPreview();
@@ -190,4 +207,79 @@ $('restoreBackup').addEventListener('click',async()=>{
   $('backupStatus').textContent=result.textContent;
  }catch(error){$('backupStatus').textContent=error.message;}
  finally{$('restoreBackup').disabled=!websiteAvailable;}
+});
+
+
+function softwareStatus(message,error=false){
+ const el=$('betaStatus');el.textContent=message;el.className=error?'status error':'status';
+}
+function requireSyntheticUpdate(){
+ if(busy||!activePreview||!$('consent').checked||!navigator.storage?.getDirectory||!navigator.locks?.request)
+  throw Error('Install a verified synthetic preview, consent to testing and close the dashboard before changing software.');
+}
+$('checkBeta').addEventListener('click',async()=>{
+ if(busy)return;
+ try{
+  requireSyntheticUpdate();
+  busy=true;$('checkBeta').disabled=true;$('installBeta').disabled=true;
+  softwareStatus('Checking the immutable published Beta package and every public runtime file…');
+  const {fetchVerifiedPinnedBeta}=await import('./modules/verified_beta_transport.mjs');
+  const beta=await fetchVerifiedPinnedBeta({fetchImpl:fetch,crypto});
+  const {inspectActiveBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
+  const selection=await inspectActiveBrowserSoftware({storage:navigator.storage,crypto,storeId:activePreview.storeId});
+  if(selection)throw Error('A verified Beta is already selected. Roll back before installing another generation.');
+  verifiedBetaOffer={version:beta.version,mainSha:beta.mainSha,sha256:beta.packageHash};
+  $('installBeta').disabled=false;
+  softwareStatus('Verified Beta '+beta.version+' available from published main '+beta.mainSha.slice(0,12)+'. Close the dashboard and select Install verified Beta to stage it safely.');
+ }catch(error){verifiedBetaOffer=null;softwareStatus('Beta check refused: '+String(error?.message||error),true);}
+ finally{busy=false;$('checkBeta').disabled=!activePreview;}
+});
+$('installBeta').addEventListener('click',async()=>{
+ if(busy)return;
+ try{
+  requireSyntheticUpdate();
+  if(!verifiedBetaOffer)throw Error('Check the verified Beta first.');
+  busy=true;$('installBeta').disabled=true;$('checkBeta').disabled=true;
+  softwareStatus('Verifying and staging the published Beta outside your Workspace…');
+  const {stageVerifiedBetaBrowserSoftware}=await import('./modules/browser_software_candidates.mjs');
+  const {activateStagedBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
+  const {storeId,version,manifestHash}=activePreview;
+  const staged=await stageVerifiedBetaBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,
+   storeId,installedVersion:version,installedManifestHash:manifestHash,fetchImpl:fetch});
+  if(staged.version!==verifiedBetaOffer.version||staged.zipHash!==verifiedBetaOffer.sha256)
+   throw Error('Beta authority changed between check and staging. No selector was changed.');
+  softwareStatus('Beta files verified. Committing the selection without changing any Workspace file…');
+  await activateStagedBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,
+   storeId,originalVersion:version,originalManifestHash:manifestHash,
+   version:staged.version,zipHash:staged.zipHash,manifestHash:staged.manifestHash});
+  showPreview(activePreview,{storeId,version:staged.version,manifestHash:staged.manifestHash});
+  softwareStatus('SYNTHETIC Beta '+staged.version+' selected. Open dashboard to test. Your original Stable application and Workspace are unchanged.');
+ }catch(error){softwareStatus('Beta installation was refused or incomplete: '+String(error?.message||error)+'. Original software and Workspace are preserved. Do not delete partial candidate storage.',true);}
+ finally{busy=false;$('checkBeta').disabled=!activePreview;}
+});
+$('rollbackBeta').addEventListener('click',async()=>{
+ if(busy)return;
+ try{
+  requireSyntheticUpdate();busy=true;$('rollbackBeta').disabled=true;
+  const {rollbackBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
+  const {storeId,version,manifestHash}=activePreview;
+  await rollbackBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,storeId,
+   originalVersion:version,originalManifestHash:manifestHash});
+  showPreview(activePreview);
+  softwareStatus('Verified original Stable '+version+' restored. The same browser-private Workspace and all manual files were preserved.');
+ }catch(error){softwareStatus('Rollback refused: '+String(error?.message||error),true);}
+ finally{busy=false;}
+});
+$('recoverOriginal').addEventListener('click',async()=>{
+ if(busy)return;
+ try{
+  requireSyntheticUpdate();busy=true;$('recoverOriginal').disabled=true;
+  const {recoverOriginalBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
+  const {storeId,version,manifestHash}=activePreview;
+  await recoverOriginalBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,storeId,
+   originalVersion:version,originalManifestHash:manifestHash});
+  showPreview(activePreview);
+  softwareStatus('Verified original Stable '+version+' recovered by explicit request. Original Workspace files were not modified.');
+ }catch(error){softwareStatus('Original software recovery refused: '+String(error?.message||error),true);$('recoverOriginal').disabled=false;}
+ finally{busy=false;}
 });
