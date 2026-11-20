@@ -139,7 +139,9 @@ test('backup module mirrors reviewed source and is not enabled for real data',()
   assert.deepEqual(site,source);
   assert.doesNotMatch(source.toString(),/fetch\s*\(|XMLHttpRequest|sendBeacon|localStorage|cache\.put/);
   const sw=fs.readFileSync(path.join(root,'distribution/site/web-preview/sw.js'),'utf8');
-  assert.doesNotMatch(sw,/synthetic_external_backup\.mjs/);
+  // A public code module can be cached; Workspace bytes never can.
+  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
+  assert.doesNotMatch(sw,/cache\.put\(|PUBLIC_SHELL[\s\S]*?Workspace\/data/);
 });
 
 test('external snapshot recovers after storage loss into a new ID and rejects another store receipt',async()=>{
