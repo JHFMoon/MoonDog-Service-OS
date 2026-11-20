@@ -5,6 +5,7 @@
  */
 import {openExistingStore} from './opfs-store.mjs';
 import {inspectVerifiedBrowserInstallation} from './install_verified_browser_store.mjs';
+import {fetchVerifiedPinnedBeta} from './verified_beta_transport.mjs';
 
 const ROOT='MoonDog-PWA-v1', CANDIDATES='software-candidates';
 const MARKER='STAGING-INCOMPLETE.json', MANIFEST='INSTALLATION-MANIFEST.json';
@@ -80,16 +81,47 @@ function candidateId(version,zipHash){if(!VERSION.test(version||'')||!SHA.test(z
  * release catalog. inspectVerifiedZip MUST be the existing full ZIP verifier.
  * This API never changes the active installed software or its Workspace.
  */
-export async function stageVerifiedBrowserSoftware({storage,crypto,locks,storeId,installedVersion,installedManifestHash,version,zipHash,zipBytes,inspectVerifiedZip}={}){
- if(typeof crypto?.subtle?.digest!=='function'||typeof locks?.request!=='function'||typeof inspectVerifiedZip!=='function')fail('Verified software staging dependencies are unavailable.');
- const id=candidateId(version,zipHash),archive=bytes(zipBytes||new Uint8Array());
- if(archive.length<22||archive.length>256*1024*1024||await digest(archive,crypto.subtle)!==zipHash)fail('Candidate ZIP digest mismatch. No storage changed.');
- const plan=inspectPlan(await inspectVerifiedZip(archive.buffer.slice(archive.byteOffset,archive.byteOffset+archive.byteLength),zipHash,version),version);
- for(const file of plan.selected)if(await digest(file.bytes,crypto.subtle)!==file.sha)fail('Candidate software changed after verification.');
- const manifestHash=await digest(plan.manifestBytes,crypto.subtle);
+
+async function readPath(store,path){
+ const parts=path.split('/'),name=parts.pop();let folder=store;
+ for(const part of parts)folder=await folder.getDirectoryHandle(part,{create:false});
+ return read(folder,name);
+}
+async function deriveBetaCandidatePlan(store,beta,crypto){
+ // Only immutable public bootstrap bytes are reused from the verified Stable
+ // installation. All executable runtime files come from the pinned Beta.
+ const roots=['00 - OPEN DASHBOARD.html','README - START HERE.txt','index.html','System Files/Workspace/README.txt'];
+ const files=[],seen=new Set();
+ for(const path of roots){
+  const content=await readPath(store,path);files.push({path,bytes:content,sha256:await digest(content,crypto.subtle)});seen.add(path);
+ }
+ for(const item of beta.files){
+  const path='System Files/'+item.path;
+  if(seen.has(path)||!PATH.test(path))fail('Beta candidate runtime contains an unsafe or duplicated file.');
+  seen.add(path);files.push({path,bytes:item.bytes,sha256:item.sha256});
+ }
+ const ordered=files.slice().sort((a,b)=>a.path.localeCompare(b.path));
+ const manifest={format:'service-operations-dashboard-clean-install',formatVersion:1,
+  version:beta.version,packageRoot:'Service Operations Dashboard',launcher:'00 - OPEN DASHBOARD.html',
+  applicationRoot:'System Files',workspaceRoot:'System Files/Workspace',updateChannel:'beta',
+  workspaceProtectedFromUpdates:true,
+  files:ordered.map(item=>({path:item.path,size:item.bytes.length,sha256:item.sha256}))};
+ files.push({path:MANIFEST,bytes:new TextEncoder().encode(JSON.stringify(manifest)+'\n')});
+ return {version:beta.version,files};
+}
+/** Internal only: after independent source verification, commit a quarantined
+ * candidate under the exclusive original-store lock. Never mutate Workspace. */
+async function stageAuthenticatedPlan({storage,crypto,locks,storeId,installedVersion,installedManifestHash,version,zipHash,makePlan}){
+ if(typeof crypto?.subtle?.digest!=='function'||typeof locks?.request!=='function'||typeof makePlan!=='function')
+  fail('Verified software staging dependencies are unavailable.');
+ const id=candidateId(version,zipHash);
  return locks.request('moondog-pwa-operational-'+storeId,{mode:'exclusive',ifAvailable:true},async lock=>{
   if(!lock)fail('Active browser dashboard must close before staging software.');
-  await assertOriginal({storage,crypto,storeId,installedVersion,installedManifestHash});
+  const store=await assertOriginal({storage,crypto,storeId,installedVersion,installedManifestHash});
+  const plan=inspectPlan(await makePlan(store),version);
+  for(const file of plan.selected)if(await digest(file.bytes,crypto.subtle)!==file.sha)
+   fail('Candidate software changed after verification.');
+  const manifestHash=await digest(plan.manifestBytes,crypto.subtle);
   const parent=await candidatesFolder(storage,storeId,true);
   if(!await absent(parent,id))fail('Candidate generation already exists; no overwrite or adoption.');
   const dir=await parent.getDirectoryHandle(id,{create:true});
@@ -100,8 +132,27 @@ export async function stageVerifiedBrowserSoftware({storage,crypto,locks,storeId
    await dir.removeEntry(MARKER);
    const result=await inspectStagedBrowserSoftware({storage,crypto,storeId,version,zipHash,expectedManifestHash:manifestHash});
    return Object.freeze({...result,active:false,productionReady:false});
-  }catch(e){throw Error('Candidate staging incomplete and quarantined: '+String(e?.message||e));}
+  }catch(error){throw Error('Candidate staging incomplete and quarantined: '+String(error?.message||error));}
  });
+}
+/** Existing independent full official ZIP verifier; never substitute a JSON parser. */
+export async function stageVerifiedBrowserSoftware({storage,crypto,locks,storeId,installedVersion,installedManifestHash,version,zipHash,zipBytes,inspectVerifiedZip}={}){
+ if(typeof crypto?.subtle?.digest!=='function'||typeof inspectVerifiedZip!=='function')fail('Verified ZIP inspector unavailable.');
+ const archive=bytes(zipBytes||new Uint8Array());
+ if(archive.length<22||archive.length>256*1024*1024||await digest(archive,crypto.subtle)!==zipHash)
+  fail('Candidate ZIP digest mismatch. No storage changed.');
+ const trusted=await inspectVerifiedZip(archive.buffer.slice(archive.byteOffset,archive.byteOffset+archive.byteLength),zipHash,version);
+ return stageAuthenticatedPlan({storage,crypto,locks,storeId,installedVersion,installedManifestHash,version,zipHash,
+  makePlan:async()=>trusted});
+}
+/** Pinned, separately authenticated Beta JSON transport: no ZIP impersonation. */
+export async function stageVerifiedBetaBrowserSoftware({storage,crypto,locks,storeId,installedVersion,installedManifestHash,fetchImpl,siteUrl}={}){
+ const beta=await fetchVerifiedPinnedBeta({siteUrl,fetchImpl,crypto});
+ if(beta.verified!==true||!VERSION.test(beta.version)||!SHA.test(beta.packageHash))fail('Verified Beta authority missing.');
+ // zipHash is the existing immutable candidate-directory digest field; for
+ // this call it binds the official Beta JSON package, not a ZIP.
+ return stageAuthenticatedPlan({storage,crypto,locks,storeId,installedVersion,installedManifestHash,
+  version:beta.version,zipHash:beta.packageHash,makePlan:store=>deriveBetaCandidatePlan(store,beta,crypto)});
 }
 /** Read-only integrity verification; no Workspace enumeration, no activation. */
 export async function inspectStagedBrowserSoftware({storage,crypto,storeId,version,zipHash,expectedManifestHash}={}){
