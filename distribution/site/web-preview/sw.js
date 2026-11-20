@@ -2,7 +2,7 @@
 // Verified application files are read from private OPFS, SHA-checked per fetch.
 import {loadVerifiedPublicAsset,addPreviewBootstrap,parseBrowserAssetRoute} from './modules/serve_browser_app.mjs';
 const CACHE_PREFIX='moondog-synthetic-preview-shell-';
-const CACHE=CACHE_PREFIX+'v9';
+const CACHE=CACHE_PREFIX+'v10';
 const PUBLIC_SHELL=Object.freeze([
  './index.html','./setup.mjs','./bridge.js','./style.css','./app.webmanifest','./icon.svg',
  './modules/initialize_fresh_browser_workspace.mjs',
@@ -27,6 +27,12 @@ self.addEventListener('activate',event=>event.waitUntil((async()=>{
  for(const name of await caches.keys())if(name.startsWith(CACHE_PREFIX)&&name!==CACHE)await caches.delete(name);
  await self.clients.claim();
 })()));
+// Public code-only version handshake: a candidate may activate only when the
+// controlling service worker can serve the currently reviewed offline modules.
+self.addEventListener('message',event=>{
+ if(event.data?.type!=='MOONDOG_PREVIEW_SHELL_PROBE')return;
+ event.ports?.[0]?.postMessage({type:'MOONDOG_PREVIEW_SHELL_PROOF',cache:CACHE});
+});
 const NO_STORE={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 self.addEventListener('fetch',event=>{
  const url=new URL(event.request.url),scope=new URL(self.registration.scope);
