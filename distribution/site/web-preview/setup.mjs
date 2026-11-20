@@ -1,5 +1,6 @@
 /* Web-only MoonDog first-run PREVIEW. Verified Stable ZIP is user-selected,
  * never extracted into Windows folders, never uploaded. No real-store data. */
+import {initializeFreshBrowserWorkspace} from './modules/initialize_fresh_browser_workspace.mjs';
 import {createEmptyStore} from './modules/opfs-store.mjs';
 import {installVerifiedBrowserStore} from './modules/install_verified_browser_store.mjs';
 import {probeSitePackage,fetchVerifiedSitePackage} from './modules/verified_site_package.mjs';
@@ -109,6 +110,7 @@ async function installPreview(readBytes, recovery){
   const {identity}=await createEmptyStore({storage:navigator.storage,crypto,label:'SYNTHETIC MoonDog Web Preview'});
   await installVerifiedBrowserStore({storage:navigator.storage,crypto,locks:navigator.locks,
    storeId:identity.storeId,zipBytes:buffer,version:release.version,expectedZipHash:release.sha256,inspectVerifiedZip:inspect});
+  if(!recovery)await initializeFreshBrowserWorkspace({...recoveryArgs,storage:navigator.storage,locks:navigator.locks,storeId:identity.storeId});
   if(recovery){
    status('Restoring and verifying the synthetic Workspace…');
    await recovery.api.restoreSyntheticExternalBackup({...recoveryArgs,storage:navigator.storage,
