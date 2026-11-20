@@ -149,6 +149,7 @@ export async function readActiveCandidateAsset({storage,crypto,storeId,version,e
  const data=new Uint8Array(await(await(await fileDir.getFileHandle(parts.at(-1),{create:false})).getFile()).arrayBuffer());
  const stageRoot=await owned.getDirectoryHandle(record.version+'-'+record.zipHash,{create:false});
  const manifestBytes=new Uint8Array(await(await(await stageRoot.getFileHandle('INSTALLATION-MANIFEST.json',{create:false})).getFile()).arrayBuffer());
+ if(await sha256(manifestBytes,crypto)!==record.manifestHash)fail('Active software manifest changed during asset read.');
  const manifest=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(manifestBytes));
  const entry=manifest.files.find(x=>x.path==='System Files/'+relativePath);
  if(!entry||data.length!==entry.size||await sha256(data,crypto)!==entry.sha256)
