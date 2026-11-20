@@ -18,7 +18,7 @@ FILES = {
 }
 
 
-def fixture(root, extras=None, *, corrupt=False, bad_sidecar=False):
+def fixture(root, extras=None, *, corrupt=False, bad_sidecar=False, extra_dirs=()):
     root = Path(root)
     entries = dict(FILES)
     entries.update(extras or {})
@@ -32,6 +32,8 @@ def fixture(root, extras=None, *, corrupt=False, bad_sidecar=False):
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(PACKAGE_ROOT + "/", b"")
         archive.writestr(PACKAGE_ROOT + "/System Files/Workspace/data/", b"")
+        for name in extra_dirs:
+            archive.writestr(PACKAGE_ROOT + "/" + name.rstrip("/") + "/", b"")
         for path, content in entries.items():
             archive.writestr(PACKAGE_ROOT + "/" + path, content)
         archive.writestr(PACKAGE_ROOT + "/INSTALLATION-MANIFEST.json", json.dumps(embedded))
@@ -70,6 +72,12 @@ class PackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as path:
             args = fixture(path, {"PRIVATE-EXTRA.json": b'"synthetic"'})
             with self.assertRaisesRegex(ValueError, "Unlisted"):
+                verify(*args, VERSION)
+
+    def test_rejects_unlisted_directory_metadata(self):
+        with tempfile.TemporaryDirectory() as path:
+            args = fixture(path, extra_dirs=["System Files/Workspace/Dealer-Acme"])
+            with self.assertRaisesRegex(ValueError, "unlisted directory"):
                 verify(*args, VERSION)
 
     def test_rejects_escape_and_case_alias(self):
