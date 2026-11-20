@@ -188,6 +188,9 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(setup,/activateStagedBrowserSoftware/);
  assert.match(setup,/rollbackBrowserSoftware/);
  assert.match(setup,/recoverOriginalBrowserSoftware/);
+ assert.match(setup,/verifyActiveBetaShell/);
+ assert.match(setup,/MOONDOG_PREVIEW_SHELL_PROBE/);
+ assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
  assert.match(sw,/const CACHE=CACHE_PREFIX\+'v9'/);
