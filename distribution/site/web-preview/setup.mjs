@@ -263,7 +263,7 @@ $('installBeta').addEventListener('click',async()=>{
   showPreview(activePreview,{storeId,version:staged.version,manifestHash:staged.manifestHash});
   softwareStatus('SYNTHETIC Beta '+staged.version+' selected. Open dashboard to test. Your original Stable application and Workspace are unchanged.');
  }catch(error){softwareStatus('Beta installation was refused or incomplete: '+String(error?.message||error)+'. Original software and Workspace are preserved. Do not delete partial candidate storage.',true);}
- finally{busy=false;$('checkBeta').disabled=!activePreview;}
+ finally{busy=false;$('checkBeta').disabled=!activePreview;$('installBeta').disabled=!verifiedBetaOffer;}
 });
 $('rollbackBeta').addEventListener('click',async()=>{
  if(busy)return;
@@ -275,7 +275,7 @@ $('rollbackBeta').addEventListener('click',async()=>{
    originalVersion:version,originalManifestHash:manifestHash});
   showPreview(activePreview);
   softwareStatus('Verified original Stable '+version+' restored. The same browser-private Workspace and all manual files were preserved.');
- }catch(error){softwareStatus('Rollback refused: '+String(error?.message||error),true);}
+ }catch(error){softwareStatus('Rollback refused: '+String(error?.message||error),true);$('rollbackBeta').disabled=false;}
  finally{busy=false;}
 });
 $('recoverOriginal').addEventListener('click',async()=>{
