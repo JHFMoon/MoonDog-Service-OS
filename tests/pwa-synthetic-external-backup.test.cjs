@@ -128,3 +128,14 @@ test('invalid install, oversized source file and unsafe path fail closed before 
   await save(args.store,'MOONDOG-PWA-INSTALL-INCOMPLETE.json','incomplete');
   await assert.rejects(createSyntheticExternalBackup(args),/incomplete/);
 });
+
+test('backup module mirrors reviewed source and is not enabled for real data',()=>{
+  const fs=require('node:fs'),path=require('node:path');
+  const root=path.join(__dirname,'..');
+  const source=fs.readFileSync(path.join(root,'src/pwa/synthetic_external_backup.mjs'));
+  const site=fs.readFileSync(path.join(root,'distribution/site/web-preview/modules/synthetic_external_backup.mjs'));
+  assert.deepEqual(site,source);
+  assert.doesNotMatch(source.toString(),/fetch\s*\(|XMLHttpRequest|sendBeacon|localStorage|cache\.put/);
+  const sw=fs.readFileSync(path.join(root,'distribution/site/web-preview/sw.js'),'utf8');
+  assert.doesNotMatch(sw,/synthetic_external_backup\.mjs/);
+});
