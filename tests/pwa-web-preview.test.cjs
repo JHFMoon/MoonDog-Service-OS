@@ -18,8 +18,8 @@ const storage=()=>({root:new Dir('OPFS'),getDirectory(){return Promise.resolve(t
 const sha=async bytes=>Array.from(new Uint8Array(await webcrypto.subtle.digest('SHA-256',bytes)),x=>x.toString(16).padStart(2,'0')).join('');
 async function write(root,name,data){const parts=name.split('/');let dir=root;for(const part of parts.slice(0,-1))dir=await dir.getDirectoryHandle(part,{create:true});const file=await dir.getFileHandle(parts.at(-1),{create:true});file.bytes=data;return file;}
 const HTML='<!doctype html><html lang="en"><head><title>MoonDog synthetic app</title></head><body>Real layout loaded<script src="assets/app.js"></script></body></html>';
-async function create(){
- const s=storage(),{identity,store}=await (await stores()).createEmptyStore({storage:s,crypto:{randomUUID},label:'SYNTHETIC PREVIEW'});
+async function create(label='SYNTHETIC PREVIEW'){
+ const s=storage(),{identity,store}=await (await stores()).createEmptyStore({storage:s,crypto:{randomUUID},label});
  const files=[['System Files/index.html',HTML],['System Files/assets/app.js','var sample=1;'],['System Files/assets/styles.css','body{color:black}'],['System Files/vendor/jszip.min.js','/* synthetic vendor */'],['00 - OPEN DASHBOARD.html','launcher']];
  const entries=[];for(const [name,contents] of files){const raw=b(contents);await write(store,name,raw);entries.push({path:name,size:raw.byteLength,sha256:await sha(raw)});}
  const manifest={format:'service-operations-dashboard-clean-install',formatVersion:1,version:'0.10.17',applicationRoot:'System Files',workspaceRoot:'System Files/Workspace',workspaceProtectedFromUpdates:true,files:entries};
@@ -104,4 +104,19 @@ test('preview is separate from production site and refuses real data at the entr
  assert.doesNotMatch(js,/showDirectoryPicker|showSaveFilePicker/);
  const m=JSON.parse(fs.readFileSync(path.join(root,'app.webmanifest'),'utf8'));
  assert.equal(m.display,'standalone');assert.match(m.start_url,/index\.html/);
+});
+
+
+test('public preview refuses non-synthetic store even with valid official app hash',async()=>{
+ const {args,store}=await create('Actual dealership');
+ const {loadVerifiedPublicAsset}=await lib();
+ await assert.rejects(loadVerifiedPublicAsset({...args,relativePath:'index.html'}),/refuses non-synthetic/);
+ const system=await store.getDirectoryHandle('System Files');
+ const workspace=await system.getDirectoryHandle('Workspace');
+ const data=await workspace.getDirectoryHandle('data');
+ await write(data,'original.txt',b('ORIGINAL TEST ONLY'));
+ assert.equal(new TextDecoder().decode((await data.getFileHandle('original.txt')).bytes),'ORIGINAL TEST ONLY');
+ const setup=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
+ assert.match(setup,/check\.identity\.label/);
+ assert.match(setup,/SYNTHETIC/);
 });
