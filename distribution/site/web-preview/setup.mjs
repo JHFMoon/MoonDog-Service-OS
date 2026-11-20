@@ -223,7 +223,7 @@ async function verifyActiveBetaShell(){
   channel.port1.onmessage=event=>{
    clearTimeout(timer);channel.port1.close();
    if(event.data?.type==='MOONDOG_PREVIEW_SHELL_PROOF'&&
-      event.data.cache==='moondog-synthetic-preview-shell-v9')resolve();
+      event.data.cache==='moondog-synthetic-preview-shell-v10')resolve();
    else reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
   };
   try{controller.postMessage({type:'MOONDOG_PREVIEW_SHELL_PROBE'},[channel.port2]);}
