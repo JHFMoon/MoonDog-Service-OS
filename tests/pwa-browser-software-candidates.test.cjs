@@ -99,3 +99,79 @@ test('changed staged executable, extra file and incomplete marker are never cons
  await write(folder,'STAGING-INCOMPLETE.json',b('incomplete'));
  await assert.rejects(inspect(),/Incomplete candidate software/);
 });
+
+
+const select=()=>import('../src/pwa/browser_software_selection.mjs');
+const selectArgs=(args,proof)=>({storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+ originalVersion:args.installedVersion,originalManifestHash:args.installedManifestHash,
+ version:args.version,zipHash:args.zipHash,manifestHash:proof.manifestHash});
+test('activation serves only verified candidate and rollback preserves original source and manual Workspace bytes',async()=>{
+ const {store,identity,args}=await fixture();const generation=await candidate();const selection=await select();
+ const staged=await generation.stageVerifiedBrowserSoftware(args);
+ assert.equal(await selection.inspectActiveBrowserSoftware({storage:args.storage,crypto,storeId:identity.storeId}),null);
+ const active=await selection.activateStagedBrowserSoftware(selectArgs(args,staged));
+ assert.equal(active.active,true);assert.equal(active.productionReady,false);
+ assert.equal(await read(store,'System Files/index.html'),'<html>synthetic</html>');
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ const asset=await selection.readActiveCandidateAsset({storage:args.storage,crypto,storeId:identity.storeId,
+  version:args.version,expectedManifestHash:staged.manifestHash,relativePath:'index.html'});
+ assert.equal(new TextDecoder().decode(asset.bytes),'<html>synthetic</html>');
+ assert.match(asset.mime,/text\/html/);
+ await assert.rejects(selection.readActiveCandidateAsset({storage:args.storage,crypto,storeId:identity.storeId,
+   version:args.installedVersion,expectedManifestHash:args.installedManifestHash,relativePath:'index.html'}),/active verified generation/);
+ await assert.rejects(selection.readActiveCandidateAsset({storage:args.storage,crypto,storeId:identity.storeId,
+   version:args.version,expectedManifestHash:staged.manifestHash,relativePath:'../Workspace/data/manual.txt'}),/approved public/);
+ await assert.rejects(selection.activateStagedBrowserSoftware(selectArgs(args,staged)),/already active/);
+ const rollback=await selection.rollbackBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:identity.storeId,
+  originalVersion:args.installedVersion,originalManifestHash:args.installedManifestHash});
+ assert.equal(rollback.rolledBack,true);
+ assert.equal(await selection.inspectActiveBrowserSoftware({storage:args.storage,crypto,storeId:identity.storeId}),null);
+ assert.equal(await read(store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+});
+test('candidate corruption makes active selection fail closed but permits verified original rollback',async()=>{
+ const {store,identity,args}=await fixture();const generation=await candidate(),selection=await select();
+ const staged=await generation.stageVerifiedBrowserSoftware(args);await selection.activateStagedBrowserSoftware(selectArgs(args,staged));
+ const bucket=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1');
+ const candidates=await bucket.getDirectoryHandle('software-candidates');
+ const files=await candidates.getDirectoryHandle(identity.storeId).then(d=>d.getDirectoryHandle(args.version+'-'+args.zipHash));
+ const app=await files.getDirectoryHandle('System Files').then(d=>d.getDirectoryHandle('assets')).then(d=>d.getFileHandle('app.js'));
+ app.bytes=b('tampered');
+ await assert.rejects(selection.inspectActiveBrowserSoftware({storage:args.storage,crypto,storeId:identity.storeId}),/checksum mismatch/);
+ await assert.rejects(selection.readActiveCandidateAsset({storage:args.storage,crypto,storeId:identity.storeId,
+   version:args.version,expectedManifestHash:staged.manifestHash,relativePath:'index.html'}),/checksum mismatch/);
+ const rollback=await selection.rollbackBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:identity.storeId,
+  originalVersion:args.installedVersion,originalManifestHash:args.installedManifestHash});
+ assert.equal(rollback.rolledBack,true);assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+});
+test('exclusive lock, forged original authority and wrong-store selection refuse without mutations',async()=>{
+ const {store,args}=await fixture(),selection=await select(),generation=await candidate();const staged=await generation.stageVerifiedBrowserSoftware(args);
+ await assert.rejects(selection.activateStagedBrowserSoftware({...selectArgs(args,staged),locks:{request:async(_n,_o,fn)=>fn(null)}}),/Close the active/);
+ await assert.rejects(selection.activateStagedBrowserSoftware({...selectArgs(args,staged),originalManifestHash:'0'.repeat(64)}),/differs|wrong installed manifest/);
+ await assert.rejects(selection.activateStagedBrowserSoftware({...selectArgs(args,staged),storeId:randomUUID()}),{name:'NotFoundError'});
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ assert.equal(await selection.inspectActiveBrowserSoftware({storage:args.storage,crypto,storeId:args.storeId}),null);
+});
+test('selections are isolated across stores; damaged selection refuses silent fallback',async()=>{
+ const a=await fixture(),other=await fixture();const selection=await select(),generation=await candidate();
+ const staged=await generation.stageVerifiedBrowserSoftware(a.args);
+ await selection.activateStagedBrowserSoftware(selectArgs(a.args,staged));
+ assert.equal(await selection.inspectActiveBrowserSoftware({storage:other.args.storage,crypto,storeId:other.args.storeId}),null);
+ const selected=await a.args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(d=>d.getDirectoryHandle('software-selections')).then(d=>d.getDirectoryHandle(a.identity.storeId)).then(d=>d.getFileHandle('ACTIVE.json'));
+ selected.bytes=b('invalid');
+ await assert.rejects(selection.inspectActiveBrowserSoftware({storage:a.args.storage,crypto,storeId:a.identity.storeId}),/selection record unreadable|Corrupted active/);
+ assert.equal(await read(a.store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+});
+test('explicit verified-original recovery clears a corrupted selector without touching original files',async()=>{
+ const {args,store,identity}=await fixture(),c=await candidate(),selection=await select();
+ const stage=await c.stageVerifiedBrowserSoftware(args);
+ await selection.activateStagedBrowserSoftware(selectArgs(args,stage));
+ const selected=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(d=>d.getDirectoryHandle('software-selections')).then(d=>d.getDirectoryHandle(identity.storeId)).then(d=>d.getFileHandle('ACTIVE.json'));
+ selected.bytes=b('truncated');
+ await assert.rejects(selection.inspectActiveBrowserSoftware({storage:args.storage,crypto,storeId:identity.storeId}),/selection record unreadable|Corrupted active/);
+ const recovered=await selection.recoverOriginalBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:identity.storeId,
+  originalVersion:args.installedVersion,originalManifestHash:args.installedManifestHash});
+ assert.equal(recovered.recoveredOriginal,true);
+ assert.equal(await selection.inspectActiveBrowserSoftware({storage:args.storage,crypto,storeId:identity.storeId}),null);
+ assert.equal(await read(store,'System Files/index.html'),'<html>synthetic</html>');
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+});
