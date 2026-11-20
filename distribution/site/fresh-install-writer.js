@@ -191,8 +191,9 @@
       if(await digest(bytes)!==item.sha256)fail("A packaged application file failed SHA-256 verification.");
       files.push({path:name,bytes,sha256:item.sha256});
     }
+    const manifestBytes=await inflate(archive,manifestEntry);
     files.push({path:"INSTALLATION-MANIFEST.json",
-      bytes:await inflate(archive,manifestEntry),sha256:null});
+      bytes:manifestBytes,sha256:await digest(manifestBytes)});
     const directories=new Set(REQUIRED_DIRS);
     for(const file of files){
       const parts=file.path.split("/");
@@ -248,11 +249,11 @@
       fail("An unexpected file appeared during installation. No existing file was overwritten.");
     return dir.getFileHandle(name,{create:true});
   }
-  async function assertOnlyApprovedFiles(rootDir,packageData){
+  async function assertOnlyApprovedFiles(rootDir,packageData,includeManifest=false){
     // Re-read the final tree, not only its names: a concurrent writer can change
     // a previously verified file while later package members are being written.
     const expectedFiles=new Map(packageData.files
-      .filter(item=>item.path!=="INSTALLATION-MANIFEST.json")
+      .filter(item=>includeManifest || item.path!=="INSTALLATION-MANIFEST.json")
       .map(item=>[item.path,item]));
     const expectedDirs=new Set(packageData.directories);
     const seenFiles=new Set(),seenDirs=new Set();
@@ -345,6 +346,17 @@
       await destination.removeEntry(MARKER);
       if(await hasFile(destination,MARKER))
         fail("The incomplete-install marker could not be cleared.");
+      // OneDrive/sync and another tab can change the folder after the first
+      // scan and manifest commit. Never announce success unless the *complete*
+      // installation still matches the signed ZIP after removing the hold.
+      try { await assertOnlyApprovedFiles(destination,packageData,true); }
+      catch(error){
+        // This new folder must remain visibly incomplete. Never overwrite an
+        // unexpected marker or touch a pre-existing installation.
+        try { await writeReadBack(destination,MARKER,marker,null); }
+        catch(_) { /* Original failure still blocks success. */ }
+        throw error;
+      }
       status("Verified installation created. Open the launcher in Edge to complete Guided Setup.");
       return {status:"installed",version:packageData.version,folderName:name,files:written+1};
     }catch(error){
