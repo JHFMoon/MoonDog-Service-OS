@@ -15,8 +15,9 @@ const fail = message => { throw new Error(message); };
 
 export function verifiedSitePackageUrl({siteUrl, version, sha256} = {}) {
   const site = new URL(siteUrl);
-  if (site.protocol !== 'https:' || site.search || site.hash ||
-      !site.pathname.endsWith('/web-preview/') || !VERSION.test(version || '') ||
+  if (site.protocol !== 'https:' || site.hostname !== 'jhfmoon.github.io' ||
+      site.pathname !== '/MoonDog-Service-OS/web-preview/' || site.search || site.hash ||
+      !VERSION.test(version || '') ||
       !SHA.test(sha256 || '')) fail('A trusted website and Stable package fingerprint are required.');
   const packageUrl = new URL('./packages/moondog-' + version + '.zip', site);
   if (packageUrl.origin !== site.origin || !packageUrl.pathname.startsWith(site.pathname))
