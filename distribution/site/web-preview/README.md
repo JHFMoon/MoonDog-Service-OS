@@ -11,4 +11,4 @@ This is an isolated browser-only installation-test path, **not** a replacement f
 - `modules/*.mjs` are exact reviewable copies of `src/pwa/*.mjs`, enforced by `tests/pwa-web-preview.test.cjs` because the existing Pages workflow copies only `distribution/site`.
 - No Stable promotion, protected publisher workflow edits, real-store migration or Windows installation is performed by this preview.
 
-The separate CI browser smoke, when run, uses a synthetic browser profile and the official built Stable ZIP to verify the real dashboard opens, connects to browser-private Workspace and reloads offline. Passing it does not constitute real dealership or Windows/Edge field proof.
+Browser verification uses a fresh Chromium profile and the published Stable ZIP. It checks the real dashboard, its Workspace connection and offline reload. Windows Edge field testing and production recovery remain separate.

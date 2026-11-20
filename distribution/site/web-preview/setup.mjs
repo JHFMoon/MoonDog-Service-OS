@@ -15,10 +15,31 @@ const requireMetadata=value=>{
  return value;
 };
 const PREVIOUS='moondog-pwa-synthetic-preview-pointer-v1';
+async function registerPreviewWorker(){
+ const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',type:'module'});
+ if(registration.active?.state==='activated')return;
+ const worker=registration.installing||registration.waiting||registration.active;
+ if(!worker)throw Error('The preview service worker did not start.');
+ await new Promise((resolve,reject)=>{
+  const timeout=setTimeout(()=>finish(Error('The preview service worker did not activate in time.')),30000);
+  function finish(error){
+   clearTimeout(timeout);
+   worker.removeEventListener('statechange',check);
+   if(error)reject(error);else resolve();
+  }
+  function check(){
+   if(worker.state==='activated')finish();
+   if(worker.state==='redundant')finish(Error('The preview service worker could not install its offline files.'));
+  }
+  worker.addEventListener('statechange',check);
+  check();
+ });
+}
 async function offerExistingPreview(){
  try{
   const prior=JSON.parse(localStorage.getItem(PREVIOUS)||'null');
-  if(!prior||!navigator.storage?.getDirectory||!/^[a-f0-9]{64}$/.test(prior.manifestHash||'')||
+  if(!prior||!navigator.storage?.getDirectory||!navigator.serviceWorker?.controller||
+     !/^[a-f0-9]{64}$/.test(prior.manifestHash||'')||
      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(prior.storeId||'')||
      !/^\d+\.\d+\.\d+$/.test(prior.version||''))return;
   const {inspectVerifiedBrowserInstallation}=await import('./modules/install_verified_browser_store.mjs');
@@ -30,7 +51,7 @@ async function offerExistingPreview(){
   status('Existing SYNTHETIC preview verified in browser-private storage. You can reopen it without a ZIP.');
  }catch(_){/* Missing/corrupt/cleared store must not appear as a usable saved app. */}
 }
-void offerExistingPreview();
+const existingPreview=offerExistingPreview();
 let release=null;
 (async()=>{
  try{const response=await fetch('../latest.json',{cache:'no-store'});
@@ -40,7 +61,11 @@ let release=null;
   $('download').href=release.asset;
   $('download').hidden=false;
   $('install').disabled=false;
- }catch(e){status('Official release metadata unavailable. Nothing can be installed.',true);}
+ }catch(e){
+  $('version').textContent='Official release metadata unavailable.';
+  await existingPreview;
+  if(open.hidden)status('Connect to the internet to start a new preview installation.',true);
+ }
 })();
 $('install').addEventListener('click',async()=>{
  if(busy)return;
@@ -50,7 +75,7 @@ $('install').addEventListener('click',async()=>{
  }
  const file=$('zip').files?.[0];
  if(!file){status('Select the original official Stable ZIP from your Downloads first.',true);return;}
- busy=true;$('install').disabled=true;open.hidden=true;
+ busy=true;$('install').disabled=true;
  try{
   status('Checking the entire official ZIP before creating browser storage…');
   const buffer=await file.arrayBuffer();
@@ -65,13 +90,11 @@ $('install').addEventListener('click',async()=>{
   await installVerifiedBrowserStore({storage:navigator.storage,crypto,locks:navigator.locks,
    storeId:identity.storeId,zipBytes:buffer,version:release.version,expectedZipHash:release.sha256,inspectVerifiedZip:inspect});
   status('Registering the browser app service worker…');
-  const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',type:'module'});
-  await navigator.serviceWorker.ready;
-  if(!registration.active)throw Error('The browser app service worker is not active. The verified store was preserved.');
+  await registerPreviewWorker();
   const dest='./store/'+identity.storeId+'/'+manifestHash+'/'+release.version+'/index.html';
-  open.href=dest;open.hidden=false;
   localStorage.setItem(PREVIOUS,JSON.stringify({storeId:identity.storeId,manifestHash,version:release.version}));
-  const persistent=typeof navigator.storage.persisted==='function'?await navigator.storage.persisted():false;
+  open.href=dest;open.hidden=false;
+  const persistent=await navigator.storage.persisted?.().catch(()=>false);
   status('Verified SYNTHETIC preview is installed in browser-private storage. Click Open dashboard to inspect the real MoonDog interface. '+
    (persistent?'Browser persistence is enabled.':'Browser persistence is NOT guaranteed; clearing Edge site data removes this copy.'));
  }catch(e){status('Preview was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}
