@@ -2,7 +2,7 @@
 // Verified application files are read from private OPFS, SHA-checked per fetch.
 import {loadVerifiedPublicAsset,addPreviewBootstrap,parseBrowserAssetRoute} from './modules/serve_browser_app.mjs';
 const CACHE_PREFIX='moondog-synthetic-preview-shell-';
-const CACHE=CACHE_PREFIX+'v5';
+const CACHE=CACHE_PREFIX+'v6';
 const PUBLIC_SHELL=Object.freeze([
  './index.html','./setup.mjs','./bridge.js','./style.css','./app.webmanifest','./icon.svg',
  './modules/opfs-store.mjs','./modules/install_verified_browser_store.mjs',
@@ -16,7 +16,8 @@ const shellUrls=PUBLIC_SHELL.map(item=>new URL(item,self.registration.scope).hre
 const allowedShell=new Set(shellUrls);
 self.addEventListener('install',event=>event.waitUntil((async()=>{
  const cache=await caches.open(CACHE);
- await cache.addAll(shellUrls); // all public files must exist or install fails closed
+ // Stage a complete shell without reusing cached HTTP responses from the previous release.
+ await cache.addAll(shellUrls.map(url=>new Request(url,{cache:'reload',redirect:'error'})));
  await self.skipWaiting();
 })()));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{
