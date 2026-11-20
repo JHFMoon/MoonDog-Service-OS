@@ -2,6 +2,7 @@
  * never extracted into Windows folders, never uploaded. No real-store data. */
 import {createEmptyStore} from './modules/opfs-store.mjs';
 import {installVerifiedBrowserStore} from './modules/install_verified_browser_store.mjs';
+import {probeSitePackage,fetchVerifiedSitePackage} from './modules/verified_site_package.mjs';
 
 const $=id=>document.getElementById(id);
 const result=$('result'),open=$('openApp');let busy=false;
@@ -15,6 +16,8 @@ const requireMetadata=value=>{
  return value;
 };
 const PREVIOUS='moondog-pwa-synthetic-preview-pointer-v1';
+const SITE_URL=new URL('./',import.meta.url).href;
+let websiteAvailable=false;
 async function registerPreviewWorker(){
  const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',type:'module'});
  if(registration.active?.state==='activated')return;
@@ -61,24 +64,28 @@ let release=null;
   $('download').href=release.asset;
   $('download').hidden=false;
   $('install').disabled=false;
+  websiteAvailable=await probeSitePackage({siteUrl:SITE_URL,version:release.version,
+   sha256:release.sha256,fetchImpl:fetch,crypto});
+  $('installFromWeb').disabled=!websiteAvailable;
+  $('packageStatus').textContent=websiteAvailable?
+   'Official package available for verified installation without any file or folder selection.':
+   'Direct package publication is not available yet. No website installation can begin. The synthetic ZIP fallback remains available.';
  }catch(e){
   $('version').textContent='Official release metadata unavailable.';
   await existingPreview;
   if(open.hidden)status('Connect to the internet to start a new preview installation.',true);
  }
 })();
-$('install').addEventListener('click',async()=>{
+async function installPreview(readBytes){
  if(busy)return;
  if(!$('consent').checked){status('Confirm this is for synthetic testing only.',true);return;}
  if(!release||!navigator.storage?.getDirectory||!navigator.locks?.request||!navigator.serviceWorker){
   status('A required secure Edge feature is unavailable. Nothing was installed.',true);return;
  }
- const file=$('zip').files?.[0];
- if(!file){status('Select the original official Stable ZIP from your Downloads first.',true);return;}
- busy=true;$('install').disabled=true;
+ busy=true;$('install').disabled=true;$('installFromWeb').disabled=true;
  try{
   status('Checking the entire official ZIP before creating browser storage…');
-  const buffer=await file.arrayBuffer();
+  const buffer=await readBytes();
   const inspect=globalThis.MoonDogFreshInstall?.inspectVerifiedZip;
   if(typeof inspect!=='function')throw Error('The official ZIP verifier did not load.');
   const verified=await inspect(buffer,release.sha256,release.version);
@@ -98,5 +105,19 @@ $('install').addEventListener('click',async()=>{
   status('Verified SYNTHETIC preview is installed in browser-private storage. Click Open dashboard to inspect the real MoonDog interface. '+
    (persistent?'Browser persistence is enabled.':'Browser persistence is NOT guaranteed; clearing Edge site data removes this copy.'));
  }catch(e){status('Preview was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}
- finally{busy=false;$('install').disabled=false;}
+ finally{busy=false;$('install').disabled=false;$('installFromWeb').disabled=!websiteAvailable;}
+}
+$('install').addEventListener('click',()=>{
+ const file=$('zip').files?.[0];
+ if(!file){status('Select the original official Stable ZIP from Downloads first.',true);return;}
+ return installPreview(()=>file.arrayBuffer());
+});
+$('installFromWeb').addEventListener('click',()=>{
+ if(!websiteAvailable){status('A verified same-origin website package has not been published.',true);return;}
+ return installPreview(async()=>{
+  status('Downloading and verifying official software directly from the MoonDog website…');
+  const bytes=await fetchVerifiedSitePackage({siteUrl:SITE_URL,version:release.version,
+   sha256:release.sha256,fetchImpl:fetch,crypto});
+  return bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
+ });
 });
