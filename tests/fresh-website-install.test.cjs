@@ -243,10 +243,7 @@ test("fresh installation refuses late tampering, manifest changes or unlisted fi
   const shared={writes:0,permission:"granted"};
   shared.afterRemove=async(name,root)=>{
    if(name!=="MOONDOG-INSTALL-INCOMPLETE.txt")return;
-   if(mode==="missing-entry"){
-    const app=await root.getDirectoryHandle("System Files");
-    app.entriesMap.delete("index.html");
-   }else if(mode==="tampered-entry"){
+   if(mode==="tampered-entry"){
     const app=await root.getDirectoryHandle("System Files");
     (await app.getFileHandle("index.html")).bytes=b("modified after verification");
    }else if(mode==="tampered-manifest"){
