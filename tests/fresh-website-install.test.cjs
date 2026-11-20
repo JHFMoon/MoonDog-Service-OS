@@ -119,7 +119,11 @@ class FakeDirectory {
    return entry;
  }
  async *values(){for(const entry of this.entriesMap.values())yield entry;}
- async removeEntry(name){if(!this.entriesMap.delete(name))throw missing();}
+ async removeEntry(name){
+  if(!this.entriesMap.delete(name))throw missing();
+  if(typeof this.shared.afterRemove==="function")
+    await this.shared.afterRemove(name,this);
+ }
 }
 function load(parent,showDirectoryPicker=async()=>parent){
  const context={
@@ -232,6 +236,36 @@ test("interrupted first install is marked incomplete, not reported as successful
  assert.equal(destination.entriesMap.has("INSTALLATION-MANIFEST.json"),false,
    "no complete installation claim on a partially written folder");
  await assert.rejects(api.install(installOptions(fixture)),/already exists/);
+});
+test("fresh installation cannot finish after a late missing or tampered application entry, manifest, or unlisted file",async()=>{
+ const fixture=makeZip();
+ for(const mode of ["missing-entry","tampered-entry","tampered-manifest","unlisted-file"]){
+  const shared={writes:0,permission:"granted"};
+  shared.afterRemove=async(name,root)=>{
+   if(name!=="MOONDOG-INSTALL-INCOMPLETE.txt")return;
+   if(mode==="missing-entry"){
+    const app=await root.getDirectoryHandle("System Files");
+    app.entriesMap.delete("index.html");
+   }else if(mode==="tampered-entry"){
+    const app=await root.getDirectoryHandle("System Files");
+    (await app.getFileHandle("index.html")).bytes=b("modified after verification");
+   }else if(mode==="tampered-manifest"){
+    (await root.getFileHandle("INSTALLATION-MANIFEST.json")).bytes=b("{}");
+   }else{
+    await root.getFileHandle("unexpected-foreign-file.txt",{create:true});
+   }
+  };
+  const parent=new FakeDirectory("Synthetic Parent",shared),api=load(parent);
+  await assert.rejects(api.install(installOptions(fixture)),error=>
+   error.partial===true && /partial NEW folder may remain/.test(error.message),
+   mode+" must never report a completed installation");
+  const installed=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+  assert.equal(installed.entriesMap.has("INSTALLATION-MANIFEST.json"),true,
+   "manifest committed before simulated sync change");
+  assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true,
+   "restore the visible incomplete marker after post-commit validation fails");
+  assert.equal(parent.entriesMap.size,1,"preserve partial copy without touching another installation");
+ }
 });
 test("directory name rejects traversal and Windows reserved names",()=>{
  const api=load(new FakeDirectory("Synthetic Parent"));
