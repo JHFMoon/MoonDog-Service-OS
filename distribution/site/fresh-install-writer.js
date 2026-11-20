@@ -346,14 +346,11 @@
       await destination.removeEntry(MARKER);
       if(await hasFile(destination,MARKER))
         fail("The incomplete-install marker could not be cleared.");
-      // A new unconfigured folder can lose its launch entry between the
-      // first scan and final commit (for example when Desktop is synced).
-      // Repair ONLY a missing entry from the bytes already verified in this
-      // exact new install; never overwrite an existing file or touch Workspace.
-      // All other changes fail closed in the final full-inventory check.
-      // OneDrive/sync and another tab can change the folder after the first
-      // scan and manifest commit. Never announce success unless the *complete*
-      // installation still matches the signed ZIP after removing the hold.
+      // A new, unconfigured folder can lose its launch entry when Desktop
+      // is synced. Restore only an absent application entry from the official
+      // verified ZIP; never overwrite existing files or touch Workspace.
+      // Scan the entire installation again, including its committed manifest.
+      // An unexpected change must fail closed rather than claim readiness.
       try {
         const approvedEntry=packageData.files.find(item=>item.path==="System Files/index.html");
         if(!approvedEntry)fail("Verified package has no approved application entry.");
