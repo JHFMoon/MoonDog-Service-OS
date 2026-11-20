@@ -1,7 +1,6 @@
 /**
- * Read-only, synthetic-only OPFS Workspace export + offline backup verification.
- * A downloadable backup and its import/restore UI are NOT yet implemented.
- * This source does not touch public publishing, upload data or authorize real stores.
+ * Synthetic-only OPFS Workspace export, offline validation, and recovery into
+ * a new verified browser store. Backup and recovery use no network transport.
  */
 import {inspectVerifiedBrowserInstallation} from './install_verified_browser_store.mjs';
 
@@ -156,4 +155,76 @@ export async function inspectSyntheticExternalBackup({
   return Object.freeze({verified:true,storeId:expectedStoreId,
     directories:backup.directories.length,files:backup.files.length,
     bytes:size,restoreAuthorized:false,productionReady:false});
+}
+
+/** Recover into a newly installed, empty synthetic Workspace. The separate
+ * receipt identifies the source snapshot. The replacement gets its own ID. */
+export async function restoreSyntheticExternalBackup({
+  storage,crypto,locks,storeId,version,expectedManifestHash,backup,sourceStoreId,checksum
+}={}){
+  assertInputs({crypto,storeId,version,expectedManifestHash});
+  if(storeId===sourceStoreId||!SHA.test(checksum||'')||backup?.sha256!==checksum)
+    fail('The separate backup receipt does not identify this snapshot.');
+  await inspectSyntheticExternalBackup({backup,crypto,expectedStoreId:sourceStoreId,
+    expectedManifestHash,version});
+  if(typeof locks?.request!=='function')fail('Exclusive per-store Web Lock is required for restore.');
+  return locks.request('moondog-pwa-operational-'+storeId,
+    {mode:'exclusive',ifAvailable:true},async lock=>{
+      if(!lock)fail('An active tab is using the replacement store; restore refused.');
+      const {identity,store}=await inspectVerifiedBrowserInstallation({
+        storage,crypto,storeId,version,expectedManifestHash});
+      if(!synthetic(identity.label))fail('The replacement must be a verified SYNTHETIC store.');
+      const workspace=await(await store.getDirectoryHandle('System Files')).getDirectoryHandle('Workspace');
+      const empty=await collectWorkspace(workspace,crypto);
+      const scaffold=['backups','data','exports','imports'];
+      const approvedDirectories=new Set([...scaffold,'data/history','support','01 - DROP REPORTS HERE']);
+      if(empty.directories.some(path=>!approvedDirectories.has(path))||
+         empty.files.some(item=>item.path!=='README.txt'))
+        fail('The replacement Workspace must be empty before restore.');
+      if(empty.files.length!==1||!backup.files.some(item=>
+         item.path==='README.txt'&&item.sha256===empty.files[0].sha256))
+        fail('The backup does not match the verified Workspace README.');
+      if(empty.directories.some(path=>!backup.directories.includes(path)))
+        fail('The backup omits required Workspace folders.');
+
+      async function writeNew(dir,name,data){
+        try{
+          await dir.getFileHandle(name);
+          fail('Restore refuses to replace an existing file.');
+        }catch(error){if(error.name!=='NotFoundError')throw error;}
+        const writable=await(await dir.getFileHandle(name,{create:true})).createWritable();
+        try{await writable.write(data);await writable.close();}
+        catch(error){try{await writable.abort();}catch(_){}throw error;}
+      }
+      const marker='MOONDOG-PWA-INSTALL-INCOMPLETE.json';
+      // The existing launcher and bridge both refuse this store until complete.
+      const markerBytes=new TextEncoder().encode(JSON.stringify({
+        status:'incomplete',operation:'synthetic-restore',storeId,sourceStoreId,checksum
+      }));
+      await writeNew(store,marker,markerBytes);
+      const directories=new Map([['',workspace]]);
+      for(const path of backup.directories){
+        const split=path.lastIndexOf('/');
+        directories.set(path,await directories.get(path.slice(0,Math.max(0,split)))
+          .getDirectoryHandle(path.slice(split+1),{create:true}));
+      }
+      for(const file of backup.files){
+        if(file.path==='README.txt')continue;
+        const split=file.path.lastIndexOf('/');
+        await writeNew(directories.get(file.path.slice(0,Math.max(0,split))),
+          file.path.slice(split+1),decode(file.base64));
+      }
+      const restored=await collectWorkspace(workspace,crypto);
+      if(JSON.stringify(restored.directories)!==JSON.stringify(backup.directories)||
+         JSON.stringify(restored.files)!==JSON.stringify(backup.files))
+        fail('Restored Workspace differs from the verified snapshot.');
+      await store.removeEntry(marker);
+      try{
+        await inspectVerifiedBrowserInstallation({storage,crypto,storeId,version,expectedManifestHash});
+      }catch(error){
+        try{await writeNew(store,marker,markerBytes);}catch(_){/* No launch pointer is published. */}
+        throw error;
+      }
+      return Object.freeze({storeId,sourceStoreId,files:restored.files.length,productionReady:false});
+    });
 }

@@ -9,22 +9,32 @@
 <p>The real MoonDog application can be installed into Edge's <strong>private browser storage</strong>. No EXE, PowerShell or Windows folder access.</p>
 <div class="warning"><strong>Testing only — NOT ready for dealership use.</strong>
 You may test the installation and open the real dashboard, but do not import any real dealership files, RO/VIN details or employee records. Browser storage can be erased; production backup/recovery has not been proven.</div>
-<section><h2>1. Download the official MoonDog ZIP</h2>
+<section><h2>Install MoonDog</h2>
 <p id="version">Checking official Stable release…</p>
+<label class="check"><input type="checkbox" id="consent"> I understand this is for <strong>synthetic testing only</strong> and will not enter actual dealership data.</label>
+<button id="installFromWeb" disabled>Install MoonDog preview</button>
+<p id="packageStatus" class="status" role="status" aria-live="polite">Checking whether direct website installation is published…</p>
+<details><summary>Test with the official Stable ZIP</summary>
 <a id="download" hidden class="action" target="_blank" rel="noopener noreferrer">Download verified Stable ZIP</a>
-<p>Keep the ZIP zipped; this page opens it safely in your browser.</p></section>
-<section><h2>2. Confirm this is a synthetic-only test</h2>
-<label class="check"><input type="checkbox" id="consent"> I understand this is for <strong>synthetic testing only</strong> and will not enter actual dealership data.</label></section>
-<section><h2>3. Install directly from the website</h2>
-<p>No choosing Windows folders, ZIP files, or installation paths. When the publisher provides the verified package at the official website, the browser can install it privately.</p>
-<button id="installFromWeb" disabled>Install preview from website — no picker</button>
-<p id="packageStatus" class="status" role="status" aria-live="polite">Checking whether direct website installation is published…</p></section>
-<section><h2>4. Existing preview fallback: select the official ZIP</h2>
-<p>This fallback still does not require a Windows folder picker or manual ZIP extraction.</p>
 <label for="zip">Original MoonDog ZIP</label><input type="file" id="zip" accept=".zip,application/zip">
-<button id="install" disabled>Install preview inside Edge from selected ZIP</button>
+<button id="install" disabled>Install preview from selected ZIP</button></details>
 <p id="result" class="status" role="status" aria-live="polite">Ready to check the official ZIP or an available website package.</p>
 <a id="openApp" class="action" hidden>Open real MoonDog dashboard preview</a></section>
+<section><h2>Synthetic Workspace backup and recovery</h2>
+<p>Close the dashboard before preparing a backup. Download the backup and save its receipt separately. Keep both outside browser storage.</p>
+<button id="prepareBackup" disabled>Prepare synthetic backup</button>
+<a id="saveBackup" class="action" hidden>Download backup file</a>
+<label for="backupReceipt" id="backupReceiptLabel" hidden>Backup receipt</label>
+<input id="backupReceipt" readonly hidden>
+<details><summary>Recover a synthetic Workspace</summary>
+<p>Recovery uses a new, isolated Workspace and the original software version. Select the backup and enter its separately saved receipt.</p>
+<label for="backupFile">Synthetic backup file</label>
+<input id="backupFile" type="file" accept=".json,application/json">
+<label for="restoreReceipt">Saved backup receipt</label>
+<input id="restoreReceipt" autocomplete="off" spellcheck="false">
+<button id="restoreBackup" disabled>Recover into a new preview</button>
+</details>
+<p id="backupStatus" class="status" role="status"></p></section>
 <p class="foot">Existing MoonDog installations and all Windows folders are left alone. You can remove the preview later by clearing this site's data, which also erases its browser-private files.</p>
 </main>
 <script src="../fresh-install-writer.js"></script><script type="module" src="./setup.mjs"></script>

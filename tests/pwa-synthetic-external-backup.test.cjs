@@ -141,3 +141,26 @@ test('backup module mirrors reviewed source and is not enabled for real data',()
   const sw=fs.readFileSync(path.join(root,'distribution/site/web-preview/sw.js'),'utf8');
   assert.doesNotMatch(sw,/synthetic_external_backup\.mjs/);
 });
+
+test('external snapshot recovers after storage loss into a new ID and rejects another store receipt',async()=>{
+  const lost=await installed(storage(),'SYNTHETIC Lost','synthetic alpha with overlapping ID');
+  const replacement=await installed(storage(),'SYNTHETIC Replacement','');
+  const data=async args=>(await(await args.store.getDirectoryHandle('System Files'))
+    .getDirectoryHandle('Workspace')).getDirectoryHandle('data');
+  await (await data(replacement)).removeEntry('RO-100.json');
+  const {createSyntheticExternalBackup,restoreSyntheticExternalBackup}=await modulePromise;
+  const backup=JSON.parse(JSON.stringify(await createSyntheticExternalBackup(lost)));
+  const args={...replacement,backup,sourceStoreId:lost.storeId,checksum:backup.sha256};
+  const other=await installed(storage(),'SYNTHETIC Other','synthetic bravo with overlapping ID');
+  await assert.rejects(restoreSyntheticExternalBackup({...args,sourceStoreId:other.storeId}),/Wrong-store/);
+  await assert.rejects(restoreSyntheticExternalBackup({...args,checksum:'0'.repeat(64)}),/receipt/);
+  await assert.rejects(restoreSyntheticExternalBackup({...other,backup,sourceStoreId:lost.storeId,
+    checksum:backup.sha256}),/must be empty/);
+  const result=await restoreSyntheticExternalBackup(args);
+  assert.notEqual(result.storeId,result.sourceStoreId);
+  assert.equal(await (await (await (await data(replacement)).getFileHandle('RO-100.json')).getFile()).text(),
+    'synthetic alpha with overlapping ID');
+  assert.equal(await (await (await (await data(other)).getFileHandle('RO-100.json')).getFile()).text(),
+    'synthetic bravo with overlapping ID');
+  await assert.rejects(restoreSyntheticExternalBackup(args),/must be empty/);
+});
