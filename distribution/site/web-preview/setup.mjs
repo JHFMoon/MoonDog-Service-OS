@@ -241,11 +241,19 @@ $('installBeta').addEventListener('click',async()=>{
   if(!verifiedBetaOffer)throw Error('Check the verified Beta first.');
   busy=true;$('installBeta').disabled=true;$('checkBeta').disabled=true;
   softwareStatus('Verifying and staging the published Beta outside your Workspace…');
-  const {stageVerifiedBetaBrowserSoftware}=await import('./modules/browser_software_candidates.mjs');
+  const {stageVerifiedBetaBrowserSoftware,resumeVerifiedBetaBrowserSoftware}=await import('./modules/browser_software_candidates.mjs');
   const {activateStagedBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
   const {storeId,version,manifestHash}=activePreview;
-  const staged=await stageVerifiedBetaBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,
-   storeId,installedVersion:version,installedManifestHash:manifestHash,fetchImpl:fetch});
+  const params={storage:navigator.storage,crypto,locks:navigator.locks,
+   storeId,installedVersion:version,installedManifestHash:manifestHash,fetchImpl:fetch};
+  let staged;
+  try{staged=await stageVerifiedBetaBrowserSoftware(params);}
+  catch(error){
+   // Explicit retry is allowed only when the exact pinned candidate already
+   // exists and every staged executable passes complete renewed verification.
+   if(!/Candidate generation already exists/.test(String(error?.message||error)))throw error;
+   staged=await resumeVerifiedBetaBrowserSoftware(params);
+  }
   if(staged.version!==verifiedBetaOffer.version||staged.zipHash!==verifiedBetaOffer.sha256)
    throw Error('Beta authority changed between check and staging. No selector was changed.');
   softwareStatus('Beta files verified. Committing the selection without changing any Workspace file…');
