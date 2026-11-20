@@ -166,9 +166,8 @@
         fail("A clean package must never contain initialized dealership data.");
       approved.set(name,item);
     }
-    // The original immutable Stable 0.10.17 ZIP has no root index.html bridge.
-    // Only the launcher, application entry, and private Workspace boundary are required.
-    // Do not synthesize unlisted application files during a verified install.
+    // Verify the archive as shipped. The local installer separately prepares
+    // the compatibility page required by the original Stable updater.
     for(const required of ["00 - OPEN DASHBOARD.html","System Files/index.html",
       "System Files/Workspace/README.txt"])
       if(!approved.has(required))fail("The package is missing its launcher or private-data boundary.");
@@ -201,6 +200,28 @@
     }
     return {version:manifest.version,files,
       directories:[...directories].sort((a,b)=>a.split("/").length-b.split("/").length)};
+  }
+  async function prepareLocalEntries(packageData){
+    const appEntry=packageData.files.find(item=>item.path==="System Files/index.html");
+    const source=text.decode(appEntry.bytes);
+    if(!/<!doctype html>\s*<html\s+lang="en"><head>/i.test(source) ||
+       source.toLowerCase().split("<head>").length!==2 ||
+       !source.includes("<head>") || /<base\b/i.test(source))
+      fail("The verified application cannot produce the required origin compatibility page.");
+    // Match the trusted distribution builder. Stable 0.10.17's published
+    // ZIP predates this page, but its updater requires it at the outer root.
+    const bytes=encoder.encode(source.replace("<head>",'<head><base href="System Files/">'));
+    let compatibilityEntry=packageData.files.find(item=>item.path==="index.html");
+    if(compatibilityEntry){
+      if(!bytesEqual(compatibilityEntry.bytes,bytes))
+        fail("The packaged origin compatibility page does not match the verified application.");
+    }else{
+      if(packageData.version!=="0.10.17")
+        fail("The installation package is missing its origin compatibility page.");
+      compatibilityEntry={path:"index.html",bytes,sha256:await digest(bytes)};
+      packageData.files.push(compatibilityEntry);
+    }
+    return {appEntry,compatibilityEntry};
   }
   function missing(error){return error && error.name==="NotFoundError";}
   async function hasFile(folder,name){
@@ -320,6 +341,7 @@
     status("Verifying the official ZIP and its application file inventory…");
     const buffer=await file.arrayBuffer();
     const packageData=await inspectVerifiedZip(buffer,sha256,version);
+    const {appEntry,compatibilityEntry}=await prepareLocalEntries(packageData);
     // Recheck after asynchronous validation; no existing directory may be adopted.
     if(await rootIsUnsafe(parent) || await hasFolder(parent,name) || await hasFile(parent,name))
       fail("The selected location changed or already contains that installation. Nothing was written.");
@@ -349,17 +371,16 @@
       await destination.removeEntry(MARKER);
       if(await hasFile(destination,MARKER))
         fail("The incomplete-install marker could not be cleared.");
-      // A new, unconfigured folder can lose its launch entry when Desktop
-      // is synced. Restore only an absent application entry from the official
-      // verified ZIP; never overwrite existing files or touch Workspace.
+      // A new, unconfigured folder can lose its application or compatibility
+      // entry during sync. Restore only absent, verified software bytes.
       // Scan the entire installation again, including its committed manifest.
       // An unexpected change must fail closed rather than claim readiness.
       try {
-        const approvedEntry=packageData.files.find(item=>item.path==="System Files/index.html");
-        if(!approvedEntry)fail("Verified package has no approved application entry.");
         const app=await destination.getDirectoryHandle("System Files",{create:false});
         if(!(await hasFile(app,"index.html")))
-          await writeReadBack(destination,approvedEntry.path,approvedEntry.bytes,approvedEntry.sha256);
+          await writeReadBack(destination,appEntry.path,appEntry.bytes,appEntry.sha256);
+        if(!(await hasFile(destination,"index.html")))
+          await writeReadBack(destination,compatibilityEntry.path,compatibilityEntry.bytes,compatibilityEntry.sha256);
         await assertOnlyApprovedFiles(destination,packageData,true);
         if(await hasFile(destination,MARKER))
           fail("The incomplete-install marker returned during final verification.");

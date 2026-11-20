@@ -17,10 +17,12 @@ const DIRS=[
  "System Files/Workspace/support/","System Files/Workspace/01 - DROP REPORTS HERE/"
 ];
 const b=s=>Buffer.from(s,"utf8"),sha=bytes=>crypto.createHash("sha256").update(bytes).digest("hex");
+const appHtml='<!doctype html><html lang="en"><head><title>Synthetic MoonDog</title></head><body></body></html>';
+const compatibilityHtml=appHtml.replace("<head>",'<head><base href="System Files/">');
 const zipData={
  "00 - OPEN DASHBOARD.html":b("<html>Open synthetic MoonDog</html>"),
- "index.html":b("<html>Root origin synthetic MoonDog</html>"),
- "System Files/index.html":b("<html>System Files synthetic MoonDog</html>"),
+ "index.html":b(compatibilityHtml),
+ "System Files/index.html":b(appHtml),
  "System Files/Workspace/README.txt":b("Protected private Workspace; starts without store data.")
 };
 function crc32(data) {
@@ -268,12 +270,13 @@ test("fresh installation refuses late tampering, manifest changes or unlisted fi
  }
 });
 
-test("new install automatically restores a missing System Files entry from approved ZIP bytes",async()=>{
+test("new install restores missing application and compatibility entries from approved software",async()=>{
  const fixture=makeZip({}, "", true),shared={writes:0,permission:"granted"};
  shared.afterRemove=async(name,destination)=>{
   if(name==="MOONDOG-INSTALL-INCOMPLETE.txt"){
    const app=await destination.getDirectoryHandle("System Files");
    app.entriesMap.delete("index.html"); // Simulated late OneDrive removal.
+   destination.entriesMap.delete("index.html");
   }
  };
  const parent=new FakeDirectory("Synthetic Parent",shared),api=load(parent);
@@ -283,6 +286,7 @@ test("new install automatically restores a missing System Files entry from appro
  const app=await folder.getDirectoryHandle("System Files");
  assert.deepEqual(Buffer.from((await app.getFileHandle("index.html")).bytes),zipData["System Files/index.html"],
    "approved application entry restored from immutable ZIP, not an untrusted copy");
+ assert.deepEqual(Buffer.from((await folder.getFileHandle("index.html")).bytes),b(compatibilityHtml));
  assert.equal(folder.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),false);
  assert.ok(await folder.getFileHandle("INSTALLATION-MANIFEST.json"));
  assert.equal((await app.getDirectoryHandle("Workspace")).entriesMap.has("data"),true,
@@ -610,14 +614,18 @@ test("new installation detects an unlisted synthetic entry inserted during packa
  assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
 });
 
-test("original immutable Stable layout may omit root index.html while retaining verified launcher and app entry",async()=>{
+test("original immutable Stable installs the compatibility page required for the first update",async()=>{
  const fixture=makeZip({},"",true);
  assert.equal(fixture.manifest.files.some(file=>file.path==="index.html"),false);
- const parent=new FakeDirectory("Synthetic Parent");
- const result=await load(parent).install(installOptions(fixture,{folderName:"Legacy Stable New Store"}));
+ const parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
+ const archive=await api.inspectVerifiedZip(await localFile(fixture.bytes).arrayBuffer(),fixture.hash,"0.10.17");
+ assert.equal(archive.files.some(file=>file.path==="index.html"),false);
+ const result=await api.install(installOptions(fixture,{folderName:"Legacy Stable New Store"}));
  assert.equal(result.status,"installed");
  const root=await parent.getDirectoryHandle("Legacy Stable New Store");
- assert.equal(root.entriesMap.has("index.html"),false,"never synthesize unlisted software");
+ assert.deepEqual(Buffer.from((await root.getFileHandle("index.html")).bytes),b(compatibilityHtml));
+ assert.deepEqual(Buffer.from((await root.getFileHandle("INSTALLATION-MANIFEST.json")).bytes),
+  Buffer.from(archive.files.find(file=>file.path==="INSTALLATION-MANIFEST.json").bytes));
  assert.equal(root.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),false);
  assert.ok(await root.getFileHandle("00 - OPEN DASHBOARD.html"));
  const system=await root.getDirectoryHandle("System Files");
