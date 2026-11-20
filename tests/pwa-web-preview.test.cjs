@@ -2,6 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
 const {webcrypto,randomUUID}=require('node:crypto');
+const {pathToFileURL}=require('node:url');
 const lib=()=>import('../src/pwa/serve_browser_app.mjs');
 const stores=()=>import('../src/pwa/opfs-store.mjs');
 const b=value=>new TextEncoder().encode(value);
@@ -63,6 +64,20 @@ test('HTML bootstrap is reviewed insertion only; there is no unverified asset re
  assert.equal(out.includes('src="../../../../bridge.js"'),true);
  assert.equal(out.replace('<script src="../../../../bridge.js"></script>',''),HTML);
  assert.throws(()=>addPreviewBootstrap('<head><base href="elsewhere"></head>'),/cannot safely/);
+});
+test('bridge routes the Stable and newer Workspace picker modes, and refuses unrelated pickers',async()=>{
+ const filename=path.join(__dirname,'../distribution/site/web-preview/bridge.js');
+ const src=pathToFileURL(filename);
+ const storePath=new URL(`./store/${randomUUID()}/${'0'.repeat(64)}/0.10.17/index.html`,src);
+ const window={addEventListener(){}};
+ const document={currentScript:{src},addEventListener(){}};
+ const runBridge=new Function('window','document','location','navigator',fs.readFileSync(filename,'utf8'));
+ runBridge(window,document,storePath,{});
+ for(const mode of ['read','readwrite']){
+  await assert.rejects(window.showDirectoryPicker({id:'moondog-operations',mode}),/browser-private storage or per-store locking is unavailable/);
+  await assert.rejects(window.showDirectoryPicker({id:'moondog-new-store',mode}),/No Windows folder was selected/);
+ }
+ await assert.rejects(window.showDirectoryPicker({id:'moondog-operations'}),/No Windows folder was selected/);
 });
 test('static PWA source mirrors reviewed canonical modules byte-for-byte',()=>{
  const root=path.join(__dirname,'..');for(const name of ['opfs-store.mjs','install_verified_browser_store.mjs','connect_operational_workspace.mjs','serve_browser_app.mjs']){

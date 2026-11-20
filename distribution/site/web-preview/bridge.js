@@ -19,7 +19,8 @@
   // Only the app's intended connect action uses this bridge. Every other
   // native picker is blocked, never silently pointed at another store.
   window.showDirectoryPicker=async function(options={}){
-    if(options.id!=='moondog-operations'||options.mode!=='readwrite')
+    // Stable 0.10.17 selects in read mode and requests write authority later.
+    if(options.id!=='moondog-operations'||!['read','readwrite'].includes(options.mode))
       throw Error('This browser preview supports only its verified local Workspace. No Windows folder was selected.');
     if(active)return active.handle;
     if(connecting)return connecting;
