@@ -46,6 +46,11 @@ export async function openVerifiedOperationalWorkspace({storage,crypto,locks,sto
     const proof = await inspectVerifiedBrowserInstallation({storage,crypto,storeId,version,expectedManifestHash});
     if(!proof.applicationVerified || proof.identity.storeId!==storeId)
       fail('Browser application verification did not authorize this store.');
+    // This hosted preview is SYNTHETIC-only. A valid software signature alone
+    // must never turn an existing operational store into a preview Workspace.
+    if(typeof proof.identity.label!=='string' ||
+       !/^SYNTHETIC(?:\s|$)/i.test(proof.identity.label))
+      fail('Browser preview refuses non-synthetic stores. No Workspace handle was exposed.');
 
     const originals = new WeakMap();
     const assertActive = () => {if(!active || finished)fail('This MoonDog browser session is closed.');};
