@@ -93,11 +93,12 @@ test('preview is separate from production site and refuses real data at the entr
  const sw=fs.readFileSync(path.join(root,'sw.js'),'utf8');
  assert.match(html,/synthetic testing only/i);assert.match(html,/do not import any real dealership files/i);
  assert.match(js,/createEmptyStore/);assert.match(js,/inspectVerifiedZip/);assert.match(js,/MOONDOG|SYNTHETIC/);
+ assert.match(js,/updateViaCache:'none'/);
  assert.match(js,/fetchVerifiedSitePackage/);assert.match(js,/probeSitePackage/);
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v5'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v6'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);assert.match(sw,/const PUBLIC_SHELL/);
  assert.doesNotMatch(sw,/cache\.put\(|PUBLIC_SHELL[\s\S]*?Workspace\/data/);
@@ -119,4 +120,51 @@ test('public preview refuses non-synthetic store even with valid official app ha
  const setup=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
  assert.match(setup,/check\.identity\.label/);
  assert.match(setup,/SYNTHETIC/);
+});
+
+
+test('installing an updated preview shell leaves the current offline cache untouched until activation', async () => {
+ const vm = require('node:vm');
+ const worker = fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/sw.js'),'utf8');
+ const currentCache = 'moondog-synthetic-preview-shell-v5';
+ const cacheNames = new Set([currentCache]);
+ let failStaging = true;
+ let staged;
+ let waiting = false;
+ const handlers = {};
+ const self = {
+  registration:{scope:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/'},
+  addEventListener(type, handler){handlers[type]=handler;},
+  skipWaiting(){waiting=true;},
+  clients:{claim(){}}
+ };
+ const caches = {
+  async open(name){
+   cacheNames.add(name);
+   return {async addAll(requests){
+    if(failStaging)throw new Error('Offline shell asset unavailable');
+    staged={name, requests};
+   }};
+  },
+  async keys(){return Array.from(cacheNames);},
+  async delete(name){return cacheNames.delete(name);}
+ };
+ // The worker's route imports are irrelevant to its install and activate events.
+ vm.runInNewContext(worker.replace(/^import .*;$/m,''), {self, caches, URL, Request});
+ async function dispatch(type){
+  let work;
+  handlers[type]({waitUntil(promise){work=promise;}});
+  await work;
+ }
+ await assert.rejects(dispatch('install'),/Offline shell asset unavailable/);
+ assert.equal(cacheNames.has(currentCache),true);
+ assert.equal(waiting,false);
+ failStaging=false;
+ await dispatch('install');
+ assert.notEqual(staged.name,currentCache,'installation must never rewrite the currently active shell');
+ assert.equal(cacheNames.has(currentCache),true);
+ assert.equal(waiting,true);
+ assert.ok(staged.requests.every(request=>request.cache==='reload' && request.redirect==='error'));
+ await dispatch('activate');
+ assert.deepEqual(Array.from(cacheNames),[staged.name]);
 });
