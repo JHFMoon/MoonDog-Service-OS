@@ -178,6 +178,10 @@ export async function resumeVerifiedBetaBrowserSoftware({storage,crypto,locks,st
  if(!beta.verified||!VERSION.test(beta.version)||!SHA.test(beta.packageHash)||
     typeof crypto?.subtle?.digest!=='function'||typeof locks?.request!=='function')
   fail('Verified Beta resume authority is unavailable.');
+ if(beta.migrationRequired!==false||!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(beta.minimumCompatibleVersion||'')||
+    !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(installedVersion||'')||
+    versionCompare(installedVersion,beta.minimumCompatibleVersion)<0||versionCompare(beta.version,installedVersion)<=0)
+  fail('Beta resume is incompatible with the installed original or requires a migration.');
  return locks.request('moondog-pwa-operational-'+storeId,{mode:'exclusive',ifAvailable:true},async lock=>{
   if(!lock)fail('Active browser dashboard must close before resuming staged software.');
   const store=await assertOriginal({storage,crypto,storeId,installedVersion,installedManifestHash});
