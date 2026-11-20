@@ -198,3 +198,20 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
 });
+
+
+test('active preview worker reports only the reviewed shell v10 in explicit software-update handshake',()=>{
+ const vm=require('node:vm');
+ const src=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/sw.js'),'utf8');
+ const handlers={};const received=[];
+ const self={registration:{scope:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/'},
+  addEventListener(name,fn){handlers[name]=fn;}};
+ vm.runInNewContext(src.replace(/^import .*;$/m,''),{self,caches:{},URL,Request});
+ assert.equal(typeof handlers.message,'function');
+ const port={postMessage(value){received.push({type:value.type,cache:value.cache});}};
+ handlers.message({data:{type:'UNRELATED'},ports:[port]});
+ assert.equal(received.length,0,'Unrelated messages must not advertise update authority');
+ handlers.message({data:{type:'MOONDOG_PREVIEW_SHELL_PROBE'},ports:[port]});
+ assert.deepEqual(received,[{type:'MOONDOG_PREVIEW_SHELL_PROOF',
+  cache:'moondog-synthetic-preview-shell-v10'}]);
+});
