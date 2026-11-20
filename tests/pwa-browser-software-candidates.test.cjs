@@ -175,3 +175,41 @@ test('explicit verified-original recovery clears a corrupted selector without to
  assert.equal(await read(store,'System Files/index.html'),'<html>synthetic</html>');
  assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
 });
+
+
+test('browser serves exact selected generation then reconnects original Workspace without altering data',async()=>{
+ const {store,identity,args}=await fixture(),generation=await candidate();
+ const select=await import('../src/pwa/browser_software_selection.mjs');
+ const web=await import('../src/pwa/serve_browser_app.mjs');
+ const bridge=await import('../src/pwa/connect_operational_workspace.mjs');
+ const staged=await generation.stageVerifiedBrowserSoftware(args);
+ await select.activateStagedBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:identity.storeId,
+  originalVersion:args.installedVersion,originalManifestHash:args.installedManifestHash,
+  version:args.version,zipHash:args.zipHash,manifestHash:staged.manifestHash});
+ const base='/MoonDog-Service-OS/web-preview/';
+ const path=base+'store/'+identity.storeId+'/'+staged.manifestHash+'/'+args.version+'/assets/app.js';
+ const route=web.parseBrowserAssetRoute(path,base);
+ assert.equal(route.version,args.version);
+ const asset=await web.loadVerifiedPublicAsset({...route,storage:args.storage,crypto});
+ assert.equal(new TextDecoder().decode(asset.bytes),'synthetic app');
+ await assert.rejects(web.loadVerifiedPublicAsset({storage:args.storage,crypto,storeId:identity.storeId,
+  version:args.installedVersion,expectedManifestHash:args.installedManifestHash,relativePath:'index.html'}),/active verified generation/);
+ assert.equal(web.parseBrowserAssetRoute(base+'store/'+identity.storeId+'/'+staged.manifestHash+'/0.10.18-beta.bad/assets/app.js',base),null);
+ assert.equal(web.parseBrowserAssetRoute(base+'store/'+identity.storeId+'/'+staged.manifestHash+'/'+args.version+'/System Files/Workspace/data/SAPR.json',base),null);
+ const session=await bridge.openVerifiedOperationalWorkspace({storage:args.storage,crypto,locks:args.locks,storeId:identity.storeId,
+  version:args.version,expectedManifestHash:staged.manifestHash});
+ try{
+  assert.equal(session.handle.kind,'directory');
+  const ws=await session.handle.getDirectoryHandle('System Files').then(d=>d.getDirectoryHandle('Workspace'));
+  const report=await ws.getDirectoryHandle('data').then(d=>d.getFileHandle('SAPR.json'));
+  assert.equal(await(await report.getFile()).text(),'original report, do not touch');
+  const executable=await session.handle.getDirectoryHandle('System Files').then(d=>d.getFileHandle('index.html'));
+  await assert.rejects(executable.createWritable(),/read-only/);
+ }finally{await session.close();}
+ await select.rollbackBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:identity.storeId,
+  originalVersion:args.installedVersion,originalManifestHash:args.installedManifestHash});
+ const original=await web.loadVerifiedPublicAsset({storage:args.storage,crypto,storeId:identity.storeId,
+  version:args.installedVersion,expectedManifestHash:args.installedManifestHash,relativePath:'index.html'});
+ assert.equal(new TextDecoder().decode(original.bytes),'<html>synthetic</html>');
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+});
