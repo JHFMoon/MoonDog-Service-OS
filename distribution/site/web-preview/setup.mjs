@@ -210,6 +210,26 @@ $('restoreBackup').addEventListener('click',async()=>{
 });
 
 
+async function verifyActiveBetaShell(){
+ const controller=navigator.serviceWorker?.controller;
+ if(!controller||typeof MessageChannel!=='function')
+  throw Error('Verified offline browser shell is not controlling this page. Reload the website before applying Beta software.');
+ const channel=new MessageChannel();
+ await new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>{
+   channel.port1.close();
+   reject(Error('The active browser shell cannot prove its Beta-update version. Reload before changing software.'));
+  },4000);
+  channel.port1.onmessage=event=>{
+   clearTimeout(timer);channel.port1.close();
+   if(event.data?.type==='MOONDOG_PREVIEW_SHELL_PROOF'&&
+      event.data.cache==='moondog-synthetic-preview-shell-v9')resolve();
+   else reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
+  };
+  try{controller.postMessage({type:'MOONDOG_PREVIEW_SHELL_PROBE'},[channel.port2]);}
+  catch(error){clearTimeout(timer);channel.port1.close();reject(error);}
+ });
+}
 function softwareStatus(message,error=false){
  const el=$('betaStatus');el.textContent=message;el.className=error?'status error':'status';
 }
@@ -222,6 +242,7 @@ $('checkBeta').addEventListener('click',async()=>{
  try{
   requireSyntheticUpdate();
   busy=true;$('checkBeta').disabled=true;$('installBeta').disabled=true;
+  await verifyActiveBetaShell();
   softwareStatus('Checking the immutable published Beta package and every public runtime file…');
   const {fetchVerifiedPinnedBeta}=await import('./modules/verified_beta_transport.mjs');
   const beta=await fetchVerifiedPinnedBeta({fetchImpl:fetch,crypto});
@@ -240,6 +261,7 @@ $('installBeta').addEventListener('click',async()=>{
   requireSyntheticUpdate();
   if(!verifiedBetaOffer)throw Error('Check the verified Beta first.');
   busy=true;$('installBeta').disabled=true;$('checkBeta').disabled=true;
+  await verifyActiveBetaShell();
   softwareStatus('Verifying and staging the published Beta outside your Workspace…');
   const {stageVerifiedBetaBrowserSoftware,resumeVerifiedBetaBrowserSoftware}=await import('./modules/browser_software_candidates.mjs');
   const {activateStagedBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
