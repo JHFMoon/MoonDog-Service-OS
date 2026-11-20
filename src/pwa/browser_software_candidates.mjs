@@ -154,6 +154,28 @@ export async function stageVerifiedBetaBrowserSoftware({storage,crypto,locks,sto
  return stageAuthenticatedPlan({storage,crypto,locks,storeId,installedVersion,installedManifestHash,
   version:beta.version,zipHash:beta.packageHash,makePlan:store=>deriveBetaCandidatePlan(store,beta,crypto)});
 }
+/** Explicit retry after an already-staged Beta; it never adopts a candidate by
+ * filename alone. Recompute the exact expected manifest from the newly
+ * authenticated pinned package and original verified Stable file bytes, then
+ * inspect every staged executable and the incomplete-install hold.
+ * No stored byte is created, overwritten or deleted by this operation. */
+export async function resumeVerifiedBetaBrowserSoftware({storage,crypto,locks,storeId,installedVersion,installedManifestHash,fetchImpl,siteUrl}={}){
+ const beta=await fetchVerifiedPinnedBeta({siteUrl,fetchImpl,crypto});
+ if(!beta.verified||!VERSION.test(beta.version)||!SHA.test(beta.packageHash)||
+    typeof crypto?.subtle?.digest!=='function'||typeof locks?.request!=='function')
+  fail('Verified Beta resume authority is unavailable.');
+ return locks.request('moondog-pwa-operational-'+storeId,{mode:'exclusive',ifAvailable:true},async lock=>{
+  if(!lock)fail('Active browser dashboard must close before resuming staged software.');
+  const store=await assertOriginal({storage,crypto,storeId,installedVersion,installedManifestHash});
+  const plan=inspectPlan(await deriveBetaCandidatePlan(store,beta,crypto),beta.version);
+  for(const file of plan.selected)if(await digest(file.bytes,crypto.subtle)!==file.sha)
+   fail('Authenticated Beta runtime file mismatch.');
+  const manifestHash=await digest(plan.manifestBytes,crypto.subtle);
+  const verified=await inspectStagedBrowserSoftware({storage,crypto,storeId,version:beta.version,
+   zipHash:beta.packageHash,expectedManifestHash:manifestHash});
+  return Object.freeze({...verified,resumed:true,active:false,productionReady:false});
+ });
+}
 /** Read-only integrity verification; no Workspace enumeration, no activation. */
 export async function inspectStagedBrowserSoftware({storage,crypto,storeId,version,zipHash,expectedManifestHash}={}){
  if(typeof crypto?.subtle?.digest!=='function'||!UUID.test(storeId||'')||!SHA.test(expectedManifestHash||''))fail('Candidate inspection authority is missing.');
