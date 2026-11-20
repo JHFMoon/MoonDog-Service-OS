@@ -286,3 +286,21 @@ test('pinned Beta staging refuses to adopt or overwrite a previous candidate',as
  await assert.rejects(gen.stageVerifiedBetaBrowserSoftware(params),/already exists/);
  assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
 });
+
+
+test('staged pinned Beta may be reverified for explicit retry without overwriting candidate or Workspace',async()=>{
+ const {store,args}=await fixture(),transport=await syntheticPinnedBeta(),gen=await candidate();
+ const params={storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+  installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl};
+ const first=await gen.stageVerifiedBetaBrowserSoftware(params);
+ const resumed=await gen.resumeVerifiedBetaBrowserSoftware(params);
+ assert.equal(resumed.resumed,true);
+ assert.equal(resumed.version,first.version);assert.equal(resumed.manifestHash,first.manifestHash);
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ const stage=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(x=>x.getDirectoryHandle('software-candidates'))
+  .then(x=>x.getDirectoryHandle(args.storeId)).then(x=>x.getDirectoryHandle(first.version+'-'+first.zipHash));
+ const asset=await stage.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('assets')).then(x=>x.getFileHandle('app.js'));
+ asset.bytes=b('tampered');
+ await assert.rejects(gen.resumeVerifiedBetaBrowserSoftware(params),/checksum mismatch/);
+ assert.equal(await read(store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+});
