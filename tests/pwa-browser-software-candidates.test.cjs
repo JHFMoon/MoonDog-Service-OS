@@ -345,3 +345,60 @@ test('two synthetic stores sharing one browser origin retain independent active 
  assert.equal(await read(alpha.store,'System Files/index.html'),'<html>synthetic</html>');
  assert.equal(await read(bravo.store,'System Files/index.html'),'<html>synthetic</html>');
 });
+
+test('interrupted verified Beta candidate finishes by writing only missing authenticated bytes',async()=>{
+ const {store,args}=await fixture(),transport=await syntheticPinnedBeta(),gen=await candidate();
+ const params={storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+  installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,
+  fetchImpl:transport.fetchImpl};
+ const staged=await gen.stageVerifiedBetaBrowserSoftware(params);
+ const candidateDir=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1')
+  .then(x=>x.getDirectoryHandle('software-candidates')).then(x=>x.getDirectoryHandle(args.storeId))
+  .then(x=>x.getDirectoryHandle(staged.version+'-'+staged.zipHash));
+ await write(candidateDir,'STAGING-INCOMPLETE.json',b('INCOMPLETE'));
+ const assets=await candidateDir.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('assets'));
+ const existing=await assets.getFileHandle('app.js');
+ const originalApp=existing.bytes.slice();
+ await assets.removeEntry('styles.css');
+ await assert.rejects(gen.inspectStagedBrowserSoftware({storage:args.storage,crypto,storeId:args.storeId,
+  version:staged.version,zipHash:staged.zipHash,expectedManifestHash:staged.manifestHash}),/Incomplete candidate/);
+ await assert.rejects(gen.resumeVerifiedBetaBrowserSoftware(params),/Incomplete candidate/);
+ const completed=await gen.completeInterruptedVerifiedBetaBrowserSoftware(params);
+ assert.equal(completed.completedInterrupted,true);
+ assert.equal(completed.active,false);
+ assert.deepEqual((await assets.getFileHandle('app.js')).bytes,originalApp,
+  'Previously verified staged executable must never be overwritten');
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ assert.equal(await read(store,'System Files/index.html'),'<html>synthetic</html>');
+ assert.equal((await gen.inspectStagedBrowserSoftware({storage:args.storage,crypto,storeId:args.storeId,
+  version:staged.version,zipHash:staged.zipHash,expectedManifestHash:staged.manifestHash})).status,'verified-staged');
+ await assert.rejects(gen.completeInterruptedVerifiedBetaBrowserSoftware(params),/No incomplete/);
+});
+test('interrupted Beta candidate refuses tampered, unexpected, wrong-marker or locked content without mutation',async()=>{
+ const {store,args}=await fixture(),transport=await syntheticPinnedBeta(),gen=await candidate();
+ const params={storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+  installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,
+  fetchImpl:transport.fetchImpl};
+ const staged=await gen.stageVerifiedBetaBrowserSoftware(params);
+ const candidateDir=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1')
+  .then(x=>x.getDirectoryHandle('software-candidates')).then(x=>x.getDirectoryHandle(args.storeId))
+  .then(x=>x.getDirectoryHandle(staged.version+'-'+staged.zipHash));
+ await write(candidateDir,'STAGING-INCOMPLETE.json',b('WRONG MARKER'));
+ await assert.rejects(gen.completeInterruptedVerifiedBetaBrowserSoftware(params),/Unrecognized incomplete/);
+ await write(candidateDir,'STAGING-INCOMPLETE.json',b('INCOMPLETE'));
+ await write(candidateDir,'System Files/Workspace/secret.json',b('UNTRUSTED'));
+ await assert.rejects(gen.completeInterruptedVerifiedBetaBrowserSoftware(params),/Unexpected candidate directory/);
+ await candidateDir.getDirectoryHandle('System Files').then(x=>x.removeEntry('Workspace'));
+ const assets=await candidateDir.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('assets'));
+ const original=(await assets.getFileHandle('app.js')).bytes.slice();
+ await write(assets,'app.js',b('tampered existing stage'));
+ await assert.rejects(gen.completeInterruptedVerifiedBetaBrowserSoftware(params),/differs from authenticated Beta/);
+ assert.equal(new TextDecoder().decode((await assets.getFileHandle('app.js')).bytes),'tampered existing stage',
+  'Refusal must not rewrite questionable bytes');
+ await write(assets,'app.js',original);
+ await assert.rejects(gen.completeInterruptedVerifiedBetaBrowserSoftware({...params,
+  locks:{request:async(_n,_o,fn)=>fn(null)}}),/Close the active dashboard/);
+ assert.equal(await read(candidateDir,'STAGING-INCOMPLETE.json'),'INCOMPLETE');
+ assert.equal(await read(store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+});
