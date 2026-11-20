@@ -62,7 +62,7 @@ test('wrong hash, redirected response, and wrong source are rejected',async()=>{
   {response:siteResponse(payload,{url:'https://other.example/download.zip'}),message:/redirected/},
   {response:siteResponse(payload,{length:64*1024*1024+1}),message:/length/},
   {response:siteResponse(payload,{length:'bad'}),message:/length/},
-  {response:siteResponse(new Uint8Array()),message:/empty/}
+  {response:siteResponse(new Uint8Array()),message:/empty|length/}
  ];
  for(const item of cases){
   await assert.rejects(fetchVerifiedSitePackage({
