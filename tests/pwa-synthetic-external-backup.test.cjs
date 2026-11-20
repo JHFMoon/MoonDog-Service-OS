@@ -113,9 +113,11 @@ test('live lock contention and non-synthetic labels refuse export with no state 
   assert.equal(await(await report.getFile()).text(),'unchanged original');
   const unauthorized=await installed(storage(),'Actual Dealer','never export');
   await assert.rejects(createSyntheticExternalBackup(unauthorized),/SYNTHETIC/);
-  assert.equal(await(await(await(await unauthorized.store.getDirectoryHandle('System Files'))
-    .getDirectoryHandle('Workspace')).getDirectoryHandle('data'))
-    .getFileHandle('RO-100.json').then(f=>f.getFile()).then(f=>f.text()),'never export');
+  const system=await unauthorized.store.getDirectoryHandle('System Files');
+  const workspace=await system.getDirectoryHandle('Workspace');
+  const data=await workspace.getDirectoryHandle('data');
+  const original=await data.getFileHandle('RO-100.json');
+  assert.equal(await (await original.getFile()).text(),'never export');
 });
 test('invalid install, oversized source file and unsafe path fail closed before export',async()=>{
   const args=await installed(storage(),'SYNTHETIC storage','safe');
