@@ -13,11 +13,17 @@ You may test the installation and open the real dashboard, but do not import any
 <p id="version">Checking official Stable release…</p>
 <a id="download" hidden class="action" target="_blank" rel="noopener noreferrer">Download verified Stable ZIP</a>
 <p>Keep the ZIP zipped; this page opens it safely in your browser.</p></section>
-<section><h2>2. Select the ZIP from Downloads</h2>
+<section><h2>2. Confirm this is a synthetic-only test</h2>
+<label class="check"><input type="checkbox" id="consent"> I understand this is for <strong>synthetic testing only</strong> and will not enter actual dealership data.</label></section>
+<section><h2>3. Install directly from the website</h2>
+<p>No choosing Windows folders, ZIP files, or installation paths. When the publisher provides the verified package at the official website, the browser can install it privately.</p>
+<button id="installFromWeb" disabled>Install preview from website — no picker</button>
+<p id="packageStatus" class="status" role="status" aria-live="polite">Checking whether direct website installation is published…</p></section>
+<section><h2>4. Existing preview fallback: select the official ZIP</h2>
+<p>This fallback still does not require a Windows folder picker or manual ZIP extraction.</p>
 <label for="zip">Original MoonDog ZIP</label><input type="file" id="zip" accept=".zip,application/zip">
-<label class="check"><input type="checkbox" id="consent"> I understand this is for <strong>synthetic testing only</strong> and will not enter actual dealership data.</label>
-<button id="install" disabled>Install preview inside Edge</button>
-<p id="result" class="status" role="status" aria-live="polite">Waiting for the official ZIP.</p>
+<button id="install" disabled>Install preview inside Edge from selected ZIP</button>
+<p id="result" class="status" role="status" aria-live="polite">Ready to check the official ZIP or an available website package.</p>
 <a id="openApp" class="action" hidden>Open real MoonDog dashboard preview</a></section>
 <p class="foot">Existing MoonDog installations and all Windows folders are left alone. You can remove the preview later by clearing this site's data, which also erases its browser-private files.</p>
 </main>

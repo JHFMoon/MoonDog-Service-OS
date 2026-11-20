@@ -80,7 +80,7 @@ test('bridge routes the Stable and newer Workspace picker modes, and refuses unr
  await assert.rejects(window.showDirectoryPicker({id:'moondog-operations'}),/No Windows folder was selected/);
 });
 test('static PWA source mirrors reviewed canonical modules byte-for-byte',()=>{
- const root=path.join(__dirname,'..');for(const name of ['opfs-store.mjs','install_verified_browser_store.mjs','connect_operational_workspace.mjs','serve_browser_app.mjs']){
+ const root=path.join(__dirname,'..');for(const name of ['opfs-store.mjs','install_verified_browser_store.mjs','connect_operational_workspace.mjs','serve_browser_app.mjs','verified_site_package.mjs']){
   const canonical=fs.readFileSync(path.join(root,'src/pwa',name));
   const published=fs.readFileSync(path.join(root,'distribution/site/web-preview/modules',name));
   assert.deepEqual(published,canonical,`${name} must not silently fork public installer authority`);
@@ -93,6 +93,10 @@ test('preview is separate from production site and refuses real data at the entr
  const sw=fs.readFileSync(path.join(root,'sw.js'),'utf8');
  assert.match(html,/synthetic testing only/i);assert.match(html,/do not import any real dealership files/i);
  assert.match(js,/createEmptyStore/);assert.match(js,/inspectVerifiedZip/);assert.match(js,/MOONDOG|SYNTHETIC/);
+ assert.match(js,/fetchVerifiedSitePackage/);assert.match(js,/probeSitePackage/);
+ assert.match(html,/id="installFromWeb"[^>]*disabled/);
+ assert.match(sw,/verified_site_package\.mjs/);
+ assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);assert.match(sw,/const PUBLIC_SHELL/);
  assert.doesNotMatch(sw,/cache\.put\(|PUBLIC_SHELL[\s\S]*?Workspace\/data/);
  assert.doesNotMatch(js,/showDirectoryPicker|showSaveFilePicker/);
