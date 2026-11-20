@@ -1,0 +1,97 @@
+name: PWA Synthetic Acceptance
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Verify and Publish Repair Center]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: pwa-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  public-browser-proof:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            channel: chromium
+          - os: windows-latest
+            channel: msedge
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && 'main' || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Select independently verifiable public authority
+        id: authority
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGER_SHA: ${{ github.event.workflow_run.head_sha }}
+          TRIGGER_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          main="$(gh api repos/JHFMoon/MoonDog-Service-OS/commits/main --jq .sha)"
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            published="$(curl --fail --silent --show-error --location --max-time 30 \
+              'https://jhfmoon.github.io/MoonDog-Service-OS/site-version.json' | jq -er .mainSha)"
+            [[ "$published" =~ ^[0-9a-f]{40}$ ]]
+            echo "sha=$published" >> "$GITHUB_OUTPUT"
+            echo "mode=published-baseline" >> "$GITHUB_OUTPUT"
+          else
+            [[ "$main" =~ ^[0-9a-f]{40}$ ]]
+            if [[ "$GITHUB_EVENT_NAME" == "workflow_run" ]]; then
+              [[ "$TRIGGER_SHA" == "$main" && "$TRIGGER_BRANCH" == "main" ]] || {
+                echo 'Refusing superseded website publication evidence.' >&2; exit 1;
+              }
+            fi
+            echo "sha=$main" >> "$GITHUB_OUTPUT"
+            echo "mode=exact-main" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install pinned test browser driver
+        shell: bash
+        run: npm install --no-save --no-package-lock playwright@1.55.0
+      - name: Install Linux Chromium
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
+      - name: Test isolated public Chromium or Microsoft Edge installation
+        shell: bash
+        env:
+          PWA_PUBLICATION_WAIT_MS: ${{ github.event_name == 'pull_request' && '0' || '480000' }}
+          PWA_SAPR: '1'
+          PWA_RECOVERY: '1'
+          PWA_BETA: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+          BROWSER_CHANNEL: ${{ matrix.channel }}
+          EXPECTED_MAIN_SHA: ${{ steps.authority.outputs.sha }}
+          PROOF_MODE: ${{ steps.authority.outputs.mode }}
+        run: |
+          set -euo pipefail
+          echo "Public synthetic proof mode: $PROOF_MODE, site SHA $EXPECTED_MAIN_SHA"
+          node scripts/smoke_pwa_restart.mjs \
+            https://jhfmoon.github.io/MoonDog-Service-OS/ "$EXPECTED_MAIN_SHA" \
+            | tee pwa-restart-evidence.jsonl
+      - name: Refuse stale or advanced exact-main browser evidence
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN_SHA: ${{ steps.authority.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(gh api repos/JHFMoon/MoonDog-Service-OS/commits/main --jq .sha)" == "$EXPECTED_MAIN_SHA" ]]
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pwa-synthetic-${{ matrix.os }}-${{ github.sha }}
+          path: pwa-restart-evidence.jsonl
+          if-no-files-found: error
+          retention-days: 7
