@@ -56,7 +56,7 @@ def verify(zip_path, release_manifest_path, sha_path, version):
         for item in info:
             name = item.filename
             pieces = name.rstrip("/").split("/")
-            require(name.startswith(root) and len(pieces) >= 2 and
+            require(name.startswith(root) and (len(pieces) >= 2 or (item.is_dir() and name == root)) and
                     all(part not in ("", ".", "..") for part in pieces) and
                     "\\" not in name and not name.startswith("/") and
                     not (stat.S_IFMT(item.external_attr >> 16) == stat.S_IFLNK) and
