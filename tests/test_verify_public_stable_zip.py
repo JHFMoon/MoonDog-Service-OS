@@ -30,6 +30,8 @@ def fixture(root, extras=None, *, corrupt=False, bad_sidecar=False):
                 "files": catalog}
     zip_path = root / "Service-Operations-Dashboard.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(PACKAGE_ROOT + "/", b"")
+        archive.writestr(PACKAGE_ROOT + "/System Files/Workspace/data/", b"")
         for path, content in entries.items():
             archive.writestr(PACKAGE_ROOT + "/" + path, content)
         archive.writestr(PACKAGE_ROOT + "/INSTALLATION-MANIFEST.json", json.dumps(embedded))
