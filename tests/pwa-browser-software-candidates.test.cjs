@@ -7,7 +7,7 @@ const b=text=>new TextEncoder().encode(text),sha=async value=>Buffer.from(await 
 const missing=()=>Object.assign(new Error('missing'),{name:'NotFoundError'});
 class File {
  constructor(name,data=new Uint8Array()){this.name=name;this.kind='file';this.bytes=data;}
- async getFile(){const bytes=this.bytes.slice();return {arrayBuffer:async()=>bytes.buffer,text:async()=>new TextDecoder().decode(bytes)};}
+ async getFile(){const bytes=this.bytes.slice();return {size:bytes.length,arrayBuffer:async()=>bytes.buffer,text:async()=>new TextDecoder().decode(bytes)};}
  async createWritable(){let pending=new Uint8Array();return {write:async value=>{pending=typeof value==='string'?b(value):new Uint8Array(value);},close:async()=>{this.bytes=pending.slice();},abort:async()=>{}};}
 }
 class Dir {
@@ -344,4 +344,44 @@ test('two synthetic stores sharing one browser origin retain independent active 
  assert.equal(await read(bravo.store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
  assert.equal(await read(alpha.store,'System Files/index.html'),'<html>synthetic</html>');
  assert.equal(await read(bravo.store,'System Files/index.html'),'<html>synthetic</html>');
+});
+
+test('external Workspace backup made with selected Beta survives complete synthetic origin replacement',async()=>{
+ const source=await fixture('SYNTHETIC Lost Origin');
+ const gen=await candidate(),selector=await select(),backupApi=await import('../src/pwa/synthetic_external_backup.mjs');
+ const transport=await syntheticPinnedBeta(),params={storage:source.args.storage,crypto,locks:source.args.locks,
+  storeId:source.identity.storeId,installedVersion:source.args.installedVersion,
+  installedManifestHash:source.args.installedManifestHash,fetchImpl:transport.fetchImpl};
+ const staged=await gen.stageVerifiedBetaBrowserSoftware(params);
+ await selector.activateStagedBrowserSoftware({storage:params.storage,crypto,locks:params.locks,storeId:params.storeId,
+  originalVersion:params.installedVersion,originalManifestHash:params.installedManifestHash,
+  version:staged.version,zipHash:staged.zipHash,manifestHash:staged.manifestHash});
+ const exported=await backupApi.createSyntheticExternalBackup({storage:params.storage,crypto,locks:params.locks,
+  storeId:params.storeId,version:params.installedVersion,expectedManifestHash:params.installedManifestHash});
+ assert.equal(exported.softwareVersion,'0.10.17','Backups bind to original verified software, not selected Beta');
+ assert.ok(exported.files.some(x=>x.path==='data/SAPR.json'));
+ assert.ok(exported.files.every(x=>!x.path.includes('software-candidates')&&!x.path.includes('software-selections')));
+ const receipt={sourceStoreId:source.identity.storeId,checksum:exported.sha256};
+ // A brand new OPFS root simulates complete browser-origin site-data deletion.
+ // The backup and separate receipt are retained outside that origin.
+ const fresh=await fixture('SYNTHETIC Reinstalled');
+ assert.notEqual(fresh.args.storage.root,source.args.storage.root);
+ const freshData=await fresh.store.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('Workspace'))
+  .then(x=>x.getDirectoryHandle('data'));
+ await freshData.removeEntry('SAPR.json');
+ await freshData.removeEntry('manual.txt');
+ const restore={storage:fresh.args.storage,crypto,locks:fresh.args.locks,storeId:fresh.identity.storeId,
+  version:fresh.args.installedVersion,expectedManifestHash:fresh.args.installedManifestHash,
+  backup:JSON.parse(JSON.stringify(exported)),...receipt};
+ await assert.rejects(backupApi.restoreSyntheticExternalBackup({...restore,checksum:'0'.repeat(64)}),/receipt/);
+ await assert.rejects(backupApi.restoreSyntheticExternalBackup({...restore,sourceStoreId:randomUUID()}),/Wrong-store/);
+ const result=await backupApi.restoreSyntheticExternalBackup(restore);
+ assert.equal(result.sourceStoreId,source.identity.storeId);
+ assert.notEqual(result.storeId,result.sourceStoreId);
+ assert.equal(await read(fresh.store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+ assert.equal(await read(fresh.store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ assert.equal(await read(fresh.store,'System Files/index.html'),'<html>synthetic</html>');
+ assert.equal(await selector.inspectActiveBrowserSoftware({storage:fresh.args.storage,crypto,storeId:fresh.identity.storeId}),null,
+  'Restoring a Workspace must not adopt the erased origin software selection or staged Beta');
+ await assert.rejects(backupApi.restoreSyntheticExternalBackup(restore),/must be empty/);
 });
