@@ -45,18 +45,19 @@ function decode(value){
 function checkLayout(files,dirs){
   if(!Array.isArray(files)||!Array.isArray(dirs)||files.length>MAX_FILES||
      dirs.length>MAX_DIRS)fail('Excessive or unreadable backup inventory.');
-  const seen=new Set(),folders=new Set();
+  const folders=new Set(),folderAliases=new Set();
   for(const d of dirs){
-    if(!pathOK(d)||seen.has('D:'+d)||folders.has(d))
+    if(!pathOK(d)||folders.has(d)||folderAliases.has(d.toLowerCase()))
       fail('Unsafe, duplicate or inconsistent backup directory.');
-    folders.add(d);seen.add('D:'+d);
+    folders.add(d);folderAliases.add(d.toLowerCase());
   }
-  const names=new Set();
+  const names=new Set(),fileAliases=new Set();
   for(const f of files){
-    if(!f||!pathOK(f.path)||names.has(f.path)||folders.has(f.path)||
+    if(!f||!pathOK(f.path)||names.has(f.path)||fileAliases.has(f.path.toLowerCase())||
+       folderAliases.has(f.path.toLowerCase())||
        !Number.isSafeInteger(f.size)||f.size<0||f.size>MAX_FILE_BYTES||
        !SHA.test(f.sha256||''))fail('Unsafe or repeated backup file.');
-    names.add(f.path);
+    names.add(f.path);fileAliases.add(f.path.toLowerCase());
     const segments=f.path.split('/');
     for(let i=1;i<segments.length;i++)
       if(!folders.has(segments.slice(0,i).join('/')))
