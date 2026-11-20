@@ -171,3 +171,27 @@ test('installing an updated preview shell leaves the current offline cache untou
  await dispatch('activate');
  assert.deepEqual(Array.from(cacheNames),[staged.name]);
 });
+
+
+test('synthetic Beta update UI requires explicit verified stage, rollback and interrupted-selection recovery',()=>{
+ const root=path.join(__dirname,'../distribution/site/web-preview');
+ const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
+ const setup=fs.readFileSync(path.join(root,'setup.mjs'),'utf8');
+ const sw=fs.readFileSync(path.join(root,'sw.js'),'utf8');
+ for(const id of ['checkBeta','installBeta','rollbackBeta','recoverOriginal']){
+  assert.match(html,new RegExp('id="'+id+'"[^>]*disabled'));
+  assert.match(setup,new RegExp("\\$\\('"+id+"'\\)\\.addEventListener"));
+ }
+ assert.match(html,/synthetic test Workspaces only/i);
+ assert.match(setup,/fetchVerifiedPinnedBeta/);
+ assert.match(setup,/stageVerifiedBetaBrowserSoftware/);
+ assert.match(setup,/activateStagedBrowserSoftware/);
+ assert.match(setup,/rollbackBrowserSoftware/);
+ assert.match(setup,/recoverOriginalBrowserSoftware/);
+ assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
+ assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v9'/);
+ assert.match(sw,/verified_beta_transport\.mjs/);
+ assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
+ assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
+});
