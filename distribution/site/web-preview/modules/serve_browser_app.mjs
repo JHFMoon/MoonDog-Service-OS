@@ -1,3 +1,4 @@
+import {readActiveCandidateAsset} from './browser_software_selection.mjs';
 /**
  * Browser-owned MoonDog application file server. Can be used by a same-origin
  * service worker without publishing or uploading a store's private Workspace.
@@ -10,6 +11,7 @@ const BUCKET='MoonDog-PWA-v1',STORES='stores',INSTALL='INSTALLATION-MANIFEST.jso
 const HOLD='MOONDOG-PWA-INSTALL-INCOMPLETE.json',SETUP='INCOMPLETE-SETUP.json';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA=/^[a-f0-9]{64}$/;
+const VERSION=/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/;
 const PUBLIC=/^(?:index\.html|assets\/[A-Za-z0-9._-]+|vendor\/[A-Za-z0-9._-]+)$/;
 const TYPES={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.json':'application/json','.txt':'text/plain; charset=utf-8'};
 const fail=message=>{throw new Error(message);};
@@ -29,9 +31,13 @@ function inspectManifest(raw,version){
 }
 /** Returns verified public bytes; never a private Workspace file. */
 export async function loadVerifiedPublicAsset({storage,crypto,storeId,expectedManifestHash,version,relativePath}={}){
- if(!UUID.test(storeId||'')||!SHA.test(expectedManifestHash||'')||!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version||'')||
+ if(!UUID.test(storeId||'')||!SHA.test(expectedManifestHash||'')||!VERSION.test(version||'')||
     !PUBLIC.test(relativePath||'')||typeof storage?.getDirectory!=='function'||typeof crypto?.subtle?.digest!=='function')
    fail('Unverified browser app request refused.');
+ // A selected candidate must be verified and served, or fail closed. Never
+ // silently fall back to original while an active selector exists.
+ const selected=await readActiveCandidateAsset({storage,crypto,storeId,expectedManifestHash,version,relativePath});
+ if(selected)return selected;
  const root=await storage.getDirectory(),bucket=await root.getDirectoryHandle(BUCKET,{create:false});
  const stores=await bucket.getDirectoryHandle(STORES,{create:false}),store=await stores.getDirectoryHandle(storeId,{create:false});
  if(await present(store,HOLD)||await present(store,SETUP))fail('Incomplete installation is blocked.');
@@ -73,6 +79,6 @@ export function parseBrowserAssetRoute(pathname,scopePath){
  if(parts.length<4)return null;
  const [storeId,expectedManifestHash,version,...rest]=parts;
  const relativePath=rest.join('/');
- if(!UUID.test(storeId)||!SHA.test(expectedManifestHash)||!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)||!PUBLIC.test(relativePath))return null;
+ if(!UUID.test(storeId)||!SHA.test(expectedManifestHash)||!VERSION.test(version)||!PUBLIC.test(relativePath))return null;
  return {storeId,expectedManifestHash,version,relativePath};
 }
