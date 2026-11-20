@@ -35,6 +35,14 @@ You may test the installation and open the real dashboard, but do not import any
 <button id="restoreBackup" disabled>Recover into a new preview</button>
 </details>
 <p id="backupStatus" class="status" role="status"></p></section>
+<section><h2>Verified Beta software test</h2>
+<p>For <strong>synthetic test Workspaces only</strong>. Close the dashboard before installing or rolling back software. The original verified Stable application and your browser-private Workspace remain separate and untouched. This is a preview update test, not a Stable promotion.</p>
+<button id="checkBeta" disabled>Check verified Beta</button>
+<button id="installBeta" disabled>Install verified Beta into this preview</button>
+<button id="rollbackBeta" disabled>Roll back to original Stable</button>
+<button id="recoverOriginal" disabled>Recover original from interrupted software selection</button>
+<p id="betaStatus" class="status" role="status" aria-live="polite">Install a synthetic preview to test software updates.</p>
+</section>
 <p class="foot">Existing MoonDog installations and all Windows folders are left alone. You can remove the preview later by clearing this site's data, which also erases its browser-private files.</p>
 </main>
 <script src="../fresh-install-writer.js"></script><script type="module" src="./setup.mjs"></script>
