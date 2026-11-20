@@ -47,6 +47,9 @@ jobs:
       - name: Prove public offline restart and Workspace readback
         shell: bash
         env:
+          PWA_PUBLICATION_WAIT_MS: '480000'
+          PWA_SAPR: '1'
+          PWA_CANDIDATE_INITIALIZER: ${{ github.event_name == 'pull_request' && '1' || '0' }}
           PWA_RECOVERY: '1'
           BROWSER_CHANNEL: ${{ matrix.channel }}
           EXPECTED_MAIN_SHA: ${{ steps.authority.outputs.sha }}
