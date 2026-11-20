@@ -118,7 +118,10 @@ class FakeDirectory {
    if(entry.kind!=="file")throw mismatch();
    return entry;
  }
- async *values(){for(const entry of this.entriesMap.values())yield entry;}
+ async *values(){
+  await this.shared.beforeValues?.(this);
+  for(const entry of this.entriesMap.values())yield entry;
+ }
  async removeEntry(name){
   if(!this.entriesMap.delete(name))throw missing();
   if(typeof this.shared.afterRemove==="function")
@@ -302,6 +305,22 @@ test("a denied late entry restoration leaves an incomplete-install hold, never a
  assert.equal(folder.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
  assert.equal(parent.entriesMap.size,1,"no existing store is removed or replaced");
 });
+test("an incomplete marker that returns during final inventory blocks installation",async()=>{
+ const marker="MOONDOG-INSTALL-INCOMPLETE.txt";
+ let committedFolder;
+ const shared={writes:0,permission:"granted",
+  afterRemove(name,folder){if(name===marker)committedFolder=folder;},
+  async beforeValues(folder){
+   if(folder===committedFolder){
+    const returned=await folder.getFileHandle(marker,{create:true});
+    returned.bytes=b("Synthetic marker restored by sync");
+   }
+  }};
+ const parent=new FakeDirectory("Synthetic Parent",shared);
+ await assert.rejects(load(parent).install(installOptions(makeZip())),/incomplete-install marker/);
+ const returned=await committedFolder.getFileHandle(marker);
+ assert.deepEqual(Buffer.from(returned.bytes),b("Synthetic marker restored by sync"));
+});
 test("directory name rejects traversal and Windows reserved names",()=>{
  const api=load(new FakeDirectory("Synthetic Parent"));
  for(const name of ["../Existing","CON","LPT1","AUX.txt","my/folder","my\\folder","trail."]) {
@@ -318,7 +337,8 @@ test("website keeps verification, manual fallback and the in-app Guided Setup bo
  assert.match(html,/Complete <strong>Guided Setup<\/strong>/);
  assert.match(html,/Settings → System Updates/);
  assert.match(html,/Do not select Desktop itself/);
- assert.match(html,/Desktop &gt; MoonDog Installations|Desktop > MoonDog Installations/);
+ assert.match(html,/Choose an existing folder that Edge allows/);
+ assert.match(html,/open the new MoonDog folder inside it/);
  assert.match(html,/After Guided Setup, before normal use/);
  assert.match(html,/Optional: check the installation if MoonDog won't open/);
  assert.doesNotMatch(html,/class="button" href="\.\/check-installation\.html"/);
@@ -453,7 +473,7 @@ test("blocked Desktop choice leaves verified ZIP usable and does not write",asyn
  ui.el("zipFile").files=[selectedZip(fixture)];await ui.fire("zipFile","change");
  assert.equal(ui.el("autoInstall").disabled,false);
  await ui.fire("autoInstall","click");
- assert.match(ui.el("installResult").textContent,/inside Desktop instead of Desktop itself/);
+ assert.match(ui.el("installResult").textContent,/try another existing folder that Edge allows/);
  assert.equal(ui.el("autoInstall").disabled,false,"same verified ZIP can retry with a permitted folder");
  assert.equal(ui.el("installedNext").hidden,true);
  assert.equal(parent.entriesMap.size,0);

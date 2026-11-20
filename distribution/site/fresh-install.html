@@ -67,13 +67,13 @@ summary{cursor:pointer;font-weight:760;padding:13px 16px}.inner{padding:4px 16px
 <section id="finish" class="card" hidden aria-labelledby="finishHeading">
 <h2 id="finishHeading">3. Choose where to install MoonDog</h2>
 <p>Now that the ZIP is verified, choose where to save MoonDog. The website creates one <strong>new, separate installation folder</strong> there; it never overwrites an existing folder.</p>
-<p><strong>Want MoonDog on your Desktop?</strong> In Edge's folder picker, open Desktop, create a new folder named <code>MoonDog Installations</code>, and select <strong>that new folder</strong>. Do not select Desktop itself: Edge protects top-level Windows folders. MoonDog will create <code>Service Operations Dashboard</code> inside the folder you select.</p>
+<p><strong>Choose an existing folder that Edge allows.</strong> An ordinary subfolder in Documents or another local location can work. Do not select Desktop itself because Edge protects top-level Windows folders. MoonDog creates the named installation folder inside your selection.</p>
 <label class="label" for="installFolderName">Name for the new installation folder</label>
 <input id="installFolderName" class="folder-name" maxlength="72" value="Service Operations Dashboard" autocomplete="off" spellcheck="false">
 <button id="autoInstall" type="button" disabled>Choose location and create MoonDog</button>
 <p id="installResult" class="status" role="status" aria-live="polite">Verify the official Stable ZIP first. No folder has been created.</p>
 <div id="installedNext" class="next-steps" hidden>
-<strong>MoonDog's files were created and verified.</strong> In Windows File Explorer, open the new folder you selected and double-click <code>00 - OPEN DASHBOARD.html</code> with Microsoft Edge. The website cannot launch a local file for you.
+<strong>MoonDog's files were created and verified.</strong> In Windows File Explorer, open the folder you selected, then open the new MoonDog folder inside it. Open <code>00 - OPEN DASHBOARD.html</code> with Microsoft Edge.
 <p>When prompted, choose that <strong>same outer installation folder</strong> and allow access. Complete Guided Setup using the actual store name, store code and time zone, then import a <strong>validated SAPR report from that same store</strong> (required to finish setup). Advisors and optional reports can be refined afterward. Missing source figures remain <strong>unknown</strong>, not zero. Check <strong>Settings → System Updates</strong> for verified future releases; updates preserve the separate Workspace. Do not select Fresh Update unless you intend to reset that selected installation.</p>
 </div>
 <details id="manualExtract"><summary>Can't use the automatic installer? Show manual extraction steps</summary><div class="inner">
@@ -184,7 +184,7 @@ autoInstall.addEventListener("click",async()=>{
   }
   installing=true;installedNext.hidden=true;ready();
   installResult.className="status";
-  installResult.textContent="Choose a new parent folder (for example, Desktop > MoonDog Installations), not Desktop itself. No existing folder will be replaced.";
+  installResult.textContent="Choose an existing folder that Edge allows. MoonDog will create the new installation inside it.";
   try{
     const outcome=await globalThis.MoonDogFreshInstall.install({
       file:verifiedFile,sha256:stable.sha256,version:stable.version,folderName:folderName.value,
@@ -201,7 +201,7 @@ autoInstall.addEventListener("click",async()=>{
   }catch(error){
     if(error?.name==="AbortError"){
       installResult.className="status";
-      installResult.textContent="No folder was selected. If Edge said the folder contains system files, create and choose a separate folder inside Desktop instead of Desktop itself. Your verified ZIP is still ready.";
+      installResult.textContent="No folder was selected. If Edge refused the location, try another existing folder that Edge allows. Your verified ZIP is still ready.";
     }else{
       installResult.className="status error";
       installResult.textContent=String(error?.message||"Installation was stopped safely.");

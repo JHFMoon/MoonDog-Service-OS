@@ -268,7 +268,10 @@
           seenDirs.add(path+"/");
           await inspect(entry,path+"/");
         }else if(entry.kind==="file"){
-          if(path===MARKER)continue; // Our transient failure marker.
+          if(path===MARKER){
+            if(includeManifest)fail("The incomplete-install marker returned during final verification.");
+            continue; // The transient marker is expected before commit.
+          }
           const approved=expectedFiles.get(path);
           if(!approved)fail("An unapproved file appeared during installation.");
           const read=new Uint8Array(await (await entry.getFile()).arrayBuffer());
@@ -358,6 +361,8 @@
         if(!(await hasFile(app,"index.html")))
           await writeReadBack(destination,approvedEntry.path,approvedEntry.bytes,approvedEntry.sha256);
         await assertOnlyApprovedFiles(destination,packageData,true);
+        if(await hasFile(destination,MARKER))
+          fail("The incomplete-install marker returned during final verification.");
       }catch(error){
         // This new folder must remain visibly incomplete. Never overwrite an
         // unexpected marker or touch a pre-existing installation.
