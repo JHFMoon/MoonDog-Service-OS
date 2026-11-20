@@ -17,10 +17,12 @@ const DIRS=[
  "System Files/Workspace/support/","System Files/Workspace/01 - DROP REPORTS HERE/"
 ];
 const b=s=>Buffer.from(s,"utf8"),sha=bytes=>crypto.createHash("sha256").update(bytes).digest("hex");
+const appHtml='<!doctype html><html lang="en"><head><title>Synthetic MoonDog</title></head><body></body></html>';
+const compatibilityHtml=appHtml.replace("<head>",'<head><base href="System Files/">');
 const zipData={
  "00 - OPEN DASHBOARD.html":b("<html>Open synthetic MoonDog</html>"),
- "index.html":b("<html>Root origin synthetic MoonDog</html>"),
- "System Files/index.html":b("<html>System Files synthetic MoonDog</html>"),
+ "index.html":b(compatibilityHtml),
+ "System Files/index.html":b(appHtml),
  "System Files/Workspace/README.txt":b("Protected private Workspace; starts without store data.")
 };
 function crc32(data) {
@@ -118,8 +120,15 @@ class FakeDirectory {
    if(entry.kind!=="file")throw mismatch();
    return entry;
  }
- async *values(){for(const entry of this.entriesMap.values())yield entry;}
- async removeEntry(name){if(!this.entriesMap.delete(name))throw missing();}
+ async *values(){
+  await this.shared.beforeValues?.(this);
+  for(const entry of this.entriesMap.values())yield entry;
+ }
+ async removeEntry(name){
+  if(!this.entriesMap.delete(name))throw missing();
+  if(typeof this.shared.afterRemove==="function")
+    await this.shared.afterRemove(name,this);
+ }
 }
 function load(parent,showDirectoryPicker=async()=>parent){
  const context={
@@ -233,6 +242,89 @@ test("interrupted first install is marked incomplete, not reported as successful
    "no complete installation claim on a partially written folder");
  await assert.rejects(api.install(installOptions(fixture)),/already exists/);
 });
+test("fresh installation refuses late tampering, manifest changes or unlisted files",async()=>{
+ const fixture=makeZip();
+ for(const mode of ["tampered-entry","tampered-manifest","unlisted-file"]){
+  const shared={writes:0,permission:"granted"};
+  shared.afterRemove=async(name,root)=>{
+   if(name!=="MOONDOG-INSTALL-INCOMPLETE.txt")return;
+   if(mode==="tampered-entry"){
+    const app=await root.getDirectoryHandle("System Files");
+    (await app.getFileHandle("index.html")).bytes=b("modified after verification");
+   }else if(mode==="tampered-manifest"){
+    (await root.getFileHandle("INSTALLATION-MANIFEST.json")).bytes=b("{}");
+   }else{
+    await root.getFileHandle("unexpected-foreign-file.txt",{create:true});
+   }
+  };
+  const parent=new FakeDirectory("Synthetic Parent",shared),api=load(parent);
+  await assert.rejects(api.install(installOptions(fixture)),error=>
+   error.partial===true && /partial NEW folder may remain/.test(error.message),
+   mode+" must never report a completed installation");
+  const installed=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+  assert.equal(installed.entriesMap.has("INSTALLATION-MANIFEST.json"),true,
+   "manifest committed before simulated sync change");
+  assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true,
+   "restore the visible incomplete marker after post-commit validation fails");
+  assert.equal(parent.entriesMap.size,1,"preserve partial copy without touching another installation");
+ }
+});
+
+test("new install restores missing application and compatibility entries from approved software",async()=>{
+ const fixture=makeZip({}, "", true),shared={writes:0,permission:"granted"};
+ shared.afterRemove=async(name,destination)=>{
+  if(name==="MOONDOG-INSTALL-INCOMPLETE.txt"){
+   const app=await destination.getDirectoryHandle("System Files");
+   app.entriesMap.delete("index.html"); // Simulated late OneDrive removal.
+   destination.entriesMap.delete("index.html");
+  }
+ };
+ const parent=new FakeDirectory("Synthetic Parent",shared),api=load(parent);
+ const result=await api.install(installOptions(fixture));
+ assert.equal(result.status,"installed");
+ const folder=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ const app=await folder.getDirectoryHandle("System Files");
+ assert.deepEqual(Buffer.from((await app.getFileHandle("index.html")).bytes),zipData["System Files/index.html"],
+   "approved application entry restored from immutable ZIP, not an untrusted copy");
+ assert.deepEqual(Buffer.from((await folder.getFileHandle("index.html")).bytes),b(compatibilityHtml));
+ assert.equal(folder.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),false);
+ assert.ok(await folder.getFileHandle("INSTALLATION-MANIFEST.json"));
+ assert.equal((await app.getDirectoryHandle("Workspace")).entriesMap.has("data"),true,
+   "a restored program file must leave the private Workspace alone");
+});
+
+test("a denied late entry restoration leaves an incomplete-install hold, never a success",async()=>{
+ const fixture=makeZip({}, "", true),shared={writes:0,permission:"granted"};
+ shared.afterRemove=async(name,destination)=>{
+  if(name==="MOONDOG-INSTALL-INCOMPLETE.txt"){
+   const app=await destination.getDirectoryHandle("System Files");
+   app.entriesMap.delete("index.html");
+   shared.failWrite="index.html";
+  }
+ };
+ const parent=new FakeDirectory("Synthetic Parent",shared),api=load(parent);
+ await assert.rejects(api.install(installOptions(fixture)),e=>
+  e.partial===true&&/partial NEW folder may remain/.test(e.message));
+ const folder=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ assert.equal(folder.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
+ assert.equal(parent.entriesMap.size,1,"no existing store is removed or replaced");
+});
+test("an incomplete marker that returns during final inventory blocks installation",async()=>{
+ const marker="MOONDOG-INSTALL-INCOMPLETE.txt";
+ let committedFolder;
+ const shared={writes:0,permission:"granted",
+  afterRemove(name,folder){if(name===marker)committedFolder=folder;},
+  async beforeValues(folder){
+   if(folder===committedFolder){
+    const returned=await folder.getFileHandle(marker,{create:true});
+    returned.bytes=b("Synthetic marker restored by sync");
+   }
+  }};
+ const parent=new FakeDirectory("Synthetic Parent",shared);
+ await assert.rejects(load(parent).install(installOptions(makeZip())),/incomplete-install marker/);
+ const returned=await committedFolder.getFileHandle(marker);
+ assert.deepEqual(Buffer.from(returned.bytes),b("Synthetic marker restored by sync"));
+});
 test("directory name rejects traversal and Windows reserved names",()=>{
  const api=load(new FakeDirectory("Synthetic Parent"));
  for(const name of ["../Existing","CON","LPT1","AUX.txt","my/folder","my\\folder","trail."]) {
@@ -249,7 +341,8 @@ test("website keeps verification, manual fallback and the in-app Guided Setup bo
  assert.match(html,/Complete <strong>Guided Setup<\/strong>/);
  assert.match(html,/Settings → System Updates/);
  assert.match(html,/Do not select Desktop itself/);
- assert.match(html,/Desktop &gt; MoonDog Installations|Desktop > MoonDog Installations/);
+ assert.match(html,/Choose an existing folder that Edge allows/);
+ assert.match(html,/open the new MoonDog folder inside it/);
  assert.match(html,/After Guided Setup, before normal use/);
  assert.match(html,/Optional: check the installation if MoonDog won't open/);
  assert.doesNotMatch(html,/class="button" href="\.\/check-installation\.html"/);
@@ -384,7 +477,7 @@ test("blocked Desktop choice leaves verified ZIP usable and does not write",asyn
  ui.el("zipFile").files=[selectedZip(fixture)];await ui.fire("zipFile","change");
  assert.equal(ui.el("autoInstall").disabled,false);
  await ui.fire("autoInstall","click");
- assert.match(ui.el("installResult").textContent,/inside Desktop instead of Desktop itself/);
+ assert.match(ui.el("installResult").textContent,/try another existing folder that Edge allows/);
  assert.equal(ui.el("autoInstall").disabled,false,"same verified ZIP can retry with a permitted folder");
  assert.equal(ui.el("installedNext").hidden,true);
  assert.equal(parent.entriesMap.size,0);
@@ -521,14 +614,18 @@ test("new installation detects an unlisted synthetic entry inserted during packa
  assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
 });
 
-test("original immutable Stable layout may omit root index.html while retaining verified launcher and app entry",async()=>{
+test("original immutable Stable installs the compatibility page required for the first update",async()=>{
  const fixture=makeZip({},"",true);
  assert.equal(fixture.manifest.files.some(file=>file.path==="index.html"),false);
- const parent=new FakeDirectory("Synthetic Parent");
- const result=await load(parent).install(installOptions(fixture,{folderName:"Legacy Stable New Store"}));
+ const parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
+ const archive=await api.inspectVerifiedZip(await localFile(fixture.bytes).arrayBuffer(),fixture.hash,"0.10.17");
+ assert.equal(archive.files.some(file=>file.path==="index.html"),false);
+ const result=await api.install(installOptions(fixture,{folderName:"Legacy Stable New Store"}));
  assert.equal(result.status,"installed");
  const root=await parent.getDirectoryHandle("Legacy Stable New Store");
- assert.equal(root.entriesMap.has("index.html"),false,"never synthesize unlisted software");
+ assert.deepEqual(Buffer.from((await root.getFileHandle("index.html")).bytes),b(compatibilityHtml));
+ assert.deepEqual(Buffer.from((await root.getFileHandle("INSTALLATION-MANIFEST.json")).bytes),
+  Buffer.from(archive.files.find(file=>file.path==="INSTALLATION-MANIFEST.json").bytes));
  assert.equal(root.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),false);
  assert.ok(await root.getFileHandle("00 - OPEN DASHBOARD.html"));
  const system=await root.getDirectoryHandle("System Files");
