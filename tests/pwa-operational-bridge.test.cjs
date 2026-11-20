@@ -28,8 +28,8 @@ class Dir{
 const makeStorage=()=>({root:new Dir('OPFS'),getDirectory(){return Promise.resolve(this.root);}});
 const sha=async raw=>Array.from(new Uint8Array(await webcrypto.subtle.digest('SHA-256',raw)),n=>n.toString(16).padStart(2,'0')).join('');
 async function save(root,path,contents){const parts=path.split('/');let dir=root;for(const name of parts.slice(0,-1))dir=await dir.getDirectoryHandle(name,{create:true});const file=await dir.getFileHandle(parts.at(-1),{create:true});file.content=contents;return file;}
-async function fixture(storage){
-  const {identity,store}=await(await createStore()).createEmptyStore({storage,crypto:{randomUUID},label:'Synthetic private store'});
+async function fixture(storage,label='Synthetic private store'){
+  const {identity,store}=await(await createStore()).createEmptyStore({storage,crypto:{randomUUID},label});
   const app={
    '00 - OPEN DASHBOARD.html':b('synthetic launcher'),
    'System Files/index.html':b('<title>Synthetic real layout</title>'),
@@ -119,4 +119,15 @@ test('incomplete installation remains blocked from opening operational Workspace
  const storage=makeStorage(),f=await fixture(storage);
  await save(f.store,'MOONDOG-PWA-INSTALL-INCOMPLETE.json',b('incomplete'));
  await assert.rejects(open(options(storage,f,makeLocks())),/incomplete/);
+});
+
+test('non-synthetic verified store never exposes an operational preview handle',async()=>{
+  const storage=makeStorage(),f=await fixture(storage,'Actual customer dealership');
+  const sys=await f.store.getDirectoryHandle('System Files');
+  const ws=await sys.getDirectoryHandle('Workspace');
+  const data=await ws.getDirectoryHandle('data');
+  await save(data,'original-report.txt',b('ORIGINAL SYNTHETIC FIXTURE'));
+  await assert.rejects(open(options(storage,f,makeLocks())),/refuses non-synthetic/);
+  const original=await data.getFileHandle('original-report.txt');
+  assert.equal(await(await original.getFile()).text(),'ORIGINAL SYNTHETIC FIXTURE');
 });
