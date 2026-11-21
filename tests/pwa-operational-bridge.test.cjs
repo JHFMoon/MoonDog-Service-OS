@@ -127,7 +127,7 @@ test('non-synthetic verified store never exposes an operational preview handle',
   const ws=await sys.getDirectoryHandle('Workspace');
   const data=await ws.getDirectoryHandle('data');
   await save(data,'original-report.txt',b('ORIGINAL SYNTHETIC FIXTURE'));
-  await assert.rejects(open(options(storage,f,makeLocks())),/refuses non-synthetic/);
+  await assert.rejects(open(options(storage,f,makeLocks())),/explicit dealership enrollment/);
   const original=await data.getFileHandle('original-report.txt');
   assert.equal(await(await original.getFile()).text(),'ORIGINAL SYNTHETIC FIXTURE');
 });

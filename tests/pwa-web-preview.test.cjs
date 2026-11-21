@@ -115,7 +115,7 @@ test('preview is separate from production site and refuses real data at the entr
 test('public preview refuses non-synthetic store even with valid official app hash',async()=>{
  const {args,store}=await create('Actual dealership');
  const {loadVerifiedPublicAsset}=await lib();
- await assert.rejects(loadVerifiedPublicAsset({...args,relativePath:'index.html'}),/refuses non-synthetic/);
+ await assert.rejects(loadVerifiedPublicAsset({...args,relativePath:'index.html'}),/explicit dealership enrollment/);
  const system=await store.getDirectoryHandle('System Files');
  const workspace=await system.getDirectoryHandle('Workspace');
  const data=await workspace.getDirectoryHandle('data');

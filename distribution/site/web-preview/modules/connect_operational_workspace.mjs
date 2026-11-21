@@ -1,6 +1,7 @@
+import {inspectBrowserWorkspaceEnrollment} from './browser_workspace_enrollment.mjs';
 /**
  * Early-stage authenticated browser Workspace bridge for the *existing* MoonDog
- * FileSystemHandle runtime. Does not publish the app, enable real-store data,
+ * FileSystemHandle runtime. Does not publish the app or authorize deployment,
  * or alter user-visible Windows folders. Read-only application binaries;
  * only System Files/Workspace can mutate, subject to the app's write guard.
  *
@@ -54,11 +55,7 @@ export async function openVerifiedOperationalWorkspace({storage,crypto,locks,sto
       expectedManifestHash:selected?.originalManifestHash||expectedManifestHash});
     if(!proof.applicationVerified || proof.identity.storeId!==storeId)
       fail('Browser application verification did not authorize this store.');
-    // This hosted preview is SYNTHETIC-only. A valid software signature alone
-    // must never turn an existing operational store into a preview Workspace.
-    if(typeof proof.identity.label!=='string' ||
-       !/^SYNTHETIC(?:\s|$)/i.test(proof.identity.label))
-      fail('Browser preview refuses non-synthetic stores. No Workspace handle was exposed.');
+    const enrollment=inspectBrowserWorkspaceEnrollment(proof.identity);
 
     const originals = new WeakMap();
     const assertActive = () => {if(!active || finished)fail('This MoonDog browser session is closed.');};
@@ -130,7 +127,7 @@ export async function openVerifiedOperationalWorkspace({storage,crypto,locks,sto
     }
     const handle = wrapDir(proof.store);
     return Object.freeze({
-      storeId,handle,version,
+      storeId,handle,version,workspaceMode:enrollment.mode,storeProfile:enrollment.store,
       operationalModelConnected:false,externalBackupVerified:false,productionReady:false,
       async close(){if(finished)return;finished=true;release();await done;}
     });
