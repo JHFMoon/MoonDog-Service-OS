@@ -62,6 +62,11 @@
       if(!button||button.disabled)return;
       const watching=document.getElementById('folderWatchStatus')?.textContent||'';
       if(watching.startsWith('REPORT INBOX WATCHING')){
+        const status=document.getElementById('status');
+        // The native-folder startup notice is stale once this version-bound
+        // browser Workspace has connected. Preserve every other error/status.
+        if(status?.textContent==='No reusable saved folder was found. Choose the Service Operations Dashboard working folder.')
+          status.textContent='Browser-private Workspace connected and verified.';
         button.hidden=true;observer.disconnect();return;
       }
       // Invoke the canonical connection handler once. It still verifies the

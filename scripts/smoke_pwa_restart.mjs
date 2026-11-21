@@ -67,7 +67,7 @@ async function settledSnapshot(page){
  // Snapshot while the application still holds its lock; do not interrupt pending writes by navigating away.
  let prior=null,stableSamples=0;
  for(let attempt=0;attempt<120;attempt++){
-  let current;try{current=await snapshot(page);}catch(error){if(!String(error).includes('NotFoundError'))throw error;stableSamples=0;await page.waitForTimeout(500);continue;}
+  let current;try{current=await snapshot(page);}catch(error){if(!/NotFoundError|NotReadableError/.test(String(error)))throw error;stableSamples=0;await page.waitForTimeout(500);continue;}
   const settled=!current.files.some(([name])=>name.includes('.moondog-txn-'));
   stableSamples=settled&&JSON.stringify(current)===JSON.stringify(prior)?stableSamples+1:0;
   if(stableSamples>=4){return current;}
