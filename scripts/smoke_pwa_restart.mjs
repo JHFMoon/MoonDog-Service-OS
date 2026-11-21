@@ -90,6 +90,25 @@ async function assertPublishedViews(page){
  assert.deepEqual(meeting,{gross:STORE_GROSS,days:8,totalDays:22},'Rendered meeting must use the same verified source/days');
  assert.ok((await page.locator('#view-meeting').innerText()).trim().length>50,'Real meeting UI must render');
  await page.getByRole('button',{name:/^Advisor performance$/i}).click();
+ // The canonical Home and meeting share a verified SAPR source, but the
+ // performance panel renders asynchronously after a navigation. Require the
+ // correct real UI text within a strict deadline; never accept merely saved
+ // report data or a blank/stale performance panel.
+ try{
+  await page.waitForFunction(({gross,pace})=>{
+   const view=document.querySelector('#view-performance.active');
+   return !!view&&view.innerText.includes('Current MTD: $'+gross)&&
+    view.innerText.includes('Month pace: $'+pace);
+  },{gross:STORE_GROSS.toLocaleString('en-US'),pace:STORE_PACE.toLocaleString('en-US')},{timeout:15000});
+ }catch(error){
+  const evidence=await page.evaluate(()=>({
+   performanceText:(document.querySelector('#view-performance')?.innerText||'').slice(0,800),
+   homeGross:globalThis.__moondogSettingsModel?.performance?.snapshots['2026-11-19']?.store?.cpGross??null,
+   meetingGross:globalThis.__moondogSapr?.latestVerifiedMeetingSnapshot()?.store?.cpGross??null
+  }));
+  console.error(JSON.stringify({publishedPerformanceReadinessFailure:true,...evidence}));
+  throw error;
+ }
  assert.ok((await page.locator('#view-performance').innerText()).includes('Current MTD: $'+STORE_GROSS.toLocaleString('en-US')));
  assert.ok((await page.locator('#view-performance').innerText()).includes('Month pace: $'+STORE_PACE.toLocaleString('en-US')));
  console.log(JSON.stringify({publishedHomeMeetingPerformance:true,cpGross:STORE_GROSS,reportedDays:8,totalDays:22,monthPace:STORE_PACE}));
