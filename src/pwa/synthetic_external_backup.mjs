@@ -103,8 +103,12 @@ async function collectWorkspace(workspace,crypto){
   checkLayout(files,dirs);
   return {directories:dirs,files};
 }
+function backupWorkspaceId(backup){
+  return Object.hasOwn(backup,'workspaceId') ? backup.workspaceId : backup.storeId;
+}
 function canonicalBackup(backup){
   return {format:FORMAT,formatVersion:VERSION,storeId:backup.storeId,
+    ...(Object.hasOwn(backup,'workspaceId')?{workspaceId:backup.workspaceId}:{}),
     storeLabel:backup.storeLabel,softwareVersion:backup.softwareVersion,
     appManifestHash:backup.appManifestHash,
     directories:backup.directories,files:backup.files};
@@ -125,7 +129,8 @@ export async function createSyntheticExternalBackup({
       const workspace=await(await verified.store.getDirectoryHandle('System Files',{create:false}))
         .getDirectoryHandle('Workspace',{create:false});
       const inventory=await collectWorkspace(workspace,crypto);
-      const body=canonicalBackup({storeId,storeLabel:verified.identity.label,
+      const body=canonicalBackup({storeId,workspaceId:verified.identity.workspaceId,
+        storeLabel:verified.identity.label,
         softwareVersion:version,appManifestHash:expectedManifestHash,...inventory});
       const checksum=await bytesHash(new TextEncoder().encode(JSON.stringify(body)),crypto);
       return Object.freeze({...body,sha256:checksum,productionReady:false});
@@ -137,7 +142,8 @@ export async function inspectSyntheticExternalBackup({
 }={}){
   assertInputs({crypto,storeId:expectedStoreId,version,expectedManifestHash});
   if(!backup||backup.format!==FORMAT||backup.formatVersion!==VERSION||
-     backup.storeId!==expectedStoreId||!synthetic(backup.storeLabel)||
+     backup.storeId!==expectedStoreId||typeof backupWorkspaceId(backup)!=='string'||
+     !UUID.test(backupWorkspaceId(backup))||!synthetic(backup.storeLabel)||
      backup.softwareVersion!==version||backup.appManifestHash!==expectedManifestHash||
      !SHA.test(backup.sha256||'')||backup.productionReady!==false)
     fail('Wrong-store, untrusted or incomplete synthetic backup.');
@@ -152,7 +158,7 @@ export async function inspectSyntheticExternalBackup({
   }
   const expected=await bytesHash(new TextEncoder().encode(JSON.stringify(canonicalBackup(backup))),crypto);
   if(expected!==backup.sha256)fail('Backup envelope checksum does not match.');
-  return Object.freeze({verified:true,storeId:expectedStoreId,
+  return Object.freeze({verified:true,storeId:expectedStoreId,workspaceId:backupWorkspaceId(backup),
     directories:backup.directories.length,files:backup.files.length,
     bytes:size,restoreAuthorized:false,productionReady:false});
 }
@@ -165,7 +171,7 @@ export async function restoreSyntheticExternalBackup({
   assertInputs({crypto,storeId,version,expectedManifestHash});
   if(storeId===sourceStoreId||!SHA.test(checksum||'')||backup?.sha256!==checksum)
     fail('The separate backup receipt does not identify this snapshot.');
-  await inspectSyntheticExternalBackup({backup,crypto,expectedStoreId:sourceStoreId,
+  const verifiedBackup=await inspectSyntheticExternalBackup({backup,crypto,expectedStoreId:sourceStoreId,
     expectedManifestHash,version});
   if(typeof locks?.request!=='function')fail('Exclusive per-store Web Lock is required for restore.');
   return locks.request('moondog-pwa-operational-'+storeId,
@@ -174,6 +180,8 @@ export async function restoreSyntheticExternalBackup({
       const {identity,store}=await inspectVerifiedBrowserInstallation({
         storage,crypto,storeId,version,expectedManifestHash});
       if(!synthetic(identity.label))fail('The replacement must be a verified SYNTHETIC store.');
+      if(identity.workspaceId!==verifiedBackup.workspaceId)
+        fail('Wrong-store backup: the replacement belongs to a different Workspace.');
       const workspace=await(await store.getDirectoryHandle('System Files')).getDirectoryHandle('Workspace');
       const empty=await collectWorkspace(workspace,crypto);
       const scaffold=['backups','data','exports','imports'];

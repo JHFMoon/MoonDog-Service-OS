@@ -2,9 +2,9 @@
 // Verified application files are read from private OPFS, SHA-checked per fetch.
 import {loadVerifiedPublicAsset,addPreviewBootstrap,parseBrowserAssetRoute} from './modules/serve_browser_app.mjs';
 const CACHE_PREFIX='moondog-synthetic-preview-shell-';
-const CACHE=CACHE_PREFIX+'v14';
+const CACHE=CACHE_PREFIX+'v16';
 const PUBLIC_SHELL=Object.freeze([
- './index.html','./setup.mjs','./setup.mjs?v=14','./bridge.js','./style.css','./app.webmanifest','./app.webmanifest?v=14','./icon.svg',
+ './index.html','./setup.mjs','./setup.mjs?v=16','./bridge.js','./style.css','./app.webmanifest','./app.webmanifest?v=16','./icon.svg',
  './modules/initialize_fresh_browser_workspace.mjs',
  './modules/browser_software_candidates.mjs','./modules/browser_software_selection.mjs',
  './modules/verified_beta_transport.mjs',
@@ -31,7 +31,17 @@ self.addEventListener('activate',event=>event.waitUntil((async()=>{
 // controlling service worker can serve the currently reviewed offline modules.
 self.addEventListener('message',event=>{
  if(event.data?.type!=='MOONDOG_PREVIEW_SHELL_PROBE')return;
- event.ports?.[0]?.postMessage({type:'MOONDOG_PREVIEW_SHELL_PROOF',cache:CACHE});
+ const port=event.ports?.[0];
+ if(!port)return;
+ event.waitUntil((async()=>{
+  let complete=false;
+  try{
+   const cache=await caches.open(CACHE);
+   const cachedUrls=new Set((await cache.keys()).map(request=>request.url));
+   complete=shellUrls.every(url=>cachedUrls.has(url));
+  }catch(_){/* Browser storage may be unavailable. */}
+  port.postMessage({type:'MOONDOG_PREVIEW_SHELL_PROOF',cache:CACHE,complete});
+ })());
 });
 const NO_STORE={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
 self.addEventListener('fetch',event=>{
