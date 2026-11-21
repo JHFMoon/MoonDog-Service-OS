@@ -129,9 +129,38 @@ async function deriveBetaCandidatePlan(store,beta,crypto){
  files.push({path:MANIFEST,bytes:new TextEncoder().encode(JSON.stringify(manifest)+'\n')});
  return {version:beta.version,files};
 }
+/** Complete only an authenticated, quarantined public software subset. Verify
+ * every existing byte before creating any missing file; never overwrite/adopt
+ * corrupt files and never traverse the original app or Workspace here. */
+async function fillQuarantinedCandidate(dir,plan,crypto){
+ if(new TextDecoder().decode(await read(dir,MARKER))!=='INCOMPLETE')fail('Unrecognized candidate quarantine marker.');
+ const expected=new Map([[MANIFEST,plan.manifestBytes],...plan.selected.map(file=>[file.path,file.bytes])]);
+ const seen=new Set();
+ async function inspect(node,prefix=''){
+  for await(const [name,handle] of node.entries()){
+   const path=prefix+name;
+   if(path===MARKER&&handle.kind==='file')continue;
+   if(handle.kind==='directory'){
+    if(![...expected.keys()].some(key=>key.startsWith(path+'/')))fail('Unexpected partial candidate directory.');
+    await inspect(handle,path+'/');
+   }else if(handle.kind==='file'){
+    const wanted=expected.get(path);
+    if(!wanted)fail('Unexpected partial candidate file.');
+    const saved=await read(node,name);
+    if(saved.length!==wanted.length||await digest(saved,crypto.subtle)!==await digest(wanted,crypto.subtle))
+     fail('Partial candidate checksum mismatch; existing bytes preserved.');
+    seen.add(path);
+   }else fail('Unknown partial candidate filesystem entry.');
+  }
+ }
+ await inspect(dir);
+ for(const [path,value] of expected)if(!seen.has(path))await writeNew(dir,path,value,crypto.subtle);
+ if(new TextDecoder().decode(await read(dir,MARKER))!=='INCOMPLETE')fail('Candidate quarantine changed during completion.');
+ await dir.removeEntry(MARKER);
+}
 /** Internal only: after independent source verification, commit a quarantined
  * candidate under the exclusive original-store lock. Never mutate Workspace. */
-async function stageAuthenticatedPlan({storage,crypto,locks,storeId,installedVersion,installedManifestHash,version,zipHash,makePlan}){
+async function stageAuthenticatedPlan({storage,crypto,locks,storeId,installedVersion,installedManifestHash,version,zipHash,makePlan,completeExisting=false}){
  if(typeof crypto?.subtle?.digest!=='function'||typeof locks?.request!=='function'||typeof makePlan!=='function')
   fail('Verified software staging dependencies are unavailable.');
  const id=candidateId(version,zipHash);
@@ -147,7 +176,13 @@ async function stageAuthenticatedPlan({storage,crypto,locks,storeId,installedVer
   let parent,dir;
   try{
    parent=await candidatesFolder(storage,storeId,true);
-   if(!await absent(parent,id))fail('Candidate generation already exists; no overwrite or adoption.');
+   if(!await absent(parent,id)){
+    if(!completeExisting)fail('Candidate generation already exists; no overwrite or adoption.');
+    dir=await parent.getDirectoryHandle(id,{create:false});
+    if(!await absent(dir,MARKER))await fillQuarantinedCandidate(dir,plan,crypto);
+    const proof=await inspectStagedBrowserSoftware({storage,crypto,storeId,version,zipHash,expectedManifestHash:manifestHash});
+    return Object.freeze({...proof,completed:true,active:false,productionReady:false});
+   }
    dir=await parent.getDirectoryHandle(id,{create:true});
   }catch(error){
    if(error?.name==='NotFoundError')fail('Candidate storage root missing after verified original inspection.');
@@ -174,7 +209,7 @@ export async function stageVerifiedBrowserSoftware({storage,crypto,locks,storeId
   makePlan:async()=>trusted});
 }
 /** Pinned, separately authenticated Beta JSON transport: no ZIP impersonation. */
-export async function stageVerifiedBetaBrowserSoftware({storage,crypto,locks,storeId,installedVersion,installedManifestHash,fetchImpl,siteUrl}={}){
+export async function stageVerifiedBetaBrowserSoftware({storage,crypto,locks,storeId,installedVersion,installedManifestHash,fetchImpl,siteUrl,completeExisting=false}={}){
  const beta=await fetchVerifiedPinnedBeta({siteUrl,fetchImpl,crypto});
  if(beta.verified!==true||!VERSION.test(beta.version)||!SHA.test(beta.packageHash))fail('Verified Beta authority missing.');
  if(beta.migrationRequired!==false||!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(beta.minimumCompatibleVersion||'')||
@@ -184,7 +219,12 @@ export async function stageVerifiedBetaBrowserSoftware({storage,crypto,locks,sto
  // zipHash is the existing immutable candidate-directory digest field; for
  // this call it binds the official Beta JSON package, not a ZIP.
  return stageAuthenticatedPlan({storage,crypto,locks,storeId,installedVersion,installedManifestHash,
-  version:beta.version,zipHash:beta.packageHash,makePlan:store=>deriveBetaCandidatePlan(store,beta,crypto)});
+  version:beta.version,zipHash:beta.packageHash,makePlan:store=>deriveBetaCandidatePlan(store,beta,crypto),completeExisting});
+}
+/** Explicit user retry may fill a valid interrupted software generation after
+ * renewed pinned-package/original-store verification under the same lock. */
+export async function completeVerifiedBetaBrowserSoftware(options={}){
+ return stageVerifiedBetaBrowserSoftware({...options,completeExisting:true});
 }
 /** Explicit retry after an already-staged Beta; it never adopts a candidate by
  * filename alone. Recompute the exact expected manifest from the newly

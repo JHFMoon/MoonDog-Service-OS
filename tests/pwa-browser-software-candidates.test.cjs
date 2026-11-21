@@ -395,3 +395,39 @@ test('external Workspace backup made with selected Beta survives complete synthe
  assert.equal(await read(fresh.store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
  await assert.rejects(backupApi.restoreSyntheticExternalBackup(restore),/must be empty/);
 });
+
+test('interrupted Beta files stay quarantined until explicit verified completion fills only missing files',async()=>{
+ const {args,store}=await fixture(),transport=await syntheticPinnedBeta(),gen=await candidate();
+ const params={storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+  installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl};
+ const staged=await gen.stageVerifiedBetaBrowserSoftware(params);
+ const dir=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(x=>x.getDirectoryHandle('software-candidates'))
+  .then(x=>x.getDirectoryHandle(args.storeId)).then(x=>x.getDirectoryHandle(staged.version+'-'+staged.zipHash));
+ const assets=await dir.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('assets'));
+ await write(dir,'STAGING-INCOMPLETE.json',b('INCOMPLETE'));
+ await assets.removeEntry('app.js');
+ await assert.rejects(gen.resumeVerifiedBetaBrowserSoftware(params),/Incomplete candidate/);
+ const existing=await read(dir,'INSTALLATION-MANIFEST.json');
+ const result=await gen.completeVerifiedBetaBrowserSoftware(params);
+ assert.equal(result.status,'verified-staged');assert.equal(result.completed,true);
+ assert.equal(await read(dir,'INSTALLATION-MANIFEST.json'),existing);
+ assert.equal(await read(assets,'app.js'),'synthetic-only assets/app.js');
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ assert.equal(await read(store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+});
+
+test('explicit completion refuses corrupt partial software before writing any missing file',async()=>{
+ const {args}=await fixture(),transport=await syntheticPinnedBeta(),gen=await candidate();
+ const params={storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+  installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl};
+ const staged=await gen.stageVerifiedBetaBrowserSoftware(params);
+ const dir=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(x=>x.getDirectoryHandle('software-candidates'))
+  .then(x=>x.getDirectoryHandle(args.storeId)).then(x=>x.getDirectoryHandle(staged.version+'-'+staged.zipHash));
+ await write(dir,'STAGING-INCOMPLETE.json',b('INCOMPLETE'));
+ const assets=await dir.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('assets'));
+ await assets.removeEntry('app.js');await write(dir,'00 - OPEN DASHBOARD.html',b('corrupt'));
+ await assert.rejects(gen.completeVerifiedBetaBrowserSoftware(params),/checksum mismatch/);
+ await assert.rejects(assets.getFileHandle('app.js'),{name:'NotFoundError'});
+ assert.equal(await read(dir,'00 - OPEN DASHBOARD.html'),'corrupt');
+ assert.equal(await read(dir,'STAGING-INCOMPLETE.json'),'INCOMPLETE');
+});

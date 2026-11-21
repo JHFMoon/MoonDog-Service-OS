@@ -36,9 +36,41 @@
   };
   window.addEventListener('pagehide',()=>{if(active)void active.close();active=null;},{once:true});
   document.addEventListener('DOMContentLoaded',()=>{
-    const banner=document.createElement('div');banner.role='alert';
-    banner.style.cssText='position:fixed;z-index:9999;bottom:0;left:0;right:0;padding:10px 15px;background:#5c290a;color:white;font:600 14px system-ui;text-align:center';
-    banner.textContent='EXPERIMENTAL WEB PREVIEW — SYNTHETIC TEST DATA ONLY. Do not import real dealership files; external recovery is not yet production-verified.';
-    document.body.append(banner);
+    const manifest=document.createElement('link');manifest.rel='manifest';
+    manifest.href=new URL('./app.webmanifest',base).href;document.head.append(manifest);
+    const bar=document.createElement('div');bar.setAttribute('aria-label','MoonDog app controls');
+    bar.style.cssText='position:fixed;z-index:9999;bottom:0;left:0;right:0;padding:8px 15px;background:#153847;color:white;font:600 13px system-ui;display:flex;align-items:center;justify-content:space-between;gap:15px';
+    const label=document.createElement('span');label.textContent='MoonDog · Synthetic pilot · Test files only';
+    const settings=document.createElement('a');settings.id='browserAppSettings';
+    settings.href=new URL('./index.html?manage=1',base).href;
+    settings.textContent='App settings · Backup · Updates';settings.style.color='white';
+    bar.append(label,settings);document.body.append(bar);
+    document.body.style.paddingBottom='48px';
+    // This browser installation has its own verified software authority. Do
+    // not offer file:// updater controls against the OPFS application handle.
+    const browserStyle=document.createElement('style');
+    browserStyle.textContent='#connectionHelp{display:none!important}#settings-update>:not(h2):not(.browser-software-link){display:none!important}';
+    document.head.append(browserStyle);
+    let attempted=false;
+    function connectWhenReady(){
+      const updates=document.getElementById('settings-update');
+      if(updates&&!document.getElementById('browserSoftwareSettings')){
+        const link=document.createElement('a');link.id='browserSoftwareSettings';link.className='browser-software-link';
+        link.href=settings.href;link.textContent='Open verified browser updates, rollback and external recovery';updates.append(link);
+      }
+      const button=document.getElementById('connectButton');
+      if(!button||button.disabled)return;
+      const watching=document.getElementById('folderWatchStatus')?.textContent||'';
+      if(watching.startsWith('REPORT INBOX WATCHING')){
+        button.hidden=true;observer.disconnect();return;
+      }
+      // Invoke the canonical connection handler once. It still verifies the
+      // version-bound store, takes the exclusive lock and performs readback.
+      // Do not repeat on a refused lock, recovery hold or failed connection.
+      if(!attempted&&!active&&!connecting){attempted=true;button.click();}
+    }
+    const observer=new MutationObserver(connectWhenReady);
+    observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['disabled']});
+    connectWhenReady();
   });
 })();

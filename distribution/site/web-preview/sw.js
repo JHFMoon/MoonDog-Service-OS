@@ -2,7 +2,7 @@
 // Verified application files are read from private OPFS, SHA-checked per fetch.
 import {loadVerifiedPublicAsset,addPreviewBootstrap,parseBrowserAssetRoute} from './modules/serve_browser_app.mjs';
 const CACHE_PREFIX='moondog-synthetic-preview-shell-';
-const CACHE=CACHE_PREFIX+'v11';
+const CACHE=CACHE_PREFIX+'v12';
 const PUBLIC_SHELL=Object.freeze([
  './index.html','./setup.mjs','./bridge.js','./style.css','./app.webmanifest','./icon.svg',
  './modules/initialize_fresh_browser_workspace.mjs',
@@ -55,7 +55,8 @@ self.addEventListener('fetch',event=>{
   })());return;
  }
  // The shell is immutable public code only. No private paths can enter cache.
- const isSetupNavigation=event.request.mode==='navigate'&&url.href===scope.href;
+ const isSetupNavigation=event.request.mode==='navigate'&&
+  (url.pathname===scope.pathname||url.pathname===scope.pathname+'index.html');
  const shellUrl=isSetupNavigation?new URL('./index.html',scope).href:url.href;
  if(event.request.method==='GET'&&allowedShell.has(shellUrl)){
   event.respondWith((async()=>{

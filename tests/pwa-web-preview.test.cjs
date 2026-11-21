@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v11'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v12'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -193,14 +193,14 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v11'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v12'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
 });
 
 
-test('active preview worker reports only the reviewed shell v11 in explicit software-update handshake',()=>{
+test('active preview worker reports only the reviewed shell v12 in explicit software-update handshake',()=>{
  const vm=require('node:vm');
  const src=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/sw.js'),'utf8');
  const handlers={};const received=[];
@@ -213,5 +213,27 @@ test('active preview worker reports only the reviewed shell v11 in explicit soft
  assert.equal(received.length,0,'Unrelated messages must not advertise update authority');
  handlers.message({data:{type:'MOONDOG_PREVIEW_SHELL_PROBE'},ports:[port]});
  assert.deepEqual(received,[{type:'MOONDOG_PREVIEW_SHELL_PROOF',
-  cache:'moondog-synthetic-preview-shell-v11'}]);
+  cache:'moondog-synthetic-preview-shell-v12'}]);
+});
+
+test('browser startup waits for canonical readiness, connects once, and leaves refusals under user control',()=>{
+ const vm=require('node:vm');
+ const handlers={};let observe,disconnected=false,clicks=0;
+ const button={disabled:true,hidden:false,click(){clicks++;}};
+ const watch={textContent:''};
+ const make=()=>({style:{},setAttribute(){},append(){}});
+ const document={currentScript:{src:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/bridge.js'},
+  addEventListener(name,fn){handlers[name]=fn;},createElement:make,head:{append(){}},body:{style:{},append(){}},
+  getElementById(id){return id==='connectButton'?button:id==='folderWatchStatus'?watch:null;}};
+ const route=`https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/store/${randomUUID()}/${'0'.repeat(64)}/0.10.17/index.html`;
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/bridge.js'),'utf8'),{
+  document,window:{addEventListener(){}},location:new URL(route),navigator:{},URL,
+  MutationObserver:class{constructor(fn){observe=fn;}observe(){}disconnect(){disconnected=true;}}
+ });
+ handlers.DOMContentLoaded();assert.equal(clicks,0,'Never connect before the canonical handler is ready');
+ button.disabled=false;observe();assert.equal(clicks,1);
+ observe();observe();assert.equal(clicks,1,'A refused lock or failed connect must not trigger automatic retries');
+ assert.equal(button.hidden,false,'Keep recovery available until the real Workspace is watching');
+ watch.textContent='REPORT INBOX WATCHING · verified';observe();
+ assert.equal(button.hidden,true);assert.equal(disconnected,true);
 });
