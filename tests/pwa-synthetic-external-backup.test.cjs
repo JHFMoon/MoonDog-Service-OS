@@ -48,9 +48,9 @@ const runtime=[
  ['System Files/vendor/jszip.min.js','synthetic vendor fixture'],
  ['System Files/Workspace/README.txt','SYNTHETIC workspace README']
 ];
-async function installed(storeStorage,label,report){
+async function installed(storeStorage,label,report,workspaceId){
   const {identity,store}=await(await storeModule).createEmptyStore({
-    storage:storeStorage,crypto,label});
+    storage:storeStorage,crypto,label,workspaceId});
   const catalog=[];
   for(const [path,content] of runtime){
     await save(store,path,content);
@@ -146,7 +146,7 @@ test('backup module mirrors reviewed source and is not enabled for real data',()
 
 test('external snapshot recovers after storage loss into a new ID and rejects another store receipt',async()=>{
   const lost=await installed(storage(),'SYNTHETIC Lost','synthetic alpha with overlapping ID');
-  const replacement=await installed(storage(),'SYNTHETIC Replacement','');
+  const replacement=await installed(storage(),'SYNTHETIC Replacement','',lost.storeId);
   const data=async args=>(await(await args.store.getDirectoryHandle('System Files'))
     .getDirectoryHandle('Workspace')).getDirectoryHandle('data');
   await (await data(replacement)).removeEntry('RO-100.json');
@@ -157,7 +157,7 @@ test('external snapshot recovers after storage loss into a new ID and rejects an
   await assert.rejects(restoreSyntheticExternalBackup({...args,sourceStoreId:other.storeId}),/Wrong-store/);
   await assert.rejects(restoreSyntheticExternalBackup({...args,checksum:'0'.repeat(64)}),/receipt/);
   await assert.rejects(restoreSyntheticExternalBackup({...other,backup,sourceStoreId:lost.storeId,
-    checksum:backup.sha256}),/must be empty/);
+    checksum:backup.sha256}),/Wrong-store/);
   const result=await restoreSyntheticExternalBackup(args);
   assert.notEqual(result.storeId,result.sourceStoreId);
   assert.equal(await (await (await (await data(replacement)).getFileHandle('RO-100.json')).getFile()).text(),
@@ -165,4 +165,39 @@ test('external snapshot recovers after storage loss into a new ID and rejects an
   assert.equal(await (await (await (await data(other)).getFileHandle('RO-100.json')).getFile()).text(),
     'synthetic bravo with overlapping ID');
   await assert.rejects(restoreSyntheticExternalBackup(args),/must be empty/);
+});
+
+test('a verified Workspace keeps its identity when restoring into a fresh browser store',async()=>{
+  const first=await installed(storage(),'SYNTHETIC Identity','original Workspace bytes');
+  const {createSyntheticExternalBackup,restoreSyntheticExternalBackup}=await modulePromise;
+  const original=await createSyntheticExternalBackup(first);
+  const second=await installed(storage(),'SYNTHETIC Restored','',original.workspaceId);
+  const data=await second.store.getDirectoryHandle('System Files')
+    .then(dir=>dir.getDirectoryHandle('Workspace')).then(dir=>dir.getDirectoryHandle('data'));
+  await data.removeEntry('RO-100.json');
+  await restoreSyntheticExternalBackup({...second,backup:original,sourceStoreId:original.storeId,checksum:original.sha256});
+  const reexported=await createSyntheticExternalBackup(second);
+  assert.notEqual(reexported.storeId,original.storeId,'Recovery must use a new physical store');
+  assert.equal(original.workspaceId,original.storeId,'First provisioning establishes the Workspace identity');
+  assert.equal(reexported.workspaceId,original.workspaceId,'A new backup must preserve the original Workspace identity');
+  assert.deepEqual(reexported.files,original.files,'Re-export must preserve the original Workspace bytes');
+});
+
+test('previous-format backups without Workspace identity still verify',async()=>{
+  const source=await installed(storage(),'SYNTHETIC Old backup','original Workspace bytes');
+  const {createSyntheticExternalBackup,inspectSyntheticExternalBackup,restoreSyntheticExternalBackup}=await modulePromise;
+  const exported=await createSyntheticExternalBackup(source);
+  const {workspaceId,sha256,productionReady,...legacyBody}=exported;
+  const legacy={...legacyBody,sha256:await hash(bytes(JSON.stringify(legacyBody))),productionReady};
+  assert.notEqual(legacy.sha256,sha256);
+  const verified=await inspectSyntheticExternalBackup({...source,expectedStoreId:source.storeId,backup:legacy});
+  assert.equal(verified.workspaceId,workspaceId);
+  const replacement=await installed(storage(),'SYNTHETIC Old backup recovery','',verified.workspaceId);
+  const data=await replacement.store.getDirectoryHandle('System Files')
+    .then(dir=>dir.getDirectoryHandle('Workspace')).then(dir=>dir.getDirectoryHandle('data'));
+  await data.removeEntry('RO-100.json');
+  await restoreSyntheticExternalBackup({...replacement,backup:legacy,sourceStoreId:source.storeId,checksum:legacy.sha256});
+  assert.deepEqual((await createSyntheticExternalBackup(replacement)).files,legacy.files);
+  await assert.rejects(inspectSyntheticExternalBackup({...source,expectedStoreId:source.storeId,
+    backup:{...exported,workspaceId:randomUUID()}}),/checksum/);
 });

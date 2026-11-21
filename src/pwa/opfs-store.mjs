@@ -71,9 +71,10 @@ async function locateWorkspace(store) {
  * Creates a completely new empty browser-local store. No existing file:// store
  * is migrated or used, and the absence of report data is NOT evidence of zero.
  */
-export async function createEmptyStore({storage, crypto: cryptoImpl, label}) {
+export async function createEmptyStore({storage, crypto: cryptoImpl, label, workspaceId}) {
   assertStorage(storage, cryptoImpl);
   const name = labelName(label);
+  const recoveredWorkspaceId = workspaceId === undefined ? null : identifier(workspaceId);
   const stores = await getStores(storage, true);
   let storeId;
   // A secure identifier is necessary but not by itself sufficient: refuse to
@@ -92,7 +93,8 @@ export async function createEmptyStore({storage, crypto: cryptoImpl, label}) {
   let workspace = directory;
   for (const part of WORKSPACE_PARTS) workspace = await workspace.getDirectoryHandle(part, {create:true});
   for (const part of WORKSPACE_DIRECTORIES) await workspace.getDirectoryHandle(part, {create:true});
-  const identity = Object.freeze({format:FORMAT, version:STORE_VERSION, storeId, label:name});
+  const identity = Object.freeze({format:FORMAT, version:STORE_VERSION, storeId, label:name,
+    workspaceId:recoveredWorkspaceId ?? storeId});
   await writeNewJson(directory, IDENTITY, identity);
   await locateWorkspace(directory);
   if (await existsFile(directory, MARKER)) await directory.removeEntry(MARKER);
@@ -111,7 +113,11 @@ export async function openExistingStore({storage, storeId}) {
       labelName(identity.label) !== identity.label)
     stop('Browser store identity does not match the requested store.');
   await locateWorkspace(directory);
-  return {identity:Object.freeze(identity), store:directory};
+  // Before recovery identity was recorded, each Workspace used its own store ID.
+  const workspaceId = Object.hasOwn(identity, 'workspaceId') ? identifier(identity.workspaceId) : id;
+  if (Object.hasOwn(identity, 'workspaceId') && workspaceId !== identity.workspaceId)
+    stop('Browser Workspace identifier is not canonical.');
+  return {identity:Object.freeze({...identity,workspaceId}), store:directory};
 }
 /** Diagnostic only; do not interpret browser storage as a protected backup. */
 export async function storageCapabilities({storage}) {
