@@ -39,18 +39,20 @@ const snapshot=async page=>page.evaluate(async()=>{
  }
  await walk(ws);return {pointer:p,files:files.sort()};
 });
-const readOperational=async page=>page.evaluate(async()=>{
+const readOperational=async page=>page.evaluate(async requireManualRo=>{
  const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
  let d=await navigator.storage.getDirectory();
  for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
  const json=async n=>{try{return JSON.parse(await(await(await d.getFileHandle(n)).getFile()).text());}catch(error){throw Error('Durable '+n+': '+error);}};
- const performance=await json('advisor-performance.json'),settings=await json('settings.json'),state=await json('current-state.json');
+ const performance=await json('advisor-performance.json'),settings=await json('settings.json');
+ // A clean installation does not create an RO snapshot until its first RO import.
+ const state=requireManualRo?await json('current-state.json'):null;
  const history=await d.getDirectoryHandle('history').catch(error=>{throw Error('History directory: '+error);});let imports=0;
  for await(const [name,h] of history.entries())if(h.kind==='file'&&name.endsWith('.json')&&!name.startsWith('.moondog-txn-')){
   let event;try{event=JSON.parse(await(await h.getFile()).text());}catch(error){throw Error('History event '+name+': '+error);}if(event.type==='performance-import')imports++;
  }
- return {store:settings.store,snapshot:performance.snapshots['2026-11-19'],imports,record:state.records?.find(row=>row.ro==='900001')||null};
-});
+ return {store:settings.store,snapshot:performance.snapshots['2026-11-19'],imports,record:state?.records?.find(row=>row.ro==='900001')||null};
+},manualRoReady);
 function assertOperational(value){
  assert.equal(value.store.name,STORE_NAME);assert.equal(value.store.code,STORE_CODE);
  assert.equal(value.snapshot.store.cpGross,STORE_GROSS);assert.equal(value.snapshot.store.cpRO,5);
