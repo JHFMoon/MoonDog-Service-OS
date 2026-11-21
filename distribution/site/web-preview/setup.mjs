@@ -93,223 +93,108 @@ let release=null;
 (async()=>{
  try{const response=await fetch('../latest.json',{cache:'no-store'});
   if(!response.ok)throw Error('Release metadata unavailable.');
-  release=requireMetadata(await response.json());
-  $('version').textContent='Verified official Stable '+release.version;
-  $('download').href=release.asset;
-  $('download').hidden=false;
-  $('install').disabled=false;
-  websiteAvailable=await probeSitePackage({siteUrl:SITE_URL,version:release.version,
-   sha256:release.sha256,fetchImpl:fetch,crypto});
-  $('installFromWeb').disabled=!websiteAvailable;
-  $('restoreBackup').disabled=!websiteAvailable;
-  $('packageStatus').textContent=websiteAvailable?
-   'Official package available for verified installation without any file or folder selection.':
-   'Direct package publication is not available yet. No website installation can begin. The synthetic ZIP fallback remains available.';
- }catch(e){
-  $('version').textContent='Official release metadata unavailable.';
-  await existingPreview;
-  if(open.hidden)status('Connect to the internet to start a new preview installation.',true);
- }
-})();
-async function installPreview(readBytes, recovery){
- if(busy)return;
- if(!$('consent').checked){status('Confirm this is for synthetic testing only.',true);return;}
- if(!release||!navigator.storage?.getDirectory||!navigator.locks?.request||!navigator.serviceWorker){
-  status('A required secure Edge feature is unavailable. Nothing was installed.',true);return;
- }
- busy=true;$('install').disabled=true;$('installFromWeb').disabled=true;
- $('prepareBackup').disabled=true;$('restoreBackup').disabled=true;
- try{
-  status('Checking the entire official ZIP before creating browser storage…');
-  const buffer=await readBytes();
-  const inspect=globalThis.MoonDogFreshInstall?.inspectVerifiedZip;
-  if(typeof inspect!=='function')throw Error('The official ZIP verifier did not load.');
-  const verified=await inspect(buffer,release.sha256,release.version);
-  const manifest=verified.files.find(item=>item.path==='INSTALLATION-MANIFEST.json');
-  if(!manifest)throw Error('Official installation inventory missing.');
-  const manifestHash=await sha(manifest.bytes);
-  const recoveryArgs={crypto,version:release.version,expectedManifestHash:manifestHash};
-  if(recovery)await recovery.api.inspectSyntheticExternalBackup({...recoveryArgs,
-   backup:recovery.backup,expectedStoreId:recovery.sourceStoreId});
-  status('Creating an isolated, empty synthetic browser store…');
-  const {identity}=await createEmptyStore({storage:navigator.storage,crypto,label:'SYNTHETIC MoonDog Web Preview'});
-  await installVerifiedBrowserStore({storage:navigator.storage,crypto,locks:navigator.locks,
-   storeId:identity.storeId,zipBytes:buffer,version:release.version,expectedZipHash:release.sha256,inspectVerifiedZip:inspect});
-  if(!recovery)await initializeFreshBrowserWorkspace({...recoveryArgs,storage:navigator.storage,locks:navigator.locks,storeId:identity.storeId});
-  if(recovery){
-   status('Restoring and verifying the synthetic Workspace…');
-   await recovery.api.restoreSyntheticExternalBackup({...recoveryArgs,storage:navigator.storage,
-    locks:navigator.locks,storeId:identity.storeId,backup:recovery.backup,
-    sourceStoreId:recovery.sourceStoreId,checksum:recovery.checksum});
-  }
-  status('Registering the browser app service worker…');
-  await registerPreviewWorker();
-  const pointer={storeId:identity.storeId,manifestHash,version:release.version};
-  localStorage.setItem(PREVIOUS,JSON.stringify(pointer));
-  showPreview(pointer);
-  const persistent=await navigator.storage.persisted?.().catch(()=>false);
-  status((recovery?'Synthetic Workspace restored and verified. ':'Verified SYNTHETIC preview is installed in browser-private storage. ')+
-   'Click Open dashboard to inspect the real MoonDog interface. '+
-   (persistent?'Browser persistence is enabled.':'Browser persistence is NOT guaranteed; clearing Edge site data removes this copy.'));
- }catch(e){status('Preview was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}
- finally{busy=false;$('install').disabled=false;$('installFromWeb').disabled=!websiteAvailable;
-  $('prepareBackup').disabled=!activePreview;$('restoreBackup').disabled=!websiteAvailable;}
-}
-$('install').addEventListener('click',()=>{
- const file=$('zip').files?.[0];
- if(!file){status('Select the original official Stable ZIP from Downloads first.',true);return;}
- return installPreview(()=>file.arrayBuffer());
-});
-async function readSiteBytes(){
- const bytes=await fetchVerifiedSitePackage({siteUrl:SITE_URL,version:release.version,
-  sha256:release.sha256,fetchImpl:fetch,crypto});
- return bytes.buffer;
-}
-$('installFromWeb').addEventListener('click',()=>{
- if(websiteAvailable)return installPreview(readSiteBytes);
-});
-$('prepareBackup').addEventListener('click',async()=>{
- if(busy||!activePreview||!$('consent').checked){
-  $('backupStatus').textContent='Confirm synthetic-only use before preparing a backup.';return;
- }
- $('prepareBackup').disabled=true;
- $('saveBackup').hidden=$('backupReceipt').hidden=$('backupReceiptLabel').hidden=true;
- if(backupUrl){URL.revokeObjectURL(backupUrl);backupUrl=null;}
- try{
-  const {createSyntheticExternalBackup}=await import('./modules/synthetic_external_backup.mjs');
-  const {storeId,manifestHash,version}=activePreview;
-  const backup=await createSyntheticExternalBackup({storage:navigator.storage,locks:navigator.locks,
-   crypto,storeId,version,expectedManifestHash:manifestHash});
-  backupUrl=URL.createObjectURL(new Blob([JSON.stringify(backup)],{type:'application/json'}));
-  $('saveBackup').href=backupUrl;
-  $('saveBackup').download='MoonDog-synthetic-'+storeId+'.json';
-  $('backupReceipt').value=storeId+':'+backup.sha256;
-  $('saveBackup').hidden=$('backupReceipt').hidden=$('backupReceiptLabel').hidden=false;
-  $('backupStatus').textContent='Snapshot verified. Download it and save the receipt separately.';
- }catch(error){$('backupStatus').textContent=error.message;}
- finally{$('prepareBackup').disabled=false;}
-});
-$('restoreBackup').addEventListener('click',async()=>{
- if(busy||!websiteAvailable)return;
- const file=$('backupFile').files?.[0];
- const receipt=/^([0-9a-f-]{36}):([0-9a-f]{64})$/.exec($('restoreReceipt').value.trim());
- if(!$('consent').checked||!file||!file.size||file.size>48*1024*1024||!receipt){
-  $('backupStatus').textContent='Confirm synthetic use and provide the backup file and its separate receipt.';return;
- }
- $('restoreBackup').disabled=true;
- try{
-  const backup=JSON.parse(await file.text());
-  const [,sourceStoreId,checksum]=receipt;
-  if(backup?.storeId!==sourceStoreId||backup?.sha256!==checksum)
-   throw Error('The separate receipt does not match this backup.');
-  const api=await import('./modules/synthetic_external_backup.mjs');
-  await installPreview(readSiteBytes,{api,backup,sourceStoreId,checksum});
-  $('backupStatus').textContent=result.textContent;
- }catch(error){$('backupStatus').textContent=error.message;}
- finally{$('restoreBackup').disabled=!websiteAvailable;}
+  release=requireMetadata(awai…15202 tokens truncated…await fixture(),transport=await syntheticPinnedBeta(),gen=await candidate();
+ const params={storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+  installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl};
+ const first=await gen.stageVerifiedBetaBrowserSoftware(params);
+ const resumed=await gen.resumeVerifiedBetaBrowserSoftware(params);
+ assert.equal(resumed.resumed,true);
+ assert.equal(resumed.version,first.version);assert.equal(resumed.manifestHash,first.manifestHash);
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ const stage=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(x=>x.getDirectoryHandle('software-candidates'))
+  .then(x=>x.getDirectoryHandle(args.storeId)).then(x=>x.getDirectoryHandle(first.version+'-'+first.zipHash));
+ const asset=await stage.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('assets')).then(x=>x.getFileHandle('app.js'));
+ asset.bytes=b('tampered');
+ await assert.rejects(gen.resumeVerifiedBetaBrowserSoftware(params),/checksum mismatch/);
+ assert.equal(await read(store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
 });
 
+test('two synthetic stores sharing one browser origin retain independent active Beta and Workspace generations',async()=>{
+ const common=storage(),alpha=await fixture('SYNTHETIC Alpha',common),bravo=await fixture('SYNTHETIC Bravo',common);
+ assert.notEqual(alpha.identity.storeId,bravo.identity.storeId);
+ // Overlapping operational filename and identical official Beta version are intentional.
+ await write(alpha.store,'System Files/Workspace/data/SAPR.json',b('CP GROSS ALPHA 500'));
+ await write(bravo.store,'System Files/Workspace/data/SAPR.json',b('CP GROSS BRAVO 200'));
+ const transport=await syntheticPinnedBeta(),gen=await candidate(),selector=await select();
+ const params=x=>({storage:common,crypto,locks:x.args.locks,storeId:x.identity.storeId,
+  installedVersion:x.args.installedVersion,installedManifestHash:x.args.installedManifestHash,
+  fetchImpl:transport.fetchImpl});
+ const stageA=await gen.stageVerifiedBetaBrowserSoftware(params(alpha));
+ await assert.rejects(selector.activateStagedBrowserSoftware({
+  storage:common,crypto,locks:bravo.args.locks,storeId:bravo.identity.storeId,
+  originalVersion:bravo.args.installedVersion,originalManifestHash:bravo.args.installedManifestHash,
+  version:stageA.version,zipHash:stageA.zipHash,manifestHash:stageA.manifestHash
+ }),/NotFoundError|not found|missing/,'Alpha candidate must not be adopted by Bravo');
+ const activatedA=await selector.activateStagedBrowserSoftware({
+  storage:common,crypto,locks:alpha.args.locks,storeId:alpha.identity.storeId,
+  originalVersion:alpha.args.installedVersion,originalManifestHash:alpha.args.installedManifestHash,
+  version:stageA.version,zipHash:stageA.zipHash,manifestHash:stageA.manifestHash});
+ assert.equal(activatedA.active,true);
+ assert.equal(await selector.inspectActiveBrowserSoftware({storage:common,crypto,storeId:bravo.identity.storeId}),null);
+ const stageB=await gen.stageVerifiedBetaBrowserSoftware(params(bravo));
+ const activatedB=await selector.activateStagedBrowserSoftware({
+  storage:common,crypto,locks:bravo.args.locks,storeId:bravo.identity.storeId,
+  originalVersion:bravo.args.installedVersion,originalManifestHash:bravo.args.installedManifestHash,
+  version:stageB.version,zipHash:stageB.zipHash,manifestHash:stageB.manifestHash});
+ assert.equal(activatedB.active,true);
+ await selector.rollbackBrowserSoftware({storage:common,crypto,locks:alpha.args.locks,storeId:alpha.identity.storeId,
+  originalVersion:alpha.args.installedVersion,originalManifestHash:alpha.args.installedManifestHash});
+ assert.equal(await selector.inspectActiveBrowserSoftware({storage:common,crypto,storeId:alpha.identity.storeId}),null);
+ const bravoActive=await selector.inspectActiveBrowserSoftware({storage:common,crypto,storeId:bravo.identity.storeId});
+ assert.equal(bravoActive.version,BETA_VERSION,'Alpha rollback cannot reset Bravo selection');
+ assert.equal(await read(alpha.store,'System Files/Workspace/data/SAPR.json'),'CP GROSS ALPHA 500');
+ assert.equal(await read(bravo.store,'System Files/Workspace/data/SAPR.json'),'CP GROSS BRAVO 200');
+ assert.equal(await read(alpha.store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ assert.equal(await read(bravo.store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ assert.equal(await read(alpha.store,'System Files/index.html'),'<html>synthetic</html>');
+ assert.equal(await read(bravo.store,'System Files/index.html'),'<html>synthetic</html>');
+});
 
-async function verifyActiveBetaShell(){
- const controller=navigator.serviceWorker?.controller;
- if(!controller||typeof MessageChannel!=='function')
-  throw Error('Verified offline browser shell is not controlling this page. Reload the website before applying Beta software.');
- const channel=new MessageChannel();
- await new Promise((resolve,reject)=>{
-  const timer=setTimeout(()=>{
-   channel.port1.close();
-   reject(Error('The active browser shell cannot prove its Beta-update version. Reload before changing software.'));
-  },4000);
-  channel.port1.onmessage=event=>{
-   clearTimeout(timer);channel.port1.close();
-   if(event.data?.type==='MOONDOG_PREVIEW_SHELL_PROOF'&&
-      event.data.cache==='moondog-synthetic-preview-shell-v10')resolve();
-   else reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
-  };
-  try{controller.postMessage({type:'MOONDOG_PREVIEW_SHELL_PROBE'},[channel.port2]);}
-  catch(error){clearTimeout(timer);channel.port1.close();reject(error);}
- });
-}
-function softwareStatus(message,error=false){
- const el=$('betaStatus');el.textContent=message;el.className=error?'status error':'status';
-}
-function requireSyntheticUpdate(){
- if(busy||!activePreview||!$('consent').checked||!navigator.storage?.getDirectory||!navigator.locks?.request)
-  throw Error('Install a verified synthetic preview, consent to testing and close the dashboard before changing software.');
-}
-$('checkBeta').addEventListener('click',async()=>{
- if(busy)return;
- try{
-  requireSyntheticUpdate();
-  busy=true;$('checkBeta').disabled=true;$('installBeta').disabled=true;
-  await verifyActiveBetaShell();
-  softwareStatus('Checking the immutable published Beta package and every public runtime file…');
-  const {fetchVerifiedPinnedBeta}=await import('./modules/verified_beta_transport.mjs');
-  const beta=await fetchVerifiedPinnedBeta({fetchImpl:fetch,crypto});
-  const {inspectActiveBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
-  const selection=await inspectActiveBrowserSoftware({storage:navigator.storage,crypto,storeId:activePreview.storeId});
-  if(selection)throw Error('A verified Beta is already selected. Roll back before installing another generation.');
-  verifiedBetaOffer={version:beta.version,mainSha:beta.mainSha,sha256:beta.packageHash};
-  $('installBeta').disabled=false;
-  softwareStatus('Verified Beta '+beta.version+' available from published main '+beta.mainSha.slice(0,12)+'. Close the dashboard and select Install verified Beta to stage it safely.');
- }catch(error){verifiedBetaOffer=null;softwareStatus('Beta check refused: '+String(error?.message||error),true);}
- finally{busy=false;$('checkBeta').disabled=!activePreview;}
-});
-$('installBeta').addEventListener('click',async()=>{
- if(busy)return;
- try{
-  requireSyntheticUpdate();
-  if(!verifiedBetaOffer)throw Error('Check the verified Beta first.');
-  busy=true;$('installBeta').disabled=true;$('checkBeta').disabled=true;
-  await verifyActiveBetaShell();
-  softwareStatus('Verifying and staging the published Beta outside your Workspace…');
-  const {stageVerifiedBetaBrowserSoftware,resumeVerifiedBetaBrowserSoftware}=await import('./modules/browser_software_candidates.mjs');
-  const {activateStagedBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
-  const {storeId,version,manifestHash}=activePreview;
-  const params={storage:navigator.storage,crypto,locks:navigator.locks,
-   storeId,installedVersion:version,installedManifestHash:manifestHash,fetchImpl:fetch};
-  let staged;
-  try{staged=await stageVerifiedBetaBrowserSoftware(params);}
-  catch(error){
-   // Explicit retry is allowed only when the exact pinned candidate already
-   // exists and every staged executable passes complete renewed verification.
-   if(!/Candidate generation already exists/.test(String(error?.message||error)))throw error;
-   staged=await resumeVerifiedBetaBrowserSoftware(params);
-  }
-  if(staged.version!==verifiedBetaOffer.version||staged.zipHash!==verifiedBetaOffer.sha256)
-   throw Error('Beta authority changed between check and staging. No selector was changed.');
-  softwareStatus('Beta files verified. Committing the selection without changing any Workspace file…');
-  await activateStagedBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,
-   storeId,originalVersion:version,originalManifestHash:manifestHash,
-   version:staged.version,zipHash:staged.zipHash,manifestHash:staged.manifestHash});
-  showPreview(activePreview,{storeId,version:staged.version,manifestHash:staged.manifestHash});
-  softwareStatus('SYNTHETIC Beta '+staged.version+' selected. Open dashboard to test. Your original Stable application and Workspace are unchanged.');
- }catch(error){softwareStatus('Beta installation was refused or incomplete: '+String(error?.message||error)+'. Original software and Workspace are preserved. Do not delete partial candidate storage.',true);}
- finally{busy=false;$('checkBeta').disabled=!activePreview;$('installBeta').disabled=!verifiedBetaOffer;}
-});
-$('rollbackBeta').addEventListener('click',async()=>{
- if(busy)return;
- try{
-  requireSyntheticUpdate();busy=true;$('rollbackBeta').disabled=true;
-  const {rollbackBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
-  const {storeId,version,manifestHash}=activePreview;
-  await rollbackBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,storeId,
-   originalVersion:version,originalManifestHash:manifestHash});
-  showPreview(activePreview);
-  softwareStatus('Verified original Stable '+version+' restored. The same browser-private Workspace and all manual files were preserved.');
- }catch(error){softwareStatus('Rollback refused: '+String(error?.message||error),true);$('rollbackBeta').disabled=false;}
- finally{busy=false;}
-});
-$('recoverOriginal').addEventListener('click',async()=>{
- if(busy)return;
- try{
-  requireSyntheticUpdate();busy=true;$('recoverOriginal').disabled=true;
-  const {recoverOriginalBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
-  const {storeId,version,manifestHash}=activePreview;
-  await recoverOriginalBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,storeId,
-   originalVersion:version,originalManifestHash:manifestHash});
-  showPreview(activePreview);
-  softwareStatus('Verified original Stable '+version+' recovered by explicit request. Original Workspace files were not modified.');
- }catch(error){softwareStatus('Original software recovery refused: '+String(error?.message||error),true);$('recoverOriginal').disabled=false;}
- finally{busy=false;}
+test('external Workspace backup made with selected Beta survives complete synthetic origin replacement',async()=>{
+ const source=await fixture('SYNTHETIC Lost Origin');
+ const gen=await candidate(),selector=await select(),backupApi=await import('../src/pwa/synthetic_external_backup.mjs');
+ const transport=await syntheticPinnedBeta(),params={storage:source.args.storage,crypto,locks:source.args.locks,
+  storeId:source.identity.storeId,installedVersion:source.args.installedVersion,
+  installedManifestHash:source.args.installedManifestHash,fetchImpl:transport.fetchImpl};
+ const staged=await gen.stageVerifiedBetaBrowserSoftware(params);
+ await selector.activateStagedBrowserSoftware({storage:params.storage,crypto,locks:params.locks,storeId:params.storeId,
+  originalVersion:params.installedVersion,originalManifestHash:params.installedManifestHash,
+  version:staged.version,zipHash:staged.zipHash,manifestHash:staged.manifestHash});
+ const exported=await backupApi.createSyntheticExternalBackup({storage:params.storage,crypto,locks:params.locks,
+  storeId:params.storeId,version:params.installedVersion,expectedManifestHash:params.installedManifestHash});
+ assert.equal(exported.softwareVersion,'0.10.17','Backups bind to original verified software, not selected Beta');
+ assert.ok(exported.files.some(x=>x.path==='data/SAPR.json'));
+ assert.ok(exported.files.every(x=>!x.path.includes('software-candidates')&&!x.path.includes('software-selections')));
+ const receipt={sourceStoreId:source.identity.storeId,checksum:exported.sha256};
+ // A brand new OPFS root simulates complete browser-origin site-data deletion.
+ // The backup and separate receipt are retained outside that origin.
+ const fresh=await fixture('SYNTHETIC Reinstalled');
+ assert.notEqual(fresh.args.storage.root,source.args.storage.root);
+ const freshData=await fresh.store.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('Workspace'))
+  .then(x=>x.getDirectoryHandle('data'));
+ await freshData.removeEntry('SAPR.json');
+ await freshData.removeEntry('manual.txt');
+ const restore={storage:fresh.args.storage,crypto,locks:fresh.args.locks,storeId:fresh.identity.storeId,
+  version:fresh.args.installedVersion,expectedManifestHash:fresh.args.installedManifestHash,
+  backup:JSON.parse(JSON.stringify(exported)),...receipt};
+ await assert.rejects(backupApi.restoreSyntheticExternalBackup({...restore,checksum:'0'.repeat(64)}),/receipt/);
+ await assert.rejects(backupApi.restoreSyntheticExternalBackup({...restore,sourceStoreId:randomUUID()}),/Wrong-store/);
+ const result=await backupApi.restoreSyntheticExternalBackup(restore);
+ assert.equal(result.sourceStoreId,source.identity.storeId);
+ assert.notEqual(result.storeId,result.sourceStoreId);
+ assert.equal(await read(fresh.store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+ assert.equal(await read(fresh.store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ assert.equal(await read(fresh.store,'System Files/index.html'),'<html>synthetic</html>');
+ assert.equal(await selector.inspectActiveBrowserSoftware({storage:fresh.args.storage,crypto,storeId:fresh.identity.storeId}),null,
+  'Restoring a Workspace must not adopt the erased origin software selection or staged Beta');
+ // Reproduce the production sequence, not just isolated restore and Beta selection:
+ // a deleted browser origin, restored Workspace, then a new verified Beta stage.
+ const restaged=await gen.stageVerifiedBetaBrowserSoftware({storage:fresh.args.storage,crypto,
+  locks:fresh.args.locks,storeId:fresh.identity.storeId,
+  installedVersion:fresh.args.installedVersion,
+  installedManifestHash:fresh.args.installedManifestHash,fetchImpl:transport.fetchImpl});
+ assert.equal(restaged.status,'verified-staged');
+ assert.equal(await read(fresh.store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+ assert.equal(await read(fresh.store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ await assert.rejects(backupApi.restoreSyntheticExternalBackup(restore),/must be empty/);
 });
