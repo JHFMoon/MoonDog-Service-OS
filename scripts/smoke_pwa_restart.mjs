@@ -600,7 +600,11 @@ try{
     await context.route(packageRoute,handler);
     try{
      await page.locator('#installBeta').click();
-     await page.waitForFunction(()=>/Beta installation was refused or incomplete/.test(document.querySelector('#betaStatus').textContent),null,{timeout:120000});
+     await page.waitForFunction(fault=>{
+      const text=document.querySelector('#betaStatus').textContent;
+      return /Beta installation was refused or incomplete/.test(text)&&
+       (fault!=='checksum'||text.includes('SHA-256 mismatch'));
+     },fault,{timeout:120000});
      console.log(JSON.stringify({updateFaultObserved:fault,intercepted,status:await page.locator('#betaStatus').innerText()}));
      assert.ok(intercepted>0,'Fault must affect an actual pinned public package request');
      if(fault==='checksum')assert.match(await page.locator('#betaStatus').innerText(),/SHA-256 mismatch/);
