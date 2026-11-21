@@ -49,32 +49,54 @@ function showPreview(pointer,launchPointer=pointer){
  verifiedBetaOffer=null;
 }
 async function registerPreviewWorker(){
- const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',type:'module',updateViaCache:'none'});
- const worker=registration.installing||registration.waiting||registration.active;
- if(!worker)throw Error('The preview service worker did not start.');
- await new Promise((resolve,reject)=>{
-  const timeout=setTimeout(()=>finish(Error('The preview service worker did not activate in time.')),30000);
-  function finish(error){
-   clearTimeout(timeout);
-   worker.removeEventListener('statechange',check);
-   if(error)reject(error);else resolve();
-  }
-  function check(){
-   if(worker.state==='activated')finish();
-   if(worker.state==='redundant')finish(Error('The preview service worker could not install its offline files.'));
-  }
-  worker.addEventListener('statechange',check);
-  check();
- });
- // Activation and control are distinct: never use modules from an older
- // controlling worker merely because another worker has activated.
- if(navigator.serviceWorker.controller!==worker)await new Promise((resolve,reject)=>{
-  const timeout=setTimeout(()=>finish(Error('The verified offline shell did not take control in time.')),30000);
-  function finish(error){clearTimeout(timeout);navigator.serviceWorker.removeEventListener('controllerchange',check);if(error)reject(error);else resolve();}
-  function check(){if(navigator.serviceWorker.controller===worker)finish();}
-  navigator.serviceWorker.addEventListener('controllerchange',check);check();
- });
- await verifyActiveBetaShell();
+ async function waitForControl(script,requireExactScript=false){
+  const registration=await navigator.serviceWorker.register(script,{scope:'./',type:'module',updateViaCache:'none'});
+  const expected=requireExactScript?new URL(script,location.href).href:null;
+  const selectWorker=()=>[registration.installing,registration.waiting,registration.active]
+   .find(worker=>worker&&(!expected||worker.scriptURL===expected));
+  let worker=selectWorker();
+  if(!worker&&expected)worker=await new Promise((resolve,reject)=>{
+   const timeout=setTimeout(()=>finish(Error('The offline shell repair did not start.')),30000);
+   function finish(error,match){
+    clearTimeout(timeout);registration.removeEventListener('updatefound',check);
+    if(error)reject(error);else resolve(match);
+   }
+   function check(){const match=selectWorker();if(match)finish(null,match);}
+   registration.addEventListener('updatefound',check);check();
+  });
+  if(!worker)throw Error('The preview service worker did not start.');
+  await new Promise((resolve,reject)=>{
+   const timeout=setTimeout(()=>finish(Error('The preview service worker did not activate in time.')),30000);
+   function finish(error){
+    clearTimeout(timeout);
+    worker.removeEventListener('statechange',check);
+    if(error)reject(error);else resolve();
+   }
+   function check(){
+    if(worker.state==='activated')finish();
+    if(worker.state==='redundant')finish(Error('The preview service worker could not install its offline files.'));
+   }
+   worker.addEventListener('statechange',check);
+   check();
+  });
+  // Activation and control are distinct: never use modules from an older
+  // controlling worker merely because another worker has activated.
+  if(navigator.serviceWorker.controller!==worker)await new Promise((resolve,reject)=>{
+   const timeout=setTimeout(()=>finish(Error('The verified offline shell did not take control in time.')),30000);
+   function finish(error){clearTimeout(timeout);navigator.serviceWorker.removeEventListener('controllerchange',check);if(error)reject(error);else resolve();}
+   function check(){if(navigator.serviceWorker.controller===worker)finish();}
+   navigator.serviceWorker.addEventListener('controllerchange',check);check();
+  });
+ }
+ await waitForControl('./sw.js');
+ try{await verifyActiveBetaShell();}
+ catch(error){
+  if(error?.code!=='MOONDOG_OFFLINE_SHELL_INCOMPLETE')throw error;
+  // A distinct worker script URL reruns the install event even when the
+  // deployed bytes are identical. The install event stages the public shell.
+  await waitForControl('./sw.js?restore='+encodeURIComponent(crypto.randomUUID()),true);
+  await verifyActiveBetaShell();
+ }
 }
 async function offerExistingPreview(){
  try{
@@ -89,7 +111,8 @@ async function offerExistingPreview(){
    storeId:prior.storeId,version:prior.version,expectedManifestHash:prior.manifestHash});
   if(!check.applicationVerified||
      typeof check.identity?.label!=='string'||
-     !/^SYNTHETIC(?:\s|$)/i.test(check.identity.label))return;
+     !/^SYNTHETIC(?:\s|$)/i.test(check.identity.label)||
+     check.identity.workspaceId!==(prior.workspaceId??prior.storeId))return;
   // An invalid selector must not silently launch an original or a candidate.
   // Only an explicit user recovery action may clear a damaged selector.
   let selection;
@@ -116,9 +139,14 @@ async function offerExistingPreview(){
  }catch(_){/* Missing/corrupt/cleared store must not appear as a usable saved app. */}
 }
 // Register only public offline code; no Workspace is created on a page visit.
+let offlineShellError=null;
 const shellReady=registerPreviewWorker();
-shellReady.catch(()=>status('Offline software could not be prepared. Reconnect and reload before installing.',true));
-const existingPreview=shellReady.then(offerExistingPreview);
+shellReady.catch(error=>{
+ offlineShellError=error;
+ $('installFromWeb').disabled=$('restoreBackup').disabled=true;
+ status('MoonDog could not prepare its offline files. Reconnect and reopen MoonDog to rebuild them.',true);
+});
+const existingPreview=shellReady.then(offerExistingPreview,()=>false);
 let release=null;
 (async()=>{
  try{const response=await fetch('../latest.json',{cache:'no-store'});
@@ -128,15 +156,15 @@ let release=null;
 
   websiteAvailable=await probeSitePackage({siteUrl:SITE_URL,version:release.version,
    sha256:release.sha256,fetchImpl:fetch,crypto});
-  $('installFromWeb').disabled=!websiteAvailable;
-  $('restoreBackup').disabled=!websiteAvailable;
+  $('installFromWeb').disabled=!websiteAvailable||Boolean(offlineShellError);
+  $('restoreBackup').disabled=!websiteAvailable||Boolean(offlineShellError);
   $('packageStatus').textContent=websiteAvailable?
    'Ready to install. MoonDog will verify its software and open the full application.':
    'Verified installation is currently unavailable. Please try again after publication completes.';
  }catch(e){
   $('version').textContent='Official release metadata unavailable.';
   await existingPreview;
-  if(open.hidden)status('Connect to the internet to start a new preview installation.',true);
+  if(open.hidden&&!offlineShellError)status('Connect to the internet to start a new preview installation.',true);
  }
 })();
 async function installPreview(readBytes, recovery){
@@ -148,10 +176,12 @@ async function installPreview(readBytes, recovery){
  busy=true;$('installFromWeb').disabled=true;
  $('prepareBackup').disabled=true;$('restoreBackup').disabled=true;
  try{
+  await shellReady;
   await navigator.locks.request('moondog-pwa-browser-setup',{mode:'exclusive',ifAvailable:true},async lock=>{
    if(!lock)throw Error('Another MoonDog window is installing or restoring this browser profile. Try again after it finishes.');
    const saved=JSON.parse(localStorage.getItem(PREVIOUS)||'null');
-   if(saved&&recovery&&saved.storeId!==recovery.sourceStoreId)
+   const recoveryWorkspaceId=recovery?.backup?.workspaceId??recovery?.sourceStoreId;
+   if(saved&&recovery&&(saved.workspaceId??saved.storeId)!==recoveryWorkspaceId)
     throw Error('This backup belongs to a different store than the saved Workspace in this browser profile.');
    if(saved&&!recovery)
     throw Error('A Workspace is already saved in this browser profile. Open it or use its matching recovery backup.');
@@ -164,10 +194,11 @@ async function installPreview(readBytes, recovery){
    if(!manifest)throw Error('Official installation inventory missing.');
    const manifestHash=await sha(manifest.bytes);
    const recoveryArgs={crypto,version:release.version,expectedManifestHash:manifestHash};
-   if(recovery)await recovery.api.inspectSyntheticExternalBackup({...recoveryArgs,
-    backup:recovery.backup,expectedStoreId:recovery.sourceStoreId});
+   const verifiedBackup=recovery?await recovery.api.inspectSyntheticExternalBackup({...recoveryArgs,
+    backup:recovery.backup,expectedStoreId:recovery.sourceStoreId}):null;
    status('Creating an isolated, empty synthetic browser store…');
-   const {identity}=await createEmptyStore({storage:navigator.storage,crypto,label:'SYNTHETIC MoonDog Web Preview'});
+   const {identity}=await createEmptyStore({storage:navigator.storage,crypto,
+    label:'SYNTHETIC MoonDog Web Preview',workspaceId:verifiedBackup?.workspaceId});
    await installVerifiedBrowserStore({storage:navigator.storage,crypto,locks:navigator.locks,
     storeId:identity.storeId,zipBytes:buffer,version:release.version,expectedZipHash:release.sha256,inspectVerifiedZip:inspect});
    if(!recovery)await initializeFreshBrowserWorkspace({...recoveryArgs,storage:navigator.storage,locks:navigator.locks,storeId:identity.storeId});
@@ -179,7 +210,7 @@ async function installPreview(readBytes, recovery){
    }
    status('Registering the browser app service worker…');
    await shellReady;
-   const pointer={storeId:identity.storeId,manifestHash,version:release.version};
+   const pointer={storeId:identity.storeId,workspaceId:identity.workspaceId,manifestHash,version:release.version};
    localStorage.setItem(PREVIOUS,JSON.stringify(pointer));
    showPreview(pointer);
    const persistent=await navigator.storage.persist?.().catch(()=>false);
@@ -189,8 +220,8 @@ async function installPreview(readBytes, recovery){
    enterApplication();
   });
  }catch(e){status('Preview was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}
- finally{busy=false;$('installFromWeb').disabled=!websiteAvailable;
-  $('prepareBackup').disabled=!activePreview;$('restoreBackup').disabled=!websiteAvailable;}
+ finally{busy=false;$('installFromWeb').disabled=!websiteAvailable||Boolean(offlineShellError);
+  $('prepareBackup').disabled=!activePreview;$('restoreBackup').disabled=!websiteAvailable||Boolean(offlineShellError);}
 }
 async function readSiteBytes(){
  const bytes=await fetchVerifiedSitePackage({siteUrl:SITE_URL,version:release.version,
@@ -238,7 +269,7 @@ $('restoreBackup').addEventListener('click',async()=>{
   await installPreview(readSiteBytes,{api,backup,sourceStoreId,checksum});
   $('backupStatus').textContent=result.textContent;
  }catch(error){$('backupStatus').textContent=error.message;}
- finally{$('restoreBackup').disabled=!websiteAvailable;}
+ finally{$('restoreBackup').disabled=!websiteAvailable||Boolean(offlineShellError);}
 });
 
 
@@ -254,9 +285,15 @@ async function verifyActiveBetaShell(){
   },4000);
   channel.port1.onmessage=event=>{
    clearTimeout(timer);channel.port1.close();
-   if(event.data?.type==='MOONDOG_PREVIEW_SHELL_PROOF'&&
-      event.data.cache==='moondog-synthetic-preview-shell-v14')resolve();
-   else reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
+   if(event.data?.type!=='MOONDOG_PREVIEW_SHELL_PROOF'||
+      event.data.cache!=='moondog-synthetic-preview-shell-v16'){
+    reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
+    return;
+   }
+   if(event.data.complete===true){resolve();return;}
+   reject(Object.assign(Error('Some offline browser files are missing. Reconnect and reload MoonDog.'),{
+    code:'MOONDOG_OFFLINE_SHELL_INCOMPLETE'
+   }));
   };
   try{controller.postMessage({type:'MOONDOG_PREVIEW_SHELL_PROBE'},[channel.port2]);}
   catch(error){clearTimeout(timer);channel.port1.close();reject(error);}

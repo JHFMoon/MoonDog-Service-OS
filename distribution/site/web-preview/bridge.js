@@ -37,7 +37,7 @@
   window.addEventListener('pagehide',()=>{if(active)void active.close();active=null;},{once:true});
   document.addEventListener('DOMContentLoaded',()=>{
     const manifest=document.createElement('link');manifest.rel='manifest';
-    manifest.href=new URL('./app.webmanifest?v=14',base).href;document.head.append(manifest);
+    manifest.href=new URL('./app.webmanifest?v=16',base).href;document.head.append(manifest);
     const bar=document.createElement('div');bar.setAttribute('aria-label','MoonDog app controls');
     bar.style.cssText='position:fixed;z-index:9999;bottom:0;left:0;right:0;padding:8px 15px;background:#153847;color:white;font:600 13px system-ui;display:flex;align-items:center;justify-content:space-between;gap:15px';
     const label=document.createElement('span');label.textContent='MoonDog · Synthetic pilot · Test files only';
@@ -63,7 +63,7 @@
           if(note.textContent.startsWith('Open Service Operations Dashboard:')&&note.textContent.includes('00 - OPEN DASHBOARD.html'))
             note.textContent='Complete setup below, then use Import Report to add your SAPR. App settings contains external backup and verified software updates.';
           if(note.textContent==='Or place reports in “01 - DROP REPORTS HERE”. Service Operations Dashboard checks them automatically.')
-            note.textContent='Use Import Report to add files to this browser-private Workspace. MoonDog checks imported reports automatically.';
+            note.textContent='Use Import Report to add files. Report Inbox checks run while MoonDog is open and resume when you reopen it.';
         }
       }
     }

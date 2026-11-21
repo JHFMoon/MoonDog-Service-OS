@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v14'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v16'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -194,27 +194,69 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v14'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v16'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
 });
 
 
-test('active preview worker reports only the reviewed shell v14 in explicit software-update handshake',()=>{
+
+test('active worker refuses to attest an evicted or partially missing shell',async()=>{
  const vm=require('node:vm');
- const src=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/sw.js'),'utf8');
- const handlers={};const received=[];
- const self={registration:{scope:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/'},
-  addEventListener(name,fn){handlers[name]=fn;}};
- vm.runInNewContext(src.replace(/^import .*;$/m,''),{self,caches:{},URL,Request});
- assert.equal(typeof handlers.message,'function');
- const port={postMessage(value){received.push({type:value.type,cache:value.cache});}};
- handlers.message({data:{type:'UNRELATED'},ports:[port]});
- assert.equal(received.length,0,'Unrelated messages must not advertise update authority');
- handlers.message({data:{type:'MOONDOG_PREVIEW_SHELL_PROBE'},ports:[port]});
- assert.deepEqual(received,[{type:'MOONDOG_PREVIEW_SHELL_PROOF',
-  cache:'moondog-synthetic-preview-shell-v14'}]);
+ const worker=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/sw.js'),'utf8');
+ const source=worker.replace(/^import .*;$/m,'');
+ const listeners={};
+ const cached=new Set();
+ const scope='https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/';
+ const env={
+  URL,
+  self:{registration:{scope},addEventListener(name,fn){listeners[name]=fn;}},
+  caches:{open:async()=>({keys:async()=>[...cached].map(url=>({url}))})}
+ };
+ vm.runInNewContext(source+';globalThis.expected=shellUrls',env);
+ const probe=async()=>{
+  let reply,pending;
+  listeners.message({data:{type:'MOONDOG_PREVIEW_SHELL_PROBE'},
+   ports:[{postMessage:value=>{reply=value;}}],waitUntil(work){pending=work;}});
+  await pending;return reply;
+ };
+ assert.equal((await probe()).complete,false,'A version string alone cannot attest an empty cache');
+ assert.equal((await probe()).type,'MOONDOG_PREVIEW_SHELL_PROOF');
+ assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v16');
+ let unrelatedWork=false;
+ listeners.message({data:{type:'UNRELATED'},ports:[{postMessage:()=>{throw Error('Unexpected reply');}}],
+  waitUntil(){unrelatedWork=true;}});
+ assert.equal(unrelatedWork,false,'Unrelated messages must not advertise update authority');
+ for(const url of env.expected)cached.add(url);
+ assert.equal((await probe()).complete,true,'Every executable shell resource is present');
+ cached.delete(env.expected[2]);
+ assert.equal((await probe()).complete,false,'One missing module makes the shell incomplete');
+});
+
+test('setup rebuilds a missing shell once and requires new completeness evidence',async()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
+ const start=source.indexOf('async function registerPreviewWorker(){'),end=source.indexOf('async function offerExistingPreview(){',start);
+ const calls=[];
+ const pageUrl='https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/index.html';
+ const worker={state:'activated',addEventListener(){},removeEventListener(){}};
+ const serviceWorker={controller:worker,async register(script){
+  calls.push(script);worker.scriptURL=new URL(script,pageUrl).href;return {active:worker};
+ }};
+ let checks=0;
+ const register=vm.runInNewContext(source.slice(start,end)+';registerPreviewWorker',{
+  navigator:{serviceWorker},location:{href:pageUrl},URL,crypto:{randomUUID:()=>randomUUID()},
+  setTimeout:()=>1,clearTimeout(){},
+  verifyActiveBetaShell:async()=>{
+   if(++checks===1)throw Object.assign(Error('missing files'),{code:'MOONDOG_OFFLINE_SHELL_INCOMPLETE'});
+  }
+ });
+ await register();
+ assert.equal(calls.length,2);
+ assert.equal(calls[0],'./sw.js');
+ assert.match(calls[1],/^\.\/sw\.js\?restore=[0-9a-f-]+$/);
+ assert.equal(checks,2,'A repaired worker must prove the reinstalled shell before setup resumes');
 });
 
 test('browser startup waits for canonical readiness, connects once, and leaves refusals under user control',()=>{
@@ -223,18 +265,22 @@ test('browser startup waits for canonical readiness, connects once, and leaves r
  const button={disabled:true,hidden:false,click(){clicks++;}};
  const watch={textContent:''};
  const setupNote={textContent:'Open Service Operations Dashboard: 00 - OPEN DASHBOARD.html · Add reports: 01 - DROP REPORTS HERE'};
+ const inboxNote={textContent:'Or place reports in “01 - DROP REPORTS HERE”. Service Operations Dashboard checks them automatically.'};
  const setupRoot={querySelectorAll(){return [setupNote];}};
+ const dailyRoot={querySelectorAll(){return [inboxNote];}};
  const status={textContent:'No reusable saved folder was found. Choose the Service Operations Dashboard working folder.'};
  const make=()=>({style:{},setAttribute(){},append(){}});
  const document={currentScript:{src:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/bridge.js'},
   addEventListener(name,fn){handlers[name]=fn;},createElement:make,head:{append(){}},body:{style:{},append(){}},
-  getElementById(id){return id==='connectButton'?button:id==='folderWatchStatus'?watch:id==='status'?status:id==='view-setup'?setupRoot:null;}};
+  getElementById(id){return id==='connectButton'?button:id==='folderWatchStatus'?watch:id==='status'?status:id==='view-setup'?setupRoot:id==='dailyTools'?dailyRoot:null;}};
  const route=`https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/store/${randomUUID()}/${'0'.repeat(64)}/0.10.17/index.html`;
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/bridge.js'),'utf8'),{
   document,window:{addEventListener(){}},location:new URL(route),navigator:{},URL,
   MutationObserver:class{constructor(fn){observe=fn;}observe(){}disconnect(){disconnected=true;}}
  });
- handlers.DOMContentLoaded();assert.match(setupNote.textContent,/Complete setup below/);assert.doesNotMatch(setupNote.textContent,/00 - OPEN/);assert.equal(clicks,0,'Never connect before the canonical handler is ready');
+ handlers.DOMContentLoaded();assert.match(setupNote.textContent,/Complete setup below/);assert.doesNotMatch(setupNote.textContent,/00 - OPEN/);
+ assert.match(inboxNote.textContent,/while MoonDog is open and resume when you reopen it/);
+ assert.equal(clicks,0,'Never connect before the canonical handler is ready');
  button.disabled=false;observe();assert.equal(clicks,1);
  observe();observe();assert.equal(clicks,1,'A refused lock or failed connect must not trigger automatic retries');
  assert.equal(button.hidden,false,'Keep recovery available until the real Workspace is watching');
@@ -310,6 +356,11 @@ test('website restore refuses a different saved store before downloading softwar
  assert.match(messages.at(-1),/belongs to a different store/i);
  await install({sourceStoreId:'saved-store'});
  assert.equal(readCount(),1,'A matching recovery should reach the verified software download');
+ const restored=browserSetupFixture({storeId:'replacement',workspaceId:'original-store'});
+ await restored.install({sourceStoreId:'original-store'});
+ assert.equal(restored.readCount(),1,'The original receipt remains usable after restoring the same Workspace');
+ await restored.install({sourceStoreId:'other-store',backup:{workspaceId:'other-store'}});
+ assert.equal(restored.readCount(),1,'A foreign backup still cannot begin recovery');
 });
 
 test('website setup uses one lock across tabs before creating a store',async()=>{
@@ -341,7 +392,7 @@ test('website setup uses one lock across tabs before creating a store',async()=>
  assert.equal(second.readCount(),1,'An interrupted attempt must release the lock for a retry');
 });
 
-function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({name})}){
+function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({name})},readiness=Promise.resolve()){
  const vm=require('node:vm');
  const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
  const start=source.indexOf('async function installPreview(');
@@ -354,7 +405,7 @@ function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({nam
   return elements.get(id);
  };
  const install=vm.runInNewContext(source.slice(start,end)+';installPreview',{
-  $,busy:false,release:{version:'0.10.17'},websiteAvailable:true,activePreview:null,PREVIOUS:'saved',
+  $,busy:false,release:{version:'0.10.17'},websiteAvailable:true,activePreview:null,PREVIOUS:'saved',shellReady:readiness,offlineShellError:null,
   localStorage:{getItem:()=>JSON.stringify(saved)},
   navigator:{storage:{getDirectory(){}},locks,serviceWorker:{}},
   status:message=>messages.push(message)
@@ -367,3 +418,29 @@ function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({nam
   },recovery);
  }};
 }
+
+test('failed offline shell prevents software download or Workspace creation',async()=>{
+ const readiness=Promise.reject(Error('Offline shell incomplete'));
+ const fixture=browserSetupFixture(null,undefined,readiness);
+ await fixture.install();
+ assert.equal(fixture.readCount(),0,'Readiness must precede all installation/recovery staging');
+ assert.match(fixture.messages.at(-1),/Offline shell incomplete/);
+});
+
+test('offline shell failure settles existing-preview discovery without an unhandled rejection',async()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
+ const start=source.indexOf('let offlineShellError=null;'),end=source.indexOf('let release=null;',start);
+ assert.ok(start>0&&end>start);
+ const elements=new Map(),messages=[];let offered=0;
+ const $=id=>{if(!elements.has(id))elements.set(id,{disabled:false});return elements.get(id);};
+ const result=vm.runInNewContext(source.slice(start,end)+';({existingPreview,getError:()=>offlineShellError})',{
+  $,registerPreviewWorker:async()=>{throw Error('Missing cached module');},
+  offerExistingPreview:async()=>{offered++;},status:(...args)=>messages.push(args)
+ });
+ assert.equal(await result.existingPreview,false);
+ assert.equal(offered,0,'Incomplete shell cannot offer a saved app as ready');
+ assert.match(result.getError().message,/Missing cached module/);
+ assert.equal($('installFromWeb').disabled,true);assert.equal($('restoreBackup').disabled,true);
+ assert.match(messages.at(-1)[0],/Reconnect and reopen/);
+});
