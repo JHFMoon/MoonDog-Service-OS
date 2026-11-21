@@ -10,7 +10,7 @@ import {fileURLToPath} from 'node:url';
 const secondary=process.env.PWA_SECOND_STORE==='1';
 const STORE_NAME=secondary?'SYNTHETIC Bravo Motors':'SYNTHETIC Alpha Motors';
 const STORE_CODE=secondary?'9002':'9001';
-const STORE_GROSS=secondary?700:500;
+const STORE_GROSS=secondary?0:500;
 const STORE_PACE=STORE_GROSS/8*22;
 const [base,sha]=process.argv.slice(2);
 assert.match(sha||'',/^[a-f0-9]{40}$/);
@@ -40,15 +40,20 @@ const snapshot=async page=>page.evaluate(async()=>{
  const store=await stores.getDirectoryHandle(p.storeId);
  const system=await store.getDirectoryHandle('System Files');
  const ws=await system.getDirectoryHandle('Workspace');
- const files=[];
+ const files=[],lifecycle={dailyHistory:{}};
  async function walk(dir,prefix=''){
   for await(const [name,h] of dir.entries()){
    if(h.kind==='directory')await walk(h,prefix+name+'/');
-   else {const bytes=await(await h.getFile()).arrayBuffer();const hash=await crypto.subtle.digest('SHA-256',bytes);
-    files.push([prefix+name,Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('')]);}
+   else {const bytes=await(await h.getFile()).arrayBuffer();const hash=await crypto.subtle.digest('SHA-256',bytes),path=prefix+name;
+    files.push([path,Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('')]);
+    if(path==='MOONDOG_DIAGNOSTICS.md')lifecycle.diagnostics=new TextDecoder().decode(bytes);
+    if(path==='data/recovery.json')lifecycle.recovery=JSON.parse(new TextDecoder().decode(bytes));
+    if(path==='data/store-revision.json')lifecycle.revision=JSON.parse(new TextDecoder().decode(bytes));
+    if(/^data\/history\/daily-/.test(path))lifecycle.dailyHistory[path]=JSON.parse(new TextDecoder().decode(bytes));
+   }
   }
  }
- await walk(ws);return {pointer:p,files:files.sort()};
+ await walk(ws);return {pointer:p,files:files.sort(),lifecycle:{recovery:lifecycle.recovery,revision:lifecycle.revision,diagnostics:lifecycle.diagnostics,dailyHistory:Object.fromEntries(Object.entries(lifecycle.dailyHistory).sort())}};
 });
 const readOperational=async page=>page.evaluate(async requireManualRo=>{
  const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
@@ -72,6 +77,38 @@ function assertOperational(value){
  if(manualRoReady){
   assert.equal(value.record?.management?.owner,STORE_NAME+' manual owner');
   assert.equal(value.record?.management?.nextAction,'Preserve synthetic '+STORE_CODE);
+ }
+}
+// After app launch, validate normal connection bookkeeping separately from
+// immutable data. Software stage/select/rollback still use full byte equality.
+function assertLifecyclePreservation(before,after,label){
+ assert.deepEqual(after.pointer,before.pointer,label+': original store/software authority');
+ const prior=new Map(before.files),current=new Map(after.files);
+ const metadata=new Set(['MOONDOG_DIAGNOSTICS.md','data/recovery.json','data/store-revision.json']);
+ for(const [path,hash] of prior){
+  assert.ok(current.has(path),label+': missing original '+path);
+  if(!metadata.has(path))assert.equal(current.get(path),hash,label+': original bytes changed '+path);
+ }
+ const a=before.lifecycle,b=after.lifecycle;
+ assert.equal(b.recovery.status,'Ready',label+': recovery must be healthy');
+ assert.ok(Number.isFinite(Date.parse(b.recovery.lastSuccessfulConnectionAt)),label+': valid connection time');
+ assert.ok(Date.parse(b.recovery.lastSuccessfulConnectionAt)>=Date.parse(a.recovery.lastSuccessfulConnectionAt),label+': connection time cannot regress');
+ const withoutTime=value=>{const copy={...value};delete copy.lastSuccessfulConnectionAt;return copy;};
+ assert.deepEqual(withoutTime(b.recovery),withoutTime(a.recovery),label+': recovery authority/backup fields unchanged');
+ assert.deepEqual(Object.keys(b.revision).sort(),['revision','schemaVersion']);
+ assert.equal(b.revision.schemaVersion,1);assert.ok(Number.isSafeInteger(b.revision.revision)&&b.revision.revision>=a.revision.revision,label+': monotonic durable revision');
+ if(a.diagnostics!==undefined){
+  assert.match(b.diagnostics,/^# Service Operations Dashboard Diagnostics/);
+  for(const line of a.diagnostics.split(/\r?\n/).filter(line=>line.startsWith('- ')))
+   assert.ok(b.diagnostics.split(/\r?\n/).includes(line),label+': diagnostic history cannot disappear');
+ }
+ for(const [path] of current)if(!prior.has(path)){
+  assert.match(path,/^data\/history\/daily-[0-9]+-[0-9a-f-]+\.json$/,label+': unexpected new Workspace file');
+  const event=b.dailyHistory[path];
+  assert.equal(event?.schemaVersion,1);assert.equal(event?.type,'daily-task');
+  assert.equal('data/history/'+event.id+'.json',path);
+  assert.ok(Number.isFinite(Date.parse(event.at))&&Date.parse(event.at)>=Date.parse(a.recovery.lastSuccessfulConnectionAt));
+  assert.equal(typeof event.details?.action,'string');assert.ok(event.details.action.length>0);
  }
 }
 async function settledSnapshot(page){
@@ -284,7 +321,7 @@ try{
  await page.waitForFunction(()=>!document.body.innerText.includes('Connect Service Operations Dashboard to begin')).catch(async error=>{console.error('CONNECT FAILURE',await page.locator('body').innerText());throw error;});
  await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
  await settledSnapshot(page);
- assert.deepEqual(await snapshot(page),before,'Restart must preserve Workspace and software authority');
+ assertLifecyclePreservation(before,await snapshot(page),'Offline process restart');
  assert.match(await page.locator('body').innerText(),/Guided Setup|Home|Advisor/i);
  if(process.env.PWA_SAPR==='1'){
   await page.getByRole('button',{name:'Advisor Performance',exact:true}).click();
@@ -386,15 +423,16 @@ try{
    return /selected\.|refused|incomplete/i.test(value);
   },null,{timeout:120000});
   assert.match(await page.locator('#betaStatus').innerText(),/Beta .* selected\./);
+  assert.deepEqual(await snapshot(page),beforeBeta,'Software staging/selection must not change any Workspace byte');
   const betaUrl=new URL(await page.locator('#openApp').getAttribute('href'),url).href;
   assert.match(betaUrl,/\/0\.10\.18-beta\.\d+\/index\.html$/);
   assert.equal(await page.locator('#rollbackBeta').isEnabled(),true);
   await page.goto(betaUrl);if(!fullJourney)await page.locator('#connectButton').click();
   await page.waitForFunction(()=>!document.body.innerText.includes('Connect Service Operations Dashboard to begin'));
   await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
-  assert.deepEqual(await settledSnapshot(page),beforeBeta,
-   'Beta launch must preserve every original Workspace byte and store identity');
+  assertLifecyclePreservation(beforeBeta,await settledSnapshot(page),'Beta app launch');
   if(process.env.PWA_SAPR==='1')assertOperational(await readOperational(page));
+  const beforeRollback=await settledSnapshot(page);
   await page.goto(management);await page.locator('#consent').check();
   await page.waitForFunction(async()=>{
    const state=await navigator.locks.query();
@@ -403,13 +441,13 @@ try{
   await page.locator('#rollbackBeta').click();
   await page.waitForFunction(()=>/restored|refused/i.test(document.querySelector('#betaStatus')?.textContent||''),null,{timeout:30000});
   assert.match(await page.locator('#betaStatus').innerText(),/original Stable .* restored/);
+  assert.deepEqual(await snapshot(page),beforeRollback,'Software rollback must not change any Workspace byte');
   const stableUrl=new URL(await page.locator('#openApp').getAttribute('href'),url).href;
   assert.notEqual(stableUrl,betaUrl,'Rollback must restore original version-bound URL');
   await page.goto(stableUrl);if(!fullJourney)await page.locator('#connectButton').click();
   await page.waitForFunction(()=>!document.body.innerText.includes('Connect Service Operations Dashboard to begin'));
   await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
-  assert.deepEqual(await settledSnapshot(page),beforeBeta,
-   'Rollback must preserve all Workspace file bytes and original store identity');
+  assertLifecyclePreservation(beforeRollback,await settledSnapshot(page),'Original app after rollback');
   if(process.env.PWA_SAPR==='1')assertOperational(await readOperational(page));
   if(fullJourney){
    const preserved=await settledSnapshot(page);
@@ -435,11 +473,11 @@ try{
    console.log(JSON.stringify({interruptedSelectionRefused:true,explicitOriginalRecovery:true,workspaceUnchanged:true}));
   }
   console.log(JSON.stringify({betaUiVerified:true,pinnedBetaSelected:true,betaDashboardLaunched:true,
-   rollbackVerified:true,interruptedCandidateCompleted:fullJourney,originalWorkspaceUnchanged:true,storeIdentityUnchanged:true}));
+   rollbackVerified:true,interruptedCandidateCompleted:fullJourney,softwareOperationsPreserveEveryWorkspaceByte:true,operationalDataAndHistoryPreserved:true,storeIdentityUnchanged:true}));
  }
  assert.deepEqual(runtimeErrors,[],'Published application must not have unhandled runtime errors');
  if(process.env.PROOF_MODE==='exact-main')assert.equal(fullJourney,true,'Published website must use the application entry, not the developer harness');
- console.log(JSON.stringify({mainSha:sha,browser:process.env.BROWSER_CHANNEL||'Chromium',candidateInitializer,fullJourney,syntheticStore:STORE_CODE,overlappingAdvisor:'101',nativePwaInstalled,nativeOfflineRelaunch:true,automaticWorkspaceConnection:fullJourney,processRestart:true,offlineDashboard:true,workspaceFiles:before.files.length,workspaceUnchanged:true}));
+ console.log(JSON.stringify({mainSha:sha,browser:process.env.BROWSER_CHANNEL||'Chromium',candidateInitializer,fullJourney,syntheticStore:STORE_CODE,overlappingAdvisor:'101',nativePwaInstalled,nativeOfflineRelaunch:true,automaticWorkspaceConnection:fullJourney,processRestart:true,offlineDashboard:true,workspaceFiles:before.files.length,operationalDataAndHistoryPreserved:true,lifecycleBookkeepingVerified:true}));
 }catch(error){const p=context?.pages().at(-1);if(p)console.error('Synthetic acceptance failure state:',(await p.locator('body').innerText()).slice(0,10000));throw error;}finally{await context?.close();await rm(profile,{recursive:true,force:true});}
 
 // A SECOND clean browser profile runs the same production setup/import/restart
