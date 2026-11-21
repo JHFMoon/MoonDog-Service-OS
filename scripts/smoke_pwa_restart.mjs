@@ -471,10 +471,14 @@ try{
    await page.locator('#backupFile').evaluate(el=>{el.closest('details').open=true;});
    await page.locator('#backupFile').setInputFiles(backupPath);await page.locator('#restoreReceipt').fill(receipt);
    await cdp.send('Storage.overrideQuotaForOrigin',{origin:new URL(url).origin,quotaSize:1});
-   const limited=await page.evaluate(()=>navigator.storage.estimate());
-   assert.equal(limited.quota,1,'Browser must expose the real one-byte quota override before refusal proof');
-   console.log(JSON.stringify({quotaFaultApplied:true,quota:limited.quota,usage:limited.usage}));
    try{
+    // Edge may expose a privacy-padded web estimate. Validate the actual
+    // override through the browser quota authority, then retain real writes.
+    const authority=await cdp.send('Storage.getUsageAndQuota',{origin:new URL(url).origin});
+    assert.equal(authority.overrideActive,true,'Browser quota override must actually be active');
+    assert.equal(authority.quota,1,'Browser quota authority must enforce the one-byte override');
+    const limited=await page.evaluate(()=>navigator.storage.estimate());
+    console.log(JSON.stringify({quotaFaultApplied:true,quota:authority.quota,usage:authority.usage,webEstimateQuota:limited.quota}));
     await page.locator('#restoreBackup').click();
     await page.waitForFunction(()=>/Preview was not completed/i.test(document.querySelector('#result').textContent),null,{timeout:120000});
     assert.match(await page.locator('#result').innerText(),/quota|storage|space/i,'Quota refusal must be explicit');
