@@ -313,9 +313,35 @@ try{
   }
   await importRo(0);
   await page.getByRole('button',{name:'Open RO Control',exact:true}).click();
+  // Record the real control events before opening the editor. The initial
+  // application autofocus is deferred to a frame; typing before that frame
+  // can race focus in Playwright's insertText operation. Do not refill/retry
+  // a failed assignment or relax the pre-submit/durable assertions below.
+  await page.evaluate(()=>{
+   window.__syntheticEditorTrace=[];
+   const record=event=>{
+    if(!event.target.closest?.('#editDialog'))return;
+    window.__syntheticEditorTrace.push({type:event.type,field:event.target.id,
+     focus:document.activeElement?.id,value:event.target.value,at:performance.now()});
+   };
+   window.__syntheticEditorObserver=record;
+   for(const type of ['focusin','input','change'])document.addEventListener(type,record,true);
+  });
   await page.locator('#roTable tr[data-id] button[data-id]').first().click();
+  await page.locator('#editDialog').waitFor({state:'visible'});
+  const editorReady=await page.evaluate(()=>new Promise(resolve=>{
+   requestAnimationFrame(()=>requestAnimationFrame(()=>resolve({
+    open:document.querySelector('#editDialog').open,focus:document.activeElement?.id,
+    at:performance.now()
+   })));
+  }));
+  assert.equal(editorReady.open,true,'RO editor must remain open after its initialization frame');
+  assert.ok(['editNextAction','editStatus'].includes(editorReady.focus),
+   'Canonical editor autofocus must complete before manager input');
   await page.locator('#editStatus').selectOption({label:'Being Repaired'});
   await page.locator('#editOwner').fill(STORE_NAME+' manual owner');
+  assert.equal(await page.locator('#editOwner').inputValue(),STORE_NAME+' manual owner',
+   'Owner control must receive manager input on the first attempt');
   await page.locator('#editNextAction').fill('Preserve synthetic '+STORE_CODE);
   await page.locator('#editReviewDate').fill('2026-11-23');
   // A successful editor close proves a durable save, not that an earlier
@@ -327,6 +353,10 @@ try{
   // when available, but do not mistake an older verified runtime for lost data.
   if(draft.explicit!==undefined)assert.equal(draft.explicit,'true',
    'Newer runtime must mark the manual owner assignment as explicit');
+  console.log(JSON.stringify({editorReadiness:editorReady,editorEvents:await page.evaluate(()=>{
+   for(const type of ['focusin','input','change'])document.removeEventListener(type,window.__syntheticEditorObserver,true);
+   return window.__syntheticEditorTrace;
+  }),manualOwnerRetainedBeforeSubmit:true}));
   await page.locator('#saveRecordClose').click();await page.locator('#editDialog').waitFor({state:'hidden'});
   await settledSnapshot(page);manualRoReady=true;
   assertOperational(await readOperational(page));
