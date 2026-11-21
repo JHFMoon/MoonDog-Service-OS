@@ -1,8 +1,9 @@
-/** Bootstrap only a verified, empty SYNTHETIC PWA Workspace. Mirrors the
+/** Bootstrap only a verified, empty, explicitly enrolled or synthetic Workspace. Mirrors the
  * canonical new-store handoff's blank schema-1 source adapter; never supplies
- * store identity or bypasses an existing store's adapter/recovery checks.
+ * invented operational values or bypasses an existing store's recovery checks.
  */
 import {inspectVerifiedBrowserInstallation} from './install_verified_browser_store.mjs';
+import {inspectBrowserWorkspaceEnrollment} from './browser_workspace_enrollment.mjs';
 const MARKER='MOONDOG-PWA-INSTALL-INCOMPLETE.json';
 const fail=message=>{throw new Error(message);};
 async function writeNew(dir,name,value){
@@ -19,7 +20,7 @@ export async function initializeFreshBrowserWorkspace(args={}){
  return args.locks.request('moondog-pwa-operational-'+args.storeId,{mode:'exclusive',ifAvailable:true},async lock=>{
   if(!lock)fail('Another tab owns this browser Workspace.');
   const {store,identity}=await inspectVerifiedBrowserInstallation(args);
-  if(!/^SYNTHETIC(?:\s|$)/i.test(identity.label||''))fail('Only fresh SYNTHETIC previews may be initialized.');
+  const enrollment=inspectBrowserWorkspaceEnrollment(identity);
   const workspace=await(await store.getDirectoryHandle('System Files')).getDirectoryHandle('Workspace');
   async function empty(dir,prefix=''){
    for await(const [name,h] of dir.entries()){
@@ -32,8 +33,14 @@ export async function initializeFreshBrowserWorkspace(args={}){
   // Any interrupted bootstrap stays unlaunchable. No existing bytes are reset.
   await writeNew(store,MARKER,JSON.stringify({operation:'fresh-browser-workspace',storeId:args.storeId,status:'incomplete'}));
   const data=await workspace.getDirectoryHandle('data',{create:false});
-  await writeNew(data,'settings.json',JSON.stringify({sourceAdapters:{schemaVersion:1}})+'\n');
+  const settings={sourceAdapters:{schemaVersion:1}};
+  if(enrollment.mode==='operational'){
+    const {name,code,brand,timeZone}=enrollment.store;
+    settings.store={name,code,brand,timeZone,confirmed:{name:true,code:true,brand:Boolean(brand),timeZone:true}};
+    settings.storeName=name;
+  }
+  await writeNew(data,'settings.json',JSON.stringify(settings)+'\n');
   await store.removeEntry(MARKER);
-  return Object.freeze({storeId:args.storeId,blankSourceAdapterInitialized:true,productionReady:false});
+  return Object.freeze({storeId:args.storeId,mode:enrollment.mode,blankSourceAdapterInitialized:true,productionReady:false});
  });
 }
