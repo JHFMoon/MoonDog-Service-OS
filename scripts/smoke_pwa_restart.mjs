@@ -720,15 +720,33 @@ try{
    await context.setOffline(false);
    await page.getByRole('button',{name:'Tools',exact:true}).click();
    await page.getByRole('button',{name:'Import or refresh data',exact:true}).click();
-   await page.locator('#dailyTools input[type=file]').setInputFiles({name:scheduledName,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:saprWorkbookBytes});
-   await page.waitForFunction(async signature=>{
+   let reviewedDialogs=0;
+   const sourceReview=async dialog=>{
+    if(dialog.type()==='confirm'&&dialog.message().startsWith('Review SAPR import: '+scheduledName+'\n')&&
+       dialog.message().includes(STORE_NAME)&&dialog.message().includes('('+STORE_CODE+')')){
+     reviewedDialogs++;await dialog.accept();
+    }else{await dialog.dismiss();throw Error('Unexpected scheduled source review: '+dialog.message());}
+   };
+   page.on('dialog',sourceReview);
+   try{
+    await page.locator('#dailyTools input[type=file]').setInputFiles({name:scheduledName,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:saprWorkbookBytes});
+    await page.waitForFunction(async signature=>{
+     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
+     let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
+     const value=JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
+     return value.seen?.[signature]?.manualImportRequired===false;
+    },signature,{polling:1000,timeout:60000});
+   }finally{page.off('dialog',sourceReview);}
+   assert.equal(reviewedDialogs,1,'Exactly one explicit SAPR source-store confirmation must authorize this import');
+   await settledSnapshot(page);
+   const accepted=await inboxState(page);
+   if(!accepted)console.error(JSON.stringify({missingReviewedInboxEntry:true,signature,ledger:await page.evaluate(async()=>{
     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
     let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
-    const value=JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
-    return value.seen?.[signature]?.manualImportRequired===false;
-   },signature,{polling:1000,timeout:60000});
-   await settledSnapshot(page);
-   const accepted=await inboxState(page);assert.equal(accepted.sourceStoreConfidence,'configured-destination-only');
+    return JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
+   })}));
+   assert.ok(accepted,'The reviewed original Inbox source must retain its durable authority record');
+   assert.equal(accepted.sourceStoreConfidence,'configured-destination-only');
    const acceptedImports=(await readOperational(page)).imports;
    assert.equal(acceptedImports,originalImports+1,'Only explicit review may create the one durable SAPR import');
    await relaunchBeta(false);
