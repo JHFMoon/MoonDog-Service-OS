@@ -207,7 +207,7 @@ async function installPreview(readBytes, recovery){
    const recoveryArgs={crypto,version:release.version,expectedManifestHash:manifestHash};
    const verifiedBackup=recovery?await recovery.api.inspectSyntheticExternalBackup({...recoveryArgs,
     backup:recovery.backup,expectedStoreId:recovery.sourceStoreId}):null;
-   const softwareBytes=entries.reduce((total,entry)=>total+(entry.bytes?.byteLength||0),0);
+   const softwareBytes=verified.files.reduce((total,entry)=>total+(entry.bytes?.byteLength||0),0);
    await requireBrowserCapacity(navigator.storage,softwareBytes+(verifiedBackup?.bytes||0)+65536);
    status('Creating an isolated, empty synthetic browser store…');
    const {identity}=await createEmptyStore({storage:navigator.storage,crypto,
@@ -299,7 +299,7 @@ async function verifyActiveBetaShell(){
   channel.port1.onmessage=event=>{
    clearTimeout(timer);channel.port1.close();
    if(event.data?.type!=='MOONDOG_PREVIEW_SHELL_PROOF'||
-      event.data.cache!=='moondog-synthetic-preview-shell-v17'){
+      event.data.cache!=='moondog-synthetic-preview-shell-v18'){
     reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
     return;
    }
