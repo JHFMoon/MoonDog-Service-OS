@@ -533,7 +533,9 @@ try{
   assert.notEqual(restored.pointer.storeId,before.pointer.storeId,'Recovery uses a fresh isolated identity');
   assert.deepEqual(restored.files,expectedFiles,'All externally backed-up Workspace bytes must restore');
   if(advancedRecovery){
-   await page.waitForFunction(()=>/persistence.*NOT guaranteed/i.test(document.querySelector('#result').textContent));
+   await page.waitForFunction(()=>document.querySelector('#result').textContent.includes('Keep an external backup; clearing Edge site data removes this copy.'));
+   assert.doesNotMatch(await page.locator('#result').innerText(),/persistence is enabled/i,'Denied persistence must never be presented as enabled');
+   assert.equal(await page.evaluate(()=>navigator.storage.persisted()),false,'Recovered Workspace must still report denied durability');
    await(await context.newCDPSession(page)).send('Browser.resetPermissions');
    assert.match(backup.workspaceId,/^[0-9a-f-]{36}$/);
    assert.equal(restored.pointer.workspaceId,backup.workspaceId,'Logical Workspace identity must survive complete origin loss');
