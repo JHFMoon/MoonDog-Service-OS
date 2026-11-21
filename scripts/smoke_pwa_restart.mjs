@@ -180,6 +180,7 @@ try{
   await page.waitForTimeout(10000);
  }while(Date.now()<deadline);
  assert.equal(metadata.mainSha,sha,'Published SHA must match requested main');
+ if(process.env.PWA_DIAGNOSTIC_SKIP_SHELL==='1')console.log(JSON.stringify({partialDiagnostic:true,skippedKnownV16CacheCase:true,acceptanceIncomplete:true,publishedMain:sha}));
  await page.goto(url);
  const fullJourney=await page.locator('#appSettings').count()>0;
  if(fullJourney)management=new URL('index.html?manage=1',url).href;
@@ -425,7 +426,7 @@ try{
  if(process.env.PWA_RECOVERY==='1'){
   await settledSnapshot(page);
   await context.setOffline(false);await page.goto(management);await page.locator('#consent').check();
-  if(advancedRecovery){
+  if(advancedRecovery&&process.env.PWA_DIAGNOSTIC_SKIP_SHELL!=='1'){
    // Finish the online startup handshake before evicting anything. Otherwise
    // that same startup may legitimately begin its repair before we go offline.
    await page.locator('#openApp').waitFor({state:'visible',timeout:60000});
