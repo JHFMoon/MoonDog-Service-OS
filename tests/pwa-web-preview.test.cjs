@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v16'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v17'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -194,7 +194,7 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v16'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v17'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
@@ -223,7 +223,7 @@ test('active worker refuses to attest an evicted or partially missing shell',asy
  };
  assert.equal((await probe()).complete,false,'A version string alone cannot attest an empty cache');
  assert.equal((await probe()).type,'MOONDOG_PREVIEW_SHELL_PROOF');
- assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v16');
+ assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v17');
  let unrelatedWork=false;
  listeners.message({data:{type:'UNRELATED'},ports:[{postMessage:()=>{throw Error('Unexpected reply');}}],
   waitUntil(){unrelatedWork=true;}});
@@ -257,6 +257,21 @@ test('setup rebuilds a missing shell once and requires new completeness evidence
  assert.equal(calls[0],'./sw.js');
  assert.match(calls[1],/^\.\/sw\.js\?restore=[0-9a-f-]+$/);
  assert.equal(checks,2,'A repaired worker must prove the reinstalled shell before setup resumes');
+});
+
+test('offline incomplete shell refuses readiness without starting a network repair',async()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
+ const start=source.indexOf('async function registerPreviewWorker(){'),end=source.indexOf('async function offerExistingPreview(){',start);
+ const worker={state:'activated',addEventListener(){},removeEventListener(){}};
+ const calls=[];
+ const missing=Object.assign(Error('missing cached public module'),{code:'MOONDOG_OFFLINE_SHELL_INCOMPLETE'});
+ const register=vm.runInNewContext(source.slice(start,end)+';registerPreviewWorker',{
+  navigator:{onLine:false,serviceWorker:{controller:worker,async register(script){calls.push(script);return {active:worker};}}},
+  setTimeout:()=>1,clearTimeout(){},verifyActiveBetaShell:async()=>{throw missing;}
+ });
+ await assert.rejects(register(),error=>error===missing);
+ assert.deepEqual(calls,['./sw.js'],'Offline cache loss must never start a replacement worker or claim repaired readiness');
 });
 
 test('browser startup waits for canonical readiness, connects once, and leaves refusals under user control',()=>{

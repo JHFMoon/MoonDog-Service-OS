@@ -432,24 +432,17 @@ try{
    const proof=await shellProof(page),preserved=await snapshot(page);
    assert.equal(proof.complete,true,'Current published shell must prove every public cache entry');
    assert.match(proof.cache,/shell-v(?:1[6-9]|[2-9][0-9])$/);
-   // Page-level offline emulation can leave worker-owned fetches or HTTP
-   // cache usable. Block the actual missing public-module delivery as well.
-   const missingModule=new URL('modules/verified_beta_transport.mjs',url).href;
-   let blockedShellFetches=0;
-   const blockShellFetch=async route=>{blockedShellFetches++;await route.abort('internetdisconnected');};
-   await context.route(missingModule,blockShellFetch);
    const deleted=await page.evaluate(async cache=>{
     return(await caches.open(cache)).delete(new URL('modules/verified_beta_transport.mjs',location.href).href);
    },proof.cache);
    assert.equal(deleted,true,'Evict an actual required public module');
    assert.equal((await shellProof(page)).complete,false,'An evicted shell must lose readiness');
    await context.setOffline(true);await page.reload();
+   assert.equal(await page.evaluate(()=>navigator.onLine),false,'Browser must report offline during incomplete-shell refusal');
    console.log(JSON.stringify({offlineEvictionReload:await shellProof(page)}));
    await page.waitForFunction(()=>/could not prepare its offline files/i.test(document.querySelector('#result').textContent),null,{timeout:45000});
    assert.equal(await page.locator('#openApp').isHidden(),true,'Incomplete offline shell must not claim app readiness');
    assert.deepEqual(await snapshot(page),preserved,'Offline cache loss must preserve every Workspace byte');
-   assert.ok(blockedShellFetches>0,'Interrupted shell repair must hit the actual blocked worker-owned module delivery');
-   await context.unroute(missingModule,blockShellFetch);
    await context.setOffline(false);await page.reload();
    await page.locator('#openApp').waitFor({state:'visible',timeout:60000});
    const rebuilt=await shellProof(page);assert.equal(rebuilt.complete,true);

@@ -92,6 +92,9 @@ async function registerPreviewWorker(){
  try{await verifyActiveBetaShell();}
  catch(error){
   if(error?.code!=='MOONDOG_OFFLINE_SHELL_INCOMPLETE')throw error;
+  // Offline readiness cannot depend on a repair fetch succeeding through a
+  // worker-owned connection or HTTP cache while this page reports offline.
+  if(navigator.onLine===false)throw error;
   // A distinct worker script URL reruns the install event even when the
   // deployed bytes are identical. The install event stages the public shell.
   await waitForControl('./sw.js?restore='+encodeURIComponent(crypto.randomUUID()),true);
@@ -286,7 +289,7 @@ async function verifyActiveBetaShell(){
   channel.port1.onmessage=event=>{
    clearTimeout(timer);channel.port1.close();
    if(event.data?.type!=='MOONDOG_PREVIEW_SHELL_PROOF'||
-      event.data.cache!=='moondog-synthetic-preview-shell-v16'){
+      event.data.cache!=='moondog-synthetic-preview-shell-v17'){
     reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
     return;
    }
