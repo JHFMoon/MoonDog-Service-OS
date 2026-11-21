@@ -37,7 +37,7 @@
   window.addEventListener('pagehide',()=>{if(active)void active.close();active=null;},{once:true});
   document.addEventListener('DOMContentLoaded',()=>{
     const manifest=document.createElement('link');manifest.rel='manifest';
-    manifest.href=new URL('./app.webmanifest?v=17',base).href;document.head.append(manifest);
+    manifest.href=new URL('./app.webmanifest?v=18',base).href;document.head.append(manifest);
     const bar=document.createElement('div');bar.setAttribute('aria-label','MoonDog app controls');
     bar.style.cssText='position:fixed;z-index:9999;bottom:0;left:0;right:0;padding:8px 15px;background:#153847;color:white;font:600 13px system-ui;display:flex;align-items:center;justify-content:space-between;gap:15px';
     const label=document.createElement('span');label.textContent='MoonDog · Synthetic pilot · Test files only';

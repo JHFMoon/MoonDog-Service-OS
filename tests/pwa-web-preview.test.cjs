@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v17'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v18'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -194,7 +194,7 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v17'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v18'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
@@ -223,7 +223,7 @@ test('active worker refuses to attest an evicted or partially missing shell',asy
  };
  assert.equal((await probe()).complete,false,'A version string alone cannot attest an empty cache');
  assert.equal((await probe()).type,'MOONDOG_PREVIEW_SHELL_PROOF');
- assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v17');
+ assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v18');
  let unrelatedWork=false;
  listeners.message({data:{type:'UNRELATED'},ports:[{postMessage:()=>{throw Error('Unexpected reply');}}],
   waitUntil(){unrelatedWork=true;}});
@@ -331,6 +331,9 @@ test('versioned entry script and native manifest bypass old shell URLs and remai
  const context={self:{registration:{scope:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/'},addEventListener(){}},URL};
  vm.runInNewContext(sw.replace(/^import .*;$/m,'')+';globalThis.shell=PUBLIC_SHELL',context);
  const version=sw.match(/const CACHE=CACHE_PREFIX\+'v([0-9]+)'/)[1];
+ const bridge=fs.readFileSync(path.join(root,'bridge.js'),'utf8'),landing=fs.readFileSync(path.join(root,'../index.html'),'utf8');
+ assert.ok(bridge.includes('./app.webmanifest?v='+version),'Dashboard manifest must use the current offline URL');
+ assert.ok(landing.includes('./web-preview/?v='+version),'Landing installation link must select the current shell');
  const refs=[html.match(/<script type="module" src="([^"]+)"/)[1],html.match(/rel="manifest" href="([^"]+)"/)[1]];
  for(const ref of refs){assert.equal(new URL(ref,context.self.registration.scope).searchParams.get('v'),version);assert.ok(context.shell.includes(ref),'Exact entry URL must be staged for offline launch: '+ref);}
 });
