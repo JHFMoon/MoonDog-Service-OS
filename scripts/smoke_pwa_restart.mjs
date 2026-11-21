@@ -37,6 +37,9 @@ const runtimeErrors=[];
 const launch=async()=>{
  const instance=await chromium.launchPersistentContext(profile,{headless:false,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{}),...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
  const observe=page=>{
+  const updateUrl=value=>value===new URL('site-version.json',base).href||/^https:\/\/raw\.githubusercontent\.com\/JHFMoon\/MoonDog-Service-OS\/[a-f0-9]{40}\/updates\//.test(value);
+  page.on('response',response=>{if(updateUrl(response.url()))console.log(JSON.stringify({publicUpdateResponse:true,url:response.url(),status:response.status(),serviceWorker:response.fromServiceWorker()}));});
+  page.on('requestfailed',request=>{if(updateUrl(request.url()))console.log(JSON.stringify({publicUpdateRequestFailed:true,url:request.url(),failure:request.failure()}));});
   page.on('pageerror',error=>{runtimeErrors.push(error.message);console.error(JSON.stringify({publicRuntimeError:true,url:page.url(),message:error.message.slice(0,2000)}));});
   page.on('console',message=>{if(message.type()==='error')console.error(JSON.stringify({publicConsoleError:true,url:page.url(),message:message.text().slice(0,2000)}));});
   page.on('requestfailed',request=>{if(request.url().startsWith(new URL('web-preview/store/',base).href))console.error(JSON.stringify({publicAssetFailure:true,url:request.url(),failure:request.failure()}));});
@@ -598,6 +601,7 @@ try{
     try{
      await page.locator('#installBeta').click();
      await page.waitForFunction(()=>/Beta installation was refused or incomplete/.test(document.querySelector('#betaStatus').textContent),null,{timeout:120000});
+     console.log(JSON.stringify({updateFaultObserved:fault,intercepted,status:await page.locator('#betaStatus').innerText()}));
      assert.ok(intercepted>0,'Fault must affect an actual pinned public package request');
      if(fault==='checksum')assert.match(await page.locator('#betaStatus').innerText(),/SHA-256 mismatch/);
      assert.equal(await page.locator('#openApp').getAttribute('href'),originalHref,'Refused update must retain original software authority');
