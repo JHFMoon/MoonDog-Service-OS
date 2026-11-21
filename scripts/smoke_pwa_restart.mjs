@@ -479,10 +479,8 @@ try{
   assert.equal(await page.evaluate(async()=>{const root=await navigator.storage.getDirectory();let n=0;for await(const _ of root.entries())n++;return n;}),0);
   assert.equal(await page.locator('#openApp').isHidden(),true);
   if(advancedRecovery){
-   try{
-    assert.deepEqual(await page.evaluate(async()=>({granted:await navigator.storage.persist(),persistent:await navigator.storage.persisted()})),
-     {granted:false,persistent:false},'Denied durable-storage permission must not be represented as a permanent backup');
-   }finally{await(await context.newCDPSession(page)).send('Browser.resetPermissions');}
+   assert.deepEqual(await page.evaluate(async()=>({granted:await navigator.storage.persist(),persistent:await navigator.storage.persisted()})),
+    {granted:false,persistent:false},'Denied durable-storage permission must not be represented as a permanent backup');
    console.log(JSON.stringify({persistentStorageDenied:true,externalBackupRequired:true}));
   }
   await page.locator('#consent').check();await page.locator('#backupFile').evaluate(el=>{el.closest('details').open=true;});
@@ -511,6 +509,7 @@ try{
   assert.deepEqual(restored.files,expectedFiles,'All externally backed-up Workspace bytes must restore');
   if(advancedRecovery){
    assert.match(await page.locator('#result').innerText(),/persistence.*NOT guaranteed/i);
+   await(await context.newCDPSession(page)).send('Browser.resetPermissions');
    assert.match(backup.workspaceId,/^[0-9a-f-]{36}$/);
    assert.equal(restored.pointer.workspaceId,backup.workspaceId,'Logical Workspace identity must survive complete origin loss');
    const firstPhysicalId=restored.pointer.storeId;
