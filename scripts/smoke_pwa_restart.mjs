@@ -16,7 +16,9 @@ const [base,sha]=process.argv.slice(2);
 assert.match(sha||'',/^[a-f0-9]{40}$/);
 const url=new URL('web-preview/',base).href;
 let management=url;
-const profile=await mkdtemp(join(tmpdir(),'moondog-synthetic-restart-'));
+let profile=await mkdtemp(join(tmpdir(),'moondog-synthetic-restart-'));
+const profiles=[profile];
+const external=await mkdtemp(join(tmpdir(),'moondog-synthetic-external-backup-'));
 let context;
 let manualRoReady=false;
 let nativeManifestId=null;
@@ -456,7 +458,7 @@ try{
   }
   await page.locator('#prepareBackup').click();await page.locator('#saveBackup').waitFor({state:'visible'});
   const receipt=await page.locator('#backupReceipt').inputValue();
-  const receiptPath=join(profile,'external-receipt.txt'),backupPath=join(profile,'external-backup.json');
+  const receiptPath=join(external,'external-receipt.txt'),backupPath=join(external,'external-backup.json');
   await writeFile(receiptPath,receipt);
   const downloadEvent=page.waitForEvent('download');await page.locator('#saveBackup').click();
   await(await downloadEvent).saveAs(backupPath);
@@ -482,15 +484,25 @@ try{
    console.log(JSON.stringify({browserQuotaRefused:true,originalWorkspaceByteExact:true,workingPointerPreserved:true}));
   }
   await cdp.send('Storage.clearDataForOrigin',{origin:new URL(url).origin,storageTypes:'all'});
-  if(advancedRecovery)await cdp.send('Browser.grantPermissions',{origin:new URL(url).origin,permissions:[]});
   await page.close();page=await context.newPage();await page.goto(management);
   assert.equal(await page.evaluate(()=>localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1')),null);
   assert.equal(await page.evaluate(async()=>{const root=await navigator.storage.getDirectory();let n=0;for await(const _ of root.entries())n++;return n;}),0);
   assert.equal(await page.locator('#openApp').isHidden(),true);
   if(advancedRecovery){
+   // A previously installed PWA may already have durable storage. Prove
+   // denial in a new profile before installing any native PWA there.
+   await context.close();context=null;
+   profile=await mkdtemp(join(tmpdir(),'moondog-synthetic-recovered-profile-'));profiles.push(profile);
+   context=await launch();page=await context.newPage();
+   await(await context.newCDPSession(page)).send('Browser.setPermission',{
+    permission:{name:'persistent-storage'},setting:'denied',origin:new URL(url).origin});
+   await page.goto(management);
+   assert.equal(await page.evaluate(()=>localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1')),null);
+   assert.equal(await page.evaluate(async()=>{const root=await navigator.storage.getDirectory();let n=0;for await(const _ of root.entries())n++;return n;}),0);
+   assert.equal(await page.evaluate(async()=>(await navigator.permissions.query({name:'persistent-storage'})).state),'denied');
    assert.deepEqual(await page.evaluate(async()=>({granted:await navigator.storage.persist(),persistent:await navigator.storage.persisted()})),
     {granted:false,persistent:false},'Denied durable-storage permission must not be represented as a permanent backup');
-   console.log(JSON.stringify({persistentStorageDenied:true,externalBackupRequired:true}));
+   console.log(JSON.stringify({persistentStorageDenied:true,externalBackupRequired:true,freshRecoveryProfile:true,originalOriginCompletelyErased:true}));
   }
   await page.locator('#consent').check();await page.locator('#backupFile').evaluate(el=>{el.closest('details').open=true;});
   // Missing external file must refuse before creating any replacement store.
@@ -505,7 +517,7 @@ try{
   await page.waitForFunction(()=>document.querySelector('#backupStatus').textContent.includes('does not match'));
   assert.equal(await page.locator('#openApp').isHidden(),true);
   const tampered=structuredClone(backup);tampered.files[0].sha256='0'.repeat(64);
-  const tamperedPath=join(profile,'tampered-backup.json');await writeFile(tamperedPath,JSON.stringify(tampered));
+  const tamperedPath=join(external,'tampered-backup.json');await writeFile(tamperedPath,JSON.stringify(tampered));
   await page.locator('#backupFile').setInputFiles(tamperedPath);
   await page.locator('#restoreReceipt').fill(receipt);await page.locator('#restoreBackup').click();
   await page.waitForFunction(()=>document.querySelector('#result').textContent.includes('Preview was not completed'));
@@ -529,6 +541,16 @@ try{
    assert.equal(restored.pointer.workspaceId,backup.workspaceId,'An older matching receipt must still identify the same recovered Workspace');
    assert.deepEqual(restored.files,expectedFiles,'Repeated verified recovery must preserve every imported/manual byte');
    console.log(JSON.stringify({logicalWorkspaceIdentityPreserved:true,matchingOriginalReceiptReusable:true,freshPhysicalIdentity:true}));
+  }
+  if(advancedRecovery){
+   const native=await context.newCDPSession(page);
+   const manifest=await native.send('Page.getAppManifest');
+   assert.deepEqual(manifest.errors,[]);
+   const value=JSON.parse(manifest.data),start=new URL(value.start_url,manifest.url);
+   assert.equal(new URL(value.id,start.origin+'/').href,nativeManifestId,'Fresh-profile PWA must retain canonical installed app identity');
+   await native.send('PWA.install',{manifestId:nativeManifestId});
+   await native.send('PWA.getOsAppState',{manifestId:nativeManifestId});
+   await native.send('PWA.changeAppUserSettings',{manifestId:nativeManifestId,displayMode:'standalone'});
   }
   const restoredApp=new URL(await page.locator('#openApp').getAttribute('href'),url).href;
   await page.goto(restoredApp);if(!fullJourney)await page.locator('#connectButton').click();
@@ -749,7 +771,7 @@ try{
  assert.deepEqual(runtimeErrors,[],'Published application must not have unhandled runtime errors');
  if(process.env.PROOF_MODE==='exact-main')assert.equal(fullJourney,true,'Published website must use the application entry, not the developer harness');
  console.log(JSON.stringify({mainSha:sha,browser:process.env.BROWSER_CHANNEL||'Chromium',candidateInitializer,fullJourney,syntheticStore:STORE_CODE,overlappingAdvisor:'101',nativePwaInstalled,nativeOfflineRelaunch:true,automaticWorkspaceConnection:fullJourney,processRestart:true,offlineDashboard:true,workspaceFiles:before.files.length,operationalDataAndHistoryPreserved:true,lifecycleBookkeepingVerified:true}));
-}catch(error){console.error('Primary synthetic acceptance failure:',error);const p=context?.pages().at(-1);if(p){console.error('Synthetic acceptance failure state:',(await p.locator('body').innerText({timeout:3000}).catch(()=>'<body unavailable>')).slice(0,10000));console.error('Synthetic editor event trace:',JSON.stringify(await p.evaluate(()=>({focus:document.activeElement?.id,events:window.__syntheticEditorTrace||[]})).catch(()=>({diagnosticsUnavailable:true}))));}throw error;}finally{await context?.close();await rm(profile,{recursive:true,force:true});}
+}catch(error){console.error('Primary synthetic acceptance failure:',error);const p=context?.pages().at(-1);if(p){console.error('Synthetic acceptance failure state:',(await p.locator('body').innerText({timeout:3000}).catch(()=>'<body unavailable>')).slice(0,10000));console.error('Synthetic editor event trace:',JSON.stringify(await p.evaluate(()=>({focus:document.activeElement?.id,events:window.__syntheticEditorTrace||[]})).catch(()=>({diagnosticsUnavailable:true}))));}throw error;}finally{await context?.close();await Promise.all([...profiles,external].map(path=>rm(path,{recursive:true,force:true})));}
 
 // A SECOND clean browser profile runs the same production setup/import/restart
 // journey with the same advisor ID and different dealership identity/totals.
