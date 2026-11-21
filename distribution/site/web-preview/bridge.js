@@ -51,8 +51,26 @@
     const browserStyle=document.createElement('style');
     browserStyle.textContent='#connectionHelp{display:none!important}#settings-update>:not(h2):not(.browser-software-link){display:none!important}';
     document.head.append(browserStyle);
+    // Keep canonical Guided Setup/imports while replacing only native-folder
+    // instructions that cannot apply to this browser-private installation.
+    const copyRoots=new WeakSet();
+    const copyObserver=new MutationObserver(browserInstructions);
+    function browserInstructions(){
+      for(const id of ['view-setup','dailyTools']){
+        const root=document.getElementById(id);if(!root)continue;
+        if(!copyRoots.has(root)){copyRoots.add(root);copyObserver.observe(root,{subtree:true,childList:true});}
+        for(const note of root.querySelectorAll?.('.manager-entry-cue,.daily-hint')||[]){
+          if(note.textContent.startsWith('Open Service Operations Dashboard:')&&note.textContent.includes('00 - OPEN DASHBOARD.html'))
+            note.textContent='Complete setup below, then use Import Report to add your SAPR. App settings contains external backup and verified software updates.';
+          if(note.textContent==='Or place reports in “01 - DROP REPORTS HERE”. Service Operations Dashboard checks them automatically.')
+            note.textContent='Use Import Report to add files to this browser-private Workspace. MoonDog checks imported reports automatically.';
+        }
+      }
+    }
+    browserInstructions();
     let attempted=false;
     function connectWhenReady(){
+      browserInstructions();
       const updates=document.getElementById('settings-update');
       if(updates&&!document.getElementById('browserSoftwareSettings')){
         const link=document.createElement('a');link.id='browserSoftwareSettings';link.className='browser-software-link';
