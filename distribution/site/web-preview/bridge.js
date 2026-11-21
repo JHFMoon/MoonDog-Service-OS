@@ -56,6 +56,26 @@
     const copyRoots=new WeakSet();
     const copyObserver=new MutationObserver(browserInstructions);
     function browserInstructions(){
+      const refresh=document.getElementById('setupSaprRefresh');
+      if(active&&refresh){
+        const card=refresh.closest('section');
+        for(const paragraph of card?.querySelectorAll('p')||[])if(paragraph.textContent.startsWith('Copy your Service Advisor Performance Report')&&paragraph.textContent.includes('01 - DROP REPORTS HERE'))
+          paragraph.textContent='Choose your SAPR workbook below. MoonDog verifies its source and dealership before importing. Imported data stays in this browser Workspace.';
+        if(!document.getElementById('browserChooseSapr')){
+          const choose=document.createElement('button');choose.id='browserChooseSapr';choose.type='button';choose.className='primary';choose.textContent='Choose SAPR workbook';
+          choose.addEventListener('click',()=>{
+            // Use the verified application's existing file importer and source
+            // review. This button neither parses reports nor writes OPFS.
+            const daily=window.__moondogDailyUI;
+            if(typeof daily?.renderTools!=='function')return;
+            daily.renderTools('imports');
+            const picker=document.querySelector('#dailyTools input[type=file]');
+            if(picker){picker.accept='.xlsx';picker.click();}
+          });
+          refresh.before(choose);
+        }
+      }
+
       if(active?.workspaceMode==='operational'){
         // Installation confirmation owns the browser-store identity. Keep
         // canonical advisors/targets/imports editable; a different dealership
