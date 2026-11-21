@@ -26,3 +26,21 @@ test('enrollment cannot authorize modified public software or expose any private
  const app=await(await base.store.getDirectoryHandle('System Files')).getFileHandle('index.html');app.bytes=f.bytes('tampered');
  await assert.rejects(loadVerifiedPublicAsset({...args,relativePath:'index.html'}),/no longer matches/);
 });
+test('leaving during verification releases the session lock before exposing any Workspace handle',async()=>{
+ const {args,base}=await fixture(),{openVerifiedOperationalWorkspace}=await import('../src/pwa/connect_operational_workspace.mjs'),exclusive=locks(),controller=new AbortController();
+ const before=await inventory(base.store);let resume,started;const waiting=new Promise(resolve=>{started=resolve;}),hold=new Promise(resolve=>{resume=resolve;});let first=true;
+ const storage={async getDirectory(){if(first){first=false;started();await hold;}return args.storage.getDirectory();}};
+ const pending=openVerifiedOperationalWorkspace({...args,storage,locks:exclusive,signal:controller.signal});pending.catch(()=>{});
+ await waiting;controller.abort();await new Promise(setImmediate);
+ let replacement;
+ try{replacement=await openVerifiedOperationalWorkspace({...args,locks:exclusive});}
+ finally{resume();await pending.then(()=>assert.fail('Disposed page must not receive a handle'),error=>assert.match(error.message,/session is closed/));await replacement?.close();}
+ assert.deepEqual(await inventory(base.store),before);
+});
+test('pre-aborted and already-aborted sessions cannot read or write Workspace bytes',async()=>{
+ const {args,base}=await fixture(),{openVerifiedOperationalWorkspace}=await import('../src/pwa/connect_operational_workspace.mjs'),exclusive=locks(),controller=new AbortController();
+ const before=await inventory(base.store),session=await openVerifiedOperationalWorkspace({...args,locks:exclusive,signal:controller.signal});controller.abort();await new Promise(setImmediate);
+ await assert.rejects(session.handle.getDirectoryHandle('System Files'),/session is closed/);
+ await assert.rejects(openVerifiedOperationalWorkspace({...args,locks:exclusive,signal:controller.signal}),/session is closed/);
+ const next=await openVerifiedOperationalWorkspace({...args,locks:exclusive});await next.close();assert.deepEqual(await inventory(base.store),before);
+});

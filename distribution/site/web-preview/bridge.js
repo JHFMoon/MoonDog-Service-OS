@@ -15,6 +15,7 @@
      !/^[a-f0-9]{64}$/.test(expectedManifestHash||'')||
      !/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(version||''))throw Error('Invalid preview store route.');
   let active=null,connecting=null;
+  const lifecycle=new AbortController();
   const moduleUrl=new URL('./modules/connect_operational_workspace.mjs',base);
   // Only the app's intended connect action uses this bridge. Every other
   // native picker is blocked, never silently pointed at another store.
@@ -22,19 +23,21 @@
     // Stable 0.10.17 selects in read mode and requests write authority later.
     if(options.id!=='moondog-operations'||!['read','readwrite'].includes(options.mode))
       throw Error('This browser preview supports only its verified local Workspace. No Windows folder was selected.');
+    if(lifecycle.signal.aborted)throw Error('This MoonDog browser session is closed.');
     if(active)return active.handle;
     if(connecting)return connecting;
     connecting=(async()=>{
       const {openVerifiedOperationalWorkspace}=await import(moduleUrl.href);
       if(!navigator.storage?.getDirectory||!navigator.locks?.request)
         throw Error('Edge browser-private storage or per-store locking is unavailable.');
-      active=await openVerifiedOperationalWorkspace({storage:navigator.storage,crypto,locks:navigator.locks,
-        storeId,version,expectedManifestHash});
-      return active.handle;
+      const session=await openVerifiedOperationalWorkspace({storage:navigator.storage,crypto,locks:navigator.locks,
+        storeId,version,expectedManifestHash,signal:lifecycle.signal});
+      if(lifecycle.signal.aborted){await session.close();throw Error('This MoonDog browser session is closed.');}
+      active=session;return active.handle;
     })();
     try{return await connecting;}finally{connecting=null;}
   };
-  window.addEventListener('pagehide',()=>{if(active)void active.close();active=null;},{once:true});
+  window.addEventListener('pagehide',()=>{lifecycle.abort();if(active)void active.close();active=null;},{once:true});
   document.addEventListener('DOMContentLoaded',()=>{
     const manifest=document.createElement('link');manifest.rel='manifest';
     manifest.href=new URL('./app.webmanifest?v=19',base).href;document.head.append(manifest);
@@ -57,7 +60,7 @@
     const copyObserver=new MutationObserver(browserInstructions);
     function browserInstructions(){
       const refresh=document.getElementById('setupSaprRefresh');
-      if(active&&refresh){
+      if(active&&refresh&&typeof window.__moondogDailyUI?.renderTools==='function'){
         const card=refresh.closest('section');
         for(const paragraph of card?.querySelectorAll('p')||[])if(paragraph.textContent.startsWith('Copy your Service Advisor Performance Report')&&paragraph.textContent.includes('01 - DROP REPORTS HERE'))
           paragraph.textContent='Choose your SAPR workbook below. MoonDog verifies its source and dealership before importing. Imported data stays in this browser Workspace.';

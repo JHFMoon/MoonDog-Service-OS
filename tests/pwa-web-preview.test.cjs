@@ -291,7 +291,7 @@ test('browser startup waits for canonical readiness, connects once, and leaves r
   getElementById(id){return id==='connectButton'?button:id==='folderWatchStatus'?watch:id==='status'?status:id==='view-setup'?setupRoot:id==='dailyTools'?dailyRoot:null;}};
  const route=`https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/store/${randomUUID()}/${'0'.repeat(64)}/0.10.17/index.html`;
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/bridge.js'),'utf8'),{
-  document,window:{addEventListener(){}},location:new URL(route),navigator:{},URL,
+  document,window:{addEventListener(){}},location:new URL(route),navigator:{},URL,AbortController,
   MutationObserver:class{constructor(fn){observe=fn;}observe(){}disconnect(){disconnected=true;}}
  });
  handlers.DOMContentLoaded();assert.match(setupNote.textContent,/Complete setup below/);assert.doesNotMatch(setupNote.textContent,/00 - OPEN/);
@@ -476,4 +476,18 @@ test('offline shell failure settles existing-preview discovery without an unhand
  assert.match(result.getError().message,/Missing cached module/);
  assert.equal($('installFromWeb').disabled,true);assert.equal($('restoreBackup').disabled,true);
  assert.match(messages.at(-1)[0],/Reconnect and reopen/);
+});
+test('browser Guided Setup uses the canonical file chooser once without parsing or writing reports',()=>{
+ const vm=require('node:vm'),source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/bridge.js'),'utf8');
+ const start=source.indexOf('    function browserInstructions(){'),end=source.indexOf('    browserInstructions();',start);
+ const created=[],note={textContent:'Copy your Service Advisor Performance Report (.xlsx) into 01 - DROP REPORTS HERE, then click Find report.'};
+ let renderCalls=0,chooserCalls=0,ready=false;
+ const picker={click(){chooserCalls++;}},refresh={closest:()=>({querySelectorAll:()=>[note]}),before(button){assert.equal(button.id,'browserChooseSapr');}};
+ const document={getElementById(id){return id==='setupSaprRefresh'?refresh:created.find(e=>e.id===id)||null;},
+  createElement(tag){assert.equal(tag,'button');const element={handlers:{},addEventListener(type,handler){this.handlers[type]=handler;}};created.push(element);return element;},
+  querySelector(selector){assert.equal(selector,'#dailyTools input[type=file]');return ready?picker:null;}};
+ const window={__moondogDailyUI:{renderTools(category){assert.equal(category,'imports');renderCalls++;ready=true;}}};
+ const run=vm.runInNewContext(source.slice(start,end)+';browserInstructions',{document,window,active:{workspaceMode:'synthetic'},copyRoots:new WeakSet(),copyObserver:{observe(){}}});
+ run();run();assert.equal(created.length,1,'Repeated render must not duplicate the chooser');assert.equal(renderCalls,0);assert.equal(chooserCalls,0);
+ assert.doesNotMatch(note.textContent,/01 - DROP REPORTS HERE/);created[0].handlers.click();assert.equal(renderCalls,1);assert.equal(chooserCalls,1);assert.equal(picker.accept,'.xlsx');
 });

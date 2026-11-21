@@ -827,3 +827,10 @@ if(!secondary&&process.env.PWA_SAPR==='1'){
  });
  console.log(JSON.stringify({twoIndependentStores:true,cleanProfiles:true,overlappingAdvisorIdentifiers:true,distinctStoreTotals:true}));
 }
+
+// Published advanced proof additionally exercises the explicitly enrolled path.
+// PR baselines continue to test their actual previously published software.
+if(!secondary&&advancedRecovery&&process.env.PWA_SAPR==='1'){
+ const {runEnrolledPublicProof}=await import('../tests/helpers/pwa_enrolled_public_proof.mjs');
+ await runEnrolledPublicProof({base,sha});
+}
