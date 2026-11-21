@@ -170,6 +170,14 @@ let release=null;
   if(open.hidden&&!offlineShellError)status('Connect to the internet to start a new preview installation.',true);
  }
 })();
+async function requireBrowserCapacity(storage,requiredBytes){
+ if(typeof storage.estimate!=='function')return;
+ const estimate=await storage.estimate();
+ if(Number.isFinite(estimate.quota)&&estimate.quota>=0&&
+    Number.isFinite(estimate.usage)&&estimate.usage>=0&&
+    estimate.quota-estimate.usage<requiredBytes)
+  throw Error('Browser storage quota has insufficient space. Keep your external backup, free browser storage, then try again. The saved Workspace is unchanged.');
+}
 async function installPreview(readBytes, recovery){
  if(busy)return;
  if(!$('consent').checked){status('Confirm this is for synthetic testing only.',true);return;}
@@ -199,6 +207,8 @@ async function installPreview(readBytes, recovery){
    const recoveryArgs={crypto,version:release.version,expectedManifestHash:manifestHash};
    const verifiedBackup=recovery?await recovery.api.inspectSyntheticExternalBackup({...recoveryArgs,
     backup:recovery.backup,expectedStoreId:recovery.sourceStoreId}):null;
+   const softwareBytes=entries.reduce((total,entry)=>total+(entry.bytes?.byteLength||0),0);
+   await requireBrowserCapacity(navigator.storage,softwareBytes+(verifiedBackup?.bytes||0)+65536);
    status('Creating an isolated, empty synthetic browser store…');
    const {identity}=await createEmptyStore({storage:navigator.storage,crypto,
     label:'SYNTHETIC MoonDog Web Preview',workspaceId:verifiedBackup?.workspaceId});

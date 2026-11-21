@@ -467,7 +467,10 @@ try{
    const preserved=await snapshot(page),href=await page.locator('#openApp').getAttribute('href');
    await page.locator('#backupFile').evaluate(el=>{el.closest('details').open=true;});
    await page.locator('#backupFile').setInputFiles(backupPath);await page.locator('#restoreReceipt').fill(receipt);
-   await cdp.send('Storage.overrideQuotaForOrigin',{origin:new URL(url).origin,quotaSize:0});
+   await cdp.send('Storage.overrideQuotaForOrigin',{origin:new URL(url).origin,quotaSize:1});
+   const limited=await page.evaluate(()=>navigator.storage.estimate());
+   assert.equal(limited.quota,1,'Browser must expose the real one-byte quota override before refusal proof');
+   console.log(JSON.stringify({quotaFaultApplied:true,quota:limited.quota,usage:limited.usage}));
    try{
     await page.locator('#restoreBackup').click();
     await page.waitForFunction(()=>/Preview was not completed/i.test(document.querySelector('#result').textContent),null,{timeout:120000});
@@ -745,7 +748,7 @@ try{
  assert.deepEqual(runtimeErrors,[],'Published application must not have unhandled runtime errors');
  if(process.env.PROOF_MODE==='exact-main')assert.equal(fullJourney,true,'Published website must use the application entry, not the developer harness');
  console.log(JSON.stringify({mainSha:sha,browser:process.env.BROWSER_CHANNEL||'Chromium',candidateInitializer,fullJourney,syntheticStore:STORE_CODE,overlappingAdvisor:'101',nativePwaInstalled,nativeOfflineRelaunch:true,automaticWorkspaceConnection:fullJourney,processRestart:true,offlineDashboard:true,workspaceFiles:before.files.length,operationalDataAndHistoryPreserved:true,lifecycleBookkeepingVerified:true}));
-}catch(error){const p=context?.pages().at(-1);if(p){console.error('Synthetic acceptance failure state:',(await p.locator('body').innerText()).slice(0,10000));console.error('Synthetic editor event trace:',JSON.stringify(await p.evaluate(()=>({focus:document.activeElement?.id,events:window.__syntheticEditorTrace||[]}))));}throw error;}finally{await context?.close();await rm(profile,{recursive:true,force:true});}
+}catch(error){console.error('Primary synthetic acceptance failure:',error);const p=context?.pages().at(-1);if(p){console.error('Synthetic acceptance failure state:',(await p.locator('body').innerText({timeout:3000}).catch(()=>'<body unavailable>')).slice(0,10000));console.error('Synthetic editor event trace:',JSON.stringify(await p.evaluate(()=>({focus:document.activeElement?.id,events:window.__syntheticEditorTrace||[]})).catch(()=>({diagnosticsUnavailable:true}))));}throw error;}finally{await context?.close();await rm(profile,{recursive:true,force:true});}
 
 // A SECOND clean browser profile runs the same production setup/import/restart
 // journey with the same advisor ID and different dealership identity/totals.

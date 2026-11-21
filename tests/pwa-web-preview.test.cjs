@@ -434,6 +434,20 @@ function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({nam
  }};
 }
 
+test('browser capacity preflight refuses known insufficient quota before staging',async()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
+ const start=source.indexOf('async function requireBrowserCapacity('),end=source.indexOf('async function installPreview(',start);
+ const check=vm.runInNewContext(source.slice(start,end)+';requireBrowserCapacity');
+ await assert.rejects(check({estimate:async()=>({usage:1200,quota:1201})},65536),/storage quota.*insufficient space/);
+ await assert.rejects(check({estimate:async()=>({usage:0,quota:0})},1),/storage quota.*insufficient space/);
+ await check({estimate:async()=>({usage:1200,quota:1000000})},65536);
+ await check({estimate:async()=>({usage:1200})},65536);
+ await check({},65536);
+ assert.ok(source.indexOf('await requireBrowserCapacity(navigator.storage')<source.indexOf('const {identity}=await createEmptyStore'),
+  'Quota refusal must precede any replacement store allocation');
+});
+
 test('failed offline shell prevents software download or Workspace creation',async()=>{
  const readiness=Promise.reject(Error('Offline shell incomplete'));
  const fixture=browserSetupFixture(null,undefined,readiness);
