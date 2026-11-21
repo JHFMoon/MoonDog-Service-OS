@@ -43,3 +43,25 @@ test('regressed authority, recovery loss, erased diagnostics and forged new arti
  ];
  for(const mutate of cases){const {before,after}=fixture();mutate(after);assert.throws(()=>verify(before,after,'synthetic launch'));}
 });
+
+test('published Beta performance readiness requires visible correct gross and pace within a fixed deadline',()=>{
+ const key='await page.waitForFunction(({gross,pace})=>{';
+ const begin=source.indexOf(key),end=source.indexOf('},{gross:STORE_GROSS.toLocaleString',begin);
+ assert.ok(begin>0&&end>begin,'Production browser proof must require a bounded rendered performance panel');
+ const block=source.slice(begin+key.length,end);
+ let active=true,rendered='';
+ const predicate=vm.runInNewContext('({gross,pace})=>{'+block+'}',{
+  document:{querySelector(query){assert.equal(query,'#view-performance.active');return active?{innerText:rendered}:null;}}
+ });
+ const expected={gross:'500',pace:'1,375'};
+ assert.equal(predicate(expected),false,'Initial unrendered panel must not count as verified');
+ rendered='No report loaded';assert.equal(predicate(expected),false,'An unhydrated panel must fail');
+ rendered='Current MTD: $500';assert.equal(predicate(expected),false,'Gross alone is not enough');
+ rendered+=' Month pace: $1,375';assert.equal(predicate(expected),true,'Correct gross and pace prove settled display');
+ assert.equal(predicate({gross:'0',pace:'0'}),false,'Do not reinterpret unknown or another store as zero');
+ rendered='Current MTD: $0 Month pace: $0';
+ assert.equal(predicate({gross:'0',pace:'0'}),true,'Explicit verified zero must remain valid');
+ active=false;assert.equal(predicate({gross:'0',pace:'0'}),false,'Hidden view is never ready');
+ assert.match(source.slice(begin,end+120),/timeout:15000/,'The render readiness wait must be bounded');
+ assert.match(source,/publishedPerformanceReadinessFailure:true/,'Timeouts must record safe public UI diagnostics');
+});
