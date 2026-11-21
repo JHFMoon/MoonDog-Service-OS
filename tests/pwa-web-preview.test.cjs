@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v12'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v13'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -194,14 +194,14 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v12'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v13'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
 });
 
 
-test('active preview worker reports only the reviewed shell v12 in explicit software-update handshake',()=>{
+test('active preview worker reports only the reviewed shell v13 in explicit software-update handshake',()=>{
  const vm=require('node:vm');
  const src=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/sw.js'),'utf8');
  const handlers={};const received=[];
@@ -214,7 +214,7 @@ test('active preview worker reports only the reviewed shell v12 in explicit soft
  assert.equal(received.length,0,'Unrelated messages must not advertise update authority');
  handlers.message({data:{type:'MOONDOG_PREVIEW_SHELL_PROBE'},ports:[port]});
  assert.deepEqual(received,[{type:'MOONDOG_PREVIEW_SHELL_PROOF',
-  cache:'moondog-synthetic-preview-shell-v12'}]);
+  cache:'moondog-synthetic-preview-shell-v13'}]);
 });
 
 test('browser startup waits for canonical readiness, connects once, and leaves refusals under user control',()=>{
@@ -272,4 +272,33 @@ test('versioned entry script and native manifest bypass old shell URLs and remai
  const version=sw.match(/const CACHE=CACHE_PREFIX\+'v([0-9]+)'/)[1];
  const refs=[html.match(/<script type="module" src="([^"]+)"/)[1],html.match(/rel="manifest" href="([^"]+)"/)[1]];
  for(const ref of refs){assert.equal(new URL(ref,context.self.registration.scope).searchParams.get('v'),version);assert.ok(context.shell.includes(ref),'Exact entry URL must be staged for offline launch: '+ref);}
+});
+
+
+test('primary website install is never blocked by an unanswered native PWA prompt',async()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
+ const start=source.indexOf("$('installFromWeb').addEventListener('click',");
+ const end=source.indexOf("$('prepareBackup').addEventListener(",start);
+ assert.ok(start>0&&end>start,'Production website install handler must be present');
+ assert.match(source,/\$\('installEdge'\)\.addEventListener\('click',async\(\)=>\{/,
+  'Native Edge install must remain a separate, opt-in action');
+ let handler=null,installCalls=0,nativePromptCalls=0;
+ const never=new Promise(()=>{});
+ const installPrompt={prompt(){nativePromptCalls++;return never;},userChoice:never};
+ const readSiteBytes=()=>new Uint8Array([1]);
+ const installPreview=async reader=>{
+  assert.strictEqual(reader,readSiteBytes);
+  installCalls++;
+ };
+ const $=id=>({addEventListener(type,fn){if(id==='installFromWeb'&&type==='click')handler=fn;}});
+ vm.runInNewContext(source.slice(start,end),{$,installPrompt,readSiteBytes,installPreview,websiteAvailable:true});
+ assert.equal(typeof handler,'function');
+ const completed=await Promise.race([
+  Promise.resolve(handler()).then(()=>true),
+  new Promise(resolve=>setImmediate(()=>resolve(false)))
+ ]);
+ assert.equal(completed,true,'Primary install must not wait for an unanswered browser installation prompt');
+ assert.equal(installCalls,1,'The production verified installation must start immediately');
+ assert.equal(nativePromptCalls,0,'The main installation must not open the separate OS prompt');
 });
