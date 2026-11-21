@@ -8,6 +8,7 @@ const PUBLIC_SHELL=Object.freeze([
  './modules/initialize_fresh_browser_workspace.mjs',
  './modules/browser_software_candidates.mjs','./modules/browser_software_selection.mjs',
  './modules/verified_beta_transport.mjs',
+ './modules/browser_workspace_enrollment.mjs',
  './modules/opfs-store.mjs','./modules/install_verified_browser_store.mjs',
  './modules/connect_operational_workspace.mjs','./modules/serve_browser_app.mjs',
  './modules/verified_site_package.mjs',

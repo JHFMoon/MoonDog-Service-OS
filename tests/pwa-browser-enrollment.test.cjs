@@ -33,3 +33,32 @@ test('enrollment rejects missing, unsafe or invalid configuration without supply
  const value=createOperationalEnrollment({store:{...profile(),code:'0001'},confirmed:true,confirmedAt:at});
  assert.equal(value.store.code,'0001');assert.equal(value.store.brand,'');
 });
+test('explicit dealership enrollment survives durable creation and reopen without adopting another store',async()=>{
+ const f=require('./helpers/pwa_install_fixture.cjs'),s=f.storage();
+ const {createEmptyStore,openExistingStore}=await import('../src/pwa/opfs-store.mjs');
+ const value=await enrolled(),args={storage:s,crypto:f.webcrypto,label:value.store.name,enrollment:value};
+ const first=await createEmptyStore(args),second=await createEmptyStore(args);
+ assert.notEqual(first.identity.storeId,second.identity.storeId);
+ const reopened=await openExistingStore({storage:s,storeId:first.identity.storeId});
+ assert.deepEqual(reopened.identity.enrollment,value);assert.equal(reopened.identity.workspaceId,first.identity.storeId);
+ const record=await first.store.getFileHandle('STORE-IDENTITY.json');
+ const original=await(await record.getFile()).text(),changed=JSON.parse(original);changed.enrollment.store.code='other';
+ record.bytes=f.bytes(JSON.stringify(changed));
+ await assert.rejects(openExistingStore({storage:s,storeId:first.identity.storeId}),/does not match/);
+ assert.deepEqual((await openExistingStore({storage:s,storeId:second.identity.storeId})).identity.enrollment,value);
+});
+test('mismatched enrollment refuses before any origin directory is allocated',async()=>{
+ const f=require('./helpers/pwa_install_fixture.cjs'),s=f.storage();
+ const {createEmptyStore}=await import('../src/pwa/opfs-store.mjs');
+ await assert.rejects(createEmptyStore({storage:s,crypto:f.webcrypto,label:'SYNTHETIC Wrong Store',enrollment:await enrolled()}),/does not match/);
+ assert.equal(s.root.map.size,0);
+});
+test('caller mutation during asynchronous storage reservation cannot change the confirmed enrollment',async()=>{
+ const f=require('./helpers/pwa_install_fixture.cjs'),s=f.storage();
+ const {createEmptyStore,openExistingStore}=await import('../src/pwa/opfs-store.mjs');
+ const input=structuredClone(await enrolled()),original=structuredClone(input),get=s.getDirectory.bind(s);
+ s.getDirectory=async()=>{input.store.code='MUTATED';return get();};
+ const created=await createEmptyStore({storage:s,crypto:f.webcrypto,label:input.store.name,enrollment:input});
+ assert.deepEqual(created.identity.enrollment,original);assert.ok(Object.isFrozen(created.identity.enrollment.store));
+ assert.deepEqual((await openExistingStore({storage:s,storeId:created.identity.storeId})).identity.enrollment,original);
+});

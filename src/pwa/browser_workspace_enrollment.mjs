@@ -13,7 +13,7 @@ function text(value,maximum,required=false){
 }
 function profile(value){
  if(!object(value))fail('A dealership name, store code and time zone are required.');
- const name=text(value.name,120,true),code=text(value.code,32,true).toUpperCase(),brand=text(value.brand??'',80);
+ const name=text(value.name,80,true),code=text(value.code,32,true).toUpperCase(),brand=text(value.brand??'',80);
  if(!/^[A-Z0-9][A-Z0-9._-]{0,31}$/.test(code))fail('Store code must use letters, numbers, periods, underscores or hyphens.');
  let timeZone;
  try{timeZone=new Intl.DateTimeFormat('en-US',{timeZone:text(value.timeZone,100,true)}).resolvedOptions().timeZone;}
