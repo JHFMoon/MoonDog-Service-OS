@@ -67,7 +67,7 @@ const readOperational=async page=>page.evaluate(async requireManualRo=>{
  for await(const [name,h] of history.entries())if(h.kind==='file'&&name.endsWith('.json')&&!name.startsWith('.moondog-txn-')){
   let event;try{event=JSON.parse(await(await h.getFile()).text());}catch(error){throw Error('History event '+name+': '+error);}if(event.type==='performance-import')imports++;
  }
- return {store:settings.store,snapshot:performance.snapshots['2026-11-19'],imports,record:state?.records?.find(row=>row.ro==='900001')||null};
+ return {store:settings.store,setup:settings.setup,snapshot:performance.snapshots['2026-11-19'],imports,record:state?.records?.find(row=>row.ro==='900001')||null};
 },manualRoReady);
 function assertOperational(value){
  assert.equal(value.store.name,STORE_NAME);assert.equal(value.store.code,STORE_CODE);
@@ -239,6 +239,11 @@ try{
   await page.getByRole('button',{name:'Import or refresh data',exact:true}).click();
   await page.getByRole('button',{name:/report.*setup/i}).click();
   await page.locator('#completeSetup').click();
+  // Completion writes settings/history before the canonical Home transition.
+  // Wait for that acknowledgement before issuing another navigation command.
+  await page.locator('#view-home.active').waitFor({state:'visible',timeout:30000});
+  const completedSetup=await readOperational(page);
+  assert.ok(completedSetup.setup?.completedAt);assert.equal(completedSetup.setup.reopened,false);
   await page.getByRole('button',{name:'Advisor Performance',exact:true}).click();
   assert.ok((await page.locator('#view-performance').innerText()).includes('Current MTD: $'+STORE_GROSS.toLocaleString('en-US')));
   assert.ok((await page.locator('#view-performance').innerText()).includes('Month pace: $'+STORE_PACE.toLocaleString('en-US')));
