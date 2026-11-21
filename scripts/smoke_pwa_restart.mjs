@@ -215,7 +215,9 @@ try{
    await page.waitForFunction(async name=>{
     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
     let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
-    const state=JSON.parse(await(await(await d.getFileHandle('current-state.json')).getFile()).text());
+    let state;
+    try{state=JSON.parse(await(await(await d.getFileHandle('current-state.json')).getFile()).text());}
+    catch(error){if(error.name==='NotFoundError')return false;throw error;}
     return state.source?.fileName===name&&state.records?.some(row=>row.ro==='900001');
    },name,{timeout:60000});
    await settledSnapshot(page);
