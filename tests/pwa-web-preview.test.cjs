@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v15'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v16'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -194,27 +194,69 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v15'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v16'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
 });
 
 
-test('active preview worker reports only the reviewed shell v15 in explicit software-update handshake',()=>{
+
+test('active worker refuses to attest an evicted or partially missing shell',async()=>{
  const vm=require('node:vm');
- const src=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/sw.js'),'utf8');
- const handlers={};const received=[];
- const self={registration:{scope:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/'},
-  addEventListener(name,fn){handlers[name]=fn;}};
- vm.runInNewContext(src.replace(/^import .*;$/m,''),{self,caches:{},URL,Request});
- assert.equal(typeof handlers.message,'function');
- const port={postMessage(value){received.push({type:value.type,cache:value.cache});}};
- handlers.message({data:{type:'UNRELATED'},ports:[port]});
- assert.equal(received.length,0,'Unrelated messages must not advertise update authority');
- handlers.message({data:{type:'MOONDOG_PREVIEW_SHELL_PROBE'},ports:[port]});
- assert.deepEqual(received,[{type:'MOONDOG_PREVIEW_SHELL_PROOF',
-  cache:'moondog-synthetic-preview-shell-v15'}]);
+ const worker=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/sw.js'),'utf8');
+ const source=worker.replace(/^import .*;$/m,'');
+ const listeners={};
+ const cached=new Set();
+ const scope='https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/';
+ const env={
+  URL,
+  self:{registration:{scope},addEventListener(name,fn){listeners[name]=fn;}},
+  caches:{open:async()=>({keys:async()=>[...cached].map(url=>({url}))})}
+ };
+ vm.runInNewContext(source+';globalThis.expected=shellUrls',env);
+ const probe=async()=>{
+  let reply,pending;
+  listeners.message({data:{type:'MOONDOG_PREVIEW_SHELL_PROBE'},
+   ports:[{postMessage:value=>{reply=value;}}],waitUntil(work){pending=work;}});
+  await pending;return reply;
+ };
+ assert.equal((await probe()).complete,false,'A version string alone cannot attest an empty cache');
+ assert.equal((await probe()).type,'MOONDOG_PREVIEW_SHELL_PROOF');
+ assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v16');
+ let unrelatedWork=false;
+ listeners.message({data:{type:'UNRELATED'},ports:[{postMessage:()=>{throw Error('Unexpected reply');}}],
+  waitUntil(){unrelatedWork=true;}});
+ assert.equal(unrelatedWork,false,'Unrelated messages must not advertise update authority');
+ for(const url of env.expected)cached.add(url);
+ assert.equal((await probe()).complete,true,'Every executable shell resource is present');
+ cached.delete(env.expected[2]);
+ assert.equal((await probe()).complete,false,'One missing module makes the shell incomplete');
+});
+
+test('setup rebuilds a missing shell once and requires new completeness evidence',async()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
+ const start=source.indexOf('async function registerPreviewWorker(){'),end=source.indexOf('async function offerExistingPreview(){',start);
+ const calls=[];
+ const pageUrl='https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/index.html';
+ const worker={state:'activated',addEventListener(){},removeEventListener(){}};
+ const serviceWorker={controller:worker,async register(script){
+  calls.push(script);worker.scriptURL=new URL(script,pageUrl).href;return {active:worker};
+ }};
+ let checks=0;
+ const register=vm.runInNewContext(source.slice(start,end)+';registerPreviewWorker',{
+  navigator:{serviceWorker},location:{href:pageUrl},URL,crypto:{randomUUID:()=>randomUUID()},
+  setTimeout:()=>1,clearTimeout(){},
+  verifyActiveBetaShell:async()=>{
+   if(++checks===1)throw Object.assign(Error('missing files'),{code:'MOONDOG_OFFLINE_SHELL_INCOMPLETE'});
+  }
+ });
+ await register();
+ assert.equal(calls.length,2);
+ assert.equal(calls[0],'./sw.js');
+ assert.match(calls[1],/^\.\/sw\.js\?restore=[0-9a-f-]+$/);
+ assert.equal(checks,2,'A repaired worker must prove the reinstalled shell before setup resumes');
 });
 
 test('browser startup waits for canonical readiness, connects once, and leaves refusals under user control',()=>{
