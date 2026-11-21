@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v18'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v19'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -122,7 +122,7 @@ test('public preview refuses non-synthetic store even with valid official app ha
  await write(data,'original.txt',b('ORIGINAL TEST ONLY'));
  assert.equal(new TextDecoder().decode((await data.getFileHandle('original.txt')).bytes),'ORIGINAL TEST ONLY');
  const setup=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
- assert.match(setup,/check\.identity\.label/);
+ assert.match(setup,/displaySavedEnrollment\(check\.identity\)/);
  assert.match(setup,/SYNTHETIC/);
 });
 
@@ -183,7 +183,8 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
   assert.match(html,new RegExp('id="'+id+'"[^>]*disabled'));
   assert.match(setup,new RegExp("\\$\\('"+id+"'\\)\\.addEventListener"));
  }
- assert.match(html,/synthetic test Workspaces only/i);
+ assert.match(html,/Dealership Workspace.*Beta/);
+ assert.match(setup,/requireWorkspaceUpdate/);
  assert.match(setup,/fetchVerifiedPinnedBeta/);
  assert.match(setup,/stageVerifiedBetaBrowserSoftware/);
  assert.match(setup,/activateStagedBrowserSoftware/);
@@ -194,7 +195,7 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v18'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v19'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
@@ -223,7 +224,7 @@ test('active worker refuses to attest an evicted or partially missing shell',asy
  };
  assert.equal((await probe()).complete,false,'A version string alone cannot attest an empty cache');
  assert.equal((await probe()).type,'MOONDOG_PREVIEW_SHELL_PROOF');
- assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v18');
+ assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v19');
  let unrelatedWork=false;
  listeners.message({data:{type:'UNRELATED'},ports:[{postMessage:()=>{throw Error('Unexpected reply');}}],
   waitUntil(){unrelatedWork=true;}});
@@ -423,7 +424,7 @@ function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({nam
   return elements.get(id);
  };
  const install=vm.runInNewContext(source.slice(start,end)+';installPreview',{
-  $,busy:false,release:{version:'0.10.17'},websiteAvailable:true,activePreview:null,PREVIOUS:'saved',shellReady:readiness,offlineShellError:null,
+  selectedWorkspaceMode:()=>"synthetic",$,busy:false,release:{version:'0.10.17'},websiteAvailable:true,activePreview:null,PREVIOUS:'saved',shellReady:readiness,offlineShellError:null,
   localStorage:{getItem:()=>JSON.stringify(saved)},
   navigator:{storage:{getDirectory(){}},locks,serviceWorker:{}},
   status:message=>messages.push(message)

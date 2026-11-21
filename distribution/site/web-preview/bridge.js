@@ -37,7 +37,7 @@
   window.addEventListener('pagehide',()=>{if(active)void active.close();active=null;},{once:true});
   document.addEventListener('DOMContentLoaded',()=>{
     const manifest=document.createElement('link');manifest.rel='manifest';
-    manifest.href=new URL('./app.webmanifest?v=18',base).href;document.head.append(manifest);
+    manifest.href=new URL('./app.webmanifest?v=19',base).href;document.head.append(manifest);
     const bar=document.createElement('div');bar.setAttribute('aria-label','MoonDog app controls');
     bar.style.cssText='position:fixed;z-index:9999;bottom:0;left:0;right:0;padding:8px 15px;background:#153847;color:white;font:600 13px system-ui;display:flex;align-items:center;justify-content:space-between;gap:15px';
     const label=document.createElement('span');label.textContent='MoonDog · Synthetic pilot · Test files only';
@@ -56,6 +56,22 @@
     const copyRoots=new WeakSet();
     const copyObserver=new MutationObserver(browserInstructions);
     function browserInstructions(){
+      if(active?.workspaceMode==='operational'){
+        // Installation confirmation owns the browser-store identity. Keep
+        // canonical advisors/targets/imports editable; a different dealership
+        // must use its own isolated Workspace rather than silently relabeling.
+        for(const id of ['setupStoreName','setupStoreCode','setupStoreBrand','setupStoreTimeZone','storeName','storeCode','storeBrand','storeTimeZone']){
+          const input=document.getElementById(id);if(!input)continue;
+          if(input.tagName==='SELECT'){if(!input.disabled)input.disabled=true;}else input.readOnly=true;
+        }
+        const save=document.getElementById('setupStoreSave');if(save)save.hidden=true;
+        const note=document.getElementById('setupStoreFeedback');
+        const message='Dealership identity was confirmed during installation. Use a separate Workspace for another dealership.';
+        if(note&&note.textContent!==message)note.textContent=message;
+        const current='MoonDog · '+active.storeProfile.name+' · Dealership Workspace';
+        if(label.textContent!==current)label.textContent=current;
+      }
+
       for(const id of ['view-setup','dailyTools']){
         const root=document.getElementById(id);if(!root)continue;
         if(!copyRoots.has(root)){copyRoots.add(root);copyObserver.observe(root,{subtree:true,childList:true});}
