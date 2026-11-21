@@ -92,6 +92,9 @@ async function registerPreviewWorker(){
  try{await verifyActiveBetaShell();}
  catch(error){
   if(error?.code!=='MOONDOG_OFFLINE_SHELL_INCOMPLETE')throw error;
+  // Offline readiness cannot depend on a repair fetch succeeding through a
+  // worker-owned connection or HTTP cache while this page reports offline.
+  if(navigator.onLine===false)throw error;
   // A distinct worker script URL reruns the install event even when the
   // deployed bytes are identical. The install event stages the public shell.
   await waitForControl('./sw.js?restore='+encodeURIComponent(crypto.randomUUID()),true);
@@ -167,6 +170,14 @@ let release=null;
   if(open.hidden&&!offlineShellError)status('Connect to the internet to start a new preview installation.',true);
  }
 })();
+async function requireBrowserCapacity(storage,requiredBytes){
+ if(typeof storage.estimate!=='function')return;
+ const estimate=await storage.estimate();
+ if(Number.isFinite(estimate.quota)&&estimate.quota>=0&&
+    Number.isFinite(estimate.usage)&&estimate.usage>=0&&
+    estimate.quota-estimate.usage<requiredBytes)
+  throw Error('Browser storage quota has insufficient space. Keep your external backup, free browser storage, then try again. The saved Workspace is unchanged.');
+}
 async function installPreview(readBytes, recovery){
  if(busy)return;
  if(!$('consent').checked){status('Confirm this is for synthetic testing only.',true);return;}
@@ -196,6 +207,8 @@ async function installPreview(readBytes, recovery){
    const recoveryArgs={crypto,version:release.version,expectedManifestHash:manifestHash};
    const verifiedBackup=recovery?await recovery.api.inspectSyntheticExternalBackup({...recoveryArgs,
     backup:recovery.backup,expectedStoreId:recovery.sourceStoreId}):null;
+   const softwareBytes=entries.reduce((total,entry)=>total+(entry.bytes?.byteLength||0),0);
+   await requireBrowserCapacity(navigator.storage,softwareBytes+(verifiedBackup?.bytes||0)+65536);
    status('Creating an isolated, empty synthetic browser store…');
    const {identity}=await createEmptyStore({storage:navigator.storage,crypto,
     label:'SYNTHETIC MoonDog Web Preview',workspaceId:verifiedBackup?.workspaceId});
@@ -216,7 +229,7 @@ async function installPreview(readBytes, recovery){
    const persistent=await navigator.storage.persist?.().catch(()=>false);
    status((recovery?'Synthetic Workspace restored and verified. ':'Verified SYNTHETIC preview is installed in browser-private storage. ')+
     'Click Open dashboard to inspect the real MoonDog interface. '+
-    (persistent?'Browser persistence is enabled.':'Keep an external backup; clearing Edge site data removes this copy.'));
+    (persistent?'Browser persistence is enabled.':'Browser persistence is NOT guaranteed. Keep an external backup; clearing Edge site data removes this copy.'));
    enterApplication();
   });
  }catch(e){status('Preview was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}
@@ -286,7 +299,7 @@ async function verifyActiveBetaShell(){
   channel.port1.onmessage=event=>{
    clearTimeout(timer);channel.port1.close();
    if(event.data?.type!=='MOONDOG_PREVIEW_SHELL_PROOF'||
-      event.data.cache!=='moondog-synthetic-preview-shell-v16'){
+      event.data.cache!=='moondog-synthetic-preview-shell-v17'){
     reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
     return;
    }
