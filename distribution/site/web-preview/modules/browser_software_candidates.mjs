@@ -93,9 +93,17 @@ function versionCompare(a,b){
  */
 
 async function readPath(store,path){
- const parts=path.split('/'),name=parts.pop();let folder=store;
- for(const part of parts)folder=await folder.getDirectoryHandle(part,{create:false});
- return read(folder,name);
+ // These are fixed, public Stable installer files, never report paths.
+ // Label a missing software file so published Edge/Chromium failures can
+ // distinguish a broken original package from a staging-directory defect.
+ try{
+  const parts=path.split('/'),name=parts.pop();let folder=store;
+  for(const part of parts)folder=await folder.getDirectoryHandle(part,{create:false});
+  return await read(folder,name);
+ }catch(error){
+  if(error?.name==='NotFoundError')fail('Verified original software file missing: '+path);
+  throw error;
+ }
 }
 async function deriveBetaCandidatePlan(store,beta,crypto){
  // Only immutable public bootstrap bytes are reused from the verified Stable
@@ -128,13 +136,21 @@ async function stageAuthenticatedPlan({storage,crypto,locks,storeId,installedVer
  return locks.request('moondog-pwa-operational-'+storeId,{mode:'exclusive',ifAvailable:true},async lock=>{
   if(!lock)fail('Active browser dashboard must close before staging software.');
   const store=await assertOriginal({storage,crypto,storeId,installedVersion,installedManifestHash});
-  const plan=inspectPlan(await makePlan(store),version);
+  let plan;
+  try{plan=inspectPlan(await makePlan(store),version);}
+  catch(error){fail('Authenticated Beta candidate plan failed: '+String(error?.message||error));}
   for(const file of plan.selected)if(await digest(file.bytes,crypto.subtle)!==file.sha)
    fail('Candidate software changed after verification.');
   const manifestHash=await digest(plan.manifestBytes,crypto.subtle);
-  const parent=await candidatesFolder(storage,storeId,true);
-  if(!await absent(parent,id))fail('Candidate generation already exists; no overwrite or adoption.');
-  const dir=await parent.getDirectoryHandle(id,{create:true});
+  let parent,dir;
+  try{
+   parent=await candidatesFolder(storage,storeId,true);
+   if(!await absent(parent,id))fail('Candidate generation already exists; no overwrite or adoption.');
+   dir=await parent.getDirectoryHandle(id,{create:true});
+  }catch(error){
+   if(error?.name==='NotFoundError')fail('Candidate storage root missing after verified original inspection.');
+   throw error;
+  }
   await writeNew(dir,MARKER,new TextEncoder().encode('INCOMPLETE'),crypto.subtle);
   try{
    await writeNew(dir,MANIFEST,plan.manifestBytes,crypto.subtle);
