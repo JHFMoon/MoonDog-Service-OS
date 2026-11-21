@@ -36,6 +36,23 @@ async function shellProof(page){
 const runtimeErrors=[];
 const launch=async()=>{
  const instance=await chromium.launchPersistentContext(profile,{headless:false,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{}),...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
+ await instance.addInitScript(()=>{
+  globalThis.__syntheticLedgerWrites=[];
+  if(!globalThis.FileSystemFileHandle||!globalThis.FileSystemWritableFileStream)return;
+  const names=new WeakMap(),open=FileSystemFileHandle.prototype.createWritable,write=FileSystemWritableFileStream.prototype.write;
+  FileSystemFileHandle.prototype.createWritable=async function(...args){const stream=await open.apply(this,args);names.set(stream,this.name);return stream;};
+  FileSystemWritableFileStream.prototype.write=function(chunk,...args){
+   try{
+    const data=chunk&&typeof chunk==='object'&&chunk.type==='write'?chunk.data:chunk;
+    const text=typeof data==='string'?data: data instanceof ArrayBuffer||ArrayBuffer.isView(data)?new TextDecoder().decode(data):'';
+    if(text.length<262144){const value=JSON.parse(text);if(value&&value.seen&&typeof value.seen==='object'){
+     const entry={file:names.get(this),at:performance.now(),initializedAt:value.initializedAt,updatedAt:value.updatedAt,
+      seen:Object.fromEntries(Object.entries(value.seen).map(([key,row])=>[key,{kind:row.kind,manualImportRequired:row.manualImportRequired,sourceStoreConfidence:row.sourceStoreConfidence}])),stack:new Error().stack};
+     globalThis.__syntheticLedgerWrites.push(entry);if(globalThis.__syntheticLedgerWrites.length>40)globalThis.__syntheticLedgerWrites.shift();
+    }}
+   }catch(_){}return write.call(this,chunk,...args);
+  };
+ });
  const observe=page=>{
   const updateUrl=value=>value===new URL('site-version.json',base).href||/^https:\/\/raw\.githubusercontent\.com\/JHFMoon\/MoonDog-Service-OS\/[a-f0-9]{40}\/updates\//.test(value);
   page.on('response',response=>{if(updateUrl(response.url()))console.log(JSON.stringify({publicUpdateResponse:true,url:response.url(),status:response.status(),serviceWorker:response.fromServiceWorker()}));});
@@ -740,7 +757,7 @@ try{
    assert.equal(reviewedDialogs,1,'Exactly one explicit SAPR source-store confirmation must authorize this import');
    await settledSnapshot(page);
    const accepted=await inboxState(page);
-   if(!accepted)console.error(JSON.stringify({missingReviewedInboxEntry:true,signature,ledger:await page.evaluate(async()=>{
+   if(!accepted)console.error(JSON.stringify({missingReviewedInboxEntry:true,signature,writes:await page.evaluate(()=>globalThis.__syntheticLedgerWrites||[]),ledger:await page.evaluate(async()=>{
     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
     let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
     return JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
