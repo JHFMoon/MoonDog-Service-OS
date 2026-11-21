@@ -1,3 +1,4 @@
+import {inspectBrowserWorkspaceEnrollment} from './browser_workspace_enrollment.mjs';
 /**
  * Experimental, browser-local MoonDog store identity foundation.
  * NOT a production Workspace replacement and NOT a backup.
@@ -71,9 +72,16 @@ async function locateWorkspace(store) {
  * Creates a completely new empty browser-local store. No existing file:// store
  * is migrated or used, and the absence of report data is NOT evidence of zero.
  */
-export async function createEmptyStore({storage, crypto: cryptoImpl, label, workspaceId}) {
+export async function createEmptyStore({storage, crypto: cryptoImpl, label, workspaceId, enrollment}) {
   assertStorage(storage, cryptoImpl);
   const name = labelName(label);
+  // Explicit enrollment is validated before any storage is allocated. Legacy
+  // unenrolled records retain their prior non-operational foundation behavior.
+  const enrolledRecord=enrollment===undefined?undefined:structuredClone(enrollment);
+  if(enrolledRecord!==undefined){
+    inspectBrowserWorkspaceEnrollment({label:name,enrollment:enrolledRecord});
+    Object.freeze(enrolledRecord.store);Object.freeze(enrolledRecord);
+  }
   const recoveredWorkspaceId = workspaceId === undefined ? null : identifier(workspaceId);
   const stores = await getStores(storage, true);
   let storeId;
@@ -94,7 +102,8 @@ export async function createEmptyStore({storage, crypto: cryptoImpl, label, work
   for (const part of WORKSPACE_PARTS) workspace = await workspace.getDirectoryHandle(part, {create:true});
   for (const part of WORKSPACE_DIRECTORIES) await workspace.getDirectoryHandle(part, {create:true});
   const identity = Object.freeze({format:FORMAT, version:STORE_VERSION, storeId, label:name,
-    workspaceId:recoveredWorkspaceId ?? storeId});
+    workspaceId:recoveredWorkspaceId ?? storeId,
+    ...(enrolledRecord===undefined?{}:{enrollment:enrolledRecord})});
   await writeNewJson(directory, IDENTITY, identity);
   await locateWorkspace(directory);
   if (await existsFile(directory, MARKER)) await directory.removeEntry(MARKER);
@@ -112,6 +121,7 @@ export async function openExistingStore({storage, storeId}) {
       identity?.storeId !== id || typeof identity?.label !== 'string' ||
       labelName(identity.label) !== identity.label)
     stop('Browser store identity does not match the requested store.');
+  if(Object.hasOwn(identity,'enrollment'))inspectBrowserWorkspaceEnrollment(identity);
   await locateWorkspace(directory);
   // Before recovery identity was recorded, each Workspace used its own store ID.
   const workspaceId = Object.hasOwn(identity, 'workspaceId') ? identifier(identity.workspaceId) : id;

@@ -1,5 +1,6 @@
+import {inspectBrowserWorkspaceEnrollment} from './browser_workspace_enrollment.mjs';
 /**
- * SYNTHETIC PWA software selector. Only the verified active application routing
+ * Verified PWA software selector. Only the verified active application routing
  * changes; neither original application bytes nor the Workspace are written.
  * The selected generation must be pre-staged and verified from an authenticated
  * package. No real-store deployment, release promotion, or automatic update.
@@ -45,8 +46,8 @@ async function readSelection(storage,storeId){
 async function proveOriginal({storage,crypto,storeId,originalVersion,originalManifestHash}){
  const original=await inspectVerifiedBrowserInstallation({storage,crypto,storeId,version:originalVersion,
   expectedManifestHash:originalManifestHash});
- if(!original?.applicationVerified||original.identity?.storeId!==storeId||
-    !/^SYNTHETIC(?:\s|$)/i.test(original.identity?.label||''))fail('Only verified synthetic originals may change software selection.');
+ if(!original?.applicationVerified||original.identity?.storeId!==storeId)fail('Verified original application authority is required.');
+ inspectBrowserWorkspaceEnrollment(original.identity);
 }
 async function proveCandidate({storage,crypto,storeId,version,zipHash,manifestHash}){
  const proof=await inspectStagedBrowserSoftware({storage,crypto,storeId,version,zipHash,
@@ -114,7 +115,7 @@ export async function rollbackBrowserSoftware({storage,crypto,locks,storeId,orig
    manifestHash:originalManifestHash,originalWorkspaceUntouched:true,productionReady:false});
  });
 }
-/** Explicit synthetic recovery when an interrupted record cannot be parsed.
+/** Explicit original-software recovery when an interrupted record cannot be parsed.
  * Never silently fall back. The caller must supply original manifest authority. */
 export async function recoverOriginalBrowserSoftware({storage,crypto,locks,storeId,originalVersion,originalManifestHash}={}){
  validate({storeId,originalVersion,originalManifestHash},false);

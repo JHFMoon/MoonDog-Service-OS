@@ -1,6 +1,8 @@
+import {inspectBrowserWorkspaceEnrollment} from './browser_workspace_enrollment.mjs';
 /**
  * Stages verified PUBLIC browser software without changing the original app or
- * any Workspace bytes. SYNTHETIC preview only. Staging is not activation,
+ * any Workspace bytes. Explicit enrollment or legacy synthetic identity is required.
+ * Staging is not activation,
  * publication, a Stable promotion, or permission to use operational data.
  */
 import {openExistingStore} from './opfs-store.mjs';
@@ -35,8 +37,9 @@ async function writeNew(folder,path,value,subtle){
 async function assertOriginal({storage,crypto,storeId,installedVersion,installedManifestHash}){
  if(!UUID.test(storeId||'')||!VERSION.test(installedVersion||'')||!SHA.test(installedManifestHash||''))fail('Verified original-store authority is required.');
  const proof=await inspectVerifiedBrowserInstallation({storage,crypto,storeId,version:installedVersion,expectedManifestHash:installedManifestHash});
- if(!proof.applicationVerified||proof.identity?.storeId!==storeId||!/^SYNTHETIC(?:\s|$)/i.test(proof.identity?.label||''))
-  fail('Browser update staging is restricted to verified synthetic stores.');
+ if(!proof.applicationVerified||proof.identity?.storeId!==storeId)
+  fail('Browser update staging requires verified original software authority.');
+ inspectBrowserWorkspaceEnrollment(proof.identity);
  return (await openExistingStore({storage,storeId})).store;
 }
 async function candidatesFolder(storage,storeId,create,namespace=CANDIDATES){

@@ -37,8 +37,8 @@ async function plan(version){
  entries.push({path:'INSTALLATION-MANIFEST.json',bytes:b(JSON.stringify(manifest))});
  return {version,files:entries,directories:[]};
 }
-async function fixture(label='SYNTHETIC A',sharedStorage,workspaceId){
- const s=sharedStorage||storage(),{store,identity}=await(await stores()).createEmptyStore({storage:s,crypto,label,workspaceId});
+async function fixture(label='SYNTHETIC A',sharedStorage,workspaceId,enrollment){
+ const s=sharedStorage||storage(),{store,identity}=await(await stores()).createEmptyStore({storage:s,crypto,label,workspaceId,enrollment});
  const original=await plan('0.10.17');
  for(const entry of original.files)await write(store,entry.path,entry.bytes);
  await write(store,'System Files/Workspace/data/SAPR.json',b('original report, do not touch'));
@@ -81,7 +81,7 @@ test('locked operational browser store and non-synthetic verified identity fail 
  const {store,args}=await fixture();const {stageVerifiedBrowserSoftware}=await candidate();
  await assert.rejects(stageVerifiedBrowserSoftware({...args,locks:{request:async(_n,_o,fn)=>fn(null)}}),/must close/);
  const other=await fixture('REAL store');
- await assert.rejects(stageVerifiedBrowserSoftware(other.args),/restricted to verified synthetic/);
+ await assert.rejects(stageVerifiedBrowserSoftware(other.args),/explicit dealership enrollment/);
  assert.equal(await read(store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
 });
 test('changed staged executable, extra file and incomplete marker are never considered verified',async()=>{
@@ -485,4 +485,18 @@ test('old incomplete-runtime selection requires explicit original recovery, then
  assert.equal(await read(old,'INSTALLATION-MANIFEST.json'),new TextDecoder().decode(raw),'Never rewrite the old software generation');
  assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
  assert.equal(await read(store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+});
+test('explicitly enrolled software stages, activates and rolls back with original private bytes and independent identity intact',async()=>{
+ const {createOperationalEnrollment}=await import('../src/pwa/browser_workspace_enrollment.mjs');
+ const enrollment=createOperationalEnrollment({confirmed:true,store:{name:'Example Motors (SYNTHETIC TEST ONLY)',code:'0001',timeZone:'America/Los_Angeles'}});
+ const {store,identity,args}=await fixture(enrollment.store.name,undefined,undefined,enrollment);
+ const other=await fixture('SYNTHETIC independent store',args.storage),{inventory}=require('./helpers/pwa_enrollment_fixture.cjs');
+ const before=await inventory(store),otherBefore=await inventory(other.store),generation=await candidate(),selector=await select();
+ const staged=await generation.stageVerifiedBrowserSoftware(args);await selector.activateStagedBrowserSoftware(selectArgs(args,staged));
+ const {loadVerifiedPublicAsset}=await import('../src/pwa/serve_browser_app.mjs');
+ assert.equal(new TextDecoder().decode((await loadVerifiedPublicAsset({storage:args.storage,crypto,storeId:identity.storeId,version:staged.version,expectedManifestHash:staged.manifestHash,relativePath:'assets/app.js'})).bytes),'synthetic app');
+ assert.deepEqual(await inventory(store),before);assert.deepEqual(await inventory(other.store),otherBefore);
+ await selector.rollbackBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:identity.storeId,originalVersion:args.installedVersion,originalManifestHash:args.installedManifestHash});
+ assert.deepEqual(await inventory(store),before);assert.deepEqual(await inventory(other.store),otherBefore);
+ assert.deepEqual((await(await stores()).openExistingStore({storage:args.storage,storeId:identity.storeId})).identity.enrollment,enrollment);
 });

@@ -14,7 +14,7 @@ async function harness({quota=10**9,recoveryBytes=0,recovery=false}={}){
  const {initializeFreshBrowserWorkspace}=await import('../src/pwa/initialize_fresh_browser_workspace.mjs');
  let allocations=0,restores=0;
  const context=vm.createContext({
-  navigator:{storage,locks:f.locks,serviceWorker:{}},crypto:f.webcrypto,release:{version:'0.10.17',sha256:await f.hash(f.zip)},
+  selectedWorkspaceMode:()=>"synthetic",navigator:{storage,locks:f.locks,serviceWorker:{}},crypto:f.webcrypto,release:{version:'0.10.17',sha256:await f.hash(f.zip)},
   MoonDogFreshInstall:{inspectVerifiedZip:async()=>plan},busy:false,activePreview:null,offlineShellError:null,websiteAvailable:true,
   $:nodes,status:message=>messages.push(message),shellReady:Promise.resolve(),
   localStorage:{getItem:key=>saved.get(key)||null,setItem:(key,value)=>saved.set(key,value)},PREVIOUS:'test-pointer',
@@ -24,8 +24,8 @@ async function harness({quota=10**9,recoveryBytes=0,recovery=false}={}){
  const capacity=source.slice(source.indexOf('async function requireBrowserCapacity('),source.indexOf('async function readSiteBytes('));
  vm.runInContext(capacity+'\nglobalThis.runInstall=installPreview;',context);
  const restore=recovery?{sourceStoreId:'12345678-1234-4234-8234-123456789012',backup:{workspaceId:'22345678-1234-4234-8234-123456789012'},api:{
-  inspectSyntheticExternalBackup:async()=>({bytes:recoveryBytes,workspaceId:'22345678-1234-4234-8234-123456789012'}),
-  restoreSyntheticExternalBackup:async()=>{restores++;}
+  inspectBrowserExternalBackup:async()=>({mode:'synthetic',bytes:recoveryBytes,workspaceId:'22345678-1234-4234-8234-123456789012'}),
+  restoreBrowserExternalBackup:async()=>{restores++;}
  }}:undefined;
  await context.runInstall(async()=>f.zip,restore);
  return {allocations,restores,messages,saved,softwareBytes:plan.files.reduce((n,f)=>n+f.bytes.byteLength,0),storage};

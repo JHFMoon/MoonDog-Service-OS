@@ -492,7 +492,7 @@ try{
     const limited=await page.evaluate(()=>navigator.storage.estimate());
     console.log(JSON.stringify({quotaFaultApplied:true,quota:authority.quota,usage:authority.usage,webEstimateQuota:limited.quota}));
     await page.locator('#restoreBackup').click();
-    await page.waitForFunction(()=>/Preview was not completed/i.test(document.querySelector('#result').textContent),null,{timeout:120000});
+    await page.waitForFunction(()=>/(?:Preview|Installation) was not completed/i.test(document.querySelector('#result').textContent),null,{timeout:120000});
     assert.match(await page.locator('#result').innerText(),/quota|storage|space/i,'Quota refusal must be explicit');
     assert.equal(await page.locator('#openApp').getAttribute('href'),href,'Failed recovery must keep the working software pointer');
     assert.deepEqual(await snapshot(page),preserved,'Real browser quota refusal must preserve every original Workspace byte');
@@ -536,7 +536,7 @@ try{
   const tamperedPath=join(external,'tampered-backup.json');await writeFile(tamperedPath,JSON.stringify(tampered));
   await page.locator('#backupFile').setInputFiles(tamperedPath);
   await page.locator('#restoreReceipt').fill(receipt);await page.locator('#restoreBackup').click();
-  await page.waitForFunction(()=>document.querySelector('#result').textContent.includes('Preview was not completed'));
+  await page.waitForFunction(()=>/(?:Preview|Installation) was not completed/.test(document.querySelector('#result').textContent));
   assert.equal(await page.locator('#openApp').isHidden(),true);
   await page.locator('#backupFile').setInputFiles(backupPath);
   await page.locator('#restoreReceipt').fill(await readFile(receiptPath,'utf8'));
@@ -826,4 +826,11 @@ if(!secondary&&process.env.PWA_SAPR==='1'){
   child.on('exit',code=>code===0?resolve():reject(Error('Second independent synthetic store acceptance failed: '+code)));
  });
  console.log(JSON.stringify({twoIndependentStores:true,cleanProfiles:true,overlappingAdvisorIdentifiers:true,distinctStoreTotals:true}));
+}
+
+// Published advanced proof additionally exercises the explicitly enrolled path.
+// PR baselines continue to test their actual previously published software.
+if(!secondary&&advancedRecovery&&process.env.PWA_SAPR==='1'){
+ const {runEnrolledPublicProof}=await import('../tests/helpers/pwa_enrolled_public_proof.mjs');
+ await runEnrolledPublicProof({base,sha});
 }

@@ -1,6 +1,7 @@
+import {inspectBrowserWorkspaceEnrollment} from './browser_workspace_enrollment.mjs';
 /**
  * Early-stage authenticated browser Workspace bridge for the *existing* MoonDog
- * FileSystemHandle runtime. Does not publish the app, enable real-store data,
+ * FileSystemHandle runtime. Does not publish the app or authorize deployment,
  * or alter user-visible Windows folders. Read-only application binaries;
  * only System Files/Workspace can mutate, subject to the app's write guard.
  *
@@ -25,25 +26,32 @@ const traversalPath = (base, name) => base ? `${base}/${name}` : name;
  * OPFS writes by hostile/uncooperative code are not protected by Web Locks;
  * caller must still use MoonDog's protected revision/journal write authority.
  */
-export async function openVerifiedOperationalWorkspace({storage,crypto,locks,storeId,version,expectedManifestHash}={}) {
+export async function openVerifiedOperationalWorkspace({storage,crypto,locks,storeId,version,expectedManifestHash,signal}={}) {
   if(!STORE_ID.test(storeId||'')||typeof locks?.request!=='function')
     fail('Verified browser store identity and cross-tab locking are required.');
   if(typeof storage?.getDirectory!=='function')fail('Origin-private storage is not available.');
+  if(signal?.aborted)fail('This MoonDog browser session is closed.');
+  if(signal&&(typeof signal.addEventListener!=='function'||typeof signal.removeEventListener!=='function'))fail('Invalid browser session lifecycle signal.');
 
   let release, acquired, rejected;
   let active = false, finished = false;
   const hold = new Promise(resolve => {release = resolve;});
   const ready = new Promise((resolve,reject)=>{acquired=resolve;rejected=reject;});
-  const task = locks.request('moondog-pwa-operational-'+storeId,
+  const cancel=()=>{finished=true;release();rejected(new Error('This MoonDog browser session is closed.'));};
+  signal?.addEventListener('abort',cancel,{once:true});
+  let task;
+  try{task = locks.request('moondog-pwa-operational-'+storeId,
     {mode:'exclusive',ifAvailable:true},async lock=>{
+      if(finished||signal?.aborted){rejected(new Error('This MoonDog browser session is closed.'));return;}
       if(!lock){rejected(new Error('Another MoonDog tab is already using this browser store.'));return;}
       active = true;acquired();
       try{await hold;}finally{active=false;}
-    });
+    });}catch(error){signal?.removeEventListener('abort',cancel);throw error;}
   // Avoid an unhandled rejection when a browser locks implementation fails.
   const done = Promise.resolve(task).catch(error => {rejected(error);throw error;});
   try {
     await ready;
+    if(finished||signal?.aborted)fail('This MoonDog browser session is closed.');
     const selected = await inspectActiveBrowserSoftware({storage,crypto,storeId});
     if(selected && (selected.version!==version || selected.manifestHash!==expectedManifestHash))
       fail('The requested dashboard does not match the active verified software generation.');
@@ -54,11 +62,8 @@ export async function openVerifiedOperationalWorkspace({storage,crypto,locks,sto
       expectedManifestHash:selected?.originalManifestHash||expectedManifestHash});
     if(!proof.applicationVerified || proof.identity.storeId!==storeId)
       fail('Browser application verification did not authorize this store.');
-    // This hosted preview is SYNTHETIC-only. A valid software signature alone
-    // must never turn an existing operational store into a preview Workspace.
-    if(typeof proof.identity.label!=='string' ||
-       !/^SYNTHETIC(?:\s|$)/i.test(proof.identity.label))
-      fail('Browser preview refuses non-synthetic stores. No Workspace handle was exposed.');
+    const enrollment=inspectBrowserWorkspaceEnrollment(proof.identity);
+    if(finished||signal?.aborted)fail('This MoonDog browser session is closed.');
 
     const originals = new WeakMap();
     const assertActive = () => {if(!active || finished)fail('This MoonDog browser session is closed.');};
@@ -130,11 +135,11 @@ export async function openVerifiedOperationalWorkspace({storage,crypto,locks,sto
     }
     const handle = wrapDir(proof.store);
     return Object.freeze({
-      storeId,handle,version,
+      storeId,handle,version,workspaceMode:enrollment.mode,storeProfile:enrollment.store,
       operationalModelConnected:false,externalBackupVerified:false,productionReady:false,
-      async close(){if(finished)return;finished=true;release();await done;}
+      async close(){signal?.removeEventListener('abort',cancel);if(finished){await done;return;}finished=true;release();await done;}
     });
   } catch(error){
-    finished=true;release();await done.catch(()=>{});throw error;
+    signal?.removeEventListener('abort',cancel);finished=true;release();await done.catch(()=>{});throw error;
   }
 }

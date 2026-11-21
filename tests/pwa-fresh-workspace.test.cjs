@@ -42,3 +42,18 @@ test('interrupted fresh initialization remains held and cannot expose a partial 
  const {inspectVerifiedBrowserInstallation}=await import('../src/pwa/install_verified_browser_store.mjs');
  await assert.rejects(inspectVerifiedBrowserInstallation(args),/remains incomplete/);
 });
+test('fresh enrolled Workspace seeds only confirmed local dealership configuration, leaving reports and staffing unknown',async()=>{
+ const s=storage(),{createOperationalEnrollment}=await import('../src/pwa/browser_workspace_enrollment.mjs');
+ const enrollment=createOperationalEnrollment({confirmed:true,store:{name:'SYNTHETIC Operational Motors',code:'0001',timeZone:'America/Los_Angeles'}});
+ const {createEmptyStore}=await import('../src/pwa/opfs-store.mjs');
+ const base=await createEmptyStore({storage:s,crypto:{randomUUID},label:enrollment.store.name,enrollment});
+ await install(s,base.identity.storeId);
+ const manifest=(await plan()).files.find(f=>f.path==='INSTALLATION-MANIFEST.json').bytes;
+ const args={storage:s,crypto:webcrypto,locks,storeId:base.identity.storeId,version:'0.10.17',expectedManifestHash:await hash(manifest)};
+ const out=await(await api()).initializeFreshBrowserWorkspace(args);assert.equal(out.mode,'operational');assert.equal(out.productionReady,false);
+ const ws=await(await base.store.getDirectoryHandle('System Files')).getDirectoryHandle('Workspace');
+ const data=await ws.getDirectoryHandle('data'),settings=JSON.parse(await(await(await data.getFileHandle('settings.json')).getFile()).text());
+ assert.deepEqual(settings,{sourceAdapters:{schemaVersion:1},store:{name:enrollment.store.name,code:'0001',brand:'',timeZone:'America/Los_Angeles',confirmed:{name:true,code:true,brand:false,timeZone:true}},storeName:enrollment.store.name});
+ assert.deepEqual([...data.map.keys()],['settings.json']);
+ await assert.rejects((await api()).initializeFreshBrowserWorkspace(args),/Existing Workspace data/);
+});

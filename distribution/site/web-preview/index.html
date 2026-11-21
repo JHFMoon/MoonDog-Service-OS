@@ -1,16 +1,26 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MoonDog Service OS</title><meta name="theme-color" content="#153847">
-<link rel="manifest" href="./app.webmanifest?v=18"><link rel="stylesheet" href="./style.css">
+<link rel="manifest" href="./app.webmanifest?v=19"><link rel="stylesheet" href="./style.css">
 </head><body>
 <main><div class="eyebrow">MoonDog Service OS</div>
 <h1>Your service drive.<br>One place to run it.</h1>
 <p>Install MoonDog, finish Guided Setup, and import your SAPR workbook. Your Workspace stays private on this computer, including when you work offline.</p>
-<div class="warning"><strong>Synthetic pilot — not ready for dealership use.</strong>
+<div class="warning" id="syntheticWarning"><strong>Synthetic testing only.</strong>
 Use test data only. Do not import any real dealership files, RO/VIN details or employee records. Clearing Edge site data erases the browser copy; keep a verified external backup.</div>
 <section id="installation"><h2>Get started</h2>
+<p>Clearing Edge site data removes this browser copy. Download an external backup and save its receipt separately.</p>
 <p id="version">Checking the verified software…</p>
-<label class="check"><input type="checkbox" id="consent"> I will use synthetic testing only, with no actual dealership data.</label>
+<label for="workspaceMode">Workspace type</label>
+<select id="workspaceMode"><option value="synthetic">Synthetic test Workspace</option><option value="operational">Dealership Workspace · Beta</option></select>
+<fieldset id="storeEnrollment" hidden><legend>Confirm your dealership</legend>
+<p>Dealership mode installs the verified Beta application. This store identity stays with its isolated Workspace and external backup.</p>
+<label for="enrollmentName">Dealership name</label><input id="enrollmentName" maxlength="80" autocomplete="organization">
+<label for="enrollmentCode">Store code</label><input id="enrollmentCode" maxlength="32" autocomplete="off" spellcheck="false">
+<label for="enrollmentBrand">Brand (optional)</label><input id="enrollmentBrand" maxlength="80" autocomplete="off">
+<label for="enrollmentTimeZone">Dealership time zone</label><select id="enrollmentTimeZone"><option value="">Choose time zone</option><option value="America/Los_Angeles">Pacific time</option><option value="America/Denver">Mountain time</option><option value="America/Chicago">Central time</option><option value="America/New_York">Eastern time</option></select>
+<p>Your reports, employees and targets remain empty until you configure and import them in Guided Setup.</p></fieldset>
+<label class="check"><input type="checkbox" id="consent"> <span id="consentText">I will use synthetic testing only, with no actual dealership data.</span></label>
 <button id="installFromWeb" disabled>Install MoonDog</button>
 <button id="installEdge" hidden>Install app in Edge</button>
 <p id="packageStatus" class="status" role="status" aria-live="polite">Checking website installation…</p>
@@ -32,7 +42,7 @@ Use test data only. Do not import any real dealership files, RO/VIN details or e
 <button id="restoreBackup" disabled>Recover Workspace</button></details>
 <p id="backupStatus" class="status" role="status"></p></section>
 <section><h2>Software updates</h2>
-<p>For synthetic test Workspaces only. The original application and Workspace stay separate from verified Beta software. Close other MoonDog windows before changing software.</p>
+<p>The original application and Workspace stay separate from verified Beta software. Close other MoonDog windows before changing software.</p>
 <button id="checkBeta" disabled>Check for Beta update</button>
 <button id="installBeta" disabled>Install verified Beta</button>
 <button id="rollbackBeta" disabled>Roll back software</button>
@@ -40,6 +50,6 @@ Use test data only. Do not import any real dealership files, RO/VIN details or e
 <button id="recoverOriginal" disabled>Recover verified original software</button></details>
 <p id="betaStatus" class="status" role="status" aria-live="polite">Install MoonDog to check for verified updates.</p>
 </section></div>
-<p class="foot">Your existing MoonDog installations stay separate. This pilot uses browser-private storage; an external backup is your recovery copy.</p>
-</main><script src="../fresh-install-writer.js"></script><script type="module" src="./setup.mjs?v=18"></script>
+<p class="foot">Your existing MoonDog installations stay separate. This installation uses browser-private storage; an external backup is your recovery copy.</p>
+</main><script src="../fresh-install-writer.js"></script><script type="module" src="./setup.mjs?v=19"></script>
 </body></html>

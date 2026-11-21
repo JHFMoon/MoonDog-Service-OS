@@ -80,7 +80,7 @@ test('bridge routes the Stable and newer Workspace picker modes, and refuses unr
  await assert.rejects(window.showDirectoryPicker({id:'moondog-operations'}),/No Windows folder was selected/);
 });
 test('static PWA source mirrors reviewed canonical modules byte-for-byte',()=>{
- const root=path.join(__dirname,'..');for(const name of ['opfs-store.mjs','install_verified_browser_store.mjs','connect_operational_workspace.mjs','serve_browser_app.mjs','verified_site_package.mjs','browser_software_candidates.mjs','browser_software_selection.mjs','verified_beta_transport.mjs']){
+ const root=path.join(__dirname,'..');for(const name of ['browser_workspace_enrollment.mjs','opfs-store.mjs','install_verified_browser_store.mjs','connect_operational_workspace.mjs','serve_browser_app.mjs','verified_site_package.mjs','browser_software_candidates.mjs','browser_software_selection.mjs','verified_beta_transport.mjs']){
   const canonical=fs.readFileSync(path.join(root,'src/pwa',name));
   const published=fs.readFileSync(path.join(root,'distribution/site/web-preview/modules',name));
   assert.deepEqual(published,canonical,`${name} must not silently fork public installer authority`);
@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v18'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v19'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -115,14 +115,14 @@ test('preview is separate from production site and refuses real data at the entr
 test('public preview refuses non-synthetic store even with valid official app hash',async()=>{
  const {args,store}=await create('Actual dealership');
  const {loadVerifiedPublicAsset}=await lib();
- await assert.rejects(loadVerifiedPublicAsset({...args,relativePath:'index.html'}),/refuses non-synthetic/);
+ await assert.rejects(loadVerifiedPublicAsset({...args,relativePath:'index.html'}),/explicit dealership enrollment/);
  const system=await store.getDirectoryHandle('System Files');
  const workspace=await system.getDirectoryHandle('Workspace');
  const data=await workspace.getDirectoryHandle('data');
  await write(data,'original.txt',b('ORIGINAL TEST ONLY'));
  assert.equal(new TextDecoder().decode((await data.getFileHandle('original.txt')).bytes),'ORIGINAL TEST ONLY');
  const setup=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
- assert.match(setup,/check\.identity\.label/);
+ assert.match(setup,/displaySavedEnrollment\(check\.identity\)/);
  assert.match(setup,/SYNTHETIC/);
 });
 
@@ -183,7 +183,8 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
   assert.match(html,new RegExp('id="'+id+'"[^>]*disabled'));
   assert.match(setup,new RegExp("\\$\\('"+id+"'\\)\\.addEventListener"));
  }
- assert.match(html,/synthetic test Workspaces only/i);
+ assert.match(html,/Dealership Workspace.*Beta/);
+ assert.match(setup,/requireWorkspaceUpdate/);
  assert.match(setup,/fetchVerifiedPinnedBeta/);
  assert.match(setup,/stageVerifiedBetaBrowserSoftware/);
  assert.match(setup,/activateStagedBrowserSoftware/);
@@ -194,7 +195,7 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v18'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v19'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
@@ -223,7 +224,7 @@ test('active worker refuses to attest an evicted or partially missing shell',asy
  };
  assert.equal((await probe()).complete,false,'A version string alone cannot attest an empty cache');
  assert.equal((await probe()).type,'MOONDOG_PREVIEW_SHELL_PROOF');
- assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v18');
+ assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v19');
  let unrelatedWork=false;
  listeners.message({data:{type:'UNRELATED'},ports:[{postMessage:()=>{throw Error('Unexpected reply');}}],
   waitUntil(){unrelatedWork=true;}});
@@ -290,7 +291,7 @@ test('browser startup waits for canonical readiness, connects once, and leaves r
   getElementById(id){return id==='connectButton'?button:id==='folderWatchStatus'?watch:id==='status'?status:id==='view-setup'?setupRoot:id==='dailyTools'?dailyRoot:null;}};
  const route=`https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/store/${randomUUID()}/${'0'.repeat(64)}/0.10.17/index.html`;
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/bridge.js'),'utf8'),{
-  document,window:{addEventListener(){}},location:new URL(route),navigator:{},URL,
+  document,window:{addEventListener(){}},location:new URL(route),navigator:{},URL,AbortController,
   MutationObserver:class{constructor(fn){observe=fn;}observe(){}disconnect(){disconnected=true;}}
  });
  handlers.DOMContentLoaded();assert.match(setupNote.textContent,/Complete setup below/);assert.doesNotMatch(setupNote.textContent,/00 - OPEN/);
@@ -423,7 +424,7 @@ function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({nam
   return elements.get(id);
  };
  const install=vm.runInNewContext(source.slice(start,end)+';installPreview',{
-  $,busy:false,release:{version:'0.10.17'},websiteAvailable:true,activePreview:null,PREVIOUS:'saved',shellReady:readiness,offlineShellError:null,
+  selectedWorkspaceMode:()=>"synthetic",$,busy:false,release:{version:'0.10.17'},websiteAvailable:true,activePreview:null,PREVIOUS:'saved',shellReady:readiness,offlineShellError:null,
   localStorage:{getItem:()=>JSON.stringify(saved)},
   navigator:{storage:{getDirectory(){}},locks,serviceWorker:{}},
   status:message=>messages.push(message)
@@ -475,4 +476,26 @@ test('offline shell failure settles existing-preview discovery without an unhand
  assert.match(result.getError().message,/Missing cached module/);
  assert.equal($('installFromWeb').disabled,true);assert.equal($('restoreBackup').disabled,true);
  assert.match(messages.at(-1)[0],/Reconnect and reopen/);
+});
+test('browser Guided Setup uses the canonical file chooser once without parsing or writing reports',()=>{
+ const vm=require('node:vm'),source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/bridge.js'),'utf8');
+ const start=source.indexOf('    function browserInstructions(){'),end=source.indexOf('    browserInstructions();',start);
+ const created=[],note={textContent:'Copy your Service Advisor Performance Report (.xlsx) into 01 - DROP REPORTS HERE, then click Find report.'};
+ let renderCalls=0,chooserCalls=0,ready=false;
+ const picker={click(){chooserCalls++;}},refresh={closest:()=>({querySelectorAll:()=>[note]}),before(button){assert.equal(button.id,'browserChooseSapr');}};
+ const document={getElementById(id){return id==='setupSaprRefresh'?refresh:created.find(e=>e.id===id)||null;},
+  createElement(tag){assert.equal(tag,'button');const element={handlers:{},addEventListener(type,handler){this.handlers[type]=handler;}};created.push(element);return element;},
+  querySelector(selector){assert.equal(selector,'#dailyTools input[type=file]');return ready?picker:null;}};
+ const window={__moondogDailyUI:{renderTools(category){assert.equal(category,'imports');renderCalls++;ready=true;}}};
+ const run=vm.runInNewContext(source.slice(start,end)+';browserInstructions',{document,window,active:{workspaceMode:'synthetic'},copyRoots:new WeakSet(),copyObserver:{observe(){}}});
+ run();run();assert.equal(created.length,1,'Repeated render must not duplicate the chooser');assert.equal(renderCalls,0);assert.equal(chooserCalls,0);
+ assert.doesNotMatch(note.textContent,/01 - DROP REPORTS HERE/);created[0].handlers.click();assert.equal(renderCalls,1);assert.equal(chooserCalls,1);assert.equal(picker.accept,'.xlsx');
+});
+test('restored history pages re-enter current software authority and disposed pages reject connection',async()=>{
+ const vm=require('node:vm'),handlers={};let destination=null;
+ const route=new URL(`https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/store/${randomUUID()}/${'0'.repeat(64)}/0.10.17/index.html`);
+ const window={addEventListener(type,handler){handlers[type]=handler;}},document={currentScript:{src:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/bridge.js'},addEventListener(){}};
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/bridge.js'),'utf8'),{window,document,navigator:{},URL,AbortController,location:{pathname:route.pathname,replace(url){destination=url;}}});
+ handlers.pageshow({persisted:false});assert.equal(destination,null);handlers.pageshow({persisted:true});assert.equal(destination,'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/index.html');
+ handlers.pagehide();await assert.rejects(window.showDirectoryPicker({id:'moondog-operations',mode:'readwrite'}),/session is closed/);
 });

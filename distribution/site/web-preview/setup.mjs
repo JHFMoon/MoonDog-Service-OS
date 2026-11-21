@@ -1,6 +1,10 @@
 /* Website installation and app settings for the canonical MoonDog runtime.
- * Verified software stays in browser storage. Synthetic pilot; no real-store data. */
+ * Verified software and explicitly confirmed Workspace identity stay local. */
 import {initializeFreshBrowserWorkspace} from './modules/initialize_fresh_browser_workspace.mjs';
+import {createOperationalEnrollment,inspectBrowserWorkspaceEnrollment} from './modules/browser_workspace_enrollment.mjs';
+import {fetchVerifiedPinnedBeta} from './modules/verified_beta_transport.mjs';
+import {stageVerifiedBetaBrowserSoftware} from './modules/browser_software_candidates.mjs';
+import {activateStagedBrowserSoftware} from './modules/browser_software_selection.mjs';
 import {createEmptyStore} from './modules/opfs-store.mjs';
 import {installVerifiedBrowserStore} from './modules/install_verified_browser_store.mjs';
 import {probeSitePackage,fetchVerifiedSitePackage} from './modules/verified_site_package.mjs';
@@ -34,10 +38,34 @@ const PREVIOUS='moondog-pwa-synthetic-preview-pointer-v1';
 const SITE_URL=new URL('./',import.meta.url).href;
 let websiteAvailable=false;
 let activePreview=null,backupUrl=null,verifiedBetaOffer=null;
+function selectedWorkspaceMode(){return $('workspaceMode').value==='operational'?'operational':'synthetic';}
+function renderWorkspaceMode(){
+ const operational=selectedWorkspaceMode()==='operational';
+ $('storeEnrollment').hidden=!operational;$('syntheticWarning').hidden=operational;
+ $('consentText').textContent=operational?
+  'I confirm this is the intended dealership, accept Beta software, and will keep an external backup and separate receipt.':
+  'I will use synthetic testing only, with no actual dealership data.';
+}
+$('workspaceMode').addEventListener('change',()=>{$('consent').checked=false;renderWorkspaceMode();});
+function enrollmentFromForm(){
+ return createOperationalEnrollment({confirmed:$('consent').checked,store:{
+  name:$('enrollmentName').value,code:$('enrollmentCode').value,
+  brand:$('enrollmentBrand').value,timeZone:$('enrollmentTimeZone').value}});
+}
+function displaySavedEnrollment(identity){
+ const scope=inspectBrowserWorkspaceEnrollment(identity);$('workspaceMode').value=scope.mode;
+ if(scope.mode==='operational')for(const [key,id] of Object.entries({name:'enrollmentName',code:'enrollmentCode',brand:'enrollmentBrand',timeZone:'enrollmentTimeZone'}))
+  $(id).value=scope.store[key];
+ renderWorkspaceMode();return scope;
+}
+
 function showPreview(pointer,launchPointer=pointer){
  // Keep the original Stable identity for backup/restore; launch a verified
  // newer generation only when its independent selection is active.
  activePreview=pointer;
+ $('workspaceMode').value=pointer.mode||'synthetic';$('workspaceMode').disabled=true;renderWorkspaceMode();
+ for(const id of ['enrollmentName','enrollmentCode','enrollmentBrand'])$(id).readOnly=true;
+ $('enrollmentTimeZone').disabled=true;
  open.href='./store/'+launchPointer.storeId+'/'+launchPointer.manifestHash+'/'+launchPointer.version+'/index.html';
  open.hidden=false;
  $('prepareBackup').disabled=false;
@@ -112,10 +140,8 @@ async function offerExistingPreview(){
   const {inspectActiveBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
   const check=await inspectVerifiedBrowserInstallation({storage:navigator.storage,crypto,
    storeId:prior.storeId,version:prior.version,expectedManifestHash:prior.manifestHash});
-  if(!check.applicationVerified||
-     typeof check.identity?.label!=='string'||
-     !/^SYNTHETIC(?:\s|$)/i.test(check.identity.label)||
-     check.identity.workspaceId!==(prior.workspaceId??prior.storeId))return;
+  if(!check.applicationVerified||check.identity.workspaceId!==(prior.workspaceId??prior.storeId))return;
+  const scope=displaySavedEnrollment(check.identity);prior.mode=scope.mode;
   // An invalid selector must not silently launch an original or a candidate.
   // Only an explicit user recovery action may clear a damaged selector.
   let selection;
@@ -180,13 +206,14 @@ async function requireBrowserCapacity(storage,requiredBytes){
 }
 async function installPreview(readBytes, recovery){
  if(busy)return;
- if(!$('consent').checked){status('Confirm this is for synthetic testing only.',true);return;}
+ if(!$('consent').checked){status('Confirm the selected Workspace type and backup requirements.',true);return;}
  if(!release||!navigator.storage?.getDirectory||!navigator.locks?.request||!navigator.serviceWorker){
   status('A required secure Edge feature is unavailable. Nothing was installed.',true);return;
  }
  busy=true;$('installFromWeb').disabled=true;
  $('prepareBackup').disabled=true;$('restoreBackup').disabled=true;
  try{
+  const mode=selectedWorkspaceMode(),requestedEnrollment=mode==='operational'?enrollmentFromForm():null;
   await shellReady;
   await navigator.locks.request('moondog-pwa-browser-setup',{mode:'exclusive',ifAvailable:true},async lock=>{
    if(!lock)throw Error('Another MoonDog window is installing or restoring this browser profile. Try again after it finishes.');
@@ -205,34 +232,52 @@ async function installPreview(readBytes, recovery){
    if(!manifest)throw Error('Official installation inventory missing.');
    const manifestHash=await sha(manifest.bytes);
    const recoveryArgs={crypto,version:release.version,expectedManifestHash:manifestHash};
-   const verifiedBackup=recovery?await recovery.api.inspectSyntheticExternalBackup({...recoveryArgs,
+   const verifiedBackup=recovery?await recovery.api.inspectBrowserExternalBackup({...recoveryArgs,
     backup:recovery.backup,expectedStoreId:recovery.sourceStoreId}):null;
+   if(verifiedBackup&&verifiedBackup.mode!==mode)throw Error('The backup belongs to a different Workspace type. Select its matching type before recovery.');
+   if(verifiedBackup?.enrollment&&JSON.stringify(verifiedBackup.enrollment.store)!==JSON.stringify(requestedEnrollment.store))
+    throw Error('The backup belongs to a different dealership than the confirmed configuration.');
+   const enrollment=verifiedBackup?.enrollment??requestedEnrollment;
+   const beta=mode==='operational'?await fetchVerifiedPinnedBeta({fetchImpl:fetch,crypto}):null;
+   const betaBytes=beta?beta.files.reduce((total,entry)=>total+entry.bytes.byteLength,0):0;
    const softwareBytes=verified.files.reduce((total,entry)=>total+(entry.bytes?.byteLength||0),0);
-   await requireBrowserCapacity(navigator.storage,softwareBytes+(verifiedBackup?.bytes||0)+65536);
-   status('Creating an isolated, empty synthetic browser store…');
+   await requireBrowserCapacity(navigator.storage,softwareBytes+betaBytes+(verifiedBackup?.bytes||0)+65536);
+   status('Creating an isolated, empty browser Workspace…');
    const {identity}=await createEmptyStore({storage:navigator.storage,crypto,
-    label:'SYNTHETIC MoonDog Web Preview',workspaceId:verifiedBackup?.workspaceId});
+    label:enrollment?.store.name??'SYNTHETIC MoonDog Web Preview',workspaceId:verifiedBackup?.workspaceId,...(enrollment?{enrollment}:{})});
    await installVerifiedBrowserStore({storage:navigator.storage,crypto,locks:navigator.locks,
     storeId:identity.storeId,zipBytes:buffer,version:release.version,expectedZipHash:release.sha256,inspectVerifiedZip:inspect});
    if(!recovery)await initializeFreshBrowserWorkspace({...recoveryArgs,storage:navigator.storage,locks:navigator.locks,storeId:identity.storeId});
    if(recovery){
-    status('Restoring and verifying the synthetic Workspace…');
-    await recovery.api.restoreSyntheticExternalBackup({...recoveryArgs,storage:navigator.storage,
+    status('Restoring and verifying the Workspace…');
+    await recovery.api.restoreBrowserExternalBackup({...recoveryArgs,storage:navigator.storage,
      locks:navigator.locks,storeId:identity.storeId,backup:recovery.backup,
      sourceStoreId:recovery.sourceStoreId,checksum:recovery.checksum});
    }
+   let launch=null;
+   if(beta){
+    status('Staging the verified Beta application without changing Workspace files…');
+    const staged=await stageVerifiedBetaBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,
+     storeId:identity.storeId,installedVersion:release.version,installedManifestHash:manifestHash,fetchImpl:fetch});
+    if(staged.version!==beta.version||staged.zipHash!==beta.packageHash)
+     throw Error('Beta authority changed during installation. No saved Workspace pointer was replaced.');
+    await activateStagedBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,
+     storeId:identity.storeId,originalVersion:release.version,originalManifestHash:manifestHash,
+     version:staged.version,zipHash:staged.zipHash,manifestHash:staged.manifestHash});
+    launch={storeId:identity.storeId,version:staged.version,manifestHash:staged.manifestHash};
+   }
    status('Registering the browser app service worker…');
    await shellReady;
-   const pointer={storeId:identity.storeId,workspaceId:identity.workspaceId,manifestHash,version:release.version};
+   const pointer={storeId:identity.storeId,workspaceId:identity.workspaceId,manifestHash,version:release.version,mode};
    localStorage.setItem(PREVIOUS,JSON.stringify(pointer));
-   showPreview(pointer);
+   showPreview(pointer,launch??pointer);
    const persistent=await navigator.storage.persist?.().catch(()=>false);
-   status((recovery?'Synthetic Workspace restored and verified. ':'Verified SYNTHETIC preview is installed in browser-private storage. ')+
+   status((recovery?'Workspace restored and verified. ':mode==='operational'?'Your dealership Workspace and verified Beta are installed. ':'Verified SYNTHETIC preview is installed in browser-private storage. ')+
     'Click Open dashboard to inspect the real MoonDog interface. '+
     (persistent?'Browser persistence is enabled.':'Browser persistence is NOT guaranteed. Keep an external backup; clearing Edge site data removes this copy.'));
    enterApplication();
   });
- }catch(e){status('Preview was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}
+ }catch(e){status('Installation was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}
  finally{busy=false;$('installFromWeb').disabled=!websiteAvailable||Boolean(offlineShellError);
   $('prepareBackup').disabled=!activePreview;$('restoreBackup').disabled=!websiteAvailable||Boolean(offlineShellError);}
 }
@@ -246,19 +291,19 @@ async function readSiteBytes(){
 $('installFromWeb').addEventListener('click',()=>installPreview(readSiteBytes));
 $('prepareBackup').addEventListener('click',async()=>{
  if(busy||!activePreview||!$('consent').checked){
-  $('backupStatus').textContent='Confirm synthetic-only use before preparing a backup.';return;
+  $('backupStatus').textContent='Confirm the selected Workspace and backup requirements before preparing a backup.';return;
  }
  $('prepareBackup').disabled=true;
  $('saveBackup').hidden=$('backupReceipt').hidden=$('backupReceiptLabel').hidden=true;
  if(backupUrl){URL.revokeObjectURL(backupUrl);backupUrl=null;}
  try{
-  const {createSyntheticExternalBackup}=await import('./modules/synthetic_external_backup.mjs');
+  const {createBrowserExternalBackup}=await import('./modules/synthetic_external_backup.mjs');
   const {storeId,manifestHash,version}=activePreview;
-  const backup=await createSyntheticExternalBackup({storage:navigator.storage,locks:navigator.locks,
+  const backup=await createBrowserExternalBackup({storage:navigator.storage,locks:navigator.locks,
    crypto,storeId,version,expectedManifestHash:manifestHash});
   backupUrl=URL.createObjectURL(new Blob([JSON.stringify(backup)],{type:'application/json'}));
   $('saveBackup').href=backupUrl;
-  $('saveBackup').download='MoonDog-synthetic-'+storeId+'.json';
+  $('saveBackup').download='MoonDog-'+(activePreview.mode||'synthetic')+'-'+storeId+'.json';
   $('backupReceipt').value=storeId+':'+backup.sha256;
   $('saveBackup').hidden=$('backupReceipt').hidden=$('backupReceiptLabel').hidden=false;
   $('backupStatus').textContent='Snapshot verified. Download it and save the receipt separately.';
@@ -269,8 +314,8 @@ $('restoreBackup').addEventListener('click',async()=>{
  if(busy||!websiteAvailable)return;
  const file=$('backupFile').files?.[0];
  const receipt=/^([0-9a-f-]{36}):([0-9a-f]{64})$/.exec($('restoreReceipt').value.trim());
- if(!$('consent').checked||!file||!file.size||file.size>48*1024*1024||!receipt){
-  $('backupStatus').textContent='Confirm synthetic use and provide the backup file and its separate receipt.';return;
+ if(!$('consent').checked||!file||!file.size||file.size>288*1024*1024||!receipt){
+  $('backupStatus').textContent='Confirm the selected Workspace and provide the backup file and its separate receipt.';return;
  }
  $('restoreBackup').disabled=true;
  try{
@@ -299,7 +344,7 @@ async function verifyActiveBetaShell(){
   channel.port1.onmessage=event=>{
    clearTimeout(timer);channel.port1.close();
    if(event.data?.type!=='MOONDOG_PREVIEW_SHELL_PROOF'||
-      event.data.cache!=='moondog-synthetic-preview-shell-v18'){
+      event.data.cache!=='moondog-synthetic-preview-shell-v19'){
     reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
     return;
    }
@@ -315,14 +360,14 @@ async function verifyActiveBetaShell(){
 function softwareStatus(message,error=false){
  const el=$('betaStatus');el.textContent=message;el.className=error?'status error':'status';
 }
-function requireSyntheticUpdate(){
+function requireWorkspaceUpdate(){
  if(busy||!activePreview||!$('consent').checked||!navigator.storage?.getDirectory||!navigator.locks?.request)
-  throw Error('Install a verified synthetic preview, consent to testing and close the dashboard before changing software.');
+  throw Error('Install a verified Workspace, confirm its use and close the dashboard before changing software.');
 }
 $('checkBeta').addEventListener('click',async()=>{
  if(busy)return;
  try{
-  requireSyntheticUpdate();
+  requireWorkspaceUpdate();
   busy=true;$('checkBeta').disabled=true;$('installBeta').disabled=true;
   await verifyActiveBetaShell();
   softwareStatus('Checking the immutable published Beta package and every public runtime file…');
@@ -340,7 +385,7 @@ $('checkBeta').addEventListener('click',async()=>{
 $('installBeta').addEventListener('click',async()=>{
  if(busy)return;
  try{
-  requireSyntheticUpdate();
+  requireWorkspaceUpdate();
   if(!verifiedBetaOffer)throw Error('Check the verified Beta first.');
   busy=true;$('installBeta').disabled=true;$('checkBeta').disabled=true;
   await verifyActiveBetaShell();
@@ -366,14 +411,14 @@ $('installBeta').addEventListener('click',async()=>{
    storeId,originalVersion:version,originalManifestHash:manifestHash,
    version:staged.version,zipHash:staged.zipHash,manifestHash:staged.manifestHash});
   showPreview(activePreview,{storeId,version:staged.version,manifestHash:staged.manifestHash});
-  softwareStatus('SYNTHETIC Beta '+staged.version+' selected. Open dashboard to test. Your original Stable application and Workspace are unchanged.');
+  softwareStatus('Verified Beta '+staged.version+' selected. Open dashboard to test. Your original Stable application and Workspace are unchanged.');
  }catch(error){softwareStatus('Beta installation was refused or incomplete: '+String(error?.message||error)+'. Original software and Workspace are preserved. Do not delete partial candidate storage.',true);}
  finally{busy=false;$('checkBeta').disabled=!activePreview;$('installBeta').disabled=!verifiedBetaOffer;}
 });
 $('rollbackBeta').addEventListener('click',async()=>{
  if(busy)return;
  try{
-  requireSyntheticUpdate();busy=true;$('rollbackBeta').disabled=true;
+  requireWorkspaceUpdate();busy=true;$('rollbackBeta').disabled=true;
   const {rollbackBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
   const {storeId,version,manifestHash}=activePreview;
   await rollbackBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,storeId,
@@ -386,7 +431,7 @@ $('rollbackBeta').addEventListener('click',async()=>{
 $('recoverOriginal').addEventListener('click',async()=>{
  if(busy)return;
  try{
-  requireSyntheticUpdate();busy=true;$('recoverOriginal').disabled=true;
+  requireWorkspaceUpdate();busy=true;$('recoverOriginal').disabled=true;
   const {recoverOriginalBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
   const {storeId,version,manifestHash}=activePreview;
   await recoverOriginalBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,storeId,

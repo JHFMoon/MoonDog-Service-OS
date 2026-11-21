@@ -15,6 +15,7 @@
      !/^[a-f0-9]{64}$/.test(expectedManifestHash||'')||
      !/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(version||''))throw Error('Invalid preview store route.');
   let active=null,connecting=null;
+  const lifecycle=new AbortController();
   const moduleUrl=new URL('./modules/connect_operational_workspace.mjs',base);
   // Only the app's intended connect action uses this bridge. Every other
   // native picker is blocked, never silently pointed at another store.
@@ -22,22 +23,27 @@
     // Stable 0.10.17 selects in read mode and requests write authority later.
     if(options.id!=='moondog-operations'||!['read','readwrite'].includes(options.mode))
       throw Error('This browser preview supports only its verified local Workspace. No Windows folder was selected.');
+    if(lifecycle.signal.aborted)throw Error('This MoonDog browser session is closed.');
     if(active)return active.handle;
     if(connecting)return connecting;
     connecting=(async()=>{
       const {openVerifiedOperationalWorkspace}=await import(moduleUrl.href);
       if(!navigator.storage?.getDirectory||!navigator.locks?.request)
         throw Error('Edge browser-private storage or per-store locking is unavailable.');
-      active=await openVerifiedOperationalWorkspace({storage:navigator.storage,crypto,locks:navigator.locks,
-        storeId,version,expectedManifestHash});
-      return active.handle;
+      const session=await openVerifiedOperationalWorkspace({storage:navigator.storage,crypto,locks:navigator.locks,
+        storeId,version,expectedManifestHash,signal:lifecycle.signal});
+      if(lifecycle.signal.aborted){await session.close();throw Error('This MoonDog browser session is closed.');}
+      active=session;return active.handle;
     })();
     try{return await connecting;}finally{connecting=null;}
   };
-  window.addEventListener('pagehide',()=>{if(active)void active.close();active=null;},{once:true});
+  window.addEventListener('pagehide',()=>{lifecycle.abort();if(active)void active.close();active=null;},{once:true});
+  // A history-cache restore must reconnect through current software authority,
+  // not reuse a disposed handle or an old software generation.
+  window.addEventListener('pageshow',event=>{if(event.persisted)location.replace(new URL('./index.html',base).href);});
   document.addEventListener('DOMContentLoaded',()=>{
     const manifest=document.createElement('link');manifest.rel='manifest';
-    manifest.href=new URL('./app.webmanifest?v=18',base).href;document.head.append(manifest);
+    manifest.href=new URL('./app.webmanifest?v=19',base).href;document.head.append(manifest);
     const bar=document.createElement('div');bar.setAttribute('aria-label','MoonDog app controls');
     bar.style.cssText='position:fixed;z-index:9999;bottom:0;left:0;right:0;padding:8px 15px;background:#153847;color:white;font:600 13px system-ui;display:flex;align-items:center;justify-content:space-between;gap:15px';
     const label=document.createElement('span');label.textContent='MoonDog · Synthetic pilot · Test files only';
@@ -56,6 +62,42 @@
     const copyRoots=new WeakSet();
     const copyObserver=new MutationObserver(browserInstructions);
     function browserInstructions(){
+      const refresh=document.getElementById('setupSaprRefresh');
+      if(active&&refresh&&typeof window.__moondogDailyUI?.renderTools==='function'){
+        const card=refresh.closest('section');
+        for(const paragraph of card?.querySelectorAll('p')||[])if(paragraph.textContent.startsWith('Copy your Service Advisor Performance Report')&&paragraph.textContent.includes('01 - DROP REPORTS HERE'))
+          paragraph.textContent='Choose your SAPR workbook below. MoonDog verifies its source and dealership before importing. Imported data stays in this browser Workspace.';
+        if(!document.getElementById('browserChooseSapr')){
+          const choose=document.createElement('button');choose.id='browserChooseSapr';choose.type='button';choose.className='primary';choose.textContent='Choose SAPR workbook';
+          choose.addEventListener('click',()=>{
+            // Use the verified application's existing file importer and source
+            // review. This button neither parses reports nor writes OPFS.
+            const daily=window.__moondogDailyUI;
+            if(typeof daily?.renderTools!=='function')return;
+            daily.renderTools('imports');
+            const picker=document.querySelector('#dailyTools input[type=file]');
+            if(picker){picker.accept='.xlsx';picker.click();}
+          });
+          refresh.before(choose);
+        }
+      }
+
+      if(active?.workspaceMode==='operational'){
+        // Installation confirmation owns the browser-store identity. Keep
+        // canonical advisors/targets/imports editable; a different dealership
+        // must use its own isolated Workspace rather than silently relabeling.
+        for(const id of ['setupStoreName','setupStoreCode','setupStoreBrand','setupStoreTimeZone','storeName','storeCode','storeBrand','storeTimeZone']){
+          const input=document.getElementById(id);if(!input)continue;
+          if(input.tagName==='SELECT'){if(!input.disabled)input.disabled=true;}else input.readOnly=true;
+        }
+        const save=document.getElementById('setupStoreSave');if(save)save.hidden=true;
+        const note=document.getElementById('setupStoreFeedback');
+        const message='Dealership identity was confirmed during installation. Use a separate Workspace for another dealership.';
+        if(note&&note.textContent!==message)note.textContent=message;
+        const current='MoonDog · '+active.storeProfile.name+' · Dealership Workspace';
+        if(label.textContent!==current)label.textContent=current;
+      }
+
       for(const id of ['view-setup','dailyTools']){
         const root=document.getElementById(id);if(!root)continue;
         if(!copyRoots.has(root)){copyRoots.add(root);copyObserver.observe(root,{subtree:true,childList:true});}

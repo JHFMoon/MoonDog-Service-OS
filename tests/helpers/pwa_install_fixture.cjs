@@ -6,7 +6,7 @@ const storePromise=import('../../src/pwa/opfs-store.mjs');
 const missing=()=>Object.assign(new Error('Not found'),{name:'NotFoundError'});
 class File {
  constructor(name,bytes=new Uint8Array()){this.kind='file';this.name=name;this.bytes=bytes;}
- async getFile(){const b=this.bytes;return {arrayBuffer:async()=>b.slice().buffer,text:async()=>new TextDecoder().decode(b)};}
+ async getFile(){const b=this.bytes;return {size:b.byteLength,arrayBuffer:async()=>b.slice().buffer,text:async()=>new TextDecoder().decode(b)};}
  async createWritable(){let b=new Uint8Array();return {write:async v=>{b=typeof v==='string'?new TextEncoder().encode(v):new Uint8Array(v);},close:async()=>{this.bytes=b;},abort:async()=>{}};}
 }
 class Dir {
