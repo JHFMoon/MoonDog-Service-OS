@@ -63,7 +63,7 @@
           if(note.textContent.startsWith('Open Service Operations Dashboard:')&&note.textContent.includes('00 - OPEN DASHBOARD.html'))
             note.textContent='Complete setup below, then use Import Report to add your SAPR. App settings contains external backup and verified software updates.';
           if(note.textContent==='Or place reports in “01 - DROP REPORTS HERE”. Service Operations Dashboard checks them automatically.')
-            note.textContent='Use Import Report to add files to this browser-private Workspace. MoonDog checks imported reports automatically.';
+            note.textContent='Use Import Report to add files. Report Inbox checks run while MoonDog is open and resume when you reopen it.';
         }
       }
     }

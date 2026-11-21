@@ -265,18 +265,22 @@ test('browser startup waits for canonical readiness, connects once, and leaves r
  const button={disabled:true,hidden:false,click(){clicks++;}};
  const watch={textContent:''};
  const setupNote={textContent:'Open Service Operations Dashboard: 00 - OPEN DASHBOARD.html · Add reports: 01 - DROP REPORTS HERE'};
+ const inboxNote={textContent:'Or place reports in “01 - DROP REPORTS HERE”. Service Operations Dashboard checks them automatically.'};
  const setupRoot={querySelectorAll(){return [setupNote];}};
+ const dailyRoot={querySelectorAll(){return [inboxNote];}};
  const status={textContent:'No reusable saved folder was found. Choose the Service Operations Dashboard working folder.'};
  const make=()=>({style:{},setAttribute(){},append(){}});
  const document={currentScript:{src:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/bridge.js'},
   addEventListener(name,fn){handlers[name]=fn;},createElement:make,head:{append(){}},body:{style:{},append(){}},
-  getElementById(id){return id==='connectButton'?button:id==='folderWatchStatus'?watch:id==='status'?status:id==='view-setup'?setupRoot:null;}};
+  getElementById(id){return id==='connectButton'?button:id==='folderWatchStatus'?watch:id==='status'?status:id==='view-setup'?setupRoot:id==='dailyTools'?dailyRoot:null;}};
  const route=`https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/store/${randomUUID()}/${'0'.repeat(64)}/0.10.17/index.html`;
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/bridge.js'),'utf8'),{
   document,window:{addEventListener(){}},location:new URL(route),navigator:{},URL,
   MutationObserver:class{constructor(fn){observe=fn;}observe(){}disconnect(){disconnected=true;}}
  });
- handlers.DOMContentLoaded();assert.match(setupNote.textContent,/Complete setup below/);assert.doesNotMatch(setupNote.textContent,/00 - OPEN/);assert.equal(clicks,0,'Never connect before the canonical handler is ready');
+ handlers.DOMContentLoaded();assert.match(setupNote.textContent,/Complete setup below/);assert.doesNotMatch(setupNote.textContent,/00 - OPEN/);
+ assert.match(inboxNote.textContent,/while MoonDog is open and resume when you reopen it/);
+ assert.equal(clicks,0,'Never connect before the canonical handler is ready');
  button.disabled=false;observe();assert.equal(clicks,1);
  observe();observe();assert.equal(clicks,1,'A refused lock or failed connect must not trigger automatic retries');
  assert.equal(button.hidden,false,'Keep recovery available until the real Workspace is watching');

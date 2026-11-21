@@ -140,7 +140,7 @@ async function offerExistingPreview(){
 }
 // Register only public offline code; no Workspace is created on a page visit.
 const shellReady=registerPreviewWorker();
-shellReady.catch(()=>status('Offline software could not be prepared. Reconnect and reload before installing.',true));
+shellReady.catch(()=>status('MoonDog could not prepare its offline files. Reconnect and reopen MoonDog to rebuild them.',true));
 const existingPreview=shellReady.then(offerExistingPreview);
 let release=null;
 (async()=>{
