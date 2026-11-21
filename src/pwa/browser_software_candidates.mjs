@@ -108,7 +108,9 @@ async function readPath(store,path){
 async function deriveBetaCandidatePlan(store,beta,crypto){
  // Only immutable public bootstrap bytes are reused from the verified Stable
  // installation. All executable runtime files come from the pinned Beta.
- const roots=['00 - OPEN DASHBOARD.html','README - START HERE.txt','index.html','System Files/Workspace/README.txt'];
+ // The official clean-install package has no compatibility index at its root.
+ // Its launcher opens System Files/index.html, supplied by the verified Beta.
+ const roots=['00 - OPEN DASHBOARD.html','README - START HERE.txt','System Files/Workspace/README.txt'];
  const files=[],seen=new Set();
  for(const path of roots){
   const content=await readPath(store,path);files.push({path,bytes:content,sha256:await digest(content,crypto.subtle)});seen.add(path);

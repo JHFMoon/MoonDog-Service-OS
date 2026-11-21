@@ -24,7 +24,8 @@ async function read(dir,path){const parts=path.split('/'),name=parts.pop();for(c
 async function plan(version){
  const values=[
   ['00 - OPEN DASHBOARD.html','synthetic launcher'],['README - START HERE.txt','synthetic readme'],
-  ['index.html','synthetic compat'],['System Files/index.html','<html>synthetic</html>'],
+  // Match the official Stable clean-install ZIP: no root index.html.
+  ['System Files/index.html','<html>synthetic</html>'],
   ['System Files/assets/app.js','synthetic app'],['System Files/vendor/jszip.min.js','synthetic vendor'],
   ['System Files/Workspace/README.txt','blank only']];
  const entries=[];
