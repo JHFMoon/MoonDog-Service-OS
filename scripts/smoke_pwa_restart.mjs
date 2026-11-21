@@ -426,6 +426,9 @@ try{
   await settledSnapshot(page);
   await context.setOffline(false);await page.goto(management);await page.locator('#consent').check();
   if(advancedRecovery){
+   // Finish the online startup handshake before evicting anything. Otherwise
+   // that same startup may legitimately begin its repair before we go offline.
+   await page.locator('#openApp').waitFor({state:'visible',timeout:60000});
    const proof=await shellProof(page),preserved=await snapshot(page);
    assert.equal(proof.complete,true,'Current published shell must prove every public cache entry');
    assert.match(proof.cache,/shell-v(?:1[6-9]|[2-9][0-9])$/);
@@ -435,6 +438,7 @@ try{
    assert.equal(deleted,true,'Evict an actual required public module');
    assert.equal((await shellProof(page)).complete,false,'An evicted shell must lose readiness');
    await context.setOffline(true);await page.reload();
+   console.log(JSON.stringify({offlineEvictionReload:await shellProof(page),controller:await page.evaluate(()=>navigator.serviceWorker.controller?.scriptURL)}));
    await page.waitForFunction(()=>/could not prepare its offline files/i.test(document.querySelector('#result').textContent),null,{timeout:45000});
    assert.equal(await page.locator('#openApp').isHidden(),true,'Incomplete offline shell must not claim app readiness');
    assert.deepEqual(await snapshot(page),preserved,'Offline cache loss must preserve every Workspace byte');
