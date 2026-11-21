@@ -88,10 +88,15 @@ try{
  if(fullJourney){
   assert.equal(await page.locator('#appSettings').isHidden(),true,'Engineering controls must not appear during normal installation');
   assert.equal(await page.locator('input[type=file]:visible').count(),0,'No ZIP or folder selection in normal setup');
+ }
+ {
+  // Native installation is verified even on a published-baseline PR run.
+  // This proves the browser driver before the new entry UI is published.
   const browser=await context.newCDPSession(page);
   const manifest=await browser.send('Page.getAppManifest');
   assert.equal(manifest.errors.length,0,'Native app manifest must be valid');
-  assert.equal(JSON.parse(manifest.data).name,'MoonDog Service OS');
+  assert.match(JSON.parse(manifest.data).name,/MoonDog/);
+  if(fullJourney)assert.equal(JSON.parse(manifest.data).name,'MoonDog Service OS');
   await browser.send('PWA.install',{manifestId:url,installUrlOrBundleUrl:url});
   await browser.send('PWA.getOsAppState',{manifestId:url});
   await browser.send('PWA.changeAppUserSettings',{manifestId:url,displayMode:'standalone'});
