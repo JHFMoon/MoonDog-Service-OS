@@ -106,11 +106,15 @@ try{
   await page.evaluate(()=>navigator.serviceWorker.ready);
   const browser=await context.newCDPSession(page);
   const manifest=await browser.send('Page.getAppManifest');
-  console.log(JSON.stringify({nativeInstallability:await browser.send('Page.getInstallabilityErrors')}));
+  const installability=await browser.send('Page.getInstallabilityErrors');
+  console.log(JSON.stringify({nativeInstallability:installability}));
+  assert.deepEqual(installability.installabilityErrors,[],'Published PWA must satisfy browser installation checks');
   assert.equal(manifest.errors.length,0,'Native app manifest must be valid');
   assert.match(JSON.parse(manifest.data).name,/MoonDog/);
   if(fullJourney)assert.equal(JSON.parse(manifest.data).name,'MoonDog Service OS');
-  await browser.send('PWA.install',{manifestId:url,installUrlOrBundleUrl:url});
+  // Install the currently loaded, independently checked website manifest.
+  // The URL-only CDP path creates a separate background fetch/renderer.
+  await browser.send('PWA.install',{manifestId:url});
   await browser.send('PWA.getOsAppState',{manifestId:url});
   await browser.send('PWA.changeAppUserSettings',{manifestId:url,displayMode:'standalone'});
   const opened=context.waitForEvent('page');
