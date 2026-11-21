@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v11'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v12'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -107,6 +107,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.doesNotMatch(sw,/cache\.put\(|PUBLIC_SHELL[\s\S]*?Workspace\/data/);
  assert.doesNotMatch(js,/showDirectoryPicker|showSaveFilePicker/);
  const m=JSON.parse(fs.readFileSync(path.join(root,'app.webmanifest'),'utf8'));
+ assert.equal(m.id,'/MoonDog-Service-OS/web-preview/','Native app identity must not alias the origin root or web lab');
  assert.equal(m.display,'standalone');assert.match(m.start_url,/index\.html/);
 });
 
@@ -193,14 +194,14 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v11'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v12'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
 });
 
 
-test('active preview worker reports only the reviewed shell v11 in explicit software-update handshake',()=>{
+test('active preview worker reports only the reviewed shell v12 in explicit software-update handshake',()=>{
  const vm=require('node:vm');
  const src=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/sw.js'),'utf8');
  const handlers={};const received=[];
@@ -213,5 +214,62 @@ test('active preview worker reports only the reviewed shell v11 in explicit soft
  assert.equal(received.length,0,'Unrelated messages must not advertise update authority');
  handlers.message({data:{type:'MOONDOG_PREVIEW_SHELL_PROBE'},ports:[port]});
  assert.deepEqual(received,[{type:'MOONDOG_PREVIEW_SHELL_PROOF',
-  cache:'moondog-synthetic-preview-shell-v11'}]);
+  cache:'moondog-synthetic-preview-shell-v12'}]);
+});
+
+test('browser startup waits for canonical readiness, connects once, and leaves refusals under user control',()=>{
+ const vm=require('node:vm');
+ const handlers={};let observe,disconnected=false,clicks=0;
+ const button={disabled:true,hidden:false,click(){clicks++;}};
+ const watch={textContent:''};
+ const setupNote={textContent:'Open Service Operations Dashboard: 00 - OPEN DASHBOARD.html · Add reports: 01 - DROP REPORTS HERE'};
+ const setupRoot={querySelectorAll(){return [setupNote];}};
+ const status={textContent:'No reusable saved folder was found. Choose the Service Operations Dashboard working folder.'};
+ const make=()=>({style:{},setAttribute(){},append(){}});
+ const document={currentScript:{src:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/bridge.js'},
+  addEventListener(name,fn){handlers[name]=fn;},createElement:make,head:{append(){}},body:{style:{},append(){}},
+  getElementById(id){return id==='connectButton'?button:id==='folderWatchStatus'?watch:id==='status'?status:id==='view-setup'?setupRoot:null;}};
+ const route=`https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/store/${randomUUID()}/${'0'.repeat(64)}/0.10.17/index.html`;
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/bridge.js'),'utf8'),{
+  document,window:{addEventListener(){}},location:new URL(route),navigator:{},URL,
+  MutationObserver:class{constructor(fn){observe=fn;}observe(){}disconnect(){disconnected=true;}}
+ });
+ handlers.DOMContentLoaded();assert.match(setupNote.textContent,/Complete setup below/);assert.doesNotMatch(setupNote.textContent,/00 - OPEN/);assert.equal(clicks,0,'Never connect before the canonical handler is ready');
+ button.disabled=false;observe();assert.equal(clicks,1);
+ observe();observe();assert.equal(clicks,1,'A refused lock or failed connect must not trigger automatic retries');
+ assert.equal(button.hidden,false,'Keep recovery available until the real Workspace is watching');
+ watch.textContent='REPORT INBOX WATCHING · verified';observe();
+ assert.equal(button.hidden,true);assert.equal(disconnected,true);
+ assert.equal(status.textContent,'Browser-private Workspace connected and verified.');
+});
+
+test('new entry waits for replacement worker control and shell proof before accepting a saved Workspace',async()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
+ const start=source.indexOf('async function registerPreviewWorker(){'),end=source.indexOf('async function offerExistingPreview(){',start);
+ const old={state:'activated'},listeners={},controlListeners={};
+ const next={state:'installing',addEventListener(type,fn){listeners[type]=fn;},removeEventListener(type){delete listeners[type];}};
+ const workers={controller:old,register:async()=>({active:old,installing:next}),
+  addEventListener(type,fn){controlListeners[type]=fn;},removeEventListener(type){delete controlListeners[type];}};
+ let proof=0,finished=false;
+ const register=vm.runInNewContext(source.slice(start,end)+';registerPreviewWorker',{
+  navigator:{serviceWorker:workers},setTimeout:()=>1,clearTimeout(){},
+  verifyActiveBetaShell:async()=>{assert.equal(workers.controller,next);proof++;}
+ });
+ const pending=register().then(()=>{finished=true;});
+ await new Promise(setImmediate);assert.equal(finished,false,'An old active worker must not satisfy new shell readiness');
+ next.state='activated';listeners.statechange();
+ await new Promise(setImmediate);assert.equal(finished,false,'Activation alone must not authorize the new app');
+ workers.controller=next;controlListeners.controllerchange();await pending;
+ assert.equal(proof,1);assert.equal(finished,true);
+});
+
+test('versioned entry script and native manifest bypass old shell URLs and remain available offline',()=>{
+ const vm=require('node:vm'),root=path.join(__dirname,'../distribution/site/web-preview');
+ const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),sw=fs.readFileSync(path.join(root,'sw.js'),'utf8');
+ const context={self:{registration:{scope:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/'},addEventListener(){}},URL};
+ vm.runInNewContext(sw.replace(/^import .*;$/m,'')+';globalThis.shell=PUBLIC_SHELL',context);
+ const version=sw.match(/const CACHE=CACHE_PREFIX\+'v([0-9]+)'/)[1];
+ const refs=[html.match(/<script type="module" src="([^"]+)"/)[1],html.match(/rel="manifest" href="([^"]+)"/)[1]];
+ for(const ref of refs){assert.equal(new URL(ref,context.self.registration.scope).searchParams.get('v'),version);assert.ok(context.shell.includes(ref),'Exact entry URL must be staged for offline launch: '+ref);}
 });

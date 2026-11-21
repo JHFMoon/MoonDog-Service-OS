@@ -1,5 +1,5 @@
-/* Web-only MoonDog first-run PREVIEW. Verified Stable ZIP is user-selected,
- * never extracted into Windows folders, never uploaded. No real-store data. */
+/* Website installation and app settings for the canonical MoonDog runtime.
+ * Verified software stays in browser storage. Synthetic pilot; no real-store data. */
 import {initializeFreshBrowserWorkspace} from './modules/initialize_fresh_browser_workspace.mjs';
 import {createEmptyStore} from './modules/opfs-store.mjs';
 import {installVerifiedBrowserStore} from './modules/install_verified_browser_store.mjs';
@@ -7,6 +7,20 @@ import {probeSitePackage,fetchVerifiedSitePackage} from './modules/verified_site
 
 const $=id=>document.getElementById(id);
 const result=$('result'),open=$('openApp');let busy=false;
+const manage=new URL(location.href).searchParams.get('manage')==='1';
+$('appSettings').hidden=!manage;
+if(manage&&location.hash==='#recovery')$('recovery').open=true;
+let installPrompt=null;
+window.addEventListener('beforeinstallprompt',event=>{
+ event.preventDefault();installPrompt=event;$('installEdge').hidden=false;
+});
+$('installEdge').addEventListener('click',async()=>{
+ if(!installPrompt)return;
+ const prompt=installPrompt;installPrompt=null;
+ await prompt.prompt();await prompt.userChoice;$('installEdge').hidden=true;
+});
+window.addEventListener('appinstalled',()=>{$('installEdge').hidden=true;installPrompt=null;});
+function enterApplication(){if(!manage)location.assign(open.href);}
 function status(text,error=false){result.textContent=text;result.className=error?'status error':'status';}
 const sha=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',value)),b=>b.toString(16).padStart(2,'0')).join('');
 const requireMetadata=value=>{
@@ -36,7 +50,6 @@ function showPreview(pointer,launchPointer=pointer){
 }
 async function registerPreviewWorker(){
  const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',type:'module',updateViaCache:'none'});
- if(registration.active?.state==='activated')return;
  const worker=registration.installing||registration.waiting||registration.active;
  if(!worker)throw Error('The preview service worker did not start.');
  await new Promise((resolve,reject)=>{
@@ -53,6 +66,15 @@ async function registerPreviewWorker(){
   worker.addEventListener('statechange',check);
   check();
  });
+ // Activation and control are distinct: never use modules from an older
+ // controlling worker merely because another worker has activated.
+ if(navigator.serviceWorker.controller!==worker)await new Promise((resolve,reject)=>{
+  const timeout=setTimeout(()=>finish(Error('The verified offline shell did not take control in time.')),30000);
+  function finish(error){clearTimeout(timeout);navigator.serviceWorker.removeEventListener('controllerchange',check);if(error)reject(error);else resolve();}
+  function check(){if(navigator.serviceWorker.controller===worker)finish();}
+  navigator.serviceWorker.addEventListener('controllerchange',check);check();
+ });
+ await verifyActiveBetaShell();
 }
 async function offerExistingPreview(){
  try{
@@ -77,6 +99,9 @@ async function offerExistingPreview(){
    $('prepareBackup').disabled=true;$('checkBeta').disabled=true;
    $('rollbackBeta').disabled=true;$('installBeta').disabled=true;
    $('recoverOriginal').disabled=false;
+   $('appSettings').hidden=false;
+   $('recoverOriginal').closest('details').open=true;
+   status('MoonDog needs software recovery. Your Workspace is preserved. Close other MoonDog windows, then recover the verified original software below.',true);
    $('betaStatus').textContent='Software-selection verification failed. The original installation is still intact; close any dashboard tabs and explicitly recover the original verified software.';
    return;
   }
@@ -84,27 +109,30 @@ async function offerExistingPreview(){
   const launch=selection?{storeId:prior.storeId,version:selection.version,
    manifestHash:selection.manifestHash}:prior;
   showPreview(prior,launch);
-  status('Existing SYNTHETIC preview verified in browser-private storage. You can reopen it without a ZIP.');
+  status('Your saved Workspace and software are verified. Opening MoonDog…');
+  $('installFromWeb').hidden=true;
+  enterApplication();
   if(selection)$('betaStatus').textContent='Verified selected Beta '+selection.version+' active. Close the dashboard to roll back to original Stable.';
  }catch(_){/* Missing/corrupt/cleared store must not appear as a usable saved app. */}
 }
-const existingPreview=offerExistingPreview();
+// Register only public offline code; no Workspace is created on a page visit.
+const shellReady=registerPreviewWorker();
+shellReady.catch(()=>status('Offline software could not be prepared. Reconnect and reload before installing.',true));
+const existingPreview=shellReady.then(offerExistingPreview);
 let release=null;
 (async()=>{
  try{const response=await fetch('../latest.json',{cache:'no-store'});
   if(!response.ok)throw Error('Release metadata unavailable.');
   release=requireMetadata(await response.json());
   $('version').textContent='Verified official Stable '+release.version;
-  $('download').href=release.asset;
-  $('download').hidden=false;
-  $('install').disabled=false;
+
   websiteAvailable=await probeSitePackage({siteUrl:SITE_URL,version:release.version,
    sha256:release.sha256,fetchImpl:fetch,crypto});
   $('installFromWeb').disabled=!websiteAvailable;
   $('restoreBackup').disabled=!websiteAvailable;
   $('packageStatus').textContent=websiteAvailable?
-   'Official package available for verified installation without any file or folder selection.':
-   'Direct package publication is not available yet. No website installation can begin. The synthetic ZIP fallback remains available.';
+   'Ready to install. MoonDog will verify its software and open the full application.':
+   'Verified installation is currently unavailable. Please try again after publication completes.';
  }catch(e){
   $('version').textContent='Official release metadata unavailable.';
   await existingPreview;
@@ -117,7 +145,7 @@ async function installPreview(readBytes, recovery){
  if(!release||!navigator.storage?.getDirectory||!navigator.locks?.request||!navigator.serviceWorker){
   status('A required secure Edge feature is unavailable. Nothing was installed.',true);return;
  }
- busy=true;$('install').disabled=true;$('installFromWeb').disabled=true;
+ busy=true;$('installFromWeb').disabled=true;
  $('prepareBackup').disabled=true;$('restoreBackup').disabled=true;
  try{
   status('Checking the entire official ZIP before creating browser storage…');
@@ -143,30 +171,31 @@ async function installPreview(readBytes, recovery){
     sourceStoreId:recovery.sourceStoreId,checksum:recovery.checksum});
   }
   status('Registering the browser app service worker…');
-  await registerPreviewWorker();
+  await shellReady;
   const pointer={storeId:identity.storeId,manifestHash,version:release.version};
   localStorage.setItem(PREVIOUS,JSON.stringify(pointer));
   showPreview(pointer);
-  const persistent=await navigator.storage.persisted?.().catch(()=>false);
+  const persistent=await navigator.storage.persist?.().catch(()=>false);
   status((recovery?'Synthetic Workspace restored and verified. ':'Verified SYNTHETIC preview is installed in browser-private storage. ')+
    'Click Open dashboard to inspect the real MoonDog interface. '+
-   (persistent?'Browser persistence is enabled.':'Browser persistence is NOT guaranteed; clearing Edge site data removes this copy.'));
+   (persistent?'Browser persistence is enabled.':'Keep an external backup; clearing Edge site data removes this copy.'));
+  enterApplication();
  }catch(e){status('Preview was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}
- finally{busy=false;$('install').disabled=false;$('installFromWeb').disabled=!websiteAvailable;
+ finally{busy=false;$('installFromWeb').disabled=!websiteAvailable;
   $('prepareBackup').disabled=!activePreview;$('restoreBackup').disabled=!websiteAvailable;}
 }
-$('install').addEventListener('click',()=>{
- const file=$('zip').files?.[0];
- if(!file){status('Select the original official Stable ZIP from Downloads first.',true);return;}
- return installPreview(()=>file.arrayBuffer());
-});
 async function readSiteBytes(){
  const bytes=await fetchVerifiedSitePackage({siteUrl:SITE_URL,version:release.version,
   sha256:release.sha256,fetchImpl:fetch,crypto});
  return bytes.buffer;
 }
-$('installFromWeb').addEventListener('click',()=>{
- if(websiteAvailable)return installPreview(readSiteBytes);
+$('installFromWeb').addEventListener('click',async()=>{
+ if(!websiteAvailable||!$('consent').checked)return installPreview(readSiteBytes);
+ if(installPrompt){
+  const prompt=installPrompt;installPrompt=null;
+  await prompt.prompt();await prompt.userChoice;
+ }
+ return installPreview(readSiteBytes);
 });
 $('prepareBackup').addEventListener('click',async()=>{
  if(busy||!activePreview||!$('consent').checked){
@@ -223,7 +252,7 @@ async function verifyActiveBetaShell(){
   channel.port1.onmessage=event=>{
    clearTimeout(timer);channel.port1.close();
    if(event.data?.type==='MOONDOG_PREVIEW_SHELL_PROOF'&&
-      event.data.cache==='moondog-synthetic-preview-shell-v11')resolve();
+      event.data.cache==='moondog-synthetic-preview-shell-v12')resolve();
    else reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
   };
   try{controller.postMessage({type:'MOONDOG_PREVIEW_SHELL_PROBE'},[channel.port2]);}
@@ -263,7 +292,7 @@ $('installBeta').addEventListener('click',async()=>{
   busy=true;$('installBeta').disabled=true;$('checkBeta').disabled=true;
   await verifyActiveBetaShell();
   softwareStatus('Verifying and staging the published Beta outside your Workspace…');
-  const {stageVerifiedBetaBrowserSoftware,resumeVerifiedBetaBrowserSoftware}=await import('./modules/browser_software_candidates.mjs');
+  const {stageVerifiedBetaBrowserSoftware,completeVerifiedBetaBrowserSoftware}=await import('./modules/browser_software_candidates.mjs');
   const {activateStagedBrowserSoftware}=await import('./modules/browser_software_selection.mjs');
   const {storeId,version,manifestHash}=activePreview;
   const params={storage:navigator.storage,crypto,locks:navigator.locks,
@@ -272,9 +301,10 @@ $('installBeta').addEventListener('click',async()=>{
   try{staged=await stageVerifiedBetaBrowserSoftware(params);}
   catch(error){
    // Explicit retry is allowed only when the exact pinned candidate already
-   // exists and every staged executable passes complete renewed verification.
+   // exists. Reverify all existing bytes before filling any missing public files;
+   // corrupt or unexpected bytes stay quarantined without an overwrite.
    if(!/Candidate generation already exists/.test(String(error?.message||error)))throw error;
-   staged=await resumeVerifiedBetaBrowserSoftware(params);
+   staged=await completeVerifiedBetaBrowserSoftware(params);
   }
   if(staged.version!==verifiedBetaOffer.version||staged.zipHash!==verifiedBetaOffer.sha256)
    throw Error('Beta authority changed between check and staging. No selector was changed.');

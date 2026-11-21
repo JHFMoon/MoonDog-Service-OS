@@ -77,7 +77,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "Public synthetic proof mode: $PROOF_MODE, site SHA $EXPECTED_MAIN_SHA"
-          node scripts/smoke_pwa_restart.mjs \
+          # Native installed-app windows require a real (virtual on Linux) display.
+          runner=()
+          if [[ "$RUNNER_OS" == "Linux" ]]; then runner=(xvfb-run -a); fi
+          "${runner[@]}" node scripts/smoke_pwa_restart.mjs \
             https://jhfmoon.github.io/MoonDog-Service-OS/ "$EXPECTED_MAIN_SHA" \
             | tee pwa-restart-evidence.jsonl
       - name: Refuse stale or advanced exact-main browser evidence

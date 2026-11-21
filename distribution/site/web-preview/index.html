@@ -1,49 +1,45 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MoonDog Web Preview — Synthetic test only</title><meta name="theme-color" content="#153847">
-<link rel="manifest" href="./app.webmanifest">
-<link rel="stylesheet" href="./style.css">
+<title>MoonDog Service OS</title><meta name="theme-color" content="#153847">
+<link rel="manifest" href="./app.webmanifest?v=12"><link rel="stylesheet" href="./style.css">
 </head><body>
-<main><div class="eyebrow">Experimental browser-only test</div>
-<h1>Try MoonDog without creating folders</h1>
-<p>The real MoonDog application can be installed into Edge's <strong>private browser storage</strong>. No EXE, PowerShell or Windows folder access.</p>
-<div class="warning"><strong>Testing only — NOT ready for dealership use.</strong>
-You may test the installation and open the real dashboard, but do not import any real dealership files, RO/VIN details or employee records. Browser storage can be erased; production backup/recovery has not been proven.</div>
-<section><h2>Install MoonDog</h2>
-<p id="version">Checking official Stable release…</p>
-<label class="check"><input type="checkbox" id="consent"> I understand this is for <strong>synthetic testing only</strong> and will not enter actual dealership data.</label>
-<button id="installFromWeb" disabled>Install MoonDog preview</button>
-<p id="packageStatus" class="status" role="status" aria-live="polite">Checking whether direct website installation is published…</p>
-<details><summary>Test with the official Stable ZIP</summary>
-<a id="download" hidden class="action" target="_blank" rel="noopener noreferrer">Download verified Stable ZIP</a>
-<label for="zip">Original MoonDog ZIP</label><input type="file" id="zip" accept=".zip,application/zip">
-<button id="install" disabled>Install preview from selected ZIP</button></details>
-<p id="result" class="status" role="status" aria-live="polite">Ready to check the official ZIP or an available website package.</p>
-<a id="openApp" class="action" hidden>Open real MoonDog dashboard preview</a></section>
-<section><h2>Synthetic Workspace backup and recovery</h2>
-<p>Close the dashboard before preparing a backup. Download the backup and save its receipt separately. Keep both outside browser storage.</p>
-<button id="prepareBackup" disabled>Prepare synthetic backup</button>
-<a id="saveBackup" class="action" hidden>Download backup file</a>
-<label for="backupReceipt" id="backupReceiptLabel" hidden>Backup receipt</label>
-<input id="backupReceipt" readonly hidden>
-<details><summary>Recover a synthetic Workspace</summary>
-<p>Recovery uses a new, isolated Workspace and the original software version. Select the backup and enter its separately saved receipt.</p>
-<label for="backupFile">Synthetic backup file</label>
-<input id="backupFile" type="file" accept=".json,application/json">
-<label for="restoreReceipt">Saved backup receipt</label>
-<input id="restoreReceipt" autocomplete="off" spellcheck="false">
-<button id="restoreBackup" disabled>Recover into a new preview</button>
-</details>
-<p id="backupStatus" class="status" role="status"></p></section>
-<section><h2>Verified Beta software test</h2>
-<p>For <strong>synthetic test Workspaces only</strong>. Close the dashboard before installing or rolling back software. The original verified Stable application and your browser-private Workspace remain separate and untouched. This is a preview update test, not a Stable promotion.</p>
-<button id="checkBeta" disabled>Check verified Beta</button>
-<button id="installBeta" disabled>Install verified Beta into this preview</button>
-<button id="rollbackBeta" disabled>Roll back to original Stable</button>
-<button id="recoverOriginal" disabled>Recover original from interrupted software selection</button>
-<p id="betaStatus" class="status" role="status" aria-live="polite">Install a synthetic preview to test software updates.</p>
+<main><div class="eyebrow">MoonDog Service OS</div>
+<h1>Your service drive.<br>One place to run it.</h1>
+<p>Install MoonDog, finish Guided Setup, and import your SAPR workbook. Your Workspace stays private on this computer, including when you work offline.</p>
+<div class="warning"><strong>Synthetic pilot — not ready for dealership use.</strong>
+Use test data only. Do not import any real dealership files, RO/VIN details or employee records. Clearing Edge site data erases the browser copy; keep a verified external backup.</div>
+<section id="installation"><h2>Get started</h2>
+<p id="version">Checking the verified software…</p>
+<label class="check"><input type="checkbox" id="consent"> I will use synthetic testing only, with no actual dealership data.</label>
+<button id="installFromWeb" disabled>Install MoonDog</button>
+<button id="installEdge" hidden>Install app in Edge</button>
+<p id="packageStatus" class="status" role="status" aria-live="polite">Checking website installation…</p>
+<p id="result" class="status" role="status" aria-live="polite">No files or folders to create. MoonDog will open Guided Setup when installation is verified.</p>
+<a id="openApp" class="action" hidden>Open MoonDog</a>
+<p><a href="?manage=1#recovery">Recover from an external backup</a></p>
 </section>
-<p class="foot">Existing MoonDog installations and all Windows folders are left alone. You can remove the preview later by clearing this site's data, which also erases its browser-private files.</p>
-</main>
-<script src="../fresh-install-writer.js"></script><script type="module" src="./setup.mjs"></script>
+<div id="appSettings" hidden>
+<section><h2>Backup and recovery</h2>
+<p>Save the backup file and its receipt outside Edge. Both are required to recover after browser storage is cleared or when moving to a different profile.</p>
+<button id="prepareBackup" disabled>Prepare external backup</button>
+<a id="saveBackup" class="action" hidden>Download backup file</a>
+<label for="backupReceipt" id="backupReceiptLabel" hidden>Save this receipt separately</label>
+<input id="backupReceipt" readonly hidden>
+<details id="recovery"><summary>Recover a Workspace</summary>
+<p>Recovery verifies your file and receipt before creating a separate Workspace. It never replaces an existing store.</p>
+<label for="backupFile">Backup file</label><input id="backupFile" type="file" accept=".json,application/json">
+<label for="restoreReceipt">Saved backup receipt</label><input id="restoreReceipt" autocomplete="off" spellcheck="false">
+<button id="restoreBackup" disabled>Recover Workspace</button></details>
+<p id="backupStatus" class="status" role="status"></p></section>
+<section><h2>Software updates</h2>
+<p>For synthetic test Workspaces only. The original application and Workspace stay separate from verified Beta software. Close other MoonDog windows before changing software.</p>
+<button id="checkBeta" disabled>Check for Beta update</button>
+<button id="installBeta" disabled>Install verified Beta</button>
+<button id="rollbackBeta" disabled>Roll back software</button>
+<details><summary>Recover after an interrupted update</summary>
+<button id="recoverOriginal" disabled>Recover verified original software</button></details>
+<p id="betaStatus" class="status" role="status" aria-live="polite">Install MoonDog to check for verified updates.</p>
+</section></div>
+<p class="foot">Your existing MoonDog installations stay separate. This pilot uses browser-private storage; an external backup is your recovery copy.</p>
+</main><script src="../fresh-install-writer.js"></script><script type="module" src="./setup.mjs?v=12"></script>
 </body></html>
