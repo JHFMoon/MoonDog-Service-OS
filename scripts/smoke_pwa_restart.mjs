@@ -508,7 +508,7 @@ try{
   assert.notEqual(restored.pointer.storeId,before.pointer.storeId,'Recovery uses a fresh isolated identity');
   assert.deepEqual(restored.files,expectedFiles,'All externally backed-up Workspace bytes must restore');
   if(advancedRecovery){
-   assert.match(await page.locator('#result').innerText(),/persistence.*NOT guaranteed/i);
+   await page.waitForFunction(()=>/persistence.*NOT guaranteed/i.test(document.querySelector('#result').textContent));
    await(await context.newCDPSession(page)).send('Browser.resetPermissions');
    assert.match(backup.workspaceId,/^[0-9a-f-]{36}$/);
    assert.equal(restored.pointer.workspaceId,backup.workspaceId,'Logical Workspace identity must survive complete origin loss');
@@ -548,6 +548,27 @@ try{
   },null,{timeout:120000});
   assert.equal(await page.locator('#installBeta').isEnabled(),true,
    'Pinned official Beta must be authenticated before update is offered.');
+  if(advancedRecovery){
+   // Fault only public package delivery; exercise the unchanged published
+   // Install button and verifier, never substitute candidate application code.
+   const packageRoute=/^https:\/\/raw\.githubusercontent\.com\/JHFMoon\/MoonDog-Service-OS\/[a-f0-9]{40}\/updates\/packages\/moondog-[^/]+\.json$/;
+   const originalHref=await page.locator('#openApp').getAttribute('href');
+   for(const fault of ['download','checksum']){
+    let intercepted=0;
+    const handler=async route=>{intercepted++;await route.fulfill({status:fault==='download'?503:200,
+     contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'{}'});};
+    await context.route(packageRoute,handler);
+    try{
+     await page.locator('#installBeta').click();
+     await page.waitForFunction(()=>/Beta installation was refused or incomplete/.test(document.querySelector('#betaStatus').textContent),null,{timeout:120000});
+     assert.ok(intercepted>0,'Fault must affect an actual pinned public package request');
+     if(fault==='checksum')assert.match(await page.locator('#betaStatus').innerText(),/SHA-256 mismatch/);
+     assert.equal(await page.locator('#openApp').getAttribute('href'),originalHref,'Refused update must retain original software authority');
+     assert.deepEqual(await snapshot(page),beforeBeta,'Refused update must preserve every original Workspace byte');
+    }finally{await context.unroute(packageRoute,handler);}
+   }
+   console.log(JSON.stringify({failedUpdateDownloadRefused:true,corruptUpdateChecksumRefused:true,originalSoftwareSelected:true,workspaceByteExact:true}));
+  }
   if(fullJourney){
    // A genuine public-module stage writes the verified package first. Model
    // an interruption before activation, then use the ordinary Install UI to
