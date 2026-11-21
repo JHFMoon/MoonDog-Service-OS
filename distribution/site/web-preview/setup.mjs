@@ -189,14 +189,9 @@ async function readSiteBytes(){
   sha256:release.sha256,fetchImpl:fetch,crypto});
  return bytes.buffer;
 }
-$('installFromWeb').addEventListener('click',async()=>{
- if(!websiteAvailable||!$('consent').checked)return installPreview(readSiteBytes);
- if(installPrompt){
-  const prompt=installPrompt;installPrompt=null;
-  await prompt.prompt();await prompt.userChoice;
- }
- return installPreview(readSiteBytes);
-});
+// Verified MoonDog installation must never wait for Edge's optional native
+// app prompt. Users can install the PWA shortcut separately with installEdge.
+$('installFromWeb').addEventListener('click',()=>installPreview(readSiteBytes));
 $('prepareBackup').addEventListener('click',async()=>{
  if(busy||!activePreview||!$('consent').checked){
   $('backupStatus').textContent='Confirm synthetic-only use before preparing a backup.';return;
@@ -252,7 +247,7 @@ async function verifyActiveBetaShell(){
   channel.port1.onmessage=event=>{
    clearTimeout(timer);channel.port1.close();
    if(event.data?.type==='MOONDOG_PREVIEW_SHELL_PROOF'&&
-      event.data.cache==='moondog-synthetic-preview-shell-v12')resolve();
+      event.data.cache==='moondog-synthetic-preview-shell-v13')resolve();
    else reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
   };
   try{controller.postMessage({type:'MOONDOG_PREVIEW_SHELL_PROBE'},[channel.port2]);}
