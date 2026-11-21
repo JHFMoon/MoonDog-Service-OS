@@ -473,10 +473,18 @@ try{
    console.log(JSON.stringify({browserQuotaRefused:true,originalWorkspaceByteExact:true,workingPointerPreserved:true}));
   }
   await cdp.send('Storage.clearDataForOrigin',{origin:new URL(url).origin,storageTypes:'all'});
+  if(advancedRecovery)await cdp.send('Browser.grantPermissions',{origin:new URL(url).origin,permissions:[]});
   await page.close();page=await context.newPage();await page.goto(management);
   assert.equal(await page.evaluate(()=>localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1')),null);
   assert.equal(await page.evaluate(async()=>{const root=await navigator.storage.getDirectory();let n=0;for await(const _ of root.entries())n++;return n;}),0);
   assert.equal(await page.locator('#openApp').isHidden(),true);
+  if(advancedRecovery){
+   try{
+    assert.deepEqual(await page.evaluate(async()=>({granted:await navigator.storage.persist(),persistent:await navigator.storage.persisted()})),
+     {granted:false,persistent:false},'Denied durable-storage permission must not be represented as a permanent backup');
+   }finally{await(await context.newCDPSession(page)).send('Browser.resetPermissions');}
+   console.log(JSON.stringify({persistentStorageDenied:true,externalBackupRequired:true}));
+  }
   await page.locator('#consent').check();await page.locator('#backupFile').evaluate(el=>{el.closest('details').open=true;});
   // Missing external file must refuse before creating any replacement store.
   await page.locator('#restoreReceipt').fill(receipt);await page.locator('#restoreBackup').click();
@@ -502,6 +510,7 @@ try{
   assert.notEqual(restored.pointer.storeId,before.pointer.storeId,'Recovery uses a fresh isolated identity');
   assert.deepEqual(restored.files,expectedFiles,'All externally backed-up Workspace bytes must restore');
   if(advancedRecovery){
+   assert.match(await page.locator('#result').innerText(),/persistence.*NOT guaranteed/i);
    assert.match(backup.workspaceId,/^[0-9a-f-]{36}$/);
    assert.equal(restored.pointer.workspaceId,backup.workspaceId,'Logical Workspace identity must survive complete origin loss');
    const firstPhysicalId=restored.pointer.storeId;
@@ -575,6 +584,12 @@ try{
   if(process.env.PWA_SAPR==='1'){assertOperational(await readOperational(page));await assertPublishedViews(page);}
   if(advancedRecovery){
    assert.ok(saprWorkbookBytes,'Actual SAPR workbook required for scheduled intake proof');
+   await settledSnapshot(page);await context.close();context=null;
+   context=await launch();await context.setOffline(true);page=await context.newPage();
+   await page.goto(new URL('icon.svg',url).href);
+   assert.equal(await page.evaluate(async()=>
+    (await navigator.locks.query()).held.some(lock=>lock.name?.startsWith('moondog-pwa-operational-'))),false,
+    'Deliver queued fixture only while no application owns a Workspace');
    const scheduledName='synthetic-scheduled-sapr.xlsx';
    const signature=await page.evaluate(async({name,bytes})=>{
     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
