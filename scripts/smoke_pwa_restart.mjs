@@ -34,15 +34,6 @@ async function shellProof(page){
 const runtimeErrors=[];
 const launch=async()=>{
  const instance=await chromium.launchPersistentContext(profile,{headless:false,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{}),...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
- await instance.addInitScript(()=>{
-  const Native=MessageChannel;
-  window.__syntheticShellTrace=[];
-  window.MessageChannel=class extends Native{
-   constructor(){super();this.port1.addEventListener('message',event=>{
-    if(event.data?.type==='MOONDOG_PREVIEW_SHELL_PROOF')window.__syntheticShellTrace.push({...event.data,at:performance.now()});
-   });this.port1.start();}
-  };
- });
  const observe=page=>{
   page.on('pageerror',error=>{runtimeErrors.push(error.message);console.error(JSON.stringify({publicRuntimeError:true,url:page.url(),message:error.message.slice(0,2000)}));});
   page.on('console',message=>{if(message.type()==='error')console.error(JSON.stringify({publicConsoleError:true,url:page.url(),message:message.text().slice(0,2000)}));});
@@ -441,24 +432,24 @@ try{
    const proof=await shellProof(page),preserved=await snapshot(page);
    assert.equal(proof.complete,true,'Current published shell must prove every public cache entry');
    assert.match(proof.cache,/shell-v(?:1[6-9]|[2-9][0-9])$/);
+   // Page-level offline emulation can leave worker-owned fetches or HTTP
+   // cache usable. Block the actual missing public-module delivery as well.
+   const missingModule=new URL('modules/verified_beta_transport.mjs',url).href;
+   let blockedShellFetches=0;
+   const blockShellFetch=async route=>{blockedShellFetches++;await route.abort('internetdisconnected');};
+   await context.route(missingModule,blockShellFetch);
    const deleted=await page.evaluate(async cache=>{
     return(await caches.open(cache)).delete(new URL('modules/verified_beta_transport.mjs',location.href).href);
    },proof.cache);
    assert.equal(deleted,true,'Evict an actual required public module');
    assert.equal((await shellProof(page)).complete,false,'An evicted shell must lose readiness');
    await context.setOffline(true);await page.reload();
-   console.log(JSON.stringify({offlineEvictionReload:await shellProof(page),diagnostic:await page.evaluate(async()=>{
-    const registration=await navigator.serviceWorker.getRegistration();
-    const names=await caches.keys(),cache=await caches.open(names.find(name=>name.startsWith('moondog-synthetic-preview-shell-')));
-    const response=await cache.match(new URL('setup.mjs?v=16',location.href));
-    const bytes=await response.arrayBuffer(),digest=await crypto.subtle.digest('SHA-256',bytes);
-    return {controller:navigator.serviceWorker.controller?.scriptURL,installing:registration.installing?.scriptURL,
-     setupHash:Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join(''),trace:window.__syntheticShellTrace,
-     navigation:performance.getEntriesByType('navigation').map(n=>({type:n.type,name:n.name})),status:document.querySelector('#result').textContent};
-   })}));
+   console.log(JSON.stringify({offlineEvictionReload:await shellProof(page)}));
    await page.waitForFunction(()=>/could not prepare its offline files/i.test(document.querySelector('#result').textContent),null,{timeout:45000});
    assert.equal(await page.locator('#openApp').isHidden(),true,'Incomplete offline shell must not claim app readiness');
    assert.deepEqual(await snapshot(page),preserved,'Offline cache loss must preserve every Workspace byte');
+   assert.ok(blockedShellFetches>0,'Interrupted shell repair must hit the actual blocked worker-owned module delivery');
+   await context.unroute(missingModule,blockShellFetch);
    await context.setOffline(false);await page.reload();
    await page.locator('#openApp').waitFor({state:'visible',timeout:60000});
    const rebuilt=await shellProof(page);assert.equal(rebuilt.complete,true);
@@ -761,7 +752,7 @@ try{
  assert.deepEqual(runtimeErrors,[],'Published application must not have unhandled runtime errors');
  if(process.env.PROOF_MODE==='exact-main')assert.equal(fullJourney,true,'Published website must use the application entry, not the developer harness');
  console.log(JSON.stringify({mainSha:sha,browser:process.env.BROWSER_CHANNEL||'Chromium',candidateInitializer,fullJourney,syntheticStore:STORE_CODE,overlappingAdvisor:'101',nativePwaInstalled,nativeOfflineRelaunch:true,automaticWorkspaceConnection:fullJourney,processRestart:true,offlineDashboard:true,workspaceFiles:before.files.length,operationalDataAndHistoryPreserved:true,lifecycleBookkeepingVerified:true}));
-}catch(error){const p=context?.pages().at(-1);if(p){console.error('Synthetic acceptance failure state:',(await p.locator('body').innerText()).slice(0,10000));console.error('Synthetic editor event trace:',JSON.stringify(await p.evaluate(()=>({focus:document.activeElement?.id,events:window.__syntheticEditorTrace||[],shell:window.__syntheticShellTrace||[]}))));}throw error;}finally{await context?.close();await rm(profile,{recursive:true,force:true});}
+}catch(error){const p=context?.pages().at(-1);if(p){console.error('Synthetic acceptance failure state:',(await p.locator('body').innerText()).slice(0,10000));console.error('Synthetic editor event trace:',JSON.stringify(await p.evaluate(()=>({focus:document.activeElement?.id,events:window.__syntheticEditorTrace||[]}))));}throw error;}finally{await context?.close();await rm(profile,{recursive:true,force:true});}
 
 // A SECOND clean browser profile runs the same production setup/import/restart
 // journey with the same advisor ID and different dealership identity/totals.
