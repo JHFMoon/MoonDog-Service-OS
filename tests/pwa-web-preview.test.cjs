@@ -107,6 +107,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.doesNotMatch(sw,/cache\.put\(|PUBLIC_SHELL[\s\S]*?Workspace\/data/);
  assert.doesNotMatch(js,/showDirectoryPicker|showSaveFilePicker/);
  const m=JSON.parse(fs.readFileSync(path.join(root,'app.webmanifest'),'utf8'));
+ assert.equal(m.id,'/MoonDog-Service-OS/web-preview/','Native app identity must not alias the origin root or web lab');
  assert.equal(m.display,'standalone');assert.match(m.start_url,/index\.html/);
 });
 

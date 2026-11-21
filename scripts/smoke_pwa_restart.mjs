@@ -18,6 +18,7 @@ const url=new URL('web-preview/',base).href;
 let management=url;
 const profile=await mkdtemp(join(tmpdir(),'moondog-synthetic-restart-'));
 let context;
+let manualRoReady=false;
 const launch=()=>chromium.launchPersistentContext(profile,{headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{}),...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
 const snapshot=async page=>page.evaluate(async()=>{
  const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
@@ -42,18 +43,22 @@ const readOperational=async page=>page.evaluate(async()=>{
  let d=await navigator.storage.getDirectory();
  for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
  const json=async n=>{try{return JSON.parse(await(await(await d.getFileHandle(n)).getFile()).text());}catch(error){throw Error('Durable '+n+': '+error);}};
- const performance=await json('advisor-performance.json'),settings=await json('settings.json');
+ const performance=await json('advisor-performance.json'),settings=await json('settings.json'),state=await json('current-state.json');
  const history=await d.getDirectoryHandle('history').catch(error=>{throw Error('History directory: '+error);});let imports=0;
  for await(const [name,h] of history.entries())if(h.kind==='file'&&name.endsWith('.json')&&!name.startsWith('.moondog-txn-')){
   let event;try{event=JSON.parse(await(await h.getFile()).text());}catch(error){throw Error('History event '+name+': '+error);}if(event.type==='performance-import')imports++;
  }
- return {store:settings.store,snapshot:performance.snapshots['2026-11-19'],imports};
+ return {store:settings.store,snapshot:performance.snapshots['2026-11-19'],imports,record:state.records?.find(row=>row.ro==='900001')||null};
 });
 function assertOperational(value){
  assert.equal(value.store.name,STORE_NAME);assert.equal(value.store.code,STORE_CODE);
  assert.equal(value.snapshot.store.cpGross,STORE_GROSS);assert.equal(value.snapshot.store.cpRO,5);
  assert.equal(value.snapshot.saprDaysCompleted,8);assert.equal(value.snapshot.saprTotalDays,22);
  assert.ok(value.imports>=1,'Durable import history required');
+ if(manualRoReady){
+  assert.equal(value.record?.management?.owner,STORE_NAME+' manual owner');
+  assert.equal(value.record?.management?.nextAction,'Preserve synthetic '+STORE_CODE);
+ }
 }
 async function settledSnapshot(page){
  // Snapshot while the application still holds its lock; do not interrupt pending writes by navigating away.
@@ -110,15 +115,22 @@ try{
   console.log(JSON.stringify({nativeInstallability:installability}));
   assert.deepEqual(installability.installabilityErrors,[],'Published PWA must satisfy browser installation checks');
   assert.equal(manifest.errors.length,0,'Native app manifest must be valid');
-  assert.match(JSON.parse(manifest.data).name,/MoonDog/);
-  if(fullJourney)assert.equal(JSON.parse(manifest.data).name,'MoonDog Service OS');
+  const manifestData=JSON.parse(manifest.data);
+  assert.match(manifestData.name,/MoonDog/);
+  const startUrl=new URL(manifestData.start_url,manifest.url);
+  // Manifest id resolves against start_url's ORIGIN, not its directory.
+  const nativeId=new URL(manifestData.id,new URL(startUrl.origin+'/')).href;
+  if(fullJourney){
+   assert.equal(manifestData.name,'MoonDog Service OS');
+   assert.equal(nativeId,url,'MoonDog identity must be scoped to its published app');
+  }
   // Install the currently loaded, independently checked website manifest.
   // The URL-only CDP path creates a separate background fetch/renderer.
-  await browser.send('PWA.install',{manifestId:url});
-  await browser.send('PWA.getOsAppState',{manifestId:url});
-  await browser.send('PWA.changeAppUserSettings',{manifestId:url,displayMode:'standalone'});
+  await browser.send('PWA.install',{manifestId:nativeId});
+  await browser.send('PWA.getOsAppState',{manifestId:nativeId});
+  await browser.send('PWA.changeAppUserSettings',{manifestId:nativeId,displayMode:'standalone'});
   const opened=context.waitForEvent('page');
-  await browser.send('PWA.launch',{manifestId:url});
+  await browser.send('PWA.launch',{manifestId:nativeId});
   const installed=await opened;await page.close();page=installed;
   await page.waitForLoadState('domcontentloaded');
   assert.equal(await page.evaluate(()=>matchMedia('(display-mode: standalone)').matches),true,'Installed MoonDog must launch as an app');
@@ -175,6 +187,47 @@ try{
   await page.getByRole('button',{name:'Advisor Performance',exact:true}).click();
   assert.ok((await page.locator('#view-performance').innerText()).includes('Current MTD: $'+STORE_GROSS.toLocaleString('en-US')));
   assert.ok((await page.locator('#view-performance').innerText()).includes('Month pace: $'+STORE_PACE.toLocaleString('en-US')));
+ }
+ if(process.env.PWA_SAPR==='1'){
+  const review=async dialog=>{
+   if(/^Review complete RO replacement: synthetic-open-ro/.test(dialog.message()))await dialog.accept();
+   else{await dialog.dismiss();throw Error('Unexpected synthetic import confirmation: '+dialog.message());}
+  };
+  page.on('dialog',review);
+  async function importRo(revision){
+   await page.getByRole('button',{name:'Tools',exact:true}).click();
+   await page.getByRole('button',{name:'Import or refresh data',exact:true}).click();
+   const data=await page.evaluate(({name,code,revision})=>{
+    const book=XLSX.utils.book_new();
+    const rows=[['SYNTHETIC source for '+name+' '+code],
+     ['RO Number','Advisor','Advisor Number','Customer','Vehicle','Status','Opened','Total'],
+     ['900001','Synthetic Advisor','101','SYNTHETIC Customer','SYNTHETIC Vehicle','Working','11/19/2026',100+revision]];
+    XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(rows),'Open ROs');
+    return Array.from(new Uint8Array(XLSX.write(book,{type:'array',bookType:'xlsx'})));
+   },{name:STORE_NAME,code:STORE_CODE,revision});
+   const name='synthetic-open-ro-'+revision+'.xlsx';
+   await page.locator('#dailyTools input[type=file]').setInputFiles({name,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from(data)});
+   await page.waitForFunction(async name=>{
+    const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
+    let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
+    const state=JSON.parse(await(await(await d.getFileHandle('current-state.json')).getFile()).text());
+    return state.source?.fileName===name&&state.records?.some(row=>row.ro==='900001');
+   },name,{timeout:60000});
+   await settledSnapshot(page);
+  }
+  await importRo(0);
+  await page.getByRole('button',{name:'Open RO Control',exact:true}).click();
+  await page.locator('#roTable tr[data-id] button[data-id]').first().click();
+  await page.locator('#editStatus').selectOption({label:'Being Repaired'});
+  await page.locator('#editOwner').fill(STORE_NAME+' manual owner');
+  await page.locator('#editNextAction').fill('Preserve synthetic '+STORE_CODE);
+  await page.locator('#editReviewDate').fill('2026-11-23');
+  await page.locator('#saveRecordClose').click();await page.locator('#editDialog').waitFor({state:'hidden'});
+  await settledSnapshot(page);manualRoReady=true;
+  assertOperational(await readOperational(page));
+  await importRo(1);assertOperational(await readOperational(page));
+  page.off('dialog',review);
+  console.log(JSON.stringify({overlappingRo:'900001',manualOwnerAndActionSaved:true,manualOverridesSurviveSourceRefresh:true}));
  }
  if(fullJourney){
   const preserved=await settledSnapshot(page);
