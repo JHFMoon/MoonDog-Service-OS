@@ -573,7 +573,8 @@ try{
    // A genuine public-module stage writes the verified package first. Model
    // an interruption before activation, then use the ordinary Install UI to
    // complete its authenticated missing-file subset without overwriting it.
-   await page.evaluate(async()=>{
+   const originalHref=await page.locator('#openApp').getAttribute('href');
+   const interrupted=await page.evaluate(async()=>{
     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
     const {stageVerifiedBetaBrowserSoftware}=await import('./modules/browser_software_candidates.mjs');
     const staged=await stageVerifiedBetaBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,
@@ -584,8 +585,27 @@ try{
     await writer.write('INCOMPLETE');await writer.close();
     const assets=await d.getDirectoryHandle('System Files').then(folder=>folder.getDirectoryHandle('assets'));
     await assets.removeEntry('app.js');
+    return {version:staged.version,zipHash:staged.zipHash};
    });
    assert.deepEqual(await snapshot(page),beforeBeta,'Interrupted software staging must not alter the Workspace');
+   if(advancedRecovery){
+    await context.close();context=null;context=await launch();page=await context.newPage();
+    await page.goto(management);await page.locator('#openApp').waitFor({state:'visible',timeout:60000});
+    assert.equal(await page.locator('#openApp').getAttribute('href'),originalHref,'Restart during staging must retain the verified original selection');
+    assert.deepEqual(await snapshot(page),beforeBeta,'Restart during staging must preserve every Workspace byte');
+    await page.evaluate(async staged=>{
+     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
+     let d=await navigator.storage.getDirectory();
+     for(const name of ['MoonDog-PWA-v1','software-candidates-v2',p.storeId,staged.version+'-'+staged.zipHash])d=await d.getDirectoryHandle(name);
+     if(await(await(await d.getFileHandle('STAGING-INCOMPLETE.json')).getFile()).text()!=='INCOMPLETE')throw Error('Interrupted staging marker must survive real process restart');
+     const assets=await d.getDirectoryHandle('System Files').then(folder=>folder.getDirectoryHandle('assets'));
+     try{await assets.getFileHandle('app.js');throw Error('Interrupted runtime must remain incomplete until explicit retry');}
+     catch(error){if(error.name!=='NotFoundError')throw error;}
+    },interrupted);
+    await page.locator('#consent').check();await page.locator('#checkBeta').click();
+    await page.waitForFunction(()=>!document.querySelector('#installBeta').disabled,null,{timeout:120000});
+    console.log(JSON.stringify({interruptedUpdateProcessRestart:true,incompleteCandidateRetained:true,originalSoftwareSelected:true,workspaceByteExact:true}));
+   }
   }
   await page.locator('#installBeta').click();
   await page.waitForFunction(()=>{
