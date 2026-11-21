@@ -263,3 +263,13 @@ test('new entry waits for replacement worker control and shell proof before acce
  workers.controller=next;controlListeners.controllerchange();await pending;
  assert.equal(proof,1);assert.equal(finished,true);
 });
+
+test('versioned entry script and native manifest bypass old shell URLs and remain available offline',()=>{
+ const vm=require('node:vm'),root=path.join(__dirname,'../distribution/site/web-preview');
+ const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),sw=fs.readFileSync(path.join(root,'sw.js'),'utf8');
+ const context={self:{registration:{scope:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/'},addEventListener(){}},URL};
+ vm.runInNewContext(sw.replace(/^import .*;$/m,'')+';globalThis.shell=PUBLIC_SHELL',context);
+ const version=sw.match(/const CACHE=CACHE_PREFIX\+'v([0-9]+)'/)[1];
+ const refs=[html.match(/<script type="module" src="([^"]+)"/)[1],html.match(/rel="manifest" href="([^"]+)"/)[1]];
+ for(const ref of refs){assert.equal(new URL(ref,context.self.registration.scope).searchParams.get('v'),version);assert.ok(context.shell.includes(ref),'Exact entry URL must be staged for offline launch: '+ref);}
+});

@@ -79,6 +79,20 @@ function assertOperational(value){
   assert.equal(value.record?.management?.nextAction,'Preserve synthetic '+STORE_CODE);
  }
 }
+async function assertPublishedViews(page){
+ await page.getByRole('button',{name:'Home',exact:true}).click();
+ await page.locator('#view-home.active').waitFor({state:'visible'});
+ assert.equal(await page.evaluate(()=>globalThis.__moondogSettingsModel?.performance?.snapshots['2026-11-19']?.store?.cpGross),STORE_GROSS,'Home must use the rehydrated canonical SAPR');
+ await page.getByRole('button',{name:/^Advisor meeting$/i}).click();
+ await page.locator('#view-meeting.active').waitFor({state:'visible'});
+ const meeting=await page.evaluate(()=>{const value=globalThis.__moondogSapr?.latestVerifiedMeetingSnapshot();return value?{gross:value.store.cpGross,days:value.saprDaysCompleted,totalDays:value.saprTotalDays}:null;});
+ assert.deepEqual(meeting,{gross:STORE_GROSS,days:8,totalDays:22},'Rendered meeting must use the same verified source/days');
+ assert.ok((await page.locator('#view-meeting').innerText()).trim().length>50,'Real meeting UI must render');
+ await page.getByRole('button',{name:/^Advisor performance$/i}).click();
+ assert.ok((await page.locator('#view-performance').innerText()).includes('Current MTD: $'+STORE_GROSS.toLocaleString('en-US')));
+ assert.ok((await page.locator('#view-performance').innerText()).includes('Month pace: $'+STORE_PACE.toLocaleString('en-US')));
+ console.log(JSON.stringify({publishedHomeMeetingPerformance:true,cpGross:STORE_GROSS,reportedDays:8,totalDays:22,monthPace:STORE_PACE}));
+}
 // After app launch, validate normal connection bookkeeping separately from
 // immutable data. Software stage/select/rollback still use full byte equality.
 function assertLifecyclePreservation(before,after,label){
@@ -289,6 +303,7 @@ try{
   assertOperational(await readOperational(page));
   await importRo(1);assertOperational(await readOperational(page));
   page.off('dialog',review);
+  await assertPublishedViews(page);
   console.log(JSON.stringify({overlappingRo:'900001',manualOwnerAndActionSaved:true,manualOverridesSurviveSourceRefresh:true}));
  }
  if(fullJourney){
@@ -333,6 +348,7 @@ try{
   assert.ok((await page.locator('#view-performance').innerText()).includes('Current MTD: $'+STORE_GROSS.toLocaleString('en-US')));
   assert.ok((await page.locator('#view-performance').innerText()).includes('Month pace: $'+STORE_PACE.toLocaleString('en-US')));
   await settledSnapshot(page);assertOperational(await readOperational(page));
+  await assertPublishedViews(page);
   console.log(JSON.stringify({saprRestart:true,cpGross:STORE_GROSS,monthPace:STORE_PACE,guidedSetup:true}));
  }
 
@@ -389,6 +405,7 @@ try{
    assert.ok((await page.locator('#view-performance').innerText()).includes('Current MTD: $'+STORE_GROSS.toLocaleString('en-US')));
    assert.ok((await page.locator('#view-performance').innerText()).includes('Month pace: $'+STORE_PACE.toLocaleString('en-US')));
   }
+  await assertPublishedViews(page);
   console.log(JSON.stringify({storageLossRecovery:true,externalBackup:true,separateReceipt:true,missingBackupRefused:true,tamperedReceiptRefused:true,tamperedBackupRefused:true,wrongStoreReceiptRefused:true,restoredFiles:expectedFiles.length}));
  }
  if(process.env.PWA_BETA==='1'){
@@ -436,7 +453,7 @@ try{
   await page.waitForFunction(()=>!document.body.innerText.includes('Connect Service Operations Dashboard to begin'));
   await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
   assertLifecyclePreservation(beforeBeta,await settledSnapshot(page),'Beta app launch');
-  if(process.env.PWA_SAPR==='1')assertOperational(await readOperational(page));
+  if(process.env.PWA_SAPR==='1'){assertOperational(await readOperational(page));await assertPublishedViews(page);}
   const beforeRollback=await settledSnapshot(page);
   await page.goto(management);await page.locator('#consent').check();
   await page.waitForFunction(async()=>{
@@ -453,7 +470,7 @@ try{
   await page.waitForFunction(()=>!document.body.innerText.includes('Connect Service Operations Dashboard to begin'));
   await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
   assertLifecyclePreservation(beforeRollback,await settledSnapshot(page),'Original app after rollback');
-  if(process.env.PWA_SAPR==='1')assertOperational(await readOperational(page));
+  if(process.env.PWA_SAPR==='1'){assertOperational(await readOperational(page));await assertPublishedViews(page);}
   if(fullJourney){
    const preserved=await settledSnapshot(page);
    await page.goto(management);
