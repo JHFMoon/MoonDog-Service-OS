@@ -491,3 +491,11 @@ test('browser Guided Setup uses the canonical file chooser once without parsing 
  run();run();assert.equal(created.length,1,'Repeated render must not duplicate the chooser');assert.equal(renderCalls,0);assert.equal(chooserCalls,0);
  assert.doesNotMatch(note.textContent,/01 - DROP REPORTS HERE/);created[0].handlers.click();assert.equal(renderCalls,1);assert.equal(chooserCalls,1);assert.equal(picker.accept,'.xlsx');
 });
+test('restored history pages re-enter current software authority and disposed pages reject connection',async()=>{
+ const vm=require('node:vm'),handlers={};let destination=null;
+ const route=new URL(`https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/store/${randomUUID()}/${'0'.repeat(64)}/0.10.17/index.html`);
+ const window={addEventListener(type,handler){handlers[type]=handler;}},document={currentScript:{src:'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/bridge.js'},addEventListener(){}};
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/bridge.js'),'utf8'),{window,document,navigator:{},URL,AbortController,location:{pathname:route.pathname,replace(url){destination=url;}}});
+ handlers.pageshow({persisted:false});assert.equal(destination,null);handlers.pageshow({persisted:true});assert.equal(destination,'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/index.html');
+ handlers.pagehide();await assert.rejects(window.showDirectoryPicker({id:'moondog-operations',mode:'readwrite'}),/session is closed/);
+});

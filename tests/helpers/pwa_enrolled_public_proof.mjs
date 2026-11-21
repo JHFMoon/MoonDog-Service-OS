@@ -29,7 +29,7 @@ async function fillEnrollment(page){
  await page.selectOption('#workspaceMode','operational');await page.fill('#enrollmentName',NAME);await page.fill('#enrollmentCode',CODE);await page.fill('#enrollmentBrand','');await page.selectOption('#enrollmentTimeZone','America/Los_Angeles');await page.check('#consent');
 }
 async function installed(page){
- await page.waitForFunction(()=>!document.querySelector('#openApp').hidden||document.querySelector('#result').textContent.includes('Preview was not completed'),null,{timeout:180000});
+ await page.waitForFunction(()=>!document.querySelector('#openApp').hidden||document.querySelector('#result').textContent.includes('Installation was not completed'),null,{timeout:180000});
  const message=await page.locator('#result').innerText();assert.equal(await page.locator('#openApp').isVisible(),true,message);assert.match(await page.locator('#openApp').getAttribute('href'),/-beta\.[0-9]+\/index\.html$/);
 }
 async function connected(page){await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'),null,{timeout:120000});}

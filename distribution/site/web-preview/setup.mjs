@@ -277,7 +277,7 @@ async function installPreview(readBytes, recovery){
     (persistent?'Browser persistence is enabled.':'Browser persistence is NOT guaranteed. Keep an external backup; clearing Edge site data removes this copy.'));
    enterApplication();
   });
- }catch(e){status('Preview was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}
+ }catch(e){status('Installation was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}
  finally{busy=false;$('installFromWeb').disabled=!websiteAvailable||Boolean(offlineShellError);
   $('prepareBackup').disabled=!activePreview;$('restoreBackup').disabled=!websiteAvailable||Boolean(offlineShellError);}
 }

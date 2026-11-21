@@ -38,6 +38,9 @@
     try{return await connecting;}finally{connecting=null;}
   };
   window.addEventListener('pagehide',()=>{lifecycle.abort();if(active)void active.close();active=null;},{once:true});
+  // A history-cache restore must reconnect through current software authority,
+  // not reuse a disposed handle or an old software generation.
+  window.addEventListener('pageshow',event=>{if(event.persisted)location.replace(new URL('./index.html',base).href);});
   document.addEventListener('DOMContentLoaded',()=>{
     const manifest=document.createElement('link');manifest.rel='manifest';
     manifest.href=new URL('./app.webmanifest?v=19',base).href;document.head.append(manifest);
