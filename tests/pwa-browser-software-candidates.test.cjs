@@ -37,8 +37,8 @@ async function plan(version){
  entries.push({path:'INSTALLATION-MANIFEST.json',bytes:b(JSON.stringify(manifest))});
  return {version,files:entries,directories:[]};
 }
-async function fixture(label='SYNTHETIC A',sharedStorage){
- const s=sharedStorage||storage(),{store,identity}=await(await stores()).createEmptyStore({storage:s,crypto,label});
+async function fixture(label='SYNTHETIC A',sharedStorage,workspaceId){
+ const s=sharedStorage||storage(),{store,identity}=await(await stores()).createEmptyStore({storage:s,crypto,label,workspaceId});
  const original=await plan('0.10.17');
  for(const entry of original.files)await write(store,entry.path,entry.bytes);
  await write(store,'System Files/Workspace/data/SAPR.json',b('original report, do not touch'));
@@ -367,7 +367,7 @@ test('external Workspace backup made with selected Beta survives complete synthe
  const receipt={sourceStoreId:source.identity.storeId,checksum:exported.sha256};
  // A brand new OPFS root simulates complete browser-origin site-data deletion.
  // The backup and separate receipt are retained outside that origin.
- const fresh=await fixture('SYNTHETIC Reinstalled');
+ const fresh=await fixture('SYNTHETIC Reinstalled',undefined,exported.workspaceId);
  assert.notEqual(fresh.args.storage.root,source.args.storage.root);
  const freshData=await fresh.store.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('Workspace'))
   .then(x=>x.getDirectoryHandle('data'));

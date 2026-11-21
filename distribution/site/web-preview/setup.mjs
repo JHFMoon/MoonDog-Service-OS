@@ -89,7 +89,8 @@ async function offerExistingPreview(){
    storeId:prior.storeId,version:prior.version,expectedManifestHash:prior.manifestHash});
   if(!check.applicationVerified||
      typeof check.identity?.label!=='string'||
-     !/^SYNTHETIC(?:\s|$)/i.test(check.identity.label))return;
+     !/^SYNTHETIC(?:\s|$)/i.test(check.identity.label)||
+     check.identity.workspaceId!==(prior.workspaceId??prior.storeId))return;
   // An invalid selector must not silently launch an original or a candidate.
   // Only an explicit user recovery action may clear a damaged selector.
   let selection;
@@ -151,7 +152,8 @@ async function installPreview(readBytes, recovery){
   await navigator.locks.request('moondog-pwa-browser-setup',{mode:'exclusive',ifAvailable:true},async lock=>{
    if(!lock)throw Error('Another MoonDog window is installing or restoring this browser profile. Try again after it finishes.');
    const saved=JSON.parse(localStorage.getItem(PREVIOUS)||'null');
-   if(saved&&recovery&&saved.storeId!==recovery.sourceStoreId)
+   const recoveryWorkspaceId=recovery?.backup?.workspaceId??recovery?.sourceStoreId;
+   if(saved&&recovery&&(saved.workspaceId??saved.storeId)!==recoveryWorkspaceId)
     throw Error('This backup belongs to a different store than the saved Workspace in this browser profile.');
    if(saved&&!recovery)
     throw Error('A Workspace is already saved in this browser profile. Open it or use its matching recovery backup.');
@@ -164,10 +166,11 @@ async function installPreview(readBytes, recovery){
    if(!manifest)throw Error('Official installation inventory missing.');
    const manifestHash=await sha(manifest.bytes);
    const recoveryArgs={crypto,version:release.version,expectedManifestHash:manifestHash};
-   if(recovery)await recovery.api.inspectSyntheticExternalBackup({...recoveryArgs,
-    backup:recovery.backup,expectedStoreId:recovery.sourceStoreId});
+   const verifiedBackup=recovery?await recovery.api.inspectSyntheticExternalBackup({...recoveryArgs,
+    backup:recovery.backup,expectedStoreId:recovery.sourceStoreId}):null;
    status('Creating an isolated, empty synthetic browser store…');
-   const {identity}=await createEmptyStore({storage:navigator.storage,crypto,label:'SYNTHETIC MoonDog Web Preview'});
+   const {identity}=await createEmptyStore({storage:navigator.storage,crypto,
+    label:'SYNTHETIC MoonDog Web Preview',workspaceId:verifiedBackup?.workspaceId});
    await installVerifiedBrowserStore({storage:navigator.storage,crypto,locks:navigator.locks,
     storeId:identity.storeId,zipBytes:buffer,version:release.version,expectedZipHash:release.sha256,inspectVerifiedZip:inspect});
    if(!recovery)await initializeFreshBrowserWorkspace({...recoveryArgs,storage:navigator.storage,locks:navigator.locks,storeId:identity.storeId});
@@ -179,7 +182,7 @@ async function installPreview(readBytes, recovery){
    }
    status('Registering the browser app service worker…');
    await shellReady;
-   const pointer={storeId:identity.storeId,manifestHash,version:release.version};
+   const pointer={storeId:identity.storeId,workspaceId:identity.workspaceId,manifestHash,version:release.version};
    localStorage.setItem(PREVIOUS,JSON.stringify(pointer));
    showPreview(pointer);
    const persistent=await navigator.storage.persist?.().catch(()=>false);
@@ -255,7 +258,7 @@ async function verifyActiveBetaShell(){
   channel.port1.onmessage=event=>{
    clearTimeout(timer);channel.port1.close();
    if(event.data?.type==='MOONDOG_PREVIEW_SHELL_PROOF'&&
-      event.data.cache==='moondog-synthetic-preview-shell-v14')resolve();
+      event.data.cache==='moondog-synthetic-preview-shell-v15')resolve();
    else reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
   };
   try{controller.postMessage({type:'MOONDOG_PREVIEW_SHELL_PROBE'},[channel.port2]);}
