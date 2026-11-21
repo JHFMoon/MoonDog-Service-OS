@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v13'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v14'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -194,14 +194,14 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v13'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v14'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
 });
 
 
-test('active preview worker reports only the reviewed shell v13 in explicit software-update handshake',()=>{
+test('active preview worker reports only the reviewed shell v14 in explicit software-update handshake',()=>{
  const vm=require('node:vm');
  const src=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/sw.js'),'utf8');
  const handlers={};const received=[];
@@ -214,7 +214,7 @@ test('active preview worker reports only the reviewed shell v13 in explicit soft
  assert.equal(received.length,0,'Unrelated messages must not advertise update authority');
  handlers.message({data:{type:'MOONDOG_PREVIEW_SHELL_PROBE'},ports:[port]});
  assert.deepEqual(received,[{type:'MOONDOG_PREVIEW_SHELL_PROOF',
-  cache:'moondog-synthetic-preview-shell-v13'}]);
+  cache:'moondog-synthetic-preview-shell-v14'}]);
 });
 
 test('browser startup waits for canonical readiness, connects once, and leaves refusals under user control',()=>{
@@ -302,3 +302,68 @@ test('primary website install is never blocked by an unanswered native PWA promp
  assert.equal(installCalls,1,'The production verified installation must start immediately');
  assert.equal(nativePromptCalls,0,'The main installation must not open the separate OS prompt');
 });
+
+test('website restore refuses a different saved store before downloading software',async()=>{
+ const {install,readCount,messages}=browserSetupFixture({storeId:'saved-store'});
+ await install({sourceStoreId:'other-store'});
+ assert.equal(readCount(),0,'Foreign recovery must stop before downloading software');
+ assert.match(messages.at(-1),/belongs to a different store/i);
+ await install({sourceStoreId:'saved-store'});
+ assert.equal(readCount(),1,'A matching recovery should reach the verified software download');
+});
+
+test('website setup uses one lock across tabs before creating a store',async()=>{
+ const held=new Set();
+ const locks={async request(name,options,run){
+  assert.equal(options.mode,'exclusive');
+  assert.equal(options.ifAvailable,true);
+  if(held.has(name))return run(null);
+  held.add(name);
+  try{return await run({name});}finally{held.delete(name);}
+ }};
+ const first=browserSetupFixture(null,locks),second=browserSetupFixture(null,locks);
+ let unblock,signalStarted;
+ const started=new Promise(resolve=>{signalStarted=resolve;});
+ const pending=first.install(undefined,()=>new Promise((_,reject)=>{
+  unblock=()=>reject(new Error('controlled end'));
+  signalStarted();
+ }));
+ await started;
+ try{
+  await second.install();
+  assert.equal(second.readCount(),0,'The second tab must not stage another store');
+  assert.match(second.messages.at(-1),/another MoonDog window/i);
+ }finally{
+  unblock();
+  await pending;
+ }
+ await second.install();
+ assert.equal(second.readCount(),1,'An interrupted attempt must release the lock for a retry');
+});
+
+function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({name})}){
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
+ const start=source.indexOf('async function installPreview(');
+ const end=source.indexOf('async function readSiteBytes(',start);
+ assert.ok(start>0&&end>start,'Production install and recovery handler must be present');
+ const messages=[],elements=new Map();
+ let reads=0;
+ const $=id=>{
+  if(!elements.has(id))elements.set(id,{checked:true});
+  return elements.get(id);
+ };
+ const install=vm.runInNewContext(source.slice(start,end)+';installPreview',{
+  $,busy:false,release:{version:'0.10.17'},websiteAvailable:true,activePreview:null,PREVIOUS:'saved',
+  localStorage:{getItem:()=>JSON.stringify(saved)},
+  navigator:{storage:{getDirectory(){}},locks,serviceWorker:{}},
+  status:message=>messages.push(message)
+ });
+ return {messages,readCount:()=>reads,install:(recovery,run)=>{
+  return install(async()=>{
+   reads++;
+   if(run)return run();
+   throw new Error('controlled end');
+  },recovery);
+ }};
+}
