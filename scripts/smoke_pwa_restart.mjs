@@ -372,7 +372,7 @@ try{
     const staged=await stageVerifiedBetaBrowserSoftware({storage:navigator.storage,crypto,locks:navigator.locks,
      storeId:p.storeId,installedVersion:p.version,installedManifestHash:p.manifestHash,fetchImpl:fetch});
     let d=await navigator.storage.getDirectory();
-    for(const name of ['MoonDog-PWA-v1','software-candidates',p.storeId,staged.version+'-'+staged.zipHash])d=await d.getDirectoryHandle(name);
+    for(const name of ['MoonDog-PWA-v1','software-candidates-v2',p.storeId,staged.version+'-'+staged.zipHash])d=await d.getDirectoryHandle(name);
     const marker=await d.getFileHandle('STAGING-INCOMPLETE.json',{create:true});const writer=await marker.createWritable();
     await writer.write('INCOMPLETE');await writer.close();
     const assets=await d.getDirectoryHandle('System Files').then(folder=>folder.getDirectoryHandle('assets'));

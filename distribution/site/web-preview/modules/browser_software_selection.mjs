@@ -52,6 +52,7 @@ async function proveCandidate({storage,crypto,storeId,version,zipHash,manifestHa
  const proof=await inspectStagedBrowserSoftware({storage,crypto,storeId,version,zipHash,
   expectedManifestHash:manifestHash});
  if(proof.status!=='verified-staged'||proof.manifestHash!==manifestHash)fail('Staged software is not verified.');
+ return proof;
 }
 async function withLock(locks,storeId,fn){
  if(typeof locks?.request!=='function')fail('Browser operational lock unavailable.');
@@ -138,10 +139,10 @@ export async function readActiveCandidateAsset({storage,crypto,storeId,version,e
  if(version!==record.version||expectedManifestHash!==record.manifestHash)
   fail('Public software request does not match the active verified generation.');
  await proveOriginal({...record,storage,crypto});
- await proveCandidate({...record,storage,crypto});
+ const candidate=await proveCandidate({...record,storage,crypto});
  // The staged candidate is stored outside the original Workspace and origin-owned store.
  const root=await storage.getDirectory(),bucket=await root.getDirectoryHandle(BUCKET,{create:false});
- const all=await bucket.getDirectoryHandle('software-candidates',{create:false});
+ const all=await bucket.getDirectoryHandle(candidate.candidateBucket,{create:false});
  const owned=await all.getDirectoryHandle(storeId,{create:false});
  let fileDir=await owned.getDirectoryHandle(record.version+'-'+record.zipHash,{create:false});
  const parts=('System Files/'+relativePath).split('/');

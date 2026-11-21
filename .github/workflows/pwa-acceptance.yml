@@ -70,7 +70,7 @@ jobs:
           PWA_PUBLICATION_WAIT_MS: ${{ github.event_name == 'pull_request' && '0' || '480000' }}
           PWA_SAPR: '1'
           PWA_RECOVERY: '1'
-          PWA_BETA: '1'
+          PWA_BETA: ${{ github.event_name == 'pull_request' && '0' || '1' }}
           BROWSER_CHANNEL: ${{ matrix.channel }}
           EXPECTED_MAIN_SHA: ${{ steps.authority.outputs.sha }}
           PROOF_MODE: ${{ steps.authority.outputs.mode }}

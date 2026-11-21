@@ -50,7 +50,6 @@ function showPreview(pointer,launchPointer=pointer){
 }
 async function registerPreviewWorker(){
  const registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',type:'module',updateViaCache:'none'});
- if(registration.active?.state==='activated')return;
  const worker=registration.installing||registration.waiting||registration.active;
  if(!worker)throw Error('The preview service worker did not start.');
  await new Promise((resolve,reject)=>{
@@ -67,6 +66,15 @@ async function registerPreviewWorker(){
   worker.addEventListener('statechange',check);
   check();
  });
+ // Activation and control are distinct: never use modules from an older
+ // controlling worker merely because another worker has activated.
+ if(navigator.serviceWorker.controller!==worker)await new Promise((resolve,reject)=>{
+  const timeout=setTimeout(()=>finish(Error('The verified offline shell did not take control in time.')),30000);
+  function finish(error){clearTimeout(timeout);navigator.serviceWorker.removeEventListener('controllerchange',check);if(error)reject(error);else resolve();}
+  function check(){if(navigator.serviceWorker.controller===worker)finish();}
+  navigator.serviceWorker.addEventListener('controllerchange',check);check();
+ });
+ await verifyActiveBetaShell();
 }
 async function offerExistingPreview(){
  try{
@@ -91,6 +99,9 @@ async function offerExistingPreview(){
    $('prepareBackup').disabled=true;$('checkBeta').disabled=true;
    $('rollbackBeta').disabled=true;$('installBeta').disabled=true;
    $('recoverOriginal').disabled=false;
+   $('appSettings').hidden=false;
+   $('recoverOriginal').closest('details').open=true;
+   status('MoonDog needs software recovery. Your Workspace is preserved. Close other MoonDog windows, then recover the verified original software below.',true);
    $('betaStatus').textContent='Software-selection verification failed. The original installation is still intact; close any dashboard tabs and explicitly recover the original verified software.';
    return;
   }

@@ -4,7 +4,7 @@ import {loadVerifiedPublicAsset,addPreviewBootstrap,parseBrowserAssetRoute} from
 const CACHE_PREFIX='moondog-synthetic-preview-shell-';
 const CACHE=CACHE_PREFIX+'v12';
 const PUBLIC_SHELL=Object.freeze([
- './index.html','./setup.mjs','./bridge.js','./style.css','./app.webmanifest','./icon.svg',
+ './index.html','./setup.mjs','./setup.mjs?v=12','./bridge.js','./style.css','./app.webmanifest','./icon.svg',
  './modules/initialize_fresh_browser_workspace.mjs',
  './modules/browser_software_candidates.mjs','./modules/browser_software_selection.mjs',
  './modules/verified_beta_transport.mjs',

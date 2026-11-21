@@ -26,7 +26,8 @@ async function plan(version){
   ['00 - OPEN DASHBOARD.html','synthetic launcher'],['README - START HERE.txt','synthetic readme'],
   // Match the official Stable clean-install ZIP: no root index.html.
   ['System Files/index.html','<html>synthetic</html>'],
-  ['System Files/assets/app.js','synthetic app'],['System Files/vendor/jszip.min.js','synthetic vendor'],
+  ['System Files/assets/app.js','synthetic app'],
+  ...['jszip.min.js','pdf.min.js','pdf.worker.min.js','xlsx.full.min.js'].map(name=>['System Files/vendor/'+name,'synthetic original '+name]),
   ['System Files/Workspace/README.txt','blank only']];
  const entries=[];
  for(const [path,value] of values)entries.push({path,bytes:b(value),sha256:await sha(b(value))});
@@ -62,7 +63,7 @@ test('verified software candidate stages outside store; all original Workspace/a
    version:args.version,zipHash:args.zipHash,expectedManifestHash:outcome.manifestHash});
  assert.equal(proof.status,'verified-staged');
  const root=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1');
- const stages=await root.getDirectoryHandle('software-candidates');
+ const stages=await root.getDirectoryHandle('software-candidates-v2');
  const stagedStore=await stages.getDirectoryHandle(identity.storeId);
  const folder=await stagedStore.getDirectoryHandle(args.version+'-'+args.zipHash);
  await assert.rejects(folder.getDirectoryHandle('Workspace'),{name:'NotFoundError'});
@@ -88,7 +89,7 @@ test('changed staged executable, extra file and incomplete marker are never cons
  const staged=await stageVerifiedBrowserSoftware(args);
  const inspect=()=>inspectStagedBrowserSoftware({storage:args.storage,crypto,storeId:identity.storeId,
   version:args.version,zipHash:args.zipHash,expectedManifestHash:staged.manifestHash});
- const folder=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(d=>d.getDirectoryHandle('software-candidates'))
+ const folder=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(d=>d.getDirectoryHandle('software-candidates-v2'))
   .then(d=>d.getDirectoryHandle(identity.storeId)).then(d=>d.getDirectoryHandle(args.version+'-'+args.zipHash));
  const assets=await folder.getDirectoryHandle('System Files').then(d=>d.getDirectoryHandle('assets'));
  (await assets.getFileHandle('app.js')).bytes=b('tampered staged executable');
@@ -133,7 +134,7 @@ test('candidate corruption makes active selection fail closed but permits verifi
  const {store,identity,args}=await fixture();const generation=await candidate(),selection=await select();
  const staged=await generation.stageVerifiedBrowserSoftware(args);await selection.activateStagedBrowserSoftware(selectArgs(args,staged));
  const bucket=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1');
- const candidates=await bucket.getDirectoryHandle('software-candidates');
+ const candidates=await bucket.getDirectoryHandle('software-candidates-v2');
  const files=await candidates.getDirectoryHandle(identity.storeId).then(d=>d.getDirectoryHandle(args.version+'-'+args.zipHash));
  const app=await files.getDirectoryHandle('System Files').then(d=>d.getDirectoryHandle('assets')).then(d=>d.getFileHandle('app.js'));
  app.bytes=b('tampered');
@@ -219,7 +220,8 @@ test('browser serves exact selected generation then reconnects original Workspac
 const BETA_ROOT='https://jhfmoon.github.io/MoonDog-Service-OS/';
 const BETA_COMMIT='a'.repeat(40),BETA_VERSION='0.10.18-beta.456';
 async function syntheticPinnedBeta({badHash=false,wrongFile=false,unsafe=false,wrongStable=false,migrationRequired=false,minimumCompatibleVersion='0.10.9'}={}){
- const names=['index.html','assets/app.js','assets/styles.css','assets/freshness.js','vendor/xlsx.full.min.js'];
+ // Real Beta JSON is an application update: it omits the installed vendor libraries.
+ const names=['index.html','assets/app.js','assets/styles.css','assets/freshness.js','assets/queue.css'];
  if(unsafe)names[4]='Workspace/data/private.json';
  const files=[];
  for(const path of names){
@@ -298,7 +300,7 @@ test('staged pinned Beta may be reverified for explicit retry without overwritin
  assert.equal(resumed.resumed,true);
  assert.equal(resumed.version,first.version);assert.equal(resumed.manifestHash,first.manifestHash);
  assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
- const stage=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(x=>x.getDirectoryHandle('software-candidates'))
+ const stage=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(x=>x.getDirectoryHandle('software-candidates-v2'))
   .then(x=>x.getDirectoryHandle(args.storeId)).then(x=>x.getDirectoryHandle(first.version+'-'+first.zipHash));
  const asset=await stage.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('assets')).then(x=>x.getFileHandle('app.js'));
  asset.bytes=b('tampered');
@@ -401,7 +403,7 @@ test('interrupted Beta files stay quarantined until explicit verified completion
  const params={storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
   installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl};
  const staged=await gen.stageVerifiedBetaBrowserSoftware(params);
- const dir=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(x=>x.getDirectoryHandle('software-candidates'))
+ const dir=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(x=>x.getDirectoryHandle('software-candidates-v2'))
   .then(x=>x.getDirectoryHandle(args.storeId)).then(x=>x.getDirectoryHandle(staged.version+'-'+staged.zipHash));
  const assets=await dir.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('assets'));
  await write(dir,'STAGING-INCOMPLETE.json',b('INCOMPLETE'));
@@ -421,7 +423,7 @@ test('explicit completion refuses corrupt partial software before writing any mi
  const params={storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
   installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl};
  const staged=await gen.stageVerifiedBetaBrowserSoftware(params);
- const dir=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(x=>x.getDirectoryHandle('software-candidates'))
+ const dir=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1').then(x=>x.getDirectoryHandle('software-candidates-v2'))
   .then(x=>x.getDirectoryHandle(args.storeId)).then(x=>x.getDirectoryHandle(staged.version+'-'+staged.zipHash));
  await write(dir,'STAGING-INCOMPLETE.json',b('INCOMPLETE'));
  const assets=await dir.getDirectoryHandle('System Files').then(x=>x.getDirectoryHandle('assets'));
@@ -430,4 +432,57 @@ test('explicit completion refuses corrupt partial software before writing any mi
  await assert.rejects(assets.getFileHandle('app.js'),{name:'NotFoundError'});
  assert.equal(await read(dir,'00 - OPEN DASHBOARD.html'),'corrupt');
  assert.equal(await read(dir,'STAGING-INCOMPLETE.json'),'INCOMPLETE');
+});
+
+
+test('Beta update without vendor payload serves every verified original library after activation',async()=>{
+ const {args}=await fixture(),transport=await syntheticPinnedBeta(),gen=await candidate(),selection=await select();
+ const staged=await gen.stageVerifiedBetaBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+  installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl});
+ await selection.activateStagedBrowserSoftware({...selectArgs(args,staged),zipHash:staged.zipHash});
+ for(const name of ['jszip.min.js','pdf.min.js','pdf.worker.min.js','xlsx.full.min.js']){
+  const asset=await selection.readActiveCandidateAsset({storage:args.storage,crypto,storeId:args.storeId,
+   version:staged.version,expectedManifestHash:staged.manifestHash,relativePath:'vendor/'+name});
+  assert.equal(new TextDecoder().decode(asset.bytes),'synthetic original '+name);
+ }
+});
+
+test('legacy verified candidates remain readable without moving or deleting their bytes',async()=>{
+ const {args}=await fixture(),gen=await candidate(),selection=await select();
+ const stage=await gen.stageVerifiedBrowserSoftware(args);
+ const bucket=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1');
+ bucket.map.set('software-candidates',bucket.map.get('software-candidates-v2'));
+ bucket.map.delete('software-candidates-v2');
+ const original=await bucket.getDirectoryHandle('software-candidates').then(d=>d.getDirectoryHandle(args.storeId)).then(d=>d.getDirectoryHandle(args.version+'-'+args.zipHash));
+ const manifestBefore=await read(original,'INSTALLATION-MANIFEST.json');
+ await selection.activateStagedBrowserSoftware(selectArgs(args,stage));
+ const asset=await selection.readActiveCandidateAsset({storage:args.storage,crypto,storeId:args.storeId,
+  version:args.version,expectedManifestHash:stage.manifestHash,relativePath:'vendor/jszip.min.js'});
+ assert.equal(new TextDecoder().decode(asset.bytes),'synthetic original jszip.min.js');
+ assert.equal(await read(original,'INSTALLATION-MANIFEST.json'),manifestBefore);
+});
+
+test('old incomplete-runtime selection requires explicit original recovery, then new staging preserves all legacy bytes',async()=>{
+ const {args,store}=await fixture(),gen=await candidate(),selection=await select(),transport=await syntheticPinnedBeta();
+ const params={storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+  installedVersion:args.installedVersion,installedManifestHash:args.installedManifestHash,fetchImpl:transport.fetchImpl};
+ const first=await gen.stageVerifiedBetaBrowserSoftware(params);
+ await selection.activateStagedBrowserSoftware({...selectArgs(args,first),zipHash:first.zipHash});
+ const bucket=await args.storage.root.getDirectoryHandle('MoonDog-PWA-v1');
+ bucket.map.set('software-candidates',bucket.map.get('software-candidates-v2'));bucket.map.delete('software-candidates-v2');
+ const old=await bucket.getDirectoryHandle('software-candidates').then(d=>d.getDirectoryHandle(args.storeId)).then(d=>d.getDirectoryHandle(first.version+'-'+first.zipHash));
+ const manifest=JSON.parse(await read(old,'INSTALLATION-MANIFEST.json'));
+ manifest.files=manifest.files.filter(file=>!file.path.startsWith('System Files/vendor/'));
+ await old.getDirectoryHandle('System Files').then(d=>d.removeEntry('vendor'));
+ const raw=b(JSON.stringify(manifest));await write(old,'INSTALLATION-MANIFEST.json',raw);
+ const selectors=await bucket.getDirectoryHandle('software-selections').then(d=>d.getDirectoryHandle(args.storeId));
+ const record=JSON.parse(await read(selectors,'ACTIVE.json'));record.manifestHash=await sha(raw);await write(selectors,'ACTIVE.json',b(JSON.stringify(record)));
+ await assert.rejects(selection.inspectActiveBrowserSoftware({storage:args.storage,crypto,storeId:args.storeId}),/runtime library missing/);
+ await selection.recoverOriginalBrowserSoftware({storage:args.storage,crypto,locks:args.locks,storeId:args.storeId,
+  originalVersion:args.installedVersion,originalManifestHash:args.installedManifestHash});
+ const repaired=await gen.stageVerifiedBetaBrowserSoftware(params);
+ assert.equal(repaired.candidateBucket,'software-candidates-v2');
+ assert.equal(await read(old,'INSTALLATION-MANIFEST.json'),new TextDecoder().decode(raw),'Never rewrite the old software generation');
+ assert.equal(await read(store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
+ assert.equal(await read(store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
 });

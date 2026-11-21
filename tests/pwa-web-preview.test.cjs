@@ -242,3 +242,24 @@ test('browser startup waits for canonical readiness, connects once, and leaves r
  assert.equal(button.hidden,true);assert.equal(disconnected,true);
  assert.equal(status.textContent,'Browser-private Workspace connected and verified.');
 });
+
+test('new entry waits for replacement worker control and shell proof before accepting a saved Workspace',async()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
+ const start=source.indexOf('async function registerPreviewWorker(){'),end=source.indexOf('async function offerExistingPreview(){',start);
+ const old={state:'activated'},listeners={},controlListeners={};
+ const next={state:'installing',addEventListener(type,fn){listeners[type]=fn;},removeEventListener(type){delete listeners[type];}};
+ const workers={controller:old,register:async()=>({active:old,installing:next}),
+  addEventListener(type,fn){controlListeners[type]=fn;},removeEventListener(type){delete controlListeners[type];}};
+ let proof=0,finished=false;
+ const register=vm.runInNewContext(source.slice(start,end)+';registerPreviewWorker',{
+  navigator:{serviceWorker:workers},setTimeout:()=>1,clearTimeout(){},
+  verifyActiveBetaShell:async()=>{assert.equal(workers.controller,next);proof++;}
+ });
+ const pending=register().then(()=>{finished=true;});
+ await new Promise(setImmediate);assert.equal(finished,false,'An old active worker must not satisfy new shell readiness');
+ next.state='activated';listeners.statechange();
+ await new Promise(setImmediate);assert.equal(finished,false,'Activation alone must not authorize the new app');
+ workers.controller=next;controlListeners.controllerchange();await pending;
+ assert.equal(proof,1);assert.equal(finished,true);
+});

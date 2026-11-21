@@ -7,7 +7,8 @@ import {openExistingStore} from './opfs-store.mjs';
 import {inspectVerifiedBrowserInstallation} from './install_verified_browser_store.mjs';
 import {fetchVerifiedPinnedBeta} from './verified_beta_transport.mjs';
 
-const ROOT='MoonDog-PWA-v1', CANDIDATES='software-candidates';
+const ROOT='MoonDog-PWA-v1', CANDIDATES='software-candidates-v2', LEGACY_CANDIDATES='software-candidates';
+const LIBRARIES=Object.freeze(['jszip.min.js','pdf.min.js','pdf.worker.min.js','xlsx.full.min.js']);
 const MARKER='STAGING-INCOMPLETE.json', MANIFEST='INSTALLATION-MANIFEST.json';
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const SHA=/^[a-f0-9]{64}$/, VERSION=/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/;
@@ -38,10 +39,10 @@ async function assertOriginal({storage,crypto,storeId,installedVersion,installed
   fail('Browser update staging is restricted to verified synthetic stores.');
  return (await openExistingStore({storage,storeId})).store;
 }
-async function candidatesFolder(storage,storeId,create){
+async function candidatesFolder(storage,storeId,create,namespace=CANDIDATES){
  const root=await storage.getDirectory();
  const bucket=await root.getDirectoryHandle(ROOT,{create:false});
- const candidates=await bucket.getDirectoryHandle(CANDIDATES,{create});
+ const candidates=await bucket.getDirectoryHandle(namespace,{create});
  return candidates.getDirectoryHandle(storeId,{create});
 }
 function inspectPlan(plan,version){
@@ -105,15 +106,35 @@ async function readPath(store,path){
   throw error;
  }
 }
-async function deriveBetaCandidatePlan(store,beta,crypto){
+async function deriveBetaCandidatePlan(store,beta,crypto,installedManifestHash){
  // Only immutable public bootstrap bytes are reused from the verified Stable
- // installation. All executable runtime files come from the pinned Beta.
+ // installation. Application files come from the pinned Beta; unchanged
+ // vetted libraries stay bound to the independently verified original.
  // The official clean-install package has no compatibility index at its root.
  // Its launcher opens System Files/index.html, supplied by the verified Beta.
  const roots=['00 - OPEN DASHBOARD.html','README - START HERE.txt','System Files/Workspace/README.txt'];
  const files=[],seen=new Set();
  for(const path of roots){
   const content=await readPath(store,path);files.push({path,bytes:content,sha256:await digest(content,crypto.subtle)});seen.add(path);
+ }
+ // Beta JSON is an update, not a complete clean-install distribution. Reuse
+ // only the four vetted installer libraries when the authenticated Beta does
+ // not replace them. Bind both inventory and bytes to independent original
+ // manifest authority; never guess dependencies or fetch an unpinned library.
+ const originalBytes=await readPath(store,MANIFEST);
+ if(!SHA.test(installedManifestHash||'')||await digest(originalBytes,crypto.subtle)!==installedManifestHash)
+  fail('Original library manifest changed during Beta derivation.');
+ const original=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(originalBytes));
+ const replacements=new Set(beta.files.map(item=>'System Files/'+item.path));
+ for(const name of LIBRARIES){
+  const path='System Files/vendor/'+name;
+  if(replacements.has(path))continue;
+  const meta=original.files.find(item=>item.path===path);
+  if(!meta||!SHA.test(meta.sha256||''))fail('Verified original library inventory missing: '+path);
+  const content=await readPath(store,path);
+  if(content.length!==meta.size||await digest(content,crypto.subtle)!==meta.sha256)
+   fail('Verified original library changed during Beta derivation: '+path);
+  files.push({path,bytes:content,sha256:meta.sha256});seen.add(path);
  }
  for(const item of beta.files){
   const path='System Files/'+item.path;
@@ -219,7 +240,7 @@ export async function stageVerifiedBetaBrowserSoftware({storage,crypto,locks,sto
  // zipHash is the existing immutable candidate-directory digest field; for
  // this call it binds the official Beta JSON package, not a ZIP.
  return stageAuthenticatedPlan({storage,crypto,locks,storeId,installedVersion,installedManifestHash,
-  version:beta.version,zipHash:beta.packageHash,makePlan:store=>deriveBetaCandidatePlan(store,beta,crypto),completeExisting});
+  version:beta.version,zipHash:beta.packageHash,makePlan:store=>deriveBetaCandidatePlan(store,beta,crypto,installedManifestHash),completeExisting});
 }
 /** Explicit user retry may fill a valid interrupted software generation after
  * renewed pinned-package/original-store verification under the same lock. */
@@ -243,7 +264,7 @@ export async function resumeVerifiedBetaBrowserSoftware({storage,crypto,locks,st
  return locks.request('moondog-pwa-operational-'+storeId,{mode:'exclusive',ifAvailable:true},async lock=>{
   if(!lock)fail('Active browser dashboard must close before resuming staged software.');
   const store=await assertOriginal({storage,crypto,storeId,installedVersion,installedManifestHash});
-  const plan=inspectPlan(await deriveBetaCandidatePlan(store,beta,crypto),beta.version);
+  const plan=inspectPlan(await deriveBetaCandidatePlan(store,beta,crypto,installedManifestHash),beta.version);
   for(const file of plan.selected)if(await digest(file.bytes,crypto.subtle)!==file.sha)
    fail('Authenticated Beta runtime file mismatch.');
   const manifestHash=await digest(plan.manifestBytes,crypto.subtle);
@@ -255,8 +276,14 @@ export async function resumeVerifiedBetaBrowserSoftware({storage,crypto,locks,st
 /** Read-only integrity verification; no Workspace enumeration, no activation. */
 export async function inspectStagedBrowserSoftware({storage,crypto,storeId,version,zipHash,expectedManifestHash}={}){
  if(typeof crypto?.subtle?.digest!=='function'||!UUID.test(storeId||'')||!SHA.test(expectedManifestHash||''))fail('Candidate inspection authority is missing.');
- const id=candidateId(version,zipHash),parent=await candidatesFolder(storage,storeId,false);
- const dir=await parent.getDirectoryHandle(id,{create:false});
+ const id=candidateId(version,zipHash);let dir,candidateBucket=CANDIDATES;
+ try{dir=await(await candidatesFolder(storage,storeId,false)).getDirectoryHandle(id,{create:false});}
+ catch(error){
+  if(!missing(error))throw error;
+  candidateBucket=LEGACY_CANDIDATES;
+  dir=await(await candidatesFolder(storage,storeId,false,LEGACY_CANDIDATES)).getDirectoryHandle(id,{create:false});
+ }
+
  if(!await absent(dir,MARKER))fail('Incomplete candidate software must not run.');
  const raw=await read(dir,MANIFEST);
  if(await digest(raw,crypto.subtle)!==expectedManifestHash)fail('Candidate software manifest checksum mismatch.');
@@ -272,6 +299,7 @@ export async function inspectStagedBrowserSoftware({storage,crypto,storeId,versi
      entry.size<0||entry.size>64*1024*1024||!SHA.test(entry.sha256||''))fail('Candidate runtime inventory is unsafe.');
   expected.set(entry.path,entry);
  }
+ for(const name of LIBRARIES)if(!expected.has('System Files/vendor/'+name))fail('Candidate runtime library missing: '+name);
  let found=0;
  async function walk(node,prefix=''){
   for await(const [name,handle] of node.entries()){
@@ -289,5 +317,5 @@ export async function inspectStagedBrowserSoftware({storage,crypto,storeId,versi
  }
  await walk(dir);
  if(found!==expected.size)fail('Candidate software missing an approved file.');
- return Object.freeze({status:'verified-staged',storeId,version,zipHash,manifestHash:expectedManifestHash,files:found,active:false,productionReady:false});
+ return Object.freeze({status:'verified-staged',candidateBucket,storeId,version,zipHash,manifestHash:expectedManifestHash,files:found,active:false,productionReady:false});
 }
