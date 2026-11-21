@@ -139,9 +139,14 @@ async function offerExistingPreview(){
  }catch(_){/* Missing/corrupt/cleared store must not appear as a usable saved app. */}
 }
 // Register only public offline code; no Workspace is created on a page visit.
+let offlineShellError=null;
 const shellReady=registerPreviewWorker();
-shellReady.catch(()=>status('MoonDog could not prepare its offline files. Reconnect and reopen MoonDog to rebuild them.',true));
-const existingPreview=shellReady.then(offerExistingPreview);
+shellReady.catch(error=>{
+ offlineShellError=error;
+ $('installFromWeb').disabled=$('restoreBackup').disabled=true;
+ status('MoonDog could not prepare its offline files. Reconnect and reopen MoonDog to rebuild them.',true);
+});
+const existingPreview=shellReady.then(offerExistingPreview,()=>false);
 let release=null;
 (async()=>{
  try{const response=await fetch('../latest.json',{cache:'no-store'});
@@ -151,15 +156,15 @@ let release=null;
 
   websiteAvailable=await probeSitePackage({siteUrl:SITE_URL,version:release.version,
    sha256:release.sha256,fetchImpl:fetch,crypto});
-  $('installFromWeb').disabled=!websiteAvailable;
-  $('restoreBackup').disabled=!websiteAvailable;
+  $('installFromWeb').disabled=!websiteAvailable||Boolean(offlineShellError);
+  $('restoreBackup').disabled=!websiteAvailable||Boolean(offlineShellError);
   $('packageStatus').textContent=websiteAvailable?
    'Ready to install. MoonDog will verify its software and open the full application.':
    'Verified installation is currently unavailable. Please try again after publication completes.';
  }catch(e){
   $('version').textContent='Official release metadata unavailable.';
   await existingPreview;
-  if(open.hidden)status('Connect to the internet to start a new preview installation.',true);
+  if(open.hidden&&!offlineShellError)status('Connect to the internet to start a new preview installation.',true);
  }
 })();
 async function installPreview(readBytes, recovery){
@@ -171,6 +176,7 @@ async function installPreview(readBytes, recovery){
  busy=true;$('installFromWeb').disabled=true;
  $('prepareBackup').disabled=true;$('restoreBackup').disabled=true;
  try{
+  await shellReady;
   await navigator.locks.request('moondog-pwa-browser-setup',{mode:'exclusive',ifAvailable:true},async lock=>{
    if(!lock)throw Error('Another MoonDog window is installing or restoring this browser profile. Try again after it finishes.');
    const saved=JSON.parse(localStorage.getItem(PREVIOUS)||'null');
@@ -214,8 +220,8 @@ async function installPreview(readBytes, recovery){
    enterApplication();
   });
  }catch(e){status('Preview was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}
- finally{busy=false;$('installFromWeb').disabled=!websiteAvailable;
-  $('prepareBackup').disabled=!activePreview;$('restoreBackup').disabled=!websiteAvailable;}
+ finally{busy=false;$('installFromWeb').disabled=!websiteAvailable||Boolean(offlineShellError);
+  $('prepareBackup').disabled=!activePreview;$('restoreBackup').disabled=!websiteAvailable||Boolean(offlineShellError);}
 }
 async function readSiteBytes(){
  const bytes=await fetchVerifiedSitePackage({siteUrl:SITE_URL,version:release.version,
@@ -263,7 +269,7 @@ $('restoreBackup').addEventListener('click',async()=>{
   await installPreview(readSiteBytes,{api,backup,sourceStoreId,checksum});
   $('backupStatus').textContent=result.textContent;
  }catch(error){$('backupStatus').textContent=error.message;}
- finally{$('restoreBackup').disabled=!websiteAvailable;}
+ finally{$('restoreBackup').disabled=!websiteAvailable||Boolean(offlineShellError);}
 });
 
 

@@ -21,6 +21,16 @@ let context;
 let manualRoReady=false;
 let nativeManifestId=null;
 let nativeStartUrl=null;
+const advancedRecovery=process.env.PWA_ADVANCED_RECOVERY==='1';
+let saprWorkbookBytes=null;
+async function shellProof(page){
+ return page.evaluate(()=>new Promise((resolve,reject)=>{
+  const channel=new MessageChannel();
+  const timeout=setTimeout(()=>{channel.port1.close();reject(Error('Offline shell proof timed out'));},5000);
+  channel.port1.onmessage=event=>{clearTimeout(timeout);channel.port1.close();resolve(event.data);};
+  navigator.serviceWorker.controller.postMessage({type:'MOONDOG_PREVIEW_SHELL_PROBE'},[channel.port2]);
+ }));
+}
 const runtimeErrors=[];
 const launch=async()=>{
  const instance=await chromium.launchPersistentContext(profile,{headless:false,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{}),...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
@@ -266,7 +276,8 @@ try{
    let d=await navigator.storage.getDirectory();for(const name of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','01 - DROP REPORTS HERE'])d=await d.getDirectoryHandle(name);
    return Array.from(new Uint8Array(await(await(await d.getFileHandle('synthetic-sapr.xlsx')).getFile()).arrayBuffer()));
   });
-  await page.locator('#dailyTools input[type=file]').setInputFiles({name:'synthetic-sapr.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from(sourceBytes)});
+  saprWorkbookBytes=Buffer.from(sourceBytes);
+  await page.locator('#dailyTools input[type=file]').setInputFiles({name:'synthetic-sapr.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:saprWorkbookBytes});
   await page.waitForFunction(()=>document.querySelector('#performancePeriod').textContent.includes('2026'),{},{timeout:30000});
   await settledSnapshot(page);assertOperational(await readOperational(page));
   await page.getByRole('button',{name:'Tools',exact:true}).click();
@@ -414,6 +425,29 @@ try{
  if(process.env.PWA_RECOVERY==='1'){
   await settledSnapshot(page);
   await context.setOffline(false);await page.goto(management);await page.locator('#consent').check();
+  if(advancedRecovery){
+   const proof=await shellProof(page),preserved=await snapshot(page);
+   assert.equal(proof.complete,true,'Current published shell must prove every public cache entry');
+   assert.match(proof.cache,/shell-v(?:1[6-9]|[2-9][0-9])$/);
+   const deleted=await page.evaluate(async cache=>{
+    return(await caches.open(cache)).delete(new URL('modules/verified_beta_transport.mjs',location.href).href);
+   },proof.cache);
+   assert.equal(deleted,true,'Evict an actual required public module');
+   assert.equal((await shellProof(page)).complete,false,'An evicted shell must lose readiness');
+   await context.setOffline(true);await page.reload();
+   await page.waitForFunction(()=>/could not prepare its offline files/i.test(document.querySelector('#result').textContent),null,{timeout:45000});
+   assert.equal(await page.locator('#openApp').isHidden(),true,'Incomplete offline shell must not claim app readiness');
+   assert.deepEqual(await snapshot(page),preserved,'Offline cache loss must preserve every Workspace byte');
+   await context.setOffline(false);await page.reload();
+   await page.locator('#openApp').waitFor({state:'visible',timeout:60000});
+   const rebuilt=await shellProof(page);assert.equal(rebuilt.complete,true);
+   const urls=await page.evaluate(async name=>(await(await caches.open(name)).keys()).map(r=>r.url),rebuilt.cache);
+   assert.ok(urls.every(value=>!value.includes('/store/')&&!value.includes('/Workspace/')&&!/\.(?:xlsx|csv|pdf|json)(?:\?|$)/i.test(value)),
+    'Only public code may be rebuilt into the offline cache');
+   assert.deepEqual(await snapshot(page),preserved,'Online public-shell repair must preserve all private bytes');
+   await page.locator('#consent').check();
+   console.log(JSON.stringify({offlineCacheEvictionRefused:true,onlineShellRebuilt:true,workspaceByteExact:true,cache:rebuilt.cache}));
+  }
   await page.locator('#prepareBackup').click();await page.locator('#saveBackup').waitFor({state:'visible'});
   const receipt=await page.locator('#backupReceipt').inputValue();
   const receiptPath=join(profile,'external-receipt.txt'),backupPath=join(profile,'external-backup.json');
@@ -424,6 +458,20 @@ try{
   const expectedFiles=backup.files.map(f=>[f.path,f.sha256]).sort();
   assert.ok(expectedFiles.length>1,'Recovery must preserve initialized Workspace files');
   const cdp=await context.newCDPSession(page);
+  if(advancedRecovery){
+   const preserved=await snapshot(page),href=await page.locator('#openApp').getAttribute('href');
+   await page.locator('#backupFile').evaluate(el=>{el.closest('details').open=true;});
+   await page.locator('#backupFile').setInputFiles(backupPath);await page.locator('#restoreReceipt').fill(receipt);
+   await cdp.send('Storage.overrideQuotaForOrigin',{origin:new URL(url).origin,quotaSize:0});
+   try{
+    await page.locator('#restoreBackup').click();
+    await page.waitForFunction(()=>/Preview was not completed/i.test(document.querySelector('#result').textContent),null,{timeout:120000});
+    assert.match(await page.locator('#result').innerText(),/quota|storage|space/i,'Quota refusal must be explicit');
+    assert.equal(await page.locator('#openApp').getAttribute('href'),href,'Failed recovery must keep the working software pointer');
+    assert.deepEqual(await snapshot(page),preserved,'Real browser quota refusal must preserve every original Workspace byte');
+   }finally{await cdp.send('Storage.overrideQuotaForOrigin',{origin:new URL(url).origin});}
+   console.log(JSON.stringify({browserQuotaRefused:true,originalWorkspaceByteExact:true,workingPointerPreserved:true}));
+  }
   await cdp.send('Storage.clearDataForOrigin',{origin:new URL(url).origin,storageTypes:'all'});
   await page.close();page=await context.newPage();await page.goto(management);
   assert.equal(await page.evaluate(()=>localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1')),null);
@@ -450,9 +498,21 @@ try{
   await page.locator('#backupFile').setInputFiles(backupPath);
   await page.locator('#restoreReceipt').fill(await readFile(receiptPath,'utf8'));
   await page.locator('#restoreBackup').click();await page.locator('#openApp').waitFor({state:'visible',timeout:120000});
-  const restored=await snapshot(page);
+  let restored=await snapshot(page);
   assert.notEqual(restored.pointer.storeId,before.pointer.storeId,'Recovery uses a fresh isolated identity');
   assert.deepEqual(restored.files,expectedFiles,'All externally backed-up Workspace bytes must restore');
+  if(advancedRecovery){
+   assert.match(backup.workspaceId,/^[0-9a-f-]{36}$/);
+   assert.equal(restored.pointer.workspaceId,backup.workspaceId,'Logical Workspace identity must survive complete origin loss');
+   const firstPhysicalId=restored.pointer.storeId;
+   await page.locator('#backupFile').setInputFiles(backupPath);await page.locator('#restoreReceipt').fill(receipt);
+   await page.locator('#restoreBackup').click();
+   await page.waitForFunction(id=>JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1')).storeId!==id,firstPhysicalId,{timeout:120000});
+   restored=await snapshot(page);
+   assert.equal(restored.pointer.workspaceId,backup.workspaceId,'An older matching receipt must still identify the same recovered Workspace');
+   assert.deepEqual(restored.files,expectedFiles,'Repeated verified recovery must preserve every imported/manual byte');
+   console.log(JSON.stringify({logicalWorkspaceIdentityPreserved:true,matchingOriginalReceiptReusable:true,freshPhysicalIdentity:true}));
+  }
   const restoredApp=new URL(await page.locator('#openApp').getAttribute('href'),url).href;
   await page.goto(restoredApp);if(!fullJourney)await page.locator('#connectButton').click();
   await page.waitForFunction(()=>!document.body.innerText.includes('Connect Service Operations Dashboard to begin')).catch(async error=>{console.error('CONNECT FAILURE',await page.locator('body').innerText());throw error;});
@@ -513,6 +573,72 @@ try{
   await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
   assertLifecyclePreservation(beforeBeta,await settledSnapshot(page),'Beta app launch');
   if(process.env.PWA_SAPR==='1'){assertOperational(await readOperational(page));await assertPublishedViews(page);}
+  if(advancedRecovery){
+   assert.ok(saprWorkbookBytes,'Actual SAPR workbook required for scheduled intake proof');
+   const scheduledName='synthetic-scheduled-sapr.xlsx';
+   const signature=await page.evaluate(async({name,bytes})=>{
+    const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
+    let d=await navigator.storage.getDirectory();
+    for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','01 - DROP REPORTS HERE'])d=await d.getDirectoryHandle(n);
+    const h=await d.getFileHandle(name,{create:true}),w=await h.createWritable();await w.write(new Uint8Array(bytes));await w.close();
+    const f=await h.getFile();return '01 - DROP REPORTS HERE/'+name+'|'+f.size+'|'+f.lastModified;
+   },{name:scheduledName,bytes:Array.from(saprWorkbookBytes)});
+   const inboxState=async target=>target.evaluate(async signature=>{
+    const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
+    let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
+    const ledger=JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());return ledger.seen?.[signature]||null;
+   },signature);
+   assert.equal(await inboxState(page),null,'New queued source must not have been processed before shutdown');
+   const queued=await snapshot(page),originalImports=(await readOperational(page)).imports;
+   const relaunchBeta=async verifyClosed=>{
+    await context.close();context=null;
+    if(verifyClosed)await new Promise(resolve=>setTimeout(resolve,17000));
+    context=await launch();await context.setOffline(true);
+    const control=await context.newPage();
+    // A cached inert SVG establishes the origin without executing the app.
+    // Read durable state before any dashboard or scheduler is launched.
+    await control.goto(new URL('icon.svg',url).href);
+    if(verifyClosed){
+     assert.deepEqual(await snapshot(control),queued,'Browser-closed interval must not execute imports or mutate Workspace bytes');
+     assert.equal(await inboxState(control),null);
+    }
+    const native=await context.newCDPSession(control),opened=context.waitForEvent('page');
+    await native.send('PWA.launch',{manifestId:nativeManifestId});page=await opened;await control.close();
+    await page.waitForURL(betaUrl,{timeout:60000});await page.bringToFront();
+    assert.equal(await page.evaluate(()=>matchMedia('(display-mode: standalone)').matches),true);
+    await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
+   };
+   await relaunchBeta(true);
+   await page.waitForFunction(async signature=>{
+    const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
+    let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
+    const value=JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
+    return value.seen?.[signature]?.manualImportRequired===true;
+   },signature,{polling:1000,timeout:60000});
+   assert.equal((await readOperational(page)).imports,originalImports,'Unsigned SAPR cannot gain import authority from a watcher poll');
+   assertOperational(await readOperational(page));
+   await context.setOffline(false);
+   await page.getByRole('button',{name:'Tools',exact:true}).click();
+   await page.getByRole('button',{name:'Import or refresh data',exact:true}).click();
+   await page.locator('#dailyTools input[type=file]').setInputFiles({name:scheduledName,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:saprWorkbookBytes});
+   await page.waitForFunction(async signature=>{
+    const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
+    let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
+    const value=JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
+    return value.seen?.[signature]?.manualImportRequired===false;
+   },signature,{polling:1000,timeout:60000});
+   await settledSnapshot(page);
+   const accepted=await inboxState(page);assert.equal(accepted.sourceStoreConfidence,'configured-destination-only');
+   const acceptedImports=(await readOperational(page)).imports;
+   assert.equal(acceptedImports,originalImports+1,'Only explicit review may create the one durable SAPR import');
+   await relaunchBeta(false);
+   await page.waitForTimeout(32000); // Two real 15-second scheduler intervals.
+   assert.equal((await readOperational(page)).imports,acceptedImports,'Restarted polling must not replay the reviewed SAPR');
+   assert.deepEqual(await inboxState(page),accepted,'Durable source authority must survive browser restart unchanged');
+   assertOperational(await readOperational(page));await assertPublishedViews(page);
+   await context.setOffline(false);
+   console.log(JSON.stringify({scheduledSaprAfterRestart:true,browserClosedNoExecution:true,unsignedSourceHeld:true,explicitSourceReviewRequired:true,exactSourceLedgerPreserved:true,duplicateImportPrevented:true,cpGross:STORE_GROSS}));
+  }
   const beforeRollback=await settledSnapshot(page);
   await page.goto(management);await page.locator('#consent').check();
   await page.waitForFunction(async()=>{
@@ -559,7 +685,7 @@ try{
  assert.deepEqual(runtimeErrors,[],'Published application must not have unhandled runtime errors');
  if(process.env.PROOF_MODE==='exact-main')assert.equal(fullJourney,true,'Published website must use the application entry, not the developer harness');
  console.log(JSON.stringify({mainSha:sha,browser:process.env.BROWSER_CHANNEL||'Chromium',candidateInitializer,fullJourney,syntheticStore:STORE_CODE,overlappingAdvisor:'101',nativePwaInstalled,nativeOfflineRelaunch:true,automaticWorkspaceConnection:fullJourney,processRestart:true,offlineDashboard:true,workspaceFiles:before.files.length,operationalDataAndHistoryPreserved:true,lifecycleBookkeepingVerified:true}));
-}catch(error){const p=context?.pages().at(-1);if(p)console.error('Synthetic acceptance failure state:',(await p.locator('body').innerText()).slice(0,10000));throw error;}finally{await context?.close();await rm(profile,{recursive:true,force:true});}
+}catch(error){const p=context?.pages().at(-1);if(p){console.error('Synthetic acceptance failure state:',(await p.locator('body').innerText()).slice(0,10000));console.error('Synthetic editor event trace:',JSON.stringify(await p.evaluate(()=>({focus:document.activeElement?.id,events:window.__syntheticEditorTrace||[]}))));}throw error;}finally{await context?.close();await rm(profile,{recursive:true,force:true});}
 
 // A SECOND clean browser profile runs the same production setup/import/restart
 // journey with the same advisor ID and different dealership identity/totals.

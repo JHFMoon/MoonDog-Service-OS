@@ -392,7 +392,7 @@ test('website setup uses one lock across tabs before creating a store',async()=>
  assert.equal(second.readCount(),1,'An interrupted attempt must release the lock for a retry');
 });
 
-function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({name})}){
+function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({name})},readiness=Promise.resolve()){
  const vm=require('node:vm');
  const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
  const start=source.indexOf('async function installPreview(');
@@ -405,7 +405,7 @@ function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({nam
   return elements.get(id);
  };
  const install=vm.runInNewContext(source.slice(start,end)+';installPreview',{
-  $,busy:false,release:{version:'0.10.17'},websiteAvailable:true,activePreview:null,PREVIOUS:'saved',
+  $,busy:false,release:{version:'0.10.17'},websiteAvailable:true,activePreview:null,PREVIOUS:'saved',shellReady:readiness,offlineShellError:null,
   localStorage:{getItem:()=>JSON.stringify(saved)},
   navigator:{storage:{getDirectory(){}},locks,serviceWorker:{}},
   status:message=>messages.push(message)
@@ -418,3 +418,29 @@ function browserSetupFixture(saved,locks={request:async(name,opts,run)=>run({nam
   },recovery);
  }};
 }
+
+test('failed offline shell prevents software download or Workspace creation',async()=>{
+ const readiness=Promise.reject(Error('Offline shell incomplete'));
+ const fixture=browserSetupFixture(null,undefined,readiness);
+ await fixture.install();
+ assert.equal(fixture.readCount(),0,'Readiness must precede all installation/recovery staging');
+ assert.match(fixture.messages.at(-1),/Offline shell incomplete/);
+});
+
+test('offline shell failure settles existing-preview discovery without an unhandled rejection',async()=>{
+ const vm=require('node:vm');
+ const source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8');
+ const start=source.indexOf('let offlineShellError=null;'),end=source.indexOf('let release=null;',start);
+ assert.ok(start>0&&end>start);
+ const elements=new Map(),messages=[];let offered=0;
+ const $=id=>{if(!elements.has(id))elements.set(id,{disabled:false});return elements.get(id);};
+ const result=vm.runInNewContext(source.slice(start,end)+';({existingPreview,getError:()=>offlineShellError})',{
+  $,registerPreviewWorker:async()=>{throw Error('Missing cached module');},
+  offerExistingPreview:async()=>{offered++;},status:(...args)=>messages.push(args)
+ });
+ assert.equal(await result.existingPreview,false);
+ assert.equal(offered,0,'Incomplete shell cannot offer a saved app as ready');
+ assert.match(result.getError().message,/Missing cached module/);
+ assert.equal($('installFromWeb').disabled,true);assert.equal($('restoreBackup').disabled,true);
+ assert.match(messages.at(-1)[0],/Reconnect and reopen/);
+});
