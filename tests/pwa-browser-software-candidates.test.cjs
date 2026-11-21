@@ -383,5 +383,14 @@ test('external Workspace backup made with selected Beta survives complete synthe
  assert.equal(await read(fresh.store,'System Files/index.html'),'<html>synthetic</html>');
  assert.equal(await selector.inspectActiveBrowserSoftware({storage:fresh.args.storage,crypto,storeId:fresh.identity.storeId}),null,
   'Restoring a Workspace must not adopt the erased origin software selection or staged Beta');
+ // Reproduce the production sequence, not just isolated restore and Beta selection:
+ // a deleted browser origin, restored Workspace, then a new verified Beta stage.
+ const restaged=await gen.stageVerifiedBetaBrowserSoftware({storage:fresh.args.storage,crypto,
+  locks:fresh.args.locks,storeId:fresh.identity.storeId,
+  installedVersion:fresh.args.installedVersion,
+  installedManifestHash:fresh.args.installedManifestHash,fetchImpl:transport.fetchImpl});
+ assert.equal(restaged.status,'verified-staged');
+ assert.equal(await read(fresh.store,'System Files/Workspace/data/SAPR.json'),'original report, do not touch');
+ assert.equal(await read(fresh.store,'System Files/Workspace/data/manual.txt'),'manual override preserved');
  await assert.rejects(backupApi.restoreSyntheticExternalBackup(restore),/must be empty/);
 });
