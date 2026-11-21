@@ -75,7 +75,8 @@ function assertOperational(value){
  assert.equal(value.snapshot.saprDaysCompleted,8);assert.equal(value.snapshot.saprTotalDays,22);
  assert.ok(value.imports>=1,'Durable import history required');
  if(manualRoReady){
-  assert.equal(value.record?.management?.owner,STORE_NAME+' manual owner');
+  assert.equal(value.record?.management?.owner,STORE_NAME+' manual owner',
+   'Durable synthetic RO owner mismatch; management='+JSON.stringify(value.record?.management));
   assert.equal(value.record?.management?.nextAction,'Preserve synthetic '+STORE_CODE);
  }
 }
@@ -298,6 +299,11 @@ try{
   await page.locator('#editOwner').fill(STORE_NAME+' manual owner');
   await page.locator('#editNextAction').fill('Preserve synthetic '+STORE_CODE);
   await page.locator('#editReviewDate').fill('2026-11-23');
+  // A successful editor close proves a durable save, not that an earlier
+  // async re-render preserved what the manager actually submitted.
+  const draft=await page.locator('#editOwner').evaluate(field=>({owner:field.value,explicit:field.dataset.ownerAssignmentExplicit}));
+  assert.deepEqual(draft,{owner:STORE_NAME+' manual owner',explicit:'true'},
+   'Editor must retain the explicitly assigned follow-up owner before submit');
   await page.locator('#saveRecordClose').click();await page.locator('#editDialog').waitFor({state:'hidden'});
   await settledSnapshot(page);manualRoReady=true;
   assertOperational(await readOperational(page));
