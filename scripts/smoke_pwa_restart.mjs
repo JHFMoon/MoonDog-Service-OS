@@ -25,6 +25,16 @@ let nativeManifestId=null;
 let nativeStartUrl=null;
 const advancedRecovery=process.env.PWA_ADVANCED_RECOVERY==='1';
 let saprWorkbookBytes=null;
+async function waitForAsyncCondition(page,predicate,arg,{timeout=30000,polling=100}={}){
+ const deadline=Date.now()+timeout;
+ for(;;){
+  // waitForFunction tests the Promise object's truthiness before resolving it.
+  // Await the browser result in Node before deciding whether to poll again.
+  if(await page.evaluate(predicate,arg))return;
+  if(Date.now()>=deadline)throw Error('Async browser condition timed out after '+timeout+'ms');
+  await page.waitForTimeout(polling);
+ }
+}
 async function shellProof(page){
  return page.evaluate(()=>new Promise((resolve,reject)=>{
   const channel=new MessageChannel();
@@ -36,23 +46,6 @@ async function shellProof(page){
 const runtimeErrors=[];
 const launch=async()=>{
  const instance=await chromium.launchPersistentContext(profile,{headless:false,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{}),...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
- await instance.addInitScript(()=>{
-  globalThis.__syntheticLedgerWrites=[];
-  if(!globalThis.FileSystemFileHandle||!globalThis.FileSystemWritableFileStream)return;
-  const names=new WeakMap(),open=FileSystemFileHandle.prototype.createWritable,write=FileSystemWritableFileStream.prototype.write;
-  FileSystemFileHandle.prototype.createWritable=async function(...args){const stream=await open.apply(this,args);names.set(stream,this.name);return stream;};
-  FileSystemWritableFileStream.prototype.write=function(chunk,...args){
-   try{
-    const data=chunk&&typeof chunk==='object'&&chunk.type==='write'?chunk.data:chunk;
-    const text=typeof data==='string'?data: data instanceof ArrayBuffer||ArrayBuffer.isView(data)?new TextDecoder().decode(data):'';
-    if(text.length<262144){const value=JSON.parse(text);if(value&&value.seen&&typeof value.seen==='object'){
-     const entry={file:names.get(this),at:performance.now(),initializedAt:value.initializedAt,updatedAt:value.updatedAt,
-      seen:Object.fromEntries(Object.entries(value.seen).map(([key,row])=>[key,{kind:row.kind,manualImportRequired:row.manualImportRequired,sourceStoreConfidence:row.sourceStoreConfidence}])),stack:new Error().stack};
-     globalThis.__syntheticLedgerWrites.push(entry);if(globalThis.__syntheticLedgerWrites.length>40)globalThis.__syntheticLedgerWrites.shift();
-    }}
-   }catch(_){}return write.call(this,chunk,...args);
-  };
- });
  const observe=page=>{
   const updateUrl=value=>value===new URL('site-version.json',base).href||/^https:\/\/raw\.githubusercontent\.com\/JHFMoon\/MoonDog-Service-OS\/[a-f0-9]{40}\/updates\//.test(value);
   page.on('response',response=>{if(updateUrl(response.url()))console.log(JSON.stringify({publicUpdateResponse:true,url:response.url(),status:response.status(),serviceWorker:response.fromServiceWorker()}));});
@@ -335,7 +328,7 @@ try{
    },{name:STORE_NAME,code:STORE_CODE,revision});
    const name='synthetic-open-ro-'+revision+'.xlsx';
    await page.locator('#dailyTools input[type=file]').setInputFiles({name,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from(data)});
-   await page.waitForFunction(async name=>{
+   await waitForAsyncCondition(page,async name=>{
     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
     let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
     let state;
@@ -726,12 +719,13 @@ try{
     await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
    };
    await relaunchBeta(true);
-   await page.waitForFunction(async signature=>{
+   await waitForAsyncCondition(page,async signature=>{
     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
     let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
     const value=JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
     return value.seen?.[signature]?.manualImportRequired===true;
    },signature,{polling:1000,timeout:60000});
+   await page.waitForFunction(()=>globalThis.__moondogFolderWatch?.state?.busy===false);
    assert.equal((await readOperational(page)).imports,originalImports,'Unsigned SAPR cannot gain import authority from a watcher poll');
    assertOperational(await readOperational(page));
    await context.setOffline(false);
@@ -747,7 +741,7 @@ try{
    page.on('dialog',sourceReview);
    try{
     await page.locator('#dailyTools input[type=file]').setInputFiles({name:scheduledName,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:saprWorkbookBytes});
-    await page.waitForFunction(async signature=>{
+    await waitForAsyncCondition(page,async signature=>{
      const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
      let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
      const value=JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
@@ -757,7 +751,7 @@ try{
    assert.equal(reviewedDialogs,1,'Exactly one explicit SAPR source-store confirmation must authorize this import');
    await settledSnapshot(page);
    const accepted=await inboxState(page);
-   if(!accepted)console.error(JSON.stringify({missingReviewedInboxEntry:true,signature,writes:await page.evaluate(()=>globalThis.__syntheticLedgerWrites||[]),ledger:await page.evaluate(async()=>{
+   if(!accepted)console.error(JSON.stringify({missingReviewedInboxEntry:true,signature,ledger:await page.evaluate(async()=>{
     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
     let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
     return JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
@@ -776,7 +770,7 @@ try{
   }
   const beforeRollback=await settledSnapshot(page);
   await page.goto(management);await page.locator('#consent').check();
-  await page.waitForFunction(async()=>{
+  await waitForAsyncCondition(page,async()=>{
    const state=await navigator.locks.query();
    return !state.held.some(item=>item.name?.startsWith('moondog-pwa-operational-'));
   },null,{timeout:15000});
@@ -794,7 +788,7 @@ try{
   if(fullJourney){
    const preserved=await settledSnapshot(page);
    await page.goto(management);
-   await page.waitForFunction(async()=>!(await navigator.locks.query()).held.some(lock=>lock.name?.startsWith('moondog-pwa-operational-')));
+   await waitForAsyncCondition(page,async()=>!(await navigator.locks.query()).held.some(lock=>lock.name?.startsWith('moondog-pwa-operational-')));
    // Simulate an interrupted selector commit in this disposable profile only.
    // Exercise the published refusal and explicit recovery UI, not a helper mock.
    await page.evaluate(async()=>{
