@@ -89,11 +89,24 @@ try{
   assert.equal(await page.locator('#appSettings').isHidden(),true,'Engineering controls must not appear during normal installation');
   assert.equal(await page.locator('input[type=file]:visible').count(),0,'No ZIP or folder selection in normal setup');
  }
+ await page.locator('#consent').check();
+ await page.locator('#installFromWeb').click({timeout:60000});
+ if(fullJourney)await page.waitForURL(/\/store\/.*\/index\.html$/,{timeout:120000});
+ else await page.locator('#openApp').waitFor({state:'visible',timeout:120000});
+ const candidateInitializer=false; // Published runtime only: no PR-only code injection.
+ let before;
+ const appUrl=fullJourney?page.url():new URL(await page.locator('#openApp').getAttribute('href'),url).href;
  {
   // Native installation is verified even on a published-baseline PR run.
-  // This proves the browser driver before the new entry UI is published.
+  // Use the production-installed offline worker and release the app's lock
+  // before launching a separate native app window.
+  const control=await context.newPage();
+  await page.close();page=control;
+  await page.goto(management);
+  await page.evaluate(()=>navigator.serviceWorker.ready);
   const browser=await context.newCDPSession(page);
   const manifest=await browser.send('Page.getAppManifest');
+  console.log(JSON.stringify({nativeInstallability:await browser.send('Page.getInstallabilityErrors')}));
   assert.equal(manifest.errors.length,0,'Native app manifest must be valid');
   assert.match(JSON.parse(manifest.data).name,/MoonDog/);
   if(fullJourney)assert.equal(JSON.parse(manifest.data).name,'MoonDog Service OS');
@@ -107,14 +120,8 @@ try{
   assert.equal(await page.evaluate(()=>matchMedia('(display-mode: standalone)').matches),true,'Installed MoonDog must launch as an app');
   nativePwaInstalled=true;
  }
- await page.locator('#consent').check();
- await page.locator('#installFromWeb').click({timeout:60000});
- if(fullJourney)await page.waitForURL(/\/store\/.*\/index\.html$/,{timeout:120000});
- else await page.locator('#openApp').waitFor({state:'visible',timeout:120000});
- const candidateInitializer=false; // Published runtime only: no PR-only code injection.
- let before;
- const appUrl=fullJourney?page.url():new URL(await page.locator('#openApp').getAttribute('href'),url).href;
- if(!fullJourney)await page.goto(appUrl);await page.waitForLoadState('load');
+ if(fullJourney)await page.waitForURL(/\/store\/.*\/index\.html$/,{timeout:60000});
+ else await page.goto(appUrl);await page.waitForLoadState('load');
  assert.match(await page.title(),/dashboard|MoonDog|service/i);
  if(!fullJourney)await page.locator('#connectButton').click();
  await page.waitForFunction(()=>!document.body.innerText.includes('Connect Service Operations Dashboard to begin')).catch(async error=>{console.error('CONNECT FAILURE',await page.locator('body').innerText());throw error;});
