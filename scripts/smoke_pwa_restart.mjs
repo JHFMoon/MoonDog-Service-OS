@@ -19,7 +19,8 @@ let management=url;
 const profile=await mkdtemp(join(tmpdir(),'moondog-synthetic-restart-'));
 let context;
 let manualRoReady=false;
-const launch=()=>chromium.launchPersistentContext(profile,{headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{}),...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
+let nativeManifestId=null;
+const launch=()=>chromium.launchPersistentContext(profile,{headless:false,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{}),...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
 const snapshot=async page=>page.evaluate(async()=>{
  const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
  const root=await navigator.storage.getDirectory();
@@ -120,6 +121,7 @@ try{
   const startUrl=new URL(manifestData.start_url,manifest.url);
   // Manifest id resolves against start_url's ORIGIN, not its directory.
   const nativeId=new URL(manifestData.id,new URL(startUrl.origin+'/')).href;
+  nativeManifestId=nativeId;
   if(fullJourney){
    assert.equal(manifestData.name,'MoonDog Service OS');
    assert.equal(nativeId,url,'MoonDog identity must be scoped to its published app');
@@ -130,7 +132,8 @@ try{
   await browser.send('PWA.getOsAppState',{manifestId:nativeId});
   await browser.send('PWA.changeAppUserSettings',{manifestId:nativeId,displayMode:'standalone'});
   const opened=context.waitForEvent('page');
-  await browser.send('PWA.launch',{manifestId:nativeId});
+  const launched=await browser.send('PWA.launch',{manifestId:nativeId});
+  console.log(JSON.stringify({nativeInstalled:true,nativeLaunchTarget:launched.targetId,visiblePages:context.pages().map(p=>p.url())}));
   const installed=await opened;await page.close();page=installed;
   await page.waitForLoadState('domcontentloaded');
   assert.equal(await page.evaluate(()=>matchMedia('(display-mode: standalone)').matches),true,'Installed MoonDog must launch as an app');
@@ -242,18 +245,28 @@ try{
  before=await settledSnapshot(page);
  if(process.env.PWA_SAPR==='1')assertOperational(await readOperational(page));
  await context.close();context=null; // Actual Chromium process termination, same disk profile.
- context=await launch();await context.setOffline(true);page=await context.newPage();
+ context=await launch();await context.setOffline(true);
+ const restartControl=await context.newPage();
+ const restartedBrowser=await context.newCDPSession(restartControl);
+ await restartedBrowser.send('PWA.getOsAppState',{manifestId:nativeManifestId});
+ const reopened=context.waitForEvent('page');
+ await restartedBrowser.send('PWA.launch',{manifestId:nativeManifestId});
+ page=await reopened;await restartControl.close();await page.waitForLoadState('domcontentloaded');
+ assert.equal(await page.evaluate(()=>matchMedia('(display-mode: standalone)').matches),true,'Restarted offline app must remain installed and standalone');
  if(fullJourney){
-  await page.goto(url);await page.waitForURL(/\/store\/.*\/index\.html$/,{timeout:30000});
- }else{await page.goto(management);await page.locator('#openApp').waitFor({state:'visible',timeout:30000});}
- assert.deepEqual(await snapshot(page),before,'Restart must preserve Workspace and software authority');
- const response=await page.goto(appUrl);assert.equal(response.status(),200);
+  await page.waitForURL(/\/store\/.*\/index\.html$/,{timeout:30000});
+ }else{
+  await page.locator('#openApp').waitFor({state:'visible',timeout:30000});
+  const response=await page.goto(appUrl);assert.equal(response.status(),200);
+ }
+
  assert.match(await page.title(),/dashboard|MoonDog|service/i);
  // Ensure real application HTML, not setup or worker failure page.
  if(!fullJourney)await page.locator('#connectButton').click();
  await page.waitForFunction(()=>!document.body.innerText.includes('Connect Service Operations Dashboard to begin')).catch(async error=>{console.error('CONNECT FAILURE',await page.locator('body').innerText());throw error;});
  await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
  await settledSnapshot(page);
+ assert.deepEqual(await snapshot(page),before,'Restart must preserve Workspace and software authority');
  assert.match(await page.locator('body').innerText(),/Guided Setup|Home|Advisor/i);
  if(process.env.PWA_SAPR==='1'){
   await page.getByRole('button',{name:'Advisor Performance',exact:true}).click();
@@ -406,7 +419,7 @@ try{
   console.log(JSON.stringify({betaUiVerified:true,pinnedBetaSelected:true,betaDashboardLaunched:true,
    rollbackVerified:true,interruptedCandidateCompleted:fullJourney,originalWorkspaceUnchanged:true,storeIdentityUnchanged:true}));
  }
- console.log(JSON.stringify({mainSha:sha,browser:process.env.BROWSER_CHANNEL||'Chromium',candidateInitializer,fullJourney,syntheticStore:STORE_CODE,overlappingAdvisor:'101',nativePwaInstalled,automaticWorkspaceConnection:fullJourney,processRestart:true,offlineDashboard:true,workspaceFiles:before.files.length,workspaceUnchanged:true}));
+ console.log(JSON.stringify({mainSha:sha,browser:process.env.BROWSER_CHANNEL||'Chromium',candidateInitializer,fullJourney,syntheticStore:STORE_CODE,overlappingAdvisor:'101',nativePwaInstalled,nativeOfflineRelaunch:true,automaticWorkspaceConnection:fullJourney,processRestart:true,offlineDashboard:true,workspaceFiles:before.files.length,workspaceUnchanged:true}));
 }catch(error){const p=context?.pages().at(-1);if(p)console.error('Synthetic acceptance failure state:',(await p.locator('body').innerText()).slice(0,10000));throw error;}finally{await context?.close();await rm(profile,{recursive:true,force:true});}
 
 // A SECOND clean browser profile runs the same production setup/import/restart
