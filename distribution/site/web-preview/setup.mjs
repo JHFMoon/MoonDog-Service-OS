@@ -229,7 +229,7 @@ async function installPreview(readBytes, recovery){
    const persistent=await navigator.storage.persist?.().catch(()=>false);
    status((recovery?'Synthetic Workspace restored and verified. ':'Verified SYNTHETIC preview is installed in browser-private storage. ')+
     'Click Open dashboard to inspect the real MoonDog interface. '+
-    (persistent?'Browser persistence is enabled.':'Keep an external backup; clearing Edge site data removes this copy.'));
+    (persistent?'Browser persistence is enabled.':'Browser persistence is NOT guaranteed. Keep an external backup; clearing Edge site data removes this copy.'));
    enterApplication();
   });
  }catch(e){status('Preview was not completed. Do not use an incomplete store. '+String(e?.message||e),true);}

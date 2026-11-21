@@ -25,6 +25,16 @@ let nativeManifestId=null;
 let nativeStartUrl=null;
 const advancedRecovery=process.env.PWA_ADVANCED_RECOVERY==='1';
 let saprWorkbookBytes=null;
+async function waitForAsyncCondition(page,predicate,arg,{timeout=30000,polling=100}={}){
+ const deadline=Date.now()+timeout;
+ for(;;){
+  // waitForFunction tests the Promise object's truthiness before resolving it.
+  // Await the browser result in Node before deciding whether to poll again.
+  if(await page.evaluate(predicate,arg))return;
+  if(Date.now()>=deadline)throw Error('Async browser condition timed out after '+timeout+'ms');
+  await page.waitForTimeout(polling);
+ }
+}
 async function shellProof(page){
  return page.evaluate(()=>new Promise((resolve,reject)=>{
   const channel=new MessageChannel();
@@ -37,6 +47,9 @@ const runtimeErrors=[];
 const launch=async()=>{
  const instance=await chromium.launchPersistentContext(profile,{headless:false,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{}),...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
  const observe=page=>{
+  const updateUrl=value=>value===new URL('site-version.json',base).href||/^https:\/\/raw\.githubusercontent\.com\/JHFMoon\/MoonDog-Service-OS\/[a-f0-9]{40}\/updates\//.test(value);
+  page.on('response',response=>{if(updateUrl(response.url()))console.log(JSON.stringify({publicUpdateResponse:true,url:response.url(),status:response.status(),serviceWorker:response.fromServiceWorker()}));});
+  page.on('requestfailed',request=>{if(updateUrl(request.url()))console.log(JSON.stringify({publicUpdateRequestFailed:true,url:request.url(),failure:request.failure()}));});
   page.on('pageerror',error=>{runtimeErrors.push(error.message);console.error(JSON.stringify({publicRuntimeError:true,url:page.url(),message:error.message.slice(0,2000)}));});
   page.on('console',message=>{if(message.type()==='error')console.error(JSON.stringify({publicConsoleError:true,url:page.url(),message:message.text().slice(0,2000)}));});
   page.on('requestfailed',request=>{if(request.url().startsWith(new URL('web-preview/store/',base).href))console.error(JSON.stringify({publicAssetFailure:true,url:request.url(),failure:request.failure()}));});
@@ -314,7 +327,7 @@ try{
    },{name:STORE_NAME,code:STORE_CODE,revision});
    const name='synthetic-open-ro-'+revision+'.xlsx';
    await page.locator('#dailyTools input[type=file]').setInputFiles({name,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from(data)});
-   await page.waitForFunction(async name=>{
+   await waitForAsyncCondition(page,async name=>{
     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
     let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
     let state;
@@ -532,7 +545,9 @@ try{
   assert.notEqual(restored.pointer.storeId,before.pointer.storeId,'Recovery uses a fresh isolated identity');
   assert.deepEqual(restored.files,expectedFiles,'All externally backed-up Workspace bytes must restore');
   if(advancedRecovery){
-   await page.waitForFunction(()=>/persistence.*NOT guaranteed/i.test(document.querySelector('#result').textContent));
+   await page.waitForFunction(()=>document.querySelector('#result').textContent.includes('Keep an external backup; clearing Edge site data removes this copy.'));
+   assert.doesNotMatch(await page.locator('#result').innerText(),/persistence is enabled/i,'Denied persistence must never be presented as enabled');
+   assert.equal(await page.evaluate(()=>navigator.storage.persisted()),false,'Recovered Workspace must still report denied durability');
    await(await context.newCDPSession(page)).send('Browser.resetPermissions');
    assert.match(backup.workspaceId,/^[0-9a-f-]{36}$/);
    assert.equal(restored.pointer.workspaceId,backup.workspaceId,'Logical Workspace identity must survive complete origin loss');
@@ -594,7 +609,12 @@ try{
     await context.route(packageRoute,handler);
     try{
      await page.locator('#installBeta').click();
-     await page.waitForFunction(()=>/Beta installation was refused or incomplete/.test(document.querySelector('#betaStatus').textContent),null,{timeout:120000});
+     await page.waitForFunction(fault=>{
+      const text=document.querySelector('#betaStatus').textContent;
+      return /Beta installation was refused or incomplete/.test(text)&&
+       (fault!=='checksum'||text.includes('SHA-256 mismatch'));
+     },fault,{timeout:120000});
+     console.log(JSON.stringify({updateFaultObserved:fault,intercepted,status:await page.locator('#betaStatus').innerText()}));
      assert.ok(intercepted>0,'Fault must affect an actual pinned public package request');
      if(fault==='checksum')assert.match(await page.locator('#betaStatus').innerText(),/SHA-256 mismatch/);
      assert.equal(await page.locator('#openApp').getAttribute('href'),originalHref,'Refused update must retain original software authority');
@@ -698,26 +718,45 @@ try{
     await page.waitForFunction(()=>document.querySelector('#folderWatchStatus')?.textContent.startsWith('REPORT INBOX WATCHING'));
    };
    await relaunchBeta(true);
-   await page.waitForFunction(async signature=>{
+   await waitForAsyncCondition(page,async signature=>{
     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
     let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
     const value=JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
     return value.seen?.[signature]?.manualImportRequired===true;
    },signature,{polling:1000,timeout:60000});
+   await page.waitForFunction(()=>globalThis.__moondogFolderWatch?.state?.busy===false);
    assert.equal((await readOperational(page)).imports,originalImports,'Unsigned SAPR cannot gain import authority from a watcher poll');
    assertOperational(await readOperational(page));
    await context.setOffline(false);
    await page.getByRole('button',{name:'Tools',exact:true}).click();
    await page.getByRole('button',{name:'Import or refresh data',exact:true}).click();
-   await page.locator('#dailyTools input[type=file]').setInputFiles({name:scheduledName,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:saprWorkbookBytes});
-   await page.waitForFunction(async signature=>{
+   let reviewedDialogs=0;
+   const sourceReview=async dialog=>{
+    if(dialog.type()==='confirm'&&dialog.message().startsWith('Review SAPR import: '+scheduledName+'\n')&&
+       dialog.message().includes(STORE_NAME)&&dialog.message().includes('('+STORE_CODE+')')){
+     reviewedDialogs++;await dialog.accept();
+    }else{await dialog.dismiss();throw Error('Unexpected scheduled source review: '+dialog.message());}
+   };
+   page.on('dialog',sourceReview);
+   try{
+    await page.locator('#dailyTools input[type=file]').setInputFiles({name:scheduledName,mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:saprWorkbookBytes});
+    await waitForAsyncCondition(page,async signature=>{
+     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
+     let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
+     const value=JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
+     return value.seen?.[signature]?.manualImportRequired===false;
+    },signature,{polling:1000,timeout:60000});
+   }finally{page.off('dialog',sourceReview);}
+   assert.equal(reviewedDialogs,1,'Exactly one explicit SAPR source-store confirmation must authorize this import');
+   await settledSnapshot(page);
+   const accepted=await inboxState(page);
+   if(!accepted)console.error(JSON.stringify({missingReviewedInboxEntry:true,signature,ledger:await page.evaluate(async()=>{
     const p=JSON.parse(localStorage.getItem('moondog-pwa-synthetic-preview-pointer-v1'));
     let d=await navigator.storage.getDirectory();for(const n of ['MoonDog-PWA-v1','stores',p.storeId,'System Files','Workspace','data'])d=await d.getDirectoryHandle(n);
-    const value=JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
-    return value.seen?.[signature]?.manualImportRequired===false;
-   },signature,{polling:1000,timeout:60000});
-   await settledSnapshot(page);
-   const accepted=await inboxState(page);assert.equal(accepted.sourceStoreConfidence,'configured-destination-only');
+    return JSON.parse(await(await(await d.getFileHandle('auto-import.json')).getFile()).text());
+   })}));
+   assert.ok(accepted,'The reviewed original Inbox source must retain its durable authority record');
+   assert.equal(accepted.sourceStoreConfidence,'configured-destination-only');
    const acceptedImports=(await readOperational(page)).imports;
    assert.equal(acceptedImports,originalImports+1,'Only explicit review may create the one durable SAPR import');
    await relaunchBeta(false);
@@ -730,7 +769,7 @@ try{
   }
   const beforeRollback=await settledSnapshot(page);
   await page.goto(management);await page.locator('#consent').check();
-  await page.waitForFunction(async()=>{
+  await waitForAsyncCondition(page,async()=>{
    const state=await navigator.locks.query();
    return !state.held.some(item=>item.name?.startsWith('moondog-pwa-operational-'));
   },null,{timeout:15000});
@@ -748,7 +787,7 @@ try{
   if(fullJourney){
    const preserved=await settledSnapshot(page);
    await page.goto(management);
-   await page.waitForFunction(async()=>!(await navigator.locks.query()).held.some(lock=>lock.name?.startsWith('moondog-pwa-operational-')));
+   await waitForAsyncCondition(page,async()=>!(await navigator.locks.query()).held.some(lock=>lock.name?.startsWith('moondog-pwa-operational-')));
    // Simulate an interrupted selector commit in this disposable profile only.
    // Exercise the published refusal and explicit recovery UI, not a helper mock.
    await page.evaluate(async()=>{
