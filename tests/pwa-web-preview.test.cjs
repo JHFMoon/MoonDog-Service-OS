@@ -334,7 +334,8 @@ test('versioned entry script and native manifest bypass old shell URLs and remai
  const version=sw.match(/const CACHE=CACHE_PREFIX\+'v([0-9]+)'/)[1];
  const bridge=fs.readFileSync(path.join(root,'bridge.js'),'utf8'),landing=fs.readFileSync(path.join(root,'../index.html'),'utf8');
  assert.ok(bridge.includes('./app.webmanifest?v='+version),'Dashboard manifest must use the current offline URL');
- assert.ok(landing.includes('./web-preview/?v='+version),'Landing installation link must select the current shell');
+ assert.ok(landing.includes('href="./local-install.html"'),'Landing must use the local-folder installer');
+ assert.ok(sw.includes("'./setup.mjs?v="+version+"'"),'The legacy PWA shell still has its matching immutable version');
  const refs=[html.match(/<script type="module" src="([^"]+)"/)[1],html.match(/rel="manifest" href="([^"]+)"/)[1]];
  for(const ref of refs){assert.equal(new URL(ref,context.self.registration.scope).searchParams.get('v'),version);assert.ok(context.shell.includes(ref),'Exact entry URL must be staged for offline launch: '+ref);}
 });
