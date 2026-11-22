@@ -429,18 +429,35 @@
         catch(_) { /* Original failure still blocks success. */ }
         throw error;
       }
-      if(identityBytes){
-        // Software inventory is already committed and independently verified.
-        // This first private settings file is never listed in the public release
-        // manifest and must never overwrite a pre-existing store's settings.
-        status("Saving dealership identity in the local private Workspace…");
-        try{
+      // The reviewed public ZIP and immutable installation manifest have
+      // already been verified. Extra conveniences belong exclusively inside
+      // the new PRIVATE Workspace, never in the public software inventory.
+      try{
+        if(hosted){
+          status("Preparing the private Files To Learn folder…");
+          const system=await destination.getDirectoryHandle("System Files",{create:false});
+          const workspace=await system.getDirectoryHandle("Workspace",{create:false});
+          if(await hasFolder(workspace,"Files To Learn") ||
+             await hasFile(workspace,"Files To Learn"))
+            fail("An unexpected Files To Learn entry appeared; nothing was overwritten.");
+          const learn=await workspace.getDirectoryHandle("Files To Learn",{create:true});
+          for await(const _ of learn.values())
+            fail("The new Files To Learn folder is not empty; installation stopped.");
+          if(!(await hasFolder(workspace,"Files To Learn")))
+            fail("The newly created Files To Learn folder was not retained.");
+        }
+        if(identityBytes){
+          // This private first-write is not part of the public software manifest.
+          // An existing dealership settings file must never be overwritten.
+          status("Saving dealership identity in the local private Workspace…");
           await writeReadBack(destination,"System Files/Workspace/data/settings.json",
             identityBytes,await digest(identityBytes));
-        }catch(error){
-          try{await writeReadBack(destination,MARKER,marker,null);}catch(_){}
-          throw error;
         }
+      }catch(error){
+        // Fail visibly incomplete on interrupted private-folder/identity setup;
+        // keep the original package and any partial folder for safe review.
+        try{await writeReadBack(destination,MARKER,marker,null);}catch(_){}
+        throw error;
       }
       status("Verified installation created. Open the launcher in Edge to finish SAPR setup.");
       return {status:"installed",version:packageData.version,folderName:name,

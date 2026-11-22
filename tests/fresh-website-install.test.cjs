@@ -793,3 +793,114 @@ test("two independently installed stores keep identity separate even when dealer
  assert.equal(await getName("MoonDog Store A"),"Example A");
  assert.equal(await getName("MoonDog Store B"),"Example B");
 });
+
+
+test("hosted installer prepares only an empty private Files To Learn, not a public duplicate",async()=>{
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
+ const outcome=await api.install(installOptions(fixture,{
+  file:undefined,loadArchive:async()=>Uint8Array.from(fixture.bytes),
+  identity:{name:"Synthetic Motors",code:"00110",brand:"",timeZone:"America/Los_Angeles"}
+ }));
+ assert.equal(outcome.status,"installed");
+ const root=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ const workspace=await(await root.getDirectoryHandle("System Files"))
+  .getDirectoryHandle("Workspace");
+ const learn=await workspace.getDirectoryHandle("Files To Learn");
+ assert.equal(learn.kind,"directory");
+ assert.equal(learn.entriesMap.size,0,"learning area starts empty");
+ assert.ok(await workspace.getDirectoryHandle("01 - DROP REPORTS HERE"),
+  "verified report inbox remains the original folder");
+ assert.equal(root.entriesMap.has("Files To Learn"),false);
+ assert.equal(parent.entriesMap.has("Files To Learn"),false);
+ const manifest=JSON.parse(Buffer.from((await root.getFileHandle("INSTALLATION-MANIFEST.json")).bytes).toString());
+ assert.ok(!manifest.files.some(f=>/Files To Learn|settings\.json/.test(f.path)));
+ assert.equal(root.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),false);
+});
+
+test("manual ZIP installation retains its original exact package folder layout",async()=>{
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
+ await api.install(installOptions(fixture));
+ const root=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ const workspace=await(await root.getDirectoryHandle("System Files"))
+   .getDirectoryHandle("Workspace");
+ assert.equal(workspace.entriesMap.has("Files To Learn"),false,
+  "legacy/manual install does not add non-package directories");
+});
+
+test("preexisting or concurrent private learning folder blocks hosted installer without overwrite",async()=>{
+ const fixture=makeZip(),shared={writes:0,permission:"granted"};
+ shared.afterRemove=async(name,destination)=>{
+  if(name==="MOONDOG-INSTALL-INCOMPLETE.txt"){
+   const workspace=await(await destination.getDirectoryHandle("System Files"))
+     .getDirectoryHandle("Workspace");
+   const learn=await workspace.getDirectoryHandle("Files To Learn",{create:true});
+   const existing=await learn.getFileHandle("synthetic-unknown.txt",{create:true});
+   existing.bytes=b("a preexisting original must remain unchanged");
+  }
+ };
+ const parent=new FakeDirectory("Synthetic Parent",shared),api=load(parent);
+ await assert.rejects(api.install(installOptions(fixture,{
+  file:undefined,loadArchive:async()=>Uint8Array.from(fixture.bytes)
+ })),error=>error.partial===true&&/partial NEW folder/.test(error.message));
+ const root=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ assert.ok(await root.getFileHandle("MOONDOG-INSTALL-INCOMPLETE.txt"));
+ const learn=await(await(await root.getDirectoryHandle("System Files"))
+   .getDirectoryHandle("Workspace")).getDirectoryHandle("Files To Learn");
+ assert.deepEqual(Buffer.from((await learn.getFileHandle("synthetic-unknown.txt")).bytes),
+  b("a preexisting original must remain unchanged"));
+});
+
+
+test("new installer explains readiness gates, local sync exposure, backups, and correct shortcuts",()=>{
+ const local=fs.readFileSync(path.join(__dirname,"..","distribution","site","local-install.html"),"utf8");
+ assert.match(local,/Software installed and verified/);
+ assert.match(local,/This does not mean report setup or backup verification is complete/);
+ assert.match(local,/Verify your reports:/);
+ assert.match(local,/independently verify an external backup outside the active Workspace/);
+ assert.match(local,/OneDrive-synced folder can cause Windows to upload/);
+ assert.match(local,/MoonDog cannot see or enforce the full Windows path/);
+ assert.match(local,/System Files \/ Workspace \/ 01 - DROP REPORTS HERE/);
+ assert.match(local,/System Files \/ Workspace \/ Files To Learn/);
+ assert.match(local,/The website installer created this folder empty/);
+ assert.match(local,/Alt while dragging each original file or folder/);
+ assert.match(local,/original Stable installation/);
+ assert.match(local,/manual ZIP-extraction alternative/);
+ assert.doesNotMatch(local,/once MoonDog creates its learning folder/);
+});
+
+
+test("actual app settings migration preserves seeded dealership and keeps SAPR readiness unverified",async()=>{
+ const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+ const begin=app.indexOf("  function migratedSettings(");
+ const end=app.indexOf("  function managementStatusDefinitions()",begin);
+ const override=app.indexOf("  const migratedSettingsWithLegacy=migratedSettings;");
+ const overrideEnd=app.indexOf("  const configuredNumber ",override);
+ assert.ok(begin>=0&&end>begin&&override>begin&&overrideEnd>override);
+ const defaults={
+  schemaVersion:5,storeName:"",
+  store:{name:"",code:"",brand:"",timeZone:"",confirmed:{}},
+  meeting:{},performanceStandards:{},advisors:{},openRo:{},
+  dailyWalk:{},supervisorWorkbook:{filename:"synthetic.xlsx",worksheetOrder:[]},
+  setup:{completedAt:"",reopened:false,sourceExpectations:{}},
+  future:{managerSchedule:{}}
+ };
+ const context=vm.createContext({DEFAULTS:defaults,SETUP_SOURCE_DEFAULTS:{},
+  FRESH_MANAGEMENT_STATUSES:[],LEGACY_ADVISORS:{},LEGACY_PARTICIPATION:{},
+  statusRecord:x=>x,Object});
+ vm.runInContext(app.slice(begin,end)+app.slice(override,overrideEnd)+"\nthis.migrate=migratedSettings;",context);
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
+ const identity={name:"Synthetic Motors",code:"0000042",brand:"Example",timeZone:"America/Chicago"};
+ await api.install(installOptions(fixture,{identity}));
+ const workspace=await(await parent.getDirectoryHandle("MoonDog Synthetic Store"))
+  .getDirectoryHandle("System Files").then(d=>d.getDirectoryHandle("Workspace"));
+ const data=await workspace.getDirectoryHandle("data");
+ const saved=JSON.parse(Buffer.from((await data.getFileHandle("settings.json")).bytes).toString());
+ const ready=context.migrate(saved,false);
+ assert.equal(ready.store.name,identity.name);
+ assert.equal(ready.store.code,identity.code,"leading zeros survive actual bootstrap migration");
+ assert.equal(ready.store.timeZone,identity.timeZone);
+ assert.equal(ready.setup.completedAt,"","not marked operationally ready");
+ assert.equal(ready.setup.newStorePrepared,undefined,
+  "seed must not trigger the actual fresh-reset identity-clearing adapter");
+ assert.deepEqual(JSON.parse(JSON.stringify(ready.advisors)),{});
+});
