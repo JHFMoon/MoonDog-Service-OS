@@ -793,3 +793,59 @@ test("two independently installed stores keep identity separate even when dealer
  assert.equal(await getName("MoonDog Store A"),"Example A");
  assert.equal(await getName("MoonDog Store B"),"Example B");
 });
+
+
+test("hosted installer prepares only an empty private Files To Learn, not a public duplicate",async()=>{
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
+ const outcome=await api.install(installOptions(fixture,{
+  file:undefined,loadArchive:async()=>Uint8Array.from(fixture.bytes),
+  identity:{name:"Synthetic Motors",code:"00110",brand:"",timeZone:"America/Los_Angeles"}
+ }));
+ assert.equal(outcome.status,"installed");
+ const root=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ const workspace=await(await root.getDirectoryHandle("System Files"))
+  .getDirectoryHandle("Workspace");
+ const learn=await workspace.getDirectoryHandle("Files To Learn");
+ assert.equal(learn.kind,"directory");
+ assert.equal(learn.entriesMap.size,0,"learning area starts empty");
+ assert.ok(await workspace.getDirectoryHandle("01 - DROP REPORTS HERE"),
+  "verified report inbox remains the original folder");
+ assert.equal(root.entriesMap.has("Files To Learn"),false);
+ assert.equal(parent.entriesMap.has("Files To Learn"),false);
+ const manifest=JSON.parse(Buffer.from((await root.getFileHandle("INSTALLATION-MANIFEST.json")).bytes).toString());
+ assert.ok(!manifest.files.some(f=>/Files To Learn|settings\.json/.test(f.path)));
+ assert.equal(root.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),false);
+});
+
+test("manual ZIP installation retains its original exact package folder layout",async()=>{
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
+ await api.install(installOptions(fixture));
+ const root=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ const workspace=await(await root.getDirectoryHandle("System Files"))
+   .getDirectoryHandle("Workspace");
+ assert.equal(workspace.entriesMap.has("Files To Learn"),false,
+  "legacy/manual install does not add non-package directories");
+});
+
+test("preexisting or concurrent private learning folder blocks hosted installer without overwrite",async()=>{
+ const fixture=makeZip(),shared={writes:0,permission:"granted"};
+ shared.afterRemove=async(name,destination)=>{
+  if(name==="MOONDOG-INSTALL-INCOMPLETE.txt"){
+   const workspace=await(await destination.getDirectoryHandle("System Files"))
+     .getDirectoryHandle("Workspace");
+   const learn=await workspace.getDirectoryHandle("Files To Learn",{create:true});
+   const existing=await learn.getFileHandle("synthetic-unknown.txt",{create:true});
+   existing.bytes=b("a preexisting original must remain unchanged");
+  }
+ };
+ const parent=new FakeDirectory("Synthetic Parent",shared),api=load(parent);
+ await assert.rejects(api.install(installOptions(fixture,{
+  file:undefined,loadArchive:async()=>Uint8Array.from(fixture.bytes)
+ })),error=>error.partial===true&&/partial NEW folder/.test(error.message));
+ const root=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ assert.ok(await root.getFileHandle("MOONDOG-INSTALL-INCOMPLETE.txt"));
+ const learn=await(await(await root.getDirectoryHandle("System Files"))
+   .getDirectoryHandle("Workspace")).getDirectoryHandle("Files To Learn");
+ assert.deepEqual(Buffer.from((await learn.getFileHandle("synthetic-unknown.txt")).bytes),
+  b("a preexisting original must remain unchanged"));
+});
