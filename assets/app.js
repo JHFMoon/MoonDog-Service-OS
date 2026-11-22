@@ -1534,7 +1534,12 @@
         if(model.root!==requestedRoot)throw new Error("Workspace changed while the Supervisor Workbook operation was queued. Retry from the connected Workspace.");
         if(model.root){
           const durable=await readJson(STATE_PATH,null);
-          const initialEmpty=options.allowInitialEmptyState===true&&!durable&&!model.state.updatedAt&&!model.state.source&&!(model.state.records||[]).length&&!(model.state.closedRecords||[]).length;
+          const emptyArray=value=>Array.isArray(value)&&value.length===0;
+          const absentOrEmpty=value=>value===undefined||emptyArray(value);
+          const initialEmpty=options.allowInitialEmptyState===true&&!durable&&
+            (model.state.updatedAt===undefined||model.state.updatedAt===null||model.state.updatedAt==="")&&
+            (model.state.source===undefined||model.state.source===null)&&emptyArray(model.state.records)&&
+            absentOrEmpty(model.state.closedRecords)&&absentOrEmpty(model.state.reviewQueue);
           // A second tab can update a retained Closed RO's management history
           // without changing the active roster. Compare both durable populations
           // before any Workbook operation can write; preserve legacy absent arrays.
@@ -3913,7 +3918,7 @@
     return{records,closedRecords,reopenedCount:[...closed.keys()].filter(id=>matchedPriorIds.has(id)).length,closedCount:newlyClosed.length,sourceKind};
   }
   async function importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess=false) {
-    return withSupervisorWorkbookLock(() => importCdkRepairOrdersDocxUnlocked(candidate,bytes,deleteAfterSuccess));
+    return withSupervisorWorkbookLock(() => importCdkRepairOrdersDocxUnlocked(candidate,bytes,deleteAfterSuccess),{allowInitialEmptyState:true});
   }
   async function markOpenRoManualReviewComplete(name,file,importedAt) {
     // Clear the watcher prompt only after the authoritative, explicitly
@@ -4858,7 +4863,7 @@
   }
 
   async function importSource(selectedName = null, deleteAfterSuccess = false, providedBytes = null, verifiedAutomaticInbox = false) {
-    return withSupervisorWorkbookLock(() => importSourceUnlocked(selectedName,deleteAfterSuccess,providedBytes,verifiedAutomaticInbox));
+    return withSupervisorWorkbookLock(() => importSourceUnlocked(selectedName,deleteAfterSuccess,providedBytes,verifiedAutomaticInbox),{allowInitialEmptyState:true});
   }
   async function importSourceUnlocked(selectedName = null, deleteAfterSuccess = false, providedBytes = null, verifiedAutomaticInbox = false) {
     const name = selectedName || ui.sourceSelect.value; if (!name) return; status("Reading "+name+"…", "working");
