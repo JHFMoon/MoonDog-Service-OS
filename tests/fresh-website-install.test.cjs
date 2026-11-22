@@ -713,4 +713,8 @@ test("primary installer uses a chosen Windows folder, with no synthetic mode or 
  assert.doesNotMatch(local,/workspaceMode|syntheticWarning|id="zipFile"/);
  assert.match(local,/file:\/\//);
  assert.match(local,/00 - OPEN DASHBOARD\.html/);
+ assert.match(local,/Alt while dragging each original file or folder/);
+ assert.match(local,/System Files \/ Workspace \/ 01 - DROP REPORTS HERE/);
+ assert.match(local,/Files to Learn/);
+ assert.match(local,/without moving anything in the installation folder/);
 });
