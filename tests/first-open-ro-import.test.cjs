@@ -4,10 +4,11 @@ const app=fs.readFileSync(path.join(__dirname,'../assets/app.js'),'utf8');
 const start=app.indexOf('  let supervisorWorkbookOperationTail = Promise.resolve();'),end=app.indexOf('  const dailyPickedSources = new Map();',start),guard=app.slice(start,end);
 function wrapper(name){const a=app.indexOf('  async function '+name+'('),b=app.indexOf('\n  }',a);assert.ok(a>0&&b>a);return app.slice(a,b+4);}
 const pristine=()=>({updatedAt:null,source:null,records:[],closedRecords:[]});
-function harness(local=pristine(),durable=null){
+function harness(local=pristine(),durable=null,{fileExists=false,readError=null}={}){
  const model={root:{name:'SYNTHETIC fresh Workspace'},state:structuredClone(local),recovery:{}},calls={imports:0,writes:0};
  const context=vm.createContext({model,Promise,JSON,Error,STATE_PATH:['data','current-state.json'],RECOVERY_PATH:['data','recovery.json'],
   navigator:{locks:{request:async(_name,_options,fn)=>fn()}},readJson:async parts=>parts.at(-1)==='current-state.json'?structuredClone(durable):null,
+  fileAt:async()=>{if(readError)throw readError;if(fileExists)return {};throw Object.assign(Error('SYNTHETIC absent state'),{name:'NotFoundError'});},
   writeJson:async()=>{calls.writes++;},importSourceUnlocked:async()=>{calls.imports++;return 'xlsx accepted';},importCdkRepairOrdersDocxUnlocked:async()=>{calls.imports++;return 'docx accepted';}});
  vm.runInContext(guard+wrapper('importSource')+wrapper('importCdkRepairOrdersDocx')+';globalThis.xlsx=importSource;globalThis.docx=importCdkRepairOrdersDocx;globalThis.rawLock=withSupervisorWorkbookLock;',context);
  return {model,calls,context};
@@ -28,4 +29,11 @@ test('first-import opt-in cannot override a different durable source or retained
  const local={...pristine(),updatedAt:'2026-11-21T12:00:00.000Z',source:{sha256:'synthetic-source-A'},records:[{ro:'SYNTHETIC-1',management:{owner:'SYNTHETIC manager A'}}]},durable=structuredClone(local);durable.records[0].management.owner='SYNTHETIC manager B';
  for(const kind of ['xlsx','docx']){const h=harness(local,durable);await assert.rejects(h.context[kind]('synthetic-report'),/Workspace changed/);assert.equal(h.calls.imports,0);assert.deepEqual(h.model.state,local);}
  for(const kind of ['xlsx','docx']){const h=harness(local,local);assert.equal(await h.context[kind]('synthetic-report'),kind+' accepted');}
+});
+
+test('existing JSON-null state and unreadable files cannot be mistaken for a new store',async()=>{
+ for(const kind of ['xlsx','docx']){
+  const corrupt=harness(pristine(),null,{fileExists:true});await assert.rejects(corrupt.context[kind]('synthetic-report'),/Workspace changed/);assert.equal(corrupt.calls.imports,0);
+  const denied=harness(pristine(),null,{readError:Object.assign(Error('SYNTHETIC permission denied'),{name:'NotAllowedError'})});await assert.rejects(denied.context[kind]('synthetic-report'),/permission denied/);assert.equal(denied.calls.imports,0);
+ }
 });

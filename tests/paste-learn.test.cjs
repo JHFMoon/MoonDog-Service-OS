@@ -368,6 +368,7 @@ test("shared durable lock permits only a genuinely empty first Workspace state",
      lockRequests++;return work();
    }}},
    STATE_PATH:["data","current-state.json"],RECOVERY_PATH:["data","recovery.json"],
+   fileAt:async()=>{throw Object.assign(Error("Synthetic absent state"),{name:"NotFoundError"});},
    readJson:async path=>path===cx.STATE_PATH?stateFile:null};
  vm.runInNewContext(lockSection+"\nthis.lock=withSupervisorWorkbookLock",cx);
  const action=async()=>{executed++;return "saved";};

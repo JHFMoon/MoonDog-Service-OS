@@ -1536,10 +1536,16 @@
           const durable=await readJson(STATE_PATH,null);
           const emptyArray=value=>Array.isArray(value)&&value.length===0;
           const absentOrEmpty=value=>value===undefined||emptyArray(value);
-          const initialEmpty=options.allowInitialEmptyState===true&&!durable&&
+          let initialEmpty=options.allowInitialEmptyState===true&&durable===null&&
             (model.state.updatedAt===undefined||model.state.updatedAt===null||model.state.updatedAt==="")&&
             (model.state.source===undefined||model.state.source===null)&&emptyArray(model.state.records)&&
             absentOrEmpty(model.state.closedRecords)&&absentOrEmpty(model.state.reviewQueue);
+          if(initialEmpty){
+            // JSON null is not an absent file. Only a genuinely missing state
+            // can be initialized; corrupt/unreadable existing files stay held.
+            try{await fileAt(STATE_PATH);initialEmpty=false;}
+            catch(error){if(error.name!=="NotFoundError")throw error;}
+          }
           // A second tab can update a retained Closed RO's management history
           // without changing the active roster. Compare both durable populations
           // before any Workbook operation can write; preserve legacy absent arrays.
