@@ -27,8 +27,8 @@ test("homepage has one safe first action and essential progressive help",()=>{
   assert.match(landing,/Start on the/);
   assert.match(landing,/Microsoft Edge/);
   assert.match(landing,/Get verified repair tool/);
-  const shell=fs.readFileSync(path.join(site,'web-preview/sw.js'),'utf8').match(/const CACHE=CACHE_PREFIX\+'v([0-9]+)'/)[1];
-  assert.ok(landing.includes('href="./web-preview/?v='+shell+'">Install MoonDog in Edge'),'Landing must select the current immutable offline shell');
+  assert.match(landing,/href="\.\/local-install\.html">Install MoonDog on my computer/);
+  assert.doesNotMatch(landing,/Start with synthetic testing/);
   assert.match(landing,/href="\.\/recovery-help\.html">Get safe recovery help/);
   assert.equal((landing.match(/>Check my installation<\/a>/g)||[]).length,1,"Keep one repair entry button");
   assert.match(landing,/0\.10\.17 bridge/);
