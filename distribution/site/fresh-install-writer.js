@@ -328,11 +328,11 @@
     const norm=value=>typeof value==="string"?value.normalize("NFC").trim():"";
     const name=norm(identity.name),code=norm(identity.code),
       brand=norm(identity.brand),timeZone=norm(identity.timeZone);
-    if(!name||name.length>120||/[\\x00-\\x1f\\x7f<>]/.test(name))
+    if(!name||name.length>120||/[\x00-\x1f\x7f<>]/.test(name))
       fail("Enter a valid dealership name (up to 120 characters).");
     if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(code))
       fail("Enter a valid store code (letters, numbers, periods, dashes or underscores).");
-    if(brand.length>80||/[\\x00-\\x1f\\x7f<>]/.test(brand))
+    if(brand.length>80||/[\x00-\x1f\x7f<>]/.test(brand))
       fail("Enter a valid optional dealership brand.");
     if(!["America/Los_Angeles","America/Denver","America/Chicago","America/New_York"].includes(timeZone))
       fail("Choose a supported business time zone.");
@@ -341,7 +341,7 @@
       store:{name,code,brand,timeZone,
         confirmed:{name:true,code:true,brand:Boolean(brand),timeZone:true}},
       setup:{completedAt:"",reopened:false,sourceExpectations:{}}
-    },null,2)+"\\n");
+    },null,2)+"\n");
   }
   async function install({file,loadArchive,sha256,version,folderName,identity,onProgress}={}) {
     const name=installationName(folderName||"Service Operations Dashboard");
