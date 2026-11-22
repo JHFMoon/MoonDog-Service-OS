@@ -118,7 +118,12 @@ export async function runEnrolledPublicProof({base,sha}={}){
 
   await views(page);
   // Real process shutdown/relaunch retains the selected Beta and import ledger.
-  await context.close();context=null;context=await launch(profile);page=context.pages()[0];await page.goto(new URL('web-preview/',base).href);await connected(page);assertStore(await state(page));assert.equal((await state(page)).record.management.owner,'SYNTHETIC manager '+CODE);await views(page);
+  const restartUrl=page.url();await context.close();context=null;context=await launch(profile);
+  // Chromium/Edge may restore the dashboard beside a new blank page. Use
+  // that real restored tab instead of creating a competing second owner.
+  page=context.pages().find(candidate=>candidate.url()===restartUrl);
+  if(!page){page=context.pages()[0]||await context.newPage();await page.goto(new URL('web-preview/',base).href);}
+  await connected(page);assertStore(await state(page));assert.equal((await state(page)).record.management.owner,'SYNTHETIC manager '+CODE);await views(page);
   console.log(JSON.stringify({enrolledProcessRestart:true,oneDurableImport:true}));
   await page.click('#browserAppSettings');await page.waitForFunction(()=>!document.querySelector('#prepareBackup').disabled,null,{timeout:30000});await page.check('#consent');await page.click('#prepareBackup');await page.locator('#saveBackup').waitFor({state:'visible',timeout:30000});
   const source=await state(page),receipt=await page.inputValue('#backupReceipt');assert.match(receipt,/^[a-f0-9-]{36}:[a-f0-9]{64}$/);
