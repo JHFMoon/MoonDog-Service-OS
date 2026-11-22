@@ -50,22 +50,33 @@ a{color:#15576d}
 <h2>3. Choose where to install</h2>
 <label for="folderName">Name of the new MoonDog folder</label>
 <input id="folderName" type="text" maxlength="72" value="Service Operations Dashboard" autocomplete="off">
-<p class="note">Choose an existing parent folder, such as a folder inside Documents, when Edge asks. MoonDog creates the named subfolder. Edge may refuse Desktop itself and protected system folders. Existing folders are never overwritten.</p>
+<p class="note">Choose an existing parent folder when Edge asks. MoonDog creates the new named subfolder there. Edge may refuse Desktop itself and protected system folders. Existing folders are never overwritten.</p>
+<p class="note"><strong>Privacy and sync:</strong> For a computer-only Workspace, choose a folder on a local drive that is <strong>not</strong> OneDrive-synced. Selecting a OneDrive-synced folder can cause Windows to upload its contents to your OneDrive account. MoonDog cannot see or enforce the full Windows path. If you intentionally use sync, avoid simultaneous editing from multiple computers and maintain a separate verified backup.</p>
 <button id="installNow" type="button" disabled>Choose location and install MoonDog</button>
 <p id="installStatus" class="status" role="status" aria-live="polite">No files have been created.</p>
 <section id="installed" class="finish" hidden>
-<h2>Installation verified on this computer</h2>
-<p>Open File Explorer, go to the location you selected, then open the newly created MoonDog folder. Double-click <strong>00 - OPEN DASHBOARD.html</strong> and choose Microsoft Edge if asked.</p>
-<p>On first launch, Edge may ask you to choose that same MoonDog folder once more to grant the local application access. Your dealership identity has already been saved locally. Complete Guided Setup by importing and verifying SAPR from the correct store; this is still required before operational readiness.</p>
+<h2>Software installed and verified</h2>
+<p>MoonDog created a new local application folder and saved your confirmed dealership identity there. <strong>This does not mean report setup or backup verification is complete.</strong></p>
+<h3>Finish the setup in order</h3>
+<ol>
+<li><strong>Installed:</strong> Official Stable software was downloaded, hashed and verified on this computer.</li>
+<li><strong>Identity saved:</strong> Your dealership name, store code, optional brand and time zone are in this installation's private Workspace.</li>
+<li><strong>Launch:</strong> In File Explorer, open the folder you selected and double-click <code>00 - OPEN DASHBOARD.html</code>; use Microsoft Edge if asked.</li>
+<li><strong>Authorize this folder:</strong> On first launch, choose that same outer installation folder once more when Edge requests local access.</li>
+<li><strong>Verify your reports:</strong> In Guided Setup, import and review a SAPR report for the correct dealership. Until then, MoonDog must not claim complete operational readiness.</li>
+<li><strong>Protect your work:</strong> After Guided Setup, create and independently verify an external backup outside the active Workspace.</li>
+</ol>
 <p><strong>Why one launch step remains:</strong> Edge does not let an internet website open an arbitrary local <code>file://</code> program or silently grant the local program file access. That step cannot safely be automated by a website without a separately approved native launcher.</p>
 <h2>Optional: put MoonDog shortcuts on your Desktop</h2>
 <p>In Windows File Explorer, hold <strong>Alt while dragging each original file or folder onto the Desktop</strong>. This creates a shortcut without moving anything in the installation folder.</p>
 <ol>
 <li><strong>Open MoonDog:</strong> <code>00 - OPEN DASHBOARD.html</code> in the installed folder.</li>
 <li><strong>Drop Reports Here:</strong> <code>System Files / Workspace / 01 - DROP REPORTS HERE</code>.</li>
-<li><strong>Files to Learn:</strong> once MoonDog creates its learning folder inside the Workspace, Alt-drag that existing folder. Do not make a duplicate or replacement folder.</li>
+<li><strong>Files to Learn:</strong> <code>System Files / Workspace / Files To Learn</code>. The website installer created this folder empty; Alt-drag the original, not a duplicate.</li>
 </ol>
-<p>Leave the original launcher and Workspace folders in place. Copying or moving unverified prebuilt Windows <code>.lnk</code> files could make shortcuts point to the wrong folder.</p>
+<p>Leave the original launcher and Workspace folders in place. Only create Windows shortcuts with Alt-drag. Moving originals or copying prebuilt <code>.lnk</code> files with unknown targets can break file access.</p>
+<p class="note"><strong>About the included README:</strong> The official immutable Stable package's START HERE file also describes the manual ZIP-extraction alternative. You used the website installer, so there is no ZIP to extract again.</p>
+<p class="note"><strong>About versions:</strong> <code>INSTALLATION-MANIFEST.json</code> records this original Stable installation. Later verified in-app updates can change the current software version without rewriting that original baseline. Check the running version inside MoonDog.</p>
 </section>
 <p class="note">This installs the official verified <strong>Stable</strong> software. Newer Beta versions, if appropriate, remain a separate in-app verified update decision. Do not clear or replace an existing MoonDog folder.</p>
 <p class="note">Already using MoonDog? <a href="./check-installation.html">Check your existing installation</a> instead. <a href="./">Back to Repair Center</a>.</p>
