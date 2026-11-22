@@ -885,7 +885,8 @@ test("actual app settings migration preserves seeded dealership and keeps SAPR r
   future:{managerSchedule:{}}
  };
  const context=vm.createContext({DEFAULTS:defaults,SETUP_SOURCE_DEFAULTS:{},
-  FRESH_MANAGEMENT_STATUSES:[],LEGACY_ADVISORS:{},LEGACY_PARTICIPATION:{},Object});
+  FRESH_MANAGEMENT_STATUSES:[],LEGACY_ADVISORS:{},LEGACY_PARTICIPATION:{},
+  statusRecord:x=>x,Object});
  vm.runInContext(app.slice(begin,end)+app.slice(override,overrideEnd)+"\nthis.migrate=migratedSettings;",context);
  const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
  const identity={name:"Synthetic Motors",code:"0000042",brand:"Example",timeZone:"America/Chicago"};
