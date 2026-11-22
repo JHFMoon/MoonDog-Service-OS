@@ -682,7 +682,7 @@ test("hosted installer refuses a corrupted archive before creating a folder",asy
  await assert.rejects(api.install(installOptions(fixture,{
   file:undefined,
   loadArchive:async()=>Uint8Array.from(altered.bytes)
- })),/SHA-256|hash|fingerprint|matches|verif/i);
+ })),/SHA-256|hash|fingerprint|matches|verif|differs from the approved Stable release/i);
  assert.equal(parent.shared.writes,0);
  assert.equal(parent.entriesMap.size,0);
 });
