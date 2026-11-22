@@ -849,3 +849,21 @@ test("preexisting or concurrent private learning folder blocks hosted installer 
  assert.deepEqual(Buffer.from((await learn.getFileHandle("synthetic-unknown.txt")).bytes),
   b("a preexisting original must remain unchanged"));
 });
+
+
+test("new installer explains readiness gates, local sync exposure, backups, and correct shortcuts",()=>{
+ const local=fs.readFileSync(path.join(__dirname,"..","distribution","site","local-install.html"),"utf8");
+ assert.match(local,/Software installed and verified/);
+ assert.match(local,/This does not mean report setup or backup verification is complete/);
+ assert.match(local,/Verify your reports:/);
+ assert.match(local,/independently verify an external backup outside the active Workspace/);
+ assert.match(local,/OneDrive-synced folder can cause Windows to upload/);
+ assert.match(local,/MoonDog cannot see or enforce the full Windows path/);
+ assert.match(local,/System Files \/ Workspace \/ 01 - DROP REPORTS HERE/);
+ assert.match(local,/System Files \/ Workspace \/ Files To Learn/);
+ assert.match(local,/The website installer created this folder empty/);
+ assert.match(local,/Alt while dragging each original file or folder/);
+ assert.match(local,/original Stable installation/);
+ assert.match(local,/manual ZIP-extraction alternative/);
+ assert.doesNotMatch(local,/once MoonDog creates its learning folder/);
+});
