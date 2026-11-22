@@ -5,7 +5,6 @@ import {mkdtemp,rm,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {chromium} from 'playwright';
-import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
 const NAME='Example Motors (SYNTHETIC TEST ONLY)',CODE='9003',GROSS=800,PACE=2200;
 const POINTER='moondog-pwa-synthetic-preview-pointer-v1';
@@ -112,11 +111,12 @@ export async function runEnrolledPublicProof({base,sha}={}){
   await page.click('#browserAppSettings');await page.waitForFunction(()=>!document.querySelector('#loadReports').disabled,null,{timeout:30000});const beforeDownload=await state(page);await page.click('#loadReports');
   const downloadReport=page.getByRole('button',{name:'Download '+generated.report.fileName,exact:true});await downloadReport.waitFor({state:'visible',timeout:30000});const reportReady=page.waitForEvent('download');await downloadReport.click();const reportDownload=await reportReady,reportPath=join(external,'synthetic-supervisor.xlsx');await reportDownload.saveAs(reportPath);
   const reportBytes=await readFile(reportPath);assert.equal(createHash('sha256').update(reportBytes).digest('hex'),beforeDownload.files.find(([name])=>name==='exports/'+generated.report.fileName)[1]);assert.deepEqual((await state(page)).files,beforeDownload.files);
-  const XLSX=createRequire(import.meta.url)('../../vendor/xlsx.full.min.js'),reportBook=XLSX.read(reportBytes,{type:'buffer'}),cells=reportBook.SheetNames.flatMap(name=>XLSX.utils.sheet_to_json(reportBook.Sheets[name],{header:1}).flat()).map(String);
+  await page.click('#openApp');await connected(page);
+  const cells=await page.evaluate(bytes=>{const book=XLSX.read(new Uint8Array(bytes),{type:'array'});return book.SheetNames.flatMap(name=>XLSX.utils.sheet_to_json(book.Sheets[name],{header:1}).flat()).map(String);},Array.from(reportBytes));
   assert.ok(cells.includes('900001'));assert.ok(cells.includes('SYNTHETIC manager '+CODE));assert.ok(cells.includes('Export verified supervisor workbook'));
   console.log(JSON.stringify({enrolledHomeMeetingPerformance:true,enrolledOpenRoSourceReviews:roReviews,manualEditsSurviveSourceRefresh:true,supervisorWorkbookGenerated:true,actualReportDownloaded:true,reportBytesMatchPrivateOriginal:true,downloadDoesNotChangeWorkspace:true}));
 
-  await page.click('#openApp');await connected(page);await views(page);
+  await views(page);
   // Real process shutdown/relaunch retains the selected Beta and import ledger.
   await context.close();context=null;context=await launch(profile);page=context.pages()[0];await page.goto(new URL('web-preview/',base).href);await connected(page);assertStore(await state(page));assert.equal((await state(page)).record.management.owner,'SYNTHETIC manager '+CODE);await views(page);
   console.log(JSON.stringify({enrolledProcessRestart:true,oneDurableImport:true}));
