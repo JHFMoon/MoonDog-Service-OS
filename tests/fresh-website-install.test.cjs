@@ -867,3 +867,39 @@ test("new installer explains readiness gates, local sync exposure, backups, and 
  assert.match(local,/manual ZIP-extraction alternative/);
  assert.doesNotMatch(local,/once MoonDog creates its learning folder/);
 });
+
+
+test("actual app settings migration preserves seeded dealership and keeps SAPR readiness unverified",async()=>{
+ const app=fs.readFileSync(path.join(__dirname,"..","assets","app.js"),"utf8");
+ const begin=app.indexOf("  function migratedSettings(");
+ const end=app.indexOf("  function managementStatusDefinitions()",begin);
+ const override=app.indexOf("  const migratedSettingsWithLegacy=migratedSettings;");
+ const overrideEnd=app.indexOf("  const configuredNumber ",override);
+ assert.ok(begin>=0&&end>begin&&override>begin&&overrideEnd>override);
+ const defaults={
+  schemaVersion:5,storeName:"",
+  store:{name:"",code:"",brand:"",timeZone:"",confirmed:{}},
+  meeting:{},performanceStandards:{},advisors:{},openRo:{},
+  dailyWalk:{},supervisorWorkbook:{filename:"synthetic.xlsx",worksheetOrder:[]},
+  setup:{completedAt:"",reopened:false,sourceExpectations:{}},
+  future:{managerSchedule:{}}
+ };
+ const context=vm.createContext({DEFAULTS:defaults,SETUP_SOURCE_DEFAULTS:{},
+  FRESH_MANAGEMENT_STATUSES:[],LEGACY_ADVISORS:{},LEGACY_PARTICIPATION:{},Object});
+ vm.runInContext(app.slice(begin,end)+app.slice(override,overrideEnd)+"\nthis.migrate=migratedSettings;",context);
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
+ const identity={name:"Synthetic Motors",code:"0000042",brand:"Example",timeZone:"America/Chicago"};
+ await api.install(installOptions(fixture,{identity}));
+ const workspace=await(await parent.getDirectoryHandle("MoonDog Synthetic Store"))
+  .getDirectoryHandle("System Files").then(d=>d.getDirectoryHandle("Workspace"));
+ const data=await workspace.getDirectoryHandle("data");
+ const saved=JSON.parse(Buffer.from((await data.getFileHandle("settings.json")).bytes).toString());
+ const ready=context.migrate(saved,false);
+ assert.equal(ready.store.name,identity.name);
+ assert.equal(ready.store.code,identity.code,"leading zeros survive actual bootstrap migration");
+ assert.equal(ready.store.timeZone,identity.timeZone);
+ assert.equal(ready.setup.completedAt,"","not marked operationally ready");
+ assert.equal(ready.setup.newStorePrepared,undefined,
+  "seed must not trigger the actual fresh-reset identity-clearing adapter");
+ assert.deepEqual(JSON.parse(JSON.stringify(ready.advisors)),{});
+});
