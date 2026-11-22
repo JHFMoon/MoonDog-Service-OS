@@ -499,3 +499,10 @@ test('restored history pages re-enter current software authority and disposed pa
  handlers.pageshow({persisted:false});assert.equal(destination,null);handlers.pageshow({persisted:true});assert.equal(destination,'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/index.html');
  handlers.pagehide();await assert.rejects(window.showDirectoryPicker({id:'moondog-operations',mode:'readwrite'}),/session is closed/);
 });
+test('saved-report settings dispose private URLs and reload cached history before reusing a closed session',()=>{
+ const vm=require('node:vm'),source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8'),handlers={},revoked=[];let reloads=0;
+ const start=source.indexOf('const reportLifecycle='),end=source.indexOf("$('loadReports').addEventListener",start);assert.ok(start>0&&end>start);
+ const context=vm.createContext({AbortController,window:{addEventListener(type,handler){handlers[type]=handler;}},URL:{revokeObjectURL(url){revoked.push(url);}},location:{reload(){reloads++;}}});
+ vm.runInContext(source.slice(start,end)+';globalThis.lifecycle=reportLifecycle;reportUrls.add("blob:synthetic-private-report");',context);
+ handlers.pageshow({persisted:false});assert.equal(reloads,0);handlers.pagehide();assert.equal(context.lifecycle.signal.aborted,true);assert.deepEqual(revoked,['blob:synthetic-private-report']);handlers.pageshow({persisted:true});assert.equal(reloads,1);
+});

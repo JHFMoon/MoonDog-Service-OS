@@ -447,6 +447,7 @@ $('recoverOriginal').addEventListener('click',async()=>{
 // Reports are copied to explicit user downloads, never served by the worker.
 const reportLifecycle=new AbortController(),reportUrls=new Set();
 window.addEventListener('pagehide',()=>{reportLifecycle.abort();for(const url of reportUrls)URL.revokeObjectURL(url);reportUrls.clear();},{once:true});
+window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();});
 $('loadReports').addEventListener('click',async()=>{
  if(busy||!activePreview)return;
  busy=true;$('loadReports').disabled=true;$('reportDownloads').replaceChildren();$('reportStatus').textContent='Reading saved reports…';
