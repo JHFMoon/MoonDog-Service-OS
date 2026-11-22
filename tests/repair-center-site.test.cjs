@@ -28,6 +28,7 @@ test("homepage has one safe first action and essential progressive help",()=>{
   assert.match(landing,/Microsoft Edge/);
   assert.match(landing,/Get verified repair tool/);
   assert.match(landing,/href="\.\/local-install\.html">Install MoonDog on my computer/);
+  assert.match(landing,/Confirm your dealership name, store code and time zone/);
   assert.doesNotMatch(landing,/Start with synthetic testing/);
   assert.match(landing,/href="\.\/recovery-help\.html">Get safe recovery help/);
   assert.equal((landing.match(/>Check my installation<\/a>/g)||[]).length,1,"Keep one repair entry button");
