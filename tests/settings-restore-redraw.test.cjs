@@ -429,3 +429,22 @@ test("stale settings autosave failure cannot replace a newer saved status",async
   await assert.rejects(staleCompletion,/synthetic stale history failure/);
   assert.equal(ui.settingsSaveStatus.dataset.saveState,"saved","older failure cannot overwrite newer saved state");
 });
+
+ test("first SAPR roster immediately exposes scoped advisor controls without replacing pending settings",async()=>{
+  const model={root:{},settings:{advisors:{},store:{name:"Saved synthetic store"},updatedAt:null}};
+  const pendingInput={value:"Pending synthetic store edit"};
+  const ui={advisorSettingsList:{children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}}};
+  const context={SETTINGS_PATH:["settings.json"],model,ui,structuredClone,
+    document:{createElement:()=>element(),createTextNode:value=>({textContent:value})},
+    validAdvisorIdentity:(code,name)=>code==="101"&&Boolean(name),advisorShownInSection:()=>true,
+    advisorDisplayName:(_code,advisor)=>advisor.name,LEGACY_ADVISORS:{},now:()=>"synthetic-now",
+    writeJson:async()=>{},addHistory:async()=>{},renderSettings:()=>{pendingInput.value=model.settings.store.name;}};
+  const {reconcileSaprAdvisors}=await production(context);
+  await reconcileSaprAdvisors({periodEnd:"2026-11-19",advisors:{"101":{name:"Synthetic Advisor"}}});
+  assert.equal(model.settings.advisors["101"].name,"Synthetic Advisor");
+  assert.equal(ui.advisorSettingsList.children.length,1,"Newly imported advisor must be available without an application restart");
+  const row=ui.advisorSettingsList.children[0];
+  assert.equal(row.dataset.advisorSetting,"101");
+  assert.ok(row.children[1].children.some(label=>label.children[0]?.dataset.advisorParticipation==="supervisorWorkbook"));
+  assert.equal(pendingInput.value,"Pending synthetic store edit");
+});

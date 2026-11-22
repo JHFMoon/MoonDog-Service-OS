@@ -13,7 +13,7 @@ async function until(page,predicate,arg,timeout=45000){
  const deadline=Date.now()+timeout;
  for(;;){if(await page.evaluate(predicate,arg))return;if(Date.now()>deadline)throw Error('Enrolled browser durable condition timed out');await page.waitForTimeout(100);}
 }
-async function state(page){return page.evaluate(async key=>{
+async function rawState(page){return page.evaluate(async key=>{
  const pointer=JSON.parse(localStorage.getItem(key));let store=await navigator.storage.getDirectory();for(const part of ['MoonDog-PWA-v1','stores',pointer.storeId])store=await store.getDirectoryHandle(part);
  const identity=JSON.parse(await(await(await store.getFileHandle('STORE-IDENTITY.json')).getFile()).text());
  const workspace=await(await store.getDirectoryHandle('System Files')).getDirectoryHandle('Workspace'),data=await workspace.getDirectoryHandle('data');
@@ -24,6 +24,21 @@ async function state(page){return page.evaluate(async key=>{
  await walk(workspace);let imports=0;const history=await data.getDirectoryHandle('history');for await(const[name,handle]of history.entries())if(handle.kind==='file'&&name.endsWith('.json')&&!name.startsWith('.moondog-txn-')){const event=JSON.parse(await(await handle.getFile()).text());if(event.type==='performance-import')imports++;}
  return {pointer,identity,performance:performance.snapshots['2026-11-19'],settings,files:files.sort(),imports,record:current?.records?.find(row=>row.ro==='900001')||null,report:recovery?.supervisorWorkbook||null};
 },POINTER);}
+async function state(page){
+ // UI navigation can finish before the final history/journal write. Observe
+ // quiescent readback; never retry an import/edit or omit a private file.
+ const deadline=Date.now()+60000;let prior=null,stable=0;
+ while(Date.now()<deadline){
+  let current;
+  try{current=await rawState(page);}
+  catch(error){if(!/NotFoundError|NotReadableError/.test(String(error)))throw error;stable=0;await page.waitForTimeout(500);continue;}
+  const complete=!current.files.some(([name])=>name.includes('.moondog-txn-'));
+  stable=complete&&JSON.stringify(current)===JSON.stringify(prior)?stable+1:0;
+  if(stable>=4)return current;
+  prior=current;await page.waitForTimeout(500);
+ }
+ throw Error('Enrolled Workspace did not reach stable transaction-free readback');
+}
 function assertStore(value){
  assert.equal(value.identity.enrollment.mode,'operational');assert.equal(value.identity.enrollment.store.name,NAME);assert.equal(value.identity.enrollment.store.code,CODE);
  assert.equal(value.settings.store.name,NAME);assert.equal(value.settings.store.code,CODE);assert.equal(value.performance.store.cpGross,GROSS);assert.equal(value.performance.store.cpRO,5);
