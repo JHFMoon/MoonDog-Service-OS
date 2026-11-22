@@ -650,3 +650,71 @@ test("final integrity check rejects a previously written approved file changed b
  assert.equal(installed.entriesMap.has("INSTALLATION-MANIFEST.json"),false);
  assert.equal(installed.entriesMap.has("MOONDOG-INSTALL-INCOMPLETE.txt"),true);
 });
+
+
+test("hosted installer requests the destination before downloading and writes only verified bytes",async()=>{
+ const fixture=makeZip();
+ const parent=new FakeDirectory("Synthetic Parent");
+ let picked=false,downloads=0;
+ const api=load(parent,async()=>{
+  picked=true;
+  assert.equal(parent.shared.writes,0);
+  return parent;
+ });
+ const result=await api.install(installOptions(fixture,{
+  file:undefined,
+  loadArchive:async()=>{
+   assert.equal(picked,true,"picker must precede network request");
+   assert.equal(parent.shared.writes,0,"no bytes written before verified download");
+   downloads++;
+   return Uint8Array.from(fixture.bytes);
+  }
+ }));
+ assert.equal(result.status,"installed");
+ assert.equal(downloads,1);
+ assert.ok(await(await parent.getDirectoryHandle("MoonDog Synthetic Store"))
+  .getFileHandle("00 - OPEN DASHBOARD.html"));
+});
+
+test("hosted installer refuses a corrupted archive before creating a folder",async()=>{
+ const fixture=makeZip(),altered=makeZip({"System Files/extra.txt":b("unapproved")});
+ const parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
+ await assert.rejects(api.install(installOptions(fixture,{
+  file:undefined,
+  loadArchive:async()=>Uint8Array.from(altered.bytes)
+ })),/SHA-256|hash|fingerprint|matches|verif|differs from the approved Stable release/i);
+ assert.equal(parent.shared.writes,0);
+ assert.equal(parent.entriesMap.size,0);
+});
+
+test("canceling hosted installer never downloads the archive or creates files",async()=>{
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent");
+ const error=new Error("The user canceled selection");error.name="AbortError";
+ const api=load(parent,async()=>{throw error;});
+ let downloaded=false;
+ await assert.rejects(api.install(installOptions(fixture,{
+  file:undefined,loadArchive:async()=>{downloaded=true;return fixture.bytes;}
+ })),/canceled selection/);
+ assert.equal(downloaded,false);
+ assert.equal(parent.shared.writes,0);
+});
+
+test("primary installer uses a chosen Windows folder, with no synthetic mode or ZIP picker",()=>{
+ const local=fs.readFileSync(path.join(__dirname,"..","distribution","site","local-install.html"),"utf8");
+ const landing=fs.readFileSync(path.join(__dirname,"..","distribution","site","index.html"),"utf8");
+ assert.match(landing,/href="\.\/local-install\.html"/);
+ assert.doesNotMatch(landing,/href="\.\/web-preview\/\?v=20"/);
+ assert.match(local,/id="installNow"/);
+ assert.match(local,/MoonDogFreshInstall\.install/);
+ assert.match(local,/fetchVerifiedSitePackage/);
+ assert.match(local,/newInstallConsent/);
+ assert.doesNotMatch(local,/<select\b/i);
+ assert.doesNotMatch(local,/<input[^>]+type="file"/i);
+ assert.doesNotMatch(local,/workspaceMode|syntheticWarning|id="zipFile"/);
+ assert.match(local,/file:\/\//);
+ assert.match(local,/00 - OPEN DASHBOARD\.html/);
+ assert.match(local,/Alt while dragging each original file or folder/);
+ assert.match(local,/System Files \/ Workspace \/ 01 - DROP REPORTS HERE/);
+ assert.match(local,/Files to Learn/);
+ assert.match(local,/without moving anything in the installation folder/);
+});

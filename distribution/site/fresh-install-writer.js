@@ -1,5 +1,6 @@
-/* Browser-only, verified Stable ZIP installer. New empty installations only.
- * Reads a locally selected ZIP; no uploads, existing-store writes or auto-Fresh. */
+/* Folder-selected, verified Stable installer. New empty installations only.
+ * Accepts a local ZIP or a lazy verified same-origin download after folder consent.
+ * No uploads, existing-store writes or automatic replacement of another store. */
 (function (root) {
   "use strict";
   const PACKAGE = "Service Operations Dashboard/";
@@ -316,12 +317,14 @@
        (hash && await digest(read)!==hash))
       fail("The installed file could not be verified after writing.");
   }
-  async function install({file,sha256,version,folderName,onProgress}={}) {
+  async function install({file,loadArchive,sha256,version,folderName,onProgress}={}) {
     const name=installationName(folderName||"Service Operations Dashboard");
-    if(!file || !Number.isSafeInteger(file.size) || file.size<22 ||
-       file.size>MAX_ARCHIVE || !/^[a-f0-9]{64}$/.test(sha256||"") ||
+    const hosted=typeof loadArchive==="function";
+    if((!hosted && (!file || !Number.isSafeInteger(file.size) || file.size<22 ||
+       file.size>MAX_ARCHIVE)) || (hosted && file) ||
+       !/^[a-f0-9]{64}$/.test(sha256||"") ||
        !/^\d+\.\d+\.\d+$/.test(version||""))
-      fail("Choose and verify the official Stable ZIP before installing.");
+      fail("A single verified official Stable package is required before installing.");
     if(typeof root.showDirectoryPicker!=="function")
       fail("Choose a directory using Microsoft Edge on the Windows computer.");
     const status=typeof onProgress==="function"?onProgress:()=>{};
@@ -339,7 +342,15 @@
     // The page already requires new-store consent and an explicit create click.
     // A second confirmation is redundant; the picker and no-overwrite guards remain.
     status("Verifying the official ZIP and its application file inventory…");
-    const buffer=await file.arrayBuffer();
+    // The folder picker MUST run before any hosted fetch: Edge requires an
+    // immediate user gesture to authorize a local destination. The verified
+    // publisher's package is downloaded only after that permission is given.
+    // Neither the downloaded archive nor an unverified file creates a folder.
+    if(hosted)status("Downloading and verifying the official software locally…");
+    const buffer=hosted?await loadArchive():await file.arrayBuffer();
+    if(!buffer || !Number.isSafeInteger(buffer.byteLength) ||
+       buffer.byteLength<22 || buffer.byteLength>MAX_ARCHIVE)
+      fail("The official software download is incomplete or too large.");
     const packageData=await inspectVerifiedZip(buffer,sha256,version);
     const {appEntry,compatibilityEntry}=await prepareLocalEntries(packageData);
     // Recheck after asynchronous validation; no existing directory may be adopted.

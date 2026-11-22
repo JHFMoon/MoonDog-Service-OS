@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Install MoonDog on this computer</title>
+<meta name="color-scheme" content="light">
+<style>
+:root{font:17px/1.55 system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:#1b343e;background:#f2f6f7}
+*{box-sizing:border-box}body{margin:0}.wrap{max-width:760px;margin:35px auto;padding:0 18px}
+.card{background:#fff;border:1px solid #d5e2e6;padding:clamp(22px,5vw,36px);border-radius:18px}
+h1{font-size:clamp(29px,5vw,42px);line-height:1.17;margin:6px 0 16px}
+h2{font-size:23px;margin:28px 0 10px}p{margin:10px 0 17px}
+label{font-weight:700;display:block;margin:17px 0 7px}input[type=text]{font:inherit;width:100%;max-width:450px;padding:12px;border:1px solid #78939b;border-radius:8px}
+label.confirm{display:flex;gap:12px;align-items:flex-start;font-weight:500}
+.confirm input{width:22px;height:22px;flex:none;margin-top:2px}
+button{background:#154758;color:#fff;border:0;border-radius:11px;padding:15px 20px;min-height:51px;font:inherit;font-weight:800;cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}
+.status{padding:13px 16px;border-left:4px solid #5f8190;background:#edf3f5;white-space:pre-line}
+.status.error{border-color:#ad5b2f;background:#fff1eb}
+.status.ok{border-color:#36815d;background:#e9f6ed}
+.note{font-size:15px;color:#4d6871}.finish{background:#e9f6ed;padding:15px 20px;border-radius:10px}
+a{color:#15576d}
+</style>
+</head>
+<body><main class="wrap"><section class="card">
+<p class="note">MoonDog Service OS · Windows and Microsoft Edge</p>
+<h1>Install MoonDog on your computer</h1>
+<p>Choose a location on your computer. MoonDog will download its verified software and install a complete, separate application folder there. Your future reports, settings and Workspace stay in that folder—not on the MoonDog website.</p>
+<p><strong>No ZIP download, ZIP picker, or extra installation mode to choose.</strong> Guided Setup happens inside your installed application.</p>
+<p class="status" id="releaseStatus" role="status">Checking the official MoonDog release…</p>
+<h2>1. Confirm a new installation</h2>
+<label class="confirm"><input id="newInstallConsent" type="checkbox"> <span>This is a brand-new MoonDog installation. I am not replacing an existing store, folder, reports or backups.</span></label>
+<h2>2. Choose where to install</h2>
+<label for="folderName">Name of the new MoonDog folder</label>
+<input id="folderName" type="text" maxlength="72" value="Service Operations Dashboard" autocomplete="off">
+<p class="note">Choose an existing parent folder, such as a folder inside Documents, when Edge asks. MoonDog creates the named subfolder. Edge may refuse Desktop itself and protected system folders. Existing folders are never overwritten.</p>
+<button id="installNow" type="button" disabled>Choose location and install MoonDog</button>
+<p id="installStatus" class="status" role="status" aria-live="polite">No files have been created.</p>
+<section id="installed" class="finish" hidden>
+<h2>Installation verified on this computer</h2>
+<p>Open File Explorer, go to the location you selected, then open the newly created MoonDog folder. Double-click <strong>00 - OPEN DASHBOARD.html</strong> and choose Microsoft Edge if asked.</p>
+<p>On first launch, Edge may ask you to choose that same MoonDog folder once more to grant the local application access. Then complete Guided Setup and import your own verified SAPR report.</p>
+<p><strong>Why one launch step remains:</strong> Edge does not let an internet website open an arbitrary local <code>file://</code> program or silently grant the local program file access. That step cannot safely be automated by a website without a separately approved native launcher.</p>
+<h2>Optional: put MoonDog shortcuts on your Desktop</h2>
+<p>In Windows File Explorer, hold <strong>Alt while dragging each original file or folder onto the Desktop</strong>. This creates a shortcut without moving anything in the installation folder.</p>
+<ol>
+<li><strong>Open MoonDog:</strong> <code>00 - OPEN DASHBOARD.html</code> in the installed folder.</li>
+<li><strong>Drop Reports Here:</strong> <code>System Files / Workspace / 01 - DROP REPORTS HERE</code>.</li>
+<li><strong>Files to Learn:</strong> once MoonDog creates its learning folder inside the Workspace, Alt-drag that existing folder. Do not make a duplicate or replacement folder.</li>
+</ol>
+<p>Leave the original launcher and Workspace folders in place. Copying or moving unverified prebuilt Windows <code>.lnk</code> files could make shortcuts point to the wrong folder.</p>
+</section>
+<p class="note">This installs the official verified <strong>Stable</strong> software. Newer Beta versions, if appropriate, remain a separate in-app verified update decision. Do not clear or replace an existing MoonDog folder.</p>
+<p class="note">Already using MoonDog? <a href="./check-installation.html">Check your existing installation</a> instead. <a href="./">Back to Repair Center</a>.</p>
+</section></main>
+<script src="./fresh-install-writer.js"></script>
+<script type="module">
+import {fetchVerifiedSitePackage} from './web-preview/modules/verified_site_package.mjs';
+const $=id=>document.getElementById(id);
+const consent=$('newInstallConsent'), button=$('installNow'), folder=$('folderName');
+const progress=$('installStatus'), releaseStatus=$('releaseStatus'), installed=$('installed');
+let stable=null,busy=false;
+const releaseUrl=new URL('./latest.json',location.href);
+const siteUrl='https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/';
+const officialAsset='https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip';
+function message(text,error=false,success=false){
+ progress.textContent=text;progress.className='status'+(error?' error':success?' ok':'');
+}
+function ready(){
+ button.disabled=busy||!stable||!consent.checked||
+  typeof window.showDirectoryPicker!=='function'||
+  typeof globalThis.MoonDogFreshInstall?.install!=='function';
+}
+consent.addEventListener('change',ready);
+(async()=>{
+ try{
+  if(location.origin!=='https://jhfmoon.github.io'||
+     location.pathname!=='/MoonDog-Service-OS/local-install.html')
+    throw Error('Open the official MoonDog installation website in Microsoft Edge.');
+  if(!/Windows/i.test(navigator.userAgent||'')||typeof window.showDirectoryPicker!=='function')
+    throw Error('This installation requires current Microsoft Edge on Windows.');
+  const response=await fetch(releaseUrl.href,{cache:'no-store',redirect:'error',credentials:'omit'});
+  if(!response.ok||response.redirected||response.url!==releaseUrl.href)throw Error('Release information unavailable.');
+  const data=await response.json();
+  if(!/^\d+\.\d+\.\d+$/.test(data?.version||'')||
+     !/^[a-f0-9]{64}$/.test(data?.sha256||'')||data?.asset!==officialAsset)
+    throw Error('The official Stable release metadata is invalid.');
+  stable={version:data.version,sha256:data.sha256};
+  releaseStatus.textContent='Verified release authority: Stable '+stable.version+'. Package fingerprint will be checked before writing.';
+  releaseStatus.className='status ok';
+  ready();
+ }catch(e){
+  releaseStatus.textContent=e.message||'The official release could not be verified.';
+  releaseStatus.className='status error';
+  stable=null;ready();
+ }
+})();
+button.addEventListener('click',async()=>{
+ if(busy||!stable||!consent.checked)return;
+ busy=true;installed.hidden=true;ready();
+ message('Select an existing parent folder in Edge. Nothing will be overwritten.');
+ try{
+  // The writer invokes the folder picker immediately while the button's
+  // user gesture is active. The network download begins ONLY after consent.
+  const outcome=await globalThis.MoonDogFreshInstall.install({
+   folderName:folder.value,version:stable.version,sha256:stable.sha256,
+   loadArchive:()=>fetchVerifiedSitePackage({
+    siteUrl,version:stable.version,sha256:stable.sha256,
+    fetchImpl:fetch,crypto,signal:undefined
+   }),
+   onProgress:text=>message(text)
+  });
+  if(outcome?.status!=='installed')throw Error('Installation was not verified.');
+  message('INSTALLED AND VERIFIED — '+outcome.folderName+' · Stable '+outcome.version+'. Open the local dashboard as instructed below.',false,true);
+  installed.hidden=false;
+ }catch(error){
+  message(error?.name==='AbortError'
+   ?'No location selected; nothing was installed.'
+   :String(error?.message||'Installation stopped. No working installation was claimed.'),true);
+ }finally{busy=false;ready();}
+});
+ready();
+</script>
+</body></html>
