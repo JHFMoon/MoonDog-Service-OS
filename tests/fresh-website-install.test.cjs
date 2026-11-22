@@ -708,7 +708,12 @@ test("primary installer uses a chosen Windows folder, with no synthetic mode or 
  assert.match(local,/MoonDogFreshInstall\.install/);
  assert.match(local,/fetchVerifiedSitePackage/);
  assert.match(local,/newInstallConsent/);
- assert.doesNotMatch(local,/<select\b/i);
+ assert.match(local,/<select id="storeTimeZone"/);
+ assert.match(local,/id="storeName"/);
+ assert.match(local,/id="storeCode"/);
+ assert.match(local,/id="identityConfirm"/);
+ assert.match(local,/identity:identityValue\(\)/);
+ assert.match(local,/outcome\.identitySaved/);
  assert.doesNotMatch(local,/<input[^>]+type="file"/i);
  assert.doesNotMatch(local,/workspaceMode|syntheticWarning|id="zipFile"/);
  assert.match(local,/file:\/\//);
@@ -717,4 +722,74 @@ test("primary installer uses a chosen Windows folder, with no synthetic mode or 
  assert.match(local,/System Files \/ Workspace \/ 01 - DROP REPORTS HERE/);
  assert.match(local,/Files to Learn/);
  assert.match(local,/without moving anything in the installation folder/);
+});
+
+
+test("new installer stamps identity only into private Workspace, never public software inventory",async()=>{
+ const fixture=makeZip();
+ const parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
+ const identity={name:"Example Motors",code:"00429",brand:"Example",timeZone:"America/Los_Angeles"};
+ const outcome=await api.install(installOptions(fixture,{identity}));
+ assert.equal(outcome.identitySaved,true);
+ const root=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ const data=await(await root.getDirectoryHandle("System Files"))
+  .getDirectoryHandle("Workspace").then(d=>d.getDirectoryHandle("data"));
+ const settings=JSON.parse(Buffer.from((await data.getFileHandle("settings.json")).bytes).toString());
+ assert.equal(settings.schemaVersion,5);
+ assert.equal(settings.storeName,identity.name);
+ assert.deepEqual(JSON.parse(JSON.stringify(settings.store)),{
+  ...identity,confirmed:{name:true,code:true,brand:true,timeZone:true}
+ });
+ assert.equal(settings.setup.completedAt,"");
+ assert.deepEqual(JSON.parse(JSON.stringify(settings.setup.sourceExpectations)),{});
+ const manifest=JSON.parse(Buffer.from((await root.getFileHandle("INSTALLATION-MANIFEST.json")).bytes).toString());
+ assert.ok(!manifest.files.some(item=>item.path.includes("Workspace/data/settings.json")),
+  "private identity must not enter public software manifest");
+ const launcher=Buffer.from((await root.getFileHandle("00 - OPEN DASHBOARD.html")).bytes).toString();
+ assert.doesNotMatch(launcher,/Example Motors|00429/);
+});
+
+test("invalid or unconfirmed store identity cannot create installation files",async()=>{
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent");
+ let picked=0;const api=load(parent,async()=>{picked++;return parent;});
+ const valid={name:"Example Motors",code:"00101",brand:"",timeZone:"America/Denver"};
+ for(const identity of [
+  {...valid,name:""},
+  {...valid,name:"Example <script>"},
+  {...valid,code:""},
+  {...valid,code:"../other"},
+  {...valid,timeZone:"UTC"},
+  {...valid,name:"Unknown\nStore"}
+ ]){
+  await assert.rejects(api.install(installOptions(fixture,{identity})));
+ }
+ assert.equal(picked,0);
+ assert.equal(parent.shared.writes,0);
+ assert.equal(parent.entriesMap.size,0);
+});
+
+test("identity save failure leaves explicit incomplete marker, not claimed success",async()=>{
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent",
+  {writes:0,failWrite:"settings.json",permission:"granted"}),api=load(parent);
+ const identity={name:"Synthetic Motors",code:"01122",brand:"",timeZone:"America/Chicago"};
+ await assert.rejects(api.install(installOptions(fixture,{identity})),
+  error=>error.partial===true && /partial NEW folder may remain/.test(error.message));
+ const root=await parent.getDirectoryHandle("MoonDog Synthetic Store");
+ assert.ok(await root.getFileHandle("MOONDOG-INSTALL-INCOMPLETE.txt"));
+});
+
+test("two independently installed stores keep identity separate even when dealer code overlaps",async()=>{
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Parent"),api=load(parent);
+ const base={code:"00042",brand:"",timeZone:"America/New_York"};
+ await api.install(installOptions(fixture,{folderName:"MoonDog Store A",
+  identity:{...base,name:"Example A"}}));
+ await api.install(installOptions(fixture,{folderName:"MoonDog Store B",
+  identity:{...base,name:"Example B"}}));
+ const getName=async name=>{
+  const d=await(await(await parent.getDirectoryHandle(name)).getDirectoryHandle("System Files"))
+    .getDirectoryHandle("Workspace").then(d=>d.getDirectoryHandle("data"));
+  return JSON.parse(Buffer.from((await d.getFileHandle("settings.json")).bytes).toString()).store.name;
+ };
+ assert.equal(await getName("MoonDog Store A"),"Example A");
+ assert.equal(await getName("MoonDog Store B"),"Example B");
 });

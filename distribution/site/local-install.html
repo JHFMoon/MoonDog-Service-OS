@@ -10,7 +10,7 @@
 .card{background:#fff;border:1px solid #d5e2e6;padding:clamp(22px,5vw,36px);border-radius:18px}
 h1{font-size:clamp(29px,5vw,42px);line-height:1.17;margin:6px 0 16px}
 h2{font-size:23px;margin:28px 0 10px}p{margin:10px 0 17px}
-label{font-weight:700;display:block;margin:17px 0 7px}input[type=text]{font:inherit;width:100%;max-width:450px;padding:12px;border:1px solid #78939b;border-radius:8px}
+label{font-weight:700;display:block;margin:17px 0 7px}input[type=text],select{font:inherit;width:100%;max-width:450px;padding:12px;border:1px solid #78939b;border-radius:8px}
 label.confirm{display:flex;gap:12px;align-items:flex-start;font-weight:500}
 .confirm input{width:22px;height:22px;flex:none;margin-top:2px}
 button{background:#154758;color:#fff;border:0;border-radius:11px;padding:15px 20px;min-height:51px;font:inherit;font-weight:800;cursor:pointer}
@@ -30,7 +30,24 @@ a{color:#15576d}
 <p class="status" id="releaseStatus" role="status">Checking the official MoonDog release…</p>
 <h2>1. Confirm a new installation</h2>
 <label class="confirm"><input id="newInstallConsent" type="checkbox"> <span>This is a brand-new MoonDog installation. I am not replacing an existing store, folder, reports or backups.</span></label>
-<h2>2. Choose where to install</h2>
+<h2>2. Identify your dealership</h2>
+<p>Enter only the dealership's basic identity. These details will be saved to the chosen computer's private MoonDog Workspace, not uploaded with the software or included in its public installation manifest.</p>
+<label for="storeName">Dealership name</label>
+<input id="storeName" type="text" maxlength="120" required autocomplete="off" placeholder="Dealership name">
+<label for="storeCode">Store code / number (preserve leading zeroes)</label>
+<input id="storeCode" type="text" maxlength="32" required autocomplete="off" spellcheck="false" placeholder="Store number">
+<label for="storeBrand">Brand (optional)</label>
+<input id="storeBrand" type="text" maxlength="80" autocomplete="off" placeholder="Brand">
+<label for="storeTimeZone">Dealership business time zone</label>
+<select id="storeTimeZone" required>
+<option value="">Choose a time zone</option>
+<option value="America/Los_Angeles">Pacific</option>
+<option value="America/Denver">Mountain</option>
+<option value="America/Chicago">Central</option>
+<option value="America/New_York">Eastern</option>
+</select>
+<label class="confirm"><input id="identityConfirm" type="checkbox"> <span>I checked this dealership's name, store code and time zone. I understand report sources still require verification in Guided Setup.</span></label>
+<h2>3. Choose where to install</h2>
 <label for="folderName">Name of the new MoonDog folder</label>
 <input id="folderName" type="text" maxlength="72" value="Service Operations Dashboard" autocomplete="off">
 <p class="note">Choose an existing parent folder, such as a folder inside Documents, when Edge asks. MoonDog creates the named subfolder. Edge may refuse Desktop itself and protected system folders. Existing folders are never overwritten.</p>
@@ -39,7 +56,7 @@ a{color:#15576d}
 <section id="installed" class="finish" hidden>
 <h2>Installation verified on this computer</h2>
 <p>Open File Explorer, go to the location you selected, then open the newly created MoonDog folder. Double-click <strong>00 - OPEN DASHBOARD.html</strong> and choose Microsoft Edge if asked.</p>
-<p>On first launch, Edge may ask you to choose that same MoonDog folder once more to grant the local application access. Then complete Guided Setup and import your own verified SAPR report.</p>
+<p>On first launch, Edge may ask you to choose that same MoonDog folder once more to grant the local application access. Your dealership identity has already been saved locally. Complete Guided Setup by importing and verifying SAPR from the correct store; this is still required before operational readiness.</p>
 <p><strong>Why one launch step remains:</strong> Edge does not let an internet website open an arbitrary local <code>file://</code> program or silently grant the local program file access. That step cannot safely be automated by a website without a separately approved native launcher.</p>
 <h2>Optional: put MoonDog shortcuts on your Desktop</h2>
 <p>In Windows File Explorer, hold <strong>Alt while dragging each original file or folder onto the Desktop</strong>. This creates a shortcut without moving anything in the installation folder.</p>
@@ -57,7 +74,10 @@ a{color:#15576d}
 <script type="module">
 import {fetchVerifiedSitePackage} from './web-preview/modules/verified_site_package.mjs';
 const $=id=>document.getElementById(id);
-const consent=$('newInstallConsent'), button=$('installNow'), folder=$('folderName');
+const consent=$('newInstallConsent'), identityConfirm=$('identityConfirm'),
+ button=$('installNow'),folder=$('folderName'),
+ storeName=$('storeName'),storeCode=$('storeCode'),storeBrand=$('storeBrand'),
+ storeTimeZone=$('storeTimeZone');
 const progress=$('installStatus'), releaseStatus=$('releaseStatus'), installed=$('installed');
 let stable=null,busy=false;
 const releaseUrl=new URL('./latest.json',location.href);
@@ -66,12 +86,28 @@ const officialAsset='https://github.com/JHFMoon/MoonDog-Service-OS/releases/late
 function message(text,error=false,success=false){
  progress.textContent=text;progress.className='status'+(error?' error':success?' ok':'');
 }
+function identityValue(){
+ return {name:storeName.value.trim(),code:storeCode.value.trim(),
+  brand:storeBrand.value.trim(),timeZone:storeTimeZone.value};
+}
+function validIdentity({name,code,brand,timeZone}){
+ return !!name&&name.length<=120&&!/[\x00-\x1f\x7f<>]/.test(name)&&
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(code)&&
+  brand.length<=80&&!/[\x00-\x1f\x7f<>]/.test(brand)&&
+  ['America/Los_Angeles','America/Denver','America/Chicago','America/New_York'].includes(timeZone);
+}
 function ready(){
- button.disabled=busy||!stable||!consent.checked||
+ button.disabled=busy||!stable||!consent.checked||!identityConfirm.checked||
+  !validIdentity(identityValue())||
   typeof window.showDirectoryPicker!=='function'||
   typeof globalThis.MoonDogFreshInstall?.install!=='function';
 }
 consent.addEventListener('change',ready);
+identityConfirm.addEventListener('change',ready);
+for(const field of [storeName,storeCode,storeBrand,storeTimeZone]){
+ field.addEventListener('input',()=>{identityConfirm.checked=false;ready();});
+ field.addEventListener('change',()=>{identityConfirm.checked=false;ready();});
+}
 (async()=>{
  try{
   if(location.origin!=='https://jhfmoon.github.io'||
@@ -96,7 +132,7 @@ consent.addEventListener('change',ready);
  }
 })();
 button.addEventListener('click',async()=>{
- if(busy||!stable||!consent.checked)return;
+ if(busy||!stable||!consent.checked||!identityConfirm.checked||!validIdentity(identityValue()))return;
  busy=true;installed.hidden=true;ready();
  message('Select an existing parent folder in Edge. Nothing will be overwritten.');
  try{
@@ -104,6 +140,7 @@ button.addEventListener('click',async()=>{
   // user gesture is active. The network download begins ONLY after consent.
   const outcome=await globalThis.MoonDogFreshInstall.install({
    folderName:folder.value,version:stable.version,sha256:stable.sha256,
+   identity:identityValue(),
    loadArchive:()=>fetchVerifiedSitePackage({
     siteUrl,version:stable.version,sha256:stable.sha256,
     fetchImpl:fetch,crypto,signal:undefined
@@ -111,7 +148,8 @@ button.addEventListener('click',async()=>{
    onProgress:text=>message(text)
   });
   if(outcome?.status!=='installed')throw Error('Installation was not verified.');
-  message('INSTALLED AND VERIFIED — '+outcome.folderName+' · Stable '+outcome.version+'. Open the local dashboard as instructed below.',false,true);
+  if(!outcome.identitySaved)throw Error('Dealership identity could not be verified in the local Workspace.');
+  message('INSTALLED AND VERIFIED — '+outcome.folderName+' · Stable '+outcome.version+'. Dealership identity saved locally; SAPR still required.',false,true);
   installed.hidden=false;
  }catch(error){
   message(error?.name==='AbortError'

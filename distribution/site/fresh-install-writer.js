@@ -317,8 +317,35 @@
        (hash && await digest(read)!==hash))
       fail("The installed file could not be verified after writing.");
   }
-  async function install({file,loadArchive,sha256,version,folderName,onProgress}={}) {
+  // Only the new installation's PRIVATE Workspace gets these locally entered
+  // values. Neither the immutable software ZIP nor INSTALLATION-MANIFEST changes.
+  // A confirmed configured destination is not proof of any imported report's
+  // originating dealership; SAPR and source-review gates remain authoritative.
+  function initialStoreSettings(identity){
+    if(identity===undefined || identity===null)return null; // legacy file ZIP callers
+    if(typeof identity!=="object" || Array.isArray(identity))
+      fail("Enter valid dealership identity before installation.");
+    const norm=value=>typeof value==="string"?value.normalize("NFC").trim():"";
+    const name=norm(identity.name),code=norm(identity.code),
+      brand=norm(identity.brand),timeZone=norm(identity.timeZone);
+    if(!name||name.length>120||/[\x00-\x1f\x7f<>]/.test(name))
+      fail("Enter a valid dealership name (up to 120 characters).");
+    if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(code))
+      fail("Enter a valid store code (letters, numbers, periods, dashes or underscores).");
+    if(brand.length>80||/[\x00-\x1f\x7f<>]/.test(brand))
+      fail("Enter a valid optional dealership brand.");
+    if(!["America/Los_Angeles","America/Denver","America/Chicago","America/New_York"].includes(timeZone))
+      fail("Choose a supported business time zone.");
+    return encoder.encode(JSON.stringify({
+      schemaVersion:5,storeName:name,
+      store:{name,code,brand,timeZone,
+        confirmed:{name:true,code:true,brand:Boolean(brand),timeZone:true}},
+      setup:{completedAt:"",reopened:false,sourceExpectations:{}}
+    },null,2)+"\n");
+  }
+  async function install({file,loadArchive,sha256,version,folderName,identity,onProgress}={}) {
     const name=installationName(folderName||"Service Operations Dashboard");
+    const identityBytes=initialStoreSettings(identity); // validate before asking for folder access
     const hosted=typeof loadArchive==="function";
     if((!hosted && (!file || !Number.isSafeInteger(file.size) || file.size<22 ||
        file.size>MAX_ARCHIVE)) || (hosted && file) ||
@@ -402,8 +429,22 @@
         catch(_) { /* Original failure still blocks success. */ }
         throw error;
       }
-      status("Verified installation created. Open the launcher in Edge to complete Guided Setup.");
-      return {status:"installed",version:packageData.version,folderName:name,files:written+1};
+      if(identityBytes){
+        // Software inventory is already committed and independently verified.
+        // This first private settings file is never listed in the public release
+        // manifest and must never overwrite a pre-existing store's settings.
+        status("Saving dealership identity in the local private Workspace…");
+        try{
+          await writeReadBack(destination,"System Files/Workspace/data/settings.json",
+            identityBytes,await digest(identityBytes));
+        }catch(error){
+          try{await writeReadBack(destination,MARKER,marker,null);}catch(_){}
+          throw error;
+        }
+      }
+      status("Verified installation created. Open the launcher in Edge to finish SAPR setup.");
+      return {status:"installed",version:packageData.version,folderName:name,
+        identitySaved:Boolean(identityBytes),files:written+1};
     }catch(error){
       if(created){
         const failure=new Error("Installation did not finish. A partial NEW folder may remain. Keep it untouched, use a different new folder after checking, and do not use it as a working store. Reason: "+String(error?.message||"write failed"));
