@@ -80,7 +80,7 @@ test('bridge routes the Stable and newer Workspace picker modes, and refuses unr
  await assert.rejects(window.showDirectoryPicker({id:'moondog-operations'}),/No Windows folder was selected/);
 });
 test('static PWA source mirrors reviewed canonical modules byte-for-byte',()=>{
- const root=path.join(__dirname,'..');for(const name of ['browser_workspace_enrollment.mjs','opfs-store.mjs','install_verified_browser_store.mjs','connect_operational_workspace.mjs','serve_browser_app.mjs','verified_site_package.mjs','browser_software_candidates.mjs','browser_software_selection.mjs','verified_beta_transport.mjs']){
+ const root=path.join(__dirname,'..');for(const name of ['browser_workspace_enrollment.mjs','browser_workspace_exports.mjs','opfs-store.mjs','install_verified_browser_store.mjs','connect_operational_workspace.mjs','serve_browser_app.mjs','verified_site_package.mjs','browser_software_candidates.mjs','browser_software_selection.mjs','verified_beta_transport.mjs']){
   const canonical=fs.readFileSync(path.join(root,'src/pwa',name));
   const published=fs.readFileSync(path.join(root,'distribution/site/web-preview/modules',name));
   assert.deepEqual(published,canonical,`${name} must not silently fork public installer authority`);
@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v19'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v20'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -195,7 +195,7 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v19'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v20'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
@@ -224,7 +224,7 @@ test('active worker refuses to attest an evicted or partially missing shell',asy
  };
  assert.equal((await probe()).complete,false,'A version string alone cannot attest an empty cache');
  assert.equal((await probe()).type,'MOONDOG_PREVIEW_SHELL_PROOF');
- assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v19');
+ assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v20');
  let unrelatedWork=false;
  listeners.message({data:{type:'UNRELATED'},ports:[{postMessage:()=>{throw Error('Unexpected reply');}}],
   waitUntil(){unrelatedWork=true;}});

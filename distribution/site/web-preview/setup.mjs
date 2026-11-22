@@ -69,6 +69,7 @@ function showPreview(pointer,launchPointer=pointer){
  open.href='./store/'+launchPointer.storeId+'/'+launchPointer.manifestHash+'/'+launchPointer.version+'/index.html';
  open.hidden=false;
  $('prepareBackup').disabled=false;
+ $('loadReports').disabled=false;
  $('checkBeta').disabled=false;
  const selected=launchPointer.version!==pointer.version||launchPointer.manifestHash!==pointer.manifestHash;
  $('rollbackBeta').disabled=!selected;
@@ -223,7 +224,7 @@ async function installPreview(readBytes, recovery){
     throw Error('This backup belongs to a different store than the saved Workspace in this browser profile.');
    if(saved&&!recovery)
     throw Error('A Workspace is already saved in this browser profile. Open it or use its matching recovery backup.');
-   status('Checking the entire official ZIP before creating browser storage…');
+   status('Verifying official software before installation…');
    const buffer=await readBytes();
    const inspect=globalThis.MoonDogFreshInstall?.inspectVerifiedZip;
    if(typeof inspect!=='function')throw Error('The official ZIP verifier did not load.');
@@ -344,7 +345,7 @@ async function verifyActiveBetaShell(){
   channel.port1.onmessage=event=>{
    clearTimeout(timer);channel.port1.close();
    if(event.data?.type!=='MOONDOG_PREVIEW_SHELL_PROOF'||
-      event.data.cache!=='moondog-synthetic-preview-shell-v19'){
+      event.data.cache!=='moondog-synthetic-preview-shell-v20'){
     reject(Error('The active offline browser shell is outdated. Reload before changing software.'));
     return;
    }
@@ -440,4 +441,35 @@ $('recoverOriginal').addEventListener('click',async()=>{
   softwareStatus('Verified original Stable '+version+' recovered by explicit request. Original Workspace files were not modified.');
  }catch(error){softwareStatus('Original software recovery refused: '+String(error?.message||error),true);$('recoverOriginal').disabled=false;}
  finally{busy=false;}
+});
+
+
+// Reports are copied to explicit user downloads, never served by the worker.
+const reportLifecycle=new AbortController(),reportUrls=new Set();
+window.addEventListener('pagehide',()=>{reportLifecycle.abort();for(const url of reportUrls)URL.revokeObjectURL(url);reportUrls.clear();},{once:true});
+$('loadReports').addEventListener('click',async()=>{
+ if(busy||!activePreview)return;
+ busy=true;$('loadReports').disabled=true;$('reportDownloads').replaceChildren();$('reportStatus').textContent='Reading saved reports…';
+ try{
+  const api=await import('./modules/browser_workspace_exports.mjs');
+  const {storeId,version,manifestHash}=activePreview;
+  const args={storage:navigator.storage,crypto,locks:navigator.locks,storeId,version,expectedManifestHash:manifestHash,signal:reportLifecycle.signal};
+  const reports=await api.listBrowserWorkspaceExports(args);
+  for(const report of reports){
+   const row=document.createElement('li'),button=document.createElement('button');button.type='button';button.textContent='Download '+report.name;
+   button.addEventListener('click',async()=>{
+    if(busy)return;busy=true;button.disabled=true;
+    try{
+     const out=await api.readBrowserWorkspaceExport({...args,report}),url=URL.createObjectURL(new Blob([out.bytes],{type:out.mime}));reportUrls.add(url);
+     const anchor=document.createElement('a');anchor.href=url;anchor.download=out.name;document.body.append(anchor);
+     try{anchor.click();}finally{anchor.remove();setTimeout(()=>{URL.revokeObjectURL(url);reportUrls.delete(url);},60000);}
+     $('reportStatus').textContent='Download prepared: '+out.name;
+    }catch(error){$('reportStatus').textContent=error.message;}
+    finally{busy=false;button.disabled=false;}
+   });
+   row.append(button);$('reportDownloads').append(row);
+  }
+  $('reportStatus').textContent=reports.length?'Choose a saved file to download.':'No saved reports yet. Generate a workbook in MoonDog first.';
+ }catch(error){$('reportStatus').textContent=error.message;}
+ finally{busy=false;$('loadReports').disabled=!activePreview;}
 });
