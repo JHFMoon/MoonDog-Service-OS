@@ -80,7 +80,7 @@ test('bridge routes the Stable and newer Workspace picker modes, and refuses unr
  await assert.rejects(window.showDirectoryPicker({id:'moondog-operations'}),/No Windows folder was selected/);
 });
 test('static PWA source mirrors reviewed canonical modules byte-for-byte',()=>{
- const root=path.join(__dirname,'..');for(const name of ['browser_workspace_enrollment.mjs','opfs-store.mjs','install_verified_browser_store.mjs','connect_operational_workspace.mjs','serve_browser_app.mjs','verified_site_package.mjs','browser_software_candidates.mjs','browser_software_selection.mjs','verified_beta_transport.mjs']){
+ const root=path.join(__dirname,'..');for(const name of ['browser_workspace_enrollment.mjs','browser_workspace_exports.mjs','opfs-store.mjs','install_verified_browser_store.mjs','connect_operational_workspace.mjs','serve_browser_app.mjs','verified_site_package.mjs','browser_software_candidates.mjs','browser_software_selection.mjs','verified_beta_transport.mjs']){
   const canonical=fs.readFileSync(path.join(root,'src/pwa',name));
   const published=fs.readFileSync(path.join(root,'distribution/site/web-preview/modules',name));
   assert.deepEqual(published,canonical,`${name} must not silently fork public installer authority`);
@@ -98,7 +98,7 @@ test('preview is separate from production site and refuses real data at the entr
  assert.match(html,/id="installFromWeb"[^>]*disabled/);
  assert.match(sw,/verified_site_package\.mjs/);
  assert.match(sw,/['"]\.\/modules\/synthetic_external_backup\.mjs['"]/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v19'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v20'/);
  assert.doesNotMatch(sw,/PUBLIC_SHELL[\s\S]*?moondog-0\.10\.17\.zip/);
  assert.match(sw,/parseBrowserAssetRoute/);
  assert.match(sw,/browser_software_candidates\.mjs/);
@@ -195,7 +195,7 @@ test('synthetic Beta update UI requires explicit verified stage, rollback and in
  assert.match(sw,/MOONDOG_PREVIEW_SHELL_PROOF/);
  assert.match(setup,/selection=await inspectActiveBrowserSoftware/);
  assert.match(setup,/if\(selection\&\&\(selection.originalVersion/);
- assert.match(sw,/const CACHE=CACHE_PREFIX\+'v19'/);
+ assert.match(sw,/const CACHE=CACHE_PREFIX\+'v20'/);
  assert.match(sw,/verified_beta_transport\.mjs/);
  assert.doesNotMatch(sw,/cache\.put\(|Workspace\/data/);
  assert.doesNotMatch(setup,/showDirectoryPicker|showSaveFilePicker|cache\.put/);
@@ -224,7 +224,7 @@ test('active worker refuses to attest an evicted or partially missing shell',asy
  };
  assert.equal((await probe()).complete,false,'A version string alone cannot attest an empty cache');
  assert.equal((await probe()).type,'MOONDOG_PREVIEW_SHELL_PROOF');
- assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v19');
+ assert.equal((await probe()).cache,'moondog-synthetic-preview-shell-v20');
  let unrelatedWork=false;
  listeners.message({data:{type:'UNRELATED'},ports:[{postMessage:()=>{throw Error('Unexpected reply');}}],
   waitUntil(){unrelatedWork=true;}});
@@ -498,4 +498,11 @@ test('restored history pages re-enter current software authority and disposed pa
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/bridge.js'),'utf8'),{window,document,navigator:{},URL,AbortController,location:{pathname:route.pathname,replace(url){destination=url;}}});
  handlers.pageshow({persisted:false});assert.equal(destination,null);handlers.pageshow({persisted:true});assert.equal(destination,'https://jhfmoon.github.io/MoonDog-Service-OS/web-preview/index.html');
  handlers.pagehide();await assert.rejects(window.showDirectoryPicker({id:'moondog-operations',mode:'readwrite'}),/session is closed/);
+});
+test('saved-report settings dispose private URLs and reload cached history before reusing a closed session',()=>{
+ const vm=require('node:vm'),source=fs.readFileSync(path.join(__dirname,'../distribution/site/web-preview/setup.mjs'),'utf8'),handlers={},revoked=[];let reloads=0;
+ const start=source.indexOf('const reportLifecycle='),end=source.indexOf("$('loadReports').addEventListener",start);assert.ok(start>0&&end>start);
+ const context=vm.createContext({AbortController,window:{addEventListener(type,handler){handlers[type]=handler;}},URL:{revokeObjectURL(url){revoked.push(url);}},location:{reload(){reloads++;}}});
+ vm.runInContext(source.slice(start,end)+';globalThis.lifecycle=reportLifecycle;reportUrls.add("blob:synthetic-private-report");',context);
+ handlers.pageshow({persisted:false});assert.equal(reloads,0);handlers.pagehide();assert.equal(context.lifecycle.signal.aborted,true);assert.deepEqual(revoked,['blob:synthetic-private-report']);handlers.pageshow({persisted:true});assert.equal(reloads,1);
 });

@@ -1,7 +1,7 @@
 /**
- * EXPERIMENTAL web-only adapter: serves the exact verified OPFS store to the
+ * Web-only adapter: serves the exact verified OPFS store to the
  * EXISTING MoonDog connection flow, without choosing a Windows directory.
- * Does not bypass Edge's protected-folder rules or enable real-data use.
+ * Uses browser-private storage without bypassing Edge's protected-folder rules.
  */
 (function(){
   'use strict';
@@ -43,13 +43,13 @@
   window.addEventListener('pageshow',event=>{if(event.persisted)location.replace(new URL('./index.html',base).href);});
   document.addEventListener('DOMContentLoaded',()=>{
     const manifest=document.createElement('link');manifest.rel='manifest';
-    manifest.href=new URL('./app.webmanifest?v=19',base).href;document.head.append(manifest);
+    manifest.href=new URL('./app.webmanifest?v=20',base).href;document.head.append(manifest);
     const bar=document.createElement('div');bar.setAttribute('aria-label','MoonDog app controls');
     bar.style.cssText='position:fixed;z-index:9999;bottom:0;left:0;right:0;padding:8px 15px;background:#153847;color:white;font:600 13px system-ui;display:flex;align-items:center;justify-content:space-between;gap:15px';
-    const label=document.createElement('span');label.textContent='MoonDog · Synthetic pilot · Test files only';
+    const label=document.createElement('span');label.textContent='MoonDog · Browser-private Workspace · Beta';
     const settings=document.createElement('a');settings.id='browserAppSettings';
     settings.href=new URL('./index.html?manage=1',base).href;
-    settings.textContent='App settings · Backup · Updates';settings.style.color='white';
+    settings.textContent='App settings · Reports · Backup · Updates';settings.style.color='white';
     bar.append(label,settings);document.body.append(bar);
     document.body.style.paddingBottom='48px';
     // This browser installation has its own verified software authority. Do
@@ -62,6 +62,13 @@
     const copyRoots=new WeakSet();
     const copyObserver=new MutationObserver(browserInstructions);
     function browserInstructions(){
+      const reportStatus=document.getElementById('status');
+      if(reportStatus){
+        if(!copyRoots.has(reportStatus)){copyRoots.add(reportStatus);copyObserver.observe(reportStatus,{subtree:true,childList:true});}
+        if(/was generated and verified\.|saved and verified in exports\//.test(reportStatus.textContent)&&!reportStatus.textContent.includes('Saved reports'))
+          reportStatus.textContent+=' Download the file from App settings → Saved reports.';
+      }
+
       const refresh=document.getElementById('setupSaprRefresh');
       if(active&&refresh&&typeof window.__moondogDailyUI?.renderTools==='function'){
         const card=refresh.closest('section');

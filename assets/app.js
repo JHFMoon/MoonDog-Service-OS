@@ -1534,7 +1534,18 @@
         if(model.root!==requestedRoot)throw new Error("Workspace changed while the Supervisor Workbook operation was queued. Retry from the connected Workspace.");
         if(model.root){
           const durable=await readJson(STATE_PATH,null);
-          const initialEmpty=options.allowInitialEmptyState===true&&!durable&&!model.state.updatedAt&&!model.state.source&&!(model.state.records||[]).length&&!(model.state.closedRecords||[]).length;
+          const emptyArray=value=>Array.isArray(value)&&value.length===0;
+          const absentOrEmpty=value=>value===undefined||emptyArray(value);
+          let initialEmpty=options.allowInitialEmptyState===true&&durable===null&&
+            (model.state.updatedAt===undefined||model.state.updatedAt===null||model.state.updatedAt==="")&&
+            (model.state.source===undefined||model.state.source===null)&&emptyArray(model.state.records)&&
+            absentOrEmpty(model.state.closedRecords)&&absentOrEmpty(model.state.reviewQueue);
+          if(initialEmpty){
+            // JSON null is not an absent file. Only a genuinely missing state
+            // can be initialized; corrupt/unreadable existing files stay held.
+            try{await fileAt(STATE_PATH);initialEmpty=false;}
+            catch(error){if(error.name!=="NotFoundError")throw error;}
+          }
           // A second tab can update a retained Closed RO's management history
           // without changing the active roster. Compare both durable populations
           // before any Workbook operation can write; preserve legacy absent arrays.
@@ -3913,7 +3924,7 @@
     return{records,closedRecords,reopenedCount:[...closed.keys()].filter(id=>matchedPriorIds.has(id)).length,closedCount:newlyClosed.length,sourceKind};
   }
   async function importCdkRepairOrdersDocx(candidate,bytes,deleteAfterSuccess=false) {
-    return withSupervisorWorkbookLock(() => importCdkRepairOrdersDocxUnlocked(candidate,bytes,deleteAfterSuccess));
+    return withSupervisorWorkbookLock(() => importCdkRepairOrdersDocxUnlocked(candidate,bytes,deleteAfterSuccess),{allowInitialEmptyState:true});
   }
   async function markOpenRoManualReviewComplete(name,file,importedAt) {
     // Clear the watcher prompt only after the authoritative, explicitly
@@ -4858,7 +4869,7 @@
   }
 
   async function importSource(selectedName = null, deleteAfterSuccess = false, providedBytes = null, verifiedAutomaticInbox = false) {
-    return withSupervisorWorkbookLock(() => importSourceUnlocked(selectedName,deleteAfterSuccess,providedBytes,verifiedAutomaticInbox));
+    return withSupervisorWorkbookLock(() => importSourceUnlocked(selectedName,deleteAfterSuccess,providedBytes,verifiedAutomaticInbox),{allowInitialEmptyState:true});
   }
   async function importSourceUnlocked(selectedName = null, deleteAfterSuccess = false, providedBytes = null, verifiedAutomaticInbox = false) {
     const name = selectedName || ui.sourceSelect.value; if (!name) return; status("Reading "+name+"…", "working");
@@ -7279,6 +7290,8 @@ function ensureUnifiedMeetingShell() { const view = document.querySelector("#vie
         if(model.settings.updatedAt===previousUpdatedAt)model.settings.updatedAt=updatedAt;
       };
     });
+    // Refresh only source-owned advisor controls; retain pending unrelated Settings edits.
+    if(changed)renderAdvisorSettings();
     if(changed)await addHistory("sapr-advisor-sync","Updated SAPR-owned advisor lifecycle",{periodEnd:snapshot.periodEnd,active:seen.size,newAdvisorSetupRequired});
   }
   function ensurePhase2SettingsUi(){if(ui.managementStatusSettings)return;ui.exportName.disabled=false;ui.exportName.nextElementSibling.textContent="Use an .xlsx filename. The protected workbook schema remains fixed.";const advisorCard=ui.advisorSettingsList.closest("section"),statusCard=document.createElement("section");statusCard.className="card settings-card";statusCard.innerHTML='<div class="section-head"><div><h2>Open RO Workflow Statuses</h2><p>These seven statuses are fixed to the authoritative CDK workflow. Review details add management context without changing the parent status.</p></div></div><div id="managementStatusSettings" class="configuration-list"></div><p class="settings-note">Historical reviews keep their original status. At the next review, any retired status must be reconciled to one of these seven.</p>';advisorCard.after(statusCard);const dailyCard=document.createElement("section");dailyCard.className="card settings-card";dailyCard.innerHTML='<h2>Manager’s Daily Walk</h2><label>ROs per advisor<input id="dailyWalkCount" type="number" min="1" max="10" step="1"></label><p class="settings-note">Participation remains controlled independently in Advisors &amp; Participation.</p>';statusCard.after(dailyCard);const workbookCard=document.createElement("section");workbookCard.className="card settings-card";workbookCard.innerHTML='<h2>Supervisor Workbook</h2><p>Use the arrows to set worksheet order.</p><div id="worksheetOrderSettings" class="configuration-list"></div><p class="settings-note">Worksheet inclusion remains controlled independently in Advisors &amp; Participation.</p>';dailyCard.after(workbookCard);["managementStatusSettings","dailyWalkCount","worksheetOrderSettings"].forEach((id)=>ui[id]=document.getElementById(id));}

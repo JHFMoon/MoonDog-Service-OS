@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MoonDog Service OS</title><meta name="theme-color" content="#153847">
-<link rel="manifest" href="./app.webmanifest?v=19"><link rel="stylesheet" href="./style.css">
+<link rel="manifest" href="./app.webmanifest?v=20"><link rel="stylesheet" href="./style.css">
 </head><body>
 <main><div class="eyebrow">MoonDog Service OS</div>
 <h1>Your service drive.<br>One place to run it.</h1>
@@ -29,6 +29,10 @@ Use test data only. Do not import any real dealership files, RO/VIN details or e
 <p><a href="?manage=1#recovery">Recover from an external backup</a></p>
 </section>
 <div id="appSettings" hidden>
+<section id="savedReports"><h2>Saved reports</h2>
+<p>Generate your workbook in MoonDog, then download its saved file here. Close other dashboard windows before loading reports.</p>
+<button id="loadReports" disabled>Load saved reports</button><ul id="reportDownloads" aria-label="Saved report downloads"></ul>
+<p id="reportStatus" class="status" role="status" aria-live="polite"></p></section>
 <section><h2>Backup and recovery</h2>
 <p>Save the backup file and its receipt outside Edge. Both are required to recover after browser storage is cleared or when moving to a different profile.</p>
 <button id="prepareBackup" disabled>Prepare external backup</button>
@@ -51,5 +55,5 @@ Use test data only. Do not import any real dealership files, RO/VIN details or e
 <p id="betaStatus" class="status" role="status" aria-live="polite">Install MoonDog to check for verified updates.</p>
 </section></div>
 <p class="foot">Your existing MoonDog installations stay separate. This installation uses browser-private storage; an external backup is your recovery copy.</p>
-</main><script src="../fresh-install-writer.js"></script><script type="module" src="./setup.mjs?v=19"></script>
+</main><script src="../fresh-install-writer.js"></script><script type="module" src="./setup.mjs?v=20"></script>
 </body></html>
