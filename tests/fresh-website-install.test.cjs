@@ -905,3 +905,100 @@ test("actual app settings migration preserves seeded dealership and keeps SAPR r
   "seed must not trigger the actual fresh-reset identity-clearing adapter");
  assert.deepEqual(JSON.parse(JSON.stringify(ready.advisors)),{});
 });
+
+
+test("primary local installer keeps verified downloads and overlapping-code stores isolated",async()=>{
+ const {pathToFileURL}=require("node:url");
+ const site=path.join(__dirname,"..","distribution","site");
+ const modulePath=path.join(site,"local-install.mjs");
+ const controller=fs.readFileSync(modulePath,"utf8");
+ const declaration=controller.match(/^import \{fetchVerifiedSitePackage\} from '([^']+)';\r?\n/);
+ assert.ok(declaration);
+ const {fetchVerifiedSitePackage}=await import(pathToFileURL(path.resolve(site,declaration[1])).href);
+ const fixture=makeZip(),parent=new FakeDirectory("Synthetic Installation Parent");
+ const base="https://jhfmoon.github.io/MoonDog-Service-OS/";
+ const location=new URL("local-install.html",base);
+ const calls=[],nodes=new Map();
+ const document={getElementById(id){
+  if(!nodes.has(id))nodes.set(id,{value:"",checked:false,events:{},
+   addEventListener(event,callback){this.events[event]=callback;}});
+  return nodes.get(id);
+ }};
+ const el=id=>document.getElementById(id);
+ let cancel=true,tampered=false;
+ const showDirectoryPicker=async()=>{
+  calls.push("picker");
+  if(cancel)throw new DOMException("User canceled","AbortError");
+  return parent;
+ };
+ const context=vm.createContext({
+  URL,Uint8Array,TextDecoder,TextEncoder,Blob,DecompressionStream,crypto:crypto.webcrypto,
+  location,navigator:{userAgent:"Windows NT 10.0; Microsoft Edge"},
+  window:{showDirectoryPicker},showDirectoryPicker,document,fetchVerifiedSitePackage,
+  fetch:async(url,options)=>{
+   assert.equal(options.credentials,"omit");
+   assert.equal(options.redirect,"error");
+   if(url===base+"latest.json"){
+    return {ok:true,url,json:async()=>({
+     version:"0.10.17",sha256:fixture.hash,
+     asset:"https://github.com/JHFMoon/MoonDog-Service-OS/releases/latest/download/Service-Operations-Dashboard.zip"
+    })};
+   }
+   assert.equal(url,base+"web-preview/packages/moondog-0.10.17.zip");
+   assert.equal(options.mode,"same-origin");
+   calls.push("package");
+   const bytes=Uint8Array.from(fixture.bytes);
+   if(tampered)bytes[0]^=1;
+   return {ok:true,url,body:new Blob([bytes]).stream()};
+  }
+ });
+ vm.runInContext(source,context,{filename:"fresh-install-writer.js"});
+ vm.runInContext(controller.slice(declaration[0].length),context,{filename:modulePath});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.match(el("releaseStatus").textContent,/Verified release authority/);
+ assert.equal(el("installNow").disabled,true);
+ el("newInstallConsent").checked=true;
+ el("storeCode").value="0000042";
+ el("storeTimeZone").value="America/Chicago";
+ async function install(name,folder){
+  el("storeName").value=name;
+  el("storeName").events.input();
+  assert.equal(el("installNow").disabled,true,"identity edits revoke confirmation");
+  el("identityConfirm").checked=true;
+  el("identityConfirm").events.change();
+  el("folderName").value=folder;
+  assert.equal(el("installNow").disabled,false);
+  await el("installNow").events.click();
+ }
+ await install("Synthetic Store A","MoonDog Synthetic A");
+ assert.deepEqual(calls,["picker"]);
+ assert.equal(parent.entriesMap.size,0);
+ assert.match(el("installStatus").textContent,/No location selected/);
+ cancel=false;
+ parent.shared.permission="denied";
+ await install("Synthetic Store A","MoonDog Synthetic A");
+ assert.deepEqual(calls.splice(0),["picker","picker"]);
+ assert.equal(parent.entriesMap.size,0);
+ assert.match(el("installStatus").textContent,/Write access was not granted/);
+ parent.shared.permission="granted";
+ tampered=true;
+ await install("Synthetic Store A","MoonDog Synthetic A");
+ assert.deepEqual(calls.splice(0),["picker","package"]);
+ assert.equal(parent.entriesMap.size,0);
+ assert.match(el("installStatus").textContent,/SHA-256 does not match/);
+ tampered=false;
+ await install("Synthetic Store A","MoonDog Synthetic A");
+ assert.deepEqual(calls.splice(0),["picker","package"]);
+ assert.equal(el("installed").hidden,false);
+ await install("Synthetic Store B","MoonDog Synthetic B");
+ assert.deepEqual(calls,["picker","package"]);
+ assert.equal(el("installed").hidden,false);
+ assert.equal(parent.entriesMap.size,2);
+ for(const [name,folder] of [["Synthetic Store A","MoonDog Synthetic A"],["Synthetic Store B","MoonDog Synthetic B"]]){
+  let directory=await parent.getDirectoryHandle(folder);
+  for(const segment of ["System Files","Workspace","data"])directory=await directory.getDirectoryHandle(segment);
+  const {store}=JSON.parse(Buffer.from((await directory.getFileHandle("settings.json")).bytes).toString());
+  assert.equal(store.name,name);
+  assert.equal(store.code,"0000042");
+ }
+});
