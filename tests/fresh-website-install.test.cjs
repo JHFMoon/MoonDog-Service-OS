@@ -701,21 +701,22 @@ test("canceling hosted installer never downloads the archive or creates files",a
 
 test("primary installer uses a chosen Windows folder, with no synthetic mode or ZIP picker",()=>{
  const local=fs.readFileSync(path.join(__dirname,"..","distribution","site","local-install.html"),"utf8");
+ const controller=fs.readFileSync(path.join(__dirname,"..","distribution","site","local-install.mjs"),"utf8");
  const landing=fs.readFileSync(path.join(__dirname,"..","distribution","site","index.html"),"utf8");
  assert.match(landing,/href="\.\/local-install\.html"/);
  assert.doesNotMatch(landing,/href="\.\/web-preview\/\?v=20"/);
  assert.match(local,/id="installNow"/);
- assert.match(local,/MoonDogFreshInstall\.install/);
- assert.match(local,/fetchVerifiedSitePackage/);
+ assert.match(controller,/MoonDogFreshInstall\.install/);
+ assert.match(controller,/fetchVerifiedSitePackage/);
  assert.match(local,/newInstallConsent/);
  assert.match(local,/<select id="storeTimeZone"/);
  assert.match(local,/id="storeName"/);
  assert.match(local,/id="storeCode"/);
  assert.match(local,/id="identityConfirm"/);
- assert.match(local,/identity:identityValue\(\)/);
- assert.match(local,/outcome\.identitySaved/);
+ assert.match(controller,/identity:identityValue\(\)/);
+ assert.match(controller,/outcome\.identitySaved/);
  assert.doesNotMatch(local,/<input[^>]+type="file"/i);
- assert.doesNotMatch(local,/workspaceMode|syntheticWarning|id="zipFile"/);
+ assert.doesNotMatch(local+controller,/workspaceMode|syntheticWarning|id="zipFile"/);
  assert.match(local,/file:\/\//);
  assert.match(local,/00 - OPEN DASHBOARD\.html/);
  assert.match(local,/Alt while dragging each original file or folder/);
