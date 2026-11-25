@@ -108,6 +108,26 @@ const syntheticState = path.join(appRoot, "Workspace", "data", "current-state.js
 fs.mkdirSync(path.dirname(syntheticState), { recursive: true });
 fs.writeFileSync(syntheticState, '{"synthetic":true}\n');
 const originalStateHash = createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex");
+const protectedWorkspaceFiles = [
+  ["data/settings.json", Buffer.from('{"store":"SYNTHETIC-A","theme":"dark","manual":true}\n')],
+  ["imports/synthetic-source.csv", Buffer.from("ro,advisor,value\nOVERLAP-001,TEST-01,0\n")],
+  ["data/open-ro-manual-edits.json", Buffer.from('{"ro":"OVERLAP-001","override":"preserve"}\n')],
+  ["reports/original-source.txt", Buffer.from("Synthetic original report bytes; preserve exactly.\n")]
+];
+for (const [relative, bytes] of protectedWorkspaceFiles) {
+  const file = path.join(appRoot, "Workspace", ...relative.split("/"));
+  fs.mkdirSync(path.dirname(file), {recursive:true});
+  fs.writeFileSync(file, bytes);
+}
+const protectedWorkspaceHashes = protectedWorkspaceFiles.map(([relative]) => [
+  relative, createHash("sha256").update(fs.readFileSync(path.join(appRoot, "Workspace", ...relative.split("/")))).digest("hex")
+]);
+function assertProtectedWorkspace(label) {
+  for (const [relative, expected] of protectedWorkspaceHashes) {
+    assert.equal(createHash("sha256").update(fs.readFileSync(path.join(appRoot, "Workspace", ...relative.split("/")))).digest("hex"),
+      expected, `${label} changed protected synthetic Workspace file: ${relative}`);
+  }
+}
 
 const context = vm.createContext({ URL, TextDecoder, TextEncoder, Uint8Array, atob, crypto: webcrypto });
 for (const file of ["verify", "package-plan", "apply-design-model", "install"]) {
@@ -283,6 +303,55 @@ for(let cycle=1;cycle<5;cycle++){
   assert.deepEqual(installedHashes(),repairedHashes);
   assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),originalStateHash);
 }
+// Turn a real production-generated, verified rollback backup into the exact
+// durable shape left by an interrupted apply. Damage one installed app file,
+// then run the production inspect/recover APIs against the same disk-backed
+// synthetic directory handles before the browser is restarted through file://.
+const recoveryBackupName = repeated.backupName;
+assert.match(recoveryBackupName, /^MoonDog-Update-Backup-[A-Za-z0-9-]+$/);
+const recoveryBackup = path.join(appRoot, "Workspace", "backups", "system-updates", recoveryBackupName);
+const recoveryJournalPath = path.join(recoveryBackup, "journal.json");
+const verifiedJournalBytes = fs.readFileSync(recoveryJournalPath);
+const recoveryJournal = JSON.parse(verifiedJournalBytes.toString("utf8"));
+assert.equal(recoveryJournal.status, "verified");
+assert.ok(recoveryJournal.inventory.some(item => item.path === "assets/app.js" && item.existed));
+assert.equal(recoveryJournal.installationId,
+  JSON.parse(fs.readFileSync(path.join(appRoot, "MOONDOG_UPDATE_IDENTITY.json"), "utf8")).installationId);
+recoveryJournal.status = "applying";
+fs.writeFileSync(recoveryJournalPath, JSON.stringify(recoveryJournal));
+const damagedApplicationBytes = Buffer.from("synthetic interrupted application write");
+fs.writeFileSync(path.join(appRoot, "assets/app.js"), damagedApplicationBytes);
+assert.equal(createHash("sha256").update(fs.readFileSync(path.join(appRoot, "assets/app.js"))).digest("hex"),
+  createHash("sha256").update(damagedApplicationBytes).digest("hex"));
+const inspectedRecovery = await context.MoonDogUpdateInstall.inspectRecovery({
+  appDirectoryHandle, workspaceDirectoryHandle, backupName: recoveryBackupName,
+  trustedAllowlist, subtle: webcrypto.subtle
+});
+assert.equal(inspectedRecovery.status, "recoverable", inspectedRecovery.reason);
+assert.equal(fs.readFileSync(recoveryJournalPath, "utf8").includes('"status":"applying"'), true);
+const recoveryResult = await context.MoonDogUpdateInstall.recover({
+  appDirectoryHandle, workspaceDirectoryHandle, backupName: recoveryBackupName,
+  trustedAllowlist, confirmed: true, subtle: webcrypto.subtle
+});
+assert.equal(recoveryResult.status, "restored", recoveryResult.reason);
+const restoredAppJs = fs.readFileSync(path.join(appRoot, "assets/app.js"));
+const expectedAppJs = JSON.parse(packageBytes).files.find(file => file.path === "assets/app.js");
+assert.equal(createHash("sha256").update(restoredAppJs).digest("hex"), expectedAppJs.sha256,
+  "recovery must read back exact trusted installed application bytes");
+assert.equal(JSON.parse(fs.readFileSync(recoveryJournalPath, "utf8")).status, "restored",
+  "recovery journal must durably read back as restored");
+assert.deepEqual(installedHashes(), repairedHashes);
+assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"), originalStateHash);
+assertProtectedWorkspace("interrupted-update recovery");
+const repeatedRecovery = await context.MoonDogUpdateInstall.recover({
+  appDirectoryHandle, workspaceDirectoryHandle, backupName: recoveryBackupName,
+  trustedAllowlist, confirmed: true, subtle: webcrypto.subtle
+});
+assert.equal(repeatedRecovery.status, "restored", repeatedRecovery.reason);
+assert.deepEqual(fs.readFileSync(path.join(appRoot, "assets/app.js")), restoredAppJs);
+assert.equal(JSON.parse(fs.readFileSync(recoveryJournalPath, "utf8")).status, "restored");
+assertProtectedWorkspace("idempotent recovery");
+console.log("Verified production interrupted-update journal inspection, rollback, durable readback and idempotent replay; Workspace originals and overrides preserved.");
 const distribution=values=>{
   const sorted=[...values].sort((a,b)=>a-b);
   return {samples:sorted.length,p50Ms:sorted[Math.ceil(sorted.length*.5)-1],
@@ -575,7 +644,7 @@ try {
   assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),
     originalStateHash,"browser restart must not change synthetic private Workspace");
   assert.equal(pageErrors.length,0);
-  console.log("Verified installed browser restart after denied production update retains trusted Beta and synthetic private bytes; no interrupted-journal recovery claim.");
+  console.log("Verified file:// browser restart after production interrupted-update recovery and denied-update refusal preserves trusted Beta and synthetic Workspace bytes.");
   console.log("Verified repaired Beta installation and repeat update launched through file://", runtime);
 } finally {
   await browser.close();
