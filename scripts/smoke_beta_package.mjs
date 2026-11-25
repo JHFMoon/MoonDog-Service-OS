@@ -303,8 +303,9 @@ for(let cycle=1;cycle<5;cycle++){
   assert.deepEqual(installedHashes(),repairedHashes);
   assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),originalStateHash);
 }
-// Turn a real production-generated, verified rollback backup into the exact
-// durable shape left by an interrupted apply. Damage one installed app file,
+// Use a real production-generated rollback backup to construct a synthetic
+// interrupted-apply journal and partially written app file. This exercises the
+// persisted recovery contract without claiming a hard process kill on Windows.
 // then run the production inspect/recover APIs against the same disk-backed
 // synthetic directory handles before the browser is restarted through file://.
 const recoveryBackupName = repeated.backupName;
@@ -329,6 +330,45 @@ const inspectedRecovery = await context.MoonDogUpdateInstall.inspectRecovery({
 });
 assert.equal(inspectedRecovery.status, "recoverable", inspectedRecovery.reason);
 assert.equal(fs.readFileSync(recoveryJournalPath, "utf8").includes('"status":"applying"'), true);
+const applyingJournalBytes = fs.readFileSync(recoveryJournalPath);
+const damagedAppBytes = fs.readFileSync(path.join(appRoot, "assets/app.js"));
+const deniedRecoveryRoot = {
+  ...workspaceDirectoryHandle,
+  queryPermission: async () => "denied",
+  requestPermission: async () => "denied"
+};
+const deniedRecovery = await context.MoonDogUpdateInstall.inspectRecovery({
+  appDirectoryHandle, workspaceDirectoryHandle: deniedRecoveryRoot, backupName: recoveryBackupName,
+  trustedAllowlist, subtle: webcrypto.subtle
+});
+assert.equal(deniedRecovery.status, "recovery-required");
+assert.deepEqual(fs.readFileSync(path.join(appRoot, "assets/app.js")), damagedAppBytes);
+assertProtectedWorkspace("permission-denied recovery");
+const foreignRecoveryRootPath = fs.mkdtempSync(path.join(path.dirname(installRoot), "moondog-recovery-foreign-"));
+try {
+  const wrongStoreRecovery = await context.MoonDogUpdateInstall.inspectRecovery({
+    appDirectoryHandle, workspaceDirectoryHandle: directoryHandle(foreignRecoveryRootPath),
+    backupName: recoveryBackupName, trustedAllowlist, subtle: webcrypto.subtle
+  });
+  assert.equal(wrongStoreRecovery.status, "recovery-required");
+  assert.deepEqual(fs.readFileSync(path.join(appRoot, "assets/app.js")), damagedAppBytes);
+  assertProtectedWorkspace("wrong-store recovery");
+} finally {
+  const parent = fs.realpathSync(path.dirname(installRoot));
+  const target = fs.realpathSync(foreignRecoveryRootPath);
+  if (!target.startsWith(parent + path.sep) || !path.basename(target).startsWith("moondog-recovery-foreign-"))
+    throw Error("Unsafe synthetic recovery test-directory cleanup target");
+  fs.rmSync(target, {recursive:true, force:true});
+}
+fs.writeFileSync(recoveryJournalPath, Buffer.from("{invalid synthetic journal"));
+const invalidRecovery = await context.MoonDogUpdateInstall.inspectRecovery({
+  appDirectoryHandle, workspaceDirectoryHandle, backupName: recoveryBackupName,
+  trustedAllowlist, subtle: webcrypto.subtle
+});
+assert.equal(invalidRecovery.status, "recovery-required");
+assert.deepEqual(fs.readFileSync(path.join(appRoot, "assets/app.js")), damagedAppBytes);
+assertProtectedWorkspace("invalid-journal recovery");
+fs.writeFileSync(recoveryJournalPath, applyingJournalBytes);
 const recoveryResult = await context.MoonDogUpdateInstall.recover({
   appDirectoryHandle, workspaceDirectoryHandle, backupName: recoveryBackupName,
   trustedAllowlist, confirmed: true, subtle: webcrypto.subtle
