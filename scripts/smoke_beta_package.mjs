@@ -303,11 +303,9 @@ for(let cycle=1;cycle<5;cycle++){
   assert.deepEqual(installedHashes(),repairedHashes);
   assert.equal(createHash("sha256").update(fs.readFileSync(syntheticState)).digest("hex"),originalStateHash);
 }
-// Use a real production-generated rollback backup to construct a synthetic
-// interrupted-apply journal and partially written app file. This exercises the
-// persisted recovery contract without claiming a hard process kill on Windows.
-// then run the production inspect/recover APIs against the same disk-backed
-// synthetic directory handles before the browser is restarted through file://.
+// Use a production-generated backup to construct a synthetic interrupted
+// apply state. Run production inspection/recovery against disk-backed handles
+// before the actual installed file:// launcher is restarted.
 const recoveryBackupName = repeated.backupName;
 assert.match(recoveryBackupName, /^MoonDog-Update-Backup-[A-Za-z0-9-]+$/);
 const recoveryBackup = path.join(appRoot, "Workspace", "backups", "system-updates", recoveryBackupName);
