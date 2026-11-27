@@ -51,9 +51,12 @@
   }
 
   async function verify(options) {
-    const { channel = "stable", fetcher = global.fetch, subtle = global.crypto && global.crypto.subtle } = options || {};
+    const { channel = "stable", expectedVersion, fetcher = global.fetch, subtle = global.crypto && global.crypto.subtle } = options || {};
     if (!fetcher || !subtle) return { status: "unavailable" };
     if (!["stable", "beta"].includes(channel)) return { status: "rejected", reason: "invalid-channel" };
+    const versionPattern = channel === "stable" ? /^\d+\.\d+\.\d+$/ : /^\d+\.\d+\.\d+-beta\.\d+$/;
+    if (expectedVersion !== undefined && (typeof expectedVersion !== "string" || !versionPattern.test(expectedVersion)))
+      return { status: "rejected", reason: "invalid-expected-version" };
     const requestOptions = { cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer" };
     try {
       // Avoid a stale raw GitHub CDN edge manifest when the release just changed.
@@ -66,13 +69,16 @@
       if (!manifestResponse.ok) return { status: "unavailable" };
       const manifest = await manifestResponse.json();
       const release = manifest?.[channel];
-      const versionPattern = channel === "stable" ? /^\d+\.\d+\.\d+$/ : /^\d+\.\d+\.\d+-beta\.\d+$/;
       if (!release || !versionPattern.test(release.version) ||
           !/^\d+\.\d+\.\d+$/.test(release.minimumCompatibleVersion) ||
           typeof release.migrationRequired !== "boolean" ||
           (channel === "beta" && release.migrationRequired)) {
         return { status: "rejected", reason: "invalid-metadata" };
       }
+      // An exact-version request must never silently use a newer or older release.
+      // Historical versions without independent manifest authority remain unavailable.
+      if (expectedVersion !== undefined && release.version !== expectedVersion)
+        return { status: "unavailable", reason: "exact-version-unavailable" };
       if (release.packageUrl === null && release.sha256 === null) return { status: "no-package" };
       if (!allowedPackageUrl(release.packageUrl) || typeof release.sha256 !== "string" ||
           !HASH.test(release.sha256)) return { status: "rejected", reason: "invalid-metadata" };
