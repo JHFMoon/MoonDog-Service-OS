@@ -147,3 +147,41 @@ test("Oversized package and network errors fail closed", async () => {
   const offline = await verify({ fetcher: async () => { throw new Error("offline"); }, subtle: webcrypto.subtle });
   assert.equal(offline.status, "unavailable");
 });
+
+test("Exact version verification rejects unavailable versions before downloading bytes", async () => {
+  for (const expectedVersion of ["1.1.0-beta.0", "1.1.0-beta.2"]) {
+    const {fetcher,calls} = fetcherFor(metadata);
+    const result = await verify({channel:"beta",expectedVersion,fetcher,subtle:webcrypto.subtle});
+    assert.equal(result.status,"unavailable");
+    assert.equal(result.reason,"exact-version-unavailable");
+    assert.equal(result.bytes,undefined);
+    assert.deepEqual(calls.map(call => call.url),[manifestUrl]);
+  }
+});
+test("Exact version verification accepts matching trusted release and verified bytes", async () => {
+  for (const channel of ["stable","beta"]) {
+    const {fetcher,calls} = fetcherFor(metadata);
+    const expectedVersion = metadata[channel].version;
+    const result = await verify({channel,expectedVersion,fetcher,subtle:webcrypto.subtle});
+    assert.equal(result.status,"verified");
+    assert.equal(result.version,expectedVersion);
+    assert.deepEqual(Buffer.from(result.bytes),payload);
+    assert.deepEqual(calls.map(call => call.url),[manifestUrl,packageUrl]);
+  }
+});
+test("Invalid exact-version requests make no network requests", async () => {
+  for (const expectedVersion of [null,1,"","1.0.0","1.1.0-beta.1/../other"]) {
+    const {fetcher,calls} = fetcherFor(metadata);
+    const result = await verify({channel:"beta",expectedVersion,fetcher,subtle:webcrypto.subtle});
+    assert.equal(result.status,"rejected");
+    assert.equal(result.reason,"invalid-expected-version");
+    assert.equal(calls.length,0);
+  }
+});
+test("An exact version match cannot bypass package digest verification", async () => {
+  const {fetcher} = fetcherFor(metadata,packageResponse(Buffer.from("synthetic altered bytes")));
+  const result = await verify({channel:"beta",expectedVersion:metadata.beta.version,fetcher,subtle:webcrypto.subtle});
+  assert.equal(result.status,"rejected");
+  assert.equal(result.reason,"hash-mismatch");
+  assert.equal(result.bytes,undefined);
+});
